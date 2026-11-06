@@ -223,7 +223,10 @@ export function blameNext(store: StoreOf<'recording'>, rec: FixRecords, b: Store
     const gate = nextBlameGate(b, unsettled);
     const made = blameArgs(b, rec.fix.check.expect, gate ? gateArg(gate, BLAME_DEFAULTS) : blameCount(b.report, !!pulled));
     if (!made) return none;
-    return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv: made.argv, command: commandLine(made.argv), gate: unsettled ? gate : null, pulled, left: made.rerun.left }, blameStronger: null };
+    // The last blame's bar beside the lower one, and how far a stopped search got: its ask says both.
+    const lastGood = unsettled && gate ? (b.report.gate?.good ?? null) : null;
+    const soFar = stopped ? (b.report.blamed?.callNo ?? null) : null;
+    return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv: made.argv, command: commandLine(made.argv), gate: unsettled ? gate : null, lastGood, soFar, pulled, left: made.rerun.left }, blameStronger: null };
   }
   // A stronger model can't help when blame found the model's answer isn't what lost the run, nor one asked already.
   if (noAnswerLost(b) || b.report.rescue.fields.model !== undefined) return none;

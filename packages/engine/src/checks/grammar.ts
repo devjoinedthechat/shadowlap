@@ -286,6 +286,15 @@ export function judgeChecksOf(spec: ExpectSpec): JudgeCheck[] {
 }
 
 /**
+ * What of a golden's tests entry runs it live in `shadowlap test`: marked fork, its injection test
+ * (from each payload it plants), and the models of its judge checks, which a fork asks live. The
+ * CLI lists goldens by it, and the dashboard asks by it before it tests one it is about to pack.
+ */
+export function testLive(spec: TestSpec | null): { mode: 'replay' | 'fork'; injection: boolean; judges: string[] } {
+  return { mode: spec?.fork ? 'fork' : 'replay', injection: !!spec?.injection, judges: spec ? [...new Set(judgeChecksOf(spec).map((j) => j.model))] : [] };
+}
+
+/**
  * A tool a spec names, where, and what for: a count under `tools` (`zero`: one that allows none, a
  * "never" rule), the tool of a `calls` rule, a tool it must come after, the tool a reference reads,
  * or the tool of a `when` condition. `doctor` holds them against the tools recordings called.

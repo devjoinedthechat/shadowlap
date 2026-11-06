@@ -804,7 +804,7 @@ export function scoreModelJob(body: unknown, tasks: readonly Task[]): { args: st
  * config, never from the request: a `normalize add` for each value that changes every run, then
  * `test <golden> --update`, which re-records it (or `test <golden>` when those rules are the fix).
  */
-export function taskUpdateJob(body: unknown, store: StoreOf<'recording'>, tasks: readonly Task[], normalizers: readonly Normalizer[]): { steps: string[][]; title: string } | { error: string } {
+export function taskUpdateJob(body: unknown, store: StoreOf<'recording'>, tasks: readonly Task[], normalizers: readonly Normalizer[]): { steps: string[][]; title: string; rerecords: boolean } | { error: string } {
   const golden = isObject(body) ? body.golden : undefined;
   if (typeof golden !== 'string' || !golden) return { error: 'name the golden to update' };
   const task = tasks.find((t) => t.golden === golden);
@@ -813,5 +813,5 @@ export function taskUpdateJob(body: unknown, store: StoreOf<'recording'>, tasks:
   if (task.golden.startsWith('-')) return { error: 'a golden path must not start with "-"' };
   const u = taskUpdate(store, task, normalizers);
   if (!u) return { error: `${task.name} is not blocked by its test forking before the takeover${task.status === 'blocked' ? `: ${task.note ?? 'its test fails'}; ${isInconclusiveNote(task.note) ? 'settle' : 'fix'} it on Tests` : ''}` };
-  return { steps: u.steps, title: u.rerecords ? `Updating ${task.name}` : `${ACTIONS.addNormalizer.doing} for ${task.name}` };
+  return { steps: u.steps, title: u.rerecords ? `Updating ${task.name}` : `${ACTIONS.addNormalizer.doing} for ${task.name}`, rerecords: u.rerecords };
 }

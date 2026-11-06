@@ -1,3 +1,4 @@
+import { FORK_LIVE } from '../cost-words.js';
 import { KEPT_DEFAULTS } from '../noninferiority.js';
 import { SPRT_DEFAULTS, type SprtGate } from '../stats.js';
 import type { VerifyAttempt, VerifyReport, VerifyRole } from '../verify.js';
@@ -98,7 +99,7 @@ export function verifyParts(failing: number, good: number, limits: VerifyLimits)
 /** Where a verify's attempts run live, as its cost line says it. */
 export const VERIFY_LIVE = {
   /** A change in the code: each attempt replays until a request differs, then runs live. */
-  fork: 'live where a replay forks',
+  fork: FORK_LIVE.part,
   /** A change of request fields from each run's first model call (a preview's switch, a migration). */
   first: 'live from the first model call',
   /** A repair's candidate, which rewrites the prompt or a tool every request carries. */

@@ -1,14 +1,20 @@
-import { createElement, type ReactElement } from 'react';
+import { createElement, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { gateResult, Store, type TestResultData } from '@shadowlap/engine';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
+import type { Spending } from '../../engine/src/estimates/spending.js';
 import { testsView, type DivergenceView, type GoldenSource } from '../src/tests.js';
 import { ApiError, type Client, type JobView, type TestsView } from '../ui/api.js';
-import { TestsAskHost } from '../ui/fixes/TestsJobButton.js';
+import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { Banner } from '../ui/run/parts.js';
+import { bannerJobsShown } from '../ui/run/diverged.js';
+import { estimatesKey, useTestsEstimates } from '../ui/tests-estimates.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { moreAttemptsAsk, testsQuestion } from '../ui/tests-ask.js';
+import { resetSpending, sentEstimate } from '../ui/spending.js';
+import { moreAttemptsAsk, rerunAsk, startTestsJob, testsQuestion } from '../ui/tests-ask.js';
+import { keepAsk } from '../ui/pages/Setup.js';
 import type { RunDetail, RunOffers } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -329,6 +335,35 @@ describe('the same question from elsewhere', () => {
     expect(sent.map((x) => x.fields)).toEqual([{ runId: RUN }, { runId: RUN, yes: CONFIRM }]);
   });
 
+  it('says each banner job’s estimate on its card, from Tests’ estimates for its golden, and Spending answers its question with it', async () => {
+    resetSpending(0.5);
+    const sent: Sent[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const state = app(sent, watched);
+    const live: Estimate = { kind: 'tests', usd: 0.3, ceiling: false, parts: ['live from where it forks'] };
+    const update: Estimate = { kind: 'update', usd: 0.2, ceiling: false, always: 'it replaces goldens', parts: ['as its recording cost'] };
+    Object.assign(state.client, { estimates: { testsEstimates: () => Promise.resolve({ run: null, goldens: { 'goldens/refund-in-limit': { rerun: live, update, normalize: live } } }) } });
+    const page = await shown(state, banner(STEPS));
+    const card = (label: string) => JSON.parse(page.byText('.banner button', label).getAttribute('data-tip') ?? '{}') as { s?: string; cmd?: string; est?: unknown };
+    await page.until('the estimates', () => !!card('Add normalizer and re-run').est);
+    expect(card('Add normalizer and re-run')).toMatchObject({ s: 'Masks the value at match time, then replays the golden offline', est: { usd: 0.3, ceiling: false } });
+    expect(card('Update golden')).toMatchObject({ s: 'It re-records the golden under the change', cmd: 'shadowlap test goldens/refund-in-limit --update', est: { usd: 0.2, always: 'it replaces goldens' } });
+    await page.click(page.byText('.banner button', 'Add normalizer and re-run'));
+    await page.until('the yes', () => sent.length === 2);
+    expect(sent.map((x) => x.fields)).toEqual([{ runId: RUN, estimate: { usd: 0.3, ceiling: false } }, { runId: RUN, estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM }]);
+    expect(dialog(page)).toBeNull();
+    resetSpending();
+  });
+
+  it('reads a banner’s estimates only where one of its job buttons shows, not where the header leads with them', () => {
+    const run = { actions: [] } as unknown as RunDetail;
+    const test = { golden: 'goldens/refund-in-limit', normalizeAndTest: STEPS } as unknown as RunOffers['test'];
+    const all = { hasKind: () => true, actionsOff: null };
+    const leads = (key: string) => key === 'normalizer' || key === 'update-golden';
+    expect([bannerJobsShown(all, run, test, () => false), bannerJobsShown(all, run, test, (key) => key === 'normalizer'), bannerJobsShown(all, run, test, leads)]).toEqual([true, true, false]);
+    expect(bannerJobsShown({ hasKind: (k: string) => k !== 'test-update', actionsOff: null }, run, test, (key) => key === 'normalizer')).toBe(false);
+  });
+
   it('asks over whatever page is open when the palette runs the tests, with the command Tests lists', async () => {
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
@@ -352,5 +387,184 @@ describe('the same question from elsewhere', () => {
     expect(testsQuestion()).toBeNull();
     expect(((await watched[0]) as unknown as { error: Error }).error.message).toBe('A repair is verifying candidates made from your working tree: run the tests once it is done.');
     expect(sent.map((s) => s.fields)).toEqual([{}]);
+  });
+});
+
+describe('a live session’s question, answered by Spending', () => {
+  const PRICED: Estimate = { kind: 'tests', usd: 0.3, ceiling: false, parts: ['what the last session spent live'] };
+  const FREE: Estimate = { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] };
+  afterEach(() => resetSpending());
+
+  /** Re-run on a golden marked fork, the page knowing its price as `estimate`, at the threshold `v`. */
+  async function rerun(v: Spending | undefined, estimate: Estimate | null | undefined, kind = 'test') {
+    resetSpending(v);
+    const sent: Sent[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const state = app(sent, watched);
+    const page = await shown(state, createElement('div'));
+    startTestsJob(state, kind, { golden: 'goldens/flaky', ...sentEstimate(estimate) }, { ...rerunAsk('flaky', 'goldens/flaky'), estimate });
+    await page.until('the question answered or asked', () => sent.length === 2 || !!dialog(page));
+    return { page, sent, watched };
+  }
+  const yeses = (sent: Sent[]) => sent.filter((s) => s.fields.yes !== undefined);
+
+  it('says yes at once at or under the threshold, the job keeping the estimate its drawer says', async () => {
+    const { page, sent, watched } = await rerun(0.5, PRICED);
+    expect(dialog(page)).toBeNull();
+    expect(sent.map((s) => s.fields)).toEqual([
+      { golden: 'goldens/flaky', estimate: { usd: 0.3, ceiling: false } },
+      { golden: 'goldens/flaky', estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM },
+    ]);
+    expect(await watched[0]).toMatchObject({ id: 'j2' });
+  });
+
+  it('asks above the threshold, its Cost line the estimate and its footer why it asks', async () => {
+    const { page, sent } = await rerun(0.1, PRICED);
+    const d = dialog(page)!;
+    expect(d.querySelectorAll('.dcost')[0].textContent).toContain('≈$0.30');
+    expect(d.querySelectorAll('.dlgcost')[0].textContent).toBe('Asks above $0.10 · Change');
+    expect(yeses(sent)).toEqual([]);
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(yeses(sent).map((s) => s.fields)).toEqual([{ golden: 'goldens/flaky', estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM }]);
+  });
+
+  it('asks on every setting with no estimate, and where the page said Free as the server says it runs live', async () => {
+    for (const estimate of [null, undefined, FREE]) {
+      const { page, sent } = await rerun(null, estimate);
+      expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Re-run flaky');
+      expect(dialog(page)?.querySelectorAll('.dcost')[0].textContent).toContain('Billed by your provider');
+      expect(page.all('.dialog .dlgcost')).toHaveLength(0);
+      expect(yeses(sent)).toEqual([]);
+      await page.click(page.one('.dialog .dlg-cancel'));
+      await r?.unmount();
+      r = null;
+    }
+  });
+
+  it('says yes at once on Never ask with an estimate, but never to an injection test’s question, a command someone else recorded', async () => {
+    const plain = await rerun(null, PRICED);
+    expect(dialog(plain.page)).toBeNull();
+    expect(yeses(plain.sent)).toHaveLength(1);
+    await r?.unmount();
+    r = null;
+    const injection = await rerun(null, PRICED, 'injection');
+    expect(dialog(injection.page)).not.toBeNull();
+    expect(yeses(injection.sent)).toEqual([]);
+  });
+
+  it('asks Keep it as a test’s question on every setting, in the step’s words, its yes going through the page that asked', async () => {
+    // Nothing prices it: even one that came with a price, at Never ask, waits for its dialog.
+    const priced = await rerun(null, PRICED, 'pack-test');
+    expect(dialog(priced.page)).not.toBeNull();
+    expect(yeses(priced.sent)).toEqual([]);
+    await priced.page.click(priced.page.one('.dialog .dlg-cancel'));
+    await r?.unmount();
+    r = null;
+    const sent: Sent[] = [];
+    const shell: Array<Promise<JobView>> = [];
+    const state = app(sent, shell);
+    const page = await shown(state, createElement('div'));
+    const setup: Array<Promise<JobView>> = [];
+    startTestsJob({ client: state.client, guard: state.guard, watchJob: (p) => void setup.push(p) }, 'pack-test', { project: 'p', golden: 'goldens/first-run' }, keepAsk('Pack as a golden', 'goldens/first-run', true));
+    await page.until('the question asked', () => !!dialog(page));
+    expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Pack as a golden');
+    expect(dialog(page)?.textContent).toContain('Packs the run as goldens/first-run, then runs its test.');
+    expect(dialog(page)?.textContent).toContain('shadowlap test goldens/first-run');
+    expect(yeses(sent)).toEqual([]);
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(yeses(sent).map((x) => x.fields)).toEqual([{ project: 'p', golden: 'goldens/first-run', yes: CONFIRM }]);
+    // Setup follows the job its yes started, as it follows those it starts itself, not the shell.
+    await page.until('the page following its job', () => setup.length === 1);
+    expect([await setup[0], shell]).toMatchObject([{ id: 'j2' }, []]);
+  });
+});
+
+describe('Tests’ buttons, priced from the page’s estimates', () => {
+  const RUN: Estimate = { kind: 'tests', usd: 0.3, ceiling: false, parts: ['what the last session spent live'] };
+  const UPDATE: Estimate = { kind: 'update', usd: 0.2, ceiling: false, always: 'it replaces goldens', parts: ['as its recording cost'] };
+  const RERUN: Estimate = { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] };
+  afterEach(() => resetSpending());
+
+  /** Tests at the threshold `v`, its server pricing Run tests and refund-in-limit's jobs as above. */
+  async function priced(v: Spending, tests?: TestsView) {
+    resetSpending(v);
+    const sent: Sent[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const state = app(sent, watched, { live: true, ...(tests ? { tests } : {}) });
+    const reads: string[] = [];
+    const goldens = { 'goldens/refund-in-limit': { rerun: RERUN, update: UPDATE, normalize: RERUN } };
+    Object.assign(state.client, { estimates: { testsEstimates: () => (reads.push('tests'), Promise.resolve({ run: RUN, goldens })) } });
+    const page = await tests_(state);
+    await page.until('the estimates', () => reads.length > 0 && !!card(page, 'Run tests').est);
+    return { page, sent, watched, reads };
+  }
+  const tests_ = tests;
+  const card = (page: Rendered, label: string) => JSON.parse(page.byText('button', label).getAttribute('data-tip') ?? '{}') as { t?: string; s?: string; cmd?: string; est?: Record<string, unknown> };
+
+  it('reads the estimates again only as what they are worked out from changes, not each time the page loads again', async () => {
+    const reads: Array<readonly string[] | undefined> = [];
+    const state = app([], []);
+    Object.assign(state.client, { estimates: { testsEstimates: (update?: readonly string[]) => (reads.push(update), Promise.resolve({ run: RUN, goldens: {} })) } });
+    function Reader() {
+      const [loads, setLoads] = useState(0);
+      // Each load is a new view and a new list of the same goldens; the third's first golden has a newer result.
+      const rows = view().rows.map((row, i) => (loads > 1 && !i ? { ...row, runId: 'R-newer' } : row));
+      useTestsEstimates(estimatesKey({ rows }), ['goldens/refund-in-limit']);
+      return createElement('button', { type: 'button', onClick: () => setLoads(loads + 1) }, 'Load again');
+    }
+    const page = await shown(state, createElement(Reader));
+    await page.until('the first read', () => reads.length === 1);
+    await page.click(page.byText('button', 'Load again'));
+    await page.wait(0);
+    expect(reads).toHaveLength(1);
+    await page.click(page.byText('button', 'Load again'));
+    await page.until('a read for the newer result', () => reads.length === 2);
+    expect(reads).toEqual([['goldens/refund-in-limit'], ['goldens/refund-in-limit']]);
+  });
+
+  it('says Run tests’ estimate on its card, and answers the server’s question with it by Spending, posting first either way', async () => {
+    const { page, sent } = await priced(0.5);
+    expect(card(page, 'Run tests')).toMatchObject({ s: 'Replays every golden offline; a golden marked fork runs live from where it forks', est: { usd: 0.3, ceiling: false } });
+    await page.click(page.byText('button', 'Run tests'));
+    await page.until('the yes', () => sent.length === 2);
+    expect(sent.map((s) => s.fields)).toEqual([{ estimate: { usd: 0.3, ceiling: false } }, { estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM }]);
+    expect(dialog(page)).toBeNull();
+  });
+
+  it('asks above the threshold in the server’s question only, once, its Cost line the estimate', async () => {
+    const { page, sent } = await priced(0.1);
+    await page.click(page.byText('button', 'Run tests'));
+    await page.until('the question', () => dialog(page) !== null);
+    expect(sent).toHaveLength(1);
+    expect(dialog(page)!.querySelectorAll('.dcost')[0].textContent).toContain('≈$0.30');
+  });
+
+  it('says Update golden’s estimate and asks first on every setting, its dialog’s Cost line the estimate and its job keeping it', async () => {
+    const { page, sent } = await priced(null, diverged());
+    expect(card(page, 'Update golden')).toMatchObject({ s: 'It re-records the golden under the change', cmd: 'shadowlap test goldens/refund-in-limit --update', est: { usd: 0.2, always: 'it replaces goldens' } });
+    expect(card(page, 'Add normalizer and re-run').est).toEqual({ usd: 0, ceiling: false });
+    await page.click(page.byText('button', 'Update golden'));
+    await page.until('its dialog', () => dialog(page) !== null);
+    // The lime way on, Add normalizer, keeps its own line beside Update anyway's estimate.
+    const lines = dialog(page)!.querySelectorAll('.dcost').map((c) => (c.textContent ?? '').replace(/\s+/g, ' '));
+    expect(lines[0]).toBe('Free · replays offline');
+    expect(lines[1]).toContain('≈$0.20');
+    expect(sent).toEqual([]);
+    await page.click(page.one('.dialog .dlg-ok'));
+    await page.until('the job', () => sent.length === 1);
+    expect(sent[0]).toEqual({ kind: 'test-update', fields: { golden: 'goldens/refund-in-limit', estimate: { usd: 0.2, ceiling: false } } });
+  });
+
+  it('answers the palette’s Run tests by Spending too, from the estimate it reads once the server asks', async () => {
+    resetSpending(0.5);
+    const sent: Sent[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const state = app(sent, watched);
+    Object.assign(state.client, { estimates: { testsEstimates: () => Promise.resolve({ run: RUN, goldens: {} }) } });
+    const page = await shown(state, createElement(Palette, { route: { page: 'overview' } }));
+    await page.click(page.all('.palit').find((el) => el.textContent.startsWith('Run tests'))!);
+    await page.until('the yes', () => sent.length === 2);
+    expect(sent.map((s) => s.fields)).toEqual([{}, { estimate: { usd: 0.3, ceiling: false }, yes: CONFIRM }]);
+    expect(dialog(page)).toBeNull();
   });
 });

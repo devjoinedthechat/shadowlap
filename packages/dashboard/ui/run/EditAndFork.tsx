@@ -8,6 +8,9 @@ import { shortId } from '../format.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { useApp } from '../state.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { tipEst } from '../components/JobButton.js';
+import { sentEstimate } from '../spending.js';
+import { heldRunEstimates, rowPriced, useRunEstimates } from './estimates.js';
 
 /**
  * Edit this result and fork, from the inspector: a tool's recorded result, or what a person answered
@@ -17,7 +20,9 @@ import { ActionButton } from '../components/ActionButton.js';
  * model call's answer can't be edited: `--override` changes a tool's result or what a person
  * answered, nothing else. A run from someone else's pack, or a teammate's pulled from the team
  * store, forks with their command: the server refuses the fork until it is confirmed, a dialog
- * shows the command it named, and only its Run sends the yes, with the same upload.
+ * shows the command it named, and only its Run sends the yes, with the same upload. Its dialog asks
+ * what the fork would bill as it opens, never as a call is selected, and the fork keeps what its
+ * Cost line said; its card says the amount only where the fork menu has already asked at the call.
  */
 
 /** The largest result the server takes (`OVERRIDE_LIMIT` in src/routes/forks.ts). */
@@ -63,6 +68,7 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
   const action = overrideAction(detail);
   if (app.exported || !action || !app.hasKind(JOB_KINDS.override)) return null;
   const off = live ? 'Fork once the recording finishes' : (action.disabled ?? null);
+  const held = heldRunEstimates(runId, detail.call.callNo);
   // The fork, once the edited result is uploaded; a 409 that names someone else's command asks first.
   const start = (fields: Record<string, unknown>) =>
     app.client.startJob(JOB_KINDS.override, fields).then(
@@ -75,7 +81,7 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
     );
   return (
     <>
-      <ActionButton className="linkbtn" why={off} title="Fork with this result edited: every call before it replays" onClick={() => app.guard(() => setOpen(true))}>
+      <ActionButton className="linkbtn" why={off} tip="Edit and fork" sub="Fork with this result edited: every call before it replays" est={held ? tipEst(held.actions[action.key] ?? null, true) : null} onClick={() => app.guard(() => setOpen(true))}>
         Edit and fork…
       </ActionButton>
       {open ? <EditDialog runId={runId} detail={detail} action={action} onFork={start} onClose={() => setOpen(false)} /> : null}
@@ -95,6 +101,7 @@ export function EditDialog({ runId, detail, action, onFork, onClose }: { runId: 
   const [text, setText] = useState(start.text);
   const out = editBody(mode, text, answer);
   const n = c.callNo;
+  const estimate = rowPriced(useRunEstimates(runId, n), action, false);
   // A run from someone else's pack runs their command: the action's own words say so first.
   const label = action.prompt?.label ?? '';
   const warning = /^This run came from /.test(label) ? label.slice(0, label.lastIndexOf('. ')) : null;
@@ -103,7 +110,7 @@ export function EditDialog({ runId, detail, action, onFork, onClose }: { runId: 
     return app.guard(
       () =>
         void app.client.upload(new Blob([out.body], { type: answer ? 'text/plain' : 'application/json' }), `${answer ? 'answer' : 'result'}-${n}.${answer ? 'txt' : 'json'}`).then(
-          (up) => onFork({ runId, callNo: n, uploadId: up.uploadId }),
+          (up) => onFork({ runId, callNo: n, uploadId: up.uploadId, ...sentEstimate(estimate || null) }),
           (err: unknown) => app.watchJob(Promise.reject(err)),
         ),
     );
@@ -115,7 +122,7 @@ export function EditDialog({ runId, detail, action, onFork, onClose }: { runId: 
       doc="overrideResult"
       warn={warning ? { text: warning } : null}
       command={`shadowlap replay ${shortId(runId)} --override ${n}=${answer ? '…' : '<this result>'}`}
-      cost={{ price: 'Billed by your provider', parts: [liveFromPart('the next model call')] }}
+      cost={{ price: 'Billed by your provider', parts: [liveFromPart('the next model call')], ...(estimate ? { estimate } : {}) }}
       ok="Edit and fork"
       okDisabled={'error' in out}
       onOk={fork}

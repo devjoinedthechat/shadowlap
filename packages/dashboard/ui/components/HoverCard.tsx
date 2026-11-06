@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
+import { costWords, type CostShown } from '../../../engine/src/estimates/spending.js';
 import { shownMenu } from '../overlays/menu-store.js';
 import { overlayOpen } from '../overlays/modal-store.js';
 import { placeTip } from '../place.js';
+import { heldTo, spendingNow } from '../spending.js';
 import { Command, Copy } from './Copy.js';
 
 /**
@@ -30,6 +32,21 @@ interface Tip {
   rows?: Array<[string, string, string?]>;
   /** What it runs, as `$ shadowlap …`: up to its first arguments, the whole of it in the dialog or the drawer. */
   cmd?: string;
+  /** What the job it starts bills, for the line under its sentence (`TipEst`). */
+  est?: TipEst;
+}
+
+/**
+ * A billed job's price as its control's card holds it: the line says it with whether it starts at once
+ * or asks first, worked out as the card shows from Spending as it stands then, so a change never
+ * redraws a page. `form`: it opens a dialog that asks what to run; `wait`: it waits, so the amount alone.
+ */
+export interface TipEst extends CostShown {
+  usd: number | null;
+  ceiling: boolean;
+  always?: string;
+  per?: string;
+  stops?: number;
 }
 
 /** A card with a title only, such as an icon's words. */
@@ -37,9 +54,14 @@ export function tipText(t: string): string {
   return JSON.stringify({ t } satisfies Tip);
 }
 
-/** A card with a title and rows: what a strip cell, a bar or a chart group holds; `s`, a line under the title; `cmd`, what it runs. */
-export function tipCard(t: string, rows: TipRow[], s?: string | null, cmd?: string | null): string {
-  return JSON.stringify({ t, ...(s ? { s } : {}), rows: rows.map((r) => [r.label, r.value, r.color ?? '']), ...(cmd ? { cmd } : {}) } satisfies Tip);
+/** A card with a title and rows: what a strip cell, a bar or a chart group holds; `s`, a line under the title; `cmd`, what it runs; `est`, what the job it starts bills. */
+export function tipCard(t: string, rows: TipRow[], s?: string | null, cmd?: string | null, est?: TipEst | null): string {
+  return JSON.stringify({ t, ...(s ? { s } : {}), rows: rows.map((r) => [r.label, r.value, r.color ?? '']), ...(cmd ? { cmd } : {}), ...(est ? { est } : {}) } satisfies Tip);
+}
+
+/** A billed job's line on its card, as Spending stands now: until the threshold is known, the amount alone. Null for one that bills nothing and asks nothing. */
+export function tipCostLine(est: TipEst): string | null {
+  return costWords(est, heldTo(), { form: !!est.form, wait: !!est.wait || spendingNow() === undefined });
 }
 
 function read(el: Element): Tip | null {
@@ -122,6 +144,7 @@ function singleKeyOf(el: Element | undefined): string | null {
 function Body({ d, term, shortcutKey }: { d: Tip; term: boolean; shortcutKey: string | null }) {
   const cmd = d.cmd ?? (d.s?.startsWith('$ ') ? d.s : null);
   const lines = d.s && d.s !== cmd ? d.s.split('\n') : [];
+  const cost = d.est ? tipCostLine(d.est) : null;
   return (
     <>
       <b>
@@ -131,6 +154,7 @@ function Body({ d, term, shortcutKey }: { d: Tip; term: boolean; shortcutKey: st
       {lines.map((line, i) => (
         <Line key={i} text={line} term={term} />
       ))}
+      {cost ? <span className="tc">{cost}</span> : null}
       {(d.rows ?? []).map(([label, value, color], i) => (
         <div key={i} className={label.length + value.length > STACKED ? 'stk' : undefined}>
           <i style={color ? { background: color } : undefined} />

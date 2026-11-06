@@ -6,7 +6,7 @@ import { useMedia } from '../hooks.js';
 import { Sprite } from '../components/Icon.js';
 import { ToastHost } from '../components/Toast.js';
 import { useFixTitle } from '../fixes/data.js';
-import { TestsAskHost } from '../fixes/TestsJobButton.js';
+import { TestsAskHost } from '../fixes/TestsAskHost.js';
 import { drawnJob } from '../job-store.js';
 import { OverlaySlots } from '../overlays/slots.js';
 import { setupShowsOn } from '../projects.js';
@@ -20,6 +20,7 @@ import { Sidebar } from './Sidebar.js';
 import { SkipLink } from './SkipLink.js';
 import { StatusBar } from './StatusBar.js';
 import { TopBar } from './TopBar.js';
+import { loadSpending, spendingNow, watchSpending } from '../spending.js';
 import { unshownKey, useUnshown } from './unshown.js';
 
 /** The palette and the shortcuts sheet wait in scripts of their own, which load as the shell first draws, so they answer at once and with the server gone. */
@@ -41,6 +42,20 @@ const JobDrawer = onShow(() => import('../components/Drawer.js').then((m) => m.J
 function Dock() {
   const drawn = useAppSelector((app) => !!drawnJob(app.jobs));
   return drawn ? <JobDrawer /> : null;
+}
+
+/**
+ * Spending, the threshold every billed job's press is held to: read as the app starts, each time the
+ * window has the focus again (a change made in another tab), and when the server is back after a read
+ * that failed. An exported copy runs no job, so it reads none.
+ */
+function SpendingWatch() {
+  const { client, conn, exported } = useApp();
+  useEffect(() => (exported ? undefined : watchSpending(client)), [client, exported]);
+  useEffect(() => {
+    if (!exported && conn === 'ok' && spendingNow() === undefined) void loadSpending(client);
+  }, [client, conn, exported]);
+  return null;
 }
 
 /** The app: top bar, sidebar, the page, the status bar, and what sits over them. */
@@ -84,6 +99,7 @@ export function Shell({ pages: PageSlot }: { pages: Pages }) {
       <Dock />
       {/* A Tests job that would run goldens live asks here, whichever page or the palette started it. */}
       <TestsAskHost />
+      <SpendingWatch />
       <ToastHost />
       <HoverCardLayer />
       <Keyboard />

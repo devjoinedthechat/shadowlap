@@ -1,14 +1,17 @@
-import { askConsent, saidYes, testsEntryFor } from '@shadowlap/engine';
+import { resolve } from 'node:path';
+import { askConsent, parseTests, readConfigFile, saidYes, specFor, testLive, testsEntryFor, type TestEntry } from '@shadowlap/engine';
 import type { GoldenSource, TestsJob } from './tests.js';
 
 /**
  * What a Tests job runs live, so that it asks before it does. `shadowlap test` replays a golden
  * offline, at no cost, but for what its tests entry may give it (`liveReasons`): a golden marked
  * `fork` runs live from where its replay forks, writes blocked, asking its judge checks live too, and
- * an injection gate runs live from each payload it plants, writes stubbed. Until Spending decides it
- * by the job's estimate, a job that would run any of them answers 409 with the question (`liveAsk`):
- * the goldens that go live and why, and the `confirm` of the lines it names, which the request sends
- * back as `yes`. A job that only replays starts at once, whatever `yes` it sent.
+ * an injection gate runs live from each payload it plants, writes stubbed. A job that would run any
+ * of them answers 409 with the question (`liveAsk`): the goldens that go live and why, and the
+ * `confirm` of the lines it names, which the request sends back as `yes`. The dashboard answers it by
+ * Spending (ui/tests-ask.ts): Run tests or Add normalizer at or under the threshold sends that yes at
+ * once, with the estimate its card said; otherwise the person answers it. A job that only replays
+ * starts at once, whatever `yes` it sent.
  *
  * Re-recording a golden that diverged (`--update`) runs live too: Update golden and Add normalizer
  * and update say so in their own dialogs before they send the job, so that alone asks nothing here.
@@ -21,6 +24,17 @@ export type LiveReason = { kind: 'fork' } | { kind: 'judges'; models: string[] }
 export interface SessionLiveGolden {
   path: string;
   why: LiveReason[];
+}
+
+/** What the rule reads of a golden: its path, what its tests entry runs live, and whether its pack can't be read. */
+export type LiveSource = Pick<GoldenSource, 'path' | 'mode' | 'injection' | 'judges' | 'error'>;
+
+/** The 409 a job answers with before it runs anything live: the question, its `confirm`, and the goldens that go live. */
+export interface LiveQuestion {
+  error: string;
+  status: 409;
+  confirm: string;
+  live: SessionLiveGolden[];
 }
 
 /**
@@ -48,7 +62,7 @@ const ROOT = '/';
  * (`goldens/*`), as the CLI expands one: its `*` within the last part only (the engine's
  * `testsEntryFor`, which matches a tests entry the same way).
  */
-export function testedGoldens(goldens: readonly GoldenSource[], args: readonly string[]): GoldenSource[] {
+export function testedGoldens<G extends { path: string }>(goldens: readonly G[], args: readonly string[]): G[] {
   if (args[0] !== 'test') return [];
   const named: Array<{ recording: string }> = [];
   for (let i = 1; i < args.length; i++) {
@@ -67,7 +81,7 @@ const commandsOf = (job: Exclude<TestsJob, { error: string }>): string[][] => ('
  * order the goldens are listed; never one whose pack can't be read, whose test fails before anything
  * runs.
  */
-export function sessionLiveGoldens(goldens: readonly GoldenSource[], job: TestsJob): SessionLiveGolden[] {
+export function sessionLiveGoldens(goldens: readonly LiveSource[], job: TestsJob): SessionLiveGolden[] {
   if ('error' in job) return [];
   const tested = new Set(commandsOf(job).flatMap((c) => testedGoldens(goldens, c)));
   return goldens.flatMap((g) => {
@@ -85,12 +99,29 @@ const reasonLine = (w: LiveReason): string => (w.kind === 'judges' ? `judges ${w
  * goldens with their reasons, so a yes to it runs no other session. Null when the job runs nothing
  * live, or the request said yes to this very question.
  */
-export function liveAsk(goldens: readonly GoldenSource[], job: TestsJob, yes: unknown): { error: string; status: 409; confirm: string; live: SessionLiveGolden[] } | null {
+export function liveAsk(goldens: readonly LiveSource[], job: TestsJob, yes: unknown): LiveQuestion | null {
   if ('error' in job) return null;
   const live = sessionLiveGoldens(goldens, job);
   if (!live.length) return null;
   const lines = [...commandsOf(job).map((c) => ['shadowlap', ...c]), ...live.map((g) => [g.path, ...g.why.map(reasonLine)])];
   return saidYes(yes, lines) ? null : { ...askConsent(liveWords(live), lines), live };
+}
+
+/**
+ * The question Setup's Keep it as a test asks before its test runs a golden live, as Run tests asks
+ * it: by the tests entry the config gives the golden's path (the engine's `testLive`, as the CLI
+ * lists goldens by it), since a golden it is about to pack is in no list yet. `commands` are the
+ * job's, after `shadowlap`. A config that can't be read gives no entry: the test then stops on it
+ * before anything runs.
+ */
+export function keptGoldenAsk(folder: string, golden: string, commands: readonly string[][], yes: unknown): LiveQuestion | null {
+  let entries: TestEntry[] = [];
+  try {
+    entries = parseTests(readConfigFile(folder).data.tests);
+  } catch {
+    // the test says why
+  }
+  return liveAsk([{ path: golden, ...testLive(specFor(entries, resolve(folder, golden), folder)) }], { title: '', steps: [...commands] }, yes);
 }
 
 /** Up to three of them by name, then how many more: `a`, `a and b`, `a, b and c`, `a, b, c and 4 more`. */

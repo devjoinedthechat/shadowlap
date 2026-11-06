@@ -7,7 +7,10 @@ import { useRunCommands } from '../ui/run/run-commands.js';
 import type { Route } from '../ui/route.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState, type PaletteCommand } from '../ui/state.js';
-import type { NextStep, RunDetail, RunListItem } from '../ui/types.js';
+import type { BlameOffer, NextStep, RunDetail, RunListItem } from '../ui/types.js';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
+import { resetSpending } from '../ui/spending.js';
+import { answerTestsQuestion, askQuestion, testsQuestion } from '../ui/tests-ask.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -179,7 +182,7 @@ describe('Run blame in the palette', () => {
       actionsOff: null,
       hasKind: () => true,
       jobs: [],
-      guard: (fn: () => void) => fn(),
+      guard: (fn: () => void) => (fn(), true),
       watchJob: () => undefined,
       toast: () => undefined,
       palette: true,
@@ -201,17 +204,69 @@ describe('Run blame in the palette', () => {
     expect(blameEntries(runs, null)[0]?.entry).toEqual({ group: 'Actions', label: 'Run blame', hint: `shadowlap blame F --expect '{"tools":{"send_email":1}}'`, job: true, typed: true, match: 'failed Order A-1042 arrived damaged' });
   });
 
-  it('shows them only once something is typed, by what they did too, and starts the job', async () => {
+  const PRICE: Estimate = { kind: 'blame', usd: 0.3, ceiling: true, parts: [] };
+  const blameStep = (estimate?: Estimate, offer: Partial<BlameOffer> = {}) => async (): Promise<{ next: NextStep | null }> => ({ next: { key: 'blame', label: 'Run blame', offer: { from: 'exit', expect: null, failed: [], ...offer }, command: `shadowlap blame ${RUN.slice(0, 10)}`, ...(estimate ? { estimate } : {}) } });
+  const pick = async (client: Partial<Client>, over: Partial<AppState> = {}) => {
+    r = await render(createElement(AppContext.Provider, { value: app({ runs: [row(RUN, 1, 'blame')], ...over }, client) }, createElement(Palette, { route: OVERVIEW })));
+    await type(r, 'blame');
+    await r.click(r.byText('.palit .pl', 'Run blame'));
+    await r.wait(0);
+  };
+  afterEach(() => {
+    askQuestion(null);
+    resetSpending();
+  });
+
+  it('shows them only once something is typed, by what they did too, and starts the job at or under the threshold, with its estimate', async () => {
+    resetSpending(0.5);
     const started: Array<[string, unknown]> = [];
     const watched = vi.fn();
-    r = await render(createElement(AppContext.Provider, { value: app({ runs: [row(RUN, 1, 'blame')], watchJob: watched }, { startJob: (kind: string, fields: unknown) => (started.push([kind, fields]), Promise.resolve({ id: 'j' })) } as never) }, createElement(Palette, { route: OVERVIEW })));
+    r = await render(createElement(AppContext.Provider, { value: app({ runs: [row(RUN, 1, 'blame')], watchJob: watched }, { nextStep: blameStep(PRICE), startJob: (kind: string, fields: unknown) => (started.push([kind, fields]), Promise.resolve({ id: 'j' })) } as never) }, createElement(Palette, { route: OVERVIEW })));
     expect(shown(r)).not.toContain('Run blame');
     await type(r, 'damaged');
     expect(shown(r)).toContain('Run blame');
     await r.click(r.byText('.palit .pl', 'Run blame'));
     await r.wait(0);
-    expect(started).toEqual([['blame', { runId: RUN }]]);
+    expect(started).toEqual([['blame', { runId: RUN, estimate: { usd: 0.3, ceiling: true } }]]);
     expect(watched).toHaveBeenCalledOnce();
+    expect(testsQuestion()).toBeNull();
+  });
+
+  it('asks over the page above the threshold, in its page’s words, and its yes starts the job with the estimate it said', async () => {
+    resetSpending(0.1);
+    const startJob = vi.fn((_kind: string, _fields: unknown) => Promise.resolve({ id: 'j' }));
+    await pick({ nextStep: blameStep(PRICE), startJob } as never);
+    expect(startJob).not.toHaveBeenCalled();
+    expect(testsQuestion()).toMatchObject({ title: `Run blame on ${RUN.slice(0, 10)}`, name: RUN.slice(0, 10), lead: 'Finds the model call that lost the run.', ok: 'Run blame', commands: [`shadowlap blame ${RUN.slice(0, 10)}`], facts: [], estimate: PRICE });
+    expect(answerTestsQuestion(app({}), true)).toBe(true);
+    expect(startJob.mock.calls).toEqual([['blame', { runId: RUN, estimate: { usd: 0.3, ceiling: true } }]]);
+    expect(testsQuestion()).toBeNull();
+  });
+
+  it('asks with no estimate where the step can’t be read, even on Never ask, and Cancel starts nothing', async () => {
+    resetSpending(null);
+    const startJob = vi.fn(() => Promise.resolve({ id: 'j' }));
+    await pick({ nextStep: () => Promise.reject(new Error('offline')), startJob } as never);
+    expect(testsQuestion()).toMatchObject({ title: `Run blame on ${RUN.slice(0, 10)}`, estimate: null });
+    // The row's command, as the read gave none.
+    expect(testsQuestion()?.commands).toEqual([`shadowlap blame ${RUN} --expect '{"tools":{"send_email":1}}'`]);
+    expect(answerTestsQuestion(app({}), false)).toBe(true);
+    expect(startJob).not.toHaveBeenCalled();
+  });
+
+  it('opens the run’s page where the step says its check must be asked for, and starts nothing', async () => {
+    const location = { hash: '#/', search: '', pathname: '/' };
+    vi.stubGlobal('location', location);
+    try {
+      resetSpending(null);
+      const startJob = vi.fn(() => Promise.resolve({ id: 'j' }));
+      await pick({ nextStep: blameStep(PRICE, { from: 'ask' }), startJob } as never);
+      expect(startJob).not.toHaveBeenCalled();
+      expect(testsQuestion()).toBeNull();
+      expect(location.hash).toBe(`#/run/${RUN}`);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('leaves to the run’s page the check and the yes it asks first, and nothing else', () => {
@@ -244,12 +299,11 @@ describe('Run blame in the palette', () => {
     const location = { hash: '#/', search: '', pathname: '/' };
     vi.stubGlobal('location', location);
     try {
-      r = await render(createElement(AppContext.Provider, { value: app({ runs: [row(RUN, 1, 'blame')] }, { startJob: () => Promise.reject(new ApiError(422, 'say what a passing run must do')) }) }, createElement(Palette, { route: OVERVIEW })));
-      await type(r, 'blame');
-      await r.click(r.byText('.palit .pl', 'Run blame'));
-      await r.wait(0);
+      // Priced under the threshold, it starts, and the server asks for the check after all.
+      resetSpending(0.5);
+      await pick({ nextStep: blameStep(PRICE), startJob: () => Promise.reject(new ApiError(422, 'say what a passing run must do')) });
       expect(location.hash).toBe(`#/run/${RUN}`);
-      await r.unmount();
+      await r?.unmount();
       r = await render(createElement(AppContext.Provider, { value: app({ runs: [row(RUN, 1, 'blame')], actionsOff: 'read-only' }) }, createElement(Palette, { route: OVERVIEW })));
       await type(r, 'blame');
       expect(shown(r)).not.toContain('Run blame');

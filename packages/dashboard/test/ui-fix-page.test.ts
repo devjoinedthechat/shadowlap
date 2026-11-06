@@ -4,10 +4,14 @@ import { decideVerify, formatBlame, markFixApplied, recordBlame, recordEvent, re
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixAttemptGroups } from '../src/attempt-groups.js';
 import { fixDetail, fixList } from '../src/fixes.js';
-import type { Client } from '../ui/api.js';
+import { JOB_KINDS, type Client } from '../ui/api.js';
+import { jobFooter } from '../ui/job-actions.js';
+import type { FixEstimates } from '../ui/estimates-api.js';
+import { resetSpending } from '../ui/spending.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { APPLY_ASK } from '../ui/page-ask.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
+import { TaskUpdateButton } from '../ui/pages/Training.js';
 import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -39,8 +43,10 @@ type Folder = { held?: string[]; there?: Array<{ run: string; at: string }> };
  * The app as the shell gives it, its server answering from the store; `inTree` stands for git saying
  * a patch is in the working tree, `held` and `there` for what the project's goldens folder holds.
  */
-function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } & Folder = {}): AppState {
+function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string; estimates?: Partial<FixEstimates> } & Folder = {}): AppState {
   const client = {
+    // The fix's estimates, where a test gives them; else none can be read, and each billed button asks.
+    ...(o.estimates ? { estimates: { fixEstimates: () => Promise.resolve({ repair: null, blameAgain: null, blameStronger: null, verify: {}, ...o.estimates }) } } : {}),
     fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}), ...(o.held ? { goldensFolder: () => ({ there: o.there ?? [], held: o.held! }) } : {}) })),
     fixes: () => Promise.resolve(fixList(store)),
     attemptGroups: (id: string) => Promise.resolve(fixAttemptGroups(store, id)),
@@ -66,7 +72,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?
 }
 
 /** The fix's page, opened at a step, once it has loaded. */
-async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } & Folder = {}): Promise<Rendered> {
+async function open(fixId: string, step: string | null = null, sub: string | null = null, o: Parameters<typeof app>[0] = {}): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(o) }, createElement(FixPage, { id: fixId, step, sub })));
   await r.until('the fix to load', () => r!.all('h1').length === 1);
   return r;
@@ -224,6 +230,26 @@ describe('the Repair step', () => {
 });
 
 describe('Run repair', () => {
+  it('says on its card and its Cost line what a repair would cost, asking first on every setting, and the job keeps it', async () => {
+    const run = newRun({ labels: ['refund-bug'] });
+    const { fix } = blame(run);
+    const repair = { kind: 'repair' as const, usd: 37.16, ceiling: true, always: 'it makes its candidates from your working tree', parts: ['a new blame, then up to 3 candidates', 'each verified up to twice'] };
+    const started: Array<[string, unknown]> = [];
+    resetSpending(null);
+    await open(fix.fixId, null, null, { started, estimates: { repair } });
+    await r!.wait(0);
+    const button = r!.byText('.ph .actions button', 'Run repair');
+    const card = JSON.parse(String(button.props['data-tip'])) as { t: string; s: string; cmd: string; est: unknown };
+    expect(card).toMatchObject({ t: 'Run repair', s: expect.stringMatching(/^Asks .+ for rewrites; each is tried in a worktree of its own$/), cmd: expect.stringMatching(/^\$ shadowlap repair /), est: { usd: 37.16, ceiling: true, always: repair.always } });
+    // Never ask still asks: it opens its dialog, for what it does.
+    await r!.click(button);
+    await r!.until('the dialog to read the fix again', () => r!.all('.dialog .dlg-ok').some((b) => !b.props.disabled));
+    expect(text(r!.one('.dialog .dcost'))).toBe('At most ≈$37.16 · a new blame, then up to 3 candidates · each verified up to twice');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['repair', expect.objectContaining({ fixId: fix.fixId, estimate: { usd: 37.16, ceiling: true } })]]);
+    resetSpending();
+  });
+
   it('says a repair that would reuse blames that rescued no run ends with no fix to try, and bills nothing', async () => {
     const run = newRun({ labels: ['digest'] });
     const report = blameReport(run, 'unrescuable');
@@ -233,7 +259,7 @@ describe('Run repair', () => {
     const button = r!.byText('.ph .actions button', 'Run repair');
     // Still there, but no longer the lead, with why on hover.
     expect(button.className).toBe('btn');
-    expect(button.props.title).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
+    expect((JSON.parse(String(button.props['data-tip'])) as { s?: string }).s).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
     await r!.click(button);
     await r!.until('the dialog to read the fix again', () => r!.all('.dialog .dwarn').length > 0);
     expect(text(r!.one('.dialog .dwarn'))).toBe('No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.');
@@ -484,12 +510,39 @@ describe('what settles a fix left unsettled', () => {
     expect(text(r!.one('.fxreceipt.vmore'))).toBe(`${run.slice(0, 10)} is inconclusive: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about 12 attempts, ≈$0.144.`);
     // The reasons say nothing the line doesn't.
     expect(r!.all('ul.fxwarn.bad')).toEqual([]);
+    // No estimate read, so it asks first, with what it runs.
     await r!.click(more);
+    expect(text(r!.one('.dialog h3'))).toBe('Run more attempts');
+    expect(text(r!.one('.dialog header'))).toContain(`Verifies the change again from the first attempt: the ${report.attempts} so far don’t carry over.`);
+    expect(started).toEqual([]);
+    await r!.click(r!.one('.dialog .dlg-ok'));
     expect(started).toEqual([['verify', { fixId: fix.fixId, verifyId: verdict.verifyId }]]);
+    await r!.unmount();
+    // Priced at or under the threshold, it starts on the click, keeping the estimate.
+    resetSpending(0.5);
+    started.length = 0;
+    await open(fix.fixId, 'verify', null, { started, estimates: { verify: { [verdict.verifyId]: { kind: 'verify', usd: 0.3, ceiling: true, parts: [] } } } });
+    await r!.wait(0);
+    await r!.click(r!.byText('.verdict .actions button', 'Run more attempts'));
+    expect(started).toEqual([['verify', { fixId: fix.fixId, verifyId: verdict.verifyId, estimate: { usd: 0.3, ceiling: true } }]]);
+    resetSpending();
     await r!.unmount();
     // On the Blame step, the fix's own lead is back.
     await open(fix.fixId, 'blame');
     expect(r!.byText('.ph .actions button', 'Run repair').className).toBe('btn lime');
+  });
+
+  it('asks Verify again of a verdict an attempt that couldn’t be judged stopped, in its own words', async () => {
+    const run = newRun({ labels: ['double-email'] });
+    const { fix } = blame(run);
+    const report = verifyReport([{ runId: run, role: 'target', pass: true }]);
+    report.runs[0] = { ...report.runs[0], verdict: 'open', decision: 'continue', undecided: 'judge "sent-once" could not answer: no key for anthropic' };
+    Object.assign(report, decideVerify(report.runs, null), { gate: { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, stopReason: null, attemptsPerRun: 80 });
+    recordVerdict(store, { report, expect: EXPECT, command: `shadowlap verify --fixes label:double-email --expect '${JSON.stringify(EXPECT)}'`, rerun: { flags: [], command: null }, at: NOW + 1 });
+    await open(fix.fixId, 'verify');
+    await r!.click(r!.byText('.verdict .actions button', 'Verify again'));
+    expect(text(r!.one('.dialog h3'))).toBe('Verify again');
+    expect(text(r!.one('.dialog header'))).toContain('Verifies the same runs again from the first attempt, once the judge answers.');
   });
 
   it('leads with Run blame again a blame that couldn’t settle, and asks for the model a stronger blame asks', async () => {
@@ -504,8 +557,23 @@ describe('what settles a fix left unsettled', () => {
       ['Run repair', 'btn'],
       ['Run blame again', 'btn lime'],
     ]);
+    // No estimate read, so it asks, with the lower bar it passes.
     await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
+    expect(text(r!.one('.dialog h3'))).toBe('Run blame again');
+    // The last blame's gate asked for 60%; again asks for less, and says the last one's beside it.
+    expect(text(r!.one('.dialog dl'))).toBe('Gatea rescue at 40% or morethe last blame’s was 60%');
+    expect(started).toEqual([]);
+    await r!.click(r!.one('.dialog .dlg-ok'));
     expect(started).toEqual([['blame', { fixId: fix.fixId, again: true }]]);
+    await r!.unmount();
+    // Priced at or under the threshold, it starts on the click, keeping the estimate.
+    resetSpending(0.5);
+    started.length = 0;
+    await open(fix.fixId, null, null, { started, estimates: { blameAgain: { kind: 'blame', usd: 0.2, ceiling: true, parts: [] } } });
+    await r!.wait(0);
+    await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
+    expect(started).toEqual([['blame', { fixId: fix.fixId, again: true, estimate: { usd: 0.2, ceiling: true } }]]);
+    resetSpending();
     await r!.unmount();
     const other = newRun({ labels: ['digest'] });
     const { fix: plain } = blame(other, { report: blameReport(other, 'unrescuable'), title: 'The agent exited with code 1' });
@@ -519,6 +587,33 @@ describe('what settles a fix left unsettled', () => {
     expect(text(r!.one('.dialog .dlg-ok'))).toBe('Run blame with stronger model');
     expect(text(r!.one('.dialog .dcost'))).toContain('the last blame took 4 attempts');
     expect(started).toEqual([]);
+    await r!.unmount();
+    // A search that stopped part way searches again from the first model call: its ask says how far the last got.
+    const cut = newRun({ labels: ['triage'] });
+    await open(blame(cut, { report: blameReport(cut, 'stopped') }).fix.fixId, null, null, { started });
+    await r!.click(r!.byText('.ph .actions button', 'Run blame again'));
+    expect(text(r!.one('.dialog header'))).toContain('Searches the run again from the first model call: the last search stopped at #1.');
+    expect(r!.all('.dialog dl')).toHaveLength(0);
+  });
+
+  it('prices Run blame with stronger model at the model typed once the field rests, its card at the placeholder’s, opening on every setting', async () => {
+    const other = newRun({ labels: ['digest'] });
+    const { fix } = blame(other, { report: blameReport(other, 'unrescuable'), title: 'The agent exited with code 1' });
+    const started: Array<[string, unknown]> = [];
+    resetSpending(null);
+    await open(fix.fixId, null, null, { started, estimates: { blameStronger: { kind: 'blame', usd: 2.8, ceiling: true, parts: ['up to 7 probes'] } } });
+    await r!.wait(0);
+    const stronger = r!.byText('.ph .actions button', 'Run blame with stronger model…');
+    // A form: the amount alone on its card, and Never ask still opens it.
+    expect((JSON.parse(String(stronger.props['data-tip'])) as { est?: unknown }).est).toEqual({ usd: 2.8, ceiling: true, form: true });
+    await r!.click(stronger);
+    expect(text(r!.one('.dialog .dcost'))).toContain('Billed by your provider');
+    await r!.type(r!.one('.dialog input'), 'claude-opus-5');
+    await r!.wait(300);
+    expect(text(r!.one('.dialog .dcost'))).toBe('At most ≈$2.80 · up to 7 probes');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['blame', { fixId: fix.fixId, model: 'claude-opus-5', estimate: { usd: 2.8, ceiling: true } }]]);
+    resetSpending();
   });
 });
 
@@ -592,6 +687,65 @@ describe('opening a fix', () => {
     // Not the document's body, from where Tab would start again at the top bar: the page's heading, as a target Tab never stops at.
     expect(r.focused().tagName).toBe('H1');
     expect(r.focused().getAttribute('tabindex')).toBe('-1');
+  });
+});
+
+describe('Update’s estimates: the apply drawer’s and a task’s', () => {
+  it('says what re-recording the goldens the patch made diverge would bill, asks with it, and starts with it', async () => {
+    resetSpending(null);
+    const asked: unknown[] = [];
+    const started: Array<[string, unknown]> = [];
+    const update = { kind: 'update', usd: 0.4, ceiling: false, always: 'it replaces goldens', parts: ['2 goldens', 'live, as their recordings cost'] };
+    const a = app({ started });
+    Object.assign(a.client, { estimates: { testsEstimates: (paths?: readonly string[]) => (asked.push(paths), Promise.resolve({ run: null, goldens: {}, update })) } });
+    const outdated = [
+      { golden: 'goldens/refund', callNo: 4, path: '$.messages[1]' },
+      { golden: 'goldens/cancel', callNo: 2, path: '$.model' },
+    ];
+    const Footer = jobFooter(JOB_KINDS.applyFix)!;
+    r = await render(createElement(AppContext.Provider, { value: a }, createElement(Footer, { job: { id: 'j1', kind: JOB_KINDS.applyFix, done: true, result: { outdated } } as never })));
+    const card = () => JSON.parse(String(r!.one('button').props['data-tip'])) as { t?: string; cmd?: string; est?: unknown };
+    await r.until('the estimate', () => !!card().est);
+    expect(asked).toEqual([['goldens/refund', 'goldens/cancel']]);
+    expect(card()).toMatchObject({ t: 'Update goldens', cmd: 'shadowlap test goldens/refund goldens/cancel --update', est: { usd: 0.4, ceiling: false, always: 'it replaces goldens' } });
+    // It asks whatever Spending says, Never ask included, since it replaces goldens.
+    await r.click(r.one('button'));
+    expect(started).toEqual([]);
+    expect(text(r.one('.dialog .dcost'))).toBe('≈$0.400 · 2 goldens · live, as their recordings cost');
+    await r.click(r.one('.dialog .dlg-ok'));
+    expect(started).toEqual([[JOB_KINDS.testUpdate, { goldens: ['goldens/refund', 'goldens/cancel'], estimate: { usd: 0.4, ceiling: false } }]]);
+  });
+
+  it('prices a task’s Update where it re-records the golden, asking first, or tests it again live, and bills nothing where that replays', async () => {
+    resetSpending(null);
+    const opened: unknown[] = [];
+    const a = app();
+    const update = { kind: 'update', usd: 0.2, ceiling: false, always: 'it replaces goldens', parts: ['live, as its recording cost'] };
+    Object.assign(a.client, { estimates: { testsEstimates: () => Promise.resolve({ run: null, goldens: { 'goldens/a': { update } } }) } });
+    const task = (rerecords: boolean) => ({ golden: 'goldens/a', forkedAt: 3, takeover: 5, rerecords, normalizers: ['uuid'], steps: rerecords ? [['normalize', 'add', 'uuid'], ['test', 'goldens/a', '--update']] : [['normalize', 'add', 'uuid'], ['test', 'goldens/a']] });
+    const button = (rerecords: boolean) => createElement(AppContext.Provider, { value: a }, createElement(TaskUpdateButton, { className: 'btn sm', why: null, update: task(rerecords), name: 'a', onOpen: (e: unknown) => opened.push(e) }));
+    const card = () => JSON.parse(String(r!.one('button').props['data-tip'])) as { t?: string; s?: string; cmd?: string; est?: unknown };
+    r = await render(button(true));
+    await r.until('the estimate', () => !!card().est);
+    expect(card()).toMatchObject({ t: 'Update golden', s: 'Re-records a as your agent runs now, so its test replays up to the takeover', cmd: 'shadowlap normalize add uuid && shadowlap test goldens/a --update', est: { usd: 0.2, always: 'it replaces goldens' } });
+    await r.click(r.one('button'));
+    expect(opened).toEqual([update]);
+    await r.unmount();
+    r = await render(button(false));
+    await r.wait(0);
+    expect(card()).toMatchObject({ s: 'Adds the normalizer and tests a again, so it replays up to the takeover', cmd: 'shadowlap normalize add uuid && shadowlap test goldens/a' });
+    expect(card().est).toBeUndefined();
+    await r.click(r.one('button'));
+    expect(opened).toEqual([update, null]);
+    await r.unmount();
+    // Where the golden's tests entry runs it live, testing it again bills: its card says the amount, as a form's, and its dialog opens with it.
+    const rerun = { kind: 'tests', usd: 0.3, ceiling: false, parts: ['live from where it forks'] };
+    Object.assign(a.client, { estimates: { testsEstimates: () => Promise.resolve({ run: null, goldens: { 'goldens/a': { update, rerun } } }) } });
+    r = await render(button(false));
+    await r.until('the estimate', () => !!card().est);
+    expect(card().est).toMatchObject({ usd: 0.3, ceiling: false });
+    await r.click(r.one('button'));
+    expect(opened).toEqual([update, null, rerun]);
   });
 });
 

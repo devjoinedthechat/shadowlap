@@ -1,4 +1,4 @@
-import { attemptsPart, liveFromPart } from '../../../engine/src/cost-words.js';
+import { attemptsPart, liveFromPart, nothingUpstreamPart } from '../../../engine/src/cost-words.js';
 import { ACTIONS, confirmWords, dialogName } from '../labels.js';
 import type { DocKey } from '../docs-links.js';
 import { shortId } from '../format.js';
@@ -75,9 +75,11 @@ export interface DialogContext {
   capture?: boolean;
   /** Where this fork forks, for its Repeat 5 times: null where the run doesn't say. */
   forkAt?: number | null;
+  /** The call is a model call: Run live from it asks the model again. */
+  modelCall?: boolean;
 }
 
-/** Billed by your provider, until the estimates name a price: then what runs live. */
+/** Billed by your provider, while the estimate is worked out or where it has none: then what runs live. */
 const billed = (...parts: string[]): CostWords => ({ price: 'Billed by your provider', parts });
 const NEXT_CALL_LIVE = liveFromPart('the next model call');
 
@@ -196,7 +198,7 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     ok: confirmWords(ACTIONS.failWithStatus.label),
     ...withCommand(forkLine(ctx.id, a.flag)),
     // A model call's failure makes no request for that call, but the calls after it may go live.
-    cost: billed(`nothing upstream at ${at}`, 'later model calls live, writes fenced'),
+    cost: billed(nothingUpstreamPart(at), 'later model calls live, writes fenced'),
   }),
   m: ({ a, ctx, at }) => ({
     title: `Switch model from ${at}`,
@@ -211,9 +213,25 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
     lead: typeof ctx.forkAt === 'number' ? `Runs this fork’s change five times from #${ctx.forkAt} and compares the paths they take.` : 'Runs this fork’s change five times and compares the paths they take.',
     doc: 'repeatFork',
     ok: confirmWords(ACTIONS.repeat.label),
-    // The server's command names the run whole; the row shows it short, as every fork's does.
-    ...(a.command ? { command: () => a.command!.replace(/\b[0-9A-HJKMNP-TV-Z]{26}\b/g, (id) => shortId(id)) } : {}),
-    cost: billed(attemptsPart(5, typeof ctx.forkAt === 'number' ? `#${ctx.forkAt}` : 'the fork')),
+    ...serverCommand(a),
+    cost: billed(attemptsPart(5, forkFrom(ctx))),
+  }),
+  // On a fork it is made again from its parent, live from where it forks, so it asks by Spending as Repeat does; its lead is the server's hint.
+  s: ({ a, ctx }) => ({
+    doc: 'repeatFork',
+    ...serverCommand(a),
+    cost: billed(attemptsPart(1, forkFrom(ctx))),
+  }),
+  // The forks with nothing to fill in ask by Spending, as they run live: their title and way on are the row's name.
+  a: ({ ctx, at }) => ({
+    lead: ctx.modelCall ? `Asks model call ${at} again, with nothing changed, so the run can take another path.` : `Runs call ${at} live instead of replaying it, so the run can take another path.`,
+    doc: 'forceLive',
+    cost: billed(liveFromPart(at)),
+  }),
+  g: ({ at }) => ({
+    lead: `Your code’s system prompt and tools answer from model call ${at} on.`,
+    doc: 'changedPrompt',
+    cost: billed(liveFromPart(at)),
   }),
   l: ({ a, ctx, named }) => ({
     lead: `Runs${named} for real at its first call and at every call of it after.`,
@@ -246,6 +264,17 @@ const FORKS: Record<string, (c: ForkContext) => Partial<DialogCopy>> = {
 
 function withCommand(command: ((answer: string) => string) | undefined): { command?: (answer: string) => string } {
   return command ? { command } : {};
+}
+
+/** The command the server runs for a fork with nothing to fill in: it names runs whole, and the row shows them short, as every fork's does. */
+function serverCommand(a: ActionLike): { command?: () => string } {
+  const line = a.command?.replace(/\b[0-9A-HJKMNP-TV-Z]{26}\b/g, (id) => shortId(id));
+  return line ? { command: () => line } : {};
+}
+
+/** Where a fork's attempts run live from: `#15`, or `the fork` where the run doesn't say. */
+function forkFrom(ctx: DialogContext): string {
+  return typeof ctx.forkAt === 'number' ? `#${ctx.forkAt}` : 'the fork';
 }
 
 /** The words a server's key doesn't say: a flag or a label names an inject, an override and the rest. */

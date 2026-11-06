@@ -223,3 +223,14 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
    by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
    option whose fill is lost is underlined; where you are is marked in the highlight colour. */
 @media (forced-colors: active) { .prl i, .cilist li i { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; } }
+
+/* Spending, on Project: its words a line a sentence, a dollar field with its $ inside, and four picks beside it. */
+.setrow.spend { border-top: 0; border-bottom: 1px solid var(--line); }
+.setrow .spendsay .ln { display: block; margin-top: 0; }
+.spendset { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.spendf { position: relative; display: inline-flex; align-items: center; }
+.setrow .spendf span { position: absolute; left: 11px; display: inline; margin: 0; color: var(--dim); font: 12.5px var(--mono); pointer-events: none; }
+.setrow .spendf input.inp { width: calc(8ch + 34px); min-width: 0; padding-left: 23px; }
+.setrow .spendf input.inp:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 18%, transparent); }
+@media (max-width: 640px) { .setrow.spend .spendset { align-self: stretch; justify-content: flex-start; } }
+@media (pointer: coarse) { .setrow.spend .seg button { position: relative; } .setrow.spend .seg button::after { content: ''; position: absolute; inset: -6px 0; } }

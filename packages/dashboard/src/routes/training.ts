@@ -3,6 +3,7 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
+import { liveAsk } from '../tests-live.js';
 import { exportPairsJob, modelsView, scoreModelJob, taskUpdateJob, type PairFilter } from '../training.js';
 
 /**
@@ -15,7 +16,8 @@ import { exportPairsJob, modelsView, scoreModelJob, taskUpdateJob, type PairFilt
  *   POST /api/jobs { kind: "task-update", golden }     a task whose test forks before its takeover:
  *                                                       normalize add for each value that changes every
  *                                                       run its fork shows, then shadowlap test <golden>
- *                                                       --update (or test alone, when those rules are the fix)
+ *                                                       --update (or test alone, when those rules are the fix,
+ *                                                       which asks first as Run tests does when it runs live)
  *
  * Tasks come from the CLI (`DashboardOptions.training.loadTasks`): a golden's checks are the CLI's to
  * read. Listing models asks each configured provider with the keys already on this machine, and
@@ -137,6 +139,10 @@ export function register(router: Router, ctx: RouteContext): void {
       if (t.error) return { error: t.error, status: 409 };
       const built = taskUpdateJob(req, store, t.tasks, normalizers());
       if ('error' in built) return built;
+      // Testing it again, with no re-record, asks first as Run tests does when the golden runs live;
+      // a re-record's own dialog says it runs live before the job is sent.
+      const asked = built.rerecords ? null : liveAsk(ctx.options.goldens?.() ?? [], built, req.yes);
+      if (asked) return asked;
       const [first, ...then] = built.steps;
       return { title: built.title, args: first!, ...(then.length ? { then } : {}) };
     },

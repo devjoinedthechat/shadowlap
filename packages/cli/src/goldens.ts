@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { PACK_FORMAT, PACK_LIMITS, isObject, messageOf, type Gate, type Normalizer } from '@shadowlap/engine';
-import { judgeChecksOf, specFor, type TestEntry, type TestSpec } from './checks.js';
+import { PACK_FORMAT, PACK_LIMITS, isObject, messageOf, testLive, type Gate, type Normalizer } from '@shadowlap/engine';
+import { specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath, loadTests } from './config.js';
 import { oracleLabels } from './oracle.js';
 
@@ -159,16 +159,14 @@ export function rawExpectFor(entries: readonly TestEntry[], recordingDir: string
 /** How a golden is tested, in the words the Tests screen uses. */
 export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[]; injection: boolean; judges: string[] } {
   return {
-    mode: spec?.fork ? 'fork' : 'replay',
     repeat: spec?.repeat ?? 1,
     passes: spec?.passes ?? 1,
     // With a gate, it decides how many attempts run: repeat and passes are 1.
     gate: spec?.gate ?? null,
     // The exit status is part of every golden's oracle; the screen lists the checks someone wrote.
     checks: spec ? oracleLabels(spec).slice(1) : [],
-    // What runs live in CI besides a fork: its injection test, from each planted payload, and the judges a fork asks.
-    injection: !!spec?.injection,
-    judges: spec ? [...new Set(judgeChecksOf(spec).map((j) => j.model))] : [],
+    // Its mode, and what runs live in CI besides a fork: its injection test, from each planted payload, and the judges a fork asks.
+    ...testLive(spec),
   };
 }
 

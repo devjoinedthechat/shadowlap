@@ -35,11 +35,20 @@ export const repairParts = (candidates: number, newBlame: boolean): string[] => 
 /** Where a fork runs live from (`#17`, `the next model call`), the writes after it fenced; `other writes` when one is forced live. */
 export const liveFromPart = (from: string, otherWrites = false): string => `live from ${from}, ${otherWrites ? 'other writes' : 'writes'} fenced`;
 
+/** A model call Shadowlap answers itself (`--fail-at` at a model call): nothing goes upstream there, though the calls after it may go live. */
+export const nothingUpstreamPart = (at: string): string => `nothing upstream at ${at}`;
+
 /** A fork's attempts, each live from where it forks: Repeat's and Plant's. */
 export const attemptsPart = (n: number, from: string): string => `${counted(n, 'attempt')}, ${liveFromPart(from)}`;
 
 /** Record run: the agent runs live, with nothing recorded yet to price its calls from. */
 export const RECORD_PART = 'the agent’s own model calls';
+
+/**
+ * Where a verify's attempts run live after a change in the code: each replays until a request
+ * differs. Its own card on a cost line says what a run whose replay doesn't fork costs.
+ */
+export const FORK_LIVE = { part: 'live where a replay forks', card: { title: 'A run whose replay doesn’t fork', line: 'settles in one free attempt' } } as const;
 
 /** Run more attempts on a golden's gate: up to how many more, live from where it forks. */
 export const moreAttemptsParts = (most: number): string[] => [`up to ${counted(most, 'more attempt')}`, 'live from where the golden forks, writes blocked'];

@@ -77,6 +77,10 @@
     "packages/dashboard/test/ui-tests-page.test.ts",
     // This renders the question a Tests job asks before it runs goldens live, from Tests, a run's banner and the palette.
     "packages/dashboard/test/ui-tests-ask.test.ts",
+    "packages/dashboard/test/ui-job-button.test.ts",
+    "packages/dashboard/test/ui-fork-spending.test.ts",
+    "packages/dashboard/test/ui-bisect-spending.test.ts",
+    "packages/dashboard/test/ui-spending-row.test.ts",
     "packages/dashboard/test/ui-training-page.test.ts",
     // These render the job drawer and the top bar, the palette, the card a refused link shows and
     // an exported copy's Provenance.

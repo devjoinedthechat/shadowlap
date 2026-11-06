@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { probesPart } from '../../../engine/src/cost-words.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge } from '../components/bits.js';
@@ -12,7 +11,7 @@ import { NotFoundPage } from '../pages/NotFound.js';
 import { APPLY_ASK } from '../page-ask.js';
 import { Unshown } from '../shell/unshown.js';
 import { copyText } from '../dom.js';
-import { approx, GLUED_SEPARATOR } from '../format.js';
+import { GLUED_SEPARATOR } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { addJobFooter } from '../job-actions.js';
 import { href } from '../route.js';
@@ -23,14 +22,22 @@ import { copiedTo, GoldenNameFields, nameFields, nameFlags, useGoldenNames } fro
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
 import { applySteps, keepsOf, markLead, PULLED_LINE, repairCost, updateOutdatedAsk } from './dialog-words.js';
+import { blameNextAsk } from './BlameAgain.js';
+import { blameNextPrice, repairCard, useFixEstimates } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
 import { appliedButton, blameNextStep, fixAction, fixName, fixStamp, laterStamp, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, stepLeads } from './model.js';
 import { FailedMust, Flagged } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
 import { VerifyStepView } from './VerifyStep.js';
-import { ACTIONS, confirmWords, STRONGER_MODEL } from '../labels.js';
+
+export { StrongerDialog } from './BlameAgain.js';
+import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { sentEstimate } from '../spending.js';
+import { JobButton } from '../components/JobButton.js';
+import { testsJob } from '../pages/tests-cards.js';
+import { updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 
 /**
  * A fix (#/fixes/<id>[/<step>[/<sub>]]): its title, check and runs; the stepper (Blame, Repair,
@@ -198,6 +205,8 @@ export function RenameFixDialog({ fix, onClose, onDone }: { fix: FixDetail; onCl
  */
 export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boolean }) {
   const app = useApp();
+  // What its billed jobs would cost, asked as the page opens and whenever the fix moves.
+  const prices = useFixEstimates(fix);
   const action = fixAction(fix);
   // A repair or an apply changes the working tree: it waits for every job running the agent from it.
   const busy = useTreeBusy('writes', fix.status === 'open' ? 'repair' : 'apply the patch');
@@ -276,7 +285,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
   return (
     <>
       {copy}
-      <ActionButton className={aside || blameNext || leads ? 'btn' : 'btn lime'} why={why} title={aside ?? undefined} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
+      <ActionButton className={aside || blameNext || leads ? 'btn' : 'btn lime'} why={why} {...repairCard(fix, action.kind, aside, prices)} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
         {action.kind === 'repair' ? ACTIONS.runRepair.label : action.label}
       </ActionButton>
       {blameNext ? (
@@ -288,10 +297,12 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
           lead={!leads}
           tip={blameNext.tip}
           command={blameNext.command}
-          {...(blameNext.kind === 'stronger' ? { ask: (start: (more: Record<string, unknown>) => boolean, close: () => void) => <StrongerDialog fix={fix} onRun={(model) => start({ model })} onClose={close} /> } : {})}
+          estimate={blameNextPrice(blameNext.kind, prices)}
+          form={blameNext.kind === 'stronger'}
+          ask={blameNextAsk(fix, blameNext.kind, blameNextPrice(blameNext.kind, prices))}
         />
       ) : null}
-      {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={(repairer) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer }))} /> : null}
+      {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={(repairer, sent) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer, ...sent }))} /> : null}
       {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={(names) => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId, ...(names ? { names } : {}) }))} /> : null}
       {consent ? (
         <ConsentDialog
@@ -311,7 +322,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
  * the job, which the server refuses if the config names another by then. One that can't be asked
  * from here (claude isn't on the PATH) is said instead, with what to do, and nothing can start.
  */
-export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: (repairer: string) => boolean }) {
+export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: (repairer: string, sent: Record<string, unknown>) => boolean }) {
   const { client } = useApp();
   const [fresh, setFresh] = useState<{ fix: FixDetail | null } | null>(null);
   useEffect(() => {
@@ -330,6 +341,8 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
   }, [client, fix.fixId]);
   const ask = repairAsk(fix, fresh);
   const now = fresh?.fix ?? fix;
+  // Priced again for the fix as it re-read it, so the repairer priced is the one it names.
+  const estimate = useFixEstimates(now)?.repair;
   const aside = repairAside(now);
   const repair = now.actions.repair;
   const stopped = now.actions.blameAgain?.kind === 'stopped';
@@ -356,35 +369,11 @@ export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose:
             ]
       }
       command={ask.command}
-      cost={repair && (!ask.why || repair.noFixWhy) ? repairCost(repair, stopped) : null}
+      cost={repair && (!ask.why || repair.noFixWhy) ? { ...repairCost(repair, stopped), estimate } : null}
       ok={ACTIONS.runRepair.label}
       okDisabled={!ask.ready}
       onClose={onClose}
-      onOk={() => (ask.ready && ask.repairer ? onRun(ask.repairer) : false)}
-    />
-  );
-}
-
-/**
- * Run blame with stronger model asks first, for the model: it answers from each probed call instead of
- * the recorded one, live, writes stubbed, at what that model costs a call. How to read what it finds
- * is the drawer's and the docs'.
- */
-export function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun: (model: string) => boolean; onClose: () => void }) {
-  const s = fix.actions.blameStronger;
-  const base = s ? s.command.replace(/ --model <model>$/, '') : '';
-  return (
-    <PromptDialog
-      title={confirmWords(ACTIONS.runBlameStronger.label)}
-      lead="Probes the run again with the model you name answering from each probed call."
-      doc="blame"
-      label="Model"
-      placeholder={STRONGER_MODEL}
-      ok={confirmWords(ACTIONS.runBlameStronger.label)}
-      command={(model) => `${base} --model ${model.trim() || '<model>'}`}
-      cost={{ price: 'Billed by your provider', parts: [...(s ? [`the last blame took ${s.attempts} attempts, ${approx(s.spent)}`] : []), probesPart()] }}
-      onRun={(model) => (model.trim() ? onRun(model.trim()) : false)}
-      onClose={onClose}
+      onOk={() => (ask.ready && ask.repairer ? onRun(ask.repairer, sentEstimate(estimate)) : false)}
     />
   );
 }
@@ -453,25 +442,33 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
 /**
  * The apply drawer's last word when the patch made other goldens diverge: Update goldens re-records
  * them (`shadowlap test <goldens> --update`), asking first, as the Tests screen's Update goldens does.
+ * Its card and its dialog's Cost line say what re-recording them together would bill (`GET
+ * /api/tests/estimates`, read once the apply has ended), and the job keeps the estimate shown.
  */
 function ApplyFooter({ job, plain }: { job: JobView; plain?: boolean }) {
   const app = useApp();
-  const [asking, setAsking] = useState(false);
+  const [asking, setAsking] = useState<Price | false>(false);
   const [started, setStarted] = useState(false);
   const outdated = outdatedOf(job.result);
-  if (!job.done || !outdated.length || !app.hasKind(JOB_KINDS.testUpdate)) return null;
+  const names = outdated.map((g) => g.golden).join('\n');
+  const paths = useMemo(() => (names ? names.split('\n') : []), [names]);
+  const shows = job.done && paths.length > 0 && app.hasKind(JOB_KINDS.testUpdate);
+  const prices = useTestsEstimates(shows ? job.id : null, paths);
+  if (!shows) return null;
   const ask = updateOutdatedAsk(outdated);
+  const card = { tip: ACTIONS.updateGoldens.label, command: ask.command };
   return (
     <>
-      <ActionButton className={plain ? 'btn' : 'btn lime'} disabled={started} title={ask.command} onClick={() => app.guard(() => setAsking(true))}>
-        Update goldens
-      </ActionButton>
-      {asking ? (
+      <JobButton className={plain ? 'btn' : 'btn lime'} disabled={started} {...testsJob(card, updatesPrice(prices, paths), (e) => app.guard(() => setAsking(e)))}>
+        {ACTIONS.updateGoldens.label}
+      </JobButton>
+      {asking !== false ? (
         <UpdateGoldenDialog
           plan={ask}
+          estimate={asking}
           onClose={() => setAsking(false)}
           onUpdate={() => {
-            const went = app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, ask.fields)));
+            const went = app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { ...ask.fields, ...sentEstimate(asking) })));
             if (went) setStarted(true);
             return went;
           }}

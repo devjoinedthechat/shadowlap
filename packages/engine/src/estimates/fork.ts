@@ -1,4 +1,4 @@
-import { attemptsPart, liveFromPart } from '../cost-words.js';
+import { attemptsPart, liveFromPart, nothingUpstreamPart } from '../cost-words.js';
 import { forkArgs } from '../run-actions.js';
 import type { CallRecord, RunRecord } from '../types.js';
 import { counted, liveFrom, modelFactor, noEstimate, noPriceWords, spentLive, timesWords, type Estimate, type PriceOptions, type PricedCall, type Prices } from './estimate.js';
@@ -51,7 +51,7 @@ function forkPrice(calls: readonly PricedCall[], change: ForkEstimateChange): Es
   const cost = liveFrom(calls, from, { model: change.model ?? null, prices: change.prices });
   if (cost.usd === null) return noEstimate('fork', noPriceWords(cost));
   if (cost.usd === 0 || cost.first === null) {
-    const why = change.answered ? `nothing upstream at #${change.at}` : cost.first === null ? `no model call comes after #${change.at}` : `live from #${cost.first}, nothing billed`;
+    const why = change.answered ? nothingUpstreamPart(`#${change.at}`) : cost.first === null ? `no model call comes after #${change.at}` : `live from #${cost.first}, nothing billed`;
     return { kind: 'fork', usd: 0, ceiling: false, parts: [why] };
   }
   const k = change.model ? modelFactor(calls, from, change.model, change.prices) : null;

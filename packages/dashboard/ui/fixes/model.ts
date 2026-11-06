@@ -138,7 +138,7 @@ export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind:
     return { kind: 'again', label: ACTIONS.runBlameAgain.label, tip, command: again.command };
   }
   const stronger = f.actions.blameStronger;
-  if (stronger) return { kind: 'stronger', label: ACTIONS.runBlameStronger.label, tip: 'Asks first: another model answers from each probed call instead of the recorded one', command: stronger.command };
+  if (stronger) return { kind: 'stronger', label: ACTIONS.runBlameStronger.label, tip: 'Another model answers from each probed call instead of the recorded one', command: stronger.command };
   return null;
 }
 
