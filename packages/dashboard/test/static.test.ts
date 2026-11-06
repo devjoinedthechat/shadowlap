@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, unpackRun } from '@shadowlap/engine';
 import { forkDifferences } from '../src/fork-differences.js';
+import { requestDiff } from '../src/request-diff.js';
+import { addRun } from './read-model-store.js';
 import { exportHtml, withAncestors, type StaticPayload } from '../src/index.js';
 import { parseRoute } from '../ui/route.js';
 import { defaultComparePair, type RunLike } from '../ui/runs.js';
@@ -45,6 +47,19 @@ afterAll(() => {
   store.close();
   rmSync(uiDir, { recursive: true, force: true });
 });
+
+const EMAIL = 'dana.lee@example.com';
+const SECRET = 'sk-test-4f9Qx7Lm2Np8Rt3V';
+const ASKED = `Refund order 1042 for ${EMAIL}, key ${SECRET}`;
+
+/** A recording and a fork whose first request changed, both carrying an address and a made-up key. */
+function divergedPair(): { fork: string; parent: string } {
+  const body = (asked: string) => ({ model: 'claude-sonnet-4-5', max_tokens: 512, system: `Write to ${EMAIL} when done.`, messages: [{ role: 'user', content: asked }] });
+  const parent = addRun(store, { startedAt: Date.UTC(2026, 10, 2, 9), calls: [{ code: 'l', request: body(ASKED) }] });
+  const fork = addRun(store, { parent, startedAt: Date.UTC(2026, 10, 2, 10), calls: [{ code: 'l', request: body(ASKED.replace('1042', '1043')) }] });
+  store.setDivergence(fork, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, counterpart: { runId: parent, callNo: 1 }, diff: [{ path: '$.messages[0].content', op: 'changed', before: ASKED, after: ASKED.replace('1042', '1043') }] });
+  return { fork, parent };
+}
 
 function embedded(html: string): StaticPayload {
   return JSON.parse(dataAsParsed(html)) as StaticPayload;
@@ -183,6 +198,45 @@ describe('export html', () => {
     const redacted = JSON.stringify(embedded(exportHtml({ store, runIds: [forkId, runId], uiDir, redact: rules }).html).responses[`runs/${forkId}/differences`]);
     expect(redacted).not.toContain('team@example.com');
     expect(redacted).toContain('<EMAIL>');
+  });
+
+  it('holds Show diff’s request for each run that diverged: whole with the run it is compared with, else its changes alone', () => {
+    const { fork, parent } = divergedPair();
+    const both = embedded(exportHtml({ store, runIds: [fork, parent], uiDir }).html);
+    expect(both.responses[`runs/${fork}/diff`]).toEqual(JSON.parse(JSON.stringify({ diff: requestDiff(store, store.getRun(fork)!, null, [], new Set([fork, parent])) })));
+    expect(both.responses[`runs/${fork}/diff`]).toMatchObject({ diff: { at: 1, whole: true, against: { runId: parent, callNo: 1 }, path: '$.messages[0].content' } });
+    // A recording never diverged: nothing held for it.
+    expect(both.responses[`runs/${parent}/diff`]).toBeUndefined();
+    // Without the run it is compared with, the divergence's own changes, as the file holds them anyway.
+    const alone = embedded(exportHtml({ store, runIds: [fork], uiDir }).html).responses[`runs/${fork}/diff`] as { diff: { whole: boolean; was: unknown; now: unknown } };
+    expect(alone.diff).toMatchObject({ whole: false, was: { 'messages[0]': { content: ASKED } }, now: { 'messages[0]': { content: ASKED.replace('1042', '1043') } } });
+  });
+
+  it('redacts Show diff’s request as the runs are: neither a secret nor a value a rule masks reaches the file in any form', () => {
+    const { fork, parent } = divergedPair();
+    const rules = [
+      { pattern: 'email', replace: '<EMAIL>' },
+      { pattern: '/sk-test-[A-Za-z0-9]+/', replace: '<KEY>' },
+    ];
+    for (const runIds of [[fork, parent], [fork]]) {
+      const { html } = exportHtml({ store, runIds, uiDir, redact: rules });
+      for (const value of [SECRET, EMAIL]) {
+        for (const form of [value, encodeURIComponent(value), Buffer.from(value).toString('base64'), JSON.stringify(value).slice(1, -1)]) expect(html, `${runIds.length} runs: ${form}`).not.toContain(form);
+      }
+      const diff = JSON.stringify(embedded(html).responses[`runs/${fork}/diff`]);
+      expect(diff).toContain('<EMAIL>');
+      expect(diff).toContain('<KEY>');
+    }
+  });
+
+  it('keeps a copy of many runs that diverged within what their requests weigh', () => {
+    const forks = Array.from({ length: 6 }, () => divergedPair().fork);
+    const data = embedded(exportHtml({ store, runIds: forks, uiDir }).html);
+    for (const fork of forks) {
+      const request = JSON.stringify(data.responses[`runs/${fork}/calls/1`]);
+      // Its two bodies and the words beside them, never more than the call's own details again and a little.
+      expect(JSON.stringify(data.responses[`runs/${fork}/diff`]).length).toBeLessThan(request.length + 2048);
+    }
   });
 
   it('applies redaction rules, as pack does', () => {
