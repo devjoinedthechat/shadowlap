@@ -8,7 +8,7 @@ import { BULK_BATCH, bulkToast, inBatches, joinDeleted, named } from './bulk.js'
 /**
  * The bulk bar's Delete, once its dialog is confirmed: the runs leave the lists `pending-delete.ts`
  * names at once and the toast says so, with Undo (⌘Z). The delete goes to the server when the toast
- * goes, however it goes (its time out, a newer toast, its ×), or before, as the page or the project
+ * goes, however it goes (its time out, a newer toast), or before, as the page or the project
  * changes, the toast then saying the same with no Undo; Undo before then puts the runs back on the
  * lists, as nothing was deleted. Sent, a second toast says only what differs from the first: runs
  * left alone, or a failure, and the runs come back.
@@ -76,7 +76,7 @@ export function useDeleteRuns(): (runs: readonly PendingRun[], from?: HTMLElemen
       run: () => {
         if (cancel(batch)) toast(`Restored ${named(ids)}`);
       },
-      // Pressed, the toast goes before its button's own work is done: Undo has taken the runs back by the next tick, and × hasn't.
+      // Pressed, by its button or its key, the toast goes before Undo's own work is done: by the next tick Undo has taken the runs back.
       onGone: (acted) => {
         toastGone = true;
         if (acted) queueMicrotask(go);

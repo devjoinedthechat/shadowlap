@@ -1,13 +1,14 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
+import { ToastHost } from '../ui/components/Toast.js';
 import { flush, pendingHidden } from '../ui/pending-delete.js';
 import { BulkBar, type PickedRun } from '../ui/runspage/BulkBar.js';
 import { labelSuggestions } from '../ui/runspage/bulk.js';
 import { KEEPALIVE_BYTES, sendDelete } from '../ui/runspage/delete-runs.js';
 import { switchProject } from '../ui/shell/ProjectBlock.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { ToastAction } from '../ui/toast.js';
+import { ACTION_TOAST_MS, type ToastAction, type ToastKind } from '../ui/toast.js';
 import type { DeleteResult, JobView } from '../ui/types.js';
 import { sheet } from './css-sheet.js';
 import { addressBar } from './ui-route-helpers.js';
@@ -82,6 +83,7 @@ let r: Rendered | null = null;
 afterEach(async () => {
   await r?.unmount();
   r = null;
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -129,7 +131,7 @@ describe('the bulk bar’s Delete', () => {
     expect(s.toast.mock.calls.filter((c) => c[0] === 'Restored 2 runs')).toHaveLength(1);
   });
 
-  it('deletes when the toast is closed with its ×', async () => {
+  it('deletes when the toast goes acted on and its Undo isn’t run', async () => {
     const runs = picked('XOUT');
     const s = setup([], runs);
     const { undo } = await confirmDelete(s, 2);
@@ -228,6 +230,55 @@ describe('the bulk bar’s Delete', () => {
     // What came is kept; what failed fails alone, as an answer, never thrown.
     expect(out.done).toHaveLength(2000);
     expect(failed).toBeInstanceOf(TypeError);
+  });
+});
+
+describe('the bulk bar’s Delete beside the dashboard’s toast', () => {
+  /** The bar and the dashboard's own toast, which the app's `toast` raises, as the shell draws them. */
+  function withToast(runs: PickedRun[]) {
+    const deleteRuns = vi.fn((ids: string[]) => Promise.resolve(deleted(ids)));
+    const refresh = vi.fn();
+    const client = { deleteRuns } as unknown as Client;
+    function Shell() {
+      const [toastText, setToastText] = useState<AppState['toastText']>(null);
+      const toast = (text: string, kind: ToastKind = 'notice', action?: ToastAction) => setToastText({ id: Math.random(), text, kind, ...(action ? { action } : {}) });
+      const app = { client, exported: false, meta: null, actionsOff: null, conn: 'ok', jobs: [], hasKind: () => true, guard: (fn: () => void) => (fn(), true), toast, toastText, refresh, watchJob: () => undefined, runs: [] } as unknown as AppState;
+      return createElement(AppContext.Provider, { value: app }, createElement(BulkBar, { runs, store: false, clear: () => undefined, onDone: () => undefined }), createElement(ToastHost));
+    }
+    return { deleteRuns, refresh, element: createElement(Shell) };
+  }
+
+  async function confirm(t: ReturnType<typeof withToast>) {
+    r = await render(t.element);
+    await r.click(r.byText('.bulkbar button', 'Delete 2 runs'));
+    await r.click(r.byText('.dialog button', 'Delete 2 runs'));
+    expect(text(r, '.toast span')).toBe('Deleted 2 runs and 44 attempts');
+  }
+
+  it('deletes nothing when its Undo is pressed, the runs back on the lists', async () => {
+    const runs = picked('TBTN');
+    const t = withToast(runs);
+    await confirm(t);
+    expect(runs.every((x) => pendingHidden().has(x.runId))).toBe(true);
+    await r!.click(r!.byText('.toast button', 'Undo'));
+    await r!.wait(50);
+    expect(t.deleteRuns).not.toHaveBeenCalled();
+    expect(text(r!, '.toast span')).toBe('Restored 2 runs');
+    expect(runs.some((x) => pendingHidden().has(x.runId))).toBe(false);
+  });
+
+  it('sends the delete once its toast goes, once', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const runs = picked('TOUT');
+    const t = withToast(runs);
+    await confirm(t);
+    await r!.wait(ACTION_TOAST_MS - 100);
+    expect(t.deleteRuns).not.toHaveBeenCalled();
+    await r!.wait(200);
+    await r!.until('the delete to answer', () => t.refresh.mock.calls.length > 0);
+    expect(t.deleteRuns).toHaveBeenCalledTimes(1);
+    expect(t.deleteRuns).toHaveBeenCalledWith(runs.map((x) => x.runId));
+    expect(r!.all('.toast')).toHaveLength(0);
   });
 });
 
