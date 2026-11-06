@@ -503,7 +503,7 @@ describe('a `$` row', () => {
 });
 
 describe('a fix’s dialogs', () => {
-  const APPLY = { kind: 'patch', argv: [], gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, change: null };
+  const APPLY = { kind: 'patch', argv: [], gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
   const fix = (over: Record<string, unknown> = {}, actions: Record<string, unknown> = {}) =>
     ({
       fixId: 'fx-1',
@@ -558,6 +558,10 @@ describe('a fix’s dialogs', () => {
     const page = await open(createElement(ApplyDialog, { fix: fix({}, { apply: APPLY }), label: 'Apply fix', onRun: () => true, ...closes }));
     holds(page, { title: 'Apply fix?', doc: 'repairHandover', first: OK, ok: 'Apply fix' });
     expect(page.all('.ondisk.steps li').map((l) => l.querySelectorAll('span')[0].textContent)).toEqual(['Patch applied', 'Recording copied', 'Golden replayed', 'Other goldens replayed']);
+    await page.unmount();
+    // A golden it copies asks its name, under the patch: the field takes the focus.
+    const named = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, names: [{ run: '01K5CQ2E8M', name: 'double-email' }], held: [] } }), label: 'Apply fix', onRun: () => true, ...closes }));
+    holds(named, { title: 'Apply fix?', doc: 'repairHandover', first: FIELD, ok: 'Apply fix' });
   });
   it('Mark fix applied, and Finish applying fix', async () => {
     const page = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, kind: 'mark', goldens: 0 } }), label: 'Mark applied', onRun: () => true, ...closes }));

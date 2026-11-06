@@ -3,7 +3,7 @@ import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareHead, compareView } from './compare.js';
-import { fixDetail, patchesToCheck } from './fixes.js';
+import { fixDetail, goldensFolderIn, patchesToCheck } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
 import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
@@ -121,7 +121,7 @@ type CoreJob =
    * the config names, whether each patch the fix could apply is in the working tree, as git said on
    * the server's thread, and why `fix apply` refuses a pulled repair's patch there, by the repair.
    */
-  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]> };
+  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]>; project?: string };
 
 /** A run id that names no single run: several runs (409), or none (404). */
 function noRun(store: StoreOf<'readModels'>, id: string): ReadAnswer {
@@ -188,11 +188,15 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, tea
   return answer({ ...page, runs: nextStepRows(store, withExitCodes(store, judgedRows(store, runs, outcome, whole ? Infinity : ROW_CALLS_BUDGET, { checks: true })), next) }, { tagged: true });
 }
 
-/** A fix's page, with what the server's thread found in the working tree: patches in it already, and pulled ones `fix apply` refuses there. */
+/**
+ * A fix's page, with what the server's thread found in the working tree: patches in it already, and
+ * pulled ones `fix apply` refuses there. The names the project's goldens folder holds, which the
+ * goldens Apply fix copies can't take, are read here, beside the server.
+ */
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}) });
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
   return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 

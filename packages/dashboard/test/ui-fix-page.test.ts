@@ -31,10 +31,16 @@ afterEach(async () => {
   store.close();
 });
 
-/** The app as the shell gives it, its server answering from the store; `inTree` stands for git saying a patch is in the working tree. */
-function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): AppState {
+/** What the project's goldens folder holds, as the page is told: every name in it, and the recordings in it already. */
+type Folder = { held?: string[]; there?: Array<{ run: string; at: string }> };
+
+/**
+ * The app as the shell gives it, its server answering from the store; `inTree` stands for git saying
+ * a patch is in the working tree, `held` and `there` for what the project's goldens folder holds.
+ */
+function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } & Folder = {}): AppState {
   const client = {
-    fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}) })),
+    fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}), ...(o.held ? { goldensFolder: () => ({ there: o.there ?? [], held: o.held! }) } : {}) })),
     fixes: () => Promise.resolve(fixList(store)),
     attemptGroups: (id: string) => Promise.resolve(fixAttemptGroups(store, id)),
     jobs: () => Promise.resolve([]),
@@ -59,7 +65,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?
 }
 
 /** The fix's page, opened at a step, once it has loaded. */
-async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } = {}): Promise<Rendered> {
+async function open(fixId: string, step: string | null = null, sub: string | null = null, o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?: string } & Folder = {}): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(o) }, createElement(FixPage, { id: fixId, step, sub })));
   await r.until('the fix to load', () => r!.all('h1').length === 1);
   return r;
@@ -267,10 +273,11 @@ describe('Run repair', () => {
 
 describe('Apply fix', () => {
   /** A verified fix, its repair's patch not applied yet. */
-  function verified(): string {
-    const run = newRun({ labels: ['refund-bug'] });
-    const { fix } = blame(run);
-    recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run] }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
+  /** A fix a repair verified, having fixed `runs` failing runs labelled refund-bug. */
+  function verified(runs = 1): string {
+    const fixed = Array.from({ length: runs }, () => newRun({ labels: ['refund-bug'] }));
+    const { fix } = blame(fixed[0]);
+    recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: fixed }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
     return fix.fixId;
   }
   const buttons = () => r!.all('.ph .actions button').map(text);
@@ -289,6 +296,99 @@ describe('Apply fix', () => {
     // Its dialog asks with its name, as one that changes your working tree, and confirms with it.
     await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
     expect([text(r!.one('.dialog h3')), text(r!.one('.dialog .dlg-ok'))]).toEqual(['Apply fix?', 'Apply fix']);
+  });
+
+  it('asks a name for each golden it copies, checks it as it is typed, and sends it with the job', async () => {
+    const started: Array<[string, unknown]> = [];
+    const fixId = verified();
+    const run = fixDetail(store, fixId)!.actions.apply!.names[0].run;
+    await open(fixId, null, null, { started, held: ['refund-in-limit'] });
+    await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
+    const field = () => r!.one('.dialog .gnames input');
+    const said = () => r!.all('.dialog .fieldnote.err').map(text);
+    const ok = () => r!.one('.dialog .dlg-ok');
+    const command = () => text(r!.one('.dialog .cmdline'));
+    const copied = () => text(r!.all('.dialog .ondisk.steps li small')[1]);
+    // Under the patch, prefilled from the fix's label, never the run's id; its command and its step follow it.
+    expect(text(r!.one('.dialog .gnames label'))).toBe(`The golden from ${run}goldens/`);
+    expect([field().value, field().getAttribute('aria-label')]).toEqual(['refund-bug', `Name of the golden from ${run}`]);
+    expect(command()).toContain(`shadowlap fix apply ${fixId.slice(0, 13)} --name ${run}=refund-bug`);
+    expect(copied()).toBe('goldens/refund-bug');
+    expect([said(), ok().disabled]).toEqual([[], false]);
+    // Each name that won't do says why under the field, and Apply fix waits until it will.
+    for (const [typed, why] of [
+      ['Refund Bug', 'A golden’s name takes lower-case letters, digits and hyphens.'],
+      ['', 'Give the golden a name.'],
+      ['refund-in-limit', 'goldens/refund-in-limit is taken: pick another name.'],
+    ]) {
+      await r!.type(field(), typed);
+      expect([said(), ok().disabled, field().getAttribute('aria-invalid')]).toEqual([[why], true, 'true']);
+      expect(field().getAttribute('aria-describedby')).toBe(r!.one('.dialog .fieldnote.err').getAttribute('id'));
+    }
+    await r!.type(field(), '');
+    expect(command()).toContain(`--name ${run}=<name>`);
+    expect(copied()).toBe('goldens/<name>');
+    await r!.type(field(), ' refund-over-limit ');
+    expect([said(), ok().disabled, field().getAttribute('aria-invalid')]).toEqual([[], false, null]);
+    expect(command()).toContain(`--name ${run}=refund-over-limit`);
+    await r!.click(ok());
+    expect(started).toEqual([['apply', { fixId, names: { [run]: 'refund-over-limit' } }]]);
+  });
+
+  it('numbers two goldens’ names, says the second of two the same won’t do, and counts what it copies now', async () => {
+    const started: Array<[string, unknown]> = [];
+    const fixId = verified(2);
+    const runs = fixDetail(store, fixId)!.actions.apply!.names.map((n) => n.run);
+    await open(fixId, null, null, { started, held: [] });
+    await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
+    const fields = () => r!.all('.dialog .gnames input');
+    // The step after the patch: what it does, and where.
+    const step = () => r!.all('.dialog .ondisk.steps li')[1].children.filter((c) => c.tagName === 'SPAN' || c.tagName === 'SMALL').map(text);
+    expect(fields().map((f) => f.value)).toEqual(['refund-bug-1', 'refund-bug-2']);
+    expect(step()).toEqual(['2 recordings copied', 'into goldens/, as named below']);
+    await r!.type(fields()[1], 'refund-bug-1');
+    expect(r!.all('.dialog .fieldnote.err').map(text)).toEqual(['Each golden needs a name of its own.']);
+    expect(fields().map((f) => f.getAttribute('aria-invalid'))).toEqual([null, 'true']);
+    expect(r!.one('.dialog .dlg-ok').disabled).toBe(true);
+    await r!.type(fields()[1], 'refund-twice');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['apply', { fixId, names: { [runs[0]]: 'refund-bug-1', [runs[1]]: 'refund-twice' } }]]);
+    // One in goldens/ already keeps its name: asked none, and copied by no step.
+    await r!.unmount();
+    await open(fixId, null, null, { held: [runs[1]], there: [{ run: runs[1], at: runs[1] }] });
+    await r!.click(r!.byText('.ph .actions button', 'Apply fix'));
+    expect(fields().map((f) => f.value)).toEqual(['refund-bug-1']);
+    expect(step()).toEqual(['Recording copied', 'goldens/refund-bug-1']);
+  });
+
+  it('asks the golden’s name in Mark fix applied?, for a patch already in the working tree', async () => {
+    const started: Array<[string, unknown]> = [];
+    const fixId = verified();
+    const run = fixDetail(store, fixId)!.actions.apply!.names[0].run;
+    await open(fixId, null, null, { started, inTree: true, held: [] });
+    await r!.click(r!.byText('.ph .actions button', 'Mark applied'));
+    expect(text(r!.one('.dialog h3'))).toBe('Mark fix applied?');
+    expect(r!.one('.dialog .gnames input').value).toBe('refund-bug');
+    await r!.type(r!.one('.dialog .gnames input'), 'refund-merged');
+    expect(text(r!.one('.dialog .cmdline'))).toContain(`--name ${run}=refund-merged`);
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['apply', { fixId, names: { [run]: 'refund-merged' } }]]);
+  });
+
+  it('asks Finish applying fix? the names of the goldens an apply left, and none of those it copied', async () => {
+    const started: Array<[string, unknown]> = [];
+    const fixId = verified(2);
+    const runs = fixDetail(store, fixId)!.actions.apply!.names.map((n) => n.run);
+    markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: ['goldens/refund-twice'], tests: 'passed', via: 'fix apply', from: { 'goldens/refund-twice': runs[0] } });
+    await open(fixId, null, null, { started, held: ['refund-twice'] });
+    await r!.click(r!.byText('.ph .actions button', 'Finish applying'));
+    expect(text(r!.one('.dialog h3'))).toBe('Finish applying fix?');
+    expect(r!.all('.dialog .gnames input').map((f) => [f.value, f.getAttribute('aria-label')])).toEqual([['refund-bug-2', `Name of the golden from ${runs[1]}`]]);
+    await r!.type(r!.one('.dialog .gnames input'), 'refund-twice');
+    expect(r!.all('.dialog .fieldnote.err').map(text)).toEqual(['goldens/refund-twice is taken: pick another name.']);
+    await r!.type(r!.one('.dialog .gnames input'), 'refund-once');
+    await r!.click(r!.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['apply', { fixId, names: { [runs[1]]: 'refund-once' } }]]);
   });
 
   it('offers the patch to read on an applied fix, never a git apply that would fail', async () => {

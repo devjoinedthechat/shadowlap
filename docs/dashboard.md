@@ -1465,6 +1465,13 @@ Each is built from the blame's report and the flags kept beside it, as Run more 
 - **A patch that is more than the change its repair verified** (another file, a file made, renamed or given a mode, lines its candidate doesn't rewrite) can't be applied from here. The button stays off and says why, Copy git apply is gone, and `fix apply` refuses it.
 - **A teammate's patch that is no rewrite a repair makes in your working tree** (code or a comment rewritten, text past the end of its string, a file or a value that runs) is refused the same way. See [the team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites).
 
+Under the patch, the dialog asks a name for each golden it copies: *The golden from `01K5CQ2E8M`*, filled with the fix's label (`refund-bug`, or `refund-bug-1` and `refund-bug-2` for two), never the run's id.
+
+- A name takes lower-case letters, digits and hyphens, from a letter or a digit, one golden each, and not one `goldens/` holds already. Under the field, the dialog says why one won't do, such as *goldens/refund-bug is taken: pick another name.*, and Apply fix waits until each will.
+- The command follows what you type, `shadowlap fix apply <fix> --name 01K5CQ2E8M=refund-bug`, and the step says where each recording goes.
+- A recording in `goldens/` already keeps its name and is asked none, as [`fix apply`](./cli.md#fix-apply) keeps it: one an earlier apply copied, under whatever name it gave it, or one `repair --goldens` copied under the run's id.
+- Mark applied and Finish applying ask the names of the goldens they copy too.
+
 For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too. A prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call.
 
 - The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`.
@@ -2233,7 +2240,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | Job | What it runs |
 | --- | --- |
 | `action { runId, key, callNo?, value?, yes? }` | A run action the terminal UI shares: replay, the fork menu, repeat, pack, the suggested normalizer |
-| `apply { fixId }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens tested |
+| `apply { fixId, names? }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens named by their runs as `names` says, and tested |
 | `bisect { golden \| runId, good, bad? }` | Find breaking commit |
 | `blame { runId, expect?, command?, yes? }` | Blame with the check given, else the one it was judged by, else a 422 that asks for it. A capture takes your `command` |
 | `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |
