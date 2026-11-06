@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
+import { useTestsWait } from '../fixes/tree.js';
 import { shortId } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
@@ -8,14 +9,15 @@ import { navigate } from '../router.js';
 import { MARKS, type RunMark } from '../runkey.js';
 import { keyColumn } from '../shortcuts.js';
 import { useApp, type PaletteCommand } from '../state.js';
-import { nextStepOf, replayAction, stepEntry } from './next-step.js';
-import { useStepWait } from './NextStepButton.js';
+import { nextStepOf, PACK_VERB, replayAction, stepEntry } from './next-step.js';
+import { plainPackFolder, useStepWait } from './NextStepButton.js';
+import { packRunCommand } from './share.js';
 import { bisectLabel } from './offers.js';
 
-/** Presses the header's lime button, or says why not, where a job started since the palette opened. */
-function pressStep(toast: (text: string) => void): void {
+/** Presses the header's lime button, or another by its selector, or says why not, where a job started since the palette opened. */
+function pressStep(toast: (text: string) => void, selector = '.rhead [data-next]'): void {
   setTimeout(() => {
-    const button = document.querySelector<HTMLButtonElement>('.rhead [data-next]');
+    const button = document.querySelector<HTMLButtonElement>(selector);
     if (button?.disabled) toast(button.title);
     else button?.click();
   });
@@ -56,6 +58,8 @@ export function useRunCommands(o: {
   const live = run.run.status === 'running';
   const next = nextStepOf(run);
   const wait = useStepWait(run, next);
+  const packWait = useTestsWait(PACK_VERB);
+  const packFolder = exported || actionsOff ? null : plainPackFolder(run, offers, next);
   const now = useLatest(o);
   useEffect(() => {
     const items = leadCommands(run, { exported, actionsOff, wait, toast, run: (p) => now.current.actions.run(p) });
@@ -71,6 +75,8 @@ export function useRunCommands(o: {
           if (btn) setTimeout(() => now.current.forkMenu.openAt(btn));
         },
       });
+    // Pack as golden… where another step leads: the header's plain button, pressed as the lead is.
+    if (packFolder) items.push({ group: 'This run', label: ACTIONS.packAsGolden.label, hint: packRunCommand(runId, packFolder), match: 'golden keep test', job: true, ...(packWait ? { wait: packWait } : {}), run: () => pressStep(toast, '.rhead [data-fold="pack"]') });
     if (!exported)
       items.push({
         group: 'This run',
@@ -93,6 +99,6 @@ export function useRunCommands(o: {
     if (run.parent && next?.key !== 'compare') items.push({ group: 'This run', label: ACTIONS.compareWithParent.label, hint: `shadowlap diff ${shortId(run.parent.runId)} ${shortId(runId)}`, short: `against ${shortId(run.parent.runId)}`, key: keyColumn('compare'), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the commands change with what they show; the functions they call are read when they run, and taking them in would register the commands again on every render
-  }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n'), next?.key, next?.label, next?.href, next?.command, run.replay?.label, wait]);
+  }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n'), next?.key, next?.label, next?.href, next?.command, run.replay?.label, wait, packFolder, packWait]);
   useEffect(() => () => setRunCommands([]), [setRunCommands]);
 }

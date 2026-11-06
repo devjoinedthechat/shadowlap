@@ -7,7 +7,7 @@ import { useRunCommands } from '../ui/run/run-commands.js';
 import type { Route } from '../ui/route.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState, type PaletteCommand } from '../ui/state.js';
-import type { NextStep, RunDetail, RunListItem } from '../ui/types.js';
+import type { NextStep, RunDetail, RunListItem, RunOffers } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -37,10 +37,10 @@ function detail(next: NextStep | null, o: { actions?: unknown[]; replay?: NextSt
 }
 
 /** What This run lists for a run's page, as the page's hook hands it to the palette. */
-async function thisRun(run: RunDetail, app: Partial<AppState> = {}): Promise<PaletteCommand[]> {
+async function thisRun(run: RunDetail, app: Partial<AppState> = {}, offers: RunOffers | null = null): Promise<PaletteCommand[]> {
   let items: PaletteCommand[] = [];
   const Page = () => {
-    useRunCommands({ run, selected: 3, canFork: true, canMark: false, labels: [], mark: () => undefined, offers: null, actions: { run: () => undefined, findCommit: () => undefined }, forkMenu: { openAt: () => undefined }, setView: () => undefined });
+    useRunCommands({ run, selected: 3, canFork: true, canMark: false, labels: [], mark: () => undefined, offers, actions: { run: () => undefined, findCommit: () => undefined }, forkMenu: { openAt: () => undefined }, setView: () => undefined });
     return null;
   };
   const value = { client: { jobs: () => Promise.resolve([]) }, feeds: {}, jobs: [], meta: null, exported: false, actionsOff: null, hasKind: () => true, toast: () => undefined, setRunCommands: (x: PaletteCommand[]) => (x.length ? (items = x) : undefined), ...app } as unknown as AppState;
@@ -51,6 +51,24 @@ async function thisRun(run: RunDetail, app: Partial<AppState> = {}): Promise<Pal
 }
 
 describe('This run', () => {
+  it('offers Pack as golden… before Share… where another step leads, the pack as its hint, found by golden, keep and test', async () => {
+    const folder = `goldens/${RUN.slice(0, 10).toLowerCase()}`;
+    const offers = { keep: { folder } } as unknown as RunOffers;
+    const blame: NextStep = { key: 'blame', label: 'Run blame', offer: { from: 'exit', expect: null, failed: [] }, command: `shadowlap blame ${RUN.slice(0, 10)}` };
+    // A run's page has its calls and its summary, which say whether it failed.
+    const page = (next: NextStep) => ({ ...detail(next), calls: [], summary: { cost: { spent: 0, saved: 0, captured: 0 }, imported: null } }) as unknown as RunDetail;
+    const items = await thisRun(page(blame), {}, offers);
+    const labels = items.map((x) => x.label);
+    expect(labels.indexOf('Pack as golden…')).toBe(labels.indexOf('Share…') - 1);
+    expect(items.find((x) => x.label === 'Pack as golden…')).toMatchObject({ group: 'This run', hint: `shadowlap pack ${RUN.slice(0, 10)} ${folder}`, job: true });
+    for (const word of ['keep', 'test', 'golden']) expect(matchPalette(items, word).map((x) => x.label)).toContain('Pack as golden…');
+    // Where it leads, its row is the step's; a copy, or a dashboard that can't start jobs, has none.
+    const lead: NextStep = { key: 'pack', label: 'Pack as golden…', runId: RUN, folder, command: `shadowlap pack ${RUN.slice(0, 10)} ${folder}` };
+    expect((await thisRun(page(lead), {}, offers)).filter((x) => x.label === 'Pack as golden…')).toHaveLength(1);
+    expect((await thisRun(page(blame), { exported: true }, offers)).map((x) => x.label)).not.toContain('Pack as golden…');
+    expect((await thisRun(page(blame), { actionsOff: 'Read-only' }, offers)).map((x) => x.label)).not.toContain('Pack as golden…');
+  });
+
   it('sets the next step’s key by what it presses, never by what it says', () => {
     const blame: NextStep = { key: 'blame', label: 'Run blame', offer: { from: 'exit', expect: null, failed: [] } };
     expect(stepEntry(blame).key).toBe('b');
