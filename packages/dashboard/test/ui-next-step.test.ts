@@ -119,7 +119,8 @@ describe('the run page’s next step', () => {
     expect(shownText(page.one('.banner .bk'))).toBe('lost gradually around');
     expect(page.all('.banner .bn').map((b) => b.textContent)).toEqual(['#5', '#7']);
     expect(page.one('.banner').textContent).toContain('#5 and #7');
-    expect(page.one('.banner .why').textContent).toContain('model calls 3 and 4 of 5');
+    // Its tally kept whole where the line wraps, as every finding keeps one.
+    expect(page.one('.banner .why').textContent).toContain('model calls 3 and 4\u00a0of\u00a05');
     await page.click(page.all('.banner .bn')[1]);
     expect(selected).toEqual([7]);
   });

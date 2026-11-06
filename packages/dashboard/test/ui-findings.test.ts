@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Client } from '../ui/api.js';
+import { glued, wholeTallies } from '../ui/format.js';
 import type { Banner as BannerView } from '../ui/run/banner.js';
 import { bannerSeverity, runFindings } from '../ui/run/findings.js';
 import { Banner, FindingsBar, forgetOpenFindings } from '../ui/run/FindingsBar.js';
@@ -73,6 +74,9 @@ describe('the order of a run’s findings', () => {
   it('weighs a check that couldn’t be judged as one to look at, and the fork’s differences only once they have come', () => {
     expect(bannerSeverity({ kind: 'checks', checks: [{ label: 'judge', text: 'judge · inconclusive', status: 'inconclusive' }], why: null })).toBe(1);
     expect(bannerSeverity({ kind: 'checks', checks: [{ label: 'judge', text: 'judge · 5 of 5' }], why: null })).toBe(0);
+    // A check's chip wraps only after its separator, never before its dot nor inside its tally.
+    expect(glued(wholeTallies('judge · 5 of 5'))).toBe('judge\u00a0· 5\u00a0of\u00a05');
+    expect(wholeTallies('stopped at #19 · 18 of 30 calls')).toBe('stopped at #19 · 18\u00a0of\u00a030 calls');
     expect(runFindings({ own: null, differences: null, notRecorded: null, notes: [] })).toEqual([]);
   });
 });

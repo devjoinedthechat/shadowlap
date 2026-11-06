@@ -10,7 +10,7 @@ import { firstWords } from '../outcome-tip.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
-import { glued, GLUED_SEPARATOR } from '../format.js';
+import { glued, GLUED_SEPARATOR, wholeTallies } from '../format.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { runType } from '../runs.js';
@@ -83,12 +83,13 @@ function Why({ children, code, lead, gloss }: { children: string; code?: string 
 }
 
 /**
- * A line as the banner sets it: wrapping only after a separator, never before its dot, with the flag
+ * A line as the banner sets it: wrapping only after a separator, never before its dot nor inside a
+ * tally (`5 of 5`), with the flag
  * in it set as code, and where asked the glossary's words in it marked (`lost`, `stubbed`, `fenced`).
  */
 function said(text: string, code?: string | readonly string[] | null, gloss = false): ReactNode[] {
   return codeParts(text, typeof code === 'string' ? [code] : (code ?? [])).map((p, i) =>
-    typeof p !== 'string' ? <code key={i}>{p.code}</code> : gloss ? <Fragment key={i}>{glossed(glued(p))}</Fragment> : glued(p),
+    typeof p !== 'string' ? <code key={i}>{p.code}</code> : gloss ? <Fragment key={i}>{glossed(glued(wholeTallies(p)))}</Fragment> : glued(wholeTallies(p)),
   );
 }
 
@@ -257,7 +258,7 @@ function PresetFinding({ b, x, s }: { b: Of<'preset'>; x: Draw; s: Slot }) {
       <span className="bk">forked at</span>
       {b.callNo !== null ? x.call(b.callNo) : null}
       {/* A tally never breaks inside: "attempt 1 of 6". */}
-      <span className="why">{b.why.replace(/(\d+) of (\d+)/g, '$1\u00a0of\u00a0$2')}</span>
+      <span className="why">{wholeTallies(b.why)}</span>
       {b.golden ? (
         <span className="end">
           <a className="more" href={href.tests()} title={`${goldenName(b.golden)} on Tests`}>
@@ -368,7 +369,7 @@ function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
       {b.checks.map((c) => (
         <span className={`st ${c.status === 'not-applicable' ? 'n' : c.status === 'inconclusive' ? 'warn' : 'ok'}`} key={c.label}>
           <i />
-          {c.text}
+          {glued(wholeTallies(c.text))}
         </span>
       ))}
       {b.why ? <Why gloss>{b.why}</Why> : null}
