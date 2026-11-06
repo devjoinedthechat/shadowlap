@@ -11,31 +11,29 @@ import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
 import { callName, sameRun } from '../format.js';
 import { runRefresh } from '../connection.js';
 import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
-import { followNewest, mergeRun, settledThrough } from '../live.js';
+import { mergeRun, settledThrough } from '../live.js';
 import { countOrigins, presentOrigins } from '../origins.js';
 import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../recorded.js';
 import { href, nextView, VIEWS, type View } from '../route.js';
 import { setOpenRunAbout } from '../title.js';
 import { navigate } from '../router.js';
-import { inScope, scopeChips, scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { useActionRunner } from '../run/actions.js';
-import { CallsTable, CallsToolbar, matchesFilter, pendingMatches, type OriginFilter } from '../run/CallsView.js';
+import { CallsTable, CallsToolbar } from '../run/CallsView.js';
+import { useCallList } from '../run/call-list.js';
 import { onShow } from '../components/OnShow.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
-import { askedTools } from '../run/calls.js';
-import { presetAttempt } from '../run/preset.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
-import { firstFailedCall, openOn, rememberCall } from '../run/open-at.js';
-import { ancestorsOf, callTree, heads, unfolded } from '../run/groups.js';
+import { firstFailedCall } from '../run/open-at.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
 import { DiffPanel, RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
 import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
-import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
-import { runNotes } from '../run/notes.js';
+import { followPages } from '../run/paging.js';
+import { useRunExtras } from '../run/run-extras.js';
+import { useRunSelection } from '../run/run-selection.js';
 import { useRunCommands } from '../run/run-commands.js';
 import { useWholeStep } from '../run/NextStepButton.js';
 import { RunHeader } from '../run/RunHeader.js';
@@ -70,9 +68,6 @@ function warmViews(): void {
 }
 
 let lastTab: InspectorTab = 'conversation';
-
-/** No group folded. */
-const NO_FOLDS: ReadonlySet<number> = new Set();
 
 const VIEW_NAMES: Readonly<Record<View, string>> = { calls: 'Calls', turns: 'Turns', context: 'Context', timeline: 'Timeline', forks: 'Forks', provenance: 'Provenance' };
 
@@ -234,26 +229,6 @@ function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | n
   }, [want, detail, theirs.data, forkAt, run.run.meta?.test]);
 }
 
-/**
- * The page's address and what it remembers of where it is. A short id (`id`) settles on the full one,
- * and a link naming no call lands on the one the page shows; that call is kept for the session
- * (open-at.ts); and Run blame placing the loss while the page is open moves the selection and the
- * address there.
- */
-function useOpenAt({ runId, id, call, selected, lostAt, view }: { runId: string; id: string; call: number | null; selected: number | null; lostAt: number | null; view: View | null }): void {
-  useEffect(() => {
-    if (runId !== id || (call === null && selected !== null)) navigate(href.run(runId, call ?? selected, view), true);
-  }, [runId, id, call, selected, view]);
-  useEffect(() => {
-    if (runId === id && selected !== null) rememberCall(runId, selected);
-  }, [runId, id, selected]);
-  const lostBefore = useRef(lostAt);
-  useEffect(() => {
-    if (runId === id && lostBefore.current === null && lostAt !== null) navigate(href.run(runId, lostAt, view), true);
-    lostBefore.current = lostAt;
-  }, [lostAt, runId, id, view]);
-}
-
 function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
   // A long run's calls come a page at a time (paging.ts): `run` holds those read so far, its next step whole once that is known.
@@ -265,7 +240,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     setOpenRunAbout(run.run.runId, run.about ?? null);
   }, [run.run.runId, run.about]);
   useEffect(() => () => setOpenRunAbout(null), []);
-  const { client, exported, actionsOff, runKeys, runsTick } = app;
+  const { client, exported, actionsOff, runKeys } = app;
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   // Each model named as the page names it everywhere: claude-opus-5, not opus-5 here and the full id there.
@@ -275,83 +250,17 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const forkMark = forkMarkOf(run);
   const blame = useMemo(() => blameOf(run), [run]);
   const lostAt = blame?.callNo ?? null;
-  // The newest call: the last of the run's count while its pages come, never the last read.
-  const last = paging ? paging.total : calls.length ? calls[calls.length - 1]!.callNo : null;
   // A failed run opens where it first failed, every call's origin read while a long run's pages come;
   // clock and random reads are never where a run opens (open-at.ts).
   const failedAt = useMemo(() => ((run.state?.failed ?? run.run.status === 'failed') ? firstFailedCall(calls, paging?.origins ?? null) : null), [run.state?.failed, run.run.status, calls, paging?.origins]);
   // Its verdict by checks, which a long run's analysis may give after its first answer: its first fact and findings say it.
   const { judged, outcomeAt } = useJudgedAt(run);
-  // A call picked on this run's page earlier in the session comes first, then the most telling (open-at.ts); a recording
-  // follows its newest.
-  const fallback = useMemo(() => openOn(runId, { forkAt, lostAt, outcomeAt, live, calls, origins: paging?.origins ?? null, total: paging?.total ?? null }), [runId, forkAt, lostAt, outcomeAt, live, calls, paging?.origins, paging?.total]);
-  // While its pages come, a call of the run is one numbered up to its count, read yet or not.
-  const isCall = (n: number) => (paging ? n >= 1 && n <= paging.total : calls.some((c) => c.callNo === n));
-  const selected = call !== null && isCall(call) ? call : call !== null && live ? call : fallback;
+  // The call the page shows, the address and the session's memory kept in step with it (run-selection.ts).
+  const selected = useRunSelection({ run, id, call, view, calls, paging, forkAt, lostAt, outcomeAt });
   const v: View = view ?? 'calls';
-  // The page that holds the selected call, read before the others.
   const need = paging?.need ?? null;
-  useEffect(() => {
-    if (need && selected !== null) need(selected, { pick: true });
-  }, [need, selected]);
-
-  // A short id settles on the full one; a run opened without a call lands on its fork, its lost call,
-  // where it first failed, or its first call (openingCall).
-  useOpenAt({ runId, id, call, selected, lostAt, view });
-
-  // Recording: the selection follows the newest call if it was on the newest (also when the last calls
-  // and the end of the recording arrive together). The shell says when it ends, on any page (state.tsx).
-  const prevLast = useRef(last);
-  const prevStatus = useRef(run.run.status);
-  useEffect(() => {
-    const next = followNewest({ wasStatus: prevStatus.current, status: run.run.status, prevLast: prevLast.current, last, selected });
-    if (next !== null) navigate(href.run(runId, next, view), true);
-    prevLast.current = last;
-    prevStatus.current = run.run.status;
-  }, [last, selected, runId, view, run.run.status]);
-
-  const [scope, setScope] = useState('all');
-  const scopes = useMemo(() => scopesOf(calls), [calls]);
-  const scopeTree = useMemo(() => scopeChips(calls), [calls]);
-  const scoped = scopes.length > 0;
-  const scopedCalls = useMemo(() => (scope === 'all' ? calls : calls.filter((c) => inScope(c, scope))), [calls, scope]);
-  const [filter, setFilter] = useState<OriginFilter>('all');
-  const [text, setText] = useState('');
-  // The tools each model call asked for, when the server says which call asked for each tool call.
-  const asked = useMemo(() => (calls.some((c) => c.kind === 'tool' && c.requestedBy !== undefined) ? askedTools(calls) : null), [calls]);
-  // Every call while the pages come, a placeholder for each not read yet; within a scope, those read.
-  const listed = useMemo<readonly ListedCall[]>(() => (paging && scope === 'all' ? listedCalls(calls, paging.total, paging.origins) : scopedCalls), [paging, scope, calls, scopedCalls]);
-  // Light grouping (groups.ts): each call under the call it belongs to, folded where the reader folded
-  // it; a filter lists what it matches flat, since the calls it leaves out are what the groups hang on.
-  const filtering = filter !== 'all' || !!text.trim();
-  const tree = useMemo(() => (filtering ? null : callTree(listed)), [filtering, listed]);
-  const [foldedBy, setFoldedBy] = useState<{ runId: string; set: ReadonlySet<number> }>({ runId, set: NO_FOLDS });
-  const folded = foldedBy.runId === runId ? foldedBy.set : NO_FOLDS;
-  const setFolded = useCallback((next: ReadonlySet<number>) => setFoldedBy({ runId, set: next }), [runId]);
-  const fold = useCallback((callNo: number) => {
-    const next = new Set(folded);
-    if (!next.delete(callNo)) next.add(callNo);
-    setFolded(next);
-  }, [folded, setFolded]);
-  const shown = useMemo(() => (tree && folded.size ? unfolded(listed, tree, folded) : listed), [tree, folded, listed]);
-  const visible = useMemo(() => (filtering ? listed.filter((c) => (isPending(c) ? pendingMatches(c, filter, text.trim()) : matchesFilter(c, filter, text.trim(), c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined))) : shown), [filtering, listed, shown, filter, text, asked]);
-  // Fold all, and once anything is folded, Unfold all (the selected call's groups stay open, so not every group can be folded).
-  const foldAll = useMemo(() => (tree?.grouped ? { all: folded.size > 0, onAll: (on: boolean) => setFolded(on ? new Set(heads(listed, tree)) : NO_FOLDS) } : null), [tree, listed, folded, setFolded]);
-  // The selected call is always in view: the groups it sits in, folded, open again (j and k step over a folded group's calls).
-  useEffect(() => {
-    if (!tree || selected === null || !folded.size) return;
-    const over = ancestorsOf(tree, selected).filter((h) => folded.has(h));
-    if (!over.length) return;
-    const next = new Set(folded);
-    for (const h of over) next.delete(h);
-    setFolded(next);
-  }, [tree, selected, folded, setFolded]);
-  const filterCounts = useMemo(() => {
-    // Every call's origin from the run's page while the pages come.
-    const all = paging?.origins && scope === 'all' ? paging.origins : null;
-    const n = countOrigins(all ?? scopedCalls.map(originOf));
-    return { all: all ? all.length : scopedCalls.length, live: n.live, rep: n.rep, over: n.over, inject: n.inject, fail: n.fail, block: n.block + n.stub } satisfies Record<OriginFilter, number>;
-  }, [scopedCalls, paging?.origins, scope]);
+  // The calls as Calls lists them: the scope, the filter, the groups and what is folded (call-list.ts).
+  const { scope, setScope, scopeTree, scoped, scopedCalls, filter, setFilter, text, setText, asked, listed, tree, folded, fold, visible, foldAll, filterCounts } = useCallList({ runId, calls, paging, selected });
   const [tab, setTabState] = useState<InspectorTab>(lastTab);
   const setTab = (t: InspectorTab) => {
     lastTab = t;
@@ -367,22 +276,16 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     setFilterWanted(false);
   }, [filterWanted, view]);
   const forkMenu = useMenu();
-  // What the page offers beyond the run's record: Share's counts, Push, Run blame, Find breaking commit.
-  // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
-  const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
+  // What the page reads beside the run once it has ended: its offers, a preset's attempt, its notes and the
+  // fork that rescued it (run-extras.ts).
+  const chain = useAncestors(run);
+  const { offers, preset, notes, rescued } = useRunExtras(run, chain[0] ?? null, forkAt);
   const actions = useActionRunner(runId, !!run.source, offers, run.forkAt);
   // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
   const markRun = useMarkRun(useCallback((_id: string, next: string[]) => setLabels(next), [setLabels]));
   const canMark = !exported && !actionsOff;
   const mark = useCallback((m: RunMark, from?: HTMLElement) => markRun(runId, labels, m, from), [markRun, runId, labels]);
-  // An error-path preset's attempt: the preset it played in and its verdict, from the presets of the session that decided it.
-  const presets = useLoad(() => (run.run.meta?.chaos && !live ? client.runChaos(runId) : null), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
-  const preset = useMemo(() => presetAttempt(presets, run.run.runId), [presets, run.run.runId]);
-  // What the run did that Shadowlap did not record, or answered as it went (notes.ts): the tools the
-  // model called that it never recorded are read beside the server once the run has ended.
-  const unrecorded = useLoad(() => (live ? null : client.unrecorded(runId)), `${runId}:unrecorded:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
-  const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
   const detailKey = `${runId}:${String(selected)}:${selectedRow?.outcome ?? 'pending'}`;
@@ -392,11 +295,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const whole = useLoad<CallDetail>(() => (selected !== null && quick.data?.around ? client.call(runId, selected, { whole: true }) : null), `${detailKey}:whole:${quick.data?.around ? 'part' : ''}`);
   const detail = whole.data ? whole : quick;
   const change = useChange(run, detail.data, forkAt);
-  const chain = useAncestors(run);
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);
   const waited = useMemo(() => (typeof run.notWaitedMs === 'number' ? { ms: run.notWaitedMs, unknown: 0 } : notWaited(calls, ancestors)), [run.notWaitedMs, calls, ancestors]);
-  const parent = chain[0] ?? null;
-  const rescued: { callNo: number | null } | null = run.rescuedBy ? { callNo: run.rescuedBy.callNo ?? forkAt } : parent?.run.meta?.blame?.rescuedRunId === runId && run.run.divergence ? { callNo: run.run.divergence.callNo } : null;
 
   const select = useCallback((n: number) => navigate(href.run(runId, n, v), true), [runId, v]);
   const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));
