@@ -344,7 +344,7 @@ function RunStep({ s, why }: { s: Extract<LookStep, { of: 'run' }>; why: string 
   const e = priced.estimate;
   const c = stepCard(e ? { ...step, estimate: e } : step);
   if (step.key === 'blame') {
-    return <RunBlameButton runId={runId} offer={step.offer} estimate={e} busy={why} on={priced.on} title={blameTitle(step.offer)} tip={tipCard(c.title, c.rows, c.sub, c.cmd, c.est)} className="btn sm" {...(step.command ? { line: step.command } : {})} />;
+    return <RunBlameButton runId={runId} offer={step.offer} estimate={e} busy={why} on={priced.on} when={priced.when} title={blameTitle(step.offer)} tip={tipCard(c.title, c.rows, c.sub, c.cmd, c.est)} className="btn sm" {...(step.command ? { line: step.command } : {})} />;
   }
   const card = { tip: c.title, sub: c.sub, command: c.cmd ?? undefined };
   let go: (p: Price) => void;

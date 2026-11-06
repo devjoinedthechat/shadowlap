@@ -2,6 +2,7 @@ import { act, createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NeedsLook } from '../ui/overview/NeedsLook.js';
 import { Usage } from '../ui/overview/Usage.js';
+import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { NeedsLookRow, OverviewSummary } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
@@ -111,6 +112,25 @@ describe('Needs a look', () => {
     expect(startJob).not.toHaveBeenCalled();
     await act(async () => priced({ run: null, goldens: { 'goldens/refund.json': { rerun: null, update: null, more: { kind: 'tests', usd: 0.42, ceiling: 0.6, parts: [] } } } }));
     expect(startJob).toHaveBeenCalledWith('test', { golden: 'goldens/refund.json', maxAttempts: 160, continue: true, estimate: { usd: 0.42, ceiling: 0.6 } });
+  });
+
+  it('starts Run blame, pressed before its price came, once the price comes and with it', async () => {
+    // No threshold: a priced job starts on its press.
+    resetSpending(null);
+    try {
+      let priced: (v: unknown) => void = () => undefined;
+      const nextStep = vi.fn(() => new Promise((res) => (priced = res)));
+      const startJob = vi.fn(async () => ({ id: 'job-1' }));
+      r = await render(within(running({ jobs: async () => [], startJob, nextStep }), createElement(NeedsLook, { items: [rows[1]], total: 1 })));
+      await r.click(r.one('.arow .ast .btn'));
+      expect(nextStep).toHaveBeenCalledWith(run);
+      expect(startJob).not.toHaveBeenCalled();
+      expect(r.all('[role="dialog"]')).toEqual([]);
+      await act(async () => priced({ next: { key: 'blame', estimate: { kind: 'blame', usd: 0.42, ceiling: 0.6, parts: [] } } }));
+      expect(startJob).toHaveBeenCalledWith('blame', { runId: run, estimate: { usd: 0.42, ceiling: 0.6 } });
+    } finally {
+      resetSpending();
+    }
   });
 
   it('shows a row for each failing golden one fix holds, all of them, with no two keys alike', async () => {

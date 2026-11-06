@@ -48,6 +48,7 @@ export function RunBlameButton({
   mark,
   busy,
   on,
+  when,
   fold,
   ...priced
 }: {
@@ -74,6 +75,8 @@ export function RunBlameButton({
   busy?: string | null;
   /** A list row's handlers: its estimate asked for as the pointer or the focus reaches it. */
   on?: StepHooks;
+  /** A list row's press, which waits for its estimate where it hasn't come yet, then asks or starts with it. */
+  when?: (go: (estimate: Estimate | null | undefined) => void) => () => void;
   /** A run header's plain button, which folds into its … menu by this name. */
   fold?: string;
 }) {
@@ -93,8 +96,8 @@ export function RunBlameButton({
    * the check it was given. Anything else closes the dialog: the job, the consent it needs, or its
    * failure in the drawer.
    */
-  const start = (fields: Record<string, unknown>): Promise<string | null> =>
-    app.client.startJob(JOB_KINDS.blame, { runId, ...sentEstimate(estimate), ...fields }).then(
+  const start = (fields: Record<string, unknown>, e = estimate): Promise<string | null> =>
+    app.client.startJob(JOB_KINDS.blame, { runId, ...sentEstimate(e), ...fields }).then(
       (job) => {
         setAsking(null);
         app.watchJob(Promise.resolve(job));
@@ -117,6 +120,7 @@ export function RunBlameButton({
         return null;
       },
     );
+  const go = (e: Estimate | null | undefined) => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate: e, start: () => void start({}, e), ask: () => setAsking({ kind: 'ask' }) }));
   const failedLine = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give` : null;
   return (
     <>
@@ -126,7 +130,7 @@ export function RunBlameButton({
         data-tip={tip ?? tipCard(ACTIONS.runBlame.label, [], title, `$ ${blameLine}`, tipEst(estimate, form))}
         {...(lead ? { 'data-next': 'blame' } : {})}
         {...(fold ? { 'data-fold': fold } : {})}
-        onClick={() => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate, start: () => void start({}), ask: () => setAsking({ kind: 'ask' }) }))}
+        onClick={when ? when(go) : () => go(estimate)}
         {...mark}
         {...on}
       >
