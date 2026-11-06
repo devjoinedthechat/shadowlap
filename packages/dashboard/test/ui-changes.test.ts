@@ -521,6 +521,7 @@ describe('a revision’s page', () => {
     await openRevision(() => Promise.reject(new ApiError(404, 'no change d2e8a1f checked: no test session ran every golden at it')));
     await page!.until('the answer', () => page!.all('.empty.tall').length === 1);
     expect(shown(page!.one('.empty.tall'))).toBe('No change d2e8a1f. Open Verdicts');
+    expect(page!.all('.empty.tall code')).toHaveLength(0);
     expect(page!.one('.empty.tall a').getAttribute('href')).toBe('#/changes');
     expect(page!.one('#unshown').textContent).toBe('true');
   });

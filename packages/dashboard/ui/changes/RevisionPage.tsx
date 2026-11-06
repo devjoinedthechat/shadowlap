@@ -33,7 +33,7 @@ export function RevisionPage({ rev }: { rev: string }) {
       return (
         <div className="empty tall">
           <Unshown at={`changes:${rev}`} />
-          No change <code>{rev}</code>. <Link href={href.changes()}>Open Verdicts</Link>
+          No change {rev}. <Link href={href.changes()}>Open Verdicts</Link>
         </div>
       );
     return <ErrorState retry={loaded.reload}>{loaded.error instanceof ApiError ? `The dashboard server answered ${loaded.error.status} for this page’s data.` : loaded.error.message}</ErrorState>;
