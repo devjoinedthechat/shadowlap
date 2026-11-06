@@ -60,6 +60,41 @@ test.describe('at 1440×900', () => {
     expect(await seriousViolations(page)).toEqual([]);
   });
 
+  test('the strip is one Tab stop whose arrows select at once, the address and the focus following, a range at a time where grouped', async ({ page }) => {
+    const callIn = () => page.evaluate(() => Number(/\/run\/[^/]+\/(\d+)/.exec(location.hash)?.[1] ?? 0));
+    const focusedOption = () => page.evaluate(() => [...document.querySelectorAll('.strip .cells [role="option"]')].indexOf(document.activeElement!));
+    const stop = page.locator('.strip .cells [role="option"][tabindex="0"]');
+    await openPage(page, `/run/${demoId('ticket')}`, 'run');
+    await expect(stop).toHaveCount(1);
+    await stop.focus();
+    await page.keyboard.press('Home');
+    await expect.poll(callIn).toBe(1);
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(callIn).toBe(2);
+    await expect.poll(focusedOption).toBe(1);
+    await expect(page.locator('.strip .cells [role="option"]').nth(1)).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(callIn).toBe(1);
+    await page.keyboard.press('End');
+    await expect.poll(callIn).toBe(30);
+    await expect.poll(focusedOption).toBe(29);
+    await expect(stop).toHaveCount(1);
+    // The batch's ranges: Home and → select a range's most notable call, a range at a time.
+    await openPage(page, `/run/${demoId('batch')}`, 'run');
+    await stop.focus();
+    await page.keyboard.press('Home');
+    await expect.poll(focusedOption).toBe(0);
+    const first = await callIn();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(focusedOption).toBe(1);
+    await expect(page.locator('.strip .cells [role="option"]').nth(1)).toHaveAttribute('aria-selected', 'true');
+    const [, from, to] = /^Calls #([\d,]+) to #([\d,]+)/.exec((await page.evaluate(() => document.activeElement!.getAttribute('aria-label')))!)!;
+    const n = await callIn();
+    expect(n).toBeGreaterThan(first);
+    expect(n).toBeGreaterThanOrEqual(Number(from!.replace(/,/g, '')));
+    expect(n).toBeLessThanOrEqual(Number(to!.replace(/,/g, '')));
+  });
+
   test('Show diff opens in the inspector’s place, the first call row unmoved, until Hide, a pick or Esc gives the inspector back', async ({ page }) => {
     await openPage(page, `/run/${demoId('override')}`, 'run');
     const toggle = page.locator('#view [data-act="diff"]');
