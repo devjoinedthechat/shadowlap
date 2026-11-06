@@ -653,7 +653,7 @@ A call the fence answered after a fork is named by what it would have done, neve
 Each color means one thing across the dashboard. Lime is the primary action and what passed, amber what needs a look or is inconclusive, and red what failed. Where you are, a link and a fork are drawn in ink.
 
 - **Click a cell** to open that call. Its name says the call, its kind and its origin: *#18 issue_refund · write · live*.
-- **From the keyboard**, the strip is one stop for Tab, a list whose ← and → open the call before or after at once, Home and End the first and the last. Where the strip groups its calls, they go a range at a time, to its most notable call.
+- **From the keyboard**, the strip is one stop for Tab, a list whose ← and → open the call before or after at once, Home and End the first and the last. Where the strip groups its calls, the keys go a range at a time, each to the range's most notable call.
 - **Where a cell would be narrower than 6 px** (24 px on a touch screen), each cell covers a range of calls, in the color of most of them. Hovering a range counts it.
 - **A notch** marks a range's rarer notable call: an error, a write, or what a fork changed or fenced. So 13 errors in 1,200 calls read as 13 marks.
 
