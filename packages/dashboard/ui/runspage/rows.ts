@@ -48,3 +48,14 @@ export function lessChips(counts: ChipCounts | null, gone: ReadonlyArray<{ chips
   }
   return out;
 }
+
+/**
+ * The runs a waiting delete takes off the table's counts. Off the chips, every run inside the days
+ * picked, whatever the words, as the server counts them. Off the total, a run the table holds, and
+ * another inside the days only when no words narrow the table and it is under the chip shown.
+ */
+export function goneFromCounts<R extends { runId: string; startedAt: number; chips: readonly string[] }>(counted: readonly R[], o: { held: ReadonlySet<string>; chip: string; q: string; from: number; to: number }): { chips: R[]; total: R[] } {
+  const chips = counted.filter((r) => o.held.has(r.runId) || (r.startedAt >= o.from && r.startedAt < o.to));
+  const words = o.q.trim() !== '';
+  return { chips, total: chips.filter((r) => o.held.has(r.runId) || (!words && (o.chip === 'all' || r.chips.includes(o.chip)))) };
+}

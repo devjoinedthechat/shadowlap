@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { begin, cancel, deleting, flush, lessPending, pendingHidden, sendNow, useStillCounted, withoutPending, type PendingRun } from '../ui/pending-delete.js';
-import { lessChips } from '../ui/runspage/rows.js';
+import { goneFromCounts, lessChips } from '../ui/runspage/rows.js';
 import type { ChipCounts } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -64,5 +64,22 @@ describe('a delete waiting out its toast', () => {
     expect(lessPending(10, [run('a', [], 4), run('b', [], 2)], 'attempts')).toBe(4);
     expect(lessPending(1, [run('a'), run('b')])).toBe(0);
     expect(lessPending(null, [run('a')])).toBeNull();
+  });
+
+  it('takes a run inside the days off the chips whatever the words, and off the total only where no words narrow it', () => {
+    const at = (runId: string, startedAt: number, chips: string[]) => ({ ...run(runId, chips), startedAt });
+    const counted = [at('held', 50, ['fork']), at('inside', 20, ['recording', 'failed']), at('before', 5, ['recording']), at('after', 100, ['fork'])];
+    const ids = (list: readonly PendingRun[]) => list.map((x) => x.runId);
+    const days = { held: new Set(['held']), from: 10, to: 100 };
+    // Words narrow the table: the chips still lose every run inside the days, the total only the run it holds.
+    const worded = goneFromCounts(counted, { ...days, chip: 'all', q: 'refund' });
+    expect(ids(worded.chips)).toEqual(['held', 'inside']);
+    expect(ids(worded.total)).toEqual(['held']);
+    // No words: the total loses what is inside the days and under the chip shown.
+    expect(ids(goneFromCounts(counted, { ...days, chip: 'all', q: '  ' }).total)).toEqual(['held', 'inside']);
+    expect(ids(goneFromCounts(counted, { ...days, chip: 'failed', q: '' }).total)).toEqual(['held', 'inside']);
+    expect(ids(goneFromCounts(counted, { ...days, chip: 'fork', q: '' }).total)).toEqual(['held']);
+    // No days picked: every run counted.
+    expect(ids(goneFromCounts(counted, { held: new Set(), chip: 'all', q: 'refund', from: -Infinity, to: Infinity }).chips)).toEqual(['held', 'inside', 'before', 'after']);
   });
 });

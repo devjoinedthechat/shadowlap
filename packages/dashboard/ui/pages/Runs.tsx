@@ -27,7 +27,7 @@ import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
 import { RunsTable, RunsTableEmpty, type TableRun } from '../runspage/RunsTable.js';
 import { noteShownRuns } from '../runspage/shown-runs.js';
-import { lessChips, tableNote, withFirstPage } from '../runspage/rows.js';
+import { goneFromCounts, lessChips, tableNote, withFirstPage } from '../runspage/rows.js';
 import { lessPending, usePendingHidden, useStillCounted, withoutPending } from '../pending-delete.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
@@ -322,9 +322,8 @@ function pickedRun(r: TableRun): PickedRun {
 
 /**
  * The table as it shows while a delete waits out its toast (`pending-delete.ts`): without the runs it
- * takes, its total and its chips' counts less them until the table is read again after the delete
- * lands. A run the table holds is in its counts; another only when no words narrow them and it is
- * inside the days picked. The days above aren't adjusted: they catch up once the delete lands.
+ * takes, its total and its chips' counts less them (`goneFromCounts`) until the table is read again
+ * after the delete lands. The days above aren't adjusted: they catch up once the delete lands.
  */
 function useShownTable(table: TableState, o: { chip: RunChip; q: string; times: { from: number; to: number } | null }): TableState {
   const hidden = usePendingHidden();
@@ -334,10 +333,8 @@ function useShownTable(table: TableState, o: { chip: RunChip; q: string; times: 
   const to = o.times?.to ?? Infinity;
   return useMemo(() => {
     if (!hidden.size) return table;
-    const held = new Set(table.rows.map((r) => r.runId));
-    const gone = counted.filter((r) => held.has(r.runId) || (!q.trim() && r.startedAt >= from && r.startedAt < to));
-    const shown = gone.filter((r) => held.has(r.runId) || chip === 'all' || r.chips.includes(chip));
-    return { ...table, rows: withoutPending(table.rows, hidden), total: lessPending(table.total, shown) ?? 0, chipCounts: lessChips(table.chipCounts, gone) };
+    const gone = goneFromCounts(counted, { held: new Set(table.rows.map((r) => r.runId)), chip, q, from, to });
+    return { ...table, rows: withoutPending(table.rows, hidden), total: lessPending(table.total, gone.total) ?? 0, chipCounts: lessChips(table.chipCounts, gone.chips) };
   }, [table, hidden, counted, chip, q, from, to]);
 }
 
