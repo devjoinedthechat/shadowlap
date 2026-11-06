@@ -178,8 +178,13 @@ export interface ActivityItem {
   /** Stable across requests: `e:<event id>` for a stored event, `r:<run id>:<what>` or `g:<group>` for one derived from runs. */
   id: string;
   at: number;
-  /** The icon. */
+  /** The icon: what it was, by its shape. */
   kind: ActivityIcon;
+  /**
+   * How it came out, by its colour, whatever its shape: `err` what failed or was rejected, `warn`
+   * what couldn't decide, stopped or needs a look. Absent: the shape's own colour.
+   */
+  outcome?: 'err' | 'warn';
   /** What happened, in the mock's words: "Replay clean · 30/30 · 0 upstream". */
   text: string;
   /** The run it is about. */

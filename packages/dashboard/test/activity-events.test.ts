@@ -22,6 +22,8 @@ describe('a preview and a migration in the feed', () => {
     recordEvent(store, { kind: 'migrate.done', ref: 'mg-2', data: { change: 'the model claude-sonnet-5-5', runs: 3, flagged: 1, spent: 1, why: null, exit: 0 }, at: 5_000 });
     expect(textAt(1_000)).toBe('Previewed model switch to claude-haiku-4-5 on 7 runs · 2 with a write, stop or judged change');
     expect(textAt(2_000)).toBe('Preview inconclusive · field change to temperature=0 on 7 runs · 1 run could not be asked');
+    // In the fork's shape, amber when it settled nothing.
+    expect(activity(store, { limit: 50 }).items.filter((i) => i.kind === 'fork').map((i) => [i.at, i.outcome ?? null])).toEqual([[5_000, null], [4_000, 'warn'], [3_000, null], [2_000, 'warn'], [1_000, null]]);
     expect(textAt(3_000)).toBe('Previewed the model claude-haiku-4-5 on 1 run');
     expect(textAt(4_000)).toBe('Migration inconclusive · the model claude-sonnet-5-5 on 3 runs · verify did not settle every run it took');
     expect(textAt(5_000)).toBe('Migration previewed: the model claude-sonnet-5-5 on 3 runs · 1 with a write, stop or judged change');
