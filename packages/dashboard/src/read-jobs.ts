@@ -60,6 +60,8 @@ export interface SummaryWork {
   project: string | null;
   /** What a run's next step reads of the project, as Needs a look's lines say it. */
   next?: NextStepWork | null;
+  /** The repairer the config names, which Run repair's card on Needs a look names. */
+  repairer?: string | null;
 }
 
 /**
@@ -171,7 +173,7 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   const setup = status && w.team && w.project ? setupUnderWay(store, w.team) : null;
   const patchInTree = w.project ? await patchesInTree(w.project, patchesToCheck(store)) : null;
   // It names the time it was worked out at, so it is never the same twice: no ETag.
-  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(w.next ? { next: w.next } : {}) }));
+  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}) }));
 }
 
 function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'judge'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {
