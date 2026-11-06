@@ -6,8 +6,8 @@ import type { ChipCounts } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
- * Runs a delete waits to take are off every list at once, and their counts less them, until the
- * delete is undone or lands; once it lands, a count read before still takes them, and one read
+ * Runs a delete waits to take are off the lists that read what waits at once, and their counts less
+ * them, until the delete is undone or lands; once it lands, a count read before still takes them, and one read
  * after holds the delete already. A delete goes once, however many ways it is sent.
  */
 

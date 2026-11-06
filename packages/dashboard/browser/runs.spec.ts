@@ -74,7 +74,7 @@ test('days in a link that run past the twelve weeks keep to the days inside, and
   await expect(page.locator('main#view section.cal.hist .hbars button[aria-pressed="true"]')).toHaveCount(0);
 });
 
-test('x picks a row and the bar comes; Delete takes the run off every list at once, and Undo puts it back', async ({ page }) => {
+test('x picks a row and the bar comes; Delete takes the run off the table and the nav at once, and Undo puts it back', async ({ page }) => {
   await openPage(page, '/runs', 'main#view table.runst tbody tr');
   const nav = page.locator('nav.navlist a[href="#/runs"]');
   const before = await nav.textContent();
