@@ -145,6 +145,11 @@ describe('Find the commit in this checkout', () => {
     const revisions = Object.fromEntries(view.failures.map((f) => [f.golden, f.revisions]));
     expect(revisions['goldens/refund-flow']).toEqual([]);
     expect(revisions['goldens/refund-limit']).toEqual([{ rev: first, at: T0 - 3 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true, subject: 'Start' }]);
+    // The history's revisions, each named by its commit's subject where this checkout has it, by no
+    // one (no team store is set); and a verdict of a commit git doesn't have is never called older.
+    expect(view.revisions).toContain(first);
+    expect(view.revisionFacts).toEqual(view.revisions.map((rev) => ({ rev, subject: rev === first ? 'Start' : null, by: null })));
+    expect(view.older).toBe(false);
   });
 
   it('offers no search from a failure at the first commit, and on the calendar the first failure that started later', async () => {

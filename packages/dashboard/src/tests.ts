@@ -1,7 +1,7 @@
 import { ACTIONS, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
-import { historyCells, type HistoryCell } from './tests-history.js';
+import { historyCells, type HistoryCell, type RevisionFact } from './tests-history.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
 
@@ -163,7 +163,7 @@ export interface TestsVerdict {
   since: SinceResult[];
 }
 
-export type { HistoryCell } from './tests-history.js';
+export type { HistoryCell, HistoryDrop, RevisionFact } from './tests-history.js';
 
 /**
  * One of a golden's checks, with how its last result came out on it: what the table marks it by
@@ -445,6 +445,10 @@ export interface TestsView {
    * replay the goldens' packs, so the same actions wait for them too, as the server does.
    */
   chaosRunning: { id: string; command: string; startedAt: number } | null;
+  /** Each of `revisions` as git has it, its commit's subject and its author where names show: the route asks git beside the server. */
+  revisionFacts?: RevisionFact[];
+  /** The session the verdict names tested a clean commit, and the working tree has changed since: the route asks git. */
+  older?: boolean;
   commands: {
     /**
      * The In CI panel's one command, as docs/gating.md writes it: every golden, its pattern quoted for

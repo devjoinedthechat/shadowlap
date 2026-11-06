@@ -1,4 +1,4 @@
-import { gitAsync } from './patch-in-tree.js';
+import { gitAsync, HEX } from './patch-in-tree.js';
 import { bisectArgs, type BisectChoices, type BisectRange, type BisectRevision } from './tests.js';
 
 /**
@@ -14,8 +14,7 @@ import { bisectArgs, type BisectChoices, type BisectRange, type BisectRevision }
  * requests while it waits.
  */
 
-/** Only a commit's hex name is ever handed to git: a revision comes from a run, which may have come from anyone. */
-export const HEX = /^[0-9a-f]{4,64}$/i;
+export { HEX };
 /** How long git's "no such commit" stands before it is asked again. */
 const MISSING_FOR_MS = 60_000;
 

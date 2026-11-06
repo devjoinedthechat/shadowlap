@@ -3,7 +3,7 @@ import { describeEvent } from '../activity.js';
 import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
-import { choicesInCheckout, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
+import { choicesInCheckout, commitAuthors, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
@@ -14,6 +14,8 @@ import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
+import { namesTeamStore } from './verdicts.js';
+import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { liveAsk } from '../tests-live.js';
 import { bisectChoices, bisectJob, checkedRevision, gatePreview, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
@@ -137,6 +139,20 @@ async function rangesInCheckout(view: TestsView, root: string | null | undefined
   return { ...view, divergences: view.divergences.map(inCheckout), failures: view.failures.map(inCheckout) };
 }
 
+/**
+ * What git says of Tests' revisions beside the server: each one's commit subject, and its author's
+ * email where names show (a team store configured), and whether the working tree has moved on since
+ * the session the verdict names. As it is without a project folder.
+ */
+async function revisionsInCheckout(view: TestsView, root: string | null | undefined): Promise<TestsView> {
+  if (!root) return view;
+  const commits = revisionCommits(view.revisions);
+  const shared = namesTeamStore(root);
+  const session = view.verdict?.session ?? null;
+  const [subjects, authors, tree] = await Promise.all([commitSubjects(root, commits), shared ? commitAuthors(root, commits) : new Map<string, string>(), session?.revision && session.endedAt !== null ? treeNow(root, session.revision) : null]);
+  return { ...withRevisionFacts(view, subjects, authors, shared), older: olderThanTree(session, tree) };
+}
+
 // Find breaking commit that named no first bad commit, in the activity feed: why, so the next search
 // starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
 describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
@@ -187,7 +203,8 @@ export function register(router: Router, ctx: RouteContext): void {
   const busy = (store: StoreOf<'tests' | 'chaos'>, projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb) ?? sessionBusy(store, verb);
 
   router.get('/tests', async (r) => {
-    r.tagged(await rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path));
+    const view = await rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
+    r.tagged(await revisionsInCheckout(view, ctx.project?.path));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's
