@@ -210,15 +210,15 @@ table.calls tbody tr { cursor: pointer; }
 table.calls tbody tr:hover td { background: var(--hover); }
 table.calls tr[aria-selected="true"] td { background: var(--sel); }
 table.calls tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
-table.calls .n { width: 54px; text-align: right; font: 12px var(--mono); color: var(--faint); }
+table.calls .n { width: 54px; text-align: right; font: 12.5px var(--mono); color: var(--faint); }
 table.calls .n .fk { font: 600 var(--fs-label) var(--body); color: var(--ink); margin-right: 5px; }
 table.calls .n .fk.bl { color: var(--err); }
 table.calls .name { font-weight: 500; }
 table.calls .name small { font: 11px var(--mono); color: var(--faint); margin-right: 8px; }
 table.calls .name { max-width: 1px; width: 100%; overflow: hidden; text-overflow: ellipsis; }
-table.calls .det { font: 12px var(--mono); font-weight: 400; color: var(--faint); margin-left: 12px; }
+table.calls .det { font: 12.5px var(--mono); font-weight: 400; color: var(--faint); margin-left: 12px; }
 /* a tool's result sits under its call: the request on one line, what came back on the next */
-table.calls .res { display: block; margin: 1px 0 0 37px; font: 11.5px var(--mono); font-weight: 400; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
+table.calls .res { display: block; margin: 1px 0 0 37px; font: 11px var(--mono); font-weight: 400; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
 table.calls .res.err { color: var(--err); }
 /* a blocked write's result in the blocked grey, as its origin is: the fence is Shadowlap working, never the red of what failed */
 table.calls .res.blk { color: var(--o-block); }
@@ -232,7 +232,7 @@ table.calls .gitem { font: 11px var(--mono); font-weight: 400; color: var(--dim)
 table.calls .gfold { font: 11px var(--mono); font-weight: 400; color: var(--dim); margin-left: 10px; padding: 0 5px; border: 1px solid var(--line2); border-radius: 5px; }
 table.calls.grouped .res { margin-left: calc(37px + var(--lead, 0px)); }
 table.calls .num.was { color: var(--faint); }
-table.calls .num { text-align: right; font: 12px var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
+table.calls .num { text-align: right; font: 12.5px var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
 table.calls .rowact { width: 36px; padding: 0 8px 0 0; text-align: right; }
 table.calls .rowact button { visibility: hidden; width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 6px; border: 1px solid var(--line2); background: var(--panel); color: var(--dim); cursor: pointer; }
 table.calls .rowact button svg { width: 12px; height: 12px; }

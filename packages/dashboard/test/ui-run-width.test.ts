@@ -159,3 +159,14 @@ describe('what wraps rather than runs past its box', () => {
     expect(topRule('.rnhint code')).toMatch(/white-space:\s*normal/);
   });
 });
+
+describe('a call’s row in Calls', () => {
+  it('draws a replayed call’s recorded duration in grey, the replay having waited for none of it', () => {
+    expect(topRule('table.calls .num.was')).toMatch(/color:\s*var\(--faint\)/);
+  });
+
+  it('sets its number, details and time at 12.5px and the result under it at 11px, as the design does', () => {
+    for (const s of ['table.calls .n', 'table.calls .det', 'table.calls .num']) expect(topRule(s)).toMatch(/font:\s*12\.5px var\(--mono\)/);
+    expect(topRule('table.calls .res')).toMatch(/font:\s*11px var\(--mono\)/);
+  });
+});
