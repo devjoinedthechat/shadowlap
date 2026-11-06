@@ -127,10 +127,17 @@ export class Store {
    * connection that writes: nothing is created or migrated (the writing connection did that when it
    * opened the store), and SQLite refuses any write made through it. In WAL mode a reader never
    * waits for a writer, nor holds one up. A store from a newer Shadowlap is refused, as `open`
-   * refuses it.
+   * refuses it, and so is a database without a store's tables, its connection closed: a dashboard
+   * reads other projects' stores this way, and keeps none of them open.
    */
   static openReadOnly(path: string): Store {
-    return new Store(openDatabaseReadOnly(path));
+    const db = openDatabaseReadOnly(path);
+    try {
+      return new Store(db);
+    } catch (err) {
+      db.close();
+      throw err;
+    }
   }
 
   close(): void {

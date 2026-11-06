@@ -176,3 +176,48 @@ runToEnd(async () => {
     expect(listened.out).toBe('shadowlap: no candidate passed\n');
   }, 20_000);
 });
+
+/**
+ * A closed terminal sends SIGHUP and leaves the process with a terminal that is gone: reading the
+ * keyboard or drawing the screen then fails (EIO), an error nothing catches. The entry point
+ * (endUncaught, its uncaughtException handler) reads the signal first, so the process ends with 129,
+ * as `shadowlap ui` does in its window: before, the error came first about half the time under load,
+ * and it ended with 2.
+ */
+describe.skipIf(process.platform === 'win32')('a stop signal that comes with an error nothing caught', () => {
+  const EXIT_CODES = new URL('../dist/exit-codes.js', import.meta.url).href;
+
+  /** Sends itself SIGHUP, which waits for the event loop to read it, and throws a closed terminal's EIO before it does. */
+  async function hungUp(listens: boolean): Promise<{ code: number | null; signal: NodeJS.Signals | null; out: string }> {
+    const child = spawn(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `const { endUncaught, watchStopSignals } = await import(${JSON.stringify(EXIT_CODES)});
+watchStopSignals();
+// A command winding down on a signal of its own, as shadowlap ui does.
+if (${listens}) process.on('SIGHUP', () => {});
+process.on('uncaughtException', endUncaught);
+process.kill(process.pid, 'SIGHUP');
+process.nextTick(() => {
+  throw Object.assign(new Error('read EIO'), { code: 'EIO', errno: -5, syscall: 'read' });
+});
+process.nextTick(() => {
+  throw new Error('a second error');
+});`,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let out = '';
+    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    const ended = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => child.on('close', (code, sig) => resolve({ code, signal: sig })));
+    return { ...(await ended), out };
+  }
+
+  it('ends with the signal, not the status of the error, saying the first error alone', async () => {
+    expect(await hungUp(true)).toEqual({ code: signalExit('SIGHUP'), signal: null, out: 'shadowlap: read EIO\n' });
+    // Nothing else listens: the process ends by the signal itself, as a shell reports 128 + n.
+    expect(await hungUp(false)).toEqual({ code: null, signal: 'SIGHUP', out: '' });
+  }, 20_000);
+});

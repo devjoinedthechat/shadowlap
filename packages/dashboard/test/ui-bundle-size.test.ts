@@ -41,11 +41,11 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
  * The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land.
  * The dialogs a Needs a look row's step asks in (a fix's, Find breaking commit's, Update golden's) load as the step first asks.
  */
-const PARTS = ['ActionDialog', 'BlameAgain', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'FixPage', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RevisionPage', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
+const PARTS = ['ActionDialog', 'BlameAgain', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'Elsewhere', 'FixPage', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RevisionPage', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
 /** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. */
-const COPY_PARTS = ['ActionDialog', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
+const COPY_PARTS = ['ActionDialog', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'Elsewhere', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
 
 /**
  * The parts heavy enough that they must wait for a script of their own (`onShow`), by their modules:
@@ -138,6 +138,12 @@ describe('the dashboard’s scripts', () => {
     expect(names(pages)).toEqual(PAGES);
     expect(names(parts)).toEqual(PARTS);
     for (const p of parts) expect(firstInputs.has(p.entry) || p.shownWith.has(p.entry), `${p.name} waits for its own script`).toBe(false);
+    // The page list declares no part, and shows one part itself: the In page, which a link into a
+    // project with no runs yet shows in the setup's place, declared in a module the pages showing it
+    // import too, so an exported copy takes it with its pages and not the page list (OnShow.tsx).
+    const listed = new Set(metafile.inputs['ui/pages/lazy.tsx'].imports.filter((i) => i.kind === 'import-statement').map((i) => i.path));
+    const listShows = dynamicImports(metafile).filter((d) => listed.has(d.by) && d.by.startsWith('ui/pages/'));
+    expect(listShows.map((d) => [d.by, d.entry])).toEqual([['ui/pages/held-elsewhere.tsx', 'ui/pages/Elsewhere.tsx']]);
     // The heavy parts each wait for a script of their own, wherever they show: in neither the first
     // look nor what opening any other page loads. Compare is one of them already.
     const heavy = Object.keys(metafile.inputs).flatMap((input) => HEAVY.filter(([, re]) => re.test(input)).map(([what]) => ({ input, what })));
