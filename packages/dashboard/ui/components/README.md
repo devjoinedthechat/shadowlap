@@ -130,8 +130,8 @@ call's recorded duration), `cache.ts` (where the cache stopped hitting, and what
 says about it), `scopes.ts` (scopes and their chips), `backoff.ts` and
 `connection.ts` (offline, the retry schedule, the `?state=offline` preview), `live.ts` (following a
 recording, and which ended between two loads of the run list, for the shell's toast), `actions.ts` (the fork menu and each action's dialog words), `jobs.ts` (a job's title and status, where a Replay diverged, the recording Calibrate takes), `place.ts`,
-`focus.ts` (what a dialog focuses first), `shell/top.ts` (the top bar's pill, a run's parent in its
-crumbs, the live chip), `parents.ts` (each run's parent, from the run details loaded so far, so the
+`focus.ts` (what a dialog focuses first), `shell/top.ts` (a run's parent in its
+crumbs, and the live chip), `parents.ts` (each run's parent, from the run details loaded so far, so the
 crumbs never load a run twice),
 `normalize.ts`, `format.ts`, and on the run page `run/banner.ts` (which banner, and what it says),
 `run/metrics.ts`, `run/model.ts` and `run/calls.ts`; for Compare, `compare/model.ts` (what the four
@@ -158,9 +158,9 @@ for) and authors; `runspage/query.ts` builds the page's requests and reads the
 filter its address holds (`#/runs?q=…&types=failed&sort=spent&from=…&to=…`, written by `links.runs`
 in `src/links.ts`), so any screen can link to a filtered list, and Back and Forward go through the
 views Runs showed. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
-screen that changes with one (the top bar's *team* label among them); it reads again when the change
+screen that changes with one (the status bar's part that names it among them); it reads again when the change
 feed's `team` counter moves (a push, a pull, a step of the setup). The store's setup is a page of its
-own, `#/setup/store` (`pages/settings/StoreSetup.tsx`, with its palette entry), its steps worked out in
+own, `#/setup/store` (`pages/settings/StoreSetup.tsx`; its palette rows are added in `palette-actions.ts`), its steps worked out in
 `store-logic.ts` from `src/store-steps.ts` (which Needs a look reads too) and its requests in
 `store-api.ts` (`client.storeSetup`).
 
