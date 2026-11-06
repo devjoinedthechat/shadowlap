@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { Dialog } from '../../components/Dialog.js';
-import { mergeTreeJobs, treeBusy, type TreeJob } from '../../fixes/model.js';
 import { addJobFooter } from '../../job-actions.js';
-import { addPaletteSource, paletteSourcesChanged } from '../../palette-sources.js';
 import { sentence } from '../../toast.js';
 import type { JobView } from '../../types.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, editErrorText } from './common.js';
 import { bytesText, gcDeleteCommand, gcDryRun, gcGivesBack, proposedCount, type GcDryRun } from './logic.js';
 import { settingsChanged } from './events.js';
-import { ACTIONS } from '../../labels.js';
 import { ActionButton } from '../../components/ActionButton.js';
 
 /**
@@ -103,27 +100,3 @@ export function CleanupDialog({ dry, label, onOk, onClose }: { dry: GcDryRun; la
 addJobFooter(JOB_KINDS.calibrate, CalibrateFooter);
 addJobFooter(JOB_KINDS.gc, CleanupFooter);
 
-/** The jobs the server last listed (every tab's and the terminal's): whether a repair holds the working tree. */
-let listedJobs: TreeJob[] | null = null;
-
-// Calibrate replays the agent from the project's working tree: like its button on Matching, the
-// palette's entry waits while a repair or an apply holds the tree, and is left out until then, as
-// it is on a read-only dashboard. The list is read again as the palette opens; an open palette
-// reads its sources again when what it says changed.
-addPaletteSource(({ app }) => {
-  if (app.exported || !app.hasKind(JOB_KINDS.calibrate)) return [];
-  const folder = app.meta?.project?.path ?? null;
-  const held = () => treeBusy(mergeTreeJobs(listedJobs, app.jobs), 'reads', 'calibrate', folder);
-  const before = held();
-  if (!app.actionsOff) {
-    app.client.jobs().then(
-      (list) => {
-        listedJobs = list;
-        if (held() !== before) paletteSourcesChanged();
-      },
-      () => undefined,
-    );
-  }
-  if (before) return [];
-  return [{ group: 'Actions', label: ACTIONS.calibrate.label, hint: 'propose normalizers', job: true, run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
-});

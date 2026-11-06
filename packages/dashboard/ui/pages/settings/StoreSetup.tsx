@@ -5,7 +5,6 @@ import { Page } from '../../components/Page.js';
 import { copyText } from '../../dom.js';
 import { num } from '../../format.js';
 import { useLoad } from '../../hooks.js';
-import { addPaletteSource, paletteSourcesChanged } from '../../palette-sources.js';
 import { href } from '../../route.js';
 import { projectOf } from '../../shell/ProjectBlock.js';
 import { useApp } from '../../state.js';
@@ -13,7 +12,6 @@ import type { CiName, SetupProvider, SetupUrlCheck, StoreSetupView } from '../..
 import { errorText } from '../../toast.js';
 import type { JobView } from '../../types.js';
 import { LoadProblem, Loading } from './common.js';
-import { stepWords } from '../../../src/store-steps.js';
 import { setupStates, type SetupStepState } from './store-logic.js';
 import { ACTIONS } from '../../labels.js';
 import { ActionButton } from '../../components/ActionButton.js';
@@ -409,23 +407,3 @@ function SetUpAlready({ view }: { view: StoreSetupView }) {
   );
 }
 
-// The palette's way to the setup: Set up the team store while the project has none, Continue
-// setting up the store while a setup is under way. What the setup's route says is read each time
-// the palette opens, and kept for the next time.
-let lastSetup: StoreSetupView | null = null;
-addPaletteSource(({ app, go }) => {
-  if (app.exported || !app.hasKind(JOB_KINDS.storeSet)) return [];
-  void app.client.storeSetup.view().then(
-    (v) => {
-      const was = lastSetup;
-      lastSetup = v;
-      if (!was || was.active !== v.active || !was.store !== !v.store) paletteSourcesChanged();
-    },
-    () => undefined,
-  );
-  const v = lastSetup;
-  if (!v) return [];
-  if (!v.store) return [{ group: 'Actions', label: ACTIONS.setUpTeamStore.label, hint: 'your team’s runs, in a bucket you own', run: () => go(href.storeSetup()) }];
-  if (v.active && v.next) return [{ group: 'Actions', label: ACTIONS.continueTeamStoreSetup.label, hint: `step ${v.next.step} of 4: ${stepWords(v.next.title)}`, run: () => go(href.storeSetup()) }];
-  return [];
-});

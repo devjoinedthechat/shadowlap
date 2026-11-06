@@ -11,6 +11,8 @@ import { callName, shortId } from '../format.js';
 import { jobRunning } from '../job-title.js';
 import { blameAsksOnItsPage, blameEntries, highlight, INDEXING_RETRY_MS, indexingNote, limitRecorded, matchPalette, palettePlaceholder, PAUSED_HINT, pickRefusal, RECORDED_MIN_CHARS, runsById, runsToAskFor, snippetParts, words } from '../palette.js';
 import { addPaletteSource, onPaletteSourcesChanged, paletteSources } from '../palette-sources.js';
+// The pages' actions and Tests, so a fresh palette lists them before their pages have loaded.
+import '../palette-actions.js';
 import { href, type Route } from '../route.js';
 import { navigate } from '../router.js';
 import { normalizeRuns } from '../normalize.js';

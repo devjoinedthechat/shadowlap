@@ -430,7 +430,7 @@ describe('one name for each action, and its forms', () => {
 
 describe('an event’s icon', () => {
   it('says what it was by its shape and how it came out by its colour', () => {
-    const html = (outcome?: 'err' | 'warn') => renderToStaticMarkup(createElement(EventIcon, { kind: 'blame', outcome }));
+    const html = (outcome?: 'err' | 'warn') => renderToStaticMarkup(createElement(EventIcon, { kind: 'blame', ...(outcome ? { outcome } : {}) }));
     expect(html()).toContain('class="glyph blame ic"');
     // A stopped blame: the loop, amber; one that failed, red.
     expect(html('warn')).toContain('class="glyph blame ic amb"');
