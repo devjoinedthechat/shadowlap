@@ -271,7 +271,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
     expect(shown.blame.callRow.filter((c: { kind: string }) => c.kind === 'api')).toHaveLength(4);
     // Verified on the working tree, with no repair behind it: applying it only marks it.
-    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: [], change: null }, applied: false, blameAgain: null, blameStronger: null });
+    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: [], change: null }, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null });
 
     const human = (await shadowlap(['fix', 'show', fixId])).stdout;
     expect(human).toContain(`${fixId}  Refunds above the limit issued without approval`);
@@ -318,7 +318,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(report.fixes[0]).toMatchObject({ title: 'issue_refund called with amount 240', status: 'verified' });
     expect(report.repairId).toBe(basename(report.output.dir));
     expect(report.verifyId).toMatch(/^vf-/);
-    expect(r.events).toContainEqual({ type: 'link', label: 'Open fix', href: `#/fixes/${fixId}/repair` });
+    expect(r.events).toContainEqual({ type: 'link', label: 'Open change', href: `#/fixes/${fixId}/repair` });
     expect(r.events).toContainEqual({ type: 'file', path: report.output.patch, label: 'fix.patch' });
 
     const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
@@ -454,7 +454,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(report).toMatchObject({ outcome: 'not-fixed', verifyId: null });
     expect(report.fixes).toEqual([expect.objectContaining({ status: 'open' })]);
     const fixId = report.fixes[0].fixId as string;
-    expect(r.events).toContainEqual({ type: 'link', label: 'Open fix', href: `#/fixes/${fixId}/repair` });
+    expect(r.events).toContainEqual({ type: 'link', label: 'Open candidates', href: `#/fixes/${fixId}/repair` });
 
     const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
     expect(shown.status).toBe('open');
