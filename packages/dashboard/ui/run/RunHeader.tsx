@@ -216,6 +216,45 @@ const offOrCard = (off: string | null | undefined, idle: boolean, card: string) 
  * Labels: the good/bad key first (good and bad are its, so no chip says them again), then the other
  * labels as chips with ×, and + Label for a new one (Enter adds, Esc cancels).
  */
+/**
+ * A label's ×: the label goes at once, the focus to Add label where the × had it, and the toast's Undo
+ * puts it back (last, as the server appends). A removal the server refuses puts the labels back as
+ * they were, and says why.
+ */
+function useRemoveLabel(runId: string, shown: readonly string[], setLabels: (labels: string[]) => void): (label: string, from: HTMLElement, add: HTMLElement | null) => void {
+  const { client, toast, guard, refresh } = useApp();
+  const id = shortId(runId);
+  return (label, from, add) =>
+    guard(() => {
+      const before = [...shown];
+      const had = document.activeElement === from;
+      setLabels(before.filter((l) => l !== label));
+      if (had) add?.focus();
+      void client.labels(runId, [], [label]).then(
+        (r) => {
+          setLabels(r.labels);
+          refresh();
+          const back = () =>
+            guard(() =>
+              void client.labels(runId, [label], []).then(
+                (u) => {
+                  setLabels(u.labels);
+                  refresh();
+                  toast(`${label} is back on ${id}`);
+                },
+                (err: unknown) => toast(errorText(err), 'error'),
+              ),
+            );
+          toast(`Removed ${label} from ${id}`, 'notice', { label: 'Undo', undo: true, returnTo: add, run: back });
+        },
+        (err: unknown) => {
+          setLabels(before);
+          toast(errorText(err), 'error');
+        },
+      );
+    });
+}
+
 function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; labels: readonly string[]; setLabels: (labels: string[]) => void; onMark: ((m: RunMark, from?: HTMLElement) => void) | null }) {
   const { client, actionsOff, exported, toast, refresh, guard } = useApp();
   const [adding, setAdding] = useState(false);
@@ -233,6 +272,8 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
         (err: unknown) => toast(errorText(err), 'error'),
       ),
     );
+  const remove = useRemoveLabel(run.run.runId, shown, setLabels);
+  const addRef = useRef<HTMLButtonElement>(null);
   const keyed = !!onMark && (enabled || MARKS.some((m) => shown.includes(m)));
   if (!shown.length && !enabled) return null;
   return (
@@ -242,7 +283,7 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
         <span className="chip" key={l}>
           {l}
           {enabled ? (
-            <ActionButton aria-label={`Remove label ${l}`} onClick={() => change([], [l])}>
+            <ActionButton aria-label={`Remove label ${l}`} onClick={(e) => remove(l, e.currentTarget, addRef.current)}>
               ×
             </ActionButton>
           ) : null}
@@ -273,7 +314,7 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
           }}
         />
       ) : enabled ? (
-        <ActionButton className="linkbtn" onClick={() => setAdding(true)}>
+        <ActionButton ref={addRef} className="linkbtn" onClick={() => setAdding(true)}>
           <Icon name="plus" />
           Label
         </ActionButton>
