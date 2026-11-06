@@ -85,7 +85,7 @@ Under CI, anything else that appears, and a tracked file that changed, fail the 
 
 Your own `~/.shadowlap` is left alone too. The run sets `SHADOWLAP_HOME` to a temporary folder of its own, each test file gets a folder of its own inside it, and every process a test starts inherits it. The run removes it after. So the project list, the checks seen, and the agents and proxies registered while the tests run never reach yours.
 
-Every run has that setup, wherever it starts. A run from the root reads `vitest.config.ts`. A run from a folder that holds tests, as in `cd packages/dashboard && npx vitest run test/<file>`, reads that folder's `vitest.config.mjs`, which gives the root's setup the folder's tests.
+A run started at the root has that setup from `vitest.config.ts`. So does one started in a suite's folder or its `test` folder, as in `cd packages/dashboard && npx vitest run test/<file>`. Each has a `vitest.config.mjs` that gives the root's setup the suite's tests. Vitest reads only the config in the folder it starts in, so a run started anywhere else has neither a home of its own nor the guard below.
 
 A guard in each test file's process (`testing/home-guard.mjs`) fails the test that reaches the real home's Shadowlap files:
 

@@ -5,11 +5,11 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { CHECKS_SEEN_FILE, keepSeenChecks } from '../src/checks-seen.js';
 
 /**
- * In a run of the tests, what the dashboard keeps for this machine goes in the test file's own
- * Shadowlap home, a temporary folder, wherever the run started: at the repository's root, or in this
- * folder (cd packages/dashboard && npx vitest run test/<file>). Never in the real ~/.shadowlap.
- * testing/distribution/test/home-guard.test.ts starts runs of this file here, with HOME a stand-in
- * for the real home folder, which SHADOWLAP_STAND_IN_HOME names.
+ * In a run of the tests started at the repository's root, in this package's folder
+ * (cd packages/dashboard && npx vitest run test/<file>) or in this one, what the dashboard keeps for
+ * this machine goes in the test file's own Shadowlap home, a temporary folder. Never in the real
+ * ~/.shadowlap. testing/distribution/test/home-guard.test.ts starts runs of this file in both
+ * folders, with HOME a stand-in for the real home folder, which SHADOWLAP_STAND_IN_HOME names.
  */
 
 const project = mkdtempSync(join(tmpdir(), 'sl-own-home-'));

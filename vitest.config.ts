@@ -7,12 +7,13 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const src = (pkg: string) => fileURLToPath(new URL(`./packages/${pkg}/src/index.ts`, import.meta.url));
 
 /**
- * The setup of every run of the tests, wherever Vitest starts: at the repository's root, this file's
- * own, or in a folder that holds a suite, a package's or one under testing/, whose vitest.config.mjs
- * passes its folder here (`cd packages/dashboard && npx vitest run test/<file>`). Vitest reads the
- * config in the folder it starts in and none above it. So a run started in a folder without one had
- * none of this: no Shadowlap home of its own, so the dashboard's tests wrote in the real
- * ~/.shadowlap, and Vitest's 5 seconds for a test in place of the timeouts below.
+ * The setup of a run of the tests started at the repository's root, this file's own, in a folder
+ * that holds a suite, a package's or one under testing/, or in that suite's test folder: the
+ * vitest.config.mjs in each passes the suite's folder here (`cd packages/dashboard && npx vitest run
+ * test/<file>`). Vitest reads the config in the folder it starts in and none above it, so a run
+ * started anywhere else has none of this: no Shadowlap home of its own, so the dashboard's tests
+ * write in the real ~/.shadowlap, no guard to fail them for it, and Vitest's 5 seconds for a test in
+ * place of the timeouts below.
  */
 export function testsIn(folder = ROOT) {
   const dir = resolve(folder);

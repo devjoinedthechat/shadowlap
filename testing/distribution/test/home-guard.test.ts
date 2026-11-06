@@ -8,9 +8,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { canonical, childProblem, realShadowlapFolders, takeRefused, writeProblem } from '../../home-guard.mjs';
 
 /**
- * No run of the tests writes in the real home folder's Shadowlap files, wherever it starts: every
- * run has the one setup, a home of its own for each test file and the guard (testing/home-guard.mjs),
- * which refuses a write there, or a process started to keep them there, and fails the test.
+ * A run of the tests started at the root, in a suite's folder or in its test folder writes nothing in
+ * the real home folder's Shadowlap files: it has the one setup, a home of its own for each test file
+ * and the guard (testing/home-guard.mjs), which refuses a write there, or a process started to keep
+ * them there, and fails the test. Vitest reads no config but the one in the folder it starts in, so a
+ * run started anywhere else has neither.
  */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const VITEST = join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
@@ -101,23 +103,36 @@ describe("the guard against the real home's Shadowlap files", () => {
   });
 });
 
-describe('every run of the tests, wherever it starts', () => {
+describe("a run of the tests started at the root, in a suite's folder or in its test folder", () => {
   /** What every folder that holds a suite has, so that a run started in it has the root's setup. */
   const POINTER = [
-    '// A run started in this folder (npx vitest run test/<file>) has the setup every run of the tests has:',
-    "// the repository's, in vitest.config.ts at its root, for the tests in this folder.",
+    '// A run started in this folder (npx vitest run test/<file>) has the setup of a run started at the',
+    "// repository's root, in vitest.config.ts there, for the tests in this folder.",
     "import { testsIn } from '../../vitest.config.ts';",
     '',
     'export default testsIn(import.meta.dirname);',
     '',
   ].join('\n');
+  /** What the suite's test folder has, which holds its tests: the same, given the suite's folder. */
+  const TEST_POINTER = [
+    '// A run started in this folder (npx vitest run <file>) has the setup of a run started at the',
+    "// repository's root, in vitest.config.ts there, for the tests in this folder.",
+    "import { dirname } from 'node:path';",
+    "import { testsIn } from '../../../vitest.config.ts';",
+    '',
+    'export default testsIn(dirname(import.meta.dirname));',
+    '',
+  ].join('\n');
 
-  it("has the root's setup, which each folder that holds a suite's tests passes its own folder to", () => {
+  it("has the root's setup, which each suite's folder and its test folder pass the suite's folder to", () => {
     const suites = ['packages', 'testing'].flatMap((top) =>
       readdirSync(join(ROOT, top), { withFileTypes: true }).flatMap((e) => (e.isDirectory() && existsSync(join(ROOT, top, e.name, 'test')) ? [join(top, e.name)] : [])),
     );
     expect(suites.length).toBeGreaterThanOrEqual(15);
-    for (const suite of suites) expect(readFileSync(join(ROOT, suite, 'vitest.config.mjs'), 'utf8'), suite).toBe(POINTER);
+    for (const suite of suites) {
+      expect(readFileSync(join(ROOT, suite, 'vitest.config.mjs'), 'utf8'), suite).toBe(POINTER);
+      expect(readFileSync(join(ROOT, suite, 'test', 'vitest.config.mjs'), 'utf8'), join(suite, 'test')).toBe(TEST_POINTER);
+    }
     const root = readFileSync(join(ROOT, 'vitest.config.ts'), 'utf8');
     for (const setup of ["globalSetup: ['./testing/no-stray-stores.mjs']", "setupFiles: ['./testing/file-home.mjs']", 'root: ROOT', 'export default testsIn();']) expect(root).toContain(setup);
   });
@@ -141,8 +156,8 @@ describe('every run of the tests, wherever it starts', () => {
     expect(readdirSync(join(standIn, '.shadowlap'))).toEqual([]);
   });
 
-  it("fails the run when a test writes in the real home's .shadowlap, which the guard keeps as it was", { timeout: 150_000 }, () => {
-    const r = vitestIn(join(ROOT, 'packages', 'dashboard'), ['test/own-home.test.ts', '-t', 'fail the run that writes them'], { SHADOWLAP_STAND_IN_HOME: standIn });
+  it("fails a run started in the dashboard's test folder when a test writes in the real home's .shadowlap, which the guard keeps as it was", { timeout: 150_000 }, () => {
+    const r = vitestIn(join(ROOT, 'packages', 'dashboard', 'test'), ['own-home.test.ts', '-t', 'fail the run that writes them'], { SHADOWLAP_STAND_IN_HOME: standIn });
     expect(r.status, r.out).toBe(1);
     expect(r.out).toContain(`a test wrote in the real home folder's Shadowlap files (${real[0]}): ${join(standIn, '.shadowlap')}`);
     expect(readdirSync(join(standIn, '.shadowlap'))).toEqual([]);
