@@ -20,6 +20,7 @@ import { SETUP_INTRO } from '../../src/setup-words.js';
 import { NotFoundPage } from './NotFound.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { tipEst } from '../spending.js';
+import { keepAsk, startTestsJob } from '../tests-ask.js';
 
 /**
  * Setting a project up (#/setup, and in place of the pages of a project with no runs, or of the
@@ -221,7 +222,9 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
     });
   const calibrate = (runId: string, write: boolean) => guard(() => start(client.startJob(JOB_KINDS.calibrate, { runId, write })));
   // Pack as a golden: the path checked first, so a mistake shows under the field; then one job packs
-  // it and runs its test, on the server, so leaving the page doesn't stop halfway.
+  // it and runs its test, on the server, so leaving the page doesn't stop halfway. Where its tests
+  // entry runs that test live, the server asks first, as for Tests' sessions, and the shell asks it.
+  const keep = { client, guard, watchJob: start };
   const pack = (value: string) =>
     guard(() => {
       setGoldenError(null);
@@ -229,13 +232,13 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
         ({ path, runId }) => {
           if (!runId) return setGoldenError('Record a first run before you keep it as a test.');
           setGolden(path);
-          start(client.startJob(JOB_KINDS.keepGolden, { project: id, golden: path }));
+          startTestsJob(keep, JOB_KINDS.keepGolden, { project: id, golden: path }, keepAsk(view.test.button?.label, path, true));
         },
         (err: unknown) => setGoldenError(messageOf(err)),
       );
     });
   // Packed already: its test runs (again).
-  const testGolden = () => guard(() => start(client.startJob(JOB_KINDS.keepGolden, { project: id })));
+  const testGolden = () => startTestsJob(keep, JOB_KINDS.keepGolden, { project: id }, keepAsk(view.test.button?.label, view.test.packed?.golden ?? golden ?? '', false));
   const finish = () =>
     guard(() => {
       client.projects.finish(id).then(

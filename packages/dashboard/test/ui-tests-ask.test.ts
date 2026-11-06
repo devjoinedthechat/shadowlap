@@ -11,7 +11,7 @@ import { Banner } from '../ui/run/parts.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { resetSpending, sentEstimate } from '../ui/spending.js';
-import { moreAttemptsAsk, rerunAsk, startTestsJob, testsQuestion } from '../ui/tests-ask.js';
+import { keepAsk, moreAttemptsAsk, rerunAsk, startTestsJob, testsQuestion } from '../ui/tests-ask.js';
 import type { RunDetail, RunOffers } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -438,6 +438,28 @@ describe('a live session’s question, answered by Spending', () => {
     const injection = await rerun(null, PRICED, 'injection');
     expect(dialog(injection.page)).not.toBeNull();
     expect(yeses(injection.sent)).toEqual([]);
+  });
+
+  it('answers Keep it as a test’s and a task’s re-test question as a session’s, and asks it in the step’s words with no estimate', async () => {
+    for (const kind of ['pack-test', 'task-update']) {
+      const priced = await rerun(null, PRICED, kind);
+      expect(dialog(priced.page)).toBeNull();
+      expect(yeses(priced.sent)).toHaveLength(1);
+      await r?.unmount();
+      r = null;
+    }
+    resetSpending(null);
+    const sent: Sent[] = [];
+    const state = app(sent, []);
+    const page = await shown(state, createElement('div'));
+    startTestsJob(state, 'pack-test', { project: 'p', golden: 'goldens/first-run' }, keepAsk('Pack as a golden', 'goldens/first-run', true));
+    await page.until('the question asked', () => !!dialog(page));
+    expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Pack as a golden');
+    expect(dialog(page)?.textContent).toContain('Packs the run as goldens/first-run, then runs its test.');
+    expect(dialog(page)?.textContent).toContain('shadowlap test goldens/first-run');
+    expect(yeses(sent)).toEqual([]);
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(yeses(sent).map((x) => x.fields)).toEqual([{ project: 'p', golden: 'goldens/first-run', yes: CONFIRM }]);
   });
 });
 

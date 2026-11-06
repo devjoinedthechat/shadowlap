@@ -19,6 +19,7 @@ import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { JobButton } from '../components/JobButton.js';
 import { sentEstimate } from '../spending.js';
+import { startTestsJob, type TestsAsk } from '../tests-ask.js';
 import { goldenPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { testsJob } from './tests-cards.js';
 
@@ -614,17 +615,22 @@ export function TaskUpdateDialog({ name, update, estimate, busy, onClose }: { na
   const rules = update.normalizers.length;
   const values = update.normalizers.join(', ');
   const fork = `Its test forks at #${update.forkedAt}, before the takeover at #${update.takeover}, so no model can take over there`;
+  const commands = update.steps.map((step) => commandText(step));
+  // Its words, which the server's question uses too where testing it again runs the golden live.
+  const said: TestsAsk = update.rerecords
+    ? { title: `Update ${name}?`, lead: `Re-records ${name}, for a change you meant.`, doc: 'goldenUpdates', ok: rules ? ACTIONS.addNormalizerAndUpdate.label : confirmWords(ACTIONS.updateGolden.label) }
+    : { title: `Add ${rules === 1 ? 'normalizer' : 'normalizers'} for ${name}`, lead: `Adds the ${rules === 1 ? 'normalizer' : 'normalizers'}, the whole fix, and tests the golden again.`, doc: 'tasks', ok: ACTIONS.addNormalizerAndRerun.label, commands, parts: ['live from where it forks'] };
   return (
     <Dialog
-      title={update.rerecords ? `Update ${name}?` : `Add ${rules === 1 ? 'normalizer' : 'normalizers'} for ${name}`}
-      lead={update.rerecords ? `Re-records ${name}, for a change you meant.` : `Adds the ${rules === 1 ? 'normalizer' : 'normalizers'}, the whole fix, and tests the golden again.`}
-      doc={update.rerecords ? 'goldenUpdates' : 'tasks'}
+      title={said.title}
+      lead={said.lead}
+      doc={said.doc}
       warn={{ text: busy ? busy.replace(/\.$/, '') : fork }}
-      command={{ command: update.steps.map((step) => commandText(step)) }}
+      command={{ command: commands }}
       cost={update.rerecords ? { price: 'Billed by your provider', parts: ['as its recording cost'], estimate } : null}
-      ok={update.rerecords ? (rules ? ACTIONS.addNormalizerAndUpdate.label : confirmWords(ACTIONS.updateGolden.label)) : ACTIONS.addNormalizerAndRerun.label}
+      ok={said.ok}
       okDisabled={!!busy}
-      onOk={() => (busy ? false : guard(() => watchJob(client.startJob(JOB_KINDS.taskUpdate, { golden: update.golden, ...(update.rerecords ? sentEstimate(estimate) : {}) }))))}
+      onOk={() => (busy ? false : startTestsJob({ client, watchJob, guard }, JOB_KINDS.taskUpdate, { golden: update.golden, ...(update.rerecords ? sentEstimate(estimate) : {}) }, said))}
       onClose={onClose}
     >
       {rules && update.rerecords ? (

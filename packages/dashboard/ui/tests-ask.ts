@@ -119,10 +119,11 @@ export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<str
 
 /**
  * The kinds whose one 409 asking a yes is the server's question before a session runs live
- * (src/tests-live.ts), which Spending may answer. Any other kind's is consent to a command someone
+ * (src/tests-live.ts), which Spending may answer: Tests' sessions, and Setup's Keep it as a test and
+ * a task's Update where they test a golden again. Any other kind's is consent to a command someone
  * else recorded (an injection test's), which waits as the question on every setting.
  */
-const SPENDING_ANSWERS: ReadonlySet<string> = new Set([JOB_KINDS.tests, JOB_KINDS.normalizeAndTest]);
+const SPENDING_ANSWERS: ReadonlySet<string> = new Set([JOB_KINDS.tests, JOB_KINDS.normalizeAndTest, JOB_KINDS.keepGolden, JOB_KINDS.taskUpdate]);
 
 /**
  * A question come: Spending answers yes at once where it holds the session's estimate at or under the
@@ -211,6 +212,15 @@ function normalizerAsk(name: string, steps: readonly (readonly string[])[] | nul
     commands: (steps ?? []).map(commandText),
     parts: [updates ? updatePart(true, false) : 'live from where it forks'],
   };
+}
+
+/**
+ * Setup's Keep it as a test, where the golden's tests entry runs it live: Pack as a golden (it packs
+ * the run, then tests it) or, once it is packed, Run the test, titled by the step's button.
+ */
+export function keepAsk(label: string | undefined, golden: string, packs: boolean): TestsAsk {
+  const title = label ?? (packs ? 'Pack as a golden' : 'Run the test');
+  return { title, lead: packs ? `Packs the run as ${golden}, then runs its test.` : `Runs the test of ${golden}.`, doc: 'goldensThatFork', ok: title, commands: [commandText(['test', golden])], parts: ['only what runs live'] };
 }
 
 /** Re-run on a golden that diverged, from Tests or a test replay's next step: its test again, live from where it forks. */
