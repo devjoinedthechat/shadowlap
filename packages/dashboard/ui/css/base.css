@@ -477,7 +477,6 @@ code.rnm { white-space: nowrap; }
   ) { font-size: var(--fs-label); }
   /* a pseudo-element can't sit in :is(): report.md's labels over its values on a narrow panel */
   :is(#root, body) .fxtable td::before { font-size: var(--fs-label); }
-
   :is(#root, body) :is(table.t th:not(.mh), table.calls th) { letter-spacing: .07em; }
   :is(#root, body) table.calls .n .fk { letter-spacing: 0; }
 }

@@ -19,10 +19,10 @@ import { presetWhy, type PresetAttempt } from './preset.js';
  * `FindingsBar.tsx` draws it.
  */
 
-/** A flag a replay ran with, as the server names it: `--fail-at` and `19=529`, and the call it names. */
 /** A blame that placed the failure on no call, in the engine's word for it. */
 type BlameState = ReturnType<typeof blameStateWord>;
 
+/** A flag a replay ran with, as the server names it: `--fail-at` and `19=529`, and the call it names. */
 export interface FlagView {
   flag: string;
   value?: string | null;
@@ -150,12 +150,10 @@ export type Banner =
   | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string; status?: string }>; why: string | null }
   | { kind: 'interrupted'; why: string }
   /**
-   * `label`: how a blame that placed the failure on no call stands, in the engine's word
-   * (blameStateWord): `stopped` and `inconclusive` need a look (amber), `not rescued` is a failure.
-   */
-  /**
    * `lead`: what failed, which the outcome's `check failed` or `exited` stands on, said first in ink; `why`: how its blame
-   * stands. A blame that placed the failure on no call says its word as the label instead, the failure in its `why`.
+   * stands. `label`: how a blame that placed the failure on no call stands, in the engine's word (blameStateWord), said
+   * as the label instead, the failure in its `why`: `stopped` and `inconclusive` need a look (amber), `not rescued` is a
+   * failure.
    */
   | { kind: 'failed'; lead?: string; why: string; fix: { id: string; status: string; title: string } | null; blamed: boolean; label?: BlameState };
 

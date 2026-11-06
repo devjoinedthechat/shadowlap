@@ -267,10 +267,6 @@ function MoreMenu({ run, offers, live }: { run: RunDetail; offers: RunOffers | n
 const cardUnlessIdle = (idle: boolean, card: string) => (idle ? {} : { 'data-tip': tipText(card) });
 
 /**
- * Labels: the good/bad key first (good and bad are its, so no chip says them again), then the other
- * labels as chips with ×, and + Label for a new one (Enter adds, Esc cancels).
- */
-/**
  * A label's ×: the label goes at once, the focus to Add label where the × had it, and the toast's Undo
  * puts it back (last, as the server appends). A removal the server refuses puts the labels back as
  * they were, and says why.
@@ -309,6 +305,10 @@ function useRemoveLabel(runId: string, shown: readonly string[], setLabels: (lab
     });
 }
 
+/**
+ * Labels: the good/bad key first (good and bad are its, so no chip says them again), then the other
+ * labels as chips with ×, and Add label for a new one (Enter adds, Esc cancels).
+ */
 function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; labels: readonly string[]; setLabels: (labels: string[]) => void; onMark: ((m: RunMark, from?: HTMLElement) => void) | null }) {
   const { client, actionsOff, exported, toast, refresh, guard } = useApp();
   const [adding, setAdding] = useState(false);

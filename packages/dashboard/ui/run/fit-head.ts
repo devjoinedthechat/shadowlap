@@ -100,6 +100,11 @@ function watchAbout(ab: HTMLElement | null): void {
   if (ab) watcher.observe(ab);
 }
 
+/** Lets go of the about line a header holds as the header goes, so a run page that left keeps no watch on it; another header's stays watched. */
+function unwatchAbout(h: HTMLElement | null): void {
+  if (watched && h?.contains(watched)) watchAbout(null);
+}
+
 /**
  * A row of buttons that wraps leaves none alone on its last row: it narrows, as balanced text does,
  * while its rows stay as many. Rows are told by where the items stand, an item that starts below the
@@ -168,7 +173,8 @@ export function moreRows(actions: ParentNode | null): MoreRow[] {
 /**
  * The meta card shows for the id's focus only when Tab brought it there, not when the page put the
  * focus on its heading (after Enter on a link, say, which another key than Tab marks); Esc hides it,
- * until the pointer leaves the id or the focus moves on, and goes no further.
+ * until the pointer leaves the id or the focus moves on, and goes no further. As the header goes, the
+ * watch on its about line goes too.
  */
 export function useMetaCard(head: RefObject<HTMLElement | null>): void {
   useEffect(() => {
@@ -202,7 +208,10 @@ export function useMetaCard(head: RefObject<HTMLElement | null>): void {
     document.addEventListener('focusin', focusIn);
     document.addEventListener('focusout', focusOut);
     document.addEventListener('mouseout', mouseOut);
+    // The header as it mounted: its ref is cleared before this runs as it goes.
+    const own = head.current;
     return () => {
+      unwatchAbout(own);
       document.removeEventListener('keydown', keys, true);
       document.removeEventListener('focusin', focusIn);
       document.removeEventListener('focusout', focusOut);

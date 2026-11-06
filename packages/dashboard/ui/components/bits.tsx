@@ -22,8 +22,8 @@ export { EmptyState } from './States.js';
  * The muted line above a page's title, the same on every page and the run page's alike: what the
  * page is, the project and a noun for what it shows ("support-agent · this week"), or a thing's
  * kind and its name ("fix · refund-bug"). Mono, small capitals, in one tone everywhere: never lime,
- * never red (what went wrong is the title's and its line's to say), never a tagline. `tone`, a run
- * page's mark of a fork, names it and draws nothing else.
+ * never red (what went wrong is the title's and its line's to say), never a tagline. `className`
+ * adds a page's own class to it, as a run's header does.
  */
 export function Eyebrow({ className, children }: { className?: string | undefined; children: ReactNode }) {
   return <div className={`eyebrow${className ? ` ${className}` : ''}`}>{children}</div>;

@@ -219,11 +219,6 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
   );
 }
 
-/**
- * Under a tool call's arguments and result: the model call of its own conversation that asked for it
- * (or that its result feeds), and in a batch which conversation it is, with a way to that call's
- * conversation. Only from what the server says, so it never leads to another ticket's.
- */
 type FailedBy = 'shadowlap' | 'replay' | 'provider';
 /** A failed model call's words in each place, by who answered it. */
 const RESPONSE_BY: Readonly<Record<FailedBy, string>> = { shadowlap: ' · written by Shadowlap, nothing sent', replay: ' · refused offline', provider: ' · from the provider' };
@@ -274,6 +269,11 @@ export function CallNote({ c, flag }: { c: CallDetail['call']; flag: string | nu
   );
 }
 
+/**
+ * Under a tool call's arguments and result: the model call of its own conversation that asked for it
+ * (or that its result feeds), and in a batch which conversation it is, with a way to that call's
+ * conversation. Only from what the server says, so it never leads to another ticket's.
+ */
 function ConversationLink({ detail, calls, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; onSelect?: ((n: number) => void) | undefined }) {
   const link = conversationLink(detail.call, detail.conversation, calls);
   if (!link) return null;

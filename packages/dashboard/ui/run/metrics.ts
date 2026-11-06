@@ -80,8 +80,13 @@ export function metricItems(m: MetricInput): MetricItem[] {
       : { value: unpriced ? '—' : approx(m.cost.spent), label: unpriced ? `spent${by} · no price for ${m.cost.unknownModels[0]!}` : `spent${by}`, cls: 'q', tip: { title: 'Spent live', rows: upstream } },
   ];
   if (m.cost.saved || m.tokensNotRespent) items.push({ value: money(m.cost.saved), label: 'not re-spent', cls: 'q', tip: { title: 'Replayed from the recording', rows: m.tokensNotRespent ? [['input tokens not sent again', ktok(m.tokensNotRespent)]] : [] } });
-  if (m.notWaitedMs) items.push({ value: receiptDuration(m.notWaitedMs), label: 'not waited', cls: 'q', tip: { title: 'The recorded time of the replayed calls', rows: [], ...(m.notWaitedUnknown ? { sub: `${m.notWaitedUnknown} replayed calls’ recorded durations were not found` } : {}) } });
+  if (m.notWaitedMs) items.push({ value: receiptDuration(m.notWaitedMs), label: 'not waited', cls: 'q', tip: { title: 'The recorded time of the replayed calls', rows: [], ...(m.notWaitedUnknown ? { sub: durationsNotFound(m.notWaitedUnknown) } : {}) } });
   return items;
+}
+
+/** The replayed calls whose recorded durations weren't found, one of them said in the singular. */
+function durationsNotFound(n: number): string {
+  return n === 1 ? '1 replayed call’s recorded duration was not found' : `${n} replayed calls’ recorded durations were not found`;
 }
 
 // ---- How the run came out: its first fact ----
