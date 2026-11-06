@@ -24,6 +24,7 @@ export const EVENT_LABEL: Record<GlyphKind, string> = {
   fixok: 'Fix accepted',
   fixbad: 'Fix rejected',
   fixinc: 'Fix inconclusive',
+  retire: 'Model retires',
   project: 'Project',
   setting: 'Settings',
   train: 'Training',
@@ -66,6 +67,8 @@ function Mark({ kind }: { kind: GlyphKind }) {
       return <Icon name="gear" />;
     case 'train':
       return <Icon name="target" />;
+    case 'retire':
+      return <Icon name="clock" />;
   }
 }
 

@@ -286,6 +286,7 @@ describe('amber', () => {
   const LOOK: Record<string, string> = {
     '.glyph.warn': 'a glyph that needs a look',
     '.glyph.fixinc': 'a fix whose verify couldn’t decide',
+    '.glyph.retire': 'a model the goldens use that retires',
     '.glyph.amb': 'an event that couldn’t decide, stopped or needs a look, whatever its shape',
     '.pips i.unsure': 'an attempt that couldn’t decide',
     '.pips i.part': 'an attempt that partly passed: inconclusive',
