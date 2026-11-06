@@ -404,7 +404,8 @@ describe('the run page’s next step', () => {
     expect(dialog.querySelector('.dcost')?.textContent).toContain('live from each read, writes stubbed');
     expect(dialog.textContent).toContain(`shadowlap injection ${REC.slice(0, 10)} --templates system-notice --repeat 2`);
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false }]]);
+    // The job keeps the estimate the card and the Cost line said, for its drawer.
+    expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false, estimate: { usd: 3.11, ceiling: false } }]]);
   });
 
   it('runs an injection test its budget stopped, and a gate’s through its golden’s test', async () => {

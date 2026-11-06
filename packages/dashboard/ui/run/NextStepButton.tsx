@@ -227,7 +227,8 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   const busy = useTreeBusy('reads', stepJob(step)!.verb);
   const title = confirmWords(step.label);
   const id = shortId(step.runId);
-  const fields = step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId };
+  // The job keeps the estimate its card and Cost line said, so its drawer says it too; the consent's yes sends it again.
+  const fields = { ...(step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId }), ...sentEstimate(stepEstimate(step)) };
   const start = (yes?: string) =>
     app.guard(() => {
       void app.client.startJob(JOB_KINDS.injection, yes === undefined ? fields : { ...fields, yes }).then(
