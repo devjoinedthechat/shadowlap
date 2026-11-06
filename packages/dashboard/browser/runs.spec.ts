@@ -5,7 +5,8 @@ import { openPage, seriousViolations } from './dashboard.js';
  * Runs as the design draws it, in a real browser: the twelve weeks a slim row of days that a drag
  * picks from, Calendar opening the grid in its place and Hide calendar bringing the row back with
  * the focus on its button; on a phone a bar a week; and days in a link that run past the twelve
- * weeks kept to the days inside, the address saying so. No serious axe violation in either.
+ * weeks kept to the days inside, the address saying so. No serious axe violation in either, with
+ * days picked, or with the bulk bar up.
  */
 
 const hash = (page: import('@playwright/test').Page) => page.evaluate(() => location.hash);
@@ -31,6 +32,7 @@ test('the twelve weeks are a row of days a drag picks from, and Calendar opens t
   await expect(row.locator('.hbars button[aria-pressed="true"]')).toHaveCount(3);
   await expect(row.locator('.hsum')).toHaveText(/^\d[\d,]* (run|runs) from \w{3} \d+ to \w{3} \d+(, \d[\d,]* failed)?\.$/);
   await expect(row.locator('.hact button', { hasText: 'Clear' })).toBeVisible();
+  expect(await seriousViolations(page)).toEqual([]);
   // Calendar shows the grid in the row's place, its own button in focus; Hide calendar brings the row back.
   await row.locator('.hact button', { hasText: 'Calendar' }).click();
   const grid = page.locator('main#view section.cal:not(.hist)');
@@ -66,6 +68,7 @@ test('x picks a row and the bar comes; Delete takes the run off every list at on
   const bar = page.locator('.bulkbar');
   await expect(bar.locator('b')).toHaveText('1 selected');
   expect(await bar.locator('button').allTextContents()).toEqual(expect.arrayContaining(['Add label…', 'Export dataset…', 'Compare', 'Delete 1 run', 'Clear selection']));
+  expect(await seriousViolations(page)).toEqual([]);
   await bar.locator('button', { hasText: 'Delete 1 run' }).click();
   await page.locator('.dialog button', { hasText: /^Delete run$/ }).click();
   await expect(page.locator(`main#view table.runst a.rowa[href="${link}"]`)).toHaveCount(0);
