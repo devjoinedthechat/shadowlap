@@ -252,7 +252,7 @@
 .pallist { padding: 6px 0; }
 .pallist > [role="listbox"] { max-height: min(420px, 56vh); overflow-y: auto; padding: 0 6px; }
 .pallist > .empty, .pallist > .palnote { margin-left: 6px; margin-right: 6px; }
-.palg { padding: 10px 10px 4px; font: 500 10px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+.palg { padding: 10px 10px 4px; font: 500 var(--fs-caps) var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
 .palit { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-control); background: none; color: var(--ink); text-align: left; cursor: pointer; }
 .palit.on { background: var(--sel); }
 /* the arrowed row has the focus ring, the field keeping the focus itself; the pointer's place shows by the ground alone */
@@ -269,11 +269,11 @@
 .palit .ph2 { flex: 1; min-width: 0; color: var(--faint); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .palit mark { background: none; color: var(--ink); font-weight: 600; }
 .palnote { padding: 8px 10px 4px; color: var(--faint); font-size: 12px; }
-.palfoot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--faint); }
+.palfoot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: var(--fs-small); color: var(--faint); }
 .palfoot span { display: inline-flex; align-items: center; gap: 4px; }
 .palit .palk { flex: none; display: inline-flex; gap: 3px; }
 .palg code.rnm { font: 500 var(--fs-label) var(--mono); letter-spacing: 0; text-transform: none; color: var(--dim); }
-.palfoot kbd, .palit .kbd, .palit .palk kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; border: 1px solid var(--line2); background: var(--panel); font: 10.5px var(--mono); color: var(--dim); }
+.palfoot kbd, .palit .kbd, .palit .palk kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-chip); border: 1px solid var(--line2); background: var(--panel); font: var(--fs-label) var(--mono); color: var(--dim); }
 /* on a touch screen the palette shows no keys: no Esc, no g then a letter, no ↑ ↓ ↵ foot */
 @media (hover: none) and (pointer: coarse) { .palin .kbd, .palit .kbd, .palit .palk, .palfoot { display: none; } }
 

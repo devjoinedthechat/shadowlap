@@ -5,15 +5,15 @@
 .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; flex: none; }
 .brand .tile { width: 26px; height: 26px; }
 .brand .word { height: 14px; width: auto; }
-.crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: 10px; font-size: 13.5px; color: var(--faint); white-space: nowrap; overflow: hidden; }
+.crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: 10px; font-size: var(--fs-body); color: var(--faint); white-space: nowrap; overflow: hidden; }
 .crumbs a { text-decoration: none; color: var(--faint); }
 .crumbs a:hover { color: var(--ink); }
 /* the bar clips what spills out of it, so a crumb's focus ring is drawn inside */
 .crumbs a:focus-visible { outline-offset: -2px; }
 .crumbs b { font-weight: 500; color: var(--ink); }
 /* a crumb's words are in the UI face; a run's id, a fix's label, data, in mono */
-.crumbs b.rt { font-family: var(--mono); font-size: 12.5px; }
-.crumbs b code { font-size: 12.5px; }
+.crumbs b.rt { font-family: var(--mono); font-size: var(--fs-quiet); }
+.crumbs b code { font-size: var(--fs-quiet); }
 .crumbs i { font-style: normal; color: var(--line2); }
 
 .menu-toggle { display: none; }
@@ -23,7 +23,7 @@
 .side { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .side-top { padding: 14px 12px 8px; }
 .navlist { padding: 6px 8px 8px; border-bottom: 1px solid var(--line); }
-.navlist a { position: relative; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; text-decoration: none; color: var(--dim); font-weight: 500; }
+.navlist a { position: relative; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--r-control); text-decoration: none; color: var(--dim); font-weight: 500; }
 .navlist a svg { width: 15px; height: 15px; color: var(--faint); }
 .navlist a:hover { background: var(--hover); color: var(--ink); }
 .navlist a[aria-current="page"] { background: var(--sel); color: var(--ink); }
@@ -33,7 +33,7 @@
 /* the loop's pages, a hairline, then the tools */
 .navlist .navsep { border: 0; border-top: 1px solid var(--line); margin: 6px 10px; }
 .side-k { display: flex; align-items: center; padding: 12px 16px 6px; font: 600 12px var(--body); color: var(--faint); }
-.side-k a { margin-left: auto; letter-spacing: 0; text-transform: none; font-size: 11px; color: var(--faint); text-decoration: none; }
+.side-k a { margin-left: auto; letter-spacing: 0; text-transform: none; font-size: var(--fs-label); color: var(--faint); text-decoration: none; }
 .side-k a:hover { color: var(--ink); }
 /* the heading folds the tree away; the caret points down while it shows. The button reaches over the heading's padding, so it is
    a 31px target where it reads as a 13px line, and nothing moves */
@@ -58,15 +58,15 @@
 
 .run .r1 { grid-column: 2; display: flex; align-items: center; gap: 7px; min-width: 0; }
 .run .id { font: 500 12.5px var(--mono); color: var(--ink); }
-.run .when { margin-left: auto; font-size: 12px; color: var(--faint); white-space: nowrap; }
-.run .r2 { grid-column: 2; margin-top: 2px; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run .when { margin-left: auto; font-size: var(--fs-small); color: var(--faint); white-space: nowrap; }
+.run .r2 { grid-column: 2; margin-top: 2px; font-size: var(--fs-small); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .run .r2 em { font-style: normal; color: var(--err); }
 .run .r2 em.inc { color: var(--warn); }
 .run .r2 b { font-weight: 500; color: var(--ink); }
 
 .status { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-top: 1px solid var(--line); font: 12px var(--body); color: var(--faint); background: var(--bg); white-space: nowrap; overflow: hidden; }
 /* the status bar's words in the UI face; a path or an address, data, in mono */
-.status code { font-size: 11px; color: inherit; }
+.status code { font-size: var(--fs-label); color: inherit; }
 .status .sep { width: 1px; height: 12px; background: var(--line2); flex: none; }
 /* Drawn over what scrolls under it: a switch (Format JSON) in the views pane would otherwise paint over the bar. */
 .status { position: relative; z-index: 2; }
@@ -86,7 +86,7 @@
 .proj:hover { border-color: var(--line2); }
 .proj .pa { width: 26px; height: 26px; flex: none; border-radius: 6px; display: grid; place-items: center; background: var(--sel); color: var(--ink); font: 700 12px var(--disp); }
 .proj .pn { min-width: 0; }
-.proj b { display: block; font-weight: 500; font-size: 13.5px; }
+.proj b { display: block; font-weight: 500; font-size: var(--fs-body); }
 .proj small { display: block; font: 11px var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .proj .caret { margin-left: auto; width: 10px; height: 10px; color: var(--faint); flex: none; }
 .side-foot { border-top: 1px solid var(--line); padding: 6px 0 8px; margin-top: auto; }
@@ -108,7 +108,7 @@
 .status .off { color: var(--warn); font-weight: 500; }
 
 /* one search, in the top bar as Vercel and GitHub place it: a field that opens the palette; at 1000px and below its icon */
-.search.sbtn { display: flex; align-items: center; gap: 9px; width: 248px; height: 32px; flex: none; padding: 0 8px 0 10px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel); color: var(--faint); font: 13.5px var(--body); text-align: left; cursor: pointer; }
+.search.sbtn { display: flex; align-items: center; gap: 9px; width: 248px; height: 32px; flex: none; padding: 0 8px 0 10px; border-radius: var(--r-control); border: 1px solid var(--field); background: var(--panel); color: var(--faint); font: var(--fs-body) var(--body); text-align: left; cursor: pointer; }
 .search.sbtn svg { width: 14px; height: 14px; flex: none; }
 .search.sbtn .st { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .search.sbtn .kbd { flex: none; }

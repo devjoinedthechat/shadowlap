@@ -32,11 +32,11 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 ::-webkit-scrollbar-track { background: transparent; }
 
 .sp { flex: 1; }
-.ibtn { width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: 9px; border: 1px solid var(--line2); background: none; color: var(--dim); cursor: pointer; flex: none; }
+.ibtn { width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: var(--r-control); border: 1px solid var(--line2); background: none; color: var(--dim); cursor: pointer; flex: none; }
 .ibtn:hover { color: var(--ink); border-color: var(--dim); }
 .ibtn svg { width: 15px; height: 15px; }
 
-.kbd { font: 500 10.5px var(--mono); color: var(--faint); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
+.kbd { font: 500 var(--fs-label) var(--mono); color: var(--faint); border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: var(--r-chip); padding: 0 5px; }
 
 .dotlive { width: 7px; height: 7px; border-radius: 50%; background: var(--o-live); box-shadow: 0 0 0 3px color-mix(in srgb, var(--o-live) 22%, transparent); animation: pulse 1.6s ease-in-out infinite; flex: none; }
 @keyframes pulse { 50% { opacity: .35; } }
