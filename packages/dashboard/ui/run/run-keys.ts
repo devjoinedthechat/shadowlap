@@ -89,12 +89,13 @@ async function stepRun(runId: string, d: 1 | -1, runs: readonly RunLike[] | null
 
 /**
  * Esc on a run: the diff in the inspector's place closes first, the finding's toggle taking the focus
- * if the focus was inside it (InspectorPanel.tsx).
+ * if the focus was inside it (InspectorPanel.tsx). The panel is open once its frame shows, whether the
+ * diff in it has come, is on its way or failed to come (it loads the first time it opens).
  */
 function closeDiff(k: { showDiff: boolean; setShowDiff: (on: boolean) => void }): boolean {
-  if (!k.showDiff || !document.querySelector('.diffpanel')) return false;
+  if (!k.showDiff || !document.querySelector('#insp.fpanel')) return false;
   const a = document.activeElement;
-  const lost = !a || a === document.body || !!a.closest('.diffpanel, .fpanel');
+  const lost = !a || a === document.body || !!a.closest('.fpanel');
   const toggle = lost ? panelToggle() : null;
   k.setShowDiff(false);
   if (toggle) focusQuiet(toggle);
