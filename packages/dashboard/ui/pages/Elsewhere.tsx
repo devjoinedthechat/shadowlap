@@ -30,10 +30,11 @@ import type { ElsewhereProps } from './held-elsewhere.js';
  *
  * Once Switch is pressed the page holds, busy, until the page it opens has drawn: the item, or its
  * own read failing anew there, which asks again (a pair split across two projects names the first
- * one back). A read that fails before the switch lands was made in the project the page showed,
- * and the page holds on: a fix's page reads again with each call a recording there makes. A switch
- * refused (the project left the list meanwhile) says why in a toast and asks again, which finds
- * nothing now. The opened page's heading takes the focus.
+ * one back). A read that fails before the switch has landed and the page has been asked to read
+ * again was made in the project the page showed, and the page holds on: a fix's page reads again
+ * with each call a recording there makes. A switch refused (the project left the list meanwhile)
+ * says why in a toast and asks again, which finds nothing now. The opened page's heading takes the
+ * focus.
  */
 
 /** What an answer was asked for: the kind, the ids and the project the page showed. */
@@ -47,8 +48,8 @@ export function ElsewherePage({ ask, error = null, waiting, retry, fallback }: E
   const [asked, setAsked] = useState<{ key: string; view: HoldingView | null | 'failed' } | null>(null);
   const [again, setAgain] = useState(0);
   const [switching, setSwitching] = useState(false);
-  // The project shown when Switch was pressed: until the page shows another, the switch hasn't landed.
-  const pressedIn = useRef<string | null>(null);
+  // Switch has landed, and the page has been asked to read again: a read failing before then was the project it showed.
+  const landed = useRef(false);
   const askRef = useRef(ask);
   askRef.current = ask;
 
@@ -75,8 +76,8 @@ export function ElsewherePage({ ask, error = null, waiting, retry, fallback }: E
     if (!error) return;
     if (!switching) {
       if (lastFailed) setAgain((n) => n + 1);
-    } else if (shown !== pressedIn.current) setSwitching(false);
-  }, [error, switching, lastFailed, shown]);
+    } else if (landed.current) setSwitching(false);
+  }, [error, switching, lastFailed]);
 
   const view = asked?.view && asked.view !== 'failed' ? asked.view : null;
   const held = view?.held ?? null;
@@ -91,12 +92,13 @@ export function ElsewherePage({ ask, error = null, waiting, retry, fallback }: E
   const holder = held.project;
   const press = async () => {
     const from = shownProject();
-    pressedIn.current = shown;
+    landed.current = false;
     setSwitching(true);
     owePageHeading();
     await switchProject(app, holder.id, location.hash);
     // Refused (the toast says why): ask again, as the project shown is the same.
     if (shownProject() === from) return setSwitching(false);
+    landed.current = true;
     retry?.();
     // With no read of its own to fail anew (the setup's place), what shows now asks again.
     if (!retry) setSwitching(false);

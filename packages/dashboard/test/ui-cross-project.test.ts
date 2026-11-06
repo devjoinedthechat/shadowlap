@@ -59,9 +59,10 @@ interface World {
 
 /**
  * A run's page in `HERE` that can't find RUN, asking with `holding`; `select` answers the switch,
- * after which the meta names the project switched to. `exported`, `project: null` (one store).
+ * after which the meta names the project switched to, and the reload ends once `runsLoaded` has.
+ * `exported`, `project: null` (one store).
  */
-async function open(o: { holding: (n: number) => Promise<HoldingView | null>; select?: () => Promise<unknown>; exported?: boolean; project?: string | null; retry?: boolean }): Promise<World> {
+async function open(o: { holding: (n: number) => Promise<HoldingView | null>; select?: () => Promise<unknown>; runsLoaded?: Promise<void>; exported?: boolean; project?: string | null; retry?: boolean }): Promise<World> {
   addressBar(`#/run/${RUN}/3/context`);
   const w: World = { holding: [], selected: [], reloads: 0, retries: 0, toasts: [], failAgain: () => undefined, found: () => undefined };
   const project = o.project === undefined ? HERE : o.project;
@@ -105,7 +106,7 @@ async function open(o: { holding: (n: number) => Promise<HoldingView | null>; se
             const now = w.selected.at(-1) ?? shown;
             showProject(now);
             setShown(now);
-            return Promise.resolve();
+            return o.runsLoaded ?? Promise.resolve();
           },
         }) as unknown as AppState,
       [shown],
@@ -207,8 +208,13 @@ describe('Switch to', () => {
   });
 
   it('holds through the page’s reads that fail before the switch lands, as a recording in the project it showed makes them', async () => {
-    let landed: () => void = () => undefined;
-    const w = await open({ holding: (n) => Promise.resolve(n === 1 ? answer(THERE) : answer(null, THERE)), select: () => new Promise((resolve) => (landed = () => resolve({ current: THERE, name: THERE }))) });
+    let selected: () => void = () => undefined;
+    let runsLoaded: () => void = () => undefined;
+    const w = await open({
+      holding: (n) => Promise.resolve(n === 1 ? answer(THERE) : answer(null, THERE)),
+      select: () => new Promise((resolve) => (selected = () => resolve({ current: THERE, name: THERE }))),
+      runsLoaded: new Promise((resolve) => (runsLoaded = resolve)),
+    });
     await page!.until('the In page', () => page!.all('h1').length === 1);
     await page!.click(page!.one('.ph .actions button'));
     await page!.until('the switch to be asked', () => w.selected.length === 1);
@@ -216,12 +222,16 @@ describe('Switch to', () => {
     await page!.wait(20);
     w.failAgain();
     await page!.wait(20);
+    // The meta names the project switched to, its runs still on their way: a read sent before the switch fails now.
+    selected();
+    await page!.until('the meta', () => w.reloads === 1);
+    w.failAgain();
+    await page!.wait(20);
     expect(page!.one('.page').attributes.get('aria-busy')).toBe('true');
     expect(page!.one('.ph .actions button').attributes.has('disabled')).toBe(true);
-    expect(w.holding).toHaveLength(1);
-    landed();
-    await page!.until('the switch', () => w.reloads === 1);
-    expect(w.retries).toBe(1);
+    expect([w.holding.length, w.retries]).toEqual([1, 0]);
+    runsLoaded();
+    await page!.until('the page to be asked to read again', () => w.retries === 1);
     expect(page!.one('.page').attributes.get('aria-busy')).toBe('true');
     // The page read it there: it draws, never having asked again or said it isn't here.
     w.found();
