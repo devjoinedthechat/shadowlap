@@ -13,7 +13,9 @@ import { AskNote } from '../components/AskNote.js';
  * opens on that button, as the other asks before a job that bills do (Run repair, Update
  * golden, Find breaking commit): Cancel takes the focus first only where a dialog deletes or stops
  * something, or runs a command someone else recorded (ConsentDialog). The shell draws it once, over
- * every page.
+ * every page. It also asks before a billed job with no 409 behind it, where Spending says it asks
+ * and no page of its own is open to (the palette's Run blame on another run): its button runs the
+ * question's `start`.
  */
 export function TestsAskHost() {
   const app = useApp();

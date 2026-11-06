@@ -57,6 +57,11 @@ export interface TestsQuestion extends TestsAsk {
   live?: readonly LiveGolden[];
   kind: string;
   fields: Record<string, unknown>;
+  /**
+   * What its button runs in place of sending the job again, for an ask with no 409 behind it: a
+   * billed job Spending asks first over any page (the palette's Run blame). False while it can't start.
+   */
+  start?: () => boolean;
 }
 
 /** What starting a job needs of the app (`AppState`). */
@@ -81,7 +86,11 @@ export function onTestsQuestion(on: () => void): () => void {
   };
 }
 
-function ask(q: TestsQuestion | null): void {
+/**
+ * Shows a question, or none: a 409's, or a billed job's ask with no 409 behind it, whose `start` its
+ * button runs.
+ */
+export function askQuestion(q: TestsQuestion | null): void {
   asking = q;
   for (const on of listeners) on();
 }
@@ -124,18 +133,18 @@ const SPENDING_ANSWERS: ReadonlySet<string> = new Set([JOB_KINDS.tests, JOB_KIND
 function answer(app: TestsJobApp, q: TestsQuestion): void {
   const estimate = q.estimate?.usd === 0 ? null : (q.estimate ?? null);
   if (estimate && SPENDING_ANSWERS.has(q.kind) && !asksFirst(estimate, heldTo())) startTestsJob(app, q.kind, { ...q.fields, ...sentEstimate(estimate), yes: q.confirm }, q);
-  else ask({ ...q, estimate });
+  else askQuestion({ ...q, estimate });
 }
 
 /**
- * The answer to the question waiting: yes sends its job again with its `confirm`, and the question
- * goes once that is sent; no drops it, and nothing runs. False while the job can't start (offline),
- * so its dialog stays open with the question.
+ * The answer to the question waiting: yes sends its job again with its `confirm`, or runs its
+ * `start`, and the question goes once that is sent; no drops it, and nothing runs. False while the
+ * job can't start (offline), so its dialog stays open with the question.
  */
 export function answerTestsQuestion(app: TestsJobApp, yes: boolean): boolean {
   const q = asking;
-  const sent = !q || !yes || startTestsJob(app, q.kind, { ...q.fields, ...sentEstimate(q.estimate), yes: q.confirm }, q);
-  if (sent) ask(null);
+  const sent = !q || !yes || (q.start ? q.start() : startTestsJob(app, q.kind, { ...q.fields, ...sentEstimate(q.estimate), yes: q.confirm }, q));
+  if (sent) askQuestion(null);
   return sent;
 }
 

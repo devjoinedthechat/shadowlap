@@ -19,7 +19,9 @@ import { rowStep } from '../run/row-step.js';
 import { goKeyColumn, keyColumn } from '../shortcuts.js';
 import { singleKeysOn } from '../single-keys.js';
 import { useApp, type AppState, type PaletteCommand } from '../state.js';
-import { paletteTestsAsk, startTestsJob } from '../tests-ask.js';
+import { askQuestion, paletteTestsAsk, startTestsJob, type TestsQuestion } from '../tests-ask.js';
+import { pressBilled, sentEstimate } from '../spending.js';
+import { probesPart } from '../../../engine/src/cost-words.js';
 
 /**
  * Search or jump to (⌘K, Ctrl K, or / away from a run and Runs): This run, Go to, Actions, Runs, Fixes,
@@ -201,20 +203,52 @@ function PaletteRow({ x, n, q, at, paused, id, moved, pick }: { x: PaletteComman
   );
 }
 
-// Run blame for the newest failures nobody blamed: the job, or what it asks first (your command on a capture, the check, a yes) on the run's own page.
-addPaletteSource(({ app, route, go }) => {
-  const refused = (runId: string, err: unknown) => (blameAsksOnItsPage(err) ? go(href.run(runId)) : app.watchJob(Promise.reject(err)));
-  return blameEntries(app.runs ?? [], route.page === 'run' ? route.id : null).map(({ run, entry }) => ({
+/**
+ * Run blame on another run, as its page asks it: priced on the pick by the run's next step, read then
+ * (none while it is read, and a failed read is no estimate), it starts or asks over any page by
+ * Spending, its dialog the run page's `Run blame on <id>`. What it asks first besides (your command
+ * on a capture, the check, a yes to someone else's command) is the run's own page's.
+ */
+function pickBlame(app: AppState, run: { runId: string; next?: { command?: string } | null }, page: () => void): void {
+  const refused = (err: unknown) => (blameAsksOnItsPage(err) ? page() : app.watchJob(Promise.reject(err)));
+  const start = (sent: Record<string, unknown>) => app.guard(() => void app.client.startJob(JOB_KINDS.blame, { runId: run.runId, ...sent }).then((job) => app.watchJob(Promise.resolve(job)), refused));
+  void Promise.resolve()
+    .then(() => app.client.nextStep(run.runId))
+    .then(
+      ({ next }) => next,
+      () => null,
+    )
+    .then((next) => {
+      if (next?.key === 'blame' && (next.capture || next.offer.from === 'ask')) return page();
+      const estimate = next?.key === 'blame' ? (next.estimate ?? null) : null;
+      const id = shortId(run.runId);
+      const question: TestsQuestion = {
+        title: `${ACTIONS.runBlame.label} on ${id}`,
+        name: id,
+        lead: 'Finds the model call that lost the run.',
+        doc: 'blame',
+        ok: ACTIONS.runBlame.label,
+        commands: [(next?.key === 'blame' ? next.command : null) ?? run.next?.command ?? `shadowlap blame ${id}`],
+        facts: [],
+        parts: [probesPart()],
+        estimate,
+        why: '',
+        confirm: '',
+        kind: JOB_KINDS.blame,
+        fields: { runId: run.runId },
+        start: () => start(sentEstimate(estimate)),
+      };
+      pressBilled({ estimate, start: (sent) => void start(sent), ask: () => askQuestion(question) });
+    });
+}
+
+// Run blame for the newest failures nobody blamed, but a capture's, whose page asks for your command before anything runs.
+addPaletteSource(({ app, route, go }) =>
+  blameEntries(app.runs ?? [], route.page === 'run' ? route.id : null).map(({ run, entry }) => ({
     ...entry,
-    run: () =>
-      run.next?.capture
-        ? go(href.run(run.runId))
-        : void app.client.startJob(JOB_KINDS.blame, { runId: run.runId }).then(
-            (job) => app.watchJob(Promise.resolve(job)),
-            (err: unknown) => refused(run.runId, err),
-          ),
-  }));
-});
+    run: () => (run.next?.capture ? go(href.run(run.runId)) : pickBlame(app, run, () => go(href.run(run.runId)))),
+  })),
+);
 
 function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
   const app = useApp();
