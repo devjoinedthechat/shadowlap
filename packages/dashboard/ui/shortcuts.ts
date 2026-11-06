@@ -60,7 +60,7 @@ const TABLE = {
 
   goOverview: { group: 'Go to', chips: 'g then o', label: 'Overview', when: notCopy },
   goRuns: { group: 'Go to', chips: 'g then r', label: 'Runs' },
-  goCompare: { group: 'Go to', chips: 'g then c', label: 'Compare', when: (p) => !p.exported || p.compares },
+  goChanges: { group: 'Go to', chips: 'g then c', label: (p) => (p.exported ? 'Compare' : 'Changes'), when: (p) => !p.exported || p.compares },
   goFixes: { group: 'Go to', chips: 'g then f', label: 'Fixes', when: notCopy },
   goTests: { group: 'Go to', chips: 'g then t', label: 'Tests', when: notCopy },
   goTraining: { group: 'Go to', chips: 'g then a', label: 'Training', when: notCopy },

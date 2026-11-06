@@ -41,12 +41,14 @@ export function trapTab<T>(controls: readonly T[], active: T | null, back: boole
 /**
  * What counts as one page to the focus: a step within it (a run's call or view, a fix's step, a
  * filter on Runs, a pick in Compare) leaves the focus where it was, and a new page gives it to the
- * page's heading. A Settings or Training tab is a page of its own.
+ * page's heading. A Settings or Training tab is a page of its own, and so is each tab of Changes and
+ * a revision's page there (`#/changes` and `#/changes/verdicts` are one).
  */
 export function pageSig(r: Route): string {
   if (r.page === 'run') return `run:${r.id}`;
   if (r.page === 'fixes') return r.id ? `fixes:${r.id}` : 'fixes';
   if (r.page === 'settings' || r.page === 'training') return `${r.page}:${r.tab ?? ''}`;
+  if (r.page === 'changes') return `changes:${r.tab}:${r.id ?? ''}`;
   return r.page;
 }
 
@@ -58,8 +60,8 @@ export function samePage(a: string | null, b: string | null): boolean {
   return sameRun(x, y) || sameRun(y, x);
 }
 
-/** A page Esc leaves the way you came: a run, or a fix. Any other page empties the way back. */
-export const isDetail = (r: Route): boolean => r.page === 'run' || (r.page === 'fixes' && r.id !== null);
+/** A page Esc leaves the way you came: a run, a fix, or a revision's page under Changes. Any other page empties the way back. */
+export const isDetail = (r: Route): boolean => r.page === 'run' || ((r.page === 'fixes' || (r.page === 'changes' && r.tab === 'verdicts')) && r.id !== null);
 
 /** A link no list's row holds: where it leads, and which of the page's links there it was. */
 export interface LinkNote {

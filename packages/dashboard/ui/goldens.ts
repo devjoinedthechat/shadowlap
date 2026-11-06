@@ -3,7 +3,7 @@ import { ACTIONS, confirmWords } from './labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
-import { noteText, UNGUARDED_FIX } from './run/notes.js';
+import { noteText, UNGUARDED_FIX } from './run/note-words.js';
 import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
 
 /**
