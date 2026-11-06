@@ -26,7 +26,7 @@ for (const p of PAGES) {
   });
 }
 
-test('the Overview has no serious or critical axe violation on a laptop or a phone, Usage folded or open, and a phone never scrolls it sideways', async ({ page }) => {
+test('the Overview has no serious or critical axe violation on a laptop or a phone, Usage folded or open, a phone never scrolls it sideways, and no row runs past its panel', async ({ page }) => {
   const usage = page.locator('main#view .ovuse > header button.linkbtn');
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -40,6 +40,9 @@ test('the Overview has no serious or critical axe violation on a laptop or a pho
     expect(await usage.getAttribute('aria-expanded')).toBe('true');
     expect(await seriousViolations(page)).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `at ${width}px`).toBe(0);
+    // A piece too long for any line, as the demo project's path in its Project added entry, breaks where it must.
+    const past = await page.evaluate(() => [...document.querySelectorAll('main#view .feed .w, main#view .arow .at')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
+    expect(past, `at ${width}px`).toEqual([]);
   }
 });
 
