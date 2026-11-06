@@ -1397,7 +1397,7 @@ A job that bills nothing, such as a replay offline, starts at once on every sett
 
 **Each billed control's card** says its price and what a click does: `≈$0.027 · starts at once`, `At most ≈$10.88 · asks first`, `no estimate · asks first`. *At most* is a ceiling: the job stops early when it can. Its dialog's Cost line says the estimate and what is billed (`≈$0.027 · live from #12, writes fenced`). The job keeps the estimate it started with, so its card, its dialog and its drawer say the same amount.
 
-**Spending is no budget.** No job stops at it, and the drawer's amount is the estimate, not what was spent. A budget still stops a job: `--budget`, an injection test's **Stop at $**, and CI's fix budget. Spending is the dashboard's: the CLI and the [terminal UI](./tui.md) don't read it.
+**Spending is no budget.** No job stops at it, and the drawer's amount is the estimate, not what was spent. A budget still stops a job: `--budget` (on an injection test too) and CI's fix budget. Spending is the dashboard's: the CLI and the [terminal UI](./tui.md) don't read it.
 
 ### Actions on a run
 
