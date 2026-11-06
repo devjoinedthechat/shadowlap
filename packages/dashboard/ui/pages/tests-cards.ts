@@ -1,4 +1,4 @@
-import { GOLDEN_JOB_WORDS } from '../../../engine/src/action-words.js';
+import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import type { DivergenceView, MoreAttempts, TestsView } from '../api.js';
 import type { TestsCard } from '../fixes/TestsJobButton.js';
@@ -62,6 +62,6 @@ export function bisectLive(view: Pick<TestsView, 'rows'>, f: Bisected): boolean 
  */
 export function bisectCard(f: Bisected, live: boolean): TestsCard {
   const range = f.missed ? null : f.bisect;
-  const sub = f.missed ? `Asks for an older commit${f.missed.good ? `: the last search found it failing at ${f.missed.good}` : ''}` : live ? 'Runs live at each commit, so it costs tokens' : range ? `Replays the golden at the commits since ${range.good}, where it passed, offline: no tokens` : 'Asks for a commit where it worked';
+  const sub = f.missed ? `Asks for an older commit${f.missed.good ? `: the last search found it failing at ${f.missed.good}` : ''}` : live ? 'Runs live at each commit, so it costs tokens' : range ? GOLDEN_JOB_WORDS.replaysSince(range.good) : 'Asks for a commit where it worked';
   return { tip: confirmWords(ACTIONS.findBreakingCommit.label), sub, command: commandText(['bisect', f.golden, '--good', range?.good ?? '<commit>', ...(range?.bad ? ['--bad', range.bad] : [])]) };
 }

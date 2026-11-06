@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GOLDEN_JOB_WORDS } from '../../../engine/src/action-words.js';
+import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS, type RunDetail } from '../api.js';
 import type { TestsCard } from '../fixes/TestsJobButton.js';
