@@ -575,13 +575,13 @@ describe('a run of twenty thousand calls', () => {
     }
   }, TIMEOUT);
 
-  it('reads its Provenance, its untrusted reads, the tools’ trust and the fix that blamed it beside the server', async () => {
+  it('reads its Provenance, its untrusted reads, the tools’ trust, the fix that blamed it and the list of fixes beside the server', async () => {
     const store = Store.open(dbPath);
     const d = await startDashboard({ store, dbPath, port: 0 });
     try {
       await ask(d, 'meta');
       await wait(300);
-      for (const path of [`runs/${big.runId}/provenance`, `injection/runs/${big.runId}`, 'injection/tools', `fixes/${fixId}`]) {
+      for (const path of [`runs/${big.runId}/provenance`, `injection/runs/${big.runId}`, 'injection/tools', `fixes/${fixId}`, 'fixes']) {
         const t = await onServerThread(() => ask(d, path));
         said(`${path.replace(big.runId, '<run>')} answered in ${t.out.ms.toFixed(0)} ms`, t);
         expect(t.out.status, path).toBe(200);

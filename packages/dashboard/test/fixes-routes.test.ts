@@ -127,13 +127,35 @@ describe('GET /api/fixes', () => {
     const { fix: openFix } = blame(open, { expect: { tools: { send_email: 1 } } });
     await start();
     const all = await json(await api('fixes'));
-    expect(all.counts).toEqual({ all: 2, open: 1, verified: 1 });
+    // In to-do order: the open fix first, then the one ready to apply.
+    expect(all.counts).toEqual({ all: 2, open: 1, ready: 1, applied: 0, verified: 1 });
     expect(all.fixes.map((f: { fixId: string }) => f.fixId)).toEqual([openFix.fixId, fixId]);
-    expect(all.fixes[1]).toMatchObject({ status: 'verified', label: 'refund-bug', failing: 1, good: 1, href: `#/fixes/${fixId}` });
+    expect(all.fixes[1]).toMatchObject({ status: 'verified', rung: 'verified', bucket: 'ready', label: 'refund-bug', failing: 1, good: 1, href: `#/fixes/${fixId}`, next: { key: 'apply', label: 'Apply fix' } });
+    expect(all.fixes[0]).toMatchObject({ rung: 'blamed', bucket: 'open', next: { key: 'repair', label: 'Run repair', use: 'writes' } });
     expect((await json(await api('fixes?status=open'))).fixes.map((f: { fixId: string }) => f.fixId)).toEqual([openFix.fixId]);
     expect((await json(await api('fixes?status=verified'))).fixes.map((f: { fixId: string }) => f.fixId)).toEqual([fixId]);
     expect((await api('fixes?status=closed')).status).toBe(400);
     expect((await fetch(`${dash!.url}/api/fixes`)).status).toBe(401);
+  });
+
+  it('says where each fix stands on the ladder: open, blamed, verified, merged, applied, and broken', async () => {
+    const { fixId } = story();
+    const { fix: blamed } = blame(makeRun(store, { labels: ['double-email'] }), { expect: { tools: { send_email: 1 } } });
+    const { fix: open } = blame(makeRun(store, { labels: ['lost-order'] }), { outcome: 'unrescuable', expect: { tools: { lookup: 1 } } });
+    await start();
+    const rungs = async () => Object.fromEntries((await json(await api('fixes'))).fixes.map((f: { fixId: string; rung: string; broken: string | null }) => [f.fixId, f.broken ? `broken ${f.rung}` : f.rung]));
+    expect(await rungs()).toEqual({ [blamed.fixId]: 'blamed', [open.fixId]: 'open', [fixId]: 'verified' });
+    // Its pull request merged: it shipped, under Applied, with nothing to apply.
+    store.mergeFixData(fixId, { source: { ci: 'github', pr: { url: 'https://github.com/acme/agent/pull/138', number: 138, state: 'merged' } } });
+    const merged = (await json(await api('fixes'))).fixes.find((f: { fixId: string }) => f.fixId === fixId);
+    expect(merged).toMatchObject({ rung: 'merged', bucket: 'applied', ci: 'github', pr: { number: 138, state: 'merged' }, next: null, source: 'from CI · PR #138 merged' });
+    store.mergeFixData(fixId, { source: null });
+    markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', via: 'fix apply' });
+    expect((await rungs())[fixId]).toBe('applied');
+    markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'failed', via: 'fix apply' });
+    expect((await rungs())[fixId]).toBe('broken applied');
+    // The open fix nobody has blamed to a call comes before the blamed one, and the applied one last.
+    expect((await json(await api('fixes'))).fixes.map((f: { fixId: string }) => f.fixId)).toEqual([open.fixId, blamed.fixId, fixId]);
   });
 
   it('answers an unchanged list with a 304', async () => {

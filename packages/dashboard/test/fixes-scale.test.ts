@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { recordBlame, Store } from '@shadowlap/engine';
+import { recordBlame, recordVerdict, Store } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { times, timesOf } from '../../engine/test/timing.js';
 import { fixBundles } from '../src/fixes.js';
+import { fixesView } from '../src/fixes-view.js';
 
 /**
  * The Forks view's bundles at scale: a recording replayed 2,000 times (a golden CI replays on every
@@ -94,5 +95,57 @@ describe('the Forks view’s bundles at scale', () => {
     expect(blames).not.toHaveBeenCalled();
     verdicts.mockRestore();
     blames.mockRestore();
+  });
+});
+
+describe('the Fixes page at scale', () => {
+  const FIXES = 200;
+  const VERIFIED = 40;
+  const UNBLAMED = 300;
+
+  beforeAll(() => {
+    const runs = store.transaction(() => {
+      for (let i = 0; i < UNBLAMED; i++) makeRun(store, { startedAt: 50_000 + i });
+      return Array.from({ length: FIXES }, (_, i) => makeRun(store, { labels: [`flow-${i}`] }));
+    });
+    runs.forEach((run, i) => {
+      const expect = { tools: { [`tool_${i}`]: 1 } };
+      recordBlame(store, { runId: run, report: blameReport(run), expect, scope: null, command: 'shadowlap blame x', title: `tool_${i} called twice`, checkText: `tool_${i} called once`, at: 40_000 + i });
+      if (i < VERIFIED) recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }]), expect, command: 'shadowlap verify --fixes x' });
+    });
+  }, 60_000);
+
+  it('lists 200 fixes and the failed runs nobody blamed without a call, and works out none again while nothing changes', () => {
+    const first = fixesView(store);
+    expect(first.counts).toMatchObject({ all: FIXES + 1, ready: VERIFIED });
+    expect(first.unblamed?.count).toBeGreaterThanOrEqual(UNBLAMED);
+    const calls = vi.spyOn(store, 'getCalls');
+    const all = vi.spyOn(store, 'allRuns');
+    const verdicts = vi.spyOn(store, 'getVerdict');
+    // Polled while nothing changes: no report, and no run's record but those nobody blamed.
+    for (let i = 0; i < 5; i++) fixesView(store);
+    expect(verdicts).not.toHaveBeenCalled();
+    expect(all).not.toHaveBeenCalled();
+    // A fix changes: every run's record is read once for every open fix's repair command, never once a fix.
+    const other = makeRun(store, {});
+    store.putVerdict({ verifyId: 'vf-page-0', at: 60_000, verdict: 'rejected', repairId: null, candidate: null, report: verifyReport([{ runId: other, role: 'target', pass: false }]), expect: EXPECT, command: 'shadowlap verify --fixes x' });
+    fixesView(store);
+    expect(all).toHaveBeenCalledTimes(1);
+    expect(calls).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+    let late = 0;
+    const t = timesOf({
+      poll: () => fixesView(store),
+      changed: () => {
+        store.putVerdict({ verifyId: `vf-page-late-${late++}`, at: 61_000 + late, verdict: 'rejected', repairId: null, candidate: null, report: verifyReport([{ runId: other, role: 'target', pass: false }]), expect: EXPECT, command: 'shadowlap verify --fixes x' });
+        return fixesView(store);
+      },
+      runs: () => store.query('SELECT * FROM runs'),
+    });
+    console.log(`fixesView over ${FIXES} fixes and ${UNBLAMED} failed runs nobody blamed: ${t.changed.toFixed(1)} ms CPU after a change to fixes, ${t.poll.toFixed(1)} ms a poll; a read of every run's row ${t.runs.toFixed(1)} ms`);
+    // Held against this machine: a poll, which works out nothing again, costs about a tenth of a plain
+    // read of every run's row, and the read after a change to fixes, every row again, 25 to 30 times.
+    expect(t.poll, `a poll took ${times(t.poll, t.runs)} a read of every run`).toBeLessThan(t.runs);
+    expect(t.changed, `a read after a change took ${times(t.changed, t.runs)} a read of every run`).toBeLessThan(80 * t.runs);
   });
 });

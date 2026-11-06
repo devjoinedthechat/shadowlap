@@ -11,10 +11,12 @@ import { overviewKnown, overviewSummary } from './overview.js';
 import { patchesInTree } from './patch-in-tree.js';
 import { answer, failed, readRegistry, type JobOf, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { localRunIds } from './routes/store.js';
+import { SUMMARY_CALLS_BUDGET } from './run-about.js';
 import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { ESTIMATE_READS } from './estimates.js';
+import { FIXES_READS } from './fixes-view.js';
 import { withExitCodes } from './exit-codes.js';
 import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
 import { judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
@@ -62,11 +64,8 @@ export interface SummaryWork {
   next?: NextStepWork | null;
 }
 
-/**
- * The most calls the Overview's request reads to work out what isn't known yet (`overviewKnown`,
- * `OverviewOptions.budget`): a short run that just ended is added up in it, a long one by the warm-up.
- */
-export const SUMMARY_CALLS_BUDGET = 5000;
+// The most calls the Overview's request reads to work out what isn't known yet (run-about.ts).
+export { SUMMARY_CALLS_BUDGET };
 
 /** The jobs this module's table answers. */
 type CoreJob =
@@ -338,7 +337,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS, FIXES_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

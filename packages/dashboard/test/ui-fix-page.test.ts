@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decideVerify, formatBlame, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixAttemptGroups } from '../src/attempt-groups.js';
-import { fixDetail, fixList } from '../src/fixes.js';
+import { fixDetail } from '../src/fixes.js';
+import { fixesView } from '../src/fixes-view.js';
 import { JOB_KINDS, type Client } from '../ui/api.js';
 import { jobFooter } from '../ui/job-actions.js';
 import type { FixEstimates } from '../ui/estimates-api.js';
@@ -48,7 +49,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?
     // The fix's estimates, where a test gives them; else none can be read, and each billed button asks.
     ...(o.estimates ? { estimates: { fixEstimates: () => Promise.resolve({ repair: null, blameAgain: null, blameStronger: null, verify: {}, ...o.estimates }) } } : {}),
     fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}), ...(o.held ? { goldensFolder: () => ({ there: o.there ?? [], held: o.held! }) } : {}) })),
-    fixes: () => Promise.resolve(fixList(store)),
+    fixes: () => Promise.resolve(fixesView(store)),
     attemptGroups: (id: string) => Promise.resolve(fixAttemptGroups(store, id)),
     jobs: () => Promise.resolve([]),
     startJob: (kind: string, fields: unknown) => {
