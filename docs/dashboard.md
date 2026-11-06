@@ -1375,7 +1375,7 @@ A billed job, one that makes live model calls, starts or asks first by Spending:
 
 - **At or under it**, the job starts on the click, and its drawer says its estimate beside *running* (`running · ≈$0.027`).
 - **Above it**, the job asks first. The dialog's footer says why, `Asks above $0.50 · Change`, and **Change** opens the Spending row.
-- **With no estimate**, as for a job with nothing recorded to price it from, the job always asks.
+- **With no estimate**, as for a job with nothing recorded to price it from, the job always asks, except **Record run** with a command this folder has run before, which starts with no estimate.
 
 Spending has four settings, and takes any amount in dollars:
 
