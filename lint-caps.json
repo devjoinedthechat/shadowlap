@@ -498,7 +498,7 @@
       "Calendar": 206
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
-      "PaletteDialog": 178
+      "PaletteDialog": 175
     },
     "packages/dashboard/ui/state.tsx": {
       "AppProvider": 304
