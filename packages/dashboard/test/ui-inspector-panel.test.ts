@@ -1,7 +1,8 @@
-import { act, createElement, useCallback, useState, type ReactNode } from 'react';
+import { act, createElement, useCallback, useLayoutEffect, useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunDetail } from '../ui/api.js';
 import { FindingPanel, ResultsToggle } from '../ui/components/FindingPanel.js';
+import { claimCallFocus } from '../ui/focus-manager.js';
 import type { Matrix } from '../ui/matrix.js';
 import { InspectorPlace, useFindingPanel, usePickInView } from '../ui/run/InspectorPanel.js';
 import { openResults, resetPanel } from '../ui/run/panel-state.js';
@@ -11,9 +12,11 @@ import { FakeElement, render, type Rendered } from './ui-render.js';
 /**
  * A finding's diff or results open in the inspector's place, beside the calls, so the list keeps its
  * place: the head says what shows and hides it, the body is the panel's own (no tab labels it), and a
- * pick of a call, Hide or Esc gives the inspector back. One at a time; what is open on a run stays
- * open while another run shows. A row's pick, which brings the inspector into view below 1160px, is
- * one function whatever is selected.
+ * pick of a call, Hide or Esc gives the inspector back, and so does a link in it to one of the run's
+ * calls. One at a time on a run's page; each run's results stay open while another run shows or opens
+ * its own. A panel opened below 1160px comes into view, one the page comes back to stays where the
+ * page starts. A row's pick, which brings the inspector into view below 1160px, is one function
+ * whatever is selected.
  */
 
 const at7 = { type: 'request_changed', callNo: 7, name: 'POST /v1/messages', replayedBefore: 6, diff: [{ path: '$.messages[4].content', op: 'changed', before: 'refund', after: 'refund now' }] };
@@ -28,20 +31,45 @@ const presets: Matrix = {
   cols: [{ key: 'tool-timeout', label: 'tool timeout' }],
   cell: () => ({ word: 'passed', tally: '6 of 6 passed', href: '#/run/A1/4' }),
 };
+/** An injection test's results on A with one read: its head a link to the read's call on A, its cell to the attempt's own run. */
+const reads: Matrix = {
+  id: 'inj-A',
+  label: 'Untrusted reads by payload',
+  corner: 'untrusted read',
+  rows: [{ key: '4', label: '#4 get_ticket', href: '#/run/A/4' }],
+  cols: [{ key: 'tool-json', label: 'tool-json' }],
+  cell: () => ({ word: 'obeyed', tally: '3 of 3 obeyed', href: '#/run/A2/5' }),
+};
 const results = (key: string): ReactNode =>
-  key === 'presets' ? createElement(FindingPanel, { kind: 'presets', name: 'Error-path preset results', label: 'Run × presets', meta: ['1 preset', 'just now'], cmd: 'shadowlap chaos A --presets', matrix: presets, receipt: [{ parts: ['6 requests to the model'] }] }) : null;
+  key === 'presets'
+    ? createElement(FindingPanel, { kind: 'presets', name: 'Error-path preset results', label: 'Run × presets', meta: ['1 preset', 'just now'], cmd: 'shadowlap chaos A --presets', matrix: presets, receipt: [{ parts: ['6 requests to the model'] }] })
+    : key === 'injection:R1'
+      ? createElement(FindingPanel, { kind: 'injection', name: 'Injection test results', label: 'Untrusted reads × payloads', meta: ['3 attempts'], cmd: 'shadowlap injection A --attempts 3', matrix: reads, receipt: [{ parts: ['3 upstream requests'] }] })
+      : null;
 
-/** A run page's part that matters here: the findings' toggles, a call to pick and the inspector's place. */
+/** The calls the page's pick heard. */
+let picked: number[] = [];
+
+/**
+ * A run page's part that matters here: the findings' toggles, a call to pick, the calls' rows and the
+ * inspector's place, whose pick closes the panel and selects the call, as the run page's does, and
+ * whose calls take the focus a pick hands them as they draw.
+ */
 function Page({ run }: { run: RunDetail }) {
   const p = useFindingPanel(run.run.runId);
-  const inspector = createElement('section', { className: 'insp', id: 'insp', 'aria-label': 'Call 7' }, createElement('div', { className: 'ibody', id: 'ibody', role: 'tabpanel' }));
+  const [selected, setSelected] = useState(7);
+  useLayoutEffect(claimCallFocus);
+  const pick = (n: number) => (picked.push(n), p.close(), setSelected(n));
+  const inspector = createElement('section', { className: 'insp', id: 'insp', 'aria-label': `Call ${selected}` }, createElement('div', { className: 'ibody', id: 'ibody', role: 'tabpanel' }));
+  const rows = [3, 4, 7].map((n) => createElement('tr', { key: n, 'data-call': n, 'aria-selected': n === selected }));
   return createElement(
     'main',
     { id: 'view' },
     createElement('button', { type: 'button', 'data-act': 'diff', onClick: p.onToggleDiff }, p.showDiff ? 'Hide diff' : 'Show diff'),
     createElement(ResultsToggle, { runId: run.run.runId, which: 'presets' }),
     createElement('button', { type: 'button', className: 'pick', onClick: p.close }, '#3'),
-    createElement(InspectorPlace, { panel: p.panel, run, test: null, onClose: p.close, results, children: inspector }),
+    createElement('div', { className: 'vbody' }, createElement('table', null, createElement('tbody', null, ...rows))),
+    createElement(InspectorPlace, { panel: p.panel, run, test: null, onClose: p.close, onPick: pick, results, children: inspector }),
   );
 }
 
@@ -49,6 +77,7 @@ let page: Rendered | null = null;
 afterEach(async () => {
   await page?.unmount();
   page = null;
+  picked = [];
   resetPanel();
 });
 
@@ -149,6 +178,27 @@ describe('a finding’s results in the inspector’s place', () => {
     expect(page.focused()).toBe(toggle());
     // nothing left to close: Esc goes on to leave the page
     expect(closePanel('A')).toBe(false);
+  });
+
+  it('give the inspector back on a click of a read’s head, a pick of its call taking the focus, while a cell’s link goes to its attempt’s run with them kept', async () => {
+    page = await render(createElement(Page, { run: fork('A') }));
+    await act(async () => openResults('A', 'injection:R1'));
+    await page.until('the matrix', () => page!.all('#ibody .rmx').length === 1);
+    // A cell's link opens its attempt's run as links go, the results kept for the way back; so does a
+    // click that opens the read's call in another tab.
+    expect((await page.fire(page.one('#ibody a.rmx-c'), 'click')).defaultPrevented).toBe(false);
+    expect((await page.fire(page.one('#ibody a.rmx-rb'), 'click', { metaKey: true })).defaultPrevented).toBe(false);
+    expect([page.one('#insp').getAttribute('aria-label'), picked]).toEqual(['Results', []]);
+    // A click on the read's head picks its call, as a row does: the inspector comes back on it, and the
+    // call takes the focus the link had once it draws as the selected one.
+    await page.click(page.one('#ibody a.rmx-rb'));
+    expect([page.all('.fpanel').length, page.one('#insp').getAttribute('aria-label'), picked]).toEqual([0, 'Call 4', [4]]);
+    expect(page.focused()).toBe(page.one('tr[data-call="4"]'));
+    // In place of the link's own way: the address is the page's to write, the view it shows kept.
+    await act(async () => openResults('A', 'injection:R1'));
+    await page.until('the matrix', () => page!.all('#ibody .rmx').length === 1);
+    expect((await page.fire(page.one('#ibody a.rmx-rb'), 'click')).defaultPrevented).toBe(true);
+    expect([page.all('.fpanel').length, picked]).toEqual([0, [4, 4]]);
   });
 
   it('stay open on their run while another run opens its own or a diff, and keep a run’s diff while another opens results', async () => {

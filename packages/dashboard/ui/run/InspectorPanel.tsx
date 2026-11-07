@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from 'react';
 import type { RunDetail } from '../api.js';
-import { focusQuiet } from '../focus-manager.js';
+import { focusQuiet, wantCallFocus } from '../focus-manager.js';
+import { sameRun } from '../format.js';
 import { useLatest } from '../hooks.js';
+import { parseRoute } from '../route.js';
 import type { TestBannerOffer } from '../types.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
@@ -11,8 +13,9 @@ import { closePanelOn, openDiff, usePanel, type Panel } from './panel-state.js';
  * What a finding opens takes the inspector's place beside the calls, so the list keeps its place and
  * its first row doesn't move: a fork's or a diverged test's diff, an injection test's or the error-path
  * presets' results (the page's body for them, components/FindingPanel.tsx), and a bisect's change later
- * in the same place. One at a time, until it is hidden or a call is picked, which gives the inspector
- * back; so do the inspector's keys, 1 to 4. Which is open is kept in panel-state.ts.
+ * in the same place. One at a time, until it is hidden or a call is picked, a link in it to one of the
+ * run's calls too, which gives the inspector back; so do the inspector's keys, 1 to 4. Which is open
+ * is kept in panel-state.ts.
  */
 
 /** The diff a finding shows here, a part of its own: it loads the first time it shows (OnShow.tsx). */
@@ -98,46 +101,70 @@ export function useFindingPanel(runId: string) {
  * The inspector (`children`), or in its place the panel a finding opened: its title and Hide over the
  * diff or the results, one column at the inspector's width. The page gives the results' body by their
  * key (`results`); results it has no body for leave the inspector as it is, as a run with no diff does.
+ * `onPick` is the page's pick of a call, which a link in the panel to one of the run's calls makes.
  */
-export function InspectorPlace({ panel, run, test, onClose, results, children }: { panel: Panel | null; run: RunDetail; test: TestBannerOffer | null; onClose: () => void; results?: ((key: string) => ReactNode) | undefined; children: ReactNode }) {
+export function InspectorPlace({ panel, run, test, onClose, onPick, results, children }: { panel: Panel | null; run: RunDetail; test: TestBannerOffer | null; onClose: () => void; onPick: (n: number) => void; results?: ((key: string) => ReactNode) | undefined; children: ReactNode }) {
   const body = panel?.kind === 'results' ? (results?.(panel.key) ?? null) : null;
-  if (body)
+  if (panel && body)
     return (
-      <PanelFrame title="Results" hide="Hide results" panel={panel} onClose={onClose}>
+      <PanelFrame title="Results" hide="Hide results" panel={panel} onClose={onClose} onPick={onPick}>
         {body}
       </PanelFrame>
     );
   const d = run.run.divergence;
   if (panel?.kind !== 'diff' || !d) return <>{children}</>;
   return (
-    <PanelFrame title={`Diff at #${d.callNo}`} hide="Hide diff" panel={panel} onClose={onClose}>
+    <PanelFrame title={`Diff at #${d.callNo}`} hide="Hide diff" panel={panel} onClose={onClose} onPick={onPick}>
       <DiffPanel run={run} test={test} />
     </PanelFrame>
   );
 }
 
 /**
- * A panel's frame: its title and Hide over its body. Hide hands the focus to the toggle, as Esc does;
- * the results' Hide says it is expanded, as their toggle does.
+ * The call a click in a panel picks: a plain click on a link to one of the panel's own run's calls,
+ * such as a read's head in the results. Null for a link anywhere else (an attempt's run, another
+ * page), which goes where it leads, and for a click that opens a link in another tab or window.
  */
-function PanelFrame({ title, hide, panel, onClose, children }: { title: string; hide: string; panel: Panel | null; onClose: () => void; children: ReactNode }) {
+function pickedCall(e: MouseEvent, runId: string): number | null {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return null;
+  const to = (e.target as Partial<Element> | null)?.closest?.('a[href]')?.getAttribute('href');
+  const r = to?.startsWith('#/') ? parseRoute(to) : null;
+  return r?.page === 'run' && r.call !== null && sameRun(r.id, runId) ? r.call : null;
+}
+
+/**
+ * A panel's frame: its title and Hide over its body. Hide hands the focus to the toggle, as Esc does;
+ * the results' Hide says it is expanded, as their toggle does. A link in the body to one of the run's
+ * calls picks it as a row does: the inspector comes back on it, in the view that shows, and the call
+ * takes the focus if the panel had it (`wantCallFocus`, as j and k give it).
+ */
+function PanelFrame({ title, hide, panel, onClose, onPick, children }: { title: string; hide: string; panel: Panel; onClose: () => void; onPick: (n: number) => void; children: ReactNode }) {
   const onHide = () => {
     const toggle = panelToggle(panel);
     onClose();
     if (toggle) focusQuiet(toggle);
+  };
+  const onClick = (e: MouseEvent<HTMLElement>) => {
+    const n = pickedCall(e, panel.runId);
+    if (n === null) return;
+    e.preventDefault();
+    const a = document.activeElement;
+    const held = !a || a === document.body || e.currentTarget.contains(a);
+    onPick(n);
+    if (held) wantCallFocus(n);
   };
   return (
     <section className="insp fpanel" id="insp" aria-label={title}>
       <div className="ihead fhead">
         <span className="ct">{title}</span>
         <span className="nav">
-          <button className="linkbtn" type="button" aria-expanded={panel?.kind === 'results' ? true : undefined} onClick={onHide}>
+          <button className="linkbtn" type="button" aria-expanded={panel.kind === 'results' ? true : undefined} onClick={onHide}>
             {hide}
           </button>
         </span>
       </div>
       {/* No tab shows here to label it: the body is the panel's alone. */}
-      <div className="ibody fbody" id="ibody" tabIndex={-1}>
+      <div className="ibody fbody" id="ibody" tabIndex={-1} onClick={onClick}>
         {children}
       </div>
     </section>
