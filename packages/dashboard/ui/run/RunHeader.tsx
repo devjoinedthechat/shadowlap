@@ -26,7 +26,8 @@ import { TraceLink } from './TraceLink.js';
 import { exitWords, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
-import { ShareMenu } from './ShareMenu.js';
+// The share job's drawer offers the link it made, as the run's page loads, whether Share has opened or not.
+import './share-link.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
 import { fitWork } from './fit-work.js';
@@ -34,6 +35,8 @@ import { onShow } from '../components/OnShow.js';
 
 /** Delete run's dialog, which the page rarely opens, a part of its own as Find breaking commit's is (actions.tsx): the run page keeps within its budget. */
 const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.DeleteRunDialog));
+/** Share's menu, a part of its own for the same reason: its script loads as the pointer or the focus reaches Share, so it opens at once. */
+const ShareMenu = onShow(() => import('./ShareMenu.js').then((m) => m.ShareMenu));
 
 /**
  * The run's header, as every page's: what kind of run it is, muted, over its id (decision 10: the id
@@ -172,7 +175,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
         {next?.key === 'compare' ? null : <CompareButton run={run} />}<TraceLink trace={run.trace} />
         {exported ? lead : (
           <>
-            <ActionButton className="btn" id="shareBtn" reads aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
+            <ActionButton className="btn" id="shareBtn" reads aria-haspopup="menu" aria-expanded={share.open} onPointerEnter={ShareMenu.preload} onFocus={ShareMenu.preload} onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
               Share
               <Icon name="caret" className="caret" />
