@@ -1,6 +1,7 @@
 import { act, createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MatchingSettings } from '../src/settings.js';
+import { ApiError } from '../ui/api.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import '../ui/pages/settings/jobs.js';
@@ -139,6 +140,30 @@ describe('Undo on Matching', () => {
     expect(restoreRule).toHaveBeenCalledWith('normalize', 1, b.rule, 'v5');
   });
 
+  it('says an Undo refused once the file changed since in the page’s words, and reads the file again', async () => {
+    const toasts: Toasted[] = [];
+    let shown = matching('v1');
+    const reads = vi.fn(async () => shown);
+    const removeRule = vi.fn(async () => ({ list: 'normalize', n: 2, rule: RULES[1].rule, version: 'v2' }));
+    const restoreRule = vi.fn(async () => {
+      throw new ApiError(409, 'shadowlap.config.json changed since it was read; reload it and try again');
+    });
+    r = await render(createElement(AppContext.Provider, { value: app({ matching: reads, removeRule, restoreRule }, toasts) }, createElement(SettingsPage, { tab: 'matching' })));
+    await r.until('the rules', () => r!.all('table.ruletable tbody tr').length === 3);
+    shown = matching('v2', [RULES[0], { ...RULES[2], n: 2 }]);
+    await r.click(r.one('button[aria-label="Remove normalizer #2"]'));
+    await r.until('the removal', () => toasts.length === 1 && r!.all('table.ruletable tbody tr').length === 2);
+    // Changed in an editor since: the Undo is refused, and the tab shows the file as it is now.
+    shown = matching('v3', [RULES[0]]);
+    const read = reads.mock.calls.length;
+    await act(async () => toasts[0].action!.run());
+    await r.until('the refusal', () => toasts.length === 2);
+    expect(restoreRule).toHaveBeenCalledWith('normalize', 2, RULES[1].rule, 'v2');
+    expect([toasts[1].text, toasts[1].kind, toasts[1].action]).toEqual(['shadowlap.config.json changed on disk since this page read it. It shows the file as it is now; nothing was changed.', 'error', undefined]);
+    await r.until('the file as it is now', () => r!.all('table.ruletable tbody tr').length === 1);
+    expect(reads.mock.calls.length).toBeGreaterThan(read);
+  });
+
   it('puts the clock back as the file had it, taking the key out where it had none', async () => {
     const toasts: Toasted[] = [];
     let shown = matching('v1', []);
@@ -186,5 +211,42 @@ describe('Undo on calibrate’s Add normalizer', () => {
     expect(changed).toHaveBeenCalled();
     await r.until('the button again', () => r!.one('button').textContent === 'Add 2 normalizers');
     off();
+  });
+});
+
+describe('Undo on Store’s Push from CI', () => {
+  it('turns it off from its Switch, named by its row’s label and line, and puts back what the file said, against the version the edit wrote', async () => {
+    const toasts: Toasted[] = [];
+    let [ciPush, version] = [true, 'v1'];
+    const store = () => ({
+      config: config(version),
+      configured: 's3://northwind-agent-runs/support-agent',
+      error: null,
+      status: { url: 's3://northwind-agent-runs/support-agent', name: 'northwind-agent-runs', region: 'eu-central-1', providerName: 'Amazon S3', access: 'AWS profile northwind-dev', syncedAt: null, inStore: 3, onlyLocal: 0, queued: 0, check: null, ciPush },
+      ciStep: null,
+      policy: { text: '{}', command: 'shadowlap store policy' },
+      redactRules: 2,
+    });
+    // The file said nothing (on): off writes false, and its Undo takes the key out again.
+    const setCiPush = vi.fn(async (on: boolean | null) => (on === false ? { ciPush: false, previous: true, was: null, changed: true, version: 'v2' } : { ciPush: true, previous: false, was: false, changed: true, version: 'v1' }));
+    r = await render(createElement(AppContext.Provider, { value: app({ store: async () => store(), setCiPush }, toasts) }, createElement(SettingsPage, { tab: 'store' })));
+    await r.until('the switch', () => r!.all('.settab [role="switch"]').length === 1);
+    const on = r.one('.settab [role="switch"]');
+    expect([on.getAttribute('aria-labelledby'), on.getAttribute('aria-describedby'), on.getAttribute('aria-checked')]).toEqual(['ciPush-name', 'ciPush-help', 'true']);
+    expect([r.one('#ciPush-name').textContent, r.one('#ciPush-help').textContent]).toEqual(['Push from CI', 'CI pushes every test run, its report and each fix it opens, so history covers every pull request.']);
+    [ciPush, version] = [false, 'v2'];
+    await r.click(on);
+    await r.until('the toast', () => toasts.length === 1);
+    expect([toasts[0].text, toasts[0].kind, toasts[0].action?.label]).toEqual(['Push from CI off · written to shadowlap.config.json; commit it for CI to see it', 'notice', 'Undo']);
+    await r.until('the switch off', () => r!.one('.settab [role="switch"]').getAttribute('aria-checked') === 'false');
+    [ciPush, version] = [true, 'v1'];
+    await act(async () => toasts[0].action!.run());
+    await r.until('the toast back', () => toasts.length === 2);
+    expect(setCiPush.mock.calls).toEqual([
+      [false, 'v1'],
+      [null, 'v2'],
+    ]);
+    expect([toasts[1].text, toasts[1].action]).toEqual(['Push from CI on · written to shadowlap.config.json; commit it for CI to see it', undefined]);
+    await r.until('the switch on', () => r!.one('.settab [role="switch"]').getAttribute('aria-checked') === 'true');
   });
 });
