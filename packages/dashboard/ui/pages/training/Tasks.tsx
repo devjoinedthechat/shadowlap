@@ -5,6 +5,7 @@ import { tipCard } from '../../components/HoverCard.js';
 import { Section } from '../../components/Section.js';
 import { Status } from '../../components/Status.js';
 import { rowOpen } from '../../components/Table.js';
+import { Term } from '../../components/Term.js';
 import { VerdictLine } from '../../components/VerdictLine.js';
 import { plural } from '../../format.js';
 import { useListKeys } from '../../list-keys.js';
@@ -51,7 +52,10 @@ export function OneSided({ w, ready, update }: { w: NonNullable<Tasks['warning']
   );
 }
 
-/** What runs after the takeover, a line an origin, its word first: past four tools, three and how many more, every name on the more's card. */
+/**
+ * What runs after the takeover, a line an origin, its word first (*stubbed* a glossary term, as it
+ * isn't a word that says itself): past four tools, three and how many more, every name on the more's card.
+ */
 function TakeoverLine({ origin, names }: { origin: 'live' | 'stub'; names: readonly string[] }) {
   if (!names.length) return null;
   const shown = names.length > 4 ? names.slice(0, 3) : names;
@@ -59,7 +63,7 @@ function TakeoverLine({ origin, names }: { origin: 'live' | 'stub'; names: reado
   return (
     <span className="tkol">
       <span className="tkk">
-        <Org origin={origin} />
+        <Org origin={origin}>{origin === 'stub' ? <Term k="stubbed" /> : null}</Org>
       </span>
       <span className="tkn">
         {shown.map((n, i) => (

@@ -205,7 +205,11 @@ describe('Training → Tasks', () => {
     r = await page(app(view()), 'tasks');
     await r.until('the page', () => r!.all('table.tasks').length > 0);
     const lines = r.all('td.tko .tkol');
-    expect(lines.map((l) => l.querySelector('.tkk')!.textContent)).toEqual(['live', 'stubbed']);
+    // Each its origin's word first. Stubbed is a glossary term, defined on hover and focus, as the design has it; live says itself.
+    expect(lines.map((l) => l.querySelector('.tkk .org')!.className)).toEqual(['org live', 'org stub']);
+    expect([lines[0].querySelector('.tkk')!.textContent, lines[0].querySelector('.tkk .term')]).toEqual(['live', null]);
+    const stubbed = lines[1].querySelector('.tkk .org .term')!;
+    expect([stubbed.textContent, stubbed.getAttribute('data-term'), stubbed.getAttribute('tabindex')]).toEqual(['stubbed', 'stubbed', '0']);
     expect(lines[0].querySelector('.tkn')!.textContent).toBe('read_policy, lookup_order, list_orders +2 more: get_customer, get_invoice');
     expect(JSON.parse(lines[0].querySelector('.tkm')!.getAttribute('data-tip')!)).toMatchObject({ t: '5 tools live', s: 'read_policy, lookup_order, list_orders, get_customer, get_invoice' });
     expect(lines[1].querySelector('.tkn')!.textContent).toBe('issue_refund');

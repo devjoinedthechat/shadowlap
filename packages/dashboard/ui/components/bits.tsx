@@ -72,12 +72,12 @@ export function Tag({ cls, children }: { cls?: string; children: ReactNode }) {
   return <span className={`tag${cls ? ` ${cls}` : ''}`}>{children}</span>;
 }
 
-/** An origin: its colour and its word. */
-export function Org({ origin }: { origin: Origin7 }) {
+/** An origin: its colour and its word, which `children` can draw instead (as a glossary term, say). */
+export function Org({ origin, children }: { origin: Origin7; children?: ReactNode }) {
   return (
     <span className={`org ${origin}`}>
       <i />
-      {ORIGIN_NAME[origin]}
+      {children ?? ORIGIN_NAME[origin]}
     </span>
   );
 }
