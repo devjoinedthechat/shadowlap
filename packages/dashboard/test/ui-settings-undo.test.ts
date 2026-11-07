@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MatchingSettings } from '../src/settings.js';
 import { jobFooter } from '../ui/job-actions.js';
@@ -69,15 +69,17 @@ describe('Undo on Matching', () => {
     await r.until('the rules', () => r!.all('table.ruletable tbody tr').length === 3);
     await r.click(r.one('button[aria-label="Remove normalizer #2"]'));
     shown = matching('v2', [RULES[0], RULES[2]]);
-    removed();
+    await act(async () => removed());
     await r.until('the toast', () => toasts.length === 1);
     expect(removeRule).toHaveBeenCalledWith('normalize', 2, 'v1');
     const [toast] = toasts;
     expect([toast.text, toast.kind, toast.action?.label, toast.action?.undo]).toEqual(['Normalizer removed from shadowlap.config.json', 'notice', 'Undo', true]);
     // At once, while the tab still shows the file the removal started from: it waits, then goes.
     shown = matching('v1');
-    toast.action!.run();
-    toast.action!.run();
+    await act(async () => {
+      toast.action!.run();
+      toast.action!.run();
+    });
     await r.until('the rule back', () => toasts.length === 2);
     expect(restoreRule).toHaveBeenCalledTimes(1);
     expect(restoreRule).toHaveBeenCalledWith('normalize', 2, RULES[1].rule, 'v2');
@@ -95,6 +97,48 @@ describe('Undo on Matching', () => {
     expect([toasts[0].text, toasts[0].action]).toEqual(['Normalizer removed from shadowlap.config.json', undefined]);
   });
 
+  it('moves the focus from a removed rule to the Remove taking its place, whichever its shape, else the last row’s, else Add normalizer…, and to a rule put back', async () => {
+    const toasts: Toasted[] = [];
+    const [a, b, broken] = RULES;
+    const c = { ...a, rule: { path: '$.ts', pattern: 'iso-date', replace: '<DATE>' }, path: '$.ts', pattern: 'iso-date', replace: '<DATE>' };
+    const at = (row: typeof a, n: number) => ({ ...row, n });
+    let shown = matching('v1', [at(a, 1), at(broken, 2), at(b, 3), at(c, 4)]);
+    let answer = { rule: {} as unknown, version: 'v1' };
+    const removeRule = vi.fn(async (_list: string, n: number) => ({ list: 'normalize', n, ...answer }));
+    const restoreRule = vi.fn(async () => ({ list: 'normalize', n: 1, version: 'v4' }));
+    r = await render(createElement(AppContext.Provider, { value: app({ matching: async () => shown, removeRule, restoreRule }, toasts) }, createElement(SettingsPage, { tab: 'matching' })));
+    await r.until('the rules', () => r!.all('table.ruletable tbody tr').length === 4);
+    const rows = () => r!.all('table.ruletable tbody tr').length;
+    // Removes rule #n, the file then holding `left`, and gives the button pressed.
+    const remove = async (n: number, rule: unknown, left: Array<typeof a>, version: string) => {
+      const button = r!.one(`button[aria-label="Remove normalizer #${n}"]`);
+      await r!.until('the Remove free', () => button.getAttribute('aria-disabled') === null);
+      [shown, answer] = [matching(version, left), { rule, version }];
+      const toasted = toasts.length;
+      await r!.click(button);
+      await r!.until('the row gone', () => toasts.length === toasted + 1 && rows() === left.length);
+      return button;
+    };
+    const broke = () => r!.focused().closest('tr')?.querySelector('.rerr') ?? null;
+    // A sound rule's Remove, the broken rule below taking its number: the same button keeps the focus.
+    const first = await remove(1, a.rule, [at(broken, 1), at(b, 2), at(c, 3)], 'v2');
+    expect([r.focused(), first.getAttribute('aria-label'), broke()]).toEqual([first, 'Remove normalizer #1', expect.anything()]);
+    // The last row's: the focus moves to the row above at once.
+    await remove(3, c.rule, [at(broken, 1), at(b, 2)], 'v3');
+    expect(r.focused().getAttribute('aria-label')).toBe('Remove normalizer #2');
+    // A broken rule's, a sound one taking its number: the same button again.
+    expect(await remove(1, null, [at(b, 1)], 'v4')).toBe(first);
+    expect([r.focused(), broke()]).toEqual([first, null]);
+    // The only row's: Add normalizer… takes the focus. Its Undo puts the rule back, its Remove focused.
+    await remove(1, b.rule, [], 'v5');
+    expect(r.focused().textContent).toBe('Add normalizer…');
+    shown = matching('v4', [at(b, 1)]);
+    await act(async () => toasts.at(-1)!.action!.run());
+    await r.until('the rule back', () => rows() === 1);
+    await r.until('its Remove focused', () => r!.focused().getAttribute('aria-label') === 'Remove normalizer #1');
+    expect(restoreRule).toHaveBeenCalledWith('normalize', 1, b.rule, 'v5');
+  });
+
   it('puts the clock back as the file had it, taking the key out where it had none', async () => {
     const toasts: Toasted[] = [];
     let shown = matching('v1', []);
@@ -107,7 +151,7 @@ describe('Undo on Matching', () => {
     await r.until('the toast', () => toasts.length === 1);
     expect([toasts[0].text, toasts[0].action?.label]).toEqual(['clock: exact · written to shadowlap.config.json', 'Undo']);
     shown = matching('v1', []);
-    toasts[0].action!.run();
+    await act(async () => toasts[0].action!.run());
     await r.until('the clock back', () => toasts.length === 2);
     expect(setClock.mock.calls).toEqual([
       ['exact', 'v1'],
@@ -132,7 +176,7 @@ describe('Undo on calibrate’s Add normalizer', () => {
     await r.until('the toast', () => toasts.length === 1);
     expect([toasts[0].text, toasts[0].action?.label]).toEqual(['Added to shadowlap.config.json · normalizers #4, #5', 'Undo']);
     expect(r.one('button').textContent).toBe('Added');
-    toasts[0].action!.run();
+    await act(async () => toasts[0].action!.run());
     await r.until('the rules out', () => toasts.length === 2);
     expect(removeRule.mock.calls).toEqual([
       ['normalize', 5, 'v4'],

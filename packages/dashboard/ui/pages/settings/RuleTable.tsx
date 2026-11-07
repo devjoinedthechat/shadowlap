@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ApiError } from '../../api.js';
 import { Seg } from '../../components/bits.js';
 import { Dialog, pressWayOn } from '../../components/Dialog.js';
@@ -34,7 +34,8 @@ const EMPTY: Record<RuleListName, string> = {
  * `unreadable`: why there is no list to show, empty or not (`rulesUnreadable`: shadowlap.config.json
  * can't be read, or the project's folder is gone), said where the rules would be. `onRemove` gets
  * where the focus goes once the row has gone: the next row's Remove (the same button, which React
- * keeps for the row that takes its number), else the last row's, else the section's Add button.
+ * keeps for the row that takes its number, a broken rule's or not), else the last row's, else the
+ * section's Add button.
  * `focus` names a rule whose Remove takes the focus once the table shows it (one put back). Its rows
  * are in the keys' reach (`useListKeys`): a row leads nowhere, so Enter on it offers its Remove.
  */
@@ -82,35 +83,36 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null, focus 
           </tr>
         </thead>
         <tbody ref={body}>
-          {rows.map((r) =>
-            r.error ? (
-              <tr key={r.n} data-n={r.n} data-rowkey={ruleKey(r)} className={inFocus === ruleKey(r) ? 'krow' : undefined}>
-                <td>
-                  <span className="chip">#{r.n}</span>
-                </td>
-                <td colSpan={3} className="wrapcell">
-                  <span className="rerr">can’t be used: {r.error}</span>
-                </td>
-                <td className="num">
-                  <RemoveButton list={list} row={r} off={off} onRemove={press} />
-                </td>
-              </tr>
-            ) : (
-              <tr key={r.n} data-n={r.n} data-rowkey={ruleKey(r)} className={inFocus === ruleKey(r) ? 'krow' : undefined}>
-                <td>
-                  <Scope rule={r.rule ?? {}} />
-                </td>
-                <td>{r.path ? <code>{r.path}</code> : <span className="rscope">any string</span>}</td>
-                <td>{r.pattern ? <code className={r.patternType === 'regex' ? 'rx' : undefined}>{r.pattern}</code> : <span className="rscope">the whole value</span>}</td>
-                <td>
-                  <code>{r.replace}</code>
-                </td>
-                <td className="num">
-                  <RemoveButton list={list} row={r} off={off} onRemove={press} />
-                </td>
-              </tr>
-            ),
-          )}
+          {rows.map((r) => (
+            <tr key={r.n} data-n={r.n} data-rowkey={ruleKey(r)} className={inFocus === ruleKey(r) ? 'krow' : undefined}>
+              {/* The cells a broken rule draws otherwise come first, as one piece, and Remove last in every row: the
+                  row that takes a removed rule's number keeps its button, whichever shape it has, and the focus with it. */}
+              {r.error ? (
+                <Fragment key="error">
+                  <td>
+                    <span className="chip">#{r.n}</span>
+                  </td>
+                  <td colSpan={3} className="wrapcell">
+                    <span className="rerr">can’t be used: {r.error}</span>
+                  </td>
+                </Fragment>
+              ) : (
+                <Fragment key="rule">
+                  <td>
+                    <Scope rule={r.rule ?? {}} />
+                  </td>
+                  <td>{r.path ? <code>{r.path}</code> : <span className="rscope">any string</span>}</td>
+                  <td>{r.pattern ? <code className={r.patternType === 'regex' ? 'rx' : undefined}>{r.pattern}</code> : <span className="rscope">the whole value</span>}</td>
+                  <td>
+                    <code>{r.replace}</code>
+                  </td>
+                </Fragment>
+              )}
+              <td className="num">
+                <RemoveButton list={list} row={r} off={off} onRemove={press} />
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
