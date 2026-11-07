@@ -61,6 +61,8 @@ export const JOB_KINDS = {
   share: 'share',
   // The team store's setup (Settings → Store): check access to a bucket and connect it (store set --check).
   storeSet: 'store-set',
+  // Settings → Store's Check again: check the store's access again (store check), writing nothing.
+  storeCheck: 'store-check',
   // Tests: update goldens, find the commit (on Tests, the Runs calendar and a run's page), add a
   // normalizer and re-run (and `tests` above runs them).
   testUpdate: 'test-update',

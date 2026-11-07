@@ -96,22 +96,26 @@ describe('reading the tabs', () => {
     expect(await get('settings/agents')).toMatchObject({ files: expect.arrayContaining([expect.objectContaining({ path: 'CLAUDE.md', found: false })]) });
     expect(await get('settings/tools')).toMatchObject({ live: [], fenced: [], http: [] });
     expect(await get('settings/project')).toMatchObject({ name: project.split(/[\\/]/).pop(), runs: 0, attempts: 0, store: { path: dbPath }, cleanup: { olderThanDays: 30 } });
-    expect(await get('settings/store')).toMatchObject({ configured: null, status: null, ciStep: null, error: null });
+    expect(await get('settings/store')).toMatchObject({ configured: null, status: null, ciStep: null, policy: null, error: null });
     // The CI tab reads the tests feature's endpoint; Settings serves nothing of its own for it.
     expect((await api('settings/ci')).status).toBe(404);
   });
 
   it('sends the team store, its CI step, and why a store that is not a URL cannot be used', async () => {
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1', ciPush: false }));
-    const s = await get<{ configured: string; status: { bucket: string; region: string; ciPush: boolean; inStore: number }; ciStep: { file: string; text: string } }>('settings/store');
+    const s = await get<{ configured: string; status: { bucket: string; region: string; ciPush: boolean; inStore: number }; ciStep: { file: string; text: string }; policy: { text: string; command: string } }>('settings/store');
     expect(s.configured).toBe('s3://northwind-agent-runs/support-agent?region=eu-central-1');
     expect(s.status).toMatchObject({ bucket: 'northwind-agent-runs', region: 'eu-central-1', ciPush: false, inStore: 0 });
     expect(s.ciStep.file).toMatch(/^\.github\/workflows\//);
     // At the release Settings → CI pins, with Node and the agent's dependencies before it.
     expect(s.ciStep.text).toContain(`npx shadowlap@${VERSION} test goldens/* --push`);
     expect(s.ciStep.text).toContain('  - uses: actions/setup-node@v7\n    with:\n      node-version: 22\n');
+    // Copy access policy: what shadowlap store policy prints for the store's cloud, # lines and all.
+    expect(s.policy.command).toBe('shadowlap store policy');
+    expect(s.policy.text).toMatch(/^# The access to ask your cloud admin for \(Amazon S3\)/);
+    expect(s.policy.text).toContain('"Resource": "arn:aws:s3:::northwind-agent-runs/support-agent/*"');
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 'ftp://nope' }));
-    expect(await get('settings/store')).toMatchObject({ configured: 'ftp://nope', status: null, error: expect.stringMatching(/names a store that can't be used/) });
+    expect(await get('settings/store')).toMatchObject({ configured: 'ftp://nope', status: null, policy: null, error: expect.stringMatching(/names a store that can't be used/) });
   });
 
   it('gives the CI step the keys of the providers its goldens that run live call, as Settings → CI does', async () => {

@@ -1,5 +1,5 @@
 import { CONFIG_FILE, messageOf, readRules } from '@shadowlap/engine';
-import { ciStep, parseStoreUrl, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
+import { accessPolicy, ciStep, parseStoreUrl, policyLines, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { VERSION } from './ci-yaml.js';
 import { teamStoreStatus, type TeamStoreInput, type TeamStoreStatus } from './team-store.js';
 import { type ConfigInfo, loadConfigFile, type SettingsContext } from './settings-shared.js';
@@ -17,6 +17,8 @@ export interface StoreSettings {
   status: TeamStoreStatus | null;
   /** "Copy CI step": the GitHub Actions step `shadowlap store ci --provider github` prints. */
   ciStep: { file: string; text: string; oidc: boolean } | null;
+  /** "Copy access policy": what `shadowlap store policy` prints for the store's cloud, `#` lines and all. */
+  policy: { text: string; command: string } | null;
   /**
    * The redaction rules a share link's report applies (every rule, always): how many, or null when
    * they can't be read (the file, or a rule in it), so a share stops until they can.
@@ -25,22 +27,24 @@ export interface StoreSettings {
 }
 
 /**
- * Settings → Store, the team store: what `shadowlap store show` says, offline, and the CI step to
- * copy, with the keys the goldens that run live need (`keys`, as `liveKeys` gives them). Push and
- * pull are jobs; Push from CI is a config edit. Nothing here reaches the bucket.
+ * Settings → Store, the team store: what `shadowlap store show` says, offline, the CI step to copy,
+ * with the keys the goldens that run live need (`keys`, as `liveKeys` gives them), and the access
+ * policy to copy. Push, pull and Check again are jobs; Push from CI is a config edit. Nothing here
+ * reaches the bucket.
  */
 export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input: TeamStoreInput, keys: CiStepKeys = {}): StoreSettings {
   const { info, file } = loadConfigFile(ctx.cwd);
   const rules = file && !info.error && (file.data.redact === undefined || Array.isArray(file.data.redact)) ? readRules(file, 'redact') : null;
   const redactRules = rules && !rules.some((r) => r.error) ? rules.length : null;
   const configured = input.store;
-  if (!configured) return { config: info, configured: null, error: info.error, status: null, ciStep: null, redactRules };
+  if (!configured) return { config: info, configured: null, error: info.error, status: null, ciStep: null, policy: null, redactRules };
   let loc: StoreLocation;
   try {
     loc = parseStoreUrl(configured);
   } catch (err) {
-    return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${messageOf(err)}`, status: null, ciStep: null, redactRules };
+    return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${messageOf(err)}`, status: null, ciStep: null, policy: null, redactRules };
   }
   const step = ciStep('github', loc, { version: VERSION, ...keys });
-  return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc }, redactRules };
+  const policy = { text: policyLines(accessPolicy(loc.provider, loc)).map((l) => l.text).join('\n'), command: 'shadowlap store policy' };
+  return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc }, policy, redactRules };
 }

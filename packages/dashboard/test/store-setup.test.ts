@@ -286,4 +286,23 @@ describe('the setup routes', () => {
     expect(view.setup.finishedAt).toBeGreaterThan(0);
     expect((await post(ro, 'store/setup', { finished: true })).status).toBe(403);
   });
+
+  it('checks the store again with store check, which writes nothing and leaves a finished setup finished', async () => {
+    setConfig({ store: URL_ });
+    await post(dash, 'store/setup', { finished: true });
+    const before = setupRecord(store, KEY);
+    expect(before.finishedAt).toBeGreaterThan(0);
+    const res = await post(dash, 'jobs', { kind: 'store-check' });
+    expect(res.status, await res.clone().text()).toBe(202);
+    const job = await finished((await res.json()) as JobView);
+    expect(spawned.at(-1)).toEqual(['store', 'check']);
+    expect(job).toMatchObject({ kind: 'store-check', title: 'Checking store', code: 0 });
+    // Not store set --check: the setup isn't reopened.
+    expect(setupRecord(store, KEY)).toMatchObject({ startedAt: before.startedAt, finishedAt: before.finishedAt });
+    setConfig(null);
+    const none = await post(dash, 'jobs', { kind: 'store-check' });
+    expect(none.status).toBe(409);
+    expect(await errorOf(none)).toMatch(/no team store yet/);
+    expect((await post(ro, 'jobs', { kind: 'store-check' })).status).toBe(403);
+  });
 });
