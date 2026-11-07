@@ -995,17 +995,22 @@ A blame that rescued the run from no call shows the check and how the recording 
 
 ### Repair step
 
-The Repair step shows:
+The Repair step opens on its verdict line:
 
-- **The change**: its file, the part of the prompt or tool description it rewrites, the text it adds, and how each role held under it.
-- **Why the failing runs were lost**, and the repairer's diagnosis.
-- **Every candidate tried**, with why each was dropped.
-- **The files handed over**: `fix.patch`, `report.md`, `report.json`, `goldens/`.
-- **The pull request body.**
+- **accepted**, in lime, headed as the Verify step heads the same verdict (*Fixes 1 of 1 target run, keeps 1 of 1 good*). Under it: when it was repaired and who proposed the candidates, then the gate's rule and *verified twice, the second time with fresh attempts*.
+- **rejected**, in red, where the gate turned down every candidate it tried, headed by why (*The gate accepted none of the 2 candidates tried*). *not fixed* reads red too; *no fix to try* and *stopped* read amber.
 
-A repair that accepted nothing leaves the fix open, with the candidates it tried and why.
+A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the prompt yourself and verify it.
 
-Its header says when it ran (*Accepted*, or *Ran* for one that accepted nothing) and who proposed the candidates. When no repairer did, it says why, with what to do (*the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path*). The stepper says it in a few words; *no repairer needed* is only for a fix that needed no model.
+Its sections:
+
+- **The change**: the file and the part of the prompt or tool description it rewrites, once, as the text reads with the change. What it took out is struck through and what it added is marked. How each role held under it is a dot and a word (*target 1 of 1*).
+- **Why**: where the failing runs were lost, and the repairer's diagnosis.
+- **Candidates**: every candidate tried, smallest first, each with its verdict as a dot and a word and why it was dropped. A run a why names links to the run, with its about line on hover. For a repair that accepted nothing, the header states the gate's rule once.
+- **report.md**: the pull request body as the repair wrote it, boxed. Its *What failed* and *Candidates* sections open on request, each summed up beside its heading (*1 run · lost at model call #5*), since the sections around it show both.
+- **Handed over**: `fix.patch`, `report.md`, `report.json`, `goldens/`.
+
+When no repairer proposed the candidates, the line under the verdict says why, with what to do (*the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path*). The stepper says it in a few words; *no repairer needed* is only for a fix that needed no model.
 
 A grey line above its command gives how many attempts it ran and what every stage cost: blame, the repairer and the verification of every candidate it tried. The cost reads as the CLI prints it (*87 attempts · cost: blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239*).
 
