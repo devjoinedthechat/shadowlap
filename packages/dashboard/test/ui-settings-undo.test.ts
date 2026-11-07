@@ -119,7 +119,7 @@ describe('Undo on Matching', () => {
     const toasts: Toasted[] = [];
     const [a, b, broken] = RULES;
     const c = { ...a, rule: { path: '$.ts', pattern: 'iso-date', replace: '<DATE>' }, path: '$.ts', pattern: 'iso-date', replace: '<DATE>' };
-    const at = (row: typeof a, n: number) => ({ ...row, n });
+    const at = <T extends { n: number }>(row: T, n: number): T => ({ ...row, n });
     let shown = matching('v1', [at(a, 1), at(broken, 2), at(b, 3), at(c, 4)]);
     let answer = { rule: {} as unknown, version: 'v1' };
     const removeRule = vi.fn(async (_list: string, n: number) => ({ list: 'normalize', n, ...answer }));
@@ -128,7 +128,7 @@ describe('Undo on Matching', () => {
     await r.until('the rules', () => r!.all('table.ruletable tbody tr').length === 4);
     const rows = () => r!.all('table.ruletable tbody tr').length;
     // Removes rule #n, the file then holding `left`, and gives the button pressed.
-    const remove = async (n: number, rule: unknown, left: Array<typeof a>, version: string) => {
+    const remove = async (n: number, rule: unknown, left: unknown[], version: string) => {
       const button = r!.one(`button[aria-label="Remove normalizer #${n}"]`);
       await r!.until('the Remove free', () => button.getAttribute('aria-disabled') === null);
       [shown, answer] = [matching(version, left), { rule, version }];
