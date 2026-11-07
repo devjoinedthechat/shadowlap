@@ -37,6 +37,7 @@ import { onShow } from '../components/OnShow.js';
 const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.DeleteRunDialog));
 /** Share's menu, a part of its own for the same reason: its script loads as the pointer or the focus reaches Share, so it opens at once. */
 const ShareMenu = onShow(() => import('./ShareMenu.js').then((m) => m.ShareMenu));
+const preloadShare = () => ShareMenu.preload();
 
 /**
  * The run's header, as every page's: what kind of run it is, muted, over its id (decision 10: the id
@@ -175,7 +176,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
         {next?.key === 'compare' ? null : <CompareButton run={run} />}<TraceLink trace={run.trace} />
         {exported ? lead : (
           <>
-            <ActionButton className="btn" id="shareBtn" reads aria-haspopup="menu" aria-expanded={share.open} onPointerEnter={ShareMenu.preload} onFocus={ShareMenu.preload} onClick={(e) => share.toggle(e.currentTarget)}>
+            <ActionButton className="btn" id="shareBtn" reads aria-haspopup="menu" aria-expanded={share.open} onPointerEnter={preloadShare} onFocus={preloadShare} onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
               Share
               <Icon name="caret" className="caret" />
