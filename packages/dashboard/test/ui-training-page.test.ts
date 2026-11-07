@@ -135,6 +135,8 @@ describe('the Training page', () => {
     const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
     r = await render(page('pairs', started));
     await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Export pairs…'));
+    // Its card, as Score model…'s: the action's name without the ellipsis, and what it runs.
+    expect(JSON.parse(r.byText('button', 'Export pairs…').getAttribute('data-tip')!)).toEqual({ t: 'Export pairs', s: 'Asks the format and the confidence first', rows: [], cmd: '$ shadowlap export pairs' });
     await r.click(r.byText('button', 'Export pairs…'));
     expect(r.one('.dialog .dfacts').textContent).toBe('Redactsby 3 rulesthe store never changesWrites.shadowlap/exports/pairs.jsonlthe job’s drawer offers it for download');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');

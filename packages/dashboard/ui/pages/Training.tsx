@@ -76,7 +76,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
           action?.kind === 'score' ? (
             <ScoreModelButton why={action.off} onOpen={() => guard(() => setDialog('score'))} />
           ) : action ? (
-            <ActionButton className="btn lime" why={action.off} tip="Export pairs" sub="Asks the format and the confidence first" command="$ shadowlap export pairs" onClick={() => guard(() => setDialog(action.kind))}>
+            <ActionButton className="btn lime" why={action.off} tip={confirmWords(ACTIONS.exportPairs.label)} sub="Asks the format and the confidence first" command={`$ ${commandText(['export', 'pairs'])}`} onClick={() => guard(() => setDialog(action.kind))}>
               {action.label}
             </ActionButton>
           ) : null
