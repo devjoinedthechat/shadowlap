@@ -17,7 +17,7 @@ const at7 = { type: 'request_changed', callNo: 7, name: 'POST /v1/messages', rep
 const fork = (runId: string, divergence: unknown = at7) => ({ run: { runId, parentRunId: 'P', divergence, status: 'completed' }, parent: null }) as unknown as RunDetail;
 
 /** The server's answer for a run: its request #7 as recorded and as sent, or the call `at` where the diff shows another. */
-const answer = (at = 7): RequestDiff => ({ at, what: 'request', call: { kind: 'api', name: 'POST /v1/messages' }, against: { runId: 'P', callNo: at }, was: { a: 1 }, now: { a: 2 }, whole: true, same: false, askedAgain: false, type: 'request_changed', path: '$.a', paths: [{ path: '$.a', what: null, fix: null }], updates: false, masked: [], outside: [], hints: [], flag: null, tool: null, next: null, test: false });
+const answer = (at = 7): RequestDiff => ({ at, what: 'request', call: { kind: 'api', name: 'POST /v1/messages' }, against: { runId: 'P', callNo: at }, was: { a: 1 }, now: { a: 2 }, whole: true, leftOut: [], same: false, askedAgain: false, type: 'request_changed', path: '$.a', paths: [{ path: '$.a', what: null, fix: null }], updates: false, masked: [], outside: [], hints: [], flag: null, tool: null, next: null, test: false });
 
 /** Show diff's read as a client answers it: the answer for call `at`, or what `answers` says for each ask in turn (an error fails it, null is no diff). */
 type Ask = (runId: string) => Promise<RequestDiff | null>;
@@ -131,6 +131,15 @@ describe('a finding’s diff in the inspector’s place', () => {
     await page.click(page.one('[data-act="diff"]'));
     await page.until('the diff', () => page!.all('#ibody .jd').length === 1);
     expect(asked).toEqual(['W', 'W']);
+  });
+
+  it('draws the conversation a request built from its changes leaves out as `[ … ]`, last', async () => {
+    const asked: string[] = [];
+    const alone = { ...answer(), was: { model: 'm', a: 1 }, now: { model: 'm', a: 2 }, whole: false, leftOut: ['messages'] };
+    page = await render(createElement(Page, { run: fork('L'), asked, ask: asker(asked, 7, [alone]) }));
+    await page.click(page.one('[data-act="diff"]'));
+    await page.until('the diff', () => page!.all('#ibody .jd').length === 1);
+    expect(page.all('#ibody .jd .jl').map((l) => l.textContent)).toEqual(['model: "m"', '−removed: a: 1', '+added: a: 2', 'messages: [ … ]']);
   });
 
   it('says the run kept no call to compare where the answer is none', async () => {

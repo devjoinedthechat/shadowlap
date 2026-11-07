@@ -81,6 +81,9 @@ let liveTool = '';
 let promptFrom = '';
 let urlModel = '';
 let orphan = '';
+let orphanUser = '';
+let orphanGemini = '';
+let unkept = '';
 let codeChange = '';
 let retried = '';
 let uuidTest = '';
@@ -133,6 +136,16 @@ beforeAll(async () => {
   });
   // Compared with a run the store no longer holds.
   orphan = addRun({ parent: rec, calls: [replayed(1), replayed(2), { origin: 'live', request: request({ model: 'claude-haiku-4-5' }) }], divergence: { type: 'request_changed', callNo: 3, counterpart: { runId: '01K8ZZ00000000000000000099', callNo: 3 }, diff: [{ path: '$.model', op: 'changed', before: MODEL, after: 'claude-haiku-4-5' }] } });
+  const userChanged = { path: '$.metadata.user_id', op: 'changed' as const, before: UUID_A, after: UUID_B };
+  orphanUser = addRun({ parent: rec, calls: [replayed(1), replayed(2), { origin: 'live', request: request({ user: UUID_B }) }], divergence: { type: 'request_changed', callNo: 3, counterpart: { runId: '01K8ZZ00000000000000000099', callNo: 3 }, diff: [userChanged] } });
+  orphanGemini = addRun({
+    parent: geminiRec,
+    calls: [{ ...replayed(1), name: gemini('gemini-2.5-pro') }, replayed(2), { name: gemini('gemini-2.5-pro'), origin: 'live', request: { contents: [{ role: 'user', parts: [{ text: 'Refund order 1042' }] }], generationConfig: { temperature: 0.2 } } }],
+    divergence: { type: 'request_changed', callNo: 3, name: gemini('gemini-2.5-pro'), counterpart: { runId: '01K8ZZ00000000000000000099', callNo: 3 }, diff: [{ path: '$.generationConfig.temperature', op: 'changed', before: 0, after: 0.2 }] },
+  });
+  // A recording whose call was kept without its request.
+  const bare = addRun({ calls: [{ request: request() }, lookup(), {}] });
+  unkept = addRun({ parent: bare, calls: [replayed(1), replayed(2), { origin: 'live', request: request({ user: UUID_B }) }], divergence: { type: 'request_changed', callNo: 3, counterpart: { runId: bare, callNo: 3 }, diff: [userChanged] } });
 
   const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'a7b3c2e', actor: 'ci', startedAt: T0 });
   const test = (golden: string) => ({ test: { golden, session: s.sessionId } }) as RunMeta;
@@ -213,7 +226,20 @@ describe('the request a fork changed', () => {
   });
 
   it('builds both sides from the divergence’s changes where the run it is compared with is gone', () => {
-    expect(diffOf(orphan)).toMatchObject({ whole: false, was: { model: MODEL }, now: { model: 'claude-haiku-4-5' }, paths: [{ path: '$.model' }] });
+    expect(diffOf(orphan)).toMatchObject({ whole: false, was: { model: MODEL }, now: { model: 'claude-haiku-4-5' }, leftOut: ['messages'], paths: [{ path: '$.model' }] });
+    // As far as the diff needs them: the model this run asked, each path that changed, the conversation left out.
+    const user = diffOf(orphanUser);
+    expect(user).toMatchObject({ whole: false, was: { model: MODEL, metadata: { user_id: UUID_A } }, now: { model: MODEL, metadata: { user_id: UUID_B } }, leftOut: ['messages'] });
+    expect(Object.keys(user.now as object)).toEqual(['model', 'metadata']);
+    // Gemini's model is in the path, and its conversation is `contents`.
+    expect(diffOf(orphanGemini)).toMatchObject({ whole: false, was: { generationConfig: { temperature: 0 } }, now: { generationConfig: { temperature: 0.2 } }, leftOut: ['contents'] });
+    expect(diffOf(orphanGemini).was).not.toHaveProperty('model');
+  });
+
+  it('builds both sides from the changes where the recording kept its call without its request, the model read from this run’s', () => {
+    expect(diffOf(unkept)).toMatchObject({ against: { runId: expect.any(String), callNo: 3 }, whole: false, was: { model: MODEL, metadata: { user_id: UUID_A } }, now: { model: MODEL, metadata: { user_id: UUID_B } }, leftOut: ['messages'] });
+    // Both whole: nothing left out.
+    expect(diffOf(modelFork).leftOut).toEqual([]);
   });
 });
 

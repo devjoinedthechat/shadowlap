@@ -53,12 +53,13 @@ function DiffLine({ l }: { l: JsonLine }) {
 
 /**
  * Two JSON values' structural diff: `was`, the recording's, against `now`, this run's; or `lines`
- * already walked. `children`, what is said under it from the lines it drew (Show diff's sentence).
+ * already walked. `leftOut`, the keys a request built from its changes alone leaves out, each drawn
+ * `[ … ]`. `children`, what is said under it from the lines it drew (Show diff's sentence).
  * The box is a stop for the keyboard, as a code box is: where the panel around it scrolls, the keys
  * scroll it from there.
  */
-export function JsonDiff({ was, now, lines, split = false, children }: { was?: unknown; now?: unknown; lines?: readonly JsonLine[]; split?: boolean; children?: (lines: readonly JsonLine[]) => ReactNode }) {
-  const all = useMemo(() => lines ?? jsonDiff(was, now), [lines, was, now]);
+export function JsonDiff({ was, now, leftOut, lines, split = false, children }: { was?: unknown; now?: unknown; leftOut?: readonly string[]; lines?: readonly JsonLine[]; split?: boolean; children?: (lines: readonly JsonLine[]) => ReactNode }) {
+  const all = useMemo(() => lines ?? jsonDiff(was, now, leftOut), [lines, was, now, leftOut]);
   const cell = (l: JsonLine | null, key: string) => (l ? <DiffLine key={key} l={l} /> : <div key={key} className="jl gap" aria-hidden="true" />);
   return (
     <>

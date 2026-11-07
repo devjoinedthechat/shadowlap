@@ -9,7 +9,8 @@ import { isObject } from '../../engine/src/is-object.js';
  * is read as JSON and says so, so no line holds an escaped document. An object goes key by key in
  * this run's order, a key only the recording had where it stood. Unchanged values longer than a line
  * are cut, being context, and a changed array's unchanged items fold into one `[ … ]` line; changed
- * values are never cut. Show diff draws the lines as one list, Compare side by side (`splitRows`).
+ * values are never cut. A key neither side holds, left out of a request built from its changes alone,
+ * is one more `[ … ]` line. Show diff draws the lines as one list, Compare side by side (`splitRows`).
  *
  * Pure, and loaded only with JsonDiff.tsx, the part that draws it.
  */
@@ -35,7 +36,7 @@ export interface JsonLine {
   whole: boolean;
   /** The key holds a JSON document in a string, its keys walked below. */
   json: boolean;
-  /** Unchanged items of a changed array, folded. */
+  /** Unchanged items of a changed array, folded, or a key left out: `[ … ]`. */
   fold: boolean;
   /** Where it is, as the structural diff names a path (`$.messages[2].content`): inside a JSON string, the string's. */
   path: string;
@@ -43,6 +44,8 @@ export interface JsonLine {
 
 /** An unchanged value longer than this is cut, with `…`. */
 export const CUT = 72;
+/** What a fold or a key left out shows. */
+const FOLDED = '[ … ]';
 /** Past this many token pairs, two values' words aren't matched: every word is marked. */
 const MATCH_LIMIT = 160_000;
 const TOKEN = /[A-Za-z0-9_]+|\s+|[^A-Za-z0-9_\s]/g;
@@ -124,10 +127,15 @@ function pieces(tokens: readonly string[], keep: readonly boolean[]): Piece[] {
   return out;
 }
 
-/** The lines of two values' structural diff, the recording's (`was`) against this run's (`now`). */
-export function jsonDiff(was: unknown, now: unknown): JsonLine[] {
+/**
+ * The lines of two values' structural diff, the recording's (`was`) against this run's (`now`).
+ * `leftOut`, top-level keys of a request built from its changes alone that neither side holds (its
+ * conversation, `messages`): each one unchanged line last, `messages: [ … ]`.
+ */
+export function jsonDiff(was: unknown, now: unknown, leftOut: readonly string[] = []): JsonLine[] {
   const out: JsonLine[] = [];
   new Walk(out).pair(was, now, 0, null, '$', false);
+  for (const k of leftOut) out.push({ sign: ' ', depth: 0, key: k, value: [{ text: FOLDED, marked: false }], whole: false, json: false, fold: true, path: `$.${k}` });
   return out;
 }
 
@@ -191,7 +199,7 @@ class Walk {
         let j = i;
         while (j + 1 < both && same(x[j + 1], y[j + 1])) j++;
         if (j === i) this.plain(' ', depth, `${key ?? ''}[${i}]`, at(i), y[i], true);
-        else this.line(' ', depth, `${key ?? ''}[${i}–${j}]`, at(i), [{ text: '[ … ]', marked: false }], { fold: true });
+        else this.line(' ', depth, `${key ?? ''}[${i}–${j}]`, at(i), [{ text: FOLDED, marked: false }], { fold: true });
         i = j;
       }
     }

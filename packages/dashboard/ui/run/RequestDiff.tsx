@@ -31,7 +31,7 @@ function Answered({ diff }: { diff: NonNullable<Awaited<ReturnType<typeof askDif
   return (
     <>
       <DiffHead diff={diff} />
-      <JsonDiffPart was={diff.was} now={diff.now}>
+      <JsonDiffPart was={diff.was} now={diff.now} leftOut={diff.leftOut}>
         {(lines) => <DiffNotes diff={diff} lines={lines} />}
       </JsonDiffPart>
     </>

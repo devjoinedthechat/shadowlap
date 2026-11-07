@@ -207,9 +207,11 @@ describe('export html', () => {
     expect(both.responses[`runs/${fork}/diff`]).toMatchObject({ diff: { at: 1, whole: true, against: { runId: parent, callNo: 1 }, path: '$.messages[0].content' } });
     // A recording never diverged: nothing held for it.
     expect(both.responses[`runs/${parent}/diff`]).toBeUndefined();
-    // Without the run it is compared with, the divergence's own changes, as the file holds them anyway.
+    // Without the run it is compared with, the divergence's own changes, as the file holds them anyway,
+    // as far as the diff needs them: the model this run asked, the change, the conversation left out.
     const alone = embedded(exportHtml({ store, runIds: [fork], uiDir }).html).responses[`runs/${fork}/diff`] as { diff: { whole: boolean; was: unknown; now: unknown } };
-    expect(alone.diff).toMatchObject({ whole: false, was: { 'messages[0]': { content: ASKED } }, now: { 'messages[0]': { content: ASKED.replace('1042', '1043') } } });
+    const model = 'claude-sonnet-4-5';
+    expect(alone.diff).toMatchObject({ whole: false, was: { model, 'messages[0]': { content: ASKED } }, now: { model, 'messages[0]': { content: ASKED.replace('1042', '1043') } }, leftOut: ['messages'] });
   });
 
   it('redacts Show diff’s request as the runs are: neither a secret nor a value a rule masks reaches the file in any form', () => {

@@ -375,6 +375,7 @@ describe('Show diff’s words', () => {
     was: { model: 'claude-sonnet-4-5' },
     now: { model: 'claude-sonnet-4-5', metadata: { user_id: user } },
     whole: true,
+    leftOut: [],
     same: false,
     askedAgain: false,
     type: 'request_changed',

@@ -67,6 +67,15 @@ describe('the structural diff', () => {
     ]);
   });
 
+  it('draws a key a request built from its changes leaves out as one unchanged line, last', () => {
+    const was = { model: 'claude-sonnet-4-5', metadata: { user_id: UUID_A } };
+    const now = { model: 'claude-sonnet-4-5', metadata: { user_id: UUID_B } };
+    const all = jsonDiff(was, now, ['messages']);
+    expect(all.map(said)).toEqual(['  model: "claude-sonnet-4-5"', '  metadata:', `-   user_id: "[${UUID_A}]"`, `+   user_id: "[${UUID_B}]"`, '  messages: [ … ]']);
+    expect(all.at(-1)).toMatchObject({ sign: ' ', depth: 0, fold: true, path: '$.messages' });
+    expect(jsonDiff(was, now).map(said)).not.toContain('  messages: [ … ]');
+  });
+
   it('keeps a value with no space in it whole, and only that', () => {
     const [was, now] = jsonDiff({ user_id: UUID_A }, { user_id: UUID_B });
     expect([was.whole, now.whole]).toEqual([true, true]);
