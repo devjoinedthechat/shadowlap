@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { ApiError } from '../api.js';
 import { Chips } from '../components/bits.js';
 import { Words } from '../components/Copy.js';
@@ -11,6 +11,7 @@ import { minuteStamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
+import { onShownProject, shownProject } from '../projects-api.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { SessionVerdict, VerdictRow, VerdictsKind, VerdictsView } from '../types.js';
@@ -24,18 +25,32 @@ import { chipEmpty, kindLine, leadFacts, leadIsOpen, moreLimit, rowTone, titledB
  * shared, through a team store.
  */
 
-/** The chip and how far the list reads, kept while the page is open in this tab: back from a revision's page the list reads as far as it was left, so Esc finds its row. A new chip reads from the top. */
-let kept: { chip: VerdictsKind; limit: number } = { chip: 'all', limit: VERDICTS_STEP };
+/**
+ * The chip and how far the list reads, kept per project while the page is open in this tab, as
+ * changes-tab.ts keeps the tab: back from a revision's page the list reads as far as it was left, so
+ * Esc finds its row. A new chip reads from the top; another project's list starts at All.
+ */
+type Kept = { chip: VerdictsKind; limit: number };
+const kept = new Map<string, Kept>();
+const keptNow = (): Kept => kept.get(shownProject() ?? '') ?? { chip: 'all', limit: VERDICTS_STEP };
+
+/** Forgets every project's chip and limit: a test's own start. */
+export function forgetVerdictsKept(): void {
+  kept.clear();
+}
 
 /** What knows a row to the list keys: where it leads, else its own id. */
 const rowKey = (row: VerdictRow) => verdictHref(row) ?? row.id;
 
 export function VerdictsTab() {
   const { client, runsTick, feeds } = useApp();
-  const [shown, setShown] = useState(kept);
-  const show = (next: typeof kept) => {
-    kept = next;
-    setShown(next);
+  const project = useSyncExternalStore(onShownProject, shownProject);
+  const [held, setHeld] = useState(() => ({ project, ...keptNow() }));
+  // Another project's page reads its own chip and limit, at once, never this one's.
+  const shown = held.project === project ? held : { project, ...keptNow() };
+  const show = (next: Kept) => {
+    kept.set(project ?? '', next);
+    setHeld({ project, ...next });
   };
   const { chip, limit } = shown;
   // The chip in the refresh, not the key: the rows stay until another chip's come. The answer says which chip and how many it is for.

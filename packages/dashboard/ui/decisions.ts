@@ -1,0 +1,149 @@
+import { approx, minuteStamp } from './format.js';
+import type { DecisionCell, DecisionSessionView, PreviewNext, PreviewReceipt, PreviewView } from './types.js';
+
+/**
+ * Changes' Preview and a run's Decisions view, worked out from what the server words (src/decision-view.ts):
+ * how a cell is drawn and which call a range stands for, the verdict's state, the one next step, the
+ * picker's hint and the receipt's lines. Pure, with no DOM and nothing from api.ts, so the Node tests
+ * read it as the page does.
+ */
+
+/** A cell's colour: `w` a write (red), `s` a stop, hand-over or judged change (amber), `r` a read, `m` the same or words only (the muted fill). */
+export type Band = 'w' | 's' | 'r' | 'm';
+
+/** The colour a rank draws in: 1 a write, 2 a stop, 3 and 4 a read, else the same or words. */
+export const bandOf = (rank: number | null): Band => (rank === 1 ? 'w' : rank === 2 ? 's' : rank === 3 || rank === 4 ? 'r' : 'm');
+
+/** How a cell is drawn: its fill, its bands a sample each where they differ (the most consequential at the bottom), and its marks. */
+export interface CellLook {
+  fill: Band;
+  /** A band a sample, the most consequential first, which the cell draws at its bottom; null where every sample draws alike. */
+  bands: Band[] | null;
+  /** An amber ring: a judge couldn't judge its words. */
+  ring: boolean;
+  /** Hollow: the change leaves the call as recorded. */
+  hollow: boolean;
+  /** Dashed: not asked, or waiting on its control. */
+  dashed: boolean;
+}
+
+const BAND_ORDER: Record<Band, number> = { w: 0, s: 1, r: 2, m: 3 };
+
+export function cellLook(c: Pick<DecisionCell, 'state' | 'rank' | 'sampled' | 'ranks' | 'judge'>): CellLook {
+  const hollow = c.state === 'left';
+  const dashed = c.state === 'not-asked' || c.state === 'unsettled';
+  // Within the model's own variation a cell shows what its samples showed, ranked or not.
+  const fill = hollow || dashed ? 'm' : bandOf(c.state === 'noise' ? c.sampled : c.rank);
+  const each = c.ranks.map((r) => bandOf(r || null));
+  const bands = !hollow && !dashed && each.length > 1 && each.some((b) => b !== each[0]) ? [...each].sort((a, b) => BAND_ORDER[a] - BAND_ORDER[b]) : null;
+  return { fill, bands, ring: c.judge === 'inconclusive', hollow, dashed };
+}
+
+/** A cell's weight, to pick the call a range stands for: a write the most, then a stop, a read, words a judge couldn't read, words, the same, not asked, left as recorded. */
+export function cellWeight(c: Pick<DecisionCell, 'state' | 'rank' | 'judge'>): number {
+  if (c.state === 'left') return 0;
+  if (c.state === 'not-asked' || c.state === 'unsettled') return 1;
+  if (c.rank === null || c.rank === 0) return c.state === 'noise' ? 2.5 : 2;
+  if (c.rank === 5) return c.judge === 'inconclusive' ? 3.5 : 3;
+  return 9 - c.rank;
+}
+
+/** Past this many model calls a row's cells stand for ranges of calls. */
+export const RANGES_PAST = 60;
+
+/** A cell as drawn: one call, or a range of calls drawn as its most consequential one (`top`). */
+export interface DrawnCell<C> {
+  top: C;
+  first: C;
+  last: C;
+  count: number;
+}
+
+/** A row's cells as drawn: one a call up to `most`, else ranges of calls, each as its most consequential call, the first of them on a tie. */
+export function drawnCells<C extends Pick<DecisionCell, 'state' | 'rank' | 'judge'>>(cells: readonly C[], most = RANGES_PAST): Array<DrawnCell<C>> {
+  const size = cells.length > most ? Math.ceil(cells.length / most) : 1;
+  const out: Array<DrawnCell<C>> = [];
+  for (let i = 0; i < cells.length; i += size) {
+    const part = cells.slice(i, i + size);
+    const top = part.reduce((a, b) => (cellWeight(b) > cellWeight(a) ? b : a));
+    out.push({ top, first: part[0]!, last: part.at(-1)!, count: part.length });
+  }
+  return out;
+}
+
+/**
+ * The verdict's state, as the page leads with it: runs to verify, some flagged (their count in its
+ * colour); runs to verify, none flagged; a preview that settled nothing; verify's verdict; nothing to
+ * verify.
+ */
+export type VerdictState = 'flagged' | 'unverified' | 'unsettled' | 'verified' | 'nothing';
+
+export function verdictState(v: Pick<PreviewView, 'verdict' | 'verify'>): VerdictState {
+  const word = v.verdict.word;
+  if (word === 'not verified') return v.verdict.flaggedRank ? 'flagged' : 'unverified';
+  if (word === 'nothing to verify') return 'nothing';
+  if (v.verify && (word !== 'inconclusive' || v.verify.word === 'inconclusive')) return 'verified';
+  return word === 'inconclusive' ? 'unsettled' : 'verified';
+}
+
+/** Verify's button: the runs it would verify, counted, with no ellipsis, as its ask only confirms the price. */
+export const verifyLabel = (n: number): string => `Verify ${n} run${n === 1 ? '' : 's'}`;
+
+/** The one next step: Verify the runs left to verify, Run more attempts on those verify left open, Migrate to the model switched to, else none. */
+export type NextStep =
+  | { kind: 'verify'; label: string; runs: string[]; every: boolean; gone: number }
+  | { kind: 'more'; label: 'Run more attempts'; runs: string[] }
+  | { kind: 'migrate'; label: string; to: string; from: string[]; goldens: string[]; runs: string[] }
+  | null;
+
+export function nextStep(next: PreviewNext): NextStep {
+  if (next.verify) return { kind: 'verify', label: verifyLabel(next.verify.runs.length), runs: next.verify.runs, every: next.verify.every, gone: next.verify.gone };
+  if (next.more.length) return { kind: 'more', label: 'Run more attempts', runs: next.more };
+  if (next.migrate) return { kind: 'migrate', label: `Migrate to ${next.migrate.to}`, ...next.migrate };
+  return null;
+}
+
+/** A session in the picker after its name: its goldens or runs and when, in the list also how often it asked a step: `7 goldens · 3 samples a step · <when>`. */
+export function sessionHint(s: Pick<DecisionSessionView, 'runs' | 'unit' | 'samples' | 'at'>, o: { full?: boolean; now?: number } = {}): string {
+  const n = `${s.runs} ${s.unit}${s.runs === 1 ? '' : 's'}`;
+  return [n, o.full && s.samples && s.samples > 1 ? `${s.samples} samples a step` : null, minuteStamp(s.at, o.now)].filter(Boolean).join(' · ');
+}
+
+/**
+ * Two prices side by side: as `approx` writes each, a place finer where the two would read alike
+ * but differ, so a move never reads "$0.018 → $0.018 (+1%)".
+ */
+export function pricePair(a: number, b: number): string {
+  const at = (v: number, places: number) => `≈$${v.toFixed(places)}`;
+  const one = approx(a);
+  const two = approx(b);
+  if (one !== two || a === b || !a || !b) return `${one} → ${two}`;
+  const places = (one.split('.')[1] ?? '').length;
+  for (let p = places + 1; p <= 6; p++) if (at(a, p) !== at(b, p)) return `${at(a, p)} → ${at(b, p)}`;
+  return `${one} → ${two}`;
+}
+
+/** A receipt's line: its parts, joined by dots, and its card's title and rows. */
+export interface ReceiptWords {
+  parts: string[];
+  card: { title: string; rows: Array<[string, string]> } | null;
+}
+
+const requests = (n: number, what: string) => `${n} ${what}${n === 1 ? '' : 's'}`;
+const unpriced = (models: readonly string[]) => (models.length ? ` (no price for ${models.join(', ')})` : '');
+
+/**
+ * The receipt at the matrix's foot: what a run costs as recorded and under the change and what the
+ * preview spent, then what it asked; asking and judging apart on the first line's card. Once verify
+ * ran, what the runs it verified cost end to end joins it.
+ */
+export function receiptWords(r: PreviewReceipt, endToEnd: string | null): ReceiptWords[] {
+  const spent = r.spent + (r.judge?.spent ?? 0);
+  const first = [r.perRun ? `per run ${pricePair(r.perRun.before, r.perRun.after)} (${r.perRun.change})` : null, `this preview spent ${approx(spent)}${unpriced([...r.unknownModels, ...(r.judge?.unknownModels ?? [])])}`, r.stopReason ? `stopped: ${r.stopReason}` : null].filter((x): x is string => !!x);
+  const rows: Array<[string, string]> = [['asking', `${approx(r.spent)} · ${requests(r.requests, 'upstream request')}`], ...(r.judge ? [['judging', `${approx(r.judge.spent)} · ${requests(r.judge.requests, 'upstream request')}`] as [string, string]] : [])];
+  return [
+    { parts: first, card: { title: 'What it cost', rows } },
+    { parts: [`${requests(r.requests, 'request')} to the model${r.judge ? `, ${r.judge.requests} to the judge` : ''}`], card: null },
+    ...(endToEnd ? [{ parts: [`end to end ${endToEnd}`], card: null }] : []),
+  ];
+}
