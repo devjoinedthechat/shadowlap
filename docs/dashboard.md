@@ -544,7 +544,7 @@ Under the diff, a sentence says what changed and, on a fork, what changed it: it
 
 A fork forced live, as Run live from here makes, has Show diff too, and says so where its request didn't change. After a tool forced live or failed, the diff shows the next model call, the first request the tool's result reaches. A model call that `--fail-at` failed has none, since that call made no upstream request.
 
-Where the run it is compared with is gone, left out of an exported copy, or kept without its request, the diff holds what the finding kept. That is the model, each path that changed, and the rest of the conversation as `messages: [ … ]`.
+Where the run it is compared with is gone, left out of an exported copy, or kept without its request, the diff is built from the finding's changes. It shows the model, each path that changed, and `messages: [ … ]` for the conversation it leaves out.
 
 **Hide diff**, a call picked, a key from `1` to `4` or Esc gives the inspector back.
 
