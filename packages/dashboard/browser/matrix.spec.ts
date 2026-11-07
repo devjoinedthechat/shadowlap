@@ -140,6 +140,20 @@ test('wraps a run’s presets into balanced bands, its one head over each, and t
   expect((await boundLines(page, 'presets')).filter(([, n]) => n !== 1)).toEqual([]);
 });
 
+test('keeps the focus on a cell, by its place, as the matrix turns and turns back', async ({ page }) => {
+  await open(page);
+  await setWidth(page, 'presets', 1100 + 36);
+  const cell = page.locator('#presets a.rmx-c[data-at]').nth(2);
+  const at = await cell.getAttribute('data-at');
+  await cell.focus();
+  const focused = () => page.evaluate(() => document.activeElement?.closest('#presets') && document.activeElement.getAttribute('data-at'));
+  for (const [width, flip] of [[358 + 36, true], [1100 + 36, false]] as const) {
+    await setWidth(page, 'presets', width);
+    expect((await fitOf(page, 'presets')).flip).toBe(flip);
+    expect(await focused(), `at ${width}px`).toBe(at);
+  }
+});
+
 test('turns an injection test’s two reads in the inspector, and on a phone scrolls them in one band two rows tall', async ({ page }) => {
   await open(page);
   expect(await fitOf(page, 'two')).toMatchObject({ flip: true, per: 2, bands: 1, width: 470 });

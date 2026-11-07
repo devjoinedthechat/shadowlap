@@ -463,6 +463,14 @@ describe('the matrix’s own script', () => {
     r = null;
   });
 
+  it('starts to load as the pointer reaches Show results, before the results open, so they show at once', async () => {
+    expect(ResultsMatrixPart.script).toBe('idle');
+    r = await render(createElement(ResultsToggle, { runId: RUN, which: 'presets' }));
+    expect(ResultsMatrixPart.script).toBe('idle');
+    await r.hover(r.one('[data-act="results"]'));
+    expect(ResultsMatrixPart.script).not.toBe('idle');
+  });
+
   it('draws the matrix in the panel once its script comes, a group opening on its button', async () => {
     r = await render(createElement(FindingPanel, { kind: 'injection', name: 'Injection test results', label: 'Untrusted reads × payloads', meta: ['72 attempts'], cmd: `shadowlap injection ${RUN}`, matrix: injection(groupRows(fortyTwo())), receipt: [] }));
     await r.until('the matrix', () => r!.all('.rmx').length === 1);
