@@ -149,6 +149,41 @@ describe('a finding’s results in the inspector’s place', () => {
     expect(closePanel('A')).toBe(false);
   });
 
+  it('stay open on their run while another run opens its own or a diff, and keep a run’s diff while another opens results', async () => {
+    page = await render(createElement(Page, { run: fork('A') }));
+    await page.click(toggle());
+    await page.unmount();
+    page = await render(createElement(Page, { run: fork('C') }));
+    await page.click(page.one('[data-act="diff"]'));
+    expect(page.one('#insp').getAttribute('aria-label')).toBe('Diff at #7');
+    await page.click(toggle());
+    expect(page.one('#insp').getAttribute('aria-label')).toBe('Results');
+    await page.unmount();
+    page = await render(createElement(Page, { run: fork('A') }));
+    expect(page.one('#insp').getAttribute('aria-label')).toBe('Results');
+    // Esc there closes A's alone.
+    await act(async () => void closePanel('A'));
+    await page.unmount();
+    page = await render(createElement(Page, { run: fork('C') }));
+    expect(page.one('#insp').getAttribute('aria-label')).toBe('Results');
+    // A diff open on A stays while C opens its results; a diff is one at a time across runs, the newest opened.
+    await page.unmount();
+    page = await render(createElement(Page, { run: fork('A') }));
+    await page.click(page.one('[data-act="diff"]'));
+    await page.unmount();
+    page = await render(createElement(Page, { run: fork('B') }));
+    await page.click(toggle());
+    await page.unmount();
+    page = await render(createElement(Page, { run: fork('A') }));
+    expect(page.one('#insp').getAttribute('aria-label')).toBe('Diff at #7');
+    await page.unmount();
+    page = await render(createElement(Page, { run: fork('C') }));
+    await page.click(page.one('[data-act="diff"]'));
+    await page.unmount();
+    page = await render(createElement(Page, { run: fork('A') }));
+    expect(page.all('.fpanel')).toHaveLength(0);
+  });
+
   it('stay open while another run shows, a pick there closing only that run’s panel', async () => {
     page = await render(createElement(Page, { run: fork('A') }));
     await page.click(toggle());
