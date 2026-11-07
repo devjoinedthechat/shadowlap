@@ -30,11 +30,11 @@ import { blameNextPrice, repairCard, useFixEstimates, verifyPrice } from './esti
 import { FixJobButton } from './FixJobButton.js';
 import { appliedButton, blameNextStep, failingLine, fixAction, fixName, fixStamp, laterStamp, leadingVerdict, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, stepFor } from './model.js';
 import { FixStepper, REPAIR_SPENT, showPatchCard, useFitFixHead } from './head.js';
-import { failingCard, leadCard, rungStatus, verifyLeftCard } from './list.js';
+import { failingCard, leadCard, rungStatus } from './list.js';
 import { FailedMust } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
-import { VerifyAsk, VerifyLeftAsk, VerifyStepView, verifyTip } from './VerifyStep.js';
+import { VerifyAsk, VerifyLeftButton, VerifyStepView, verifyTip } from './VerifyStep.js';
 
 export { StrongerDialog } from './BlameAgain.js';
 import { ACTIONS, confirmWords } from '../labels.js';
@@ -416,30 +416,6 @@ function ShowPatch({ fix, ask }: Pick<ButtonsProps, 'fix' | 'ask'>) {
     <button className="btn" type="button" data-tip={tipCard('Show patch', [], showPatchCard(fix))} onClick={() => ask('patch')}>
       Show patch
     </button>
-  );
-}
-
-/**
- * Verify this run (Verify these runs for several): the failing runs no accepted verdict checked,
- * verified on the code as it is now, priced on the fix's estimates and asking by Spending's rule with
- * `Verify change on <run>`, as its Fixes row's does.
- */
-function VerifyLeftButton({ fix, prices, lead }: { fix: FixDetail; prices: FixEstimates | null | undefined; lead: boolean }) {
-  const left = fix.actions.verifyLeft;
-  if (!left) return null;
-  const estimate = prices === undefined ? undefined : (prices?.verifyLeft ?? null);
-  return (
-    <FixJobButton
-      kind={JOB_KINDS.verify}
-      fields={{ fixId: fix.fixId, left: true }}
-      label={(left.runs.length === 1 ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label}
-      verb="verify it"
-      lead={lead}
-      tip={verifyLeftCard(left.runs)}
-      command={left.command}
-      estimate={estimate}
-      ask={(begin, close) => <VerifyLeftAsk left={left} estimate={estimate} onRun={() => begin({})} onClose={close} />}
-    />
   );
 }
 

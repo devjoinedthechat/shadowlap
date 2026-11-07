@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { recordBlame, recordRepair, Store, type BlameReport } from '@shadowlap/engine';
-import { blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
+import { afterForkLines, markFixApplied, plain, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
+import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail, withAbouts } from '../src/fixes.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
@@ -234,5 +234,72 @@ describe('the Repair step', () => {
     expect([link.getAttribute('href'), text(link), link.getAttribute('title')]).toEqual([`#/run/${run}`, run.slice(0, 10), d.repair!.named[0].about]);
     expect(d.repair!.named[0].about).toBeTruthy();
     expect(r!.all('.prbody.md h4.mdh .mds').map(text)).toEqual(['1 run · lost at model call #5', '2 candidates · none accepted']);
+  });
+});
+
+/** Two failing runs of one fix, a change made by hand verified on the first alone; its report as `o` sets it. */
+function verified(o: { judge?: boolean; afterFork?: boolean; warnings?: string[] } = {}) {
+  const a = blamed();
+  const b = blamed();
+  const report = verifyReport([{ runId: a.run, role: 'target', pass: true }]);
+  if (o.judge) report.judge = { spent: 0.002, upstreamRequests: 3 };
+  if (o.afterFork) report.runs[0].attempts = report.runs[0].attempts.map((x) => ({ ...x, afterFork: { recorded: 2, inOrder: 0, live: 1, stubbed: 0, blocked: 0 } }));
+  if (o.warnings) report.warnings = o.warnings;
+  recordVerdict(store, { report, expect: SEND_ONCE, command: 'shadowlap verify --fixes label:double-email', rerun: { flags: [], command: null }, at: (at += DAY) });
+  return { fixId: a.fixId, run: a.run, left: b.run, report };
+}
+
+describe('the Verify step', () => {
+  it('opens on its verdict line with no button, then each run, its outcome a status before one Attempts cell, its attempts under the row on request', async () => {
+    const { fixId, run } = verified();
+    const d = fixDetail(store, fixId)!;
+    await open(fixId, 'verify');
+    expect(r!.one('.verdict .vw').className).toBe('vw ok');
+    expect(text(r!.one('.verdict h2'))).toBe(`accepted ${d.verify[0].headline}`);
+    expect(r!.all('.verdict .actions')).toEqual([]);
+    expect(r!.all('table.vruns thead th').map(text)).toEqual(['Role', 'Run', 'Outcome', 'Attempts', 'Where it went']);
+    const row = r!.one('table.vruns tbody tr');
+    expect([row.querySelector('td.vo .st')!.className, text(row.querySelector('td.vo')!), text(row.querySelector('td.vid')!)]).toEqual(['st ok', 'fixed', run.slice(0, 10)]);
+    expect(text(row.querySelector('td.va .acell')!)).toMatch(/^4 of 4/);
+    expect(r!.all('table.vruns tr.sub')).toEqual([]);
+    await r!.click(row.querySelector('td.va button.xbtn')!);
+    expect(r!.all('table.vruns tr.sub .alist > .al')).toHaveLength(4);
+    expect(text(r!.one('.cmdline'))).toContain('shadowlap verify');
+  });
+
+  it('says the failing runs an accepted verdict left out, each with its about line: what the header’s Verify this run does while it leads, else a small one of its own', async () => {
+    const { fixId, left } = verified();
+    const about = withAbouts(store, fixDetail(store, fixId)!).verify[0].left[0].about;
+    await open(fixId, 'verify');
+    const id = r!.one('.vleft a.rlink');
+    expect([text(id), id.getAttribute('title')]).toEqual([left.slice(0, 10), about]);
+    expect(about).toBeTruthy();
+    // The header leads with Verify this run: the line only says what it does.
+    expect(r!.byText('.ph .actions button', 'Verify this run').className).toBe('btn lime');
+    expect(text(r!.one('.vleft'))).toBe(`${left.slice(0, 10)} wasn’t in this verify: Verify this run checks the code as it is now on it.`);
+    expect(r!.all('.vleft button')).toEqual([]);
+    await r!.unmount();
+    // Applied, the header leads with what applying left undone, so the step offers it, small.
+    markFixApplied(store, fixId, { patch: 'none', repairId: null, goldens: [], tests: 'skipped', via: 'fix apply' });
+    await open(fixId, 'verify');
+    const button = r!.byText('.vleft button', 'Verify this run');
+    expect(button.className).toBe('btn sm');
+    expect((JSON.parse(String(button.props['data-tip'])) as { t?: string }).t).toBe('Verifies the code as it is now on the run this change wasn’t verified on');
+    expect(text(r!.one('.vleft > span'))).toBe(`${left.slice(0, 10)} wasn’t in this verify ·`);
+  });
+
+  it('ends on what verify printed, in its order: its warnings, what answered after the fork, per run, what it cost with the judge’s checks apart, then its command', async () => {
+    const { fixId, report } = verified({ judge: true, afterFork: true, warnings: ['the base revision has uncommitted changes'] });
+    await open(fixId, 'verify');
+    expect(r!.all('ul.fxwarn li').map(text)).toEqual(['the base revision has uncommitted changes']);
+    const receipts = r!.all('.fxreceipt').map(text);
+    expect(receipts).toHaveLength(3);
+    expect(receipts[0]).toBe(afterForkLines(report.runs, plain)[0].trim());
+    expect(receipts[1]).toMatch(/^per run, as it would run live: /);
+    expect(receipts[2]).toBe('4 attempts · 12 upstream requests · ≈$0.048 spent to find out before it shipped · judge checks: 3 upstream requests, ≈$0.0020. A run whose replay doesn’t fork settles in one free attempt.');
+    // Each part kept whole, the line breaking only after a dot.
+    expect(r!.all('.fxreceipt .nw').map(text)).toContain('judge checks: 3 upstream requests, ≈$0.0020');
+    const order = r!.all('ul.fxwarn, .fxreceipt, .cmdline').map((x) => x.className.split(' ')[0]);
+    expect(order).toEqual(['fxwarn', 'fxreceipt', 'fxreceipt', 'fxreceipt', 'cmdline']);
   });
 });

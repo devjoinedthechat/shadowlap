@@ -249,7 +249,7 @@ table.t td.fxwhere { color: var(--faint); }
 .verdict p .dtip:focus-visible { outline-offset: 1px; border-radius: 2px; }
 .grid2.fxg { align-items: start; }
 /* a probe's tally keeps its two halves whole and breaks only after its dot, the bar and the toggle together */
-table.probes td.ptally { white-space: normal; color: var(--dim); font: 12.5px var(--body); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+table.probes td.ptally, table.vruns td.va { white-space: normal; color: var(--dim); font: 12.5px var(--body); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 /* under the pointer the blamed row's ground reaches into the gutters as a row's hover does, in its own tone */
 :where(.panel.sec table.probes) tr.hot:hover > td:first-child { box-shadow: -12px 0 0 var(--sel); }
 :where(.panel.sec table.probes) tr.hot:hover > td:last-child { box-shadow: 12px 0 0 var(--sel); }
@@ -257,16 +257,20 @@ table.probes td.ptally { white-space: normal; color: var(--dim); font: 12.5px va
 table.t tr.sub td { padding: 4px 12px 14px 44px; white-space: normal; background: none; }
 /* blame's probes on a phone: each row stacks, the call and the verdict first, the tally under them */
 @media (max-width: 640px) {
-  .tscroll table.probes { min-width: 0; }
-  table.probes thead { display: none; }
-  table.probes tr:not(.sub) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 10px; row-gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
-  table.probes tr:not(.sub) td { padding: 0; border: 0; }
+  .tscroll table.probes, .tscroll table.vruns { min-width: 0; }
+  table.probes thead, table.vruns thead { display: none; }
+  table.probes tr:not(.sub), table.vruns tr:not(.sub) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 10px; row-gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  table.probes tr:not(.sub) td, table.vruns tr:not(.sub) td { padding: 0; border: 0; }
   /* the last row's hairline is the row's own, not one under each of its cells as well */
-  .panel.sec table.probes tbody tr:last-child td { border-bottom: 0; }
+  .panel.sec table.probes tbody tr:last-child td, .panel.sec table.vruns tbody tr:last-child td { border-bottom: 0; }
   table.probes td.pc { grid-row: 1; grid-column: 1; }
   table.probes td.pv { grid-row: 1; grid-column: 2; }
   table.probes td.pm { grid-row: 1; grid-column: 3; color: var(--faint); font-size: 12px; }
-  table.probes td.ptally { grid-row: 2; grid-column: 1 / -1; }
+  table.probes td.ptally, table.vruns td.va { grid-row: 2; grid-column: 1 / -1; white-space: normal; }
+  table.vruns td.vr { grid-row: 1; grid-column: 1; }
+  table.vruns td.vo { grid-row: 1; grid-column: 2; }
+  table.vruns td.vid { grid-row: 1; grid-column: 3; }
+  table.vruns td.vnote { grid-row: 3; grid-column: 1 / -1; min-width: 0; font-size: 12px; }
   table.t tr.sub { display: block; }
   table.t tr.sub td { display: block; padding: 0 14px 12px; }
   /* a long run numbers only the model calls in the blame's scope, so the labels never run together; the others' numbers are on hover */
@@ -275,6 +279,12 @@ table.t tr.sub td { padding: 4px 12px 14px 44px; white-space: normal; background
 .ph .fxrename { margin-left: 4px; vertical-align: 1px; }
 
 .fxsource { color: var(--ink); }
+
+/* the failing runs an accepted verdict left out, and Verify this run beside them */
+.vleft { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 12px 0 0; color: var(--faint); font-size: 12.5px; }
+.vleft code.rnm { font-size: 12.5px; }
+/* with its step in the header, the line is a sentence and flows as one */
+.vleft:not(:has(.btn)) { display: block; }
 
 /* a repair's report.md is the pull request's body: a preview of it, boxed as the Slack and pull request previews are */
 .fxg .prbody.md { margin-top: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }

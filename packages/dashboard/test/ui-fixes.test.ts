@@ -332,9 +332,9 @@ describe('the Repair step’s candidates', () => {
 });
 
 describe('the Verify step', () => {
-  it('badges each outcome, a run nothing decided in amber', () => {
-    expect((['fixed', 'kept', 'not fixed', 'broken', 'unsettled', 'inconclusive'] as const).map(outcomeTone)).toEqual(['ok', 'ok', 'no', 'no', 'y', 'y']);
-    expect((['accepted', 'rejected', 'incomplete'] as const).map(verdictTone)).toEqual(['ok', 'no', 'warn']);
+  it('gives each outcome its status tone, a run nothing decided in amber', () => {
+    expect((['fixed', 'kept', 'not fixed', 'broken', 'unsettled', 'inconclusive'] as const).map(outcomeTone)).toEqual(['ok', 'ok', 'err', 'err', 'warn', 'warn']);
+    expect((['accepted', 'rejected', 'incomplete'] as const).map(verdictTone)).toEqual(['ok', 'err', 'warn']);
   });
 
   it('says what Run more attempts takes, and why the run it names is open', () => {

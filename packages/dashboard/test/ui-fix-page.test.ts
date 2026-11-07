@@ -457,10 +457,9 @@ describe('the Verify step', () => {
     const { fixId } = verdicts();
     await open(fixId, 'verify');
     // Verify's incomplete, said inconclusive in amber: the one word and colour of what nothing decided.
-    expect(r!.one('.verdict').className).toBe('verdict warn');
-    expect(r!.one('.verdict .badge').className).toBe('badge y');
-    expect(text(r!.one('.verdict .badge'))).toBe('inconclusive');
-    expect(text(r!.one('.verdict h2'))).toBe('Not every run settled');
+    expect(r!.one('.verdict .vw').className).toBe('vw warn');
+    expect(text(r!.one('.verdict .vw'))).toBe('inconclusive');
+    expect(text(r!.one('.verdict h2'))).toBe('inconclusive Not every run settled');
     // Links to each verdict's page: the one shown is the current one (a link pressed is no button: axe calls that critical).
     expect(r!.all('.vpick a').filter((a) => a.getAttribute('aria-current') === 'page').map(text)).toEqual(['370712a+dirty · inconclusive']);
     expect(r!.all('.vpick a[aria-pressed]')).toEqual([]);
@@ -473,9 +472,8 @@ describe('the Verify step', () => {
     const { fixId, other } = verdicts();
     await open(fixId, 'verify', other);
     // Accepted under its own check, but no verdict on the fix: never in lime.
-    expect(r!.one('.verdict').className).toBe('verdict n');
-    expect(r!.one('.verdict .badge').className).not.toContain('ok');
-    expect(text(r!.one('.verdict h2'))).toBe("Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times");
+    expect(r!.one('.verdict .vw').className).toBe('vw mu');
+    expect(text(r!.one('.verdict h2'))).toBe("accepted Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times");
     expect(r!.all('.vpick a').map(text)).toEqual(["temperature=1 from each run's first model call · at f353f41 · accepted · doesn't count", '370712a+dirty · inconclusive']);
     // The revision stays with its "at", and no line starts on a dot.
     expect(r!.all('.vpick a')[0].textContent).toBe("temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· accepted\u00a0· doesn't count");
@@ -490,8 +488,8 @@ describe('the Verify step', () => {
     for (const x of runs) fixId = blame(x).fix.fixId;
     recordVerdict(store, { report: verifyReport([{ runId: runs[0], role: 'target', pass: true }]), expect: EXPECT, command: 'v', at: NOW + 1 });
     await open(fixId, 'verify');
-    expect(r!.one('.verdict').className).toBe('verdict ok');
-    expect(text(r!.one('.verdict h2'))).toBe('Fixes 1 of 1 target run');
+    expect(r!.one('.verdict .vw').className).toBe('vw ok');
+    expect(text(r!.one('.verdict h2'))).toBe('accepted Fixes 1 of 1 target run');
     expect(text(r!.byText('nav.stepper a b', '1 fixed'))).toBe('1 fixed');
   });
 
@@ -526,7 +524,8 @@ describe('what settles a fix left unsettled', () => {
     const more = r!.byText('.ph .actions button', 'Run more attempts');
     expect(more.className).toBe('btn lime');
     expect(r!.all('.ph .actions button').map(text)).toEqual(['Run repair', 'Run more attempts']);
-    expect(r!.all('.verdict .actions button').map(text)).toEqual(['Copy command']);
+    // Its command is the box at the foot, with its own Copy.
+    expect(r!.all('.verdict .actions button')).toEqual([]);
     expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', cmd: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
     // The header's Run repair reads plain while the step leads.
     expect(r!.byText('.ph .actions button', 'Run repair').className).toBe('btn');

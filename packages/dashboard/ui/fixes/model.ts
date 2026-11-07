@@ -455,13 +455,13 @@ function commonPrefix(a: string, b: string): number {
  * A run's outcome as a badge, in the verdicts' colours: fixed and kept in lime, broken and not fixed
  * in red, and inconclusive in amber, the colour of a run nothing has decided.
  */
-export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'no' | 'y' {
-  return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' || o === 'inconclusive' ? 'y' : 'no';
+export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'err' | 'warn' {
+  return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' || o === 'inconclusive' ? 'warn' : 'err';
 }
 
 /** A verdict's panel: accepted in lime, rejected in red, incomplete in amber, as inconclusive is everywhere. */
-export function verdictTone(v: VerifyStep['verdict']): 'ok' | 'no' | 'warn' {
-  return v === 'accepted' ? 'ok' : v === 'rejected' ? 'no' : 'warn';
+export function verdictTone(v: VerifyStep['verdict']): 'ok' | 'err' | 'warn' {
+  return v === 'accepted' ? 'ok' : v === 'rejected' ? 'err' : 'warn';
 }
 
 /** Tokens per run, as a person reads them: 4,329. */
