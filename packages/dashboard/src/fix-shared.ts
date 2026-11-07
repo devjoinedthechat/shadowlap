@@ -1,4 +1,4 @@
-import { BLAME_DEFAULTS, fieldValue, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type NoFixToTry, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, fieldValue, outcomeOf, repairPatchProblem, repairToApply, shownBlame, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type NoFixToTry, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { isCount } from './rerun.js';
@@ -152,6 +152,37 @@ export function brokenOf(rec: FixRecords): string | null {
   return rejectedSinceApplied(rec) ? 'a verify rejected it after it was applied' : null;
 }
 
+/**
+ * Where a fix stands, as one ladder: `open` until a blame of it finds the call that lost its run
+ * (`blamed`), then `verified`, `applied`, and `merged` once its pull request is: a verified or
+ * applied fix whose pull request merged, as the store last heard (pr-state.ts writes it). An open
+ * fix whose pull request merged stays open or blamed: no verdict that counts for it holds yet.
+ * The same blame as the Blame step's (`shownBlame`), so the rung and the step agree.
+ */
+export type FixRung = 'open' | 'blamed' | 'verified' | 'applied' | 'merged';
+
+export function rungOf(rec: FixRecords): FixRung {
+  const f = rec.fix;
+  if (f.status === 'open') {
+    const b = shownBlame(rec);
+    return b?.outcome === 'blamed' && b.report.blamed ? 'blamed' : 'open';
+  }
+  if (f.data.source?.pr?.state === 'merged') return 'merged';
+  return f.status;
+}
+
+/** A fix's pull request, as the store keeps it: its number (null when its link names none), its link and its state when known. */
+export interface FixPr {
+  number: number | null;
+  url: string;
+  state: 'open' | 'closed' | 'merged' | null;
+}
+
+export function prOf(rec: FixRecords): FixPr | null {
+  const pr = rec.fix.data.source?.pr;
+  return pr ? { number: pr.number, url: pr.url, state: pr.state ?? null } : null;
+}
+
 /** A failed attempt's first failure, short: `issue_refund called once`, `the agent exited with code 1`. */
 export function shortFailure(f: string | undefined): string {
   if (!f) return 'failed';
@@ -282,16 +313,33 @@ export function patchToCheck(rec: FixRecords): string | null {
  * blames (only `meta.blame` on the run) does not count: blaming it again opens its fix.
  */
 export function isUnblamedFailure(store: StoreOf<'readModels' | 'fixes'>, run: RunRecord, index: RunIndex = loadRunIndex(store)): boolean {
-  if (run.mode === 'record' ? run.status !== 'failed' : !failedFork(index, run)) return false;
+  if (run.mode === 'record' ? run.status !== 'failed' : !failedFork(index, run.runId, !!run.meta?.injection)) return false;
   return store.blamesOfRun(run.runId).length === 0 && store.linksTo(run.runId, 'failing').length === 0;
 }
 
 /** A fork the run list counts as failed that stands on its own: no attempt of anything, no test's, and not the fork blame rescued a run with. */
-function failedFork(index: RunIndex, run: RunRecord): boolean {
-  const r = index.byId.get(run.runId);
+function failedFork(index: RunIndex, runId: string, injected: boolean): boolean {
+  const r = index.byId.get(runId);
   if (!r || r.kind !== 'fork' || !r.failed || r.rescues) return false;
   const m = r.meta;
-  return !r.attemptOf && !m.probe && !m.verify && !m.repeat && !m.test && !m.chaos && !run.meta?.injection;
+  return !r.attemptOf && !m.probe && !m.verify && !m.repeat && !m.test && !m.chaos && !injected;
+}
+
+/**
+ * Every failed run that is no fix yet (`isUnblamedFailure`), newest first, from the run index: only
+ * a run its row says failed is read from the store and asked about its blames and links, so the
+ * Overview and the Fixes page never read every run's record for it. Each reads every run's row:
+ * beside the server's thread, never on it.
+ */
+export function unblamedRuns(store: StoreOf<'readModels' | 'fixes' | 'recording'>, index: RunIndex = loadRunIndex(store)): RunRecord[] {
+  const out: RunRecord[] = [];
+  for (const row of index.runs) {
+    // The first half of isUnblamedFailure, on the row: the rest only for a run that passes it.
+    if (row.mode === 'record' ? row.status !== 'failed' : !failedFork(index, row.runId, !!row.meta.injection)) continue;
+    const run = store.getRun(row.runId);
+    if (run && isUnblamedFailure(store, run, index)) out.push(run);
+  }
+  return out;
 }
 
 /** The tools a model's answer called, each once, in order. */

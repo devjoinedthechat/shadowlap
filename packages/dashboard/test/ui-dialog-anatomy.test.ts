@@ -19,7 +19,7 @@ import { RuleDialog } from '../ui/pages/settings/RuleTable.js';
 import { AddServerDialog } from '../ui/pages/settings/Tools.js';
 import { ActionDialog } from '../ui/run/ActionDialog.js';
 import { NextStepButton } from '../ui/run/NextStepButton.js';
-import { EditDialog } from '../ui/run/EditAndFork.js';
+import { EditDialog } from '../ui/run/EditDialog.js';
 import { BisectDialog, DeleteRunDialog } from '../ui/run/RunDialogs.js';
 import { OtelDialog } from '../ui/run/ShareMenu.js';
 import { BulkBar, PackDialog } from '../ui/runspage/BulkBar.js';

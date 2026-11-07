@@ -127,13 +127,35 @@ describe('GET /api/fixes', () => {
     const { fix: openFix } = blame(open, { expect: { tools: { send_email: 1 } } });
     await start();
     const all = await json(await api('fixes'));
-    expect(all.counts).toEqual({ all: 2, open: 1, verified: 1 });
+    // In to-do order: the open fix first, then the one ready to apply.
+    expect(all.counts).toEqual({ all: 2, open: 1, ready: 1, applied: 0, verified: 1 });
     expect(all.fixes.map((f: { fixId: string }) => f.fixId)).toEqual([openFix.fixId, fixId]);
-    expect(all.fixes[1]).toMatchObject({ status: 'verified', label: 'refund-bug', failing: 1, good: 1, href: `#/fixes/${fixId}` });
+    expect(all.fixes[1]).toMatchObject({ status: 'verified', rung: 'verified', bucket: 'ready', label: 'refund-bug', failing: 1, good: 1, href: `#/fixes/${fixId}`, next: { key: 'apply', label: 'Apply fix' } });
+    expect(all.fixes[0]).toMatchObject({ rung: 'blamed', bucket: 'open', next: { key: 'repair', label: 'Run repair', use: 'writes' } });
     expect((await json(await api('fixes?status=open'))).fixes.map((f: { fixId: string }) => f.fixId)).toEqual([openFix.fixId]);
     expect((await json(await api('fixes?status=verified'))).fixes.map((f: { fixId: string }) => f.fixId)).toEqual([fixId]);
     expect((await api('fixes?status=closed')).status).toBe(400);
     expect((await fetch(`${dash!.url}/api/fixes`)).status).toBe(401);
+  });
+
+  it('says where each fix stands on the ladder: open, blamed, verified, merged, applied, and broken', async () => {
+    const { fixId } = story();
+    const { fix: blamed } = blame(makeRun(store, { labels: ['double-email'] }), { expect: { tools: { send_email: 1 } } });
+    const { fix: open } = blame(makeRun(store, { labels: ['lost-order'] }), { outcome: 'unrescuable', expect: { tools: { lookup: 1 } } });
+    await start();
+    const rungs = async () => Object.fromEntries((await json(await api('fixes'))).fixes.map((f: { fixId: string; rung: string; broken: string | null }) => [f.fixId, f.broken ? `broken ${f.rung}` : f.rung]));
+    expect(await rungs()).toEqual({ [blamed.fixId]: 'blamed', [open.fixId]: 'open', [fixId]: 'verified' });
+    // Its pull request merged: it shipped, under Applied, with nothing to apply.
+    store.mergeFixData(fixId, { source: { ci: 'github', pr: { url: 'https://github.com/acme/agent/pull/138', number: 138, state: 'merged' } } });
+    const merged = (await json(await api('fixes'))).fixes.find((f: { fixId: string }) => f.fixId === fixId);
+    expect(merged).toMatchObject({ rung: 'merged', bucket: 'applied', ci: 'github', pr: { number: 138, state: 'merged' }, next: null, source: 'from CI · PR #138 merged' });
+    store.mergeFixData(fixId, { source: null });
+    markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', via: 'fix apply' });
+    expect((await rungs())[fixId]).toBe('applied');
+    markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'failed', via: 'fix apply' });
+    expect((await rungs())[fixId]).toBe('broken applied');
+    // The open fix nobody has blamed to a call comes before the blamed one, and the applied one last.
+    expect((await json(await api('fixes'))).fixes.map((f: { fixId: string }) => f.fixId)).toEqual([open.fixId, blamed.fixId, fixId]);
   });
 
   it('answers an unchanged list with a 304', async () => {
@@ -339,7 +361,8 @@ describe('the blame job', () => {
   it('blames a failed run with the check given, as JSON or its text, or the exit code alone', async () => {
     const run = makeRun(store, {});
     await start();
-    await started({ kind: 'blame', runId: run.slice(0, 10), expect: { tools: { send_email: 1 } } });
+    // A run's own blame has no fix yet: the Fixes list says no step of any fix is running.
+    expect((await started({ kind: 'blame', runId: run.slice(0, 10), expect: { tools: { send_email: 1 } } })).fixId).toBeUndefined();
     await started({ kind: 'blame', runId: run, expect: '{"tools":{"send_email":0}}' });
     await started({ kind: 'blame', runId: run, expect: null });
     expect(spawned).toEqual([
@@ -518,7 +541,8 @@ describe('the repair job', () => {
     const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
     await start();
     const j = await started({ kind: 'repair', fixId: fix.fixId.slice(0, 13) });
-    expect(j.title).toBe('Repairing');
+    // The fix it acts on, whole, so its row on Fixes says repairing…
+    expect(j).toMatchObject({ title: 'Repairing', fixId: fix.fixId });
     expect(spawned.at(-1)).toEqual(['repair', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--repairer', 'claude-code']);
     expect(good).toBeTruthy();
     await api(`jobs/${j.id}/stop`, { method: 'POST' });
@@ -696,7 +720,7 @@ describe('the apply job', () => {
     const { fixId } = story();
     await start();
     const j = await started({ kind: 'apply', fixId });
-    expect(j.title).toBe('Applying fix');
+    expect(j).toMatchObject({ title: 'Applying fix', fixId });
     expect(spawned.at(-1)).toEqual(['fix', 'apply', fixId]);
     await finished(j);
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: [], tests: 'skipped', by: 'dana', via: 'fix apply' });
@@ -823,7 +847,7 @@ describe('what settles an unsettled fix', () => {
     Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80, fields: { temperature: 1 } });
     const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: `shadowlap verify --fixes label:double-email --expect '{"tools":{"send_email":1}}' --set temperature=1 --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null } });
     await start();
-    await started({ kind: 'verify', fixId: fix.fixId, verifyId: verdict.verifyId });
+    expect((await started({ kind: 'verify', fixId: fix.fixId, verifyId: verdict.verifyId })).fixId).toBe(fix.fixId);
     expect(spawned.at(-1)).toEqual(['verify', '--fixes', failing, '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1']);
     expect((await job({ kind: 'verify', fixId, verifyId: settled })).status).toBe(409);
     expect((await job({ kind: 'verify', fixId: fix.fixId, verifyId: 'vf-nope' })).status).toBe(404);
@@ -839,10 +863,10 @@ describe('what settles an unsettled fix', () => {
     const plain = makeRun(store, { labels: ['digest'] });
     const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)}`, rerun: { flags: [], command: null }, title: 'digest', checkText: 'exits 0' });
     await start();
-    expect((await started({ kind: 'blame', fixId: fix.fixId, again: true })).title).toBe('Blaming again');
+    expect(await started({ kind: 'blame', fixId: fix.fixId, again: true })).toMatchObject({ title: 'Blaming again', fixId: fix.fixId });
     expect(spawned.at(-1)).toEqual(['blame', run, '--expect', JSON.stringify(EXPECT), '--gate', '{"good":0.4,"max":40}']);
     // Titled by the action's name: the model is in the command it runs.
-    expect((await started({ kind: 'blame', fixId: other.fixId, model: 'claude-opus-5-5' })).title).toBe('Blaming with stronger model');
+    expect(await started({ kind: 'blame', fixId: other.fixId, model: 'claude-opus-5-5' })).toMatchObject({ title: 'Blaming with stronger model', fixId: other.fixId });
     expect(spawned.at(-1)).toEqual(['blame', plain, '--expect', JSON.stringify(EXPECT), '--attempts', '5', '--passes', '2', '--model', 'claude-opus-5-5']);
     expect((await job({ kind: 'blame', fixId: other.fixId, model: '--writes=allow' })).status).toBe(400);
     expect((await job({ kind: 'blame', fixId: other.fixId, again: true })).status).toBe(409);

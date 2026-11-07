@@ -16,20 +16,20 @@ import { pluralS as s, shortFixId, twoDigits as pad } from '../../../engine/src/
 
 // ---------------------------------------------------------------------------------------------- the list
 
-export type FixChip = 'all' | 'open' | 'verified';
+export type FixChip = 'all' | 'open' | 'ready' | 'applied';
 
 export const FIX_CHIPS: ReadonlyArray<{ key: FixChip; label: string }> = [
   { key: 'all', label: 'All' },
   { key: 'open', label: 'Open' },
-  { key: 'verified', label: 'Verified' },
+  { key: 'ready', label: 'Ready to apply' },
+  { key: 'applied', label: 'Applied' },
 ];
 
-export const isFixChip = (v: string): v is FixChip => v === 'all' || v === 'open' || v === 'verified';
+export const isFixChip = (v: string): v is FixChip => FIX_CHIPS.some((c) => c.key === v);
 
-/** Verified keeps applied fixes too, as the counts do. */
-export function chipKeeps(chip: FixChip, f: Pick<FixRow, 'status'>): boolean {
-  if (chip === 'all') return true;
-  return chip === 'open' ? f.status === 'open' : f.status !== 'open';
+/** A chip keeps the fixes in its bucket: open, ready to apply, or applied (a merged pull request's too). */
+export function chipKeeps(chip: FixChip, f: { bucket: FixChip }): boolean {
+  return chip === 'all' || f.bucket === chip;
 }
 
 /** The status badge: open in amber, verified and applied in lime, an applied fix that doesn't hold in red. */
@@ -124,6 +124,13 @@ export function stepLeads(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'default
   return !!v && v.counts && v.verdict === 'incomplete' && !!v.more;
 }
 
+/** Run blame again's card, on the fix's header and its Fixes row alike. */
+export const blameAgainTip = (again: { kind: 'stopped' | 'unsettled'; gate: { good: number; max: number } | null }): string =>
+  again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
+
+/** Run blame with stronger model's card. */
+export const STRONGER_TIP = 'Another model answers from each probed call instead of the recorded one';
+
 /**
  * The header's next step for an open fix besides Run repair, as the design's fixActions()
  * orders them: Run blame again while its blame couldn't settle where the run was lost or stopped part
@@ -134,11 +141,10 @@ export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind:
   if (f.status !== 'open') return null;
   const again = f.actions.blameAgain;
   if (again) {
-    const tip = again.kind === 'stopped' ? 'Runs the search to the end, without the budget that stopped it' : `More attempts and a lower bar: a rescue at ${Math.round((again.gate?.good ?? 0.4) * 100)}% or more, up to ${again.gate?.max ?? 40} attempts`;
-    return { kind: 'again', label: ACTIONS.runBlameAgain.label, tip, command: again.command };
+    return { kind: 'again', label: ACTIONS.runBlameAgain.label, tip: blameAgainTip(again), command: again.command };
   }
   const stronger = f.actions.blameStronger;
-  if (stronger) return { kind: 'stronger', label: ACTIONS.runBlameStronger.label, tip: 'Another model answers from each probed call instead of the recorded one', command: stronger.command };
+  if (stronger) return { kind: 'stronger', label: ACTIONS.runBlameStronger.label, tip: STRONGER_TIP, command: stronger.command };
   return null;
 }
 

@@ -26,10 +26,10 @@ export function FailedMust({ fix }: { fix: Pick<FixRow, 'title' | 'failed' | 'ch
   );
 }
 
-/** A check or a failure as code, a count kept with its unit and a comparison kept whole where there is room (`wholeParts`). */
-function Whole({ text }: { text: string }) {
+/** A check or a failure, a sentence in the UI face, a count kept with its unit and a comparison kept whole where there is room (`wholeParts`). */
+export function Whole({ text }: { text: string }) {
   return (
-    <code>
+    <span className="fmv">
       {wholeParts(text).map((p, i) =>
         p.whole ? (
           <span key={i} className="kc">
@@ -39,7 +39,7 @@ function Whole({ text }: { text: string }) {
           <Fragment key={i}>{p.text}</Fragment>
         ),
       )}
-    </code>
+    </span>
   );
 }
 
