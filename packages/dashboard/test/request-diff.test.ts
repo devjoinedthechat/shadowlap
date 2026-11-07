@@ -37,6 +37,8 @@ function request(o: { model?: string; system?: string; policy?: object; user?: s
 
 interface CallSpec {
   kind?: CallKind;
+  /** The call's name: a model call's `POST /v1/messages`, a tool's `lookup_policy`, unless given. */
+  name?: string;
   origin?: Origin;
   request?: unknown;
   result?: unknown;
@@ -47,13 +49,13 @@ let store: Store;
 let dash: Dashboard;
 const at = { now: T0 };
 
-/** A run of a model call, a lookup_policy tool call and a model call, each with what it sent and got. */
-function addRun(o: { parent?: string; meta?: RunMeta; calls: [CallSpec, CallSpec, CallSpec]; divergence?: Omit<DivergenceReport, 'replayedBefore' | 'kind' | 'name'> & { kind?: CallKind; name?: string } }): string {
+/** A run of a model call, a lookup_policy tool call and a model call (unless told otherwise), each with what it sent and got. */
+function addRun(o: { parent?: string; meta?: RunMeta; calls: CallSpec[]; divergence?: Omit<DivergenceReport, 'replayedBefore' | 'kind' | 'name'> & { kind?: CallKind; name?: string } }): string {
   const run = store.createRun({ mode: o.parent ? 'replay' : 'record', ...(o.parent ? { parentRunId: o.parent } : {}), command: { argv: ['python', 'refund_agent.py'], cwd: '/work' }, startedAt: (at.now += 1000), ...(o.meta ? { meta: o.meta } : {}) });
   o.calls.forEach((c, i) => {
     const callNo = i + 1;
     const kind = c.kind ?? (callNo === 2 ? 'tool' : 'api');
-    const identity = { kind, name: kind === 'api' ? 'POST /v1/messages' : 'lookup_policy', fingerprint: `fp${callNo}-${run.runId}`, occurrence: 1 };
+    const identity = { kind, name: c.name ?? (kind === 'api' ? 'POST /v1/messages' : 'lookup_policy'), fingerprint: `fp${callNo}-${run.runId}`, occurrence: 1 };
     const requestRef = c.request === undefined ? null : kind === 'api' ? storeApiRequest(store, c.request) : store.putJson(c.request);
     store.appendCallStart({ runId: run.runId, callNo, ...identity, origin: c.origin ?? (o.parent ? 'replayed' : 'live'), effect: kind === 'tool' ? 'read' : null, requestRef, meta: {}, at: (at.now += 10) });
     const responseRef = c.result === undefined ? null : store.putJson(c.result);
@@ -79,6 +81,8 @@ let liveTool = '';
 let promptFrom = '';
 let urlModel = '';
 let orphan = '';
+let codeChange = '';
+let retried = '';
 let uuidTest = '';
 let modelTest = '';
 
@@ -105,12 +109,27 @@ beforeAll(async () => {
     calls: [replayed(1), replayed(2), { origin: 'live', request: request({ system: 'You are a careful refund agent.' }) }],
     divergence: { type: 'forced', callNo: 3, reason: 'forced live by --prompt-from 3: calls before it matched without their system prompt and tool definitions', counterpart: { runId: rec, callNo: 3 } },
   });
-  // The model named in the URL path, as Gemini's and Bedrock's are: the body is as recorded.
+  // The model named in the URL path, as Gemini's and Bedrock's are: the body is as recorded, the call's path not.
+  const gemini = (model: string) => `POST /v1beta/models/${model}:generateContent`;
+  const geminiRec = addRun({ calls: [{ name: gemini('gemini-2.5-pro'), request: { contents: [] } }, lookup(), { name: gemini('gemini-2.5-pro'), request: request() }] });
   urlModel = addRun({
-    parent: rec,
+    parent: geminiRec,
     meta: { interventions: [{ kind: 'model', at: 3, flag: '--model 3:gemini-2.5-flash' }] },
-    calls: [replayed(1), replayed(2), { origin: 'live', request: request() }],
-    divergence: { type: 'forced', callNo: 3, reason: 'forced live by an intervention', counterpart: { runId: rec, callNo: 3 } },
+    calls: [{ ...replayed(1), name: gemini('gemini-2.5-pro') }, replayed(2), { name: gemini('gemini-2.5-flash'), origin: 'live', request: request() }],
+    divergence: { type: 'forced', callNo: 3, name: gemini('gemini-2.5-flash'), reason: 'forced live by --model 3:gemini-2.5-flash', counterpart: { runId: geminiRec, callNo: 3 } },
+  });
+  // Code that passes a tool's result on otherwise, with no flag that names the tool.
+  codeChange = addRun({
+    parent: rec,
+    calls: [replayed(1), { ...lookup(POLICY_FIX), origin: 'live' }, { origin: 'live', request: request({ policy: POLICY_FIX }) }],
+    divergence: { type: 'request_changed', callNo: 3, counterpart: { runId: rec, callNo: 3 }, diff: [changedPolicy] },
+  });
+  // A tool --fail-at failed, retried by the agent before its next model call, which went out as recorded.
+  retried = addRun({
+    parent: rec,
+    meta: { interventions: [{ kind: 'fail', at: 2, flag: '--fail-at 2=500' }] },
+    calls: [replayed(1), { origin: 'live', request: { args: { order: 1042 } }, result: { error: 'HTTP 500' }, meta: { injected: true } }, { ...lookup(), kind: 'tool', origin: 'live' }, { origin: 'live', request: request() }],
+    divergence: { type: 'forced', callNo: 2, reason: "forced live by --fail-at 2=500: answered with HTTP 500 instead of the recording, so the agent's error path runs", counterpart: { runId: rec, callNo: 2 } },
   });
   // Compared with a run the store no longer holds.
   orphan = addRun({ parent: rec, calls: [replayed(1), replayed(2), { origin: 'live', request: request({ model: 'claude-haiku-4-5' }) }], divergence: { type: 'request_changed', callNo: 3, counterpart: { runId: '01K8ZZ00000000000000000099', callNo: 3 }, diff: [{ path: '$.model', op: 'changed', before: MODEL, after: 'claude-haiku-4-5' }] } });
@@ -187,6 +206,12 @@ describe('the request a fork changed', () => {
     expect(tool).toMatchObject({ at: 2, what: 'result', against: { runId: rec, callNo: 2 }, was: { result: POLICY }, now: { result: POLICY_FIX }, next: 3, flag: '--override 2=@policy.json' });
   });
 
+  it('names the tool whose result the first change sits in, where no flag names one', () => {
+    const d = diffOf(codeChange);
+    expect(d.paths).toEqual([{ path: '$.messages[2].content[0].content', what: 'tool_result lookup_policy', fix: null }]);
+    expect(d).toMatchObject({ flag: null, tool: { callNo: 2, name: 'lookup_policy' }, same: false, askedAgain: false });
+  });
+
   it('builds both sides from the divergence’s changes where the run it is compared with is gone', () => {
     expect(diffOf(orphan)).toMatchObject({ whole: false, was: { model: MODEL }, now: { model: 'claude-haiku-4-5' }, paths: [{ path: '$.model' }] });
   });
@@ -195,7 +220,7 @@ describe('the request a fork changed', () => {
 describe('a forced fork', () => {
   it('Run live from here: both bodies, the same, and the flag that forced it', () => {
     const d = diffOf(diverge);
-    expect(d).toMatchObject({ type: 'forced', flag: '--diverge-at 3', path: null, paths: [], whole: true });
+    expect(d).toMatchObject({ type: 'forced', flag: '--diverge-at 3', path: null, paths: [], whole: true, same: true, askedAgain: true });
     expect(d.was).toEqual(d.now);
   });
 
@@ -213,8 +238,12 @@ describe('a forced fork', () => {
     expect((d.now as { system: string }).system).toBe('You are a careful refund agent.');
   });
 
-  it('names the flag the run keeps, a model named in the URL path among them', () => {
-    expect(diffOf(urlModel)).toMatchObject({ type: 'forced', flag: '--model 3:gemini-2.5-flash' });
+  it('names the flag the run keeps, a model named in the URL path among them: the body the same, the call not asked again', () => {
+    expect(diffOf(urlModel)).toMatchObject({ type: 'forced', flag: '--model 3:gemini-2.5-flash', call: { name: 'POST /v1beta/models/gemini-2.5-flash:generateContent' }, same: true, askedAgain: false });
+  });
+
+  it('a tool failed and retried: its next model call against the recording’s first after the tool, as recorded but not asked again', () => {
+    expect(diffOf(retried)).toMatchObject({ at: 4, against: { runId: rec, callNo: 3 }, type: 'forced', flag: '--fail-at 2=500', tool: { callNo: 2, name: 'lookup_policy' }, same: true, askedAgain: false });
   });
 });
 

@@ -72,6 +72,14 @@ export interface RequestDiff {
   now: unknown;
   /** False when both sides are built from the divergence's changes alone, the rest of each body left out. */
   whole: boolean;
+  /** Both sides whole and the same: no diff to draw, only words. */
+  same: boolean;
+  /**
+   * The run asked its call again as the recording did: the same call with the same body, and the call
+   * a flag forced sent upstream (not failed in its place, nor answered with an intervention's refusal).
+   * False where a model switched in the URL path left the body as recorded.
+   */
+  askedAgain: boolean;
   /** How the run left its recording (DivergenceReport `type`); null for a run that never did. */
   type: DivergenceType | null;
   /** The path the finding names, by its own rule; null where it names none (a forced fork). */
@@ -104,6 +112,9 @@ function nextModelCall(store: Store, runId: string, n: number): CallRecord | und
   return store.getCalls(runId, { after: n, limit: 200 }).find((c) => c.kind === 'api');
 }
 
+/** Whether a call went upstream: not answered in its place with a failure a flag injected, offline, or an intervention's refusal. */
+const sentUpstream = (c: CallRecord | undefined): boolean => !!c?.end && !c.end.meta.injected && !c.end.meta.offline && !c.end.meta.refused;
+
 /** The call a replay served this one from: its recorded call, or the one whose result a flag changed. */
 function servedFrom(c: CallRecord): number | null {
   const m = c.end?.meta;
@@ -115,8 +126,12 @@ function pickCalls(store: Store, run: RunRecord, d: DivergenceReport | null, cal
   const parentId = d?.counterpart?.runId ?? run.parentRunId ?? null;
   if (callNo === null && d) {
     if (d.type === 'forced' && d.kind === 'tool' && parentId) {
+      // Against the recording's first model call after the tool: the call of the same number while
+      // the two line up, and still the right one where the agent retried the tool, or a live tool made
+      // calls of its own, before its next model call.
       const next = nextModelCall(store, run.runId, d.callNo);
-      if (next && callOf(store, parentId, next.callNo)?.kind === 'api') return { at: next, against: { runId: parentId, callNo: next.callNo } };
+      const theirs = next && nextModelCall(store, parentId, d.counterpart?.callNo ?? d.callNo);
+      if (next && theirs) return { at: next, against: { runId: parentId, callNo: theirs.callNo } };
     }
     const at = callOf(store, run.runId, d.callNo);
     return at && { at, against: d.counterpart ?? null };
@@ -183,17 +198,17 @@ function setAt(o: Record<string, unknown>, keys: readonly string[], v: unknown):
  * recorded; the divergence's changes alone (`own`, when the call shown is the one it diverged at) where
  * a side's body isn't here.
  */
-function bodiesOf(store: Store, run: RunRecord, at: CallRecord, against: RequestDiff['against'], own: DivergenceReport | null, inFile: ReadonlySet<string> | undefined): Pick<RequestDiff, 'what' | 'was' | 'now' | 'whole'> {
+function bodiesOf(store: Store, run: RunRecord, at: CallRecord, against: RequestDiff['against'], own: DivergenceReport | null, inFile: ReadonlySet<string> | undefined): Pick<RequestDiff, 'what' | 'was' | 'now' | 'whole'> & { theirs: CallRecord | undefined } {
   const parent = against && (!inFile || inFile.has(against.runId)) ? store.getRun(against.runId) : null;
   const theirs = parent && against ? callOf(store, parent.runId, against.callNo) : undefined;
   const rule = requestReadRule(parent ?? run, run);
   const read = (c: CallRecord) => comparedRequest(store, c, rule.rounded, rule.secretNames);
-  if (!theirs) return { what: 'request', ...(own ? entriesBodies(own.diff ?? []) : { was: {}, now: {} }), whole: false };
+  if (!theirs) return { what: 'request', ...(own ? entriesBodies(own.diff ?? []) : { was: {}, now: {} }), whole: false, theirs };
   const was = read(theirs);
   const now = read(at);
-  if (at.kind !== 'api' && canonicalize(was) === canonicalize(now)) return { what: 'result', was: storedResult(store, theirs), now: storedResult(store, at), whole: true };
-  if (!theirs.requestRef || !at.requestRef) return { what: 'request', ...(own ? entriesBodies(own.diff ?? []) : { was: {}, now: {} }), whole: false };
-  return { what: 'request', was, now, whole: true };
+  if (at.kind !== 'api' && canonicalize(was) === canonicalize(now)) return { what: 'result', was: storedResult(store, theirs), now: storedResult(store, at), whole: true, theirs };
+  if (!theirs.requestRef || !at.requestRef) return { what: 'request', ...(own ? entriesBodies(own.diff ?? []) : { was: {}, now: {} }), whole: false, theirs };
+  return { what: 'request', was, now, whole: true, theirs };
 }
 
 /** The path the finding names, by the finding's own rule (ui/run/banner.ts `findingPath`): a test's value made anew, else what it found diverged, else the first change. */
@@ -237,8 +252,12 @@ function changesOf(d: DivergenceReport, sides: { was: unknown; now: unknown }, v
   return { paths, masked, outside, hints };
 }
 
-/** A fork's own flag and the tool whose result it changed, from the run's interventions (and its calls, for a replay that kept none). */
-function forkFacts(store: Store, run: RunRecord, d: DivergenceReport | null, at: number): Pick<RequestDiff, 'flag' | 'tool'> {
+/**
+ * A fork's own flag and the tool whose result it changed, from the run's interventions (and its calls,
+ * for a replay that kept none). `first`, what the first change that made the shown call diverge
+ * points at, as the bodies label it (`tool_result lookup_policy`).
+ */
+function forkFacts(store: Store, run: RunRecord, d: DivergenceReport | null, at: number, first: string | null): Pick<RequestDiff, 'flag' | 'tool'> {
   if (run.mode !== 'replay' || testOf(run)) return { flag: null, tool: null };
   const calls = store.getCalls(run.runId);
   const own = runInterventions(store, run, calls).find((x) => x.flag !== '--writes' && x.flag !== '--reads');
@@ -248,8 +267,7 @@ function forkFacts(store: Store, run: RunRecord, d: DivergenceReport | null, at:
   const changed = own && (own.flag === '--override' || own.flag === '--inject-result') && own.callNo !== null ? calls.find((c) => c.callNo === own.callNo && c.kind === 'tool') : undefined;
   if (changed) return { flag, tool: { callNo: changed.callNo, name: changed.name } };
   // Else the tool whose result the first change sits in: the last call of that tool before the one shown.
-  const first = d?.diff?.[0];
-  const label = d && first ? /^tool_result (\S+)/.exec(changedPathLabel(first, d, null, null) ?? '') : null;
+  const label = first ? /^tool_result (\S+)/.exec(first) : null;
   const named = label ? calls.filter((c) => c.kind === 'tool' && c.name === label[1] && c.callNo < at).at(-1) : undefined;
   return { flag, tool: named ? { callNo: named.callNo, name: named.name } : null };
 }
@@ -268,12 +286,13 @@ export function requestDiff(store: Store, run: RunRecord, callNo: number | null,
   const { at, against } = picked;
   // The divergence's changes are the shown call's only where it is the call the run diverged at.
   const own = d && at.callNo === d.callNo && at.kind === d.kind ? d : null;
-  const { what, whole, ...sides } = bodiesOf(store, run, at, against, own, inFile);
+  const { what, whole, theirs, ...sides } = bodiesOf(store, run, at, against, own, inFile);
+  const same = whole && canonicalize(sides.was) === canonicalize(sides.now);
   const test = testOf(run) !== null;
   const banner = test ? testRunBanner(store, run.runId) : null;
   const values = banner?.values ?? (d ? volatileValues(d, normalizers) : { values: [], explainsAll: false, coversAll: false });
   const changes = own ? changesOf(own, sides, values, test, normalizers) : { paths: [], masked: [], outside: [], hints: [] };
-  const facts = forkFacts(store, run, d, at.callNo);
+  const facts = forkFacts(store, run, d, at.callNo, changes.paths[0]?.what ?? null);
   return {
     at: at.callNo,
     what,
@@ -281,6 +300,9 @@ export function requestDiff(store: Store, run: RunRecord, callNo: number | null,
     against,
     ...sides,
     whole,
+    same,
+    // The forced call is the one the run diverged at: the shown one, or a tool's before it.
+    askedAgain: same && theirs?.name === at.name && (d?.type !== 'forced' || sentUpstream(d.callNo === at.callNo ? at : callOf(store, run.runId, d.callNo))),
     type: d?.type ?? null,
     path: findingPath(store, run, d),
     ...changes,

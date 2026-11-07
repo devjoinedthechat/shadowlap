@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import type { ChangedPath, PathFix, RequestDiff } from '../../src/request-diff.js';
-import { canonicalize } from '../../../engine/src/canonical.js';
 import { GLUED_SEPARATOR, shortId } from '../format.js';
 import type { JsonLine } from '../json-diff.js';
 import { sentence } from '../normalize.js';
@@ -42,11 +41,6 @@ export function DiffHead({ diff, as: H = 'h2' }: { diff: Pick<RequestDiff, 'what
   );
 }
 
-/** Both sides whole and the same: a fork that asked its call again, live, and was sent what the recording was. No diff is drawn for it. */
-export function sameSides(d: Pick<RequestDiff, 'was' | 'now' | 'whole'>): boolean {
-  return d.whole && canonicalize(d.was) === canonicalize(d.now);
-}
-
 /** A fork's flag as code, or the fork where the run keeps none. */
 const flagOf = (flag: string | null): ReactNode => (flag ? <Code>{flag}</Code> : 'the fork');
 
@@ -76,7 +70,14 @@ function oneValue(path: string, fix: Normalizing, updates: boolean): ReactNode {
 /** A tool's result shown, or the request after a tool whose result a fork changed: the sentence that says so. */
 function toolLead(d: RequestDiff, tool: NonNullable<RequestDiff['tool']>, lines: readonly JsonLine[]): ReactNode {
   const next = d.what === 'result' ? d.next : d.at;
-  const after = next !== null ? ` The next model call, #${next}, is the first request that changed.` : '';
+  // Where the next request changed too, as a result's own view says it (a forced fork's divergence names no path).
+  const after =
+    next !== null ? (
+      <>
+        {' '}
+        The next model call, #{next}, is the first request that changed{d.path && d.type !== 'forced' ? <>, at <Code>{d.path}</Code></> : null}.
+      </>
+    ) : null;
   if (d.type === 'forced') {
     return (
       <>
@@ -121,16 +122,41 @@ function toolLead(d: RequestDiff, tool: NonNullable<RequestDiff['tool']>, lines:
   );
 }
 
-/** The sentence over the lines: what changed and, on a fork, what changed it. None where the lines alone say it. */
-function leadOf(d: RequestDiff, lines: readonly JsonLine[], same: boolean): ReactNode {
-  if (same) {
-    if (d.type !== 'forced') return `The ${d.what}’s body is as recorded.`;
+/** The request shown is where the run first left its recording, by the fork's flag where it keeps one. */
+const firstChanged = (d: RequestDiff): ReactNode => (
+  <>
+    The request at #{d.at} is the first that changed{d.flag ? <>, by {flagOf(d.flag)}</> : null}.
+  </>
+);
+
+/**
+ * The words alone, where both sides are the same: a fork that asked its call again as recorded says
+ * so; a tool failed in its place says where its result came from; any other fork forced live (a model
+ * switched in the URL path, a refused intervention) names the request it left the recording at.
+ */
+function sameLead(d: RequestDiff): ReactNode {
+  if (d.type !== 'forced') return `The ${d.what}’s body is as recorded.`;
+  const tool = d.tool && d.tool.callNo !== d.at ? d.tool : null;
+  if (d.askedAgain) {
     return (
       <>
-        No {d.what} changed: {flagOf(d.flag)} asked #{d.tool?.callNo ?? d.at} again, live, as recorded.
+        No {d.what} changed: {flagOf(d.flag)} asked #{tool?.callNo ?? d.at} again, live, as recorded.
       </>
     );
   }
+  if (tool) {
+    return (
+      <>
+        The result of #{tool.callNo} <Code>{tool.name}</Code> came from {flagOf(d.flag)}.
+      </>
+    );
+  }
+  return firstChanged(d);
+}
+
+/** The sentence over the lines: what changed and, on a fork, what changed it. None where the lines alone say it. */
+function leadOf(d: RequestDiff, lines: readonly JsonLine[]): ReactNode {
+  if (d.same) return sameLead(d);
   if (d.test) {
     const only = d.paths.length === 1 && d.paths[0]!.fix?.kind === 'normalizer' ? d.paths[0]! : null;
     if (only) return oneValue(only.path, only.fix as Normalizing, d.updates);
@@ -139,11 +165,7 @@ function leadOf(d: RequestDiff, lines: readonly JsonLine[], same: boolean): Reac
   }
   if (d.what === 'result') return toolLead(d, d.tool ?? { callNo: d.at, name: d.call.name }, lines);
   if (d.tool && d.tool.callNo !== d.at) return toolLead(d, d.tool, lines);
-  return (
-    <>
-      The request at #{d.at} is the first that changed{d.flag ? <>, by {flagOf(d.flag)}</> : null}.
-    </>
-  );
+  return firstChanged(d);
 }
 
 /** A changed path's line: what it looks like and that a normalizer masks it, or that Update golden re-records it; none for a change the fork meant. */
@@ -196,8 +218,7 @@ function unnamed(d: Pick<RequestDiff, 'outside' | 'hints'>): string[] {
  * box. `lines`, the walk JsonDiff drew: a fork's one added field is said by its key.
  */
 export function DiffNotes({ diff: d, lines }: { diff: RequestDiff; lines: readonly JsonLine[] }) {
-  const same = sameSides(d);
-  const lead = leadOf(d, lines, same);
+  const lead = leadOf(d, lines);
   const single = d.test && d.paths.length === 1 && d.paths[0]!.fix?.kind === 'normalizer';
   const said = [
     ...(lead ? [lead] : []),

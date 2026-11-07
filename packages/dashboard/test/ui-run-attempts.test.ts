@@ -6,7 +6,7 @@ import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js
 import { ForksView } from '../ui/run/ForksView.js';
 import { attemptLinks, attemptOf, forkKindWords } from '../ui/run/model.js';
 import { Banner, type BannerProps } from '../ui/run/FindingsBar.js';
-import { DiffHead, DiffNotes, sameSides } from '../ui/components/DiffNotes.js';
+import { DiffHead, DiffNotes } from '../ui/components/DiffNotes.js';
 import { jsonDiff } from '../ui/json-diff.js';
 import type { RequestDiff } from '../src/request-diff.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
@@ -375,6 +375,8 @@ describe('Show diff’s words', () => {
     was: { model: 'claude-sonnet-4-5' },
     now: { model: 'claude-sonnet-4-5', metadata: { user_id: user } },
     whole: true,
+    same: false,
+    askedAgain: false,
     type: 'request_changed',
     path: '$.metadata.user_id',
     paths: [{ path: '$.metadata.user_id', what: 'metadata.user_id', fix: uuidFix }],
@@ -447,13 +449,19 @@ describe('Show diff’s words', () => {
     expect(said(live)).toBe('The result of #2 search_web came from --live-tool search_web. The next model call, #3, is the first request that changed.');
     const model = answer({ ...fork, type: 'request_changed', was: { model: 'claude-sonnet-4-5' }, now: { model: 'claude-haiku-4-5' }, flag: '--model 3:claude-haiku-4-5' });
     expect(said(model)).toBe('The request at #3 is the first that changed, by --model 3:claude-haiku-4-5.');
-    const again = answer({ ...fork, type: 'forced', path: null, was: { model: 'a' }, now: { model: 'a' }, flag: '--diverge-at 3' });
+    const again = answer({ ...fork, type: 'forced', path: null, was: { model: 'a' }, now: { model: 'a' }, same: true, askedAgain: true, flag: '--diverge-at 3' });
     expect(said(again, [])).toBe('No request changed: --diverge-at 3 asked #3 again, live, as recorded.');
-    expect(sameSides(again)).toBe(true);
-    expect(sameSides({ ...again, whole: false })).toBe(false);
-    // A tool's own result, where no request changed: the override that changed it.
-    const own = answer({ ...fork, what: 'result', at: 906, call: { kind: 'tool', name: 'check_fraud' }, was: { result: {} }, now: { result: { fraud_hold: true } }, flag: '--override 906=@fraud.json', tool: { callNo: 906, name: 'check_fraud' }, next: 907 });
-    expect(said(own)).toBe('The tool result at #906 was overridden (--override 906=@fraud.json). The next model call, #907, is the first request that changed.');
+    // A tool asked again, live, whose result left the next request as recorded.
+    const tool = { ...again, at: 3, flag: '--live-tool search_web', tool: { callNo: 2, name: 'search_web' } };
+    expect(said(tool, [])).toBe('No request changed: --live-tool search_web asked #2 again, live, as recorded.');
+    // A tool failed in its place (here retried before the next model call, #4): where its result came from, alone.
+    expect(said({ ...tool, at: 4, askedAgain: false, flag: '--fail-at 2=500' }, [])).toBe('The result of #2 search_web came from --fail-at 2=500.');
+    // The model switched in the URL path, as on Gemini and Bedrock: the body as recorded, the call not.
+    const urlModel = { ...again, askedAgain: false, flag: '--model 3:gemini-2.5-flash' };
+    expect(said(urlModel, [])).toBe('The request at #3 is the first that changed, by --model 3:gemini-2.5-flash.');
+    // A tool's own result, where no request changed: the override that changed it, and where the next request changed.
+    const own = answer({ ...fork, what: 'result', at: 906, call: { kind: 'tool', name: 'check_fraud' }, path: '$.messages[4].content', was: { result: {} }, now: { result: { fraud_hold: true } }, flag: '--override 906=@fraud.json', tool: { callNo: 906, name: 'check_fraud' }, next: 907 });
+    expect(said(own)).toBe('The tool result at #906 was overridden (--override 906=@fraud.json). The next model call, #907, is the first request that changed, at $.messages[4].content.');
   });
 
   it('names both sides in its heads, the recording’s run by its id', () => {

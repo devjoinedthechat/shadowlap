@@ -2,7 +2,7 @@ import { createElement, useCallback, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Client, RunDetail } from '../ui/api.js';
 import type { RequestDiff } from '../src/request-diff.js';
-import { InspectorPlace, useFindingPanel, usePickInView } from '../ui/run/InspectorPanel.js';
+import { InspectorPlace, useFindingPanel, usePickInView, warmDiff } from '../ui/run/InspectorPanel.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -17,17 +17,26 @@ const at7 = { type: 'request_changed', callNo: 7, name: 'POST /v1/messages', rep
 const fork = (runId: string, divergence: unknown = at7) => ({ run: { runId, parentRunId: 'P', divergence, status: 'completed' }, parent: null }) as unknown as RunDetail;
 
 /** The server's answer for a run: its request #7 as recorded and as sent, or the call `at` where the diff shows another. */
-const answer = (at = 7): RequestDiff => ({ at, what: 'request', call: { kind: 'api', name: 'POST /v1/messages' }, against: { runId: 'P', callNo: at }, was: { a: 1 }, now: { a: 2 }, whole: true, type: 'request_changed', path: '$.a', paths: [{ path: '$.a', what: null, fix: null }], updates: false, masked: [], outside: [], hints: [], flag: null, tool: null, next: null, test: false });
+const answer = (at = 7): RequestDiff => ({ at, what: 'request', call: { kind: 'api', name: 'POST /v1/messages' }, against: { runId: 'P', callNo: at }, was: { a: 1 }, now: { a: 2 }, whole: true, same: false, askedAgain: false, type: 'request_changed', path: '$.a', paths: [{ path: '$.a', what: null, fix: null }], updates: false, masked: [], outside: [], hints: [], flag: null, tool: null, next: null, test: false });
+
+/** Show diff's read as a client answers it: the answer for call `at`, or what `answers` says for each ask in turn (an error fails it, null is no diff). */
+type Ask = (runId: string) => Promise<RequestDiff | null>;
+function asker(asked: string[], at = 7, answers: Array<RequestDiff | null | Error> = []): Ask {
+  return (runId) => {
+    asked.push(runId);
+    const next = answers.length ? answers.shift()! : answer(at);
+    return next instanceof Error ? Promise.reject(next) : Promise.resolve(next);
+  };
+}
 
 /** The app a page sits in: a client that answers Show diff's read, counting what it was asked. */
-function app(asked: string[], at = 7): AppState {
-  const requestDiff = (runId: string) => (asked.push(runId), Promise.resolve(answer(at)));
+function app(asked: string[], at = 7, requestDiff: Ask = asker(asked, at)): AppState {
   return { client: { requestDiff } as unknown as Client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined } as unknown as AppState;
 }
 
 /** A run page's part that matters here: the finding's toggle, a call to pick and the inspector's place. */
-function Page({ run, asked = [], at = 7 }: { run: RunDetail; asked?: string[]; at?: number }) {
-  return createElement(AppContext.Provider, { value: app(asked, at) }, createElement(Place, { run }));
+function Page({ run, asked = [], at = 7, ask }: { run: RunDetail; asked?: string[]; at?: number; ask?: Ask }) {
+  return createElement(AppContext.Provider, { value: app(asked, at, ask) }, createElement(Place, { run }));
 }
 
 function Place({ run }: { run: RunDetail }) {
@@ -98,6 +107,39 @@ describe('a finding’s diff in the inspector’s place', () => {
     await page.click(page.one('.fhead .nav button'));
     expect(page.all('.fpanel')).toHaveLength(0);
     expect(page.focused()).toBe(page.one('[data-act="diff"]'));
+  });
+
+  it('says why a failed read failed, and Retry asks again and draws the diff', async () => {
+    const asked: string[] = [];
+    page = await render(createElement(Page, { run: fork('E'), asked, ask: asker(asked, 7, [new Error('the dashboard server stopped')]) }));
+    await page.click(page.one('[data-act="diff"]'));
+    await page.until('the error', () => page!.all('#ibody .loaderr').length === 1);
+    expect(page.one('#ibody .loaderr').textContent).toContain('The dashboard server stopped');
+    await page.click(page.one('#ibody .loaderr button'));
+    await page.until('the diff', () => page!.all('#ibody .jd').length === 1);
+    expect(asked).toEqual(['E', 'E']);
+  });
+
+  it('asks again as the panel opens where the ask the pointer made on Show diff failed', async () => {
+    const asked: string[] = [];
+    const ask = asker(asked, 7, [new Error('the dashboard server stopped')]);
+    warmDiff({ requestDiff: ask }, 'W', false);
+    await import('../ui/run/RequestDiff.js');
+    await new Promise((done) => setTimeout(done, 0));
+    expect(asked).toEqual(['W']);
+    page = await render(createElement(Page, { run: fork('W'), asked, ask }));
+    await page.click(page.one('[data-act="diff"]'));
+    await page.until('the diff', () => page!.all('#ibody .jd').length === 1);
+    expect(asked).toEqual(['W', 'W']);
+  });
+
+  it('says the run kept no call to compare where the answer is none', async () => {
+    const asked: string[] = [];
+    page = await render(createElement(Page, { run: fork('N'), asked, ask: asker(asked, 7, [null]) }));
+    await page.click(page.one('[data-act="diff"]'));
+    await page.until('the words', () => page!.all('#ibody .hint').length === 1);
+    expect(page.one('#ibody .hint').textContent?.replace(/\u00a0/g, ' ')).toBe('This run kept no call #7 to compare.');
+    expect(page.all('#ibody .jd')).toHaveLength(0);
   });
 
   it('keeps the inspector where the run has no diff to show', async () => {
