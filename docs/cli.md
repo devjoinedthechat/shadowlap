@@ -1355,7 +1355,7 @@ or `by hand` for one you made that a verdict checked.
   that says what to do);
 - where each run was `lost`, and the `diagnosis`;
 - every candidate, with its `verdict` (`accepted`, `rejected`, `set aside`, `not tried`,
-  `build failed`, `unsettled`) and `why`;
+  `build failed`, `unsettled`) and `why`, and the runs those whys name by their short ids (`named`);
 - the `files` handed over, and the pull request body (`prBody`);
 - what each stage `cost`, and how many `attempts` it ran: the probes of the blames it ran, and every
   candidate's verification;

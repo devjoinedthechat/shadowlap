@@ -5,8 +5,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { afterForkLines, blameSteps, JUDGE_SCOPE, markFixApplied, plain, probeBound, probeInterval, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type VerifyReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { fixDetail, type FixDetail, withLeftAbouts } from '../src/fixes.js';
+import { fixDetail, type FixDetail, withAbouts } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
+import { aboutOfRun } from '../src/run-about.js';
+import { loadRunIndex } from '../src/run-index.js';
 import { startDashboard, type Dashboard, type JobView } from '../src/index.js';
 
 /**
@@ -272,6 +274,24 @@ describe('each step’s verdict line', () => {
   });
 });
 
+describe('the Repair step’s candidates', () => {
+  it('name each run a why says by its short id, a link to it, its about line read in the fix’s pooled read alone', () => {
+    const run = makeRun(store, { labels: ['refund-bug'] });
+    const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: (at += DAY) });
+    const report = repairReport({ targets: [run], accepted: false });
+    report.candidates[1] = { ...report.candidates[1], reason: `target run ${run.slice(0, 10)} not fixed: 0 of 2 passed` };
+    recordRepair(store, { repairId: 'repair-named', dir: '.shadowlap/repairs/repair-named', report, expect: EXPECT, command: 'shadowlap repair', at: (at += DAY) });
+    const d = detail(fix.fixId);
+    expect(d.repair!.candidates[1].why).toBe(`target run ${run.slice(0, 10)} not fixed: 0 of 2 passed`);
+    expect(d.repair!.named).toEqual([{ id: run.slice(0, 10), runId: run, href: expect.stringContaining(run), about: null }]);
+    const about = aboutOfRun(store, loadRunIndex(store), run)?.text;
+    expect(about).toBeTruthy();
+    expect(withAbouts(store, d).repair!.named).toEqual([{ ...d.repair!.named[0], about }]);
+    // A why that names no run of the repair's links none.
+    expect(detail(repaired().fixId).repair!.named).toEqual([]);
+  });
+});
+
 describe('the Verify step’s runs', () => {
   it('gives each run its tally and bound in the verdict’s words, its attempts apart from their count, and the failing runs the verdict left out', () => {
     const { fixId, verified, left } = oneLeft({ report: { judge: { spent: 0.002, upstreamRequests: 3 } } });
@@ -285,7 +305,7 @@ describe('the Verify step’s runs', () => {
     expect(v.judge).toEqual({ upstreamRequests: 3, spent: 0.002 });
     expect(v.left).toEqual([{ runId: left, href: expect.stringContaining(left), about: null }]);
     // Its about line is read in the fix's pooled read, as the Fixes list reads its unblamed run's.
-    const read = withLeftAbouts(store, d).verify[0].left[0];
+    const read = withAbouts(store, d).verify[0].left[0];
     expect(read.runId).toBe(left);
     expect(read.about === null || typeof read.about === 'string').toBe(true);
     const patched = repaired();

@@ -43,7 +43,7 @@ export interface VerifyStep {
   /**
    * The fix's failing runs no accepted verdict that counts has checked, but this one's (`notVerified`),
    * on an accepted verdict that counts; empty on any other. Each with its about line, read in the
-   * fix's pooled read (`withLeftAbouts`), null where none could be read.
+   * fix's pooled read (`withAbouts`), null where none could be read.
    */
   left: Array<{ runId: string; href: string; about: string | null }>;
   tokens: { before: number; after: number; change: string } | null;

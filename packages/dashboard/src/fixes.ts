@@ -132,16 +132,22 @@ export function pulledPatchOf(store: StoreOf<'team'>, rec: FixRecords): StoredRe
 }
 
 /**
- * A fix's page with the about line of each run its verdicts left out (`VerifyStep['left']`), read
- * as the Fixes list reads its unblamed run's (`aboutsUpTo`, within the Overview's budget of calls):
- * in the pooled `fix` read alone, so a job built from `fixDetail` on the server's thread reads none.
+ * A fix's page with the about line of each run its verdicts left out (`VerifyStep['left']`) and of
+ * each run its repair's candidates name (`RepairStep['named']`), read as the Fixes list reads its
+ * unblamed run's (`aboutsUpTo`, within the Overview's budget of calls): in the pooled `fix` read
+ * alone, so a job built from `fixDetail` on the server's thread reads none.
  */
-export function withLeftAbouts(store: Store, d: FixDetail): FixDetail {
-  const ids = new Set(d.verify.flatMap((v) => v.left.map((x) => x.runId)));
+export function withAbouts(store: Store, d: FixDetail): FixDetail {
+  const ids = new Set([...d.verify.flatMap((v) => v.left.map((x) => x.runId)), ...(d.repair?.named.map((x) => x.runId) ?? [])]);
   if (!ids.size) return d;
   const index = loadRunIndex(store);
   const abouts = aboutsUpTo(store, index, [...ids].flatMap((id) => index.byId.get(id) ?? []), SUMMARY_CALLS_BUDGET);
-  return { ...d, verify: d.verify.map((v) => (v.left.length ? { ...v, left: v.left.map((x) => ({ ...x, about: abouts.get(x.runId)?.text || null })) } : v)) };
+  const about = <T extends { runId: string }>(x: T): T => ({ ...x, about: abouts.get(x.runId)?.text || null });
+  return {
+    ...d,
+    verify: d.verify.map((v) => (v.left.length ? { ...v, left: v.left.map(about) } : v)),
+    repair: d.repair?.named.length ? { ...d.repair, named: d.repair.named.map(about) } : d.repair,
+  };
 }
 
 /**

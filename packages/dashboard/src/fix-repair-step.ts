@@ -1,6 +1,6 @@
-import { commitTitle, eachRun, fixVerifyHead, noRepairerOf, patchFiles, repairMarkdown, repairOutcomeWord, targetWhere, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type StoreOf, type StoredRepair, unrescuedWords } from '@shadowlap/engine';
+import { commitTitle, eachRun, fixVerifyHead, noRepairerOf, patchFiles, repairMarkdown, repairOutcomeWord, targetWhere, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type RepairReport, type StoreOf, type StoredRepair, unrescuedWords } from '@shadowlap/engine';
 import { repairSpent } from './fix-lead.js';
-import { acceptedCandidate, fixHref, repairerLabel, ROLE, s, sprtGate, type StepLine } from './fix-shared.js';
+import { acceptedCandidate, fixHref, repairerLabel, ROLE, runHref, s, short, sprtGate, type StepLine } from './fix-shared.js';
 import { verdictHeadline } from './fix-verify-step.js';
 
 /** A fix's Repair step: the change repair proposed, every candidate it tried, and why each was kept or dropped. */
@@ -56,6 +56,12 @@ export interface RepairStep {
   lost: Array<{ runId: string; at: string; href: string }>;
   diagnosis: string | null;
   candidates: Array<{ id: number; text: string; surface: string; file: string; source: 'repairer' | 'model'; verdict: CandidateVerdict; why: string }>;
+  /**
+   * The runs the candidates' whys name, by the short id they say them in (`target run 01M3RZ4XKN
+   * not fixed: 0 of 3 passed`): each a link to its run, with its about line on hover, which only the
+   * fix's pooled read fills (`withAbouts`), null elsewhere.
+   */
+  named: Array<{ id: string; runId: string; href: string; about: string | null }>;
   files: Array<{ name: string; note: string }>;
   /** report.md: the pull request body. */
   prBody: string;
@@ -102,6 +108,17 @@ function candidateVerdict(c: RepairCandidate, r: StoredRepair): { verdict: Candi
     default:
       return { verdict: 'not tried', why: r.accepted ? 'a smaller candidate was accepted first' : r.outcome === 'stopped' ? `the repair stopped first${r.report.why ? `: ${r.report.why}` : ''}` : 'not tried' };
   }
+}
+
+/** The runs the candidates' whys name (`RepairStep['named']`): any failing run it blamed or run a candidate was verified on, the first of any two that share a short id. */
+function namedRuns(rep: RepairReport, whys: readonly string[]): RepairStep['named'] {
+  const text = whys.join('\n');
+  const named = new Map<string, string>();
+  for (const runId of [...rep.targets.map((t) => t.runId), ...rep.candidates.flatMap((c) => c.verify?.runs.map((x) => x.runId) ?? [])]) {
+    const id = short(runId);
+    if (!named.has(id) && text.includes(id)) named.set(id, runId);
+  }
+  return [...named].map(([id, runId]) => ({ id, runId, href: runHref(runId), about: null }));
 }
 
 /** `1 file · +1 −1` for a patch. */
@@ -184,6 +201,7 @@ export function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRe
   const none = noRepairerOf(rep);
   // A report kept before it said why no repairer proposed anything only says there was nothing to try: that is why.
   const why = none && !rep.candidates.length && rep.why === 'there was no candidate to try' ? none.text : rep.why;
+  const candidates = rep.candidates.map((x) => ({ id: x.id, text: x.after, surface: x.surface, file: x.file, source: x.source, ...candidateVerdict(x, r) }));
   return {
     repairId: r.repairId,
     at: r.at,
@@ -210,7 +228,8 @@ export function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRe
       href: fixHref(fixId, 'blame'),
     })),
     diagnosis: rep.diagnosis,
-    candidates: rep.candidates.map((x) => ({ id: x.id, text: x.after, surface: x.surface, file: x.file, source: x.source, ...candidateVerdict(x, r) })),
+    candidates,
+    named: namedRuns(rep, candidates.map((x) => x.why)),
     files: [
       ...(rep.patch ? [{ name: 'fix.patch', note: patchNote(rep.patch) }] : []),
       { name: 'report.md', note: 'the pull request body' },
