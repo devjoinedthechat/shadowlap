@@ -184,8 +184,11 @@ describe('the Repair step', () => {
     const { fix } = blame(run);
     recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run] }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
     await open(fix.fixId, 'repair');
-    const head = text(r!.one('.sh p'));
-    expect(head).toMatch(/^Accepted [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\)$/);
+    expect(text(r!.one('.verdict .vw'))).toBe('accepted');
+    const rule = text(r!.one('.verdict p .pline'));
+    expect(rule).toMatch(/^each .+ · verified twice, the second time with fresh attempts$/);
+    const head = text(r!.one('.verdict p')).replace(rule, '');
+    expect(head).toMatch(/^Repaired [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\)$/);
     // The accepted candidate's verify alone is no cost of the repair's.
     expect(head).not.toMatch(/attempts|\$/);
     // The attempts it ran first, its blame's and both candidates' it verified (the one it dropped and
@@ -223,8 +226,10 @@ describe('the Repair step', () => {
     await r!.unmount();
     recordRepair(store, { repairId: 'repair-nothing', dir: '.shadowlap/repairs/repair-nothing', report: repairReport({ targets: [run], accepted: false }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
     await open(fix.fixId, 'repair');
-    expect([text(r!.one('.sh h2')), r!.all('.stepper a b').map(text)[1]]).toEqual(['No change yet', 'No change yet']);
-    expect(text(r!.one('.sh p'))).toMatch(/^Ran [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\) · 1 candidate tried, none accepted/);
+    // Its verdict line says why; the stepper keeps its word for a repair that made no change.
+    expect([text(r!.one('.verdict .vw')), text(r!.one('.verdict h2')), r!.all('.stepper a b').map(text)[1]]).toEqual(['rejected', 'rejected The gate accepted none of the 1 candidate tried', 'No change yet']);
+    expect(text(r!.one('.verdict p'))).toMatch(/^Ran [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\)$/);
+    expect(r!.all('.verdict p .pline')).toEqual([]);
     expect(text(r!.one('.fxreceipt'))).toBe('13 attempts · cost: blame ≈$0.100 · repairer ≈$0.0040 · verify ≈$0.024');
   });
 });

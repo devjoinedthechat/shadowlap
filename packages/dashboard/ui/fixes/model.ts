@@ -379,9 +379,9 @@ export function probeVerdictWords(verdict: BlameStep['probes'][number]['verdict'
 
 // ---------------------------------------------------------------------------------------------- repair
 
-/** A candidate's badge: accepted in lime, rejected in red, anything else plain. */
-export function candidateTone(v: CandidateVerdict): 'ok' | 'no' | 'n' {
-  return v === 'accepted' ? 'ok' : v === 'rejected' || v === 'build failed' ? 'no' : 'n';
+/** A candidate's verdict as a status: accepted in lime, rejected and build failed in red, anything else muted (never red for what didn't fail). */
+export function candidateTone(v: CandidateVerdict): 'ok' | 'err' | 'mu' {
+  return v === 'accepted' ? 'ok' : v === 'rejected' || v === 'build failed' ? 'err' : 'mu';
 }
 
 /**
@@ -395,20 +395,6 @@ export function repairBy(r: Pick<RepairStep, 'repairer' | 'served' | 'noRepairer
   if (r.repairer) return { repairer: r.repairer, served: r.served };
   if (r.noRepairer) return { text: r.noRepairer.warning ?? r.noRepairer.text };
   return r.accepted ? { text: 'no repairer needed' } : null;
-}
-
-/**
- * What a repair that accepted nothing says after where its candidates came from: how many it tried,
- * or why it found none (`interrupted`). Null when that is only the repairer's silence again, which
- * `repairBy` says.
- */
-export function nothingAcceptedWhy(r: Pick<RepairStep, 'candidates' | 'why' | 'noRepairer'>): string | null {
-  if (r.candidates.length) {
-    const tried = r.candidates.filter((c) => c.verdict !== 'set aside' && c.verdict !== 'not tried').length;
-    return `${tried} candidate${s(tried)} tried, none accepted`;
-  }
-  if (r.noRepairer && r.why === r.noRepairer.text) return null;
-  return r.why ?? 'nothing was accepted';
 }
 
 /**
@@ -433,29 +419,26 @@ export function footWarnings(r: Pick<RepairStep, 'warnings' | 'noRepairer' | 're
   return said ? r.warnings.filter((w) => w !== said) : r.warnings;
 }
 
-/** The result per role, as a badge: "target 1 of 1", lime when every run held. */
-export function roleBadges(roles: RepairStep['roles']): Array<{ text: string; tone: 'ok' | 'no' }> {
-  return roles.map((r) => ({ text: `${r.role} ${r.held} of ${r.of}`, tone: r.held === r.of ? 'ok' : 'no' }));
+/** The result per role, as a status: "target 1 of 1", lime when every run held, else red. */
+export function roleStatuses(roles: RepairStep['roles']): Array<{ text: string; tone: 'ok' | 'err' }> {
+  return roles.map((r) => ({ text: `${r.role} ${r.held} of ${r.of}`, tone: r.held === r.of ? 'ok' : 'err' }));
 }
 
 /**
- * The change a repair made, cut to what changed: the text before it and after it in the new
- * version, the added text itself, and the old version. A long prompt keeps `context` characters on
- * each side of the change, with an ellipsis where it was cut.
+ * The change a repair made, once, as the text reads now: the text before it, what it took out
+ * (struck), what it added (marked) and the text after it. The added text's leading spaces and
+ * punctuation stay outside the mark, so a mark never starts on a lone colon. A long prompt keeps
+ * `context` characters on each side of the change, with an ellipsis where it was cut.
  */
-export function changeParts(change: NonNullable<RepairStep['change']>, context = 240): { was: string; head: string; added: string; tail: string } {
-  const cut = (text: string, from: number, to: number) => `${from > 0 ? '…' : ''}${text.slice(Math.max(0, from), Math.min(text.length, to))}${to < text.length ? '…' : ''}`;
-  if (!change.added) {
-    const at = commonPrefix(change.before, change.after);
-    return { was: cut(change.before, at - context, at + context + change.removed.length), head: cut(change.after, at - context, at + context), added: '', tail: '' };
-  }
-  const { at, text } = change.added;
+export function changeParts(change: NonNullable<RepairStep['change']>, context = 240): { head: string; removed: string; added: string; tail: string } {
+  const at = change.added?.at ?? commonPrefix(change.before, change.after);
+  const text = change.added?.text ?? '';
+  const lead = /^[\s:;,.—-]*/.exec(text)?.[0] ?? '';
   const end = at + text.length;
-  const removedEnd = at + change.removed.length;
   return {
-    was: cut(change.before, at - context, removedEnd + context),
-    head: at > context ? `…${change.after.slice(at - context, at)}` : change.after.slice(0, at),
-    added: text,
+    head: `${at > context ? `…${change.after.slice(at - context, at)}` : change.after.slice(0, at)}${lead}`,
+    removed: change.removed,
+    added: text.slice(lead.length),
     tail: change.after.length - end > context ? `${change.after.slice(end, end + context)}…` : change.after.slice(end),
   };
 }

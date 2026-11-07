@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applySteps, markLead, updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
-import { appliedButton, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, mergeTreeJobs, moreLine, nothingAcceptedWhy, otherBlameWords, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeTone, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleBadges, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
+import { appliedButton, attemptMark, blameNextStep, breakPoints, bundledRuns, bundleGlyph, bundleLine, bundleSource, callRowCells, candidateTone, cellKeepsWhole, changeParts, chipKeeps, failedMust, failingLine, fixAction, fixJobStatus, fixName, flagParts, footWarnings, inlineParts, keepAt, laterStamp, mergeTreeJobs, moreLine, otherBlameWords, outcomeTone, outdatedOf, parseCheck, parseMarkdown, patchLines, plainCell, probeTone, probeVerdictWords, repairAside, repairAsk, repairBy, repairReceipt, roleStatuses, sameFolder, stepFor, leadingVerdict, treeBusy, verdictTone, verifyFor, wholeParts, type TreeJob } from '../ui/fixes/model.js';
 import { jobStatus } from '../ui/jobs.js';
 import type { BlameStep, FixBundle, FixDetail, RepairStep, VerifyStep } from '../ui/types.js';
 
@@ -191,16 +191,6 @@ describe('the Repair step', () => {
     expect(repairReceipt(step({ cost: { blame: 0, repairer: null, verify: 0 }, attempts: 0 })).join(' · ')).toBe('0 attempts · cost: blame $0 · verify $0');
   });
 
-  it('follows with what a repair that accepted nothing tried, unless that is only the repairer’s silence again', () => {
-    const tried = (verdict: RepairStep['candidates'][number]['verdict']) => ({ verdict }) as RepairStep['candidates'][number];
-    expect(nothingAcceptedWhy(step({ noRepairer: unasked, why: unasked.text }))).toBeNull();
-    // Stopped after the repairer couldn't be asked: that it stopped is news.
-    expect(nothingAcceptedWhy(step({ noRepairer: unasked, why: 'interrupted' }))).toBe('interrupted');
-    expect(nothingAcceptedWhy(step({ why: 'interrupted' }))).toBe('interrupted');
-    expect(nothingAcceptedWhy(step({}))).toBe('nothing was accepted');
-    expect(nothingAcceptedWhy(step({ candidates: [tried('set aside'), tried('rejected')], noRepairer: unasked }))).toBe('1 candidate tried, none accepted');
-  });
-
   it('lists every warning at its foot but the one its header says', () => {
     const other = 'agent.mjs changed while candidate 2 was verified, so it was left as it is: check it for the candidate’s edit';
     expect(footWarnings(step({ noRepairer: unasked, warnings: [unasked.warning, other] }))).toEqual([other]);
@@ -311,9 +301,13 @@ describe('the Repair step’s candidates', () => {
   const BEFORE = 'You are a support agent. Follow the refund policy.';
   const AFTER = 'You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.';
 
-  it('marks the text a change added', () => {
+  it('marks the text a change added, its leading punctuation and space outside the mark, and strikes what it took out in place', () => {
     const parts = changeParts({ file: 'agent.mjs', anchor: 'system prompt', before: BEFORE, after: AFTER, added: { at: BEFORE.length - 1, text: ': escalate every refund above the limit it sets' }, removed: '' });
-    expect(parts).toEqual({ was: BEFORE, head: 'You are a support agent. Follow the refund policy', added: ': escalate every refund above the limit it sets', tail: '.' });
+    expect(parts).toEqual({ head: 'You are a support agent. Follow the refund policy: ', removed: '', added: 'escalate every refund above the limit it sets', tail: '.' });
+    const days = changeParts({ file: 'a', anchor: 'system prompt', before: 'Refund within 30 days.', after: 'Refund within 14 days.', added: { at: 14, text: '14' }, removed: '30' });
+    expect(days).toEqual({ head: 'Refund within ', removed: '30', added: '14', tail: ' days.' });
+    // Text only taken out: struck where it was, nothing marked.
+    expect(changeParts({ file: 'a', anchor: 'system prompt', before: 'Refund once. Be kind.', after: 'Refund once.', added: null, removed: ' Be kind.' })).toEqual({ head: 'Refund once.', removed: ' Be kind.', added: '', tail: '' });
   });
 
   it('cuts a long prompt to the change and some text on each side', () => {
@@ -321,18 +315,18 @@ describe('the Repair step’s candidates', () => {
     const after = long.replace('Follow the policy.', 'Follow the policy. Refund each order once.');
     const at = long.indexOf('Follow the policy.') + 'Follow the policy.'.length;
     const parts = changeParts({ file: 'a', anchor: 'system prompt', before: long, after, added: { at, text: ' Refund each order once.' }, removed: '' }, 50);
-    expect(parts.added).toBe(' Refund each order once.');
-    expect(parts.head.startsWith('…')).toBe(true);
-    expect(parts.head.length).toBe(51);
+    expect(parts.added).toBe('Refund each order once.');
+    expect(parts.head.startsWith('…') && parts.head.endsWith('policy. ')).toBe(true);
+    expect(parts.head.length).toBe(52);
     expect(parts.tail.endsWith('…')).toBe(true);
-    expect(parts.was.startsWith('…') && parts.was.endsWith('…')).toBe(true);
+    expect(parts.removed).toBe('');
   });
 
-  it('badges candidates and roles', () => {
-    expect([candidateTone('accepted'), candidateTone('rejected'), candidateTone('set aside'), candidateTone('build failed')]).toEqual(['ok', 'no', 'n', 'no']);
-    expect(roleBadges([{ role: 'target', held: 1, of: 1 }, { role: 'good', held: 0, of: 1 }])).toEqual([
+  it('gives candidates and roles their status words, never red for what didn’t fail', () => {
+    expect((['accepted', 'rejected', 'set aside', 'build failed', 'not tried', 'unsettled'] as const).map(candidateTone)).toEqual(['ok', 'err', 'mu', 'err', 'mu', 'mu']);
+    expect(roleStatuses([{ role: 'target', held: 1, of: 1 }, { role: 'good', held: 0, of: 1 }])).toEqual([
       { text: 'target 1 of 1', tone: 'ok' },
-      { text: 'good 0 of 1', tone: 'no' },
+      { text: 'good 0 of 1', tone: 'err' },
     ]);
   });
 });

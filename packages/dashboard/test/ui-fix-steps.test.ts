@@ -1,8 +1,8 @@
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { recordBlame, Store, type BlameReport } from '@shadowlap/engine';
-import { blameReport, makeRun } from '../../engine/test/fix-fixtures.js';
-import { fixDetail } from '../src/fixes.js';
+import { recordBlame, recordRepair, Store, type BlameReport } from '@shadowlap/engine';
+import { blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
+import { fixDetail, withAbouts } from '../src/fixes.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { minuteStamp } from '../ui/format.js';
@@ -38,7 +38,8 @@ const engineStore = () => store as unknown as Parameters<typeof makeRun>[0];
 
 function app(): AppState {
   const client = {
-    fix: (id: string) => Promise.resolve(fixDetail(store, id)),
+    // As the fix's pooled read answers: with the about lines of the runs its steps name.
+    fix: (id: string) => Promise.resolve(withAbouts(store, fixDetail(store, id)!)),
     jobs: () => Promise.resolve([]),
     attemptGroups: () => Promise.resolve({ blame: null, verify: [], cut: false }),
     startJob: () => new Promise(() => undefined),
@@ -161,5 +162,77 @@ describe('the Blame step', () => {
     await open(unsure.fixId, 'blame');
     expect([text(r!.one('.verdict .vw')), r!.all('.verdict .actions a').map((a) => [text(a), a.getAttribute('href')])]).toEqual(['inconclusive', [['Open run at #1', `#/run/${unsure.run}/1`]]]);
     expect(text(r!.all('section.panel.sec > header .sub')[0])).toBe('inconclusive: the first probe couldn’t tell');
+  });
+});
+
+/** A run blamed under refund-bug's check and repaired: accepted, or with every candidate it tried rejected, candidate 2's why naming the run. */
+function repaired(accepted = true) {
+  const run = makeRun(engineStore(), { labels: ['refund-bug'], calls: [...CALLS] });
+  const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: (at += DAY) });
+  const report = repairReport({ targets: [run], accepted });
+  report.candidates[1] = { ...report.candidates[1], reason: `target run ${run.slice(0, 10)} not fixed: 0 of 2 passed` };
+  recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report, expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: (at += DAY) });
+  return { run, fixId: fix.fixId };
+}
+
+describe('the Repair step', () => {
+  it('opens an accepted repair on its verdict line, headed as its verdict is, then its change once, inline, the roles as status words', async () => {
+    const { fixId } = repaired();
+    const d = fixDetail(store, fixId)!;
+    await open(fixId, 'repair');
+    expect(r!.one('.verdict .vw').className).toBe('vw ok');
+    expect(text(r!.one('.verdict h2'))).toBe(`accepted ${d.repair!.line.head[0]}`);
+    expect(r!.all('p.fxsay')).toEqual([]);
+    // Once, as the prompt reads now: no "was" line, the added words marked, the colon before them outside the mark.
+    expect(r!.all('.pdiff .was')).toEqual([]);
+    expect(text(r!.one('.pdiff .now'))).toBe('You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
+    expect(text(r!.one('.pdiff mark'))).toBe('escalate every refund above the limit it sets');
+    expect(r!.all('.vchips .st').map((x) => [x.className, text(x)])).toEqual([['st ok', 'target 1 of 1']]);
+    expect(r!.all('section.panel.sec > header h2').map(text)).toEqual(['The change', 'Why', 'Candidates', 'report.md', 'Handed over']);
+    expect(r!.all('.lbl').map(text)).toEqual(['Where the failing runs were lost', 'Diagnosis']);
+    expect(text(r!.one('.cmdline'))).toContain('shadowlap repair --fixes label:refund-bug');
+  });
+
+  it('folds report.md’s What failed and Candidates, each summed up beside its heading, and opens one on request', async () => {
+    const { fixId } = repaired();
+    await open(fixId, 'repair');
+    const heads = () => r!.all('.prbody.md h4.mdh');
+    expect(heads().map((h) => text(h.querySelector('.mds')!))).toEqual(['1 run · lost at model call #5', '3 candidates · the smallest the gate accepts twice kept']);
+    const caret = (h: FakeElement) => h.querySelector('button.xbtn')!;
+    expect(heads().map((h) => [caret(h).getAttribute('aria-label'), caret(h).getAttribute('aria-expanded')])).toEqual([
+      ['Show what failed', 'false'],
+      ['Show candidates', 'false'],
+    ]);
+    // Closed, only the evidence's table shows; the cost stays the report's last line.
+    expect(r!.all('.prbody .fxtable')).toHaveLength(1);
+    expect(text(r!.all('.prbody > p').at(-1)!)).toMatch(/^Cost: blame ≈\$0\.100/);
+    await r!.click(caret(heads()[0]));
+    const button = caret(heads()[0]);
+    expect([button.getAttribute('aria-label'), button.getAttribute('aria-expanded')]).toEqual(['Hide what failed', 'true']);
+    expect(r!.all(`[id="${button.getAttribute('aria-controls')!}"] .fxtable th`).map(text)).toEqual(['Run', 'Lost at', 'What the agent did there', 'What a passing run did']);
+    expect(r!.all('.prbody .fxtable')).toHaveLength(2);
+  });
+
+  it('says a repair that accepted nothing as rejected and why, the gate’s rule once over its candidates, each verdict a status and its why’s run a link with its about line', async () => {
+    const { run, fixId } = repaired(false);
+    const d = withAbouts(store, fixDetail(store, fixId)!);
+    await open(fixId, 'repair');
+    expect(r!.one('.verdict .vw').className).toBe('vw err');
+    expect(text(r!.one('.verdict h2'))).toBe('rejected The gate accepted none of the 1 candidate tried');
+    expect(text(r!.one('p.fxsay'))).toBe('The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the prompt yourself and verify it.');
+    expect(r!.all('section.panel.sec > header h2').map(text)).toEqual(['Candidates', 'report.md', 'Why']);
+    const subs = r!.all('section.panel.sec > header .sub').map(text);
+    expect(subs[0]).toBe(`tried smallest first · ${d.repair!.rule!}`);
+    expect(subs[1]).toBe('what the repair found');
+    expect(r!.all('.cand .st').map((x) => [x.className, text(x)])).toEqual([
+      ['st mu', 'set aside'],
+      ['st err', 'rejected'],
+    ]);
+    // An order id never breaks at its hyphen; a run the why names opens, its about line on hover.
+    expect(r!.all('.cand .why span.nw').map(text)).toContain('A-1042');
+    const link = r!.one('.cand .why a.rlink');
+    expect([link.getAttribute('href'), text(link), link.getAttribute('title')]).toEqual([`#/run/${run}`, run.slice(0, 10), d.repair!.named[0].about]);
+    expect(d.repair!.named[0].about).toBeTruthy();
+    expect(r!.all('.prbody.md h4.mdh .mds').map(text)).toEqual(['1 run · lost at model call #5', '2 candidates · none accepted']);
   });
 });

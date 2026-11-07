@@ -402,7 +402,6 @@ describe('grounds, tints and lines', () => {
     '.connblock': 'the page behind the offline bar, veiled in its own ground',
     '.scrim': 'the page dimmed behind a dialog',
     '.msheet': 'the page dimmed behind a phone’s menu sheet',
-    '.prbody.clamp::after': 'report.md fading into its panel where it is cut',
     '.toast .tx:hover': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tx:focus-visible': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tbtn:hover': 'on the toast’s ink ground, the page’s ground as its tint',

@@ -1,17 +1,26 @@
-import { Badge, CmdLine, EmptyState } from '../components/bits.js';
-import { shortId } from '../format.js';
-import type { FixDetail, RepairStep } from '../types.js';
-import { candidateTone, changeParts, fixStamp, footWarnings, nothingAcceptedWhy, repairBy, repairReceipt, roleBadges } from './model.js';
+import { Fragment, type ReactNode } from 'react';
+import { EmptyState } from '../components/bits.js';
+import { CodeBox } from '../components/CodeBox.js';
+import { Words } from '../components/Copy.js';
 import { DotParts } from '../components/DotParts.js';
-import { Flagged, Markdown, StepHead } from './parts.js';
+import { Id } from '../components/Id.js';
+import { Section } from '../components/Section.js';
+import { Status } from '../components/Status.js';
+import { plural, shortId } from '../format.js';
+import type { FixDetail, RepairStep } from '../types.js';
+import { candidateTone, changeParts, fixStamp, footWarnings, repairBy, repairReceipt, roleStatuses } from './model.js';
+import { Flagged, Markdown } from './parts.js';
+import { StepLead } from './StepLead.js';
 
 /**
- * The Repair step: the change a repair proposed and what it held on, why it was needed, every
- * candidate it tried with why each was dropped, what it handed over, and the pull request body. A
- * repair that accepted nothing shows the candidates it tried; the fix stays open. Its header says
- * when it ran and who proposed them, or why no repairer did, with what to do (`the repairer could
- * not be asked: claude was not found: install Claude Code, …`); how many attempts it ran and what
- * every stage cost are a grey receipt above its command, and the rest of its warnings are at the foot.
+ * The Repair step: its verdict line (accepted, headed as the Verify step heads the same verdict, or
+ * rejected and why), the change it made once, inline, why it was needed, every candidate it tried
+ * with why each was dropped, report.md and what it handed over. A repair that accepted nothing shows
+ * the candidates it tried, the gate's rule said once over them; the fix stays open. Its facts say
+ * when it ran and who proposed the candidates, or why no repairer did, with what to do (`the
+ * repairer could not be asked: claude was not found: install Claude Code, …`); how many attempts it
+ * ran and what every stage cost are a grey receipt above its command, and the rest of its warnings
+ * are at the foot.
  */
 export function RepairStepView({ fix }: { fix: FixDetail }) {
   const r = fix.repair;
@@ -24,7 +33,7 @@ export function RepairStepView({ fix }: { fix: FixDetail }) {
         command={fix.commands.repair}
       />
     );
-  return r.accepted && r.change ? <Accepted r={r} /> : <NothingAccepted r={r} />;
+  return r.accepted && r.change ? <Accepted r={r} change={r.change} /> : <NothingAccepted r={r} />;
 }
 
 /** Who proposed the candidates, or why no repairer did; nothing when nothing called for one. */
@@ -40,58 +49,40 @@ function by(r: RepairStep) {
   );
 }
 
-function Accepted({ r }: { r: RepairStep }) {
-  const change = r.change!;
-  const parts = changeParts(change);
+/**
+ * The facts under the verdict line: when it ran and who proposed the candidates; for an accepted
+ * change, `Repaired`, and under it the gate's rule and that it was verified twice. One that accepted
+ * nothing never reads as repaired: `Ran`.
+ */
+function RepairFacts({ r }: { r: RepairStep }) {
+  const who = by(r);
+  const rule = [r.rule, r.again].filter(Boolean).join(' · ');
   return (
     <>
-      <StepHead
-        title={r.title}
-        text={
-          <>
-            Accepted {fixStamp(r.at)} · {by(r)}
-            {r.verify && !r.verify.counts ? ' · verified under another check, so it doesn’t count for this fix' : ''}
-          </>
-        }
-      />
-      <div className="grid2">
-        <section className="panel">
-          <header>
-            <h2>The change</h2>
-            <span className="sub">
-              {change.file ? (
-                <>
-                  <code>{change.file}</code> ·{' '}
-                </>
-              ) : null}
-              {change.anchor}
-            </span>
-          </header>
-          <div className="pbody pdiff">
-            <p className="was">{parts.was}</p>
-            <p className="now">
-              {parts.head}
-              {parts.added ? <mark>{parts.added}</mark> : null}
-              {parts.tail}
-            </p>
-            {r.roles.length ? (
-              <div className="vchips">
-                {roleBadges(r.roles).map((b) => (
-                  <Badge key={b.text} tone={b.tone}>
-                    {b.text}
-                  </Badge>
-                ))}
-                {r.rule !== null ? <span className="vn">{r.rule}</span> : null}
-              </div>
-            ) : null}
-          </div>
-        </section>
+      {r.accepted ? 'Repaired' : 'Ran'} {fixStamp(r.at)}
+      {who ? <> · {who}</> : null}
+      {r.verify && !r.verify.counts ? ' · verified under another check, so it doesn’t count for this fix' : ''}
+      {r.accepted && rule ? (
+        <span className="pline">
+          <Words>{rule}</Words>
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+function Accepted({ r, change }: { r: RepairStep; change: NonNullable<RepairStep['change']> }) {
+  return (
+    <>
+      <StepLead line={r.line} facts={<RepairFacts r={r} />} />
+      <div className="grid2 fxg secs">
+        <Change r={r} change={change} />
         <Why r={r} />
       </div>
       <Candidates r={r} sub="tried smallest first; the first the gate accepts twice is kept" />
-      <div className="grid2 fxgap">
-        <HandedOver r={r} />
+      <div className="grid2 fxg secs">
         <Report r={r} />
+        <HandedOver r={r} />
       </div>
       <Receipt r={r} />
       <Warnings r={r} />
@@ -99,42 +90,70 @@ function Accepted({ r }: { r: RepairStep }) {
   );
 }
 
-/** A repair that accepted nothing: what it tried ("1 candidate tried, none accepted"), or why it found nothing to try. */
+/** A repair that accepted nothing: why, the candidates it tried under the gate's rule, said once, and what it found. */
 function NothingAccepted({ r }: { r: RepairStep }) {
-  const n = r.candidates.length;
-  const who = by(r);
-  const why = nothingAcceptedWhy(r);
-  const head = (
-    <>
-      Ran {fixStamp(r.at)}
-      {who ? <> · {who}</> : null}
-      {why ? (
-        <>
-          {' · '}
-          <Flagged text={why} />
-        </>
-      ) : null}
-    </>
-  );
   return (
     <>
-      <StepHead
-        title={r.title}
-        text={
-          <>
-            {head}
-            <span className="pline">{n ? 'The fix stays open, with each candidate and why it was dropped. Repair again, or verify a fix of your own.' : 'The fix stays open. Repair again, or verify a fix of your own.'}</span>
-          </>
-        }
-      />
-      {r.candidates.length ? <Candidates r={r} sub="tried smallest first; the gate accepted none" /> : null}
-      <div className={`grid2${r.candidates.length ? ' fxgap' : ''}`}>
-        <Why r={r} />
+      <StepLead line={r.line} facts={<RepairFacts r={r} />} />
+      {r.candidates.length ? (
+        <Candidates
+          r={r}
+          sub={
+            r.rule ? (
+              <>
+                tried smallest first · <Words>{r.rule}</Words>
+              </>
+            ) : (
+              'tried smallest first; the gate accepted none'
+            )
+          }
+        />
+      ) : null}
+      <div className="grid2 fxg secs">
         <Report r={r} />
+        <Why r={r} />
       </div>
       <Receipt r={r} />
       <Warnings r={r} />
     </>
+  );
+}
+
+/** The change, once, as the text reads now: what it took out struck, what it added marked; how each role held under it, a dot and a word each. */
+function Change({ r, change }: { r: RepairStep; change: NonNullable<RepairStep['change']> }) {
+  const parts = changeParts(change);
+  return (
+    <Section
+      title="The change"
+      sub={
+        <>
+          {change.file ? (
+            <>
+              <code>{change.file}</code> ·{' '}
+            </>
+          ) : null}
+          {change.anchor}
+        </>
+      }
+    >
+      <div className="pbody pdiff">
+        <p className="now">
+          {parts.head}
+          {parts.removed ? <del>{parts.removed}</del> : null}
+          {parts.added ? <mark>{parts.added}</mark> : null}
+          {parts.tail}
+        </p>
+        {r.roles.length ? (
+          <div className="vchips">
+            {roleStatuses(r.roles).map((x) => (
+              <Status key={x.text} tone={x.tone}>
+                {x.text}
+              </Status>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </Section>
   );
 }
 
@@ -145,21 +164,18 @@ function Receipt({ r }: { r: RepairStep }) {
       <p className="fxreceipt">
         <DotParts parts={repairReceipt(r)} />
       </p>
-      <CmdLine>{r.command}</CmdLine>
+      <CodeBox command={r.command} />
     </>
   );
 }
 
 function Why({ r }: { r: RepairStep }) {
   return (
-    <section className="panel">
-      <header>
-        <h2>Why</h2>
-      </header>
+    <Section title="Why">
       <div className="pbody">
         {r.lost.length ? (
           <>
-            <span className="k">where the failing runs were lost</span>
+            <span className="lbl">Where the failing runs were lost</span>
             {r.lost.map((l) => (
               <div key={l.runId} className="fxlost">
                 <a className="more" href={l.href}>
@@ -172,38 +188,87 @@ function Why({ r }: { r: RepairStep }) {
         ) : null}
         {r.diagnosis ? (
           <>
-            <span className="k">diagnosis</span>
+            <span className="lbl">Diagnosis</span>
             <p className="fxdiag">{r.diagnosis}</p>
           </>
         ) : null}
         {!r.lost.length && !r.diagnosis ? <p className="fxdiag">The repair kept no diagnosis.</p> : null}
       </div>
-    </section>
+    </Section>
   );
 }
 
-function Candidates({ r, sub }: { r: RepairStep; sub: string }) {
+function Candidates({ r, sub }: { r: RepairStep; sub: ReactNode }) {
   return (
-    <section className="panel fxgap">
-      <header>
-        <h2>Candidates</h2>
-        <span className="sub">{sub}</span>
-      </header>
+    <Section title="Candidates" sub={sub} className="fxgap">
       <div className="cands">
         {r.candidates.map((c) => (
           <div key={c.id} className="cand">
             <span className="cnum">{c.id}</span>
             <span>
-              <q>{c.text}</q>
+              <q>
+                <Sentences text={c.text} />
+              </q>
               <span className="why">
-                {c.surface} · <Flagged text={c.why} />
+                <span className="nw">{c.surface} ·</span> <CandidateWhy why={c.why} named={r.named} />
               </span>
             </span>
-            <Badge tone={candidateTone(c.verdict)}>{c.verdict}</Badge>
+            <Status tone={candidateTone(c.verdict)}>{c.verdict}</Status>
           </div>
         ))}
       </div>
-    </section>
+    </Section>
+  );
+}
+
+/** A candidate's rewrite, each sentence a piece of its own that wraps balanced (`.ln`). */
+function Sentences({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(?<=[.!?]) (?=[A-Z])/).map((x, i) => (
+        <Fragment key={i}>
+          {i ? ' ' : ''}
+          <span className="ln">
+            <OrderIds text={x} />
+          </span>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/** Text with an order id such as A-1042 kept whole, never broken at its hyphen, its flags set as code. */
+function OrderIds({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/\b([A-Z]-\d{3,})\b/).map((x, i) =>
+        i % 2 ? (
+          <span key={i} className="nw">
+            {x}
+          </span>
+        ) : (
+          <Flagged key={i} text={x} />
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * A candidate's why, each run it names by id (`target run 01M3RZ4XKN not fixed: …`) a link to it
+ * with its about line on hover (`named`); a share in brackets kept with the word before it.
+ */
+function CandidateWhy({ why, named }: { why: string; named: RepairStep['named'] }) {
+  const text = why.replace(/ \((\d+%)\)/g, ' ($1)');
+  if (!named.length) return <OrderIds text={text} />;
+  const ids = new RegExp(`\\b(${named.map((n) => n.id).join('|')})\\b`);
+  return (
+    <>
+      {text.split(ids).map((x, i) => {
+        const run = i % 2 ? named.find((n) => n.id === x) : undefined;
+        return run ? <Id key={i} id={run.id} href={run.href} about={run.about} /> : <OrderIds key={i} text={x} />;
+      })}
+    </>
   );
 }
 
@@ -211,13 +276,7 @@ function HandedOver({ r }: { r: RepairStep }) {
   const goldens = r.files.some((f) => f.name === 'goldens/');
   const out = r.output;
   return (
-    <section className="panel">
-      <header>
-        <h2>Handed over</h2>
-        <span className="sub">
-          <code>{r.dir}/</code>
-        </span>
-      </header>
+    <Section title="Handed over" sub={<code>{r.dir}/</code>}>
       <div className="files">
         {r.files.map((f) => (
           <div key={f.name}>
@@ -245,19 +304,25 @@ function HandedOver({ r }: { r: RepairStep }) {
           ) : null}
         </span>
       </div>
-    </section>
+    </Section>
   );
 }
 
+/**
+ * report.md as the repair wrote it, boxed: the pull request's body for an accepted change, what the
+ * repair found for one that accepted nothing. What failed and the candidates are on the page already,
+ * so their sections open on request, each summed up beside its heading.
+ */
 function Report({ r }: { r: RepairStep }) {
+  const at = /^model call #\d+/.exec(r.lost[0]?.at ?? '')?.[0];
+  const folds = {
+    'What failed': r.lost.length ? `${plural(r.lost.length, 'run')}${at ? ` · lost at ${at}` : ''}` : 'no failing run blamed',
+    Candidates: `${plural(r.candidates.length, 'candidate')} · ${r.accepted ? 'the smallest the gate accepts twice kept' : 'none accepted'}`,
+  };
   return (
-    <section className="panel">
-      <header>
-        <h2>report.md</h2>
-        <span className="sub">the pull request body</span>
-      </header>
-      <Markdown text={r.prBody} />
-    </section>
+    <Section title="report.md" sub={r.accepted ? 'the pull request body' : 'what the repair found'}>
+      <Markdown text={r.prBody} folds={folds} />
+    </Section>
   );
 }
 
