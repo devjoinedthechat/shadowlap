@@ -230,9 +230,6 @@
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
     },
-    "packages/dashboard/ui/pages/settings/Store.tsx": {
-      "StoreTab": 32
-    },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
       "StoreSetup": 65
     },

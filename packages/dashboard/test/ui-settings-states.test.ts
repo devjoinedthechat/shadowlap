@@ -94,17 +94,17 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
 
   it('offers no store setup, which would write into the file every command refuses', async () => {
     r = await page(app({ client: { store: async () => store(BROKEN) } }), 'store');
-    await r.until('the tab', () => r!.all('.nostore').length > 0);
-    expect(r.one('.nostore h3').textContent).toBe('The store can’t be read');
-    expect(r.one('.nostore p').textContent).toBe('Settings reads the team store from shadowlap.config.json, which can’t be read until it is fixed.');
-    expect(r.all('.nostore a, .nostore button')).toHaveLength(0);
+    await r.until('the tab', () => r!.all('.settab .stepempty').length > 0);
+    expect(r.one('.settab .stepempty h2').textContent).toBe('The store can’t be read');
+    expect(r.one('.settab .stepempty p').textContent).toBe('Settings reads the team store from shadowlap.config.json, which can’t be read until it is fixed.');
+    expect(r.all('.settab .stepempty a, .settab .stepempty button')).toHaveLength(0);
   });
 
   it('offers Set up team store for a file that reads and names none', async () => {
     r = await page(app({ client: { store: async () => store(null) } }), 'store');
-    await r.until('the tab', () => r!.all('.nostore').length > 0);
-    expect(r.one('.nostore h3').textContent).toBe('No store yet');
-    expect(r.byText('.nostore a', 'Set up team store').getAttribute('href')).toBe('#/setup/store');
+    await r.until('the tab', () => r!.all('.settab .stepempty').length > 0);
+    expect(r.one('.settab .stepempty h2').textContent).toBe('No store yet');
+    expect(r.byText('.settab .stepempty a', 'Set up team store').getAttribute('href')).toBe('#/setup/store');
   });
 
   it('still says "No normalizers yet" and offers Calibrate for a file that reads', async () => {
@@ -156,10 +156,10 @@ describe('Settings for a project whose folder is gone', () => {
 
   it('offers no store setup there', async () => {
     r = await page(app({ missing: true, client: { store: async () => store(null) } }), 'store');
-    await r.until('the tab', () => r!.all('.nostore').length > 0);
-    expect(r.one('.nostore h3').textContent).toBe('The store can’t be read');
-    expect(r.one('.nostore p').textContent).toBe('Settings reads the team store from shadowlap.config.json, in the project’s folder, which is gone.');
-    expect(r.all('.nostore a, .nostore button')).toHaveLength(0);
+    await r.until('the tab', () => r!.all('.settab .stepempty').length > 0);
+    expect(r.one('.settab .stepempty h2').textContent).toBe('The store can’t be read');
+    expect(r.one('.settab .stepempty p').textContent).toBe('Settings reads the team store from shadowlap.config.json, in the project’s folder, which is gone.');
+    expect(r.all('.settab .stepempty a, .settab .stepempty button')).toHaveLength(0);
   });
 });
 

@@ -26,3 +26,13 @@ export function setupStates(view: Pick<StoreSetupView, 'connected' | 'pushed' | 
   const state = (i: number): SetupStepState => (done[i] ? 'done' : i === first ? 'cur' : 'todo');
   return { connect: state(0), push: state(1), ci: state(2), team: state(3) };
 }
+
+/**
+ * Settings → Store's one lime button, the next step: Push local runs while finished runs are only on
+ * this machine (`onlyLocal` leaves out a run still recording, which goes when it ends), else
+ * Continue setup while the setup is under way; with nothing left, none.
+ */
+export function storeLime(onlyLocal: number, underWay: boolean): 'push' | 'setup' | null {
+  if (onlyLocal > 0) return 'push';
+  return underWay ? 'setup' : null;
+}
