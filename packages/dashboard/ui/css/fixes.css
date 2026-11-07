@@ -340,6 +340,9 @@ table.t tr.sub td { padding: 4px 12px 14px 44px; white-space: normal; background
    would leave the title less than 520px (head.tsx useFitFixHead). The lime one goes first on the screen only: Tab follows the page. */
 .ph.fxh { flex-wrap: nowrap; }
 .ph.fxh h1 { font: 600 24px/1.25 var(--body); letter-spacing: -.015em; }
+/* the failing runs' link in the about line: underlined softly, so it reads as a link beside the line's grey words by more than its ink */
+.ph.fxh .pmeta a.dlink { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.ph.fxh .pmeta a.dlink:hover { text-decoration-color: currentColor; }
 .ph.fxh > div:first-child { flex: 1 1 520px; min-width: 0; }
 .ph.fxh .actions { flex: none; flex-wrap: nowrap; }
 @media (max-width: 1280px) {
