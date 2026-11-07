@@ -239,6 +239,27 @@ describe('export html', () => {
     }
   });
 
+  it('says apart in Show diff’s request what the rules matching applies mask, as the dashboard’s own read does', () => {
+    const rule = { kind: 'api' as const, path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
+    const [a, b] = ['3f1c9a2e-5b7d-4e8a-9c1f-2a6b8d0e4f13', '9b2e4d6f-1a3c-4b5d-8e7f-0c2a4e6b8d10'];
+    const body = (user: string, asked: string) => ({ model: 'claude-sonnet-4-5', metadata: { user_id: user }, messages: [{ role: 'user', content: asked }] });
+    const parent = addRun(store, { startedAt: Date.UTC(2026, 10, 3, 9), calls: [{ code: 'l', request: body(a, 'Refund order 1042') }] });
+    const fork = addRun(store, { parent, startedAt: Date.UTC(2026, 10, 3, 10), calls: [{ code: 'l', request: body(b, 'Refund order 1043') }] });
+    const diff = [
+      { path: '$.metadata.user_id', op: 'changed' as const, before: a, after: b },
+      { path: '$.messages[0].content', op: 'changed' as const, before: 'Refund order 1042', after: 'Refund order 1043' },
+    ];
+    store.setDivergence(fork, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, counterpart: { runId: parent, callNo: 1 }, diff });
+    const held = embedded(exportHtml({ store, runIds: [fork, parent], uiDir, normalize: [rule] }).html).responses[`runs/${fork}/diff`] as { diff: { masked: string[]; paths: Array<{ path: string; fix: unknown }> } };
+    expect(held.diff.masked).toEqual(['$.metadata.user_id']);
+    expect(held.diff.paths).toEqual([{ path: '$.messages[0].content', what: 'user message', fix: null }]);
+    expect(held).toEqual(JSON.parse(JSON.stringify({ diff: requestDiff(store, store.getRun(fork)!, null, [rule], new Set([fork, parent])) })));
+    // Without the rules, the value made anew is a change of its own, with the normalizer that masks it.
+    const bare = embedded(exportHtml({ store, runIds: [fork, parent], uiDir }).html).responses[`runs/${fork}/diff`] as typeof held;
+    expect(bare.diff.masked).toEqual([]);
+    expect(bare.diff.paths.map((p) => p.path)).toEqual(['$.metadata.user_id', '$.messages[0].content']);
+  });
+
   it('applies redaction rules, as pack does', () => {
     const rules = [{ pattern: 'email', replace: '<EMAIL>' }];
     const plain = exportHtml({ store, runIds: [runId], uiDir });

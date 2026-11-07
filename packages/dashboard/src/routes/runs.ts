@@ -13,6 +13,17 @@ import { outcomeKey } from '../run-outcome.js';
 import { runVersionTag } from '../run-version.js';
 import { deleteRunsApart } from '../delete-apart.js';
 import { exportHtml, withAncestors, type ExportHtmlResult } from '../static.js';
+import type { Normalizer } from '@shadowlap/engine';
+
+/**
+ * The rules an exported copy applies: the project's redaction rules, and the rules matching applies,
+ * so the copy's Show diff says what they mask as this dashboard does.
+ */
+function exportRules(ctx: RouteContext): { redact: Normalizer[]; normalize: Normalizer[] } {
+  if (!ctx.options.loadConfig) return { redact: ctx.options.redact ?? [], normalize: [] };
+  const config = ctx.config();
+  return { redact: config.redact, normalize: config.normalize };
+}
 
 /** A whole number, 0 or more, from the query string; undefined when absent. */
 export function count(r: { query: URLSearchParams }, name: string, what: string): number | undefined {
@@ -172,20 +183,20 @@ export function register(router: Router, ctx: RouteContext): void {
     const run = lookupRun(store, r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     if (recordingNow(store, run)) throw new HttpError(409, stillRecording(run));
-    const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
+    const { redact, normalize } = exportRules(ctx);
     const runIds = withAncestors(store, run.runId);
     const version = ctx.options.version ?? null;
     const dbPath = ctx.options.dbPath;
     let out: ExportHtmlResult;
     if (dbPath && dbPath !== ':memory:') {
       try {
-        out = await exportHtmlApart({ dbPath, runIds, redact, version, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(ctx.options.uiDir ? { uiDir: ctx.options.uiDir } : {}) });
+        out = await exportHtmlApart({ dbPath, runIds, redact, ...(normalize.length ? { normalize } : {}), version, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(ctx.options.uiDir ? { uiDir: ctx.options.uiDir } : {}) });
       } catch (err) {
         throw err instanceof ExportError ? new HttpError(err.status, err.message) : err;
       }
     } else {
       // A store with no file of its own (in memory) can't be opened from another thread.
-      out = exportHtml({ store, runIds, ...ctx.read, ...(redact.length ? { redact } : {}), version, ...(ctx.options.uiDir ? { uiDir: ctx.options.uiDir } : {}) });
+      out = exportHtml({ store, runIds, ...ctx.read, ...(redact.length ? { redact } : {}), ...(normalize.length ? { normalize } : {}), version, ...(ctx.options.uiDir ? { uiDir: ctx.options.uiDir } : {}) });
     }
     r.res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
