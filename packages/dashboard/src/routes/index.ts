@@ -20,6 +20,8 @@ import * as runPage from './run-page.js';
 import * as search from './search.js';
 import * as settings from './settings.js';
 import * as settingsEdits from './settings-edits.js';
+// The Undo of removing a project: it comes back at the place it left.
+import * as projectRestore from './project-restore.js';
 import * as tests from './tests.js';
 import * as training from './training.js';
 import * as uploads from './uploads.js';
@@ -74,6 +76,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   settingsEdits,
   // Settings → Coding agents' install: the skill-install job kind.
   codingAgents,
+  // The Undo of removing a project, from its toast.
+  projectRestore,
   // Several projects behind one dashboard: the switcher, Add project, the setup, removing one.
   projects,
   // Training: pairs, tasks, scores and the models to score (#/training).

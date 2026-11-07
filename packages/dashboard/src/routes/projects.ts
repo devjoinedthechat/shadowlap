@@ -5,7 +5,7 @@ import { parseStoreUrl, storeKey } from '@shadowlap/remote';
 import type { ProjectConfig, RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobNotice } from '../jobs.js';
-import { addedMessage, addProjectPage, projectSwitcher, removeDialog, setupView, type PickedFolder, type SetupView } from '../projects.js';
+import { addedMessage, addProjectPage, projectSwitcher, removeDialog, removedToast, setupView, type PickedFolder, type SetupView } from '../projects.js';
 import { answerData } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { countsOf, readTeamStoreInput } from '../team-store.js';
@@ -40,7 +40,7 @@ import { sessionBusy, testsBusy } from './tests.js';
  * routes answer 404 and the job kinds aren't registered, and the pages fall back to the commands.
  */
 
-const ONE_STORE = 'this dashboard serves one store: start shadowlap dashboard to add and switch projects';
+export const ONE_STORE = 'this dashboard serves one store: start shadowlap dashboard to add and switch projects';
 
 /**
  * How a project's runs here stand with the team store its config names, for the Remove dialog: how
@@ -181,7 +181,8 @@ export function register(router: Router, ctx: RouteContext): void {
         removed: project.id,
         current: out.current,
         deleted: out.deleted,
-        message: deleteRecordings ? `Removed ${project.name} and deleted its recordings` : `Removed ${project.name} · its folder and recordings are untouched`,
+        // What its toast says, and whether its Undo can put it back (project-restore.ts).
+        ...removedToast(project.name, { deleted: deleteRecordings, missing: !existsSync(project.path) }),
       });
     },
     { anyProject: true },
