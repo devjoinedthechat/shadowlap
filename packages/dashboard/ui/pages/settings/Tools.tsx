@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { CodeBlock, CopyButton, Seg } from '../../components/bits.js';
+import { Seg } from '../../components/bits.js';
+import { CodeBox } from '../../components/CodeBox.js';
 import { Dialog } from '../../components/Dialog.js';
 import { Section } from '../../components/Section.js';
 import { DialogFacts } from '../../components/DialogFacts.js';
+import { Icon } from '../../components/Icon.js';
+import { Term } from '../../components/Term.js';
 import { tipCard, tipText, type TipRow } from '../../components/HoverCard.js';
 import { copyText } from '../../dom.js';
 import { num, whenShort } from '../../format.js';
@@ -16,7 +19,8 @@ import { MCP_FORMS, addServerNotes, copiedLineText, entryEnvFor, mcpEntryText, m
  * Tools: every tool the recordings called, by what happens to it after a fork (reads run live,
  * writes are blocked or stubbed), the hosts the config records as tools, and the MCP servers:
  * those the project's client configs list and those calls came through, each with its transport,
- * its command or URL and its tools, with the `shadowlap mcp` line that records one. With the
+ * its command or URL and its tools, with the `shadowlap mcp` line that records one, and under Show
+ * the client’s config, folded at first, the config to copy with it in front. With the
  * project's folder gone, neither the store's calls nor the client configs can be read, and the tab
  * says so where they would be, rather than that there are none.
  */
@@ -105,14 +109,23 @@ function ToolGroup({ title, tools, write }: { title: string; tools: ToolsSetting
   );
 }
 
+/** Show the client’s config: closed at first, then as it was left while the page is open in this tab. */
+let configShown = false;
+
 function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; onAdd: () => void }) {
   const rows = mcpRows(data.mcp);
   const broken = data.mcp.files.filter((f) => f.error);
+  const [shown, setShownState] = useState(() => configShown);
+  const setShown = (v: boolean) => {
+    configShown = v;
+    setShownState(v);
+  };
+  const folded = data.mcp.clientConfigs.length > 0 || data.mcp.otherForms.length > 0;
   return (
     <div className="egrp mcp">
       <span className="k">tools from MCP servers</span>
       <p className="muted">
-        Put <code>shadowlap mcp</code> in front of a server in the client’s config. Its tool calls are then recorded, replayed and fenced like any other tool. A tool marked <code>readOnlyHint</code> is read; any other is write, unless <code>mcp.effects</code> in the config says otherwise.
+        Put <code>shadowlap mcp</code> in front of a server in the client’s config. Its tool calls are then recorded, replayed and <Term k="fenced">fenced</Term> like any other tool. A tool marked <code>readOnlyHint</code> is read; any other is write, unless <code>mcp.effects</code> in the config says otherwise.
       </p>
       {gone ? (
         <p className="muted none">{MCP_GONE}</p>
@@ -155,39 +168,41 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
       <button className="btn sm" type="button" onClick={onAdd}>
         Add MCP server…
       </button>
-      {data.mcp.clientConfigs.map((b) => (
-        <ClientConfig key={b.file ?? 'docs'} block={b} />
-      ))}
-      {data.mcp.otherForms.map((f) => (
-        <div key={f} className="mcpform2">
-          <span className="muted">{MCP_FORMS[f].label}:</span>
-          <CommandLine command={MCP_FORMS[f].line} />
-        </div>
-      ))}
+      {folded ? (
+        <>
+          <p className="wftog">
+            <button className="linkbtn" type="button" aria-expanded={shown} aria-controls="mcpCfg" onClick={() => setShown(!shown)}>
+              {shown ? 'Hide' : 'Show'} the client’s config
+              <Icon name="caret" />
+            </button>
+          </p>
+          <div id="mcpCfg" hidden={!shown}>
+            {data.mcp.clientConfigs.map((b) => (
+              <ClientConfig key={b.file ?? 'docs'} block={b} />
+            ))}
+            {data.mcp.otherForms.map((f) => (
+              <div key={f} className="mcpform2">
+                <span className="muted">{MCP_FORMS[f].label}:</span>
+                <CommandLine command={MCP_FORMS[f].line} />
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
 
 /**
- * A client config to copy: a project file's servers with `shadowlap mcp` in front, under its name,
- * and what the copy leaves out to put back; or the docs' example, as the mock shows it.
+ * A client config to copy, its Copy named Copy MCP config: a project file's servers with
+ * `shadowlap mcp` in front, under its name, and right under it what the copy leaves out to put back;
+ * or the docs' example, as the mock shows it.
  */
 function ClientConfig({ block }: { block: ToolsSettings['mcp']['clientConfigs'][number] }) {
-  if (!block.file) {
-    return (
-      <>
-        <pre className="codebox mcpjson" tabIndex={0}>
-          {block.text}
-        </pre>
-        <CopyButton text={block.text} label="the config" className="btn sm">
-          Copy
-        </CopyButton>
-      </>
-    );
-  }
+  if (!block.file) return <CodeBox code={block.text} what="the MCP config" className="mcpjson" />;
   return (
     <>
-      <CodeBlock file={block.file} code={block.text} copyLabel={`the servers in ${block.file}${block.putBack.length ? ', without their values' : ''}`} />
+      <CodeBox file={block.file} code={block.text} what="the MCP config" />
       {block.putBack.length ? (
         <div className="fieldnote warn putback">
           Values aren’t copied. Put these back before the client starts the server:

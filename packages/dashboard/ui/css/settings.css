@@ -32,8 +32,8 @@
 .egrp { padding: 12px 0 14px; border-top: 1px solid var(--line); }
 .egrp .k { display: block; margin-bottom: 8px; }
 .tchips { display: flex; flex-wrap: wrap; gap: 6px; }
-.tchip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--raise); font: 12px var(--mono); }
-.tchip em { font-style: normal; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.tchip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--raise); font: 12.5px var(--mono); }
+.tchip em { font: normal 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
 .tchip.w em { color: var(--k-write); }
 .tchip.s em { color: var(--o-stub); }
 .set .tscroll table.t { min-width: 520px; }
@@ -68,7 +68,6 @@
 .skrow .skall { margin-top: 10px; margin-left: -7px; }
 .skrow .skall svg { transition: transform .15s; transform: rotate(-90deg); }
 .skrow .skall[aria-expanded="true"] svg { transform: none; }
-.skrow .skall + .cmdline + .linkbtn { margin-top: 6px; margin-left: -7px; }
 
 /* alerts */
 .alertgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -214,7 +213,13 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .egrp.mcp p.none { margin: 0 0 12px; }
 .egrp.mcp .tscroll { margin: 4px 0 12px; }
 .egrp.mcp .tchips.mcpeffects { margin: 0 0 12px; }
-.egrp.mcp .codebox.mcpjson { margin-top: 14px; }
+/* Show the client’s config: what it folds, the configs to copy, under the table */
+.wftog { display: flex; align-items: center; gap: 18px; margin: 10px 0 0; }
+.wftog .linkbtn { gap: 6px; font-size: 12.5px; }
+.wftog .linkbtn svg { width: 10px; height: 10px; transition: transform .15s; }
+.wftog .linkbtn[aria-expanded="true"] svg { transform: rotate(180deg); }
+#mcpCfg[hidden] { display: none; }
+#mcpCfg > .boxwrap, #mcpCfg > .codewrap { margin-top: 10px; }
 .egrp.mcp td small.mnote { display: block; margin-top: 2px; color: var(--faint); font-size: 11.5px; white-space: normal; min-width: 180px; }
 .egrp.mcp td small.mnote.warn { color: var(--warn); }
 .egrp.mcp td small.mnote .linkbtn { padding: 0; margin: 0; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }

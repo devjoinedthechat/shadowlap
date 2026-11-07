@@ -98,6 +98,7 @@
     "packages/dashboard/test/ui-settings-shell.test.ts",
     "packages/dashboard/test/ui-settings-undo.test.ts",
     "packages/dashboard/test/ui-settings-store.test.ts",
+    "packages/dashboard/test/ui-settings-tools.test.ts",
     "packages/dashboard/test/ui-settings-calibrate.test.ts",
     "packages/dashboard/test/ui-ci-tab.test.ts",
     // This fits run names' about lines, which measures the page.
