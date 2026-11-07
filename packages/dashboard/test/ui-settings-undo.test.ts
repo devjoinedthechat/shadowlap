@@ -1,21 +1,24 @@
-import { act, createElement } from 'react';
+import { act, createElement, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MatchingSettings } from '../src/settings.js';
 import { ApiError } from '../ui/api.js';
+import { ToastHost } from '../ui/components/Toast.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import '../ui/pages/settings/jobs.js';
 import { onSettingsChanged } from '../ui/pages/settings/events.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { ToastAction } from '../ui/toast.js';
+import type { ToastAction, ToastKind } from '../ui/toast.js';
 import type { JobView } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
  * Undo on what Settings writes in one click: a rule removed goes back at its number (an Undo pressed
  * before the removal has landed waits for it rather than being lost, and a second press sends
- * nothing), the clock goes back to what the file said, and the normalizers calibrate added come out
- * again. A rule that can't be used gets no Undo: written back, every command would refuse the file.
+ * nothing), the clock and Push from CI go back to what the file said, and the normalizers calibrate
+ * added come out again. ⌘Z does it while the toast shows; a refused Undo says why in the page's words.
+ * The focus goes from a removed rule to the Remove taking its place, and to a rule put back. A rule
+ * that can't be used gets no Undo: written back, every command would refuse the file.
  */
 
 const config = (version: string) => ({ file: 'shadowlap.config.json', path: '/work/research-agent/shadowlap.config.json', exists: true, version, error: null });
@@ -50,6 +53,20 @@ function app(settings: Record<string, unknown>, toasts: Toasted[]): AppState {
     watchJob: () => undefined,
     toast: (text: string, kind?: string, action?: ToastAction) => toasts.push({ text, kind, action }),
   } as unknown as AppState;
+}
+
+/** `page` with its toast drawn, as the app draws it, so ⌘Z reaches the toast's Undo. */
+function hosted(value: AppState, page: ReactElement): ReactElement {
+  let id = 0;
+  function Host() {
+    const [toastText, setToastText] = useState<AppState['toastText']>(null);
+    const toast = (text: string, kind: ToastKind = 'notice', action?: ToastAction) => {
+      value.toast(text, kind, action);
+      setToastText({ id: ++id, text, kind, ...(action ? { action } : {}) });
+    };
+    return createElement(AppContext.Provider, { value: { ...value, toast, toastText } }, page, createElement(ToastHost));
+  }
+  return createElement(Host);
 }
 
 let r: Rendered | null = null;
@@ -162,6 +179,24 @@ describe('Undo on Matching', () => {
     expect([toasts[1].text, toasts[1].kind, toasts[1].action]).toEqual(['shadowlap.config.json changed on disk since this page read it. It shows the file as it is now; nothing was changed.', 'error', undefined]);
     await r.until('the file as it is now', () => r!.all('table.ruletable tbody tr').length === 1);
     expect(reads.mock.calls.length).toBeGreaterThan(read);
+  });
+
+  it('puts a removed rule back with ⌘Z while its toast shows, the focus on its Remove', async () => {
+    const toasts: Toasted[] = [];
+    let shown = matching('v1');
+    const removeRule = vi.fn(async () => ({ list: 'normalize', n: 2, rule: RULES[1].rule, version: 'v2' }));
+    const restoreRule = vi.fn(async () => ({ list: 'normalize', n: 2, version: 'v1' }));
+    r = await render(hosted(app({ matching: async () => shown, removeRule, restoreRule }, toasts), createElement(SettingsPage, { tab: 'matching' })));
+    await r.until('the rules', () => r!.all('table.ruletable tbody tr').length === 3);
+    shown = matching('v2', [RULES[0], { ...RULES[2], n: 2 }]);
+    await r.click(r.one('button[aria-label="Remove normalizer #2"]'));
+    await r.until('its toast', () => r!.all('.toast .tbtn').length === 1 && r!.all('table.ruletable tbody tr').length === 2);
+    shown = matching('v1');
+    const e = await r.press('z', { metaKey: true }, r.document.body);
+    await r.until('the rule back', () => r!.all('table.ruletable tbody tr').length === 3);
+    expect([e.defaultPrevented, restoreRule.mock.calls]).toEqual([true, [['normalize', 2, RULES[1].rule, 'v2']]]);
+    await r.until('its Remove focused', () => r!.focused().getAttribute('aria-label') === 'Remove normalizer #2' && r!.focused().closest('tr')!.textContent.includes('send_email'));
+    expect(toasts.map((t) => t.text)).toEqual(['Normalizer removed from shadowlap.config.json', 'Rule back in shadowlap.config.json']);
   });
 
   it('puts the clock back as the file had it, taking the key out where it had none', async () => {
