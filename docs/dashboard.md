@@ -1045,15 +1045,22 @@ Both are built from the verdict's report and the flags kept beside it, never fro
 
 A line under the verdict says which run is open and why, and what settling it takes (*about 12 attempts, ≈$0.045*), at the run's pass rate so far and the verdict's spend per attempt.
 
+The verdict line says what it checked and its oracle under the headline. Its command is the box at the foot, with its own Copy.
+
 Then come:
 
-- **Its oracle.**
-- **Each run's role, attempts, outcome and where it went**, and, when the verdict says them, the run's baseline (paired at the base revision or from history) and the bound on its drop from it. The bound reads as the CLI says it, *drop <= 0.10 (95%)*, the margin on hover.
+- **Each run**: its role, its id, its outcome as a dot and a word, and its tally and bound in one Attempts cell, with the interval against the gate's two marks. A run an attempt that couldn't be judged stopped reads amber, with no bar. Its attempts, and what they did grouped as on the Blame step, open under its row; `j` and `k` walk the runs.
+- **A run kept against its baseline** shows both tallies and the bound on its drop in its cell, as the CLI says it (*drop <= 0.10 (95%)*). Where it went says where the baseline came from (paired at the base revision, or from history), the margin on hover.
 - **Each run's attempts the provider left unavailable**, and the method behind its bound on hover.
-- **Each run's attempts grouped by what each did**, as on the Blame step.
-- **What the change does to input tokens and cost per run**, in one quiet line as verify prints it.
-- **What finding out cost**; for an inconclusive verdict, only what it spent.
-- **What answered the tool calls after the fork**, the change's and the baselines' apart, in the line verify prints under its warnings (*after the fork, the change's 9 attempts made 41 tool calls: 35 answered as recorded, 6 stubbed*). It shows only when an attempt made a tool call after its fork.
+- **The failing runs an accepted verdict left out**: *01M3RXQ4VB wasn't in this verify*, each with its about line on hover. While the header leads with Verify this run, the line says what it does; otherwise a small Verify this run sits beside it.
+
+Under them, in the order verify prints them:
+
+- its warnings;
+- **what answered the tool calls after the fork**, the change's and the baselines' apart (*after the fork, the change's 9 attempts made 41 tool calls: 35 answered as recorded, 6 stubbed*), only when an attempt made a tool call after its fork;
+- **what the change does to input tokens and cost per run**, in one quiet line;
+- **what finding out cost**, the judge's checks apart (*judge checks: 3 upstream requests, ≈$0.0020*); for an inconclusive verdict, only what it spent;
+- the command.
 
 The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1 kept*). A fix verified with a change of request fields has no patch: **Mark applied** says which fields, for you to set in your agent, and so does `fix apply`'s drawer.
 
