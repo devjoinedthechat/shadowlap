@@ -98,6 +98,8 @@ export interface PreviewView {
   receipt: PreviewReceipt;
   /** What a run the preview cleared rests on, once verify ran. */
   cleared: string;
+  /** Whether the project has redaction rules: an opened cell's cost says its values are masked by them. */
+  redacted: boolean;
 }
 
 export type PreviewSession = Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: Array<DecisionRow & PreviewRowFacts>; view: PreviewView };
@@ -143,16 +145,17 @@ function verifyView(v: DecisionsVerify, runs: readonly DecisionRun[]): PreviewVe
 }
 
 /** What the next step is picked from. */
-function nextFacts(store: Store, kind: 'decisions' | 'migrate', report: PreviewReport, v: DecisionsVerify | null, asked: boolean): PreviewNext {
+function nextFacts(store: Store, kind: 'decisions' | 'migrate', report: PreviewReport, v: DecisionsVerify | null, o: { asked: boolean; word: PreviewVerdict['word'] }): PreviewNext {
   const toVerify = report.toVerify ?? report.flagged;
   const taken = new Set(v?.runs.map((x) => x.runId) ?? []);
   const left = toVerify.filter((id) => !taken.has(id));
   const more = left.length ? [] : (v?.runs ?? []).filter((x) => runOutcomeWord(x.outcome) === 'inconclusive').map((x) => x.runId);
   const change = report.change;
-  const settled = !report.flagged.length || (v?.verdict === 'accepted' && !left.length);
+  // Settled as Verdicts says it: accepted with none left, or nothing to verify (not a preview that stopped short).
+  const settled = o.word === 'accepted' || o.word === 'nothing to verify';
   const waits = (report.judge?.inconclusive ?? 0) > 0;
   const migrate =
-    kind === 'decisions' && change?.model && !change.fromCode && asked && !waits && settled
+    kind === 'decisions' && change?.model && !change.fromCode && o.asked && !waits && settled
       ? { to: change.model, from: change.from ?? [], goldens: report.runs.flatMap((x) => (x.golden ? [x.golden] : [])), runs: report.runs.flatMap((x) => (x.golden ? [] : [x.runId])) }
       : null;
   return { verify: left.length ? { runs: left, every: left.length === toVerify.length, gone: left.filter((id) => !store.getRun(id)).length } : null, more, migrate };
@@ -176,8 +179,8 @@ function keptReport(r: Partial<PreviewReport>): PreviewReport {
   };
 }
 
-/** One kept session, its matrix's rows with their facts and its `view`; null for an id the store doesn't keep. */
-export function previewSession(store: Store, sessionId: string): PreviewSession | null {
+/** One kept session, its matrix's rows with their facts and its `view`; null for an id the store doesn't keep. `redacted`: the project has redaction rules. */
+export function previewSession(store: Store, sessionId: string, o: { redacted?: boolean } = {}): PreviewSession | null {
   const session = decisionSession(store, sessionId);
   const verdict = session && previewVerdictOf(store, sessionId);
   if (!session || !verdict) return null;
@@ -208,7 +211,7 @@ export function previewSession(store: Store, sessionId: string): PreviewSession 
     later: headline.asked ? { text: JUDGED_LATER, title: JUDGED_IN_RECORDED_STATE.split(':')[0]!, card: JUDGED_IN_RECORDED_STATE } : null,
     within: withinLine({ samples: report.samples, flagged: report.flagged, runs }),
     verify: v ? verifyView(v, runs) : null,
-    next: nextFacts(store, session.kind, report, v, headline.asked),
+    next: nextFacts(store, session.kind, report, v, { asked: headline.asked, word: verdict.word }),
     counts: { writes: c[1], stops: c[2], reads: c[3] + c[4], text: c[5], same: c.same, left: c.untouched, notAsked: c.notAsked, noise: c.noise ?? 0, waits: cells.filter((x) => x.judge === 'inconclusive').length, split: cells.filter(split).length },
     receipt: {
       perRun: cost.before !== null && cost.after !== null ? { before: cost.before, after: cost.after, change: percentChange(cost.before, cost.after) } : null,
@@ -219,15 +222,16 @@ export function previewSession(store: Store, sessionId: string): PreviewSession 
       stopReason: report.stopReason,
     },
     cleared: CLEARED,
+    redacted: o.redacted === true,
   };
   return { ...session, matrix, view };
 }
 
 /** One kept session for Changes' Preview, as `GET /api/decisions/:id` answers it. */
-export type DecisionSessionJob = { kind: 'decision-session'; sessionId: string };
+export type DecisionSessionJob = { kind: 'decision-session'; sessionId: string; redacted?: boolean };
 
 function sessionRead(store: Store, job: DecisionSessionJob): ReadAnswer {
-  const session = previewSession(store, job.sessionId);
+  const session = previewSession(store, job.sessionId, { redacted: job.redacted === true });
   return session ? answer(session, { tagged: true }) : failed(404, `no session ${job.sessionId.slice(0, 40)}`);
 }
 

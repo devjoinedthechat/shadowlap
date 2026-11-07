@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
+import type { PreviewView } from '../src/decision-view.js';
 import { decisionRow, decisionSession, retirementsView, runDecisions, type DecisionCell, type DecisionsListView } from '../src/decisions.js';
 import { commandTreeUse } from '../src/worktree.js';
 
@@ -180,9 +181,11 @@ describe('the decision routes', () => {
   });
 
   it('serves a session whole, a run\'s decisions, and the retirements', async () => {
-    const one = (await (await api(dash, 'decisions/dc-01M5000000000000000000000A')).json()) as { runs: DecisionRun[]; matrix: unknown[]; command: string };
+    const one = (await (await api(dash, 'decisions/dc-01M5000000000000000000000A')).json()) as { runs: DecisionRun[]; matrix: unknown[]; command: string; view: PreviewView };
     expect(one.runs.map((r) => r.runId)).toEqual([refunded, failed]);
     expect(one.matrix).toHaveLength(2);
+    // Worded on the server for Preview: no redaction rules in this project, so a cell's cost says none masked.
+    expect(one.view).toMatchObject({ name: 'Model switch to claude-sonnet-5-5 with temperature=1', samples: 2, verdict: { word: 'not verified' }, next: { verify: { runs: [refunded, failed], every: true, gone: 0 } }, redacted: false });
     expect(one.command).toBe('shadowlap decisions goldens/* --model claude-sonnet-5-5');
     expect((await api(dash, 'decisions/dc-01M5000000000000000000000Z')).status).toBe(404);
     const run = (await (await api(dash, `runs/${failed}/decisions`)).json()) as ReturnType<typeof runDecisions>;

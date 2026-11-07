@@ -53,7 +53,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/decisions/:id', async (r) => {
     const { byId } = loadRunIndex(ctx.store);
     const calls = ctx.store.decisionRunIds(r.params.id!).reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
-    sendAnswer(r, await ctx.reads.run({ kind: 'decision-session', sessionId: r.params.id! }, { calls }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'decision-session', sessionId: r.params.id!, redacted: ctx.config().redact.length > 0 }, { calls }));
   });
 
   // What Verify would bill on a kept session, or on the one run `runId` names, beside the server: it
