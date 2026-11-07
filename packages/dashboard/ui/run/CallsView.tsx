@@ -1,11 +1,10 @@
 import { memo, useEffect, useLayoutEffect, useRef } from 'react';
 import { claimCallFocus } from '../focus-manager.js';
 import type { CallRow } from '../api.js';
-import { Org } from '../components/bits.js';
+import { Org, SrSpace } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { callName, kindShort } from '../format.js';
 import type { CallIndex } from '../recorded.js';
-import type { Origin7 } from '../origins.js';
 import { cssVars } from '../dom.js';
 import { callDetail, originOf, resultLine, timeOf, tokensText } from './model.js';
 import { foldLabel, itemWords, type CallTree } from './groups.js';
@@ -25,92 +24,6 @@ import { ActionButton } from '../components/ActionButton.js';
  * calls under it has a fold mark that hides them and shows them again; a folded one says how many it
  * holds, and a batch's item names its conversation. The list is the same rows either way.
  */
-
-export type OriginFilter = 'all' | 'live' | 'rep' | 'over' | 'inject' | 'fail' | 'block';
-
-/** Whether an origin passes the origin filter: Fenced holds the blocked and the stubbed. */
-function originMatches(o: Origin7 | null, f: OriginFilter): boolean {
-  if (f === 'all') return true;
-  return f === 'block' ? o === 'block' || o === 'stub' : o === f;
-}
-
-/** A call not read yet passes on its origin alone, and no text filter: its words aren't there to match. */
-export function pendingMatches(c: PendingCall, f: OriginFilter, text: string): boolean {
-  return !text && originMatches(c.origin, f);
-}
-
-export function matchesFilter(c: CallRow, f: OriginFilter, text: string, asked?: string | null): boolean {
-  if (!originMatches(originOf(c), f)) return false;
-  if (!text) return true;
-  const d = callDetail(c, asked).text;
-  const res = resultLine(c)?.text ?? '';
-  return `${callName(c.kind, c.name)} ${c.name} ${d} ${res} ${c.model ?? ''} #${c.callNo}`.toLowerCase().includes(text.toLowerCase());
-}
-
-/**
- * The origin filters: All, Live and Replayed, then Overridden, Injected and Failed when the run has
- * any, and Fenced, which holds the writes blocked and stubbed after a fork, as the design names it.
- */
-export function originFilters(counts: Pick<Record<OriginFilter, number>, 'over' | 'inject' | 'fail'>): Array<[OriginFilter, string]> {
-  return [
-    ['all', 'All'],
-    ['live', 'Live'],
-    ['rep', 'Replayed'],
-    ...(counts.over ? ([['over', 'Overridden']] as Array<[OriginFilter, string]>) : []),
-    ...(counts.inject ? ([['inject', 'Injected']] as Array<[OriginFilter, string]>) : []),
-    ...(counts.fail ? ([['fail', 'Failed']] as Array<[OriginFilter, string]>) : []),
-    ['block', 'Fenced'],
-  ];
-}
-
-export function CallsToolbar({
-  counts,
-  filter,
-  onFilter,
-  text,
-  onText,
-  inputRef,
-  fold = null,
-}: {
-  counts: Record<OriginFilter, number>;
-  filter: OriginFilter;
-  onFilter: (f: OriginFilter) => void;
-  text: string;
-  onText: (t: string) => void;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  /** With the calls grouped: whether any group is folded (Unfold all), and how to fold them all or open them all. */
-  fold?: { all: boolean; onAll: (fold: boolean) => void } | null;
-}) {
-  const items = originFilters(counts);
-  return (
-    <div className="toolbar">
-      <div className="ofilter" role="group" aria-label="Filter by origin">
-        {items.map(([f, label]) => (
-          <button key={f} type="button" aria-pressed={filter === f} onClick={() => onFilter(f)}>
-            {label}
-            <b>{counts[f].toLocaleString('en-US')}</b>
-          </button>
-        ))}
-      </div>
-      <label className="filter-in">
-        <span className="sr">Filter calls</span>
-        <input
-          ref={inputRef}
-          type="search"
-          placeholder="Filter calls"
-          value={text}
-          onChange={(e) => onText(e.target.value)}
-        />
-        <span className="kbd">/</span>
-      </label>
-      {fold ? (
-        <button className="linkbtn foldall" type="button" onClick={() => fold.onAll(!fold.all)} title={fold.all ? 'Show every call under the call it belongs to' : 'Fold every model call over the calls under it, and every batch item over its calls'}>
-          {fold.all ? 'Unfold all' : 'Fold all'}
-        </button>
-      ) : null}
-    </div>
-  );
-}
 
 /** A call's row is one line, or two with a result under it: the window places rows by these shapes. A call not read yet is one line until it is. */
 const callShape = (c: ListedCall) => (!isPending(c) && resultLine(c) ? 'two' : 'one');
@@ -193,7 +106,9 @@ export function CallsTable({
           <th className="n">#</th>
           <th>Call</th>
           {scoped ? <th className="hide-sm">Scope</th> : null}
-          <th>Origin</th>
+          <th className="orgh">
+            <span className="orgw">Origin</span>
+          </th>
           <th className="num tok">Tokens</th>
           <th className="num">Time</th>
           <th className="rowact">
@@ -264,7 +179,7 @@ const PendingRow = memo(function PendingRow({ at, c, selected, scoped, mark, onS
   return (
     <tr data-wi={at} data-call={c.callNo} data-acts="" aria-rowindex={at + 2} aria-selected={selected} aria-busy="true" onClick={() => onSelect(c.callNo)}>
       <td className="n">
-        {mark ? <span className={`fk${mark === 'lost' ? ' bl' : ''}`}>{mark === 'fork' ? 'FORK' : 'LOST'}</span> : null}
+        {mark ? <Mark mark={mark} /> : null}
         {c.callNo}
       </td>
       <td className="name">
@@ -315,7 +230,7 @@ const Row = memo(function Row({
   return (
     <tr data-wi={at} data-call={c.callNo} data-acts="" aria-rowindex={at + 2} aria-selected={selected} onClick={() => onSelect(c.callNo)}>
       <td className="n">
-        {mark ? <span className={`fk${mark === 'lost' ? ' bl' : ''}`}>{mark === 'fork' ? 'FORK' : 'LOST'}</span> : null}
+        {mark ? <Mark mark={mark} /> : null}
         {c.callNo}
       </td>
       <td className="name" title={c.name} style={group ? cssVars({ '--lead': `${group.depth * 14 + 18}px` }) : undefined}>
@@ -332,11 +247,11 @@ const Row = memo(function Row({
         {group?.item ? <span className="gitem">{group.item}</span> : null}
         {group?.folded && group.kids ? <span className="gfold">{group.kids === 1 ? '1 call' : `${group.kids.toLocaleString('en-US')} calls`}</span> : null}
         {d.text ? <span className={`det${d.err ? ' err' : ''}`}>{d.text}</span> : null}
-        {res ? <span className={`res${res.err ? ' err' : ''}`}>→ {res.text}</span> : null}
+        {res ? <span className={`res${res.err ? ' err' : res.blocked ? ' blk' : ''}`}>→ {res.text}</span> : null}
       </td>
       {scoped ? (
         <td className="hide-sm scopecell">
-          <code>{c.scope ?? ''}</code>
+          <code title={c.scope ?? undefined}>{c.scope ?? ''}</code>
         </td>
       ) : null}
       <td>
@@ -365,3 +280,13 @@ const Row = memo(function Row({
     </tr>
   );
 });
+
+/** The fork's and the lost call's mark before the number, a space a screen reader says after it: "fork 17", not "fork17". */
+function Mark({ mark }: { mark: 'fork' | 'lost' }) {
+  return (
+    <>
+      <span className={`fk${mark === 'lost' ? ' bl' : ''}`}>{mark}</span>
+      <SrSpace />
+    </>
+  );
+}

@@ -4,12 +4,13 @@ import { tipCard } from '../components/HoverCard.js';
 import { callName, dur } from '../format.js';
 import { ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { scopeDepth, scopeLeaf, scopesOf } from '../scopes.js';
+import { callKind, KIND_COLOR, kindLabel } from './kinds.js';
 import { originOf, ticksFor, timelineOf, type TimelineRow } from './model.js';
 import { useWindow } from './window-hook.js';
 
 /**
- * Timeline: every call on one clock, coloured by origin, with a notch where a streamed answer's first
- * token arrived. With scopes, each scope gets a header showing the span it was busy. The summary
+ * Timeline: every call on one clock, coloured by origin, or on a recording by what each call was in
+ * the strip's key (`byKind`), with a notch where a streamed answer's first token arrived. With scopes, each scope gets a header showing the span it was busy. The summary
  * line says where the time went and what ran at once. Only the rows in view and a screenful either
  * side are drawn (window-hook.ts).
  */
@@ -22,7 +23,7 @@ const CLOCK_LINES = {
   shapeOf: (l: ClockLine) => l.kind,
   estimate: () => 22,
 };
-export function TimelineView({ calls, selected, scoped, onSelect }: { calls: CallRow[]; selected: number | null; scoped: boolean; onSelect: (n: number) => void }) {
+export function TimelineView({ calls, selected, scoped, byKind = false, onSelect }: { calls: CallRow[]; selected: number | null; scoped: boolean; byKind?: boolean; onSelect: (n: number) => void }) {
   const clock = useMemo(() => timelineOf(calls), [calls]);
   const { rows, end, parallel } = clock;
   // The calls that started while another ran: marked ∥ on their line.
@@ -55,8 +56,10 @@ export function TimelineView({ calls, selected, scoped, onSelect }: { calls: Cal
   const row = (r: TimelineRow<CallRow>, at: number) => {
     const c = r.call;
     const o = originOf(c);
+    const k = byKind ? callKind(c) : null;
     const ms = r.end - r.start;
-    const tip = tipCard(`#${c.callNo} ${callName(c.kind, c.name)}`, [{ label: ORIGIN_NAME[o], value: dur(ms), color: ORIGIN_COLOR[o] }, ...(r.firstToken !== null ? [{ label: 'first token', value: dur(r.firstToken), color: 'var(--dim)' }] : [])]);
+    const head = k ? { label: kindLabel(c), value: dur(ms), color: KIND_COLOR[k] } : { label: ORIGIN_NAME[o], value: dur(ms), color: ORIGIN_COLOR[o] };
+    const tip = tipCard(`#${c.callNo} ${callName(c.kind, c.name)}`, [head, ...(r.firstToken !== null ? [{ label: 'first token', value: dur(r.firstToken), color: 'var(--dim)' }] : [])]);
     return (
       <div key={c.callNo} data-wi={at} data-acts="" className={`tl-row${c.callNo === selected ? ' sel' : ''}`} onClick={() => onSelect(c.callNo)}>
         <span className="lab">
@@ -64,7 +67,7 @@ export function TimelineView({ calls, selected, scoped, onSelect }: { calls: Cal
           {lanes.has(c.callNo) ? ' ∥' : ''}
         </span>
         <span className="lane">
-          <i className={`bar ${o}`} style={{ left: pct(r.start), width: `max(3px, ${(Math.max(ms, 0) / end) * 100}%)` }} data-tip={tip}>
+          <i className={`bar ${k ?? o}`} style={{ left: pct(r.start), width: `max(3px, ${(Math.max(ms, 0) / end) * 100}%)` }} data-tip={tip}>
             {r.firstToken !== null && ms > 0 ? <i className="ft" style={{ left: `${Math.min(100, (r.firstToken / ms) * 100)}%` }} /> : null}
           </i>
         </span>

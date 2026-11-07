@@ -51,7 +51,7 @@ export function modelCallOf(calls: ReadonlyArray<Pick<CallLike, 'kind' | 'scope'
 }
 
 /** Tokens in and out, as `3.0k → 80`. */
-export function tokensText(c: CallLike): string {
+export function tokensText(c: Pick<CallLike, 'kind' | 'usage'>): string {
   if (c.kind !== 'api' || !c.usage) return '';
   return `${ktok(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)} → ${ktok(c.usage.output)}`;
 }
@@ -106,10 +106,11 @@ export function callDetail(c: CallLike, asked?: string | null): { text: string; 
  * model call that asked for no tool, what it answered (the agent's final answer), as the server
  * reads it from the response.
  */
-export function resultLine(c: CallLike): { text: string; err: boolean } | null {
+export function resultLine(c: CallLike): { text: string; err: boolean; blocked?: true } | null {
   if (c.kind === 'api') return c.outcome !== 'error' && c.resultShort && !c.asks?.length ? { text: c.resultShort, err: false } : null;
   if (c.kind !== 'tool') return null;
-  if (c.origin === 'blocked') return { text: 'blocked', err: true };
+  // Shadowlap's fence, not a failure: drawn in the blocked grey, never the red of what failed.
+  if (c.origin === 'blocked') return { text: 'blocked', err: false, blocked: true };
   // The server's line already says `stubbed …` for a write its stand-in answered.
   if (c.resultShort) return { text: c.resultShort, err: false };
   if (c.origin === 'stubbed') return { text: 'stubbed', err: false };

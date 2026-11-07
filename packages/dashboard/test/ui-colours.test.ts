@@ -92,6 +92,10 @@ describe('where a call’s answer came from', () => {
   const MARKS = ['.cells button', '.ms i', '.gs i', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org'];
   const mark = (m: string, o: string) => (m === '.org' ? '.org.' + o + ' i' : `${m}.${o}`);
 
+  it('draws a recording’s calls by kind in the kind’s own token, in the strip, its key and the Timeline alike', () => {
+    for (const m of ['.cells button', '.legend i.lg', '.tl-row .bar']) for (const k of ['k-model', 'k-read', 'k-write', 'k-err']) expect(value(`${m}.${k}`, 'background'), `${m}.${k}`).toBe(`var(--${k})`);
+  });
+
   it('draws a blocked write as a neutral hatch, fenced by its outline where a mark is big enough to show one', () => {
     for (const m of MARKS) expect(value(mark(m, 'block'), 'background'), m).toBe('var(--o-block-fill)');
     for (const m of ['.cells button', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org']) expect(value(mark(m, 'block'), 'box-shadow'), m).toBe('inset 0 0 0 1px var(--o-block)');
@@ -170,6 +174,11 @@ describe('what each colour may mean', () => {
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {
     expect(value('.tchip.s em', 'color')).toBe('var(--o-stub)');
     expect(value('.org.stub', 'color')).toBe('var(--o-stub)');
+  });
+
+  it('draws a blocked tool’s result in Calls in the blocked grey, as its origin is, the failure red kept for a call that failed', () => {
+    expect(value('table.calls .res.blk', 'color')).toBe('var(--o-block)');
+    expect(value('table.calls .res.err', 'color')).toBe('var(--err)');
   });
 
   it('marks the blamed call in ink with a halo, keeping amber for a probe that couldn’t decide', () => {
@@ -448,7 +457,7 @@ describe('forced colours', () => {
     expect(forced.get('.navlist a[aria-current="page"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('.run[aria-current="true"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
-    for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.ofilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
+    for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.legend.lfilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
   });
 

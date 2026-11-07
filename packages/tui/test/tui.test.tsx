@@ -196,6 +196,32 @@ describe('ease of use', () => {
     store.close();
   });
 
+  it('filters by origin with f, live, replayed, blocked and stubbed each keeping its own calls, then all again', async () => {
+    const { store, runId } = goldenStore();
+    const fork = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    const origins = ['replayed', 'replayed', 'replayed', 'blocked', 'stubbed', 'live'] as const;
+    for (const c of store.getCalls(runId).slice(0, 6)) {
+      const { end, attempts, ...start } = c;
+      void attempts;
+      const origin = origins[c.callNo - 1];
+      store.appendCallStart({ ...start, runId: fork.runId, origin });
+      if (end) store.appendCallEnd(c, { ...end, runId: fork.runId, ...(origin === 'blocked' ? { outcome: 'error' } : {}) });
+    }
+    store.endRun(fork.runId, 'completed');
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={fork.runId} columns={100} rows={30} />, 100, 30);
+    await frameWith(lastFrame, '#6');
+    // The list's rows, in the list's pane: each starts with its number, the selected one after a `>`.
+    const rows = (frame: string) => frame.split('\n').flatMap((l) => /^│[> ] #(\d+) /.exec(l)?.[1] ?? []).map(Number);
+    for (const [filter, shown] of [['live', [6]], ['replayed', [1, 2, 3]], ['blocked', [4]], ['stubbed', [5]]] as const) {
+      stdin.write('f');
+      const frame = await frameWith(lastFrame, `filter: ${filter} (${shown.length}/6)`);
+      expect(rows(frame), filter).toEqual(shown);
+    }
+    stdin.write('f');
+    expect(rows(await frameWithout(lastFrame, 'filter:'))).toEqual([1, 2, 3, 4, 5, 6]);
+    store.close();
+  });
+
   it('summarizes the run in the header, focuses panes, filters, and jumps between notable calls', async () => {
     const { store, runId } = goldenStore();
     const fork = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' } });

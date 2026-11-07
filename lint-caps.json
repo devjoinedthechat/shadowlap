@@ -219,7 +219,7 @@
       "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 48
+      "Workspace": 45
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
@@ -238,9 +238,6 @@
     },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31
-    },
-    "packages/dashboard/ui/run/parts.tsx": {
-      "DiffPanel": 32
     },
     "packages/engine/src/about.ts": {
       "changeWords": 31
