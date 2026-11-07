@@ -257,7 +257,13 @@ describe('Coding agents, as the design has it', () => {
     const install = r.byText('.skrow button', 'Install the skills');
     expect(install.className).toBe('btn lime');
     expect(rows(r)[0]).toBe('CLAUDE.mdfound · no Shadowlap section yet');
-    await r.click(r.byText('.skrow button', 'In every project on this machine'));
+    const all = r.byText('.skrow button', 'Show commands for every project');
+    expect(all.getAttribute('aria-expanded')).toBe('false');
+    await r.click(all);
+    expect(all.textContent).toBe('Hide commands for every project');
+    expect(all.getAttribute('aria-controls')).toBe('skall');
+    // The commands in a box of their own, its Copy in the corner named for what it copies.
+    expect(r.one('#skall .boxcopy').getAttribute('aria-label')).toBe('Copy commands');
     expect(r.all('.skrow .cmdline')[1].textContent).toBe('$claude plugin marketplace add devjoinedthechat/shadowlap@v0.1.0$claude plugin install shadowlap@shadowlap$claude plugin update shadowlap@shadowlap');
     await r.click(install);
     expect(startJob).toHaveBeenCalledWith('skill-install', { agent: 'claude-code', replace: false });
@@ -308,7 +314,8 @@ describe('Coding agents, as the design has it', () => {
     await r.until('the tab', () => r!.all('.agentsgone').length > 0);
     expect(r.one('.agentsgone').textContent).toBe('The instruction files can’t be read while the folder is gone.');
     expect(r.all('.agentfiles')).toHaveLength(0);
-    expect(r.all('.settab button').map((b) => b.textContent)).toEqual(['Copy the section']);
+    // The section's one Copy, in its box's corner.
+    expect(r.all('.settab button').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy section']);
   });
 });
 
