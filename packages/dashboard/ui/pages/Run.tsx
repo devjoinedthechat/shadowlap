@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useChange } from '../components/Conversation.js';
 import type { CallDetail, RunDetail } from '../api.js';
 import { LoadFailed } from '../components/bits.js';
 import { Tabs } from '../components/Tabs.js';
@@ -216,25 +217,8 @@ function useAncestors(run: RunDetail): RunDetail[] {
   return chain;
 }
 
-/** The turn a fork changed in the conversation at a call: the first that differs from the parent's at the same call. */
-function useChange(run: RunDetail, detail: CallDetail | null, forkAt: number | null): { turn: number; firstAt: number; by: 'fork' | 'replay' } | null {
-  const { client } = useApp();
-  const parent = run.run.parentRunId;
-  const n = detail?.call.callNo ?? null;
-  const want = !!parent && forkAt !== null && n !== null && n >= forkAt && detail?.call.kind === 'api' && !!detail.conversation;
-  const theirs = useLoad(() => (want && parent && n ? client.call(parent, n) : null), want ? `${parent}:${n}` : 'none');
-  return useMemo(() => {
-    if (!want || !detail?.conversation || !forkAt) return null;
-    const mine = detail.conversation.turns;
-    const other = theirs.data?.conversation?.turns;
-    if (!other) return null;
-    // The first turn that differs, or the first one the parent did not have (an instruction added at the end).
-    // A test's replay that diverged changed its request without forking: the message says "this replay".
-    const by = run.run.meta?.test ? 'replay' : 'fork';
-    for (let i = 0; i < mine.length; i++) if (i >= other.length || JSON.stringify(mine[i]) !== JSON.stringify(other[i])) return { turn: i, firstAt: forkAt, by };
-    return null;
-  }, [want, detail, theirs.data, forkAt, run.run.meta?.test]);
-}
+/** What changed a run's conversation: a fork, or a test's replay that diverged, which changed its request without forking (the message says "this replay"). */
+const changedBy = (run: RunDetail): 'fork' | 'replay' => (run.run.meta?.test ? 'replay' : 'fork');
 
 function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: string; call: number | null; view: View | null }) {
   const app = useApp();
@@ -304,7 +288,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // conversation's number left out; asked again, they wait for the analysis and take their place.
   const whole = useLoad<CallDetail>(() => (selected !== null && quick.data?.around ? client.call(runId, selected, { whole: true }) : null), `${detailKey}:whole:${quick.data?.around ? 'part' : ''}`);
   const detail = whole.data ? whole : quick;
-  const change = useChange(run, detail.data, forkAt);
+  const change = useChange({ parent: run.run.parentRunId, forkAt, detail: detail.data, by: changedBy(run) });
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);
   const waited = useMemo(() => (typeof run.notWaitedMs === 'number' ? { ms: run.notWaitedMs, unknown: 0 } : notWaited(calls, ancestors)), [run.notWaitedMs, calls, ancestors]);
 
