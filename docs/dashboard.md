@@ -2521,6 +2521,8 @@ It also checks the contrast of text and of a field's edge, the focus order, the 
 
 A second dashboard, started in the demo's triage-bot, checks [a link into another project](#a-link-into-another-project). Every run, fix and pair the server's links name is found in support-agent from there, and **Switch to support-agent** opens the run at the same call, its heading taking the focus.
 
+Settings is checked at a phone's width too: no tab scrolls sideways, each row's words sit over its control, and a redaction rule removed there comes back from its toast's Undo with `shadowlap.config.json` as it was, byte for byte.
+
 **A large store.** `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds a large store and times what a browser asks for on it; see [Large stores and long runs](#large-stores-and-long-runs).
 
 **Where the code is:**
