@@ -115,7 +115,7 @@ describe('where a call’s answer came from', () => {
     for (const s of ['.pips i', '.st.ok i', '.attempts span i', '.attempts a i', '.alist > .al > i', '.astrip .ac', 'td.hist i.pass::before', '.prl i.ok', '.recline .ic']) expect(value(s, 'background'), s).toBe('var(--cq-lime)');
     for (const s of ['.pips i.no', '.attempts span i.no', '.attempts a i.no', '.alist > .al > i.no', '.astrip .ac.no', '.fxlegend i.lg.block']) expect(value(s, 'background'), s).toBe('var(--cq-red)');
     expect(value('.fxlegend i.lg.rep', 'background')).toBe('var(--cq-lime)');
-    for (const s of ['.sbar i', '.stepper .done .k i', '.psteps .done i']) expect(value(s, 'background'), s).toBe('var(--dim)');
+    for (const s of ['.sbar i', '.stepper .done .k i', '.psk.done i']) expect(value(s, 'background'), s).toBe('var(--dim)');
     const misused = rules().filter((r) => /var\(--o-rep\)/.test(r.body) && !r.selectors.every((s) => /\.rep\b|\.clean\b|\.metric b\.lime|^:root$/.test(s)));
     expect(misused.map((r) => r.selectors.join(', '))).toEqual([]);
   });
@@ -191,7 +191,7 @@ describe('what each colour may mean', () => {
 
   it('draws a step that ran and needs a look in amber, never the grey of one not run yet', () => {
     expect(value('.stepper .warn .k i', 'background')).toBe('var(--cq-amber)');
-    expect(value('.psteps .warn', 'color')).toBe('var(--cq-amber)');
+    expect(value('.psk.warn', 'color')).toBe('var(--cq-amber)');
   });
 
   it('keeps money a receipt, and an inconclusive CI row amber', () => {
@@ -255,6 +255,8 @@ describe('lime', () => {
     '.prl i.ok': 'the pull request comment’s line that passed',
     '.recline .ic': 'a setup step’s run that came back',
     '.glyph.fixok': 'a fix that was accepted',
+    '.psk.done.s-verify': 'a fix’s Verify step that passed, on its Fixes row',
+    '.psk.done.s-verify i': 'a fix’s Verify step that passed, on its Fixes row',
     '.plist.checks li.met::before': 'a requirement met',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
@@ -320,8 +322,8 @@ describe('amber', () => {
     '.banner.fork': 'the design keeps a fork banner’s faint tint: the calls after a fork may differ from the recording',
     '.callrow .unsure .cn': 'a probe that couldn’t decide',
     '.callrow .unsure .pl': 'a probe that couldn’t decide',
-    '.psteps .warn': 'a step that ran and needs a look',
-    '.psteps .warn i': 'a step that ran and needs a look',
+    '.psk.warn': 'a step that ran and needs a look',
+    '.psk.warn i': 'a step that ran and needs a look',
     '.stepper .warn .k i': 'a step that ran and needs a look',
     '.fxwarn': 'what a fix asks you to look at',
     '.fxwarn.bad li.unsure': 'what a fix couldn’t decide',

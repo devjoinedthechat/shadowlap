@@ -228,7 +228,6 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 
 .ph p .badge { vertical-align: 1px; margin-right: 4px; }
 .ph p.chk { margin-top: 6px; max-width: none; }
-.ph p.chk code { font-size: 12.5px; color: var(--dim); }
 
 /* A comparison in a check wraps as a whole where there is room; on a phone, at its spaces. */
 .kc { white-space: nowrap; }
@@ -398,7 +397,6 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 
 .nw { white-space: nowrap; }
 
-.chip.ci { margin-left: 6px; }
 
 .codewrap { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); overflow: hidden; }
 .codehead { display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 14px; border-bottom: 1px solid var(--line); font: 11.5px var(--mono); color: var(--faint); }

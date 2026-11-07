@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordBlame, Store, type StoredFix } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun } from '../../engine/test/fix-fixtures.js';
 import { execFileSync } from 'node:child_process';
-import { ghEnv, isGithubPr, parsePrState, prHost, PrStates, readableHosts, remoteHost, startDashboard, type Dashboard, type FixList, type PrRead } from '../src/index.js';
+import { ghEnv, isGithubPr, parsePrState, prHost, PrStates, readableHosts, remoteHost, startDashboard, type Dashboard, type FixesView, type PrRead } from '../src/index.js';
 
 /**
  * A fix's pull request moves past "open" once the forge says so: read with gh in the background as
@@ -202,10 +202,10 @@ describe.skipIf(process.platform === 'win32')('a fix’s pull request on the das
   const fixes = async (d: Dashboard) => {
     const res = await fetch(`${d.url}/api/fixes`, { headers: { 'x-shadowlap-token': d.token } });
     expect(res.status).toBe(200);
-    return (await res.json()) as FixList;
+    return (await res.json()) as FixesView;
   };
 
-  const sourceOf = (list: FixList, id: string) => list.fixes.find((f) => f.fixId === id)!.source;
+  const sourceOf = (list: FixesView, id: string) => list.fixes.find((f) => f.fixId === id)!.source;
 
   it('asks no one from a read-only dashboard', async () => {
     expect(sourceOf(await fixes(readOnly), fixId)).toBe('from CI · PR #138');
@@ -220,6 +220,8 @@ describe.skipIf(process.platform === 'win32')('a fix’s pull request on the das
     for (let i = 0; i < 100 && store.getFix(fixId)!.data.source?.pr?.state !== 'merged'; i++) await new Promise((r) => setTimeout(r, 50));
     expect(store.getFix(fixId)!.data.source?.pr).toMatchObject({ url: PR, number: 138, state: 'merged' });
     expect(sourceOf(await fixes(dash), fixId)).toBe('from CI · PR #138 merged');
+    // Still open: no verdict that counts for it holds, so it stays blamed, never merged, and under Open.
+    expect((await fixes(dash)).fixes.find((f) => f.fixId === fixId)).toMatchObject({ rung: 'blamed', bucket: 'open', pr: { number: 138, state: 'merged' } });
     // Only github.com's was asked about, and without the server's token, which isn't for it.
     expect(readFileSync(join(bin, 'asked'), 'utf8').split('\n').filter(Boolean)).toEqual(['pr', 'view', PR, '--json', 'state']);
     expect(readFileSync(join(bin, 'tokens'), 'utf8').split('\n').filter(Boolean)).toEqual(['none']);

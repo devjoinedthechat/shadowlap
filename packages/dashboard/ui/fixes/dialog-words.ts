@@ -30,10 +30,15 @@ export const PULLED_LINE = 'It came from the team store, so nothing here runs it
  * and the replays after them, of every one. One in goldens/ already is copied by no step. A
  * teammate's patch, from the team store, runs nothing here: the patch alone.
  */
-export function applySteps(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'files' | 'pulled' | 'goldens'>, copying: { count: number; to: string | null } = { count: apply.goldens, to: null }): Array<{ what: string; where: string }> {
+export function applySteps(
+  apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'files' | 'pulled' | 'goldens'>,
+  copying: { count: number; to: string | null } = { count: apply.goldens, to: null },
+  /** Its pull request merged, and the patch is in the working tree: the patch is left as it is. */
+  merged: { pr: number | null } | null = null,
+): Array<{ what: string; where: string }> {
   const files = apply.files;
   const named = !files.length ? 'your files' : files.length === 1 ? files[0]! : `${files.slice(0, -1).join(', ')} and ${files.at(-1)!}`;
-  const patch = { what: 'Patch applied', where: `${named}, with git apply` };
+  const patch = merged ? { what: 'Patch left as it is', where: merged.pr === null ? 'merged in its pull request' : `merged in pull request #${merged.pr}` } : { what: 'Patch applied', where: `${named}, with git apply` };
   if (apply.pulled) return [patch];
   const n = copying.count;
   const copied = n === 1 ? 'Recording copied' : n ? `${n} recordings copied` : 'Recordings copied';

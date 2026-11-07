@@ -4,7 +4,8 @@ import { recordBlame, recordVerdict, Store, type BlameReport, type VerifyReport 
 import { blameReport, EXPECT, makeRun, verifyReport } from '../../engine/test/fix-fixtures.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import { blameEvidence, gateEvidence, methodWords, verifyEvidence } from '../src/evidence.js';
-import { fixDetail, fixList } from '../src/fixes.js';
+import { fixDetail } from '../src/fixes.js';
+import { fixesView } from '../src/fixes-view.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -34,7 +35,7 @@ const newRun = (o: Parameters<typeof makeRun>[1] = {}): string => makeRun(store 
 function app(groups: FixAttemptGroups | null = null): AppState {
   const client = {
     fix: (id: string) => Promise.resolve(fixDetail(store, id)),
-    fixes: () => Promise.resolve(fixList(store)),
+    fixes: () => Promise.resolve(fixesView(store)),
     attemptGroups: (id: string) => Promise.resolve(groups ?? { fixId: id, blame: null, verify: [], cut: false }),
     jobs: () => Promise.resolve([]),
   } as unknown as Client;

@@ -18,9 +18,9 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * and each part of a page heavy enough to wait for a script of its own: a run's views but Calls
  * (pages/Run.tsx), the dialog a run's action asks in (run/actions.tsx), and what a run's page
  * rarely opens, which keeps it within its budget: a diverged test's dialogs (run/diverged.tsx),
- * Export dataset… (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), Edit and fork…
- * (run/EditAndFork.tsx), Run blame's check (fixes/RunBlame.tsx), and Find breaking commit's and
- * Delete run's (run/RunDialogs.tsx). So must the structural diff
+ * Export dataset… (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), Edit and fork's
+ * dialog (run/EditDialog.tsx), Run blame's check (fixes/RunBlame.tsx), and Find breaking commit's
+ * and Delete run's (run/RunDialogs.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in

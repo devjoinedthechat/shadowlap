@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
 import { ConsentDialog } from '../components/Dialog.js';
-import { onShow } from '../components/OnShow.js';
 import { useApp } from '../state.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { tipEst } from '../components/JobButton.js';
+import { onShow } from '../components/OnShow.js';
 import { heldRunEstimates } from './estimates.js';
 
 /**
@@ -21,13 +21,13 @@ import { heldRunEstimates } from './estimates.js';
  * Cost line said; its card says the amount only where the fork menu has already asked at the call.
  */
 
-/** The editor, which a run's page rarely opens, a part of its own (EditDialog.tsx): it loads the first time it opens. */
-const EditDialog = onShow(() => import('./EditDialog.js').then((m) => m.EditDialog));
-
 /** The fork menu's override at this call, when it has one: a tool's result (`o`), or a person's answer (`u`). */
 export function overrideAction(detail: Pick<CallDetail, 'actions'>): ActionItem | null {
   return detail.actions.find((a) => a.key === 'o' || a.key === 'u') ?? null;
 }
+
+/** Its dialog, which a run's page rarely opens: a part of its own, as Find breaking commit's and Delete run's are (OnShow.tsx). */
+const EditDialog = onShow(() => import('./EditDialog.js').then((m) => m.EditDialog));
 
 export function EditAndFork({ runId, detail, live }: { runId: string; detail: CallDetail; live: boolean }) {
   const app = useApp();

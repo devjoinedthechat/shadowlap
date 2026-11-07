@@ -49,6 +49,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'store-facts': { kind: 'store-facts', stores: [{ id: 'here', dbPath: null, keep: null }] },
   training: { kind: 'training', tasks: [], tasksError: null, normalizers: [], redactRules: 0, filter: 'all' },
   fix: { kind: 'fix', fixId: FIX, repairer: null },
+  fixes: { kind: 'fixes', status: 'all', project: null, repairer: null, next: null },
   outcome: { kind: 'outcome', runId: FORK, work: null },
   next: { kind: 'next', runId: FORK, outcome: null, next: null },
   'runs-failures': { kind: 'runs-failures', options: { from: 0, to: NOW + 1, q: 'refund_agent' }, outcome: null },
