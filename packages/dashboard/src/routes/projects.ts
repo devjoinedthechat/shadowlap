@@ -8,6 +8,7 @@ import type { JobNotice } from '../jobs.js';
 import { addedMessage, addProjectPage, projectSwitcher, removeDialog, setupView, type PickedFolder, type SetupView } from '../projects.js';
 import { packTestKind } from '../pack-test.js';
 import { answerData } from '../read-pool.js';
+import { readingStores } from '../reading-stores.js';
 import type { Router } from '../router.js';
 import { countsOf, readTeamStoreInput } from '../team-store.js';
 
@@ -41,7 +42,7 @@ import { countsOf, readTeamStoreInput } from '../team-store.js';
  * fall back to the commands.
  */
 
-const ONE_STORE = 'this dashboard serves one store: start shadowlap dashboard to add and switch projects';
+export const ONE_STORE = 'this dashboard serves one store: start shadowlap dashboard to add and switch projects';
 
 /**
  * How a project's runs here stand with the team store its config names, for the Remove dialog: how
@@ -80,11 +81,12 @@ export function register(router: Router, ctx: RouteContext): void {
    * every run (read-jobs.ts `store-facts`): the current project's through its own threads, another's
    * from its file. A folder gone from disk has none, and a store that can't be read is left out, for
    * the host to read on this thread and say why. `keep`: the setup's recording, as the setup lists it.
+   * A project removed meanwhile waits for the read of its store to end (reading-stores.ts).
    */
   const factsBeside = async (h: ProjectHost<ProjectConfig>, projects: readonly ProjectEntry[], o: { keep?: boolean } = {}): Promise<Record<string, StoreFacts>> => {
     const current = h.currentProject();
     const stores = projects.filter((p) => existsSync(p.path)).map((p) => ({ id: p.id, dbPath: p.id === current ? null : h.context(p.id).dbPath, keep: o.keep ? p.setup.runId : null }));
-    return stores.length ? answerData<Record<string, StoreFacts>>(await ctx.reads.run({ kind: 'store-facts', stores })) : {};
+    return stores.length ? answerData<Record<string, StoreFacts>>(await readingStores(h, stores.map((s) => s.dbPath), () => ctx.reads.run({ kind: 'store-facts', stores }))) : {};
   };
   /** The last calibrate job's outcome per project, for its setup's third step (until the replay is clean). */
   const calibrations = new Map<string, { runId: string; outcome: CalibrationOutcome }>();

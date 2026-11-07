@@ -32,7 +32,7 @@ import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
 import { fitWork } from './fit-work.js';
 import { onShow } from '../components/OnShow.js';
 
-/** Delete run's dialog, which the page rarely opens, a part of its own as Find breaking commit's is (actions.tsx): the run page keeps within its budget. */
+/** Delete run's dialog, which a run's page rarely opens: a part of its own, with Find breaking commit's (OnShow.tsx). */
 const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.DeleteRunDialog));
 
 /**

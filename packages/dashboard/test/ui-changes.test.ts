@@ -605,9 +605,12 @@ describe('Compare under Changes', () => {
     expect(page.one('.ph h1').textContent).toBe('Changes');
     await page.unmount();
     addressBar(`#/compare/${REC}/${FORK}`);
-    const gone = { run: (id: string) => (id === FORK ? Promise.reject(new ApiError(404, 'no run')) : Promise.resolve(detail(id))), compare: () => new Promise(() => undefined) };
-    page = await render(createElement(AppContext.Provider, { value: app(gone as Partial<Client>, { runs: [listed(REC), listed(FORK)] }) }, createElement(ComparePage, { a: REC, b: FORK })));
+    // The page first asks whether another project's store holds the run that's gone (GET /api/projects/holding): none does.
+    const holding = () => Promise.resolve({ current: { id: 'support-agent', name: 'support-agent' }, held: null });
+    const gone = { run: (id: string) => (id === FORK ? Promise.reject(new ApiError(404, 'no run')) : Promise.resolve(detail(id))), compare: () => new Promise(() => undefined), projects: { holding } };
+    page = await render(createElement(AppContext.Provider, { value: app(gone as unknown as Partial<Client>, { runs: [listed(REC), listed(FORK)] }) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the pair forgotten', () => changesHref() === '#/compare');
+    await page.until('the not-found', () => page!.all('.stepempty h3').length === 1);
     expect(page.one('.stepempty h3').textContent).toBe('Not in this store');
   });
 

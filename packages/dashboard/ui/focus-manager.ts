@@ -171,6 +171,17 @@ export function headingRef(h: HTMLElement | null): void {
   if (h) settleFocus();
 }
 
+/**
+ * The page shown opens anew with its address kept, as a switch to the project that holds what a link
+ * names does (pages/Elsewhere.tsx): its heading takes the focus once it has drawn, as after an
+ * address change, the page holding it meanwhile.
+ */
+export function owePageHeading(): void {
+  pending = { sig: lastSig ?? pageSig(parseRoute(location.hash)), until: Date.now() + PENDING_MS, back: null };
+  const view = document.querySelector<HTMLElement>('#view');
+  if (view && !view.closest('[inert]')) focusQuiet(view);
+}
+
 /** What had the focus, found again by what it is, if it was drawn anew and the focus fell with it. */
 function keepFocus(): void {
   const a = document.activeElement;

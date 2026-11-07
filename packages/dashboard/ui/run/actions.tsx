@@ -18,7 +18,7 @@ import { onShow } from '../components/OnShow.js';
 
 /** The dialog an action asks in, a part of its own: it loads the first time an action asks something first (OnShow.tsx). */
 const ActionDialog = onShow(() => import('./ActionDialog.js').then((m) => m.ActionDialog));
-/** Find breaking commit's dialog, which the page rarely opens, a part of its own as Delete run's is (RunHeader.tsx): the run page keeps within its budget. */
+/** Find breaking commit's dialog, which a run's page rarely opens: a part of its own, with Delete run's (OnShow.tsx). */
 const BisectDialog = onShow(() => import('./RunDialogs.js').then((m) => m.BisectDialog));
 
 /**

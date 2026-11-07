@@ -24,7 +24,7 @@ export { quoteArgv } from './ui.js';
 // What `shadowlap test --json` writes, for tools that read it (the GitHub Action among them).
 export type { PackResult, TestReport } from './test-report.js';
 // The exit status contract, for the entry point (bin/shadowlap.js) and for tools that run the CLI.
-export { afterPendingSignals, CliError, EXIT, exitCodeOf, reportError, runToEnd, signalExit, stoppedBy, watchStopSignals } from './exit-codes.js';
+export { afterPendingSignals, CliError, endUncaught, EXIT, exitCodeOf, reportError, runToEnd, signalExit, stoppedBy, watchStopSignals } from './exit-codes.js';
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command()

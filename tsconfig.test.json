@@ -55,6 +55,7 @@
     "packages/dashboard/test/ui-run-attempts.test.ts",
     "packages/dashboard/test/ui-next-step.test.ts",
     "packages/dashboard/test/ui-compare-states.test.ts",
+    "packages/dashboard/test/ui-cross-project.test.ts",
     // These render the shell's dialogs and palette, or ask through the page's client.
     "packages/dashboard/test/ui-dialog-tab.test.ts",
     "packages/dashboard/test/ui-dialog-anatomy.test.ts",
