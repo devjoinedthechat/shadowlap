@@ -201,7 +201,7 @@
       "testsView": 62
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 83
+      "trainingView": 81
     },
     "packages/dashboard/test/static.test.ts": {
       "scriptEnd": 56
@@ -447,7 +447,7 @@
       "register": 239
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 168
+      "trainingView": 166
     },
     "packages/dashboard/ui/api.ts": {
       "createClient": 172
@@ -463,9 +463,6 @@
     },
     "packages/dashboard/ui/pages/Tests.tsx": {
       "TestsPage": 234
-    },
-    "packages/dashboard/ui/pages/Training.tsx": {
-      "TasksTab": 163
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
       "StoreSetup": 284

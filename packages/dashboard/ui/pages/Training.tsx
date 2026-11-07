@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { JOB_KINDS, type ModelsView, type PairGroupView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
-import { Badge, CmdLine, EmptyState, Kpi, PageHeader, Seg } from '../components/bits.js';
+import { JOB_KINDS, type ModelsView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
+import { EmptyState, PageHeader } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
-import { rowOpen } from '../components/Table.js';
+import { Section } from '../components/Section.js';
+import { ErrorState, Skeleton } from '../components/States.js';
 import { useTreeBusy } from '../fixes/tree.js';
-import { plural, shortId } from '../format.js';
+import { plural } from '../format.js';
 import { commandText } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
-import { navigate } from '../router.js';
 import { redactsFact } from '../run/share.js';
 import { useApp } from '../state.js';
-import { ENDPOINT, exportCommand, filterGroups, firstPick, leftNote, leftOutLine, noteTrainingCounts, notesLine, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCard, scoreCommand, scoreCost, scoreEstimate, scoreFields, sendTaskUpdate, takeTrainingDialog, whenDone, type LiveAsked, type PairChip, type TrainingDialog } from '../training.js';
+import { ENDPOINT, exportCommand, firstPick, leftOutLine, noteTrainingCounts, notesLine, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCard, scoreCommand, scoreCost, scoreEstimate, scoreFields, sendTaskUpdate, takeTrainingDialog, whenDone, type LiveAsked, type TrainingDialog } from '../training.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { JobButton } from '../components/JobButton.js';
@@ -22,17 +22,22 @@ import { liveFacts } from '../tests-ask.js';
 import type { CostLineProps } from '../components/CostLine.js';
 import { goldenPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { testsJob } from './tests-cards.js';
+import { projectOf } from '../shell/ProjectBlock.js';
+import { trainingFacts } from './training/facts.js';
+import { PairsTab } from './training/Pairs.js';
+import { OneSided, TaskNotes, TaskTable } from './training/Tasks.js';
 
 /**
  * Training (#/training, #/training/tasks): preference pairs read from the attempts blame, verify and
- * --repeat left in the store, and goldens as tasks a model is scored on. The strip and the tabs show
- * on both; Export pairs and Score a model run the CLI as jobs. It reads `/api/training`, and
- * `/api/models` for the picker; words and layout follow the mock.
+ * --repeat left in the store, and goldens as tasks a model is scored on. Its facts under the header
+ * (none in a project with no runs yet, and no counts on the tabs then) and the tabs show on both;
+ * Export pairs and Score a model run the CLI as jobs. It reads `/api/training`, and `/api/models`
+ * for the picker; words and layout follow the mock: sections, never cards.
  */
 
 
 export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
-  const { client, tick, exported, actionsOff, hasKind, guard } = useApp();
+  const { client, tick, exported, actionsOff, hasKind, guard, runs, meta } = useApp();
   const loaded = useLoad(() => (exported ? null : client.training()), 'training', tick);
   const view = loaded.data;
   const [dialog, setDialog] = useState<TrainingDialog | null>(null);
@@ -54,11 +59,13 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
   const canScore = !!view?.actions.scoreModel && hasKind(JOB_KINDS.score);
   // Scoring runs the agent from the project's working tree: not while a repair or an apply changes it.
   const busy = useTreeBusy('reads', 'score');
+  // A project with no runs yet has nothing to count: no facts, and the tabs say what each will hold.
+  const counted = !!view && runs?.length !== 0;
   const action = tab === 'pairs' ? (canExport ? { label: ACTIONS.exportPairs.label, kind: 'export' as const, off: actionsOff } : null) : canScore ? { label: ACTIONS.scoreModel.label, kind: 'score' as const, off: actionsOff ?? busy } : null;
   return (
     <Page busy={!view && !loaded.error && !exported}>
       <PageHeader
-        eyebrow="pairs · tasks · on this machine"
+        eyebrow={[projectOf(meta)?.name, 'training data'].filter(Boolean).join(' · ')}
         title="Training"
         text={
           <>
@@ -69,190 +76,36 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
           action?.kind === 'score' ? (
             <ScoreModelButton why={action.off} onOpen={() => guard(() => setDialog('score'))} />
           ) : action ? (
-            <ActionButton className="btn lime" why={action.off} onClick={() => guard(() => setDialog(action.kind))}>
+            <ActionButton className="btn lime" why={action.off} tip="Export pairs" sub="Asks the format and the confidence first" command="$ shadowlap export pairs" onClick={() => guard(() => setDialog(action.kind))}>
               {action.label}
             </ActionButton>
           ) : null
         }
+        facts={counted ? trainingFacts(view) : undefined}
+        factsLabel="Training"
       />
       {view ? (
         <>
-          <TrainingStrip view={view} />
           <nav className="stabs" aria-label="Training">
             <a href={href.training('pairs')} aria-current={tab === 'pairs' ? 'page' : undefined}>
-              Pairs<b>{view.tabs.pairs.toLocaleString('en-US')}</b>
+              Pairs{counted ? <b>{view.tabs.pairs.toLocaleString('en-US')}</b> : null}
             </a>
             <a href={href.training('tasks')} aria-current={tab === 'tasks' ? 'page' : undefined}>
-              Tasks<b>{view.tabs.tasks.toLocaleString('en-US')}</b>
+              Tasks{counted ? <b>{view.tabs.tasks.toLocaleString('en-US')}</b> : null}
             </a>
           </nav>
           {tab === 'tasks' ? <TasksTab view={view} /> : <PairsTab view={view} />}
         </>
       ) : loaded.error ? (
-        <EmptyState title="Training can’t be read" text={loaded.error.message} />
+        <ErrorState retry={loaded.reload}>Training can’t be read: {loaded.error.message}</ErrorState>
       ) : exported ? (
         <EmptyState title="Not in an exported copy" text="An exported copy holds runs and Compare between them. Training reads the store: open it from shadowlap dashboard." />
       ) : (
-        <div className="empty">Reading pairs and tasks…</div>
+        <Skeleton what="pairs and tasks" lines={4} />
       )}
       {dialog === 'export' && view ? <ExportPairsDialog view={view} onClose={() => setDialog(null)} /> : null}
       {dialog === 'score' && view ? <ScoreDialog view={view} busy={busy} onClose={() => setDialog(null)} /> : null}
     </Page>
-  );
-}
-
-// ---------------------------------------------------------------------------------------------- the strip
-
-/** The same four numbers on both tabs: what there is, what's usable, how models did, and what the last export wrote. */
-function TrainingStrip({ view }: { view: TrainingView }) {
-  const { pairs, tasks, best, left } = view.strip;
-  const count = (v: string) => (/^\d+$/.test(v) ? Number(v).toLocaleString('en-US') : v);
-  return (
-    <div className="panel kstrip">
-      <Kpi k="Pairs" value={count(pairs.value)} note={pairs.sub} tone="lime" href={href.training('pairs')} />
-      <Kpi k="Tasks ready" value={tasks.value} note={tasks.sub} href={href.training('tasks')} />
-      <Kpi k="Best mean score" value={best.value} note={best.sub} href={href.training('tasks')} />
-      <Kpi k="Exported" value={count(left.value)} note={left.file ? <span title={left.file === '-' ? 'Written to standard output' : `Written to ${left.file}`}>{leftNote(left)}</span> : left.sub} />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------------------------- pairs
-
-function PairsTab({ view }: { view: TrainingView }) {
-  const [chip, setChip] = useState<PairChip>('all');
-  const p = view.pairs;
-  if (p.empty) return <EmptyState title={p.empty.title} text={p.empty.text} command={p.empty.command} />;
-  const groups = filterGroups(p.groups, chip);
-  return (
-    <>
-      <section className="panel">
-        <header>
-          <h2>Pairs</h2>
-          <span className="sub">one answer that lost the run, one that went on to pass</span>
-          <span className="sp" />
-          <Seg
-            label="Confidence"
-            value={chip}
-            onChange={setChip}
-            items={[
-              { key: 'all', label: `All ${p.counts.all}` },
-              { key: 'high', label: `High ${p.counts.high}` },
-              { key: 'medium', label: `Medium ${p.counts.medium}` },
-            ]}
-          />
-        </header>
-        <div className="pgroups">
-          {groups.map((g) => (
-            <PairGroup key={g.key} g={g} />
-          ))}
-          {groups.length ? null : <div className="empty">No pairs here.</div>}
-        </div>
-      </section>
-      <div className="grid2 trgap">
-        <section className="panel">
-          <header>
-            <h2>Where they come from</h2>
-            <span className="sub">attempts already in the store</span>
-          </header>
-          <div className="srcs">
-            {p.sources.map((s) => (
-              <a key={s.key} href={s.href}>
-                <span className={`sn${s.made ? '' : ' zero'}`}>{s.made}</span>
-                <span>
-                  <b>{s.label}</b>
-                  <span className="rsub">{s.why}</span>
-                </span>
-                {s.made && s.confidence ? <Badge tone={s.confidence === 'high' ? 'ok' : 'y'}>{s.confidence}</Badge> : null}
-              </a>
-            ))}
-          </div>
-        </section>
-        <section className="panel fcol">
-          <header>
-            <h2>Confidence</h2>
-            <span className="sub">how sure a pair is</span>
-          </header>
-          <div className="lrows">
-            {p.confidence.map((c) => (
-              <div key={c.level}>
-                <Badge tone={c.level === 'high' ? 'ok' : 'y'}>{c.level}</Badge>
-                <span>
-                  <b>{c.title}</b>
-                  <span className="rsub">{c.sub}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="pfootnote">{p.footnote}</p>
-        </section>
-      </div>
-    </>
-  );
-}
-
-/**
- * Pairs from the same call share their conversation and rejected answer, so they show as one group,
- * headed by the run they are about at that call. A verify or `--repeat` answer came from an attempt
- * at that run: each answer links its own attempt. When the run never made that call (the change
- * verified added a step before it), the attempt heads the group, and says which run it replayed.
- */
-function PairGroup({ g }: { g: PairGroupView }) {
-  const ownAttempt = g.rejected.runId !== g.runId;
-  return (
-    <div className="pgroup">
-      <div className="pg1">
-        <Badge tone={g.confidence === 'high' ? 'ok' : 'y'}>{g.confidence}</Badge>
-        <a className="more" href={g.href} title={g.attemptOf ? 'Open the attempt at this call' : 'Open the run at this call'}>
-          <code>{shortId(g.runId)}</code> #{g.callNo}
-        </a>
-        {g.attemptOf ? (
-          <span className="pgof" title="The run it replayed never got here: the attempt took another path before this call">
-            attempt of{' '}
-            <a href={g.attemptOf.href}>
-              <code>{shortId(g.attemptOf.runId)}</code>
-            </a>
-          </span>
-        ) : null}
-        {g.fix ? (
-          <a className="chip" href={g.fix.href} title={`Open fix: ${g.fix.label}`}>
-            {g.fix.label}
-          </a>
-        ) : null}
-        <span className="pgsrc">{g.from}</span>
-        <span className="sp" />
-        <span className="pgn">{plural(g.count, 'pair')}</span>
-      </div>
-      {g.context ? <p className="pctx">{g.context}</p> : null}
-      <div className="ans">
-        <div>
-          <span className="k">rejected · {g.rejected.what}</span>
-          <code>{g.rejected.text}</code>
-          {ownAttempt ? (
-            <small className="rj">
-              <a href={g.rejected.href} title="Open the attempt at this call">
-                {shortId(g.rejected.runId)}
-              </a>
-            </small>
-          ) : null}
-        </div>
-        <div className="good">
-          <span className="k">{g.chosenLabel}</span>
-          <ul className="alts">
-            {g.chosen.map((c) => (
-              <li key={`${c.runId}:${c.callNo}`}>
-                <code>{c.text}</code>
-                <small>
-                  <a href={c.href} title="Open the attempt at this call">
-                    {shortId(c.runId)}
-                  </a>
-                </small>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -266,173 +119,24 @@ function TasksTab({ view }: { view: TrainingView }) {
   const t = view.tasks;
   if (t.error) return <EmptyState title="The tasks can’t be read" text={t.error} command="shadowlap tasks" />;
   if (t.empty) return <EmptyState title={t.empty.title} text={t.empty.text} command={t.empty.command} />;
-  const w = t.warning;
   // A task its test's early fork blocks: Update golden, off with the reason when nothing can run.
-  const canUpdate = hasKind(JOB_KINDS.taskUpdate);
   const updateOff = actionsOff ?? busy;
-  const updateButton = (u: TaskUpdate, name: string, cls: string) => <TaskUpdateButton className={cls} why={updateOff} update={u} name={name} onOpen={(estimate) => guard(() => setUpdating({ update: u, name, estimate }))} />;
+  const update = hasKind(JOB_KINDS.taskUpdate) ? (u: TaskUpdate, name: string) => <TaskUpdateButton className="btn sm" why={updateOff} update={u} name={name} onOpen={(estimate) => guard(() => setUpdating({ update: u, name, estimate }))} /> : null;
   return (
     <>
-      {w ? (
-        <div className="verdict warn">
-          <Badge tone="y">one-sided</Badge>
-          <div>
-            <h2>Every ready task rewards the same thing</h2>
-            <p>
-              All of them reward “{w.rewards}”, so a model that learned only that would score full marks.
-              {w.name ? (
-                <>
-                  {' '}
-                  <code>{w.name}</code> rewards the opposite once {w.once}.
-                </>
-              ) : null}
-            </p>
-          </div>
-          {w.fix?.update ? (
-            canUpdate ? <div className="actions">{updateButton(w.fix.update, w.name ?? w.fix.update.golden, 'btn sm')}</div> : null
-          ) : w.fix?.href ? (
-            <div className="actions">
-              <a className="btn sm" href={w.fix.href}>
-                {w.fix.label}
-              </a>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      <section className="panel">
-        <header>
-          <h2>Tasks</h2>
-          <span className="sub">a model takes over at one call, and the checks score what it did</span>
-        </header>
-        <div className="tscroll">
-          <table className="t gt tasks">
-            <thead>
-              <tr>
-                <th>Task</th>
-                <th className="hide-sm">Scored by</th>
-                <th className="hide-md">After the takeover</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {t.rows.map((r) => (
-                <tr key={r.golden} className={r.href ? undefined : 'static'} {...(r.href ? rowOpen(() => navigate(r.href!)) : {})}>
-                  <td>
-                    {r.href ? (
-                      <a className="rowa" href={r.href} title={r.opens ?? undefined}>
-                        <code>{r.name}</code>
-                      </a>
-                    ) : (
-                      <code>{r.name}</code>
-                    )}
-                    <span className="rsub">{r.sub}</span>
-                  </td>
-                  <td className="chk hide-sm">
-                    {r.checks.map((c) => (
-                      <span key={c}>{c}</span>
-                    ))}
-                  </td>
-                  <td className="hide-md">
-                    {r.after && (r.after.live.length || r.after.stubbed.length) ? (
-                      <div className="tchips">
-                        {r.after.live.map((n) => (
-                          <span key={`l:${n}`} className="tchip">
-                            <code>{n}</code>
-                            <em>live</em>
-                          </span>
-                        ))}
-                        {r.after.stubbed.map((n) => (
-                          <span key={`s:${n}`} className="tchip s">
-                            <code>{n}</code>
-                            <em>stubbed</em>
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td>
-                    <Badge tone={r.status.badge}>{r.status.label}</Badge>
-                    {r.status.short ? <span className="rsub">{r.status.short}</span> : null}
-                    {r.update && canUpdate ? <div className="trupd">{updateButton(r.update, r.name, 'btn sm')}</div> : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {t.warning ? <OneSided w={t.warning} ready={view.tabs.tasks} update={update} /> : null}
+      <TaskTable rows={t.rows} update={update} />
       {updating ? <TaskUpdateDialog name={updating.name} update={updating.update} estimate={updating.estimate} busy={updateOff} onClose={() => setUpdating(null)} /> : null}
       <Scores view={view} />
-      <div className="grid2 trgap">
-        <section className="panel">
-          <header>
-            <h2>From a training loop</h2>
-            <span className="sub">one HTTP call per attempt</span>
-          </header>
-          <div className="pbody">
-            <p className="muted">Serve the model you’re training on an OpenAI-compatible endpoint. Each attempt returns its score, to use as the reward.</p>
-            <CmdLine>{view.serve?.command ?? 'shadowlap tasks serve goldens/ --port 4779'}</CmdLine>
-            {view.serve ? (
-              <>
-                {/* Nothing was asked: an example, with a placeholder run and one check missed, so a score reads as the share passed. */}
-                <p className="muted trafter">For example, one attempt and the score it answers with:</p>
-                <pre tabIndex={0} className="report trserve">{`${view.serve.request}\n\n${view.serve.response}`}</pre>
-              </>
-            ) : (
-              <p className="muted trafter">Once a task is ready, each request scores one attempt at it.</p>
-            )}
-          </div>
-        </section>
-        <section className="panel">
-          <header>
-            <h2>What a score can’t tell you</h2>
-          </header>
-          <div className="lrows">
-            <div>
-              <span>
-                <b>Reads run live.</b>
-                <span className="rsub">
-                  After the takeover, read tools call the real services, so those must be up. <code>--reads replay</code> serves matching calls from the recording instead.
-                </span>
-              </span>
-            </div>
-            <div>
-              <span>
-                <b>Writes are stubbed.</b>
-                <span className="rsub">A task can’t score what a write would have caused.</span>
-              </span>
-            </div>
-            <div>
-              <span>
-                <b>A model learns what the checks reward.</b>
-                <span className="rsub">
-                  Weak checks teach the wrong thing
-                  {t.weak ? (
-                    <>
-                      . That’s why <code>{t.weak}</code> isn’t a task.
-                    </>
-                  ) : (
-                    '.'
-                  )}
-                </span>
-              </span>
-            </div>
-          </div>
-        </section>
-      </div>
+      <TaskNotes view={view} />
     </>
   );
 }
 
-/** A card per model, then a pip per attempt on each ready task, each opening its run. */
 function Scores({ view }: { view: TrainingView }) {
   const s = view.scores;
   return (
-    <section className="panel trgap">
-      <header>
-        <h2>Scores</h2>
-        <span className="sub">{s.sub}</span>
-      </header>
+    <Section title="Scores" sub={s.sub}>
       {s.empty ? (
         <div className="pbody">
           <p className="muted flat">{s.empty}</p>
@@ -500,7 +204,7 @@ function Scores({ view }: { view: TrainingView }) {
         </>
       )}
       <p className="pfootnote">{s.footnote}</p>
-    </section>
+    </Section>
   );
 }
 
