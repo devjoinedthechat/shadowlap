@@ -1,4 +1,4 @@
-import { argsDelta, decisionLine, decisionStepState, judgedOutcome, judgeOpen, judgeWords, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type Palette } from '@shadowlap/engine';
+import { argsDelta, decisionLine, decisionStepState, judgedOutcome, judgeOpen, judgeWords, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type DecisionView, type Palette } from '@shadowlap/engine';
 
 /**
  * A preview's matrix as Changes and a run's Decisions view draw it: a row per run, a cell per model
@@ -91,13 +91,16 @@ export function toned(words: (p: Palette) => string): Toned[] {
   return out;
 }
 
+/** Each changed argument of a step, field by field: `lookup_policy.amount: 240 → —`. */
+const argLines = (s: DecisionStep): string[] => s.changes.filter((c) => c.kind === 'write-arguments' || c.kind === 'read-arguments').flatMap((c) => argsDelta(c.before, c.after).map((d) => `${c.tool ?? ''}.${d}`));
+
 /** A step's opened words: its samples' short form, both stops, its arguments field by field, its judges, its cost either way. */
 function cellOpen(s: DecisionStep): CellOpen | null {
   if (!s.now || !s.samples.answered) return null;
   return {
     short: s.samples.asked > 1 ? samplesWords(s, { short: true }) : null,
     stops: { recorded: STOP_WORDS[s.recorded.stop], now: STOP_WORDS[s.now.stop] },
-    args: s.changes.filter((c) => c.kind === 'write-arguments' || c.kind === 'read-arguments').flatMap((c) => argsDelta(c.before, c.after).map((d) => `${c.tool ?? ''}.${d}`)),
+    args: argLines(s),
     judges: (s.judge ?? []).map((j) => ({ name: j.name, words: toned((p) => judgeWords(j, p)) })),
     delta: stepDelta(s),
   };
@@ -229,4 +232,57 @@ export function decisionRow(run: DecisionRun, o: { fromCode?: boolean } = {}): D
   const opts = { refused: run.refused, fromCode: !!o.fromCode };
   const cells = [...run.decisions].sort((a, b) => a.callNo - b.callNo).map((s) => decisionCell(s, opts));
   return { runId: run.runId, golden: run.golden, title: run.runId.slice(0, 10), rank: run.rank, flagged: run.majority !== null && run.majority <= 2, cells, ending: rowEnding(run) };
+}
+
+/**
+ * A step a run's Decisions view lists: what changed and how often, both decisions a line each, its
+ * cost either way and its arguments field by field.
+ */
+export interface ViewStep {
+  callNo: number;
+  /** Its rank, 1 to 5; null for a change within the model's own variation. */
+  rank: number | null;
+  /** The change in a few words: `send_email is no longer called`. */
+  detail: string;
+  /** How often its samples changed, for a narrow column: `in 1 of 3, 0 of 3 as recorded, not flagged`; null asked once. */
+  short: string | null;
+  /** A judge could not read the words of a sample, and nothing else flags the step. */
+  waits: boolean;
+  /** Each side's decision in a line (`quoteLine`). */
+  recorded: string;
+  now: string;
+  /** `+120 tokens · +$0.002`; empty without the tokens or a price. */
+  delta: string;
+  args: string[];
+}
+
+/**
+ * A decision in a line of the Decisions view, the column beside the inspector: an answer longer
+ * than the line is cut where a sentence ends, when one does before the cut, else after a whole word
+ * (`This needs tier-2 approval. …`), so no quote breaks inside a sentence or a word.
+ */
+export function quoteLine(d: DecisionView | null, width = 64): string {
+  const text = d && !d.tools.length ? d.text.replace(/\s+/g, ' ') : '';
+  if (!d || text.length <= width) return decisionLine(d, width);
+  const cut = text.slice(0, width - 1);
+  const m = /^.*[.!?](?= )/.exec(cut) ?? /^.*\S(?= )/.exec(cut);
+  return decisionLine(m ? { ...d, text: `${m[0]} …` } : d, width);
+}
+
+/** The steps a run's Decisions view lists: its ranked ones, most consequential first, then those within the model's own variation, the most changed first. */
+export function viewSteps(run: DecisionRun): ViewStep[] {
+  const listed = run.refused ? [] : run.decisions.filter((s) => s.rank !== null || decisionStepState(s) === 'noise');
+  return listed
+    .sort((a, b) => (a.rank ?? 6) - (b.rank ?? 6) || b.samples.changed - a.samples.changed || a.callNo - b.callNo)
+    .map((s) => ({
+      callNo: s.callNo,
+      rank: s.rank,
+      detail: detailOf(s) ?? '',
+      short: s.samples.asked > 1 ? samplesWords(s, { short: true }) : null,
+      waits: judgeOpen(s),
+      recorded: quoteLine(s.recorded),
+      now: quoteLine(s.now),
+      delta: stepDelta(s),
+      args: argLines(s),
+    }));
 }

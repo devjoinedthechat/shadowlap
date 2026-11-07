@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { previewSession, withinLine } from '../src/decision-view.js';
+import { quoteLine } from '../src/decision-cells.js';
 
 /**
  * A kept session as Changes' Preview shows it, worded on the server: its verdict in each state
@@ -166,5 +167,16 @@ describe('the within-variation line', () => {
     expect(withinLine({ samples: 2, flagged: [b], runs })).toBe("1 more run changes a write within the model's own variation");
     expect(withinLine({ samples: 1, flagged: [b], runs })).toBeNull();
     expect(withinLine({ samples: 2, flagged: [], runs: [runOf(a, null, [step(3, null)])] })).toBeNull();
+  });
+});
+
+describe('a quote in the Decisions view', () => {
+  const said = (text: string) => ({ stop: 'answer' as const, stopReason: null, tools: [], text });
+  it('cuts an answer longer than its line where a sentence ends, else after a whole word, and keeps tool calls and short answers', () => {
+    expect(quoteLine(said('This needs tier-2 approval. I have asked a manager to sign off on the refund for order A-1042.'))).toBe('answers and stops: "This needs tier-2 approval. …"');
+    expect(quoteLine(said('I have asked a manager to sign off on the refund for order A-1042 before I send anything'))).toBe('answers and stops: "I have asked a manager to sign off on the refund for order …"');
+    expect(quoteLine(said('Refunded.'))).toBe('answers and stops: "Refunded."');
+    expect(quoteLine({ stop: 'tools', stopReason: null, tools: [{ name: 'issue_refund', args: { order: 'A-1042' }, effect: 'write' }], text: '' })).toBe('issue_refund({"order":"A-1042"})');
+    expect(quoteLine(null)).toBe('no answer');
   });
 });

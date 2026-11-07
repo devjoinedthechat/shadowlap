@@ -1,12 +1,12 @@
 import { commandIsImported, type DecisionRun, fieldValue, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, type RetirementNotice, retirementOf, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyWords } from '@shadowlap/engine';
-import { decisionRow, type DecisionRow } from './decision-cells.js';
+import { decisionRow, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { optionLike, type GoldenSource } from './tests.js';
 import { sessionFacts } from './verdicts.js';
 
-export { decisionRow, type DecisionCell, type DecisionRow, type RowEnding } from './decision-cells.js';
+export { decisionRow, type DecisionCell, type DecisionRow, type RowEnding, type ViewStep } from './decision-cells.js';
 
 /**
  * The decision diff as the dashboard reads it (`shadowlap decisions`, `migrate`): the sessions the
@@ -99,6 +99,8 @@ export interface RunDecisionsSession {
   href: string;
   changes: string;
   row: DecisionRow;
+  /** The steps its view lists, ranked first, each worded (`viewSteps`). */
+  steps: ViewStep[];
   run: DecisionRun;
   /** Whether the session left it to verify (`toVerify`; a session kept before it said which, the flagged). */
   toVerify: boolean;
@@ -131,6 +133,7 @@ export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string,
         href: links.run(runId, call, 'decisions'),
         changes: links.changeSession(r.kind, r.sessionId, runId, call),
         row,
+        steps: viewSteps(run),
         run,
         toVerify: !!f?.toVerify.includes(runId),
         verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), rule: entry.rule ?? v?.rule ?? null } : null,

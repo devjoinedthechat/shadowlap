@@ -846,12 +846,18 @@ export function argsDelta(before: unknown, after: unknown, width = 60): string[]
   return keys.filter((k) => canonicalize(before[k] ?? null) !== canonicalize(after[k] ?? null) || (k in before) !== (k in after)).map((k) => safeLine(`${k}: ${clip(before[k])} → ${clip(after[k])}`));
 }
 
-/** A decision in one line: its tool calls, or how it ended. */
+/**
+ * A decision in one line: its tool calls, or how it ended. An answer too long for the line is cut
+ * after a whole word, never inside one, without the comma or dash before the cut (`it’s with…`,
+ * not `it’s wi…`); a word longer than half the line is cut where the line ends.
+ */
 export function decisionLine(d: DecisionView | null, width = 72): string {
   if (!d) return 'no answer';
   if (d.tools.length) return d.tools.map((t) => callLine(t.name, t.args, Math.max(24, Math.floor(width / d.tools.length)))).join(' + ');
-  const said = d.text ? `: "${safeLine(d.text.length > width ? `${d.text.slice(0, width - 1)}…` : d.text)}"` : '';
-  return `${STOP_WORDS[d.stop]}${said}`;
+  const text = d.text ?? '';
+  const at = text.lastIndexOf(' ', width - 1);
+  const cut = text.length > width ? `${text.slice(0, at > width / 2 ? at : width - 1).replace(/[\s,;:·…–—-]+$/, '')}…` : text;
+  return `${STOP_WORDS[d.stop]}${cut ? `: "${safeLine(cut)}"` : ''}`;
 }
 
 /** How far a cost or a count moved, in words: `+25%`, `−50%`, `about the same`, `the same`, `new` (from nothing). */

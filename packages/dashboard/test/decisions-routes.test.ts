@@ -141,7 +141,6 @@ describe('the decision read models', () => {
   it('fills a migrate session\'s decisions in from its runs, and finds a run\'s decisions newest first', () => {
     const m = decisionSession(store, 'mg-01M5000000000000000000000B')!;
     expect(m).toMatchObject({ kind: 'migrate', to: 'claude-haiku-4-5', decisions: { runs: [{ runId: refunded }] } });
-    // A run's part of a session opens the run at its most consequential change, as its page's Decisions view lists it.
     // A run's part of a session opens its Decisions view at its most consequential change, and its cell on Changes.
     expect(runDecisions(store, refunded).sessions.map((s) => [s.sessionId, s.kind, s.rank, s.href, s.changes])).toEqual([
       ['mg-01M5000000000000000000000B', 'migrate', 1, `#/run/${refunded}/5/decisions`, `#/changes/migrate/mg-01M5000000000000000000000B/${refunded}/5`],
@@ -150,6 +149,11 @@ describe('the decision read models', () => {
     expect(runDecisions(store, refunded).sessions.map((s) => [s.name, s.samples, s.toVerify, s.verified])).toEqual([
       ['claude-sonnet-4-5-20250929 → claude-haiku-4-5', 2, true, null],
       ['Model switch to claude-sonnet-5-5 with temperature=1', 2, true, null],
+    ]);
+    // Its view lists its ranked steps, most consequential first, each worded on the server.
+    expect(runDecisions(store, refunded).sessions[1]!.steps).toEqual([
+      { callNo: 5, rank: 1, detail: 'issue_refund is no longer called', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
+      { callNo: 3, rank: 4, detail: 'a read asked differently', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
     ]);
     expect(runDecisions(store, failed).sessions.map((s) => s.href)).toEqual([`#/run/${failed}/5/decisions`]);
     expect(decisionSession(store, 'dc-nope')).toBeNull();

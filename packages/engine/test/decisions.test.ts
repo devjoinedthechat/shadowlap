@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, controlOpen, decisionOf, decisionOfResponse, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, migrateBreaks, migrateUnsettled, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, unsettledRun, type DecisionJudge, type DecisionRun, type DecisionStep, type DecisionsReport, type EffectOf, type ModelDecision, type UnsettledRun, needsVerify, type DecisionView } from '../src/decisions.js';
+import { compareDecisions, controlOpen, decisionOf, decisionOfResponse, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, migrateBreaks, migrateUnsettled, modelFamily, decisionLine, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, unsettledRun, type DecisionJudge, type DecisionRun, type DecisionStep, type DecisionsReport, type EffectOf, type ModelDecision, type UnsettledRun, needsVerify, type DecisionView } from '../src/decisions.js';
 import { chanceRanked } from '../src/control-arm.js';
 import type { Effect } from '../src/types.js';
 
@@ -594,5 +594,18 @@ describe('chanceRanked', () => {
       expect(chanceRanked(n, 1)).toBeCloseTo(1);
       expect(chanceRanked(n, 0)).toBe(0);
     }
+  });
+});
+
+describe('decisionLine', () => {
+  const said = (text: string): DecisionView => ({ tools: [], stop: 'answer', stopReason: null, text });
+  it('cuts a long answer after a whole word, never inside one, and drops the comma or dash before the cut', () => {
+    expect(decisionLine(said('I can refund it, but only with a manager’s sign-off on the order first'), 40)).toBe('answers and stops: "I can refund it, but only with a…"');
+    expect(decisionLine(said('Refunded in full, sent the label – arrives Friday'), 36)).toBe('answers and stops: "Refunded in full, sent the label…"');
+    expect(decisionLine(said('Refunded, and the label is on its way'), 12)).toBe('answers and stops: "Refunded…"');
+  });
+  it('keeps an answer that fits whole, and cuts a word longer than half the line where the line ends', () => {
+    expect(decisionLine(said('Refunded.'), 40)).toBe('answers and stops: "Refunded."');
+    expect(decisionLine(said(`ok ${'x'.repeat(30)}`), 20)).toBe(`answers and stops: "ok ${'x'.repeat(16)}…"`);
   });
 });
