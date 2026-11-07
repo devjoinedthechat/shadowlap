@@ -1,4 +1,4 @@
-import { byRule, CLEARED, decisionsHeadline, emptyCounts, endToEndWords, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, percentChange, plural, runOutcomeWord, stepsAsked, tallyWords, verdictWord, verifiedCount, verifyHead, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
+import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, percentChange, plural, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, verdictWord, verifiedCount, verifyHead, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
 import type { DecisionCell, DecisionRow } from './decision-cells.js';
 import { decisionSession, sessionReport } from './decisions.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
@@ -79,15 +79,28 @@ export interface PreviewReceipt {
   stopReason: string | null;
 }
 
+/** A key's entry: its count, its words, the cells' colour it counts, and its card, the rule it stands on. */
+export interface PreviewKeyEntry {
+  n: number;
+  words: string;
+  /** `w` a write, `s` a stop, `r` a read, `m` the same, `un` left as recorded, `jw` waits on a judge, `na` not asked, `spl` split. */
+  sw: 'w' | 's' | 'r' | 'm' | 'un' | 'jw' | 'na' | 'spl';
+  card: { title: string; text: string | null; rows: Array<[string, string]> };
+}
+
 export interface PreviewView {
   name: string;
+  /** The change in words, as the session kept it (`the model claude-haiku-4-5`), for the ask's lead. */
+  change: string;
+  /** The command that made it, to copy. */
+  command: string;
   samples: number;
   unit: 'golden' | 'run';
   /** Verdicts' verdict for it: its word and tone, the line under it, the runs left to verify, what flags them and what moved. */
   verdict: Pick<PreviewVerdict, 'word' | 'tone' | 'line' | 'toVerify' | 'flaggedRank' | 'moved'>;
   headline: DecisionsHeadline;
-  /** `56 steps asked, 3 samples each and as many as recorded`; `once`, each step asked once. */
-  steps: { text: string; once: boolean };
+  /** `56 steps asked, 3 samples each and as many as recorded`; `once`, each step asked once; what the line says after it (`4 not asked`, `no tool ran`); the report's notes, on its card. */
+  steps: { text: string; once: boolean; tail: string[]; notes: string[] };
   /** The later steps in a few words, its card's title and sentence; null when no step was asked. */
   later: { text: string; title: string; card: string } | null;
   /** The runs a write, stop or judged change shows in that doesn't flag them, on a line of their own. */
@@ -95,6 +108,10 @@ export interface PreviewView {
   verify: PreviewVerify | null;
   next: PreviewNext;
   counts: PreviewCounts;
+  /** The key's entries: the ranked counts, then the quieter ones. */
+  key: { main: PreviewKeyEntry[]; quiet: PreviewKeyEntry[] };
+  /** What couldn't be asked or judged, the report's and each run's, once each. */
+  warnings: string[];
   receipt: PreviewReceipt;
   /** What a run the preview cleared rests on, once verify ran. */
   cleared: string;
@@ -102,7 +119,7 @@ export interface PreviewView {
   redacted: boolean;
 }
 
-export type PreviewSession = Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: Array<DecisionRow & PreviewRowFacts>; view: PreviewView };
+export type PreviewSession = Record<string, unknown> & { sessionId: string; kind: 'decisions' | 'migrate'; matrix: Array<DecisionRow & PreviewRowFacts>; view: PreviewView };
 
 /** A band's colour by its rank, as a cell draws it: a write, a stop, a read, else the same or words. */
 const band = (r: number) => (r === 1 ? 'w' : r === 2 ? 's' : r === 3 || r === 4 ? 'r' : 'm');
@@ -161,7 +178,38 @@ function nextFacts(store: Store, kind: 'decisions' | 'migrate', report: PreviewR
   return { verify: left.length ? { runs: left, every: left.length === toVerify.length, gone: left.filter((id) => !store.getRun(id)).length } : null, more, migrate };
 }
 
-type PreviewReport = Pick<DecisionsReport, 'counts' | 'flagged' | 'samples' | 'cost' | 'stopReason' | 'judge'> & { runs: DecisionRun[]; toVerify?: string[]; verify?: DecisionsVerify | null; change?: { model?: string | null; from?: string[] | null; fromCode?: unknown } };
+/** A kept note that says what a key's entry stands on, found by its words: the report's notes are sentences. */
+const noteOf = (notes: readonly string[], re: RegExp): string | null => notes.find((x) => re.test(x)) ?? null;
+const movedWords = (part: Partial<Pick<DecisionCounts, '1' | '2' | '3'>>): string => (decisionsMoved({ 1: 0, 2: 0, 3: 0, 4: 0, ...part })[0] ?? '').replace(/^\d+ /, '');
+
+/**
+ * The key's entries, in the words Verdicts' What moved says a rank in (`2 writes changed`, `1 stop
+ * changed`), then the quieter ones from the cells as they are drawn: the same (text only and within
+ * the model's own variation with them, unless split), left as recorded, waits on a judge, not asked,
+ * split. A card says the rule each stands on, in the report's own notes where it kept one.
+ */
+function previewKey(c: DecisionCounts, cells: readonly DecisionCell[], o: { notes: readonly string[]; samples: number }): PreviewView['key'] {
+  const card = (title: string, text: string | null, rows: Array<[string, string]> = []) => ({ title, text, rows });
+  const waits = cells.filter((x) => x.judge === 'inconclusive').length;
+  const same = cells.filter((x) => !split(x) && x.judge !== 'inconclusive' && (x.state === 'same' || x.state === 'noise' || x.rank === 5)).length;
+  const control = noteOf(o.notes, /^Each step was asked \d+ times under the change and/);
+  return {
+    main: [
+      { n: c[1], words: movedWords({ 1: Math.max(c[1], 1) }), sw: 'w', card: card(`Rank 1 · ${RANK_LABELS[1]}`, 'A write added, removed, moved or called otherwise. A tool with no recorded effect counts as a write.') },
+      { n: c[2], words: movedWords({ 2: Math.max(c[2], 1) }), sw: 's', card: card(`Rank 2 · ${RANK_LABELS[2]}`, 'When the agent stops or hands over differently, or a judge check reads its new words otherwise.') },
+      { n: c[3] + c[4], words: movedWords({ 3: Math.max(c[3] + c[4], 1) }), sw: 'r', card: card('Ranks 3 and 4', null, [['rank 3', `${c[3]} · ${RANK_LABELS[3]}`], ['rank 4', `${c[4]} · ${RANK_LABELS[4]}`]]) },
+    ],
+    quiet: [
+      { n: same, words: 'the same', sw: 'm', card: card(`${c.same} the same, ${c[5]} text only`, noteOf(o.notes, /counted, not judged\.$/)) },
+      { n: c.untouched, words: 'left as recorded', sw: 'un', card: card('Left as recorded', noteOf(o.notes, / as recorded: the change is at the calls made with /)) },
+      { n: waits, words: 'waits on a judge', sw: 'jw', card: card('Waits on a judge', 'A judge check could not read its words, the notes under the matrix say why: its run waits, unless another change flags it.') },
+      { n: cells.filter((x) => x.state === 'not-asked' || x.state === 'unsettled').length, words: 'not asked', sw: 'na', card: card('Not asked', 'A step whose recorded call failed is not asked, nor one the change got no answer for: the notes under the matrix say why.') },
+      { n: cells.filter(split).length, words: 'split', sw: 'spl', card: card('Split', `Its ${o.samples} samples decided differently, a band each.${control ? ` ${control}` : ''}`) },
+    ],
+  };
+}
+
+type PreviewReport = Pick<DecisionsReport, 'counts' | 'flagged' | 'samples' | 'cost' | 'stopReason' | 'judge'> & { runs: DecisionRun[]; toVerify?: string[]; verify?: DecisionsVerify | null; change?: { model?: string | null; from?: string[] | null; fromCode?: unknown; text?: string }; command?: string; notes?: string[]; warnings?: string[] };
 
 /** A kept report, its parts a session kept before they were filled in as a report without them says: none flagged, nothing spent. */
 function keptReport(r: Partial<PreviewReport>): PreviewReport {
@@ -176,6 +224,9 @@ function keptReport(r: Partial<PreviewReport>): PreviewReport {
     cost: { before: null, after: null, spent: 0, upstreamRequests: 0, unknownModels: [], ...r.cost },
     stopReason: typeof r.stopReason === 'string' ? r.stopReason : null,
     judge: r.judge ?? null,
+    command: typeof r.command === 'string' ? r.command : '',
+    notes: list(r.notes) ?? [],
+    warnings: list(r.warnings) ?? [],
   };
 }
 
@@ -203,16 +254,20 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
   const cost = report.cost;
   const view: PreviewView = {
     name: verdict.title,
+    change: report.change?.text ?? (typeof session.change === 'string' ? session.change : ''),
+    command: report.command ?? '',
     samples: report.samples,
     unit: runs.length && runs.every((x) => x.golden) ? 'golden' : 'run',
     verdict: { word: verdict.word, tone: verdict.tone, line: verdict.line, toVerify: verdict.toVerify, flaggedRank: verdict.flaggedRank, moved: verdict.moved },
     headline,
-    steps: { text: stepsAsked({ counts: c, samples: report.samples, runs }), once: report.samples === 1 },
+    steps: { text: stepsAsked({ counts: c, samples: report.samples, runs }), once: report.samples === 1, tail: [...(c.notAsked ? [`${c.notAsked} not asked`] : []), 'no tool ran'], notes: report.notes ?? [] },
     later: headline.asked ? { text: JUDGED_LATER, title: JUDGED_IN_RECORDED_STATE.split(':')[0]!, card: JUDGED_IN_RECORDED_STATE } : null,
     within: withinLine({ samples: report.samples, flagged: report.flagged, runs }),
     verify: v ? verifyView(v, runs) : null,
     next: nextFacts(store, session.kind, report, v, { asked: headline.asked, word: verdict.word }),
     counts: { writes: c[1], stops: c[2], reads: c[3] + c[4], text: c[5], same: c.same, left: c.untouched, notAsked: c.notAsked, noise: c.noise ?? 0, waits: cells.filter((x) => x.judge === 'inconclusive').length, split: cells.filter(split).length },
+    key: previewKey(c, cells, { notes: report.notes ?? [], samples: report.samples }),
+    warnings: [...new Set([...(report.warnings ?? []), ...runs.flatMap((x) => (Array.isArray(x.warnings) ? x.warnings : []))])],
     receipt: {
       perRun: cost.before !== null && cost.after !== null ? { before: cost.before, after: cost.after, change: percentChange(cost.before, cost.after) } : null,
       spent: cost.spent,
@@ -224,7 +279,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     cleared: CLEARED,
     redacted: o.redacted === true,
   };
-  return { ...session, matrix, view };
+  return { ...session, sessionId, matrix, view };
 }
 
 /** One kept session for Changes' Preview, as `GET /api/decisions/:id` answers it. */

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { emptyCounts, NO_TOKENS, Store, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
+import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { previewSession, withinLine } from '../src/decision-view.js';
 
@@ -14,7 +14,7 @@ let a = '';
 let b = '';
 const GONE = '01M5GONE000000000000000000';
 
-const write = { rank: 1 as const, kind: 'write-removed', tool: 'issue_refund', effect: 'write', before: { amount: 240 }, after: null, detail: 'issue_refund is no longer called' };
+const write: DecisionChange = { rank: 1, kind: 'write-removed', tool: 'issue_refund', effect: 'write', before: { amount: 240 }, after: null, detail: 'issue_refund is no longer called' };
 const step = (callNo: number, rank: DecisionStep['rank'], o: Partial<DecisionStep> = {}): DecisionStep => ({
   callNo,
   step: callNo,
@@ -24,7 +24,7 @@ const step = (callNo: number, rank: DecisionStep['rank'], o: Partial<DecisionSte
   changes: rank === 1 ? [write] : [],
   recorded: { stop: 'tools', stopReason: 'tool_use', tools: [], text: '' },
   now: { stop: 'tools', stopReason: 'tool_use', tools: [], text: '' },
-  samples: { asked: 2, answered: 2, changed: rank === null || rank === 0 ? 0 : 2, ranks: [rank ?? 0, rank ?? 0] },
+  samples: { asked: 2, answered: 2, changed: rank === null ? 0 : 2, ranks: [rank ?? 0, rank ?? 0] },
   model: { recorded: 'claude-sonnet-4-5-20250929', asked: 'claude-haiku-4-5' },
   tokens: { before: null, after: null },
   cost: { before: null, after: null, spent: 0 },
