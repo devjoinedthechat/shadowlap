@@ -854,7 +854,8 @@ export function decisionLine(d: DecisionView | null, width = 72): string {
   return `${STOP_WORDS[d.stop]}${said}`;
 }
 
-const pct = (a: number, b: number) => {
+/** How far a cost or a count moved, in words: `+25%`, `−50%`, `about the same`, `the same`, `new` (from nothing). */
+export const percentChange = (a: number, b: number): string => {
   if (a === 0) return b === 0 ? 'the same' : 'new';
   const n = Math.round((Math.abs(b - a) / a) * 100);
   return n === 0 ? 'about the same' : `${b >= a ? '+' : '−'}${n}%`;
@@ -1093,7 +1094,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
     }
     if (run.cost.before !== null || run.cost.after !== null) {
       const tokens = `${thousands(tokenTotal(run.tokens.before))} → ${thousands(tokenTotal(run.tokens.after))} input tokens`;
-      const cost = run.cost.before !== null && run.cost.after !== null ? ` · ≈${formatUsd(run.cost.before)} → ≈${formatUsd(run.cost.after)} (${pct(run.cost.before, run.cost.after)})` : '';
+      const cost = run.cost.before !== null && run.cost.after !== null ? ` · ≈${formatUsd(run.cost.before)} → ≈${formatUsd(run.cost.after)} (${percentChange(run.cost.before, run.cost.after)})` : '';
       lines.push(p.dim(`  the steps asked, as recorded and now: ${tokens}${cost}`));
     }
     for (const w of run.warnings) lines.push(`  ${p.yellow('!')} ${safeLine(w)}`);
@@ -1109,7 +1110,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   lines.push('');
   for (const n of r.notes) lines.push(p.dim(`  ${safeLine(n)}`));
   const unpriced = r.cost.unknownModels.length ? ` (no price for ${r.cost.unknownModels.map(safeLine).join(', ')})` : '';
-  const perRun = r.cost.before !== null && r.cost.after !== null ? ` · per run ≈${formatUsd(r.cost.before)} → ≈${formatUsd(r.cost.after)} (${pct(r.cost.before, r.cost.after)})` : '';
+  const perRun = r.cost.before !== null && r.cost.after !== null ? ` · per run ≈${formatUsd(r.cost.before)} → ≈${formatUsd(r.cost.after)} (${percentChange(r.cost.before, r.cost.after)})` : '';
   lines.push(p.dim(`  asking: ${r.cost.upstreamRequests} upstream request${r.cost.upstreamRequests === 1 ? '' : 's'} · ≈${formatUsd(r.cost.spent)} spent${unpriced}${perRun}${r.stopReason ? ` · stopped: ${safeLine(r.stopReason)}` : ''}`));
   // The judge's calls apart from the agent's: free only when none went upstream, as a judge with no price is no free call.
   const j = r.judge;

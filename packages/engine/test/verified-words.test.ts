@@ -34,7 +34,7 @@ describe('a step as a report counts it and a page draws it', () => {
   });
 
   it('words a judge check on a text-only step as the terminal does, without colour', () => {
-    const side = (status: 'passed' | 'failed' | 'inconclusive', reason: string, source: 'recording' | 'kept' | 'live', cost: number | null = null) => ({ status, verdict: status === 'passed' ? ('yes' as const) : status === 'failed' ? ('no' as const) : null, reason, source, cost });
+    const side = (status: 'passed' | 'failed' | 'inconclusive', reason: string, source: 'recording' | 'kept' | 'live', cost: number | null = null) => ({ status, verdict: status === 'passed' ? ('yes' as const) : status === 'failed' ? ('no' as const) : null, reason, source, cost, request: null });
     const judge = (o: Partial<DecisionJudge>): DecisionJudge => ({ name: 'polite', recorded: side('passed', 'polite', 'recording'), now: side('failed', 'curt', 'live', 0.0004), changed: true, ...o }) as DecisionJudge;
     expect(judgeWords(judge({}))).toBe('passed → failed · curt (judged live, <$0.001)');
     expect(judgeWords(judge({ changed: false, now: side('passed', 'polite', 'kept') }))).toBe('passed, as recorded · polite (asked before and kept, free)');

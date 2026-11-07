@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import { decisionRow, decisionSession, retirementsView, runDecisions, type DecisionsListView } from '../src/decisions.js';
+import { decisionRow, decisionSession, retirementsView, runDecisions, type DecisionCell, type DecisionsListView } from '../src/decisions.js';
 import { commandTreeUse } from '../src/worktree.js';
 
 /**
@@ -86,13 +86,30 @@ afterAll(async () => {
 describe('the decision read models', () => {
   it("draws a run's row as its model calls in call order, each with its rank", () => {
     const run = decisionSession(store, 'dc-01M5000000000000000000000A')!;
-    expect(run.matrix).toEqual([
-      { runId: refunded, golden: 'goldens/refund', title: 'goldens/refund', rank: 1, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 3, step: 3, rank: 4, majority: 4, changed: 2, answered: 2, judge: null }, { callNo: 5, step: 5, rank: 1, majority: 1, changed: 2, answered: 2, judge: null }] },
-      { runId: failed, golden: null, title: failed.slice(0, 10), rank: 2, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 3, step: 3, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 5, step: 5, rank: 2, majority: 2, changed: 2, answered: 2, judge: null }] },
+    // A row is named by its run (its golden a chip beside it), each cell by what came of its step.
+    const cell = (c: DecisionCell) => [c.callNo, c.step, c.rank, c.majority, c.changed, c.answered, c.judge, c.state];
+    expect(run.matrix.map((r) => ({ runId: r.runId, golden: r.golden, title: r.title, rank: r.rank, flagged: r.flagged, cells: r.cells.map(cell) }))).toEqual([
+      { runId: refunded, golden: 'goldens/refund', title: refunded.slice(0, 10), rank: 1, flagged: true, cells: [[1, 1, 0, 0, 0, 2, null, 'same'], [3, 3, 4, 4, 2, 2, null, 'ranked'], [5, 5, 1, 1, 2, 2, null, 'ranked']] },
+      { runId: failed, golden: null, title: failed.slice(0, 10), rank: 2, flagged: true, cells: [[1, 1, 0, 0, 0, 2, null, 'same'], [3, 3, 0, 0, 0, 2, null, 'same'], [5, 5, 2, 2, 2, 2, null, 'ranked']] },
     ]);
-    expect(decisionRow({ ...(run.runs as DecisionRun[])[0], decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] }).cells).toEqual([{ callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0, judge: null }]);
-    // A write changed in 1 of 3 samples: drawn split, its majority the same.
-    expect(decisionRow({ ...(run.runs as DecisionRun[])[0], decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] }).cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null }]);
+    // Each row ends on what flags it, in its colour, and each cell says what it decided.
+    expect(run.matrix.map((r) => r.ending)).toEqual([
+      { text: '#5 issue_refund is no longer called', then: '', tone: 'w', callNo: 5, waits: 0, why: null },
+      { text: '#5 it stops, hands over or is judged differently', then: '', tone: 's', callNo: 5, waits: 0, why: null },
+    ]);
+    expect(run.matrix[0].cells.map((c) => c.words)).toEqual(['the same in every sample: calls tools', 'a read asked differently · in 2 of 2 samples', 'issue_refund is no longer called · in 2 of 2 samples']);
+    expect(decisionRow({ ...(run.runs as DecisionRun[])[0], decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] }).cells).toEqual([
+      { callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0, judge: null, state: 'not-asked', sampled: null, ranks: [], control: null, detail: null, words: 'not asked: HTTP 529' },
+    ]);
+    // A write changed in 1 of 3 samples: drawn split, its majority the same, and not flagged.
+    const minority = decisionRow({ ...(run.runs as DecisionRun[])[0], majority: null, decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] });
+    expect(minority.cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null, state: 'ranked', sampled: 1, ranks: [1, 0, 0], control: null, detail: 'a write changed', words: 'a write changed · in 1 of 3 samples, fewer than half: not flagged' }]);
+    expect(minority.ending).toEqual({ text: '#4 a write changed', then: '· in 1 of 3, not flagged', tone: null, callNo: 4, waits: 0, why: null });
+    // Left as recorded, the row says so; refused whole, every cell is not asked and the row says why.
+    const left = decisionRow({ ...(run.runs as DecisionRun[])[0], asked: 0, decisions: [step(2, null, { samples: { asked: 0, answered: 0, changed: 0, ranks: [] } })] });
+    expect([left.cells[0].state, left.cells[0].words, left.ending.text]).toEqual(['left', 'left as recorded: made with claude-sonnet-4-5-20250929', 'the change leaves its requests as recorded']);
+    const refused = decisionRow({ ...(run.runs as DecisionRun[])[0], refused: 'its first request differs in more than its prompt and tools\nkeep the rest as recorded', decisions: [step(2, 1)] });
+    expect([refused.cells[0].state, refused.cells[0].words, refused.ending.text, refused.ending.tone]).toEqual(['not-asked', 'not asked: its first request differs in more than its prompt and tools', 'not asked: its first request differs in more than its prompt and tools', 'y']);
   });
 
   it('marks a text-only change a judge check read: raised to rank 2 when it came out otherwise, inconclusive while it waits on the judge', () => {
@@ -124,11 +141,16 @@ describe('the decision read models', () => {
     const m = decisionSession(store, 'mg-01M5000000000000000000000B')!;
     expect(m).toMatchObject({ kind: 'migrate', to: 'claude-haiku-4-5', decisions: { runs: [{ runId: refunded }] } });
     // A run's part of a session opens the run at its most consequential change, as its page's Decisions view lists it.
-    expect(runDecisions(store, refunded).sessions.map((s) => [s.sessionId, s.kind, s.rank, s.href])).toEqual([
-      ['mg-01M5000000000000000000000B', 'migrate', 1, `#/run/${refunded}/5`],
-      ['dc-01M5000000000000000000000A', 'decisions', 1, `#/run/${refunded}/5`],
+    // A run's part of a session opens its Decisions view at its most consequential change, and its cell on Changes.
+    expect(runDecisions(store, refunded).sessions.map((s) => [s.sessionId, s.kind, s.rank, s.href, s.changes])).toEqual([
+      ['mg-01M5000000000000000000000B', 'migrate', 1, `#/run/${refunded}/5/decisions`, `#/changes/migrate/mg-01M5000000000000000000000B/${refunded}/5`],
+      ['dc-01M5000000000000000000000A', 'decisions', 1, `#/run/${refunded}/5/decisions`, `#/changes/decisions/dc-01M5000000000000000000000A/${refunded}/5`],
     ]);
-    expect(runDecisions(store, failed).sessions.map((s) => s.href)).toEqual([`#/run/${failed}/5`]);
+    expect(runDecisions(store, refunded).sessions.map((s) => [s.name, s.samples, s.toVerify, s.verified])).toEqual([
+      ['claude-sonnet-4-5-20250929 → claude-haiku-4-5', 2, true, null],
+      ['Model switch to claude-sonnet-5-5 with temperature=1', 2, true, null],
+    ]);
+    expect(runDecisions(store, failed).sessions.map((s) => s.href)).toEqual([`#/run/${failed}/5/decisions`]);
     expect(decisionSession(store, 'dc-nope')).toBeNull();
   });
 

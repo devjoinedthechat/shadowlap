@@ -1,7 +1,9 @@
+import { DECISIONS_ID } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
-import { decisionSession, decisionSessions, decisionsJob, migrateJob, retirementsView, runDecisions, verifyFlaggedJob } from '../decisions.js';
+import { decisionSessions, decisionsJob, migrateJob, retirementsView, runDecisions, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
+import { links } from '../links.js';
 import { outcomeWork } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
@@ -12,24 +14,25 @@ import { verifyRule } from './estimates.js';
 /**
  * The decision diff (`shadowlap decisions`, `migrate`), for the Changes page and a run's Decisions view:
  *
- *   GET /api/decisions[?kind=decisions|migrate]   the sessions kept, newest first, and the goldens' models that retire
- *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, and its matrix
- *   GET /api/decisions/:id/estimates[?runId=]    what its Verify bills (estimates.ts), on every run it could not clear or the one named
+ *   GET /api/decisions[?kind=decisions|migrate][&limit=]   the sessions kept, newest first (50, at most 200), the project's goldens, and their models that retire
+ *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, its matrix, and its `view` (decision-view.ts), beside the server
+ *   GET /api/decisions/:id/estimates[?runId=…]   what its Verify bills (estimates.ts), on every run it could not clear or those named
  *   GET /api/runs/:id/decisions                  a run's decisions under each session that asked it again
  *   GET /api/retirements                         the models the goldens use that retire, by the table that ships
  *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }
  *   POST /api/jobs { kind: "migrate", to, goldens?, runs?, from?, scope?, set?, yes? }   every golden when none are named
- *   POST /api/jobs { kind: "decisions-verify", sessionId, runId?, yes? }   decisions --verify: the runs a session flagged, each under its checks
+ *   POST /api/jobs { kind: "decisions-verify", sessionId, runId?, runIds?, yes? }   decisions --verify: the runs a session could not clear (or those named), each under its checks
  *
  * The goldens a job may name are the project's (`DashboardOptions.goldens`); runs are ids in the store.
  */
 
 const KINDS = new Set(['decisions', 'migrate']);
 
-// How the activity feed words a session (the Changes page that opens one comes with its own route).
-describeEvent('decisions.done', (_e, d) => ({
+// How the activity feed words a session: a preview opens on its tab under Changes (a migration's tab comes with port/migrate).
+describeEvent('decisions.done', (e, d) => ({
   kind: 'fork',
   text: `Previewed ${typeof d.change === 'string' ? d.change : 'a change'} on ${Number(d.runs) || 0} run${Number(d.runs) === 1 ? '' : 's'}${Number(d.flagged) ? ` · ${Number(d.flagged)} with a write, stop or judged change` : ''}`,
+  ...(e.ref && DECISIONS_ID.test(e.ref) ? { href: links.changeSession('decisions', e.ref) } : {}),
 }));
 describeEvent('migrate.done', (_e, d) => ({
   kind: 'fork',
@@ -43,13 +46,14 @@ export function register(router: Router, ctx: RouteContext): void {
     const kind = r.query.get('kind');
     if (kind !== null && !KINDS.has(kind)) throw new HttpError(400, 'kind is decisions or migrate');
     const limit = Math.max(1, Math.min(200, Number(r.query.get('limit') ?? 50) || 50));
-    r.tagged({ sessions: decisionSessions(ctx.store, { limit, ...(kind ? { kind: kind as 'decisions' | 'migrate' } : {}) }), retirements: retirementsView(ctx.store, goldens()) });
+    r.tagged({ sessions: decisionSessions(ctx.store, { limit, ...(kind ? { kind: kind as 'decisions' | 'migrate' } : {}) }), goldens: goldens().length, retirements: retirementsView(ctx.store, goldens()) });
   });
 
-  router.get('/decisions/:id', (r) => {
-    const session = decisionSession(ctx.store, r.params.id!);
-    if (!session) throw new HttpError(404, `no session ${r.params.id!.slice(0, 40)}`);
-    r.tagged(session);
+  // A session's runs hold every step's two decisions, and their about lines read requests: worked out beside the server.
+  router.get('/decisions/:id', async (r) => {
+    const { byId } = loadRunIndex(ctx.store);
+    const calls = ctx.store.decisionRunIds(r.params.id!).reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
+    sendAnswer(r, await ctx.reads.run({ kind: 'decision-session', sessionId: r.params.id! }, { calls }));
   });
 
   // What Verify would bill on a kept session, or on the one run `runId` names, beside the server: it
@@ -57,8 +61,8 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/decisions/:id/estimates', async (r) => {
     const { byId } = loadRunIndex(ctx.store);
     const calls = ctx.store.decisionRunIds(r.params.id!).reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
-    const runId = r.query.get('runId')?.trim() || null;
-    const job = { kind: 'decision-estimates' as const, sessionId: r.params.id!, runId, work: outcomeWork(ctx), rule: verifyRule(ctx), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+    const runIds = r.query.getAll('runId').map((id) => id.trim()).filter(Boolean).slice(0, 500);
+    const job = { kind: 'decision-estimates' as const, sessionId: r.params.id!, runIds, work: outcomeWork(ctx), rule: verifyRule(ctx), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
     sendAnswer(r, await ctx.reads.run(job, { calls }));
   });
 

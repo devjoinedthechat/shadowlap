@@ -56,7 +56,8 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'fix-estimates': { kind: 'fix-estimates', fixId: FIX, repairer: null, rule: { keptMax: null, baseline: 'paired' }, model: null },
   'tests-estimates': { kind: 'tests-estimates', goldens: [{ path: 'goldens/refund', runId: REC, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: [] }], folder: 'goldens' },
   'bisect-estimate': { kind: 'bisect-estimate', commits: 6, target: { runId: FORK, fork: true } },
-  'decision-estimates': { kind: 'decision-estimates', sessionId: SESSION, runId: null, work: null, rule: { keptMax: null, baseline: 'paired' } },
+  'decision-estimates': { kind: 'decision-estimates', sessionId: SESSION, runIds: [], work: null, rule: { keptMax: null, baseline: 'paired' } },
+  'decision-session': { kind: 'decision-session', sessionId: SESSION },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };
