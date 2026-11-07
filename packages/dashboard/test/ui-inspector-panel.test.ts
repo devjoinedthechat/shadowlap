@@ -1,12 +1,12 @@
 import { act, createElement, useCallback, useState, type ReactNode } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunDetail } from '../ui/api.js';
 import { FindingPanel, ResultsToggle } from '../ui/components/FindingPanel.js';
 import type { Matrix } from '../ui/matrix.js';
 import { InspectorPlace, useFindingPanel, usePickInView } from '../ui/run/InspectorPanel.js';
 import { openResults, resetPanel } from '../ui/run/panel-state.js';
 import { closePanel } from '../ui/run/run-keys.js';
-import { render, type Rendered } from './ui-render.js';
+import { FakeElement, render, type Rendered } from './ui-render.js';
 
 /**
  * A finding's diff or results open in the inspector's place, beside the calls, so the list keeps its
@@ -62,7 +62,8 @@ describe('a finding’s diff in the inspector’s place', () => {
     expect(panel.getAttribute('class')).toBe('insp fpanel');
     expect(panel.getAttribute('aria-label')).toBe('Diff at #7');
     expect(page.one('.fhead .ct').textContent).toBe('Diff at #7');
-    expect(page.one('.fhead .nav button').textContent).toBe('Hide diff');
+    // Hide diff as the mock draws it, with no expanded state of its own.
+    expect([page.one('.fhead .nav button').textContent, page.one('.fhead .nav button').getAttribute('aria-expanded')]).toEqual(['Hide diff', null]);
     expect(page.one('[data-act="diff"]').textContent).toBe('Hide diff');
     // Its body holds the diff and no tab's panel: no tab shows to label it.
     const body = page.one('#ibody');
@@ -107,7 +108,8 @@ describe('a finding’s results in the inspector’s place', () => {
     const panel = page.one('#insp');
     expect([panel.getAttribute('class'), panel.getAttribute('aria-label')]).toEqual(['insp fpanel', 'Results']);
     expect(page.one('.fhead .ct').textContent).toBe('Results');
-    expect(page.one('.fhead .nav button').textContent).toBe('Hide results');
+    // Hide results says what it hides is expanded, as the finding's toggle does.
+    expect([page.one('.fhead .nav button').textContent, page.one('.fhead .nav button').getAttribute('aria-expanded')]).toEqual(['Hide results', 'true']);
     expect([toggle().textContent, toggle().getAttribute('aria-expanded')]).toEqual(['Hide results', 'true']);
     expect(page.one('#ibody .rmxp').getAttribute('aria-label')).toBe('Error-path preset results');
     // The matrix is a part of its own, in once its script comes.
@@ -196,6 +198,43 @@ describe('a finding’s results in the inspector’s place', () => {
     expect(page.one('#insp').getAttribute('aria-label')).toBe('Results');
     await page.click(page.one('.pick'));
     expect(page.all('.fpanel')).toHaveLength(0);
+  });
+});
+
+describe('a panel below 1160px', () => {
+  // The test's page lays nothing out: the window is put at 1050×800, the inspector's place low in it,
+  // and what brings it into view is counted.
+  const own = { rect: FakeElement.prototype.getBoundingClientRect, scroll: FakeElement.prototype.scrollIntoView };
+  let brought = 0;
+  beforeEach(() => {
+    brought = 0;
+    Object.assign(globalThis, { innerWidth: 1050, innerHeight: 800 });
+    FakeElement.prototype.getBoundingClientRect = function (this: FakeElement) {
+      const top = this.id === 'insp' ? 700 : 0;
+      return { left: 0, top, right: 0, bottom: top, width: 0, height: 0, x: 0, y: top };
+    };
+    FakeElement.prototype.scrollIntoView = function (this: FakeElement) {
+      if (this.id === 'insp') brought++;
+    };
+  });
+  afterEach(() => {
+    FakeElement.prototype.getBoundingClientRect = own.rect;
+    FakeElement.prototype.scrollIntoView = own.scroll;
+    for (const k of ['innerWidth', 'innerHeight']) delete (globalThis as Record<string, unknown>)[k];
+  });
+
+  it('comes into view as it opens on the page, and leaves the page where it starts when the page comes back to it open', async () => {
+    page = await render(createElement(Page, { run: fork('A') }));
+    await page.click(page.one('[data-act="results"]'));
+    expect(brought).toBe(1);
+    // Back on the run with its results kept open: the page starts at its top.
+    await page.unmount();
+    page = await render(createElement(Page, { run: fork('A') }));
+    expect(page.one('#insp').getAttribute('aria-label')).toBe('Results');
+    expect(brought).toBe(1);
+    // Opened again there, the diff in their place, it comes into view.
+    await page.click(page.one('[data-act="diff"]'));
+    expect(brought).toBe(2);
   });
 });
 

@@ -77,16 +77,20 @@ export function usePickInView(select: (n: number) => void, selected: number | nu
 
 /**
  * The panel open on a run's page, for that run alone: `showDiff` and `onToggleDiff` for the diff's
- * toggle, `close` for every pick of a call. Opening one below 1160px brings it into view.
+ * toggle, `close` for every pick of a call. One opened on the page below 1160px is brought into view;
+ * one the page comes back to, kept open from a visit before, leaves the page where it starts.
  */
 export function useFindingPanel(runId: string) {
   const panel = usePanel(runId);
   const showDiff = panel?.kind === 'diff';
   const close = useCallback(() => closePanelOn(runId), [runId]);
   const shown = panel ? (panel.kind === 'results' ? `results:${panel.key}` : 'diff') : null;
+  const was = useRef({ runId, shown });
   useEffect(() => {
-    if (shown) inspectorInView();
-  }, [shown]);
+    const before = was.current;
+    was.current = { runId, shown };
+    if (shown && before.runId === runId && before.shown !== shown) inspectorInView();
+  }, [runId, shown]);
   return { panel, showDiff, onToggleDiff: () => (showDiff ? closePanelOn(runId) : openDiff(runId)), close };
 }
 
@@ -112,7 +116,10 @@ export function InspectorPlace({ panel, run, test, onClose, results, children }:
   );
 }
 
-/** A panel's frame: its title and Hide over its body. Hide hands the focus to the toggle, as Esc does. */
+/**
+ * A panel's frame: its title and Hide over its body. Hide hands the focus to the toggle, as Esc does;
+ * the results' Hide says it is expanded, as their toggle does.
+ */
 function PanelFrame({ title, hide, panel, onClose, children }: { title: string; hide: string; panel: Panel | null; onClose: () => void; children: ReactNode }) {
   const onHide = () => {
     const toggle = panelToggle(panel);
@@ -124,7 +131,7 @@ function PanelFrame({ title, hide, panel, onClose, children }: { title: string; 
       <div className="ihead fhead">
         <span className="ct">{title}</span>
         <span className="nav">
-          <button className="linkbtn" type="button" onClick={onHide}>
+          <button className="linkbtn" type="button" aria-expanded={panel?.kind === 'results' ? true : undefined} onClick={onHide}>
             {hide}
           </button>
         </span>
