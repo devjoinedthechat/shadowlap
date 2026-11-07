@@ -22,6 +22,7 @@ import { Unshown } from '../shell/unshown.js';
 import { useApp } from '../state.js';
 import type { Tone } from '../components/Status.js';
 import type { DecisionSessionView, PreviewSession, PreviewView } from '../types.js';
+import { DecisionCellPanel } from './DecisionCell.js';
 import { DecisionMatrix } from './DecisionMatrix.js';
 
 /**
@@ -59,6 +60,7 @@ export function PreviewTab({ id, run, call }: { id: string | null; run: string |
   if (detail.error && !session) return <ErrorState retry={detail.reload}>{failedWords(detail.error)}</ErrorState>;
   if (!session) return <Skeleton what="this preview" lines={8} />;
   const open = run ? { run, call } : null;
+  const opened = openedCell(session, run, call);
   return (
     <>
       <div className="chbar">
@@ -66,9 +68,17 @@ export function PreviewTab({ id, run, call }: { id: string | null; run: string |
       </div>
       <Verdict session={session} />
       <DecisionMatrix session={session} open={open} onOpen={(r, c) => navigate(href.changeSession('decisions', session.sessionId, r, c))} />
+      {opened ? <DecisionCellPanel key={`${opened.row.runId}:${opened.callNo}`} session={session} row={opened.row} callNo={opened.callNo} /> : null}
       <CodeBox command={session.view.command} className="chcmd" />
     </>
   );
+}
+
+/** The cell an address opens: its run's row at its call; a run's address without a call, the call its row ends on, else its first. */
+function openedCell(session: PreviewSession, run: string | null, call: number | null): { row: PreviewSession['matrix'][number]; callNo: number } | null {
+  const row = run ? session.matrix.find((r) => r.runId === run) : undefined;
+  const callNo = call ?? row?.ending.callNo ?? row?.cells[0]?.callNo ?? null;
+  return row && callNo !== null ? { row, callNo } : null;
 }
 
 const failedWords = (e: Error) => (e instanceof ApiError ? `The dashboard server answered ${e.status} for this page’s data.` : e.message);

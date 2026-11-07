@@ -1,4 +1,4 @@
-import { decisionLine, decisionStepState, judgedOutcome, judgeOpen, RANK_LABELS, samplesWords, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState } from '@shadowlap/engine';
+import { argsDelta, decisionLine, decisionStepState, judgedOutcome, judgeOpen, judgeWords, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type Palette } from '@shadowlap/engine';
 
 /**
  * A preview's matrix as Changes and a run's Decisions view draw it: a row per run, a cell per model
@@ -43,6 +43,64 @@ export interface DecisionCell {
   detail: string | null;
   /** What it decided, for its card and its label: `send_email is no longer called · in 1 of 3 samples, 0 of 3 as recorded`. */
   words: string;
+  /** What it says opened, besides the two decisions the report keeps; null where no answer came. */
+  open: CellOpen | null;
+}
+
+/** A part of the engine's words in the colour a terminal prints it in: `ok` green, `no` red, `y` amber, `dim` quiet. */
+export interface Toned {
+  text: string;
+  tone: 'ok' | 'no' | 'y' | 'dim' | null;
+}
+
+/**
+ * What an opened cell says besides the two decisions (the report's `recorded` and `now`), in the
+ * engine's words, since a page can't load its decisions module.
+ */
+export interface CellOpen {
+  /** How often it changed, for a narrow column: `in 1 of 3, 0 of 3 as recorded, not flagged`; null asked once. */
+  short: string | null;
+  /** How each side's turn ended (STOP_WORDS): `calls tools`, `answers and stops`. */
+  stops: { recorded: string; now: string };
+  /** Each changed argument, field by field: `lookup_policy.amount: 240 → —`. */
+  args: string[];
+  /** Each judge check that read its words: its name, and its verdicts and reason in their colours. */
+  judges: Array<{ name: string; words: Toned[] }>;
+  /** What it costs either way: `+120 tokens · +$0.002`; empty without the tokens or a price. */
+  delta: string;
+}
+
+const TONE_MARKS: Record<string, Toned['tone']> = { g: 'ok', r: 'no', y: 'y', d: 'dim' };
+
+/** The engine's words for a palette, cut into their coloured parts: as a terminal prints them, for a page to colour. */
+export function toned(words: (p: Palette) => string): Toned[] {
+  const tag = (t: string) => (s: string) => `\u0001${t}${s}\u0003`;
+  const text = words({ green: tag('g'), red: tag('r'), yellow: tag('y'), dim: tag('d'), bold: (s) => s, cyan: (s) => s });
+  const out: Toned[] = [];
+  for (let at = 0; at < text.length; ) {
+    const a = text.indexOf('\u0001', at);
+    if (a < 0) {
+      out.push({ text: text.slice(at), tone: null });
+      break;
+    }
+    if (a > at) out.push({ text: text.slice(at, a), tone: null });
+    const b = text.indexOf('\u0003', a);
+    out.push({ text: text.slice(a + 2, b), tone: TONE_MARKS[text[a + 1]!] ?? null });
+    at = b + 1;
+  }
+  return out;
+}
+
+/** A step's opened words: its samples' short form, both stops, its arguments field by field, its judges, its cost either way. */
+function cellOpen(s: DecisionStep): CellOpen | null {
+  if (!s.now || !s.samples.answered) return null;
+  return {
+    short: s.samples.asked > 1 ? samplesWords(s, { short: true }) : null,
+    stops: { recorded: STOP_WORDS[s.recorded.stop], now: STOP_WORDS[s.now.stop] },
+    args: s.changes.filter((c) => c.kind === 'write-arguments' || c.kind === 'read-arguments').flatMap((c) => argsDelta(c.before, c.after).map((d) => `${c.tool ?? ''}.${d}`)),
+    judges: (s.judge ?? []).map((j) => ({ name: j.name, words: toned((p) => judgeWords(j, p)) })),
+    delta: stepDelta(s),
+  };
 }
 
 /**
@@ -127,6 +185,7 @@ export function decisionCell(s: DecisionStep, o: { refused: string | null; fromC
     control: s.control ? { changed: s.control.changed, answered: s.control.answered } : null,
     detail: state === 'same' || state === 'left' || state === 'not-asked' ? null : detailOf(s),
     words: stepWords(s, state, o),
+    open: o.refused ? null : cellOpen(s),
   };
 }
 

@@ -131,6 +131,34 @@ describe('a preview worded for Changes', () => {
   });
 });
 
+describe('an opened cell, worded on the server', () => {
+  it('says both stops, each changed argument field by field, the judges in their colours, the cost either way and the short samples', () => {
+    const args: DecisionChange = { rank: 1, kind: 'write-arguments', tool: 'issue_refund', effect: 'write', before: { amount: 240, reason: 'late' }, after: { amount: 120, reason: 'late' }, detail: 'issue_refund is called with other arguments' };
+    const side = (status: 'passed' | 'failed', reason: string, source: 'recording' | 'live', cost: number) => ({ status, verdict: status === 'passed' ? ('yes' as const) : ('no' as const), reason, source, cost, request: null });
+    const judged = step(3, 1, {
+      majority: null,
+      changes: [args, { ...write, rank: 2, kind: 'stops', detail: 'it answers and stops' }],
+      now: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'Done.' },
+      samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] },
+      tokens: { before: { ...NO_TOKENS, input: 100, output: 10 }, after: { ...NO_TOKENS, input: 100, output: 130 } },
+      cost: { before: 0.001, after: 0.003, spent: 0.003 },
+      judge: [{ name: 'polite', of: 'answer', model: 'claude-haiku-4-5', pass: 'yes', recorded: side('passed', 'kind', 'recording', 0), now: side('failed', 'curt', 'live', 0.0004), changed: true }],
+    });
+    const id = keep('dc-01M5000000000000000000000H', [runOf(a, null, [step(1, null, { now: null, samples: { asked: 3, answered: 0, changed: 0, ranks: [] }, error: 'overloaded' }), judged])], { samples: 3, counts: counts({ 1: 1, notAsked: 1 }) });
+    const s = previewSession(store, id)!;
+    expect(s.view.side).toBe('claude-haiku-4-5');
+    const [unasked, cell] = s.matrix[0].cells;
+    expect(unasked.open).toBeNull();
+    expect(cell.open).toEqual({
+      short: 'in 1 of 3, not flagged',
+      stops: { recorded: 'calls tools', now: 'answers and stops' },
+      args: ['issue_refund.amount: 240 → 120'],
+      judges: [{ name: 'polite', words: [{ text: 'passed', tone: 'ok' }, { text: ' → ', tone: null }, { text: 'failed', tone: 'no' }, { text: ' · curt (judged live, <$0.001)', tone: 'dim' }] }],
+      delta: '+120 tokens · +$0.0020',
+    });
+  });
+});
+
 describe('the within-variation line', () => {
   it('counts the runs whose cells show a write within the model’s own variation, and says nothing asked once', () => {
     const noise = step(3, null, { changes: [write], samples: { asked: 2, answered: 2, changed: 1, ranks: [1, 0] }, majority: null, sampled: 1, control: { asked: 2, answered: 2, changed: 1, ranks: [1, 0] } });

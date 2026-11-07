@@ -521,6 +521,7 @@ export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView
 
 // The decision diff (`/api/decisions`): the read model's own shapes, as the server sends them.
 export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RetirementsView, RowEnding, RunDecisionsSession } from '../src/decisions.js';
+export type { CellOpen, Toned } from '../src/decision-cells.js';
 export type { PreviewCounts, PreviewKeyEntry, PreviewNext, PreviewReceipt, PreviewRowFacts, PreviewSession, PreviewVerify, PreviewView } from '../src/decision-view.js';
 export type { DecisionChange, DecisionRun, DecisionStep, DecisionsReport, DecisionView } from '../../engine/src/decisions.js';
 export type { RetirementNotice } from '../../engine/src/model-retirements.js';

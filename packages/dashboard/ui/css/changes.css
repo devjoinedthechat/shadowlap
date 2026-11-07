@@ -135,3 +135,56 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
   .dc[aria-current="true"]::after { border-bottom-color: CanvasText; }
   .dc:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
 }
+
+/* a cell, opened: the two decisions side by side, what changed, then the conversation up to the call as the inspector draws it */
+.dcell { margin-top: 14px; }
+.dcell > header.dch { flex-wrap: wrap; row-gap: 8px; }
+.dcell .dch h2 { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.dcell .dch h2 code { font-size: 12.5px; }
+.dcell .dch .dacts { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dlead { margin: 0 0 16px; font-size: 14px; line-height: 1.5; color: var(--ink); text-wrap: pretty; }
+.dlm { color: var(--faint); font-size: 12.5px; }
+.dlead .dlv { display: block; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
+.dlead .dlv.ok b { color: var(--cq-lime); font-weight: 500; }
+.dlead .dlv.no b { color: var(--cq-red); font-weight: 500; }
+.dlead .dlv.y b { color: var(--cq-amber); font-weight: 500; }
+.dbin { margin: -8px 0 16px; color: var(--faint); font-size: 12.5px; text-wrap: pretty; }
+.drk { display: inline-block; margin-right: 4px; font: 600 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); vertical-align: 1px; white-space: nowrap; }
+.drk.q1 { color: var(--cq-red); }
+.drk.q2 { color: var(--cq-amber); }
+.drk.q3, .drk.q4 { color: var(--dim); }
+.dpair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.dside { min-width: 0; padding-top: 10px; border-top: 2px solid var(--line2); }
+.dside.q1 { border-top-color: var(--cq-red); }
+.dside.q2 { border-top-color: var(--cq-amber); }
+.dside.q3, .dside.q4 { border-top-color: var(--k-read); }
+.dside .k { display: block; margin-bottom: 8px; font: 500 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
+.dsay { margin: 0 0 8px; color: var(--ink); font-size: 13.5px; line-height: 1.5; text-wrap: pretty; }
+.dtool { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 3px 0; font: 12.5px/1.55 var(--mono); color: var(--dim); }
+.dtool b { color: var(--ink); font-weight: 500; }
+.dtool .ar { width: 10px; color: var(--faint); }
+.dtool code { flex-basis: 100%; padding-left: 18px; color: var(--dim); overflow-wrap: anywhere; }
+.dtool .nw { white-space: nowrap; }
+.dtool.gone b { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line2); }
+.dtool.new .ar, .dtool.diff .ar { color: var(--ink); }
+.dtool.new.w b, .dtool.new.w .ar { color: var(--cq-red); }
+.dstop { margin: 8px 0 0; font: 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
+.dstop.diff { color: var(--cq-amber); }
+.dchg { list-style: none; margin: 16px 0 0; padding: 0; font-size: 12.5px; color: var(--dim); }
+.dchg li { padding: 2px 0; }
+.dchg li.dargs code { display: block; font-size: 12.5px; color: var(--dim); white-space: normal; overflow-wrap: anywhere; }
+.dchg .dalso { margin-right: 8px; color: var(--faint); }
+.djudge { list-style: none; margin: 10px 0 0; padding: 0; font-size: 12.5px; color: var(--dim); }
+.djudge li { text-wrap: pretty; }
+.djudge .jn { font: 12.5px var(--mono); color: var(--ink); }
+.djudge b { font-weight: 500; }
+.djudge b.ok { color: var(--cq-lime); }
+.djudge b.no { color: var(--cq-red); }
+.djudge b.y { color: var(--cq-amber); }
+.dcell .dspend { margin: 14px 0 0; color: var(--faint); font-size: 12px; line-height: 1.55; text-wrap: pretty; }
+.dconv { padding: 14px 18px 6px; border-top: 1px solid var(--line); }
+@media (max-width: 760px) { .dpair { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+@media (forced-colors: active) {
+  .dside, .dside.q1, .dside.q2, .dside.q3, .dside.q4 { border-top-color: CanvasText; }
+  .dtool.new.w b, .dtool.new.w .ar, .drk.q1, .drk.q2, .dstop.diff { color: CanvasText; }
+}

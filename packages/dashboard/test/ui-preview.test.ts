@@ -5,7 +5,8 @@ import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/train
 import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import type { Client } from '../ui/api.js';
 import { PreviewTab } from '../ui/changes/Preview.js';
-import { cellLook, cellWeight, drawnCells, nextStep, pricePair, receiptWords, sessionHint, verdictState, verifyLabel } from '../ui/decisions.js';
+import { argParts, cellCost, cellLead, cellLook, cellWeight, drawnCells, nextStep, pricePair, receiptWords, sessionHint, toolMarks, verdictState, verifyLabel } from '../ui/decisions.js';
+import { forgetConversationPrefs } from '../ui/components/Conversation.js';
 import { minuteStamp } from '../ui/format.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DecisionCell, DecisionSessionView } from '../ui/types.js';
@@ -41,7 +42,7 @@ const runOf = (runId: string, golden: string | null, decisions: DecisionStep[]):
   const ranks = decisions.map((d) => d.rank).filter((r): r is NonNullable<typeof r> => r !== null);
   return { runId, golden, steps: decisions.length, asked: decisions.length, rank: ranks.length ? (Math.min(...ranks) as DecisionRun['rank']) : null, majority: null, counts: emptyCounts(), cost: { before: 0.04, after: 0.02, spent: 0.02 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions, warnings: [] };
 };
-const cell = (o: Partial<DecisionCell>): DecisionCell => ({ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null, state: 'same', sampled: null, ranks: [0, 0], control: null, detail: null, words: 'the same', ...o });
+const cell = (o: Partial<DecisionCell>): DecisionCell => ({ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null, state: 'same', sampled: null, ranks: [0, 0], control: null, detail: null, words: 'the same', open: null, ...o });
 
 describe('a cell, a range and the next step, worked out', () => {
   it('draws a cell in its colour, split a band a sample with the most consequential first, hollow, dashed or ringed', () => {
@@ -83,6 +84,39 @@ describe('a cell, a range and the next step, worked out', () => {
     expect(words.map((w) => w.parts)).toEqual([['per run ≈$0.028 → ≈$0.014 (−50%)', 'this preview spent ≈$0.869'], ['336 requests to the model, 2 to the judge'], ['end to end 4,000 → 5,000 input tokens (+25%)']]);
     expect(words[0].card!.rows).toEqual([['asking', '≈$0.800 · 336 upstream requests'], ['judging', '≈$0.069 · 2 upstream requests']]);
     expect(receiptWords({ perRun: null, spent: 0.01, requests: 1, unknownModels: ['m-x'], judge: null, stopReason: 'the spend limit was reached' }, null).map((w) => w.parts)).toEqual([['this preview spent ≈$0.010 (no price for m-x)', 'stopped: the spend limit was reached'], ['1 request to the model']]);
+  });
+});
+
+describe('an opened cell, worked out', () => {
+  it('marks each tool against the other side: the very call, called otherwise, or only on one side', () => {
+    const rec = { tools: [{ name: 'issue_refund', args: { amount: 240 }, effect: 'write' as const }, { name: 'lookup_policy', args: { b: 1, a: 2 }, effect: 'read' as const }, { name: 'note', args: { x: 1 }, effect: 'read' as const }] };
+    const now = { tools: [{ name: 'lookup_policy', args: { a: 2, b: 1 }, effect: 'read' as const }, { name: 'note', args: { x: 2 }, effect: 'read' as const }, { name: 'send_email', args: {}, effect: 'unknown' as const }] };
+    expect([toolMarks(rec, now, 'recorded'), toolMarks(now, rec, 'now')]).toEqual([
+      ['gone', 'same', 'diff'],
+      ['same', 'diff', 'new'],
+    ]);
+  });
+
+  it('cuts arguments after a comma or brace, never inside a short quoted value, and keeps short arguments whole', () => {
+    expect(argParts('{"id":"r-1"}')).toEqual([{ text: '{"id":"r-1"}', whole: true }]);
+    expect(argParts('{"order":"ord_8812","note":"a refund is due, please"}')).toEqual([
+      { text: '{', whole: false },
+      { text: '"order"', whole: true },
+      { text: ':', whole: false },
+      { text: '"ord_8812"', whole: true },
+      { text: ',', whole: false },
+      { text: '"note"', whole: true },
+      { text: ':', whole: false },
+      { text: '"a refund is due, please"', whole: false },
+      { text: '}', whole: false },
+    ]);
+  });
+
+  it('leads with its rank and change, quieter how often, or a sentence where nothing was compared; its cost names the masking', () => {
+    expect(cellLead(cell({ state: 'ranked', rank: 1, detail: 'issue_refund is no longer called', words: 'issue_refund is no longer called · in 3 of 3 samples, 0 of 3 as recorded' }))).toEqual({ rank: 1, text: 'issue_refund is no longer called', quiet: '· in 3 of 3 samples, 0 of 3 as recorded' });
+    expect(cellLead(cell({ state: 'noise', rank: 0, detail: 'a write changed', words: "a write changed · within the model's own variation: in 1 of 3 samples, 1 of 3 as recorded" }))).toEqual({ rank: null, text: 'a write changed', quiet: "· within the model's own variation: in 1 of 3 samples, 1 of 3 as recorded" });
+    expect([cellLead(cell({ answered: 3 })), cellLead(cell({ state: 'not-asked', words: 'not asked: HTTP 529' })), cellLead(cell({ state: 'left', words: 'left as recorded: made with gpt-4o' }))]).toEqual([{ sentence: 'The same decision in all 3 samples.' }, { sentence: 'Not asked: HTTP 529.' }, { sentence: 'Left as recorded: made with gpt-4o.' }]);
+    expect([cellCost('+120 tokens · +$0.0020', false), cellCost('', true)]).toEqual(['+120 tokens · +$0.0020 · compared after the project’s normalizers, dates near the run’s start masked', 'compared after the project’s normalizers, dates near the run’s start masked · values masked by its redaction rules']);
   });
 });
 
@@ -154,6 +188,36 @@ describe('the Preview page', () => {
     const [kept, cleared] = p.all('.dsv');
     expect([kept.className, kept.querySelector('b')!.textContent.startsWith('kept'), kept.textContent.endsWith(' · 4 of 4 · rate >=\u00a00.6\u00a0(95%)')]).toEqual(['dsv ok', true, true]);
     expect([cleared.className, cleared.textContent]).toEqual(['dsv', 'not run end to end']);
+  });
+
+  it('opens a cell under the matrix: its head, its lead, both decisions marked, its cost and the conversation, folded', async () => {
+    forgetConversationPrefs();
+    const tools = (...t: Array<[string, unknown, 'write' | 'read' | 'unknown']>) => t.map(([name, args, effect]) => ({ name, args, effect }));
+    const runs = (flagged.runs as DecisionRun[]).map((r) => (r.runId !== a ? r : { ...r, decisions: r.decisions.map((s) => (s.callNo !== 3 ? s : { ...s, recorded: { ...s.recorded, tools: tools(['issue_refund', { amount: 240 }, 'write'], ['lookup_policy', { id: 'p1' }, 'read']) }, now: { ...s.now!, text: 'Checking.', tools: tools(['lookup_policy', { id: 'p1' }, 'read'], ['send_note', {}, 'unknown']) } })) }));
+    const turns = Array.from({ length: 10 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', blocks: [{ type: 'text', text: `message ${i + 1}` }] }));
+    const detail = { call: { callNo: 3, kind: 'api', outcome: 'ok' }, conversation: { turns, fromCallNo: 3, n: null } };
+    const p = await render(createElement(AppContext.Provider, { value: app({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.resolve({ ...flagged, runs }), call: () => Promise.resolve(detail) } as unknown as Partial<Client>) }, createElement(PreviewTab, { id: ID, run: a, call: 3 })));
+    page = p;
+    await p.until('the cell', () => !!p.one('.dcell .dconv .ibar') && p.all('.dcell .msg').length > 0);
+    expect(shown(p.one('.dcell .dch h2'))).toBe(`#3 · step 3 of ${a}`);
+    expect([p.one('.dcell .dacts a.btn').getAttribute('href'), p.one('.dcell .dacts a.ibtn').getAttribute('href'), p.one('.dcell .dacts a.ibtn').getAttribute('aria-label')]).toEqual([`#/run/${a}/3/decisions`, `#/changes/decisions/${ID}`, 'Close']);
+    expect(shown(p.one('.dcell .dlead'))).toBe('rank 1 issue_refund is no longer called · in 2 of 2 samples');
+    expect(p.all('.dcell .dside .k').map(shown)).toEqual(['recorded · claude-sonnet-4-5-20250929', 'claude-haiku-4-5 · its most consequential sample']);
+    expect(p.all('.dcell .dside')[1].className).toBe('dside q1');
+    expect(p.all('.dcell .dtool').map((t) => [t.className, shown(t.querySelector('.ar')), shown(t.querySelector('.eff'))])).toEqual([
+      ['dtool gone w', '−', 'write'],
+      ['dtool', '→', 'read'],
+      ['dtool', '→', 'read'],
+      ['dtool new w', '+', 'write'],
+    ]);
+    expect([shown(p.one('.dcell .dsay')), p.all('.dcell .dstop').map(shown)]).toEqual(['“Checking.”', ['calls tools', 'calls tools']]);
+    expect(shown(p.one('.dcell .dspend'))).toBe('compared after the project’s normalizers, dates near the run’s start masked');
+    // The conversation as the inspector draws it: the first two and the last six, the two between folded.
+    expect(shown(p.all('.dconv .ibar > span')[0])).toBe('10 messages · what the model saw at #3');
+    expect([p.all('.dconv .msg').length, shown(p.one('.dconv .expand'))]).toEqual([8, 'Show 2 earlier messages']);
+    await p.click(p.one('.dconv .expand'));
+    expect(p.all('.dconv .msg').length).toBe(10);
+    expect(p.all('.dmr')[0].querySelectorAll('button.dc')[1].getAttribute('aria-current')).toBe('true');
   });
 
   it('says a preview it doesn’t hold, with the way back to the newest', async () => {

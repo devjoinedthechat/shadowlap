@@ -100,11 +100,11 @@ describe('the decision read models', () => {
     ]);
     expect(run.matrix[0].cells.map((c) => c.words)).toEqual(['the same in every sample: calls tools', 'a read asked differently · in 2 of 2 samples', 'issue_refund is no longer called · in 2 of 2 samples']);
     expect(decisionRow({ ...(run.runs as DecisionRun[])[0], decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] }).cells).toEqual([
-      { callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0, judge: null, state: 'not-asked', sampled: null, ranks: [], control: null, detail: null, words: 'not asked: HTTP 529' },
+      { callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0, judge: null, state: 'not-asked', sampled: null, ranks: [], control: null, detail: null, words: 'not asked: HTTP 529', open: null },
     ]);
     // A write changed in 1 of 3 samples: drawn split, its majority the same, and not flagged.
     const minority = decisionRow({ ...(run.runs as DecisionRun[])[0], majority: null, decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] });
-    expect(minority.cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null, state: 'ranked', sampled: 1, ranks: [1, 0, 0], control: null, detail: 'a write changed', words: 'a write changed · in 1 of 3 samples, fewer than half: not flagged' }]);
+    expect(minority.cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null, state: 'ranked', sampled: 1, ranks: [1, 0, 0], control: null, detail: 'a write changed', words: 'a write changed · in 1 of 3 samples, fewer than half: not flagged', open: { short: 'in 1 of 3, not flagged', stops: { recorded: 'calls tools', now: 'calls tools' }, args: [], judges: [], delta: '' } }]);
     expect(minority.ending).toEqual({ text: '#4 a write changed', then: '· in 1 of 3, not flagged', tone: null, callNo: 4, waits: 0, why: null });
     // Left as recorded, the row says so; refused whole, every cell is not asked and the row says why.
     const left = decisionRow({ ...(run.runs as DecisionRun[])[0], asked: 0, decisions: [step(2, null, { samples: { asked: 0, answered: 0, changed: 0, ranks: [] } })] });

@@ -1,5 +1,6 @@
+import { canonicalize } from '../../engine/src/canonical.js';
 import { approx, minuteStamp } from './format.js';
-import type { DecisionCell, DecisionSessionView, PreviewNext, PreviewReceipt, PreviewView } from './types.js';
+import type { DecisionCell, DecisionSessionView, DecisionView, PreviewNext, PreviewReceipt, PreviewView } from './types.js';
 
 /**
  * Changes' Preview and a run's Decisions view, worked out from what the server words (src/decision-view.ts):
@@ -146,4 +147,47 @@ export function receiptWords(r: PreviewReceipt, endToEnd: string | null): Receip
     { parts: [`${requests(r.requests, 'request')} to the model${r.judge ? `, ${r.judge.requests} to the judge` : ''}`], card: null },
     ...(endToEnd ? [{ parts: [`end to end ${endToEnd}`], card: null }] : []),
   ];
+}
+
+/**
+ * A tool call's mark beside the other side's decision, as an opened cell draws it: the other side
+ * makes the very call (`same`, a faint →), calls the tool otherwise (`diff`, → in ink), or doesn't
+ * call it (`gone` on the recorded side, struck through, `new` on the changed one).
+ */
+export type ToolMark = 'same' | 'diff' | 'gone' | 'new';
+
+export function toolMarks(d: Pick<DecisionView, 'tools'>, other: Pick<DecisionView, 'tools'> | null, side: 'recorded' | 'now'): ToolMark[] {
+  const calls = new Set(other?.tools.map((t) => `${t.name}\n${canonicalize(t.args ?? null)}`));
+  const names = new Set(other?.tools.map((t) => t.name));
+  return d.tools.map((t) => (calls.has(`${t.name}\n${canonicalize(t.args ?? null)}`) ? 'same' : names.has(t.name) ? 'diff' : side === 'recorded' ? 'gone' : 'new'));
+}
+
+/** A tool's effect as its tag says it: a tool of unknown effect counts as a write, as the engine counts it; a hand-over keeps its word. */
+export const effectTag = (effect: DecisionView['tools'][number]['effect']): string => (effect === 'unknown' ? 'write' : effect);
+
+/**
+ * A call's arguments as JSON, cut where a line may break: after a comma or an opening brace, never
+ * inside a short quoted value (an id), which is `whole`; arguments of 30 characters or fewer stay whole.
+ */
+export function argParts(json: string): Array<{ text: string; whole: boolean }> {
+  if (json.length <= 30) return [{ text: json, whole: true }];
+  return json.split(/("(?:[^"\\]|\\.)*")/).flatMap((part, i) => (i % 2 ? [{ text: part, whole: part.length <= 30 && !/\s/.test(part) }] : part.split(/(?<=[,{])/).filter(Boolean).map((text) => ({ text, whole: false }))));
+}
+
+/** An opened cell's lead: a sentence where nothing was compared, else its rank, its change and how often, quieter. */
+export type CellLead = { sentence: string } | { rank: number | null; text: string; quiet: string };
+
+const sentence = (words: string) => `${words.charAt(0).toUpperCase()}${words.slice(1).replace(/\.$/, '')}.`;
+
+export function cellLead(c: Pick<DecisionCell, 'state' | 'rank' | 'detail' | 'words' | 'answered'>): CellLead {
+  if (c.state === 'not-asked' || c.state === 'left') return { sentence: sentence(c.words) };
+  if (c.state === 'same') return { sentence: `The same decision${c.answered > 1 ? ` in all ${c.answered} samples` : ''}.` };
+  const text = c.detail ?? '';
+  const quiet = c.words.startsWith(text) ? c.words.slice(text.length) : '';
+  return { rank: c.state === 'ranked' ? c.rank : null, text, quiet: quiet.trim() };
+}
+
+/** What an opened cell's cost line says: the step's cost either way, how it was compared, and the masking where the project redacts. */
+export function cellCost(delta: string, redacted: boolean): string {
+  return [delta, 'compared after the project’s normalizers, dates near the run’s start masked', redacted ? 'values masked by its redaction rules' : ''].filter(Boolean).join(' · ');
 }

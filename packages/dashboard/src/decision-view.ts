@@ -92,6 +92,8 @@ export interface PreviewView {
   name: string;
   /** The change in words, as the session kept it (`the model claude-haiku-4-5`), for the ask's lead. */
   change: string;
+  /** What an opened cell names the changed side by: its model, the working tree's prompt for `--from-code`, else the change. */
+  side: string;
   /** The command that made it, to copy. */
   command: string;
   samples: number;
@@ -255,6 +257,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
   const view: PreviewView = {
     name: verdict.title,
     change: report.change?.text ?? (typeof session.change === 'string' ? session.change : ''),
+    side: report.change?.model || (report.change?.fromCode ? 'the working tree’s prompt' : report.change?.text) || 'the change',
     command: report.command ?? '',
     samples: report.samples,
     unit: runs.length && runs.every((x) => x.golden) ? 'golden' : 'run',
