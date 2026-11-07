@@ -10,7 +10,7 @@ import { plural } from './format.js';
  * (components/MatrixKey.tsx) and receipt (components/Receipt.tsx) are Changes' preview's too.
  */
 
-/** A cell's tone, in the consequence colours: passed, failed or obeyed (red), inconclusive or influenced (amber), nothing happened (muted). */
+/** A cell's tone, in the consequence colours: passed (lime), failed, obeyed or caused (red), inconclusive or influenced (amber), what showed nothing (muted). */
 export type CellTone = 'ok' | 'err' | 'warn' | 'mu';
 
 export interface MatrixCell {
