@@ -613,14 +613,21 @@ describe('Changes’ page', () => {
   });
 
   it('opens a migration’s address on Verdicts, until its tab lands', async () => {
-    for (const tab of ['migrate'] as const) {
-      const bar = addressBar(`#/changes/${tab}/dc-01M5000000000000000000000A`);
-      page = await render(createElement(AppContext.Provider, { value: app({ verdicts: () => Promise.resolve(view([preview()])) }) }, createElement(ChangesPage, { tab, id: 'dc-01M5000000000000000000000A' })));
-      await page.until(`${tab}’s address`, () => bar.hash === '#/changes');
-      expect(page.one('.ph h1').textContent).toBe('Changes');
-      await page.unmount();
-      page = null;
-    }
+    const bar = addressBar('#/changes/migrate/mg-01M5000000000000000000000B');
+    page = await render(createElement(AppContext.Provider, { value: app({ verdicts: () => Promise.resolve(view([preview()])) }) }, createElement(ChangesPage, { tab: 'migrate', id: 'mg-01M5000000000000000000000B' })));
+    await page.until('the migration’s address', () => bar.hash === '#/changes');
+    expect(page.one('.ph h1').textContent).toBe('Changes');
+  });
+
+  it('opens a preview’s address on Preview, its tab current under the head and the address kept', async () => {
+    freshProject();
+    const bar = addressBar('#/changes/decisions/dc-01M5000000000000000000000A');
+    const client = { decisionSessions: () => Promise.resolve({ sessions: [], goldens: 0, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')) };
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' })));
+    await page.until('the Preview tab', () => page!.all('.empty.tall').length === 1);
+    expect(page.all('nav.stabs a').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)).toEqual(['Preview']);
+    expect(bar.hash).toBe('#/changes/decisions/dc-01M5000000000000000000000A');
+    expect(shown(page.one('.empty.tall'))).toBe('No preview dc-01M5000000000000000000000A. Open Preview');
   });
 });
 
