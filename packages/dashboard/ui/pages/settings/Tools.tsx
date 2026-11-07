@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Seg } from '../../components/bits.js';
 import { CodeBox } from '../../components/CodeBox.js';
 import { Dialog } from '../../components/Dialog.js';
@@ -10,6 +10,7 @@ import { tipCard, tipText, type TipRow } from '../../components/HoverCard.js';
 import { copyText } from '../../dom.js';
 import { num, whenShort } from '../../format.js';
 import { useLoad } from '../../hooks.js';
+import { useListKeys } from '../../list-keys.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CommandLine, LoadProblem, Loading, MCP_GONE, TOOLS_GONE, useFolderGone, useSettingsData } from './common.js';
@@ -112,8 +113,18 @@ function ToolGroup({ title, tools, write }: { title: string; tools: ToolsSetting
 /** Show the client’s config: closed at first, then as it was left while the page is open in this tab. */
 let configShown = false;
 
+/** An MCP server's row for the keys (its key holds a NUL, which no selector can name). */
+const serverKey = (r: McpRow) => `mcp:${r.key.split('\u0000').join('/')}`;
+
+/** Copies the line that records a server, and says so. */
+const copyLine = (row: McpRow, toast: (text: string) => void) => void copyText(row.line!).then((ok) => toast(ok ? copiedLineText(row) : 'Copying was refused by the browser'));
+
 function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; onAdd: () => void }) {
+  const { toast } = useApp();
   const rows = mcpRows(data.mcp);
+  const box = useRef<HTMLDivElement>(null);
+  // A row leads nowhere: Enter and ⌘K offer copy the line, where it has one.
+  const inFocus = useListKeys({ rows: gone ? [] : rows, keyOf: serverKey, root: box, actions: (r) => (r.line ? { name: r.name, items: () => [{ label: 'Copy the line', hint: r.line!, run: () => copyLine(r, toast) }] } : null) });
   const broken = data.mcp.files.filter((f) => f.error);
   const [shown, setShownState] = useState(() => configShown);
   const setShown = (v: boolean) => {
@@ -130,7 +141,7 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
       {gone ? (
         <p className="muted none">{MCP_GONE}</p>
       ) : rows.length ? (
-        <div className="tscroll mcptable">
+        <div className="tscroll mcptable" ref={box}>
           <table className="t">
             <thead>
               <tr>
@@ -142,7 +153,7 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
             </thead>
             <tbody>
               {rows.map((r) => (
-                <McpServer key={r.key} row={r} />
+                <McpServer key={r.key} row={r} focused={inFocus === serverKey(r)} />
               ))}
             </tbody>
           </table>
@@ -224,10 +235,10 @@ function ClientConfig({ block }: { block: ToolsSettings['mcp']['clientConfigs'][
   );
 }
 
-function McpServer({ row }: { row: McpRow }) {
+function McpServer({ row, focused }: { row: McpRow; focused: boolean }) {
   const { toast } = useApp();
   return (
-    <tr className="still">
+    <tr className={`still${focused ? ' krow' : ''}`} data-rowkey={serverKey(row)}>
       <td>
         <code>{row.name}</code>
         {row.note ? (
@@ -236,7 +247,7 @@ function McpServer({ row }: { row: McpRow }) {
             {row.line ? (
               <>
                 {' · '}
-                <button className="linkbtn" type="button" title={row.line} onClick={() => void copyText(row.line!).then((ok) => toast(ok ? copiedLineText(row) : 'Copying was refused by the browser'))}>
+                <button className="linkbtn" type="button" title={row.line} onClick={() => copyLine(row, toast)}>
                   copy the line
                 </button>
               </>

@@ -11,6 +11,7 @@ import { CONFIG_FILE, editErrorText, type useEditor } from './common.js';
 import { emptyRuleForm, ruleCommand, ruleFacts, ruleInput, ruleProblem, ruleScope, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
 import { EmptyLine } from '../../components/States.js';
+import { useListKeys, type RowScope } from '../../list-keys.js';
 
 /**
  * The rules of one list, as Matching and Redaction show them (scope, path, pattern, what replaces
@@ -19,6 +20,9 @@ import { EmptyLine } from '../../components/States.js';
  */
 
 const NOUN: Record<RuleListName, string> = { normalize: 'normalizer', redact: 'redaction rule' };
+
+/** A rule's row for the keys: j and k reach it, and Enter or ⌘K on it offers its Remove, waiting as the button waits. */
+const ruleKey = (r: RuleRow) => `rule:${r.n}`;
 
 /** What a list with no rule says: what fills it. */
 const EMPTY: Record<RuleListName, string> = {
@@ -31,10 +35,17 @@ const EMPTY: Record<RuleListName, string> = {
  * can't be read, or the project's folder is gone), said where the rules would be. `onRemove` gets
  * where the focus goes once the row has gone: the next row's Remove (the same button, which React
  * keeps for the row that takes its number), else the last row's, else the section's Add button.
- * `focus` names a rule whose Remove takes the focus once the table shows it (one put back).
+ * `focus` names a rule whose Remove takes the focus once the table shows it (one put back). Its rows
+ * are in the keys' reach (`useListKeys`): a row leads nowhere, so Enter on it offers its Remove.
  */
 export function RuleTable({ list, rows, off, onRemove, unreadable = null, focus }: { list: RuleListName; rows: RuleRow[]; off: string | null; onRemove: (row: RuleRow, returnTo: HTMLElement | null) => void; unreadable?: string | null; focus?: { current: number | null } }) {
   const body = useRef<HTMLTableSectionElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const actions = (r: RuleRow): RowScope => ({
+    name: `${NOUN[list].charAt(0).toUpperCase()}${NOUN[list].slice(1)} #${r.n}`,
+    items: () => [{ label: 'Remove', hint: `shadowlap ${list} rm ${r.n}`, ...(off ? { wait: off } : {}), run: () => removeFromKeys(r) }],
+  });
+  const inFocus = useListKeys({ rows, keyOf: ruleKey, root: box, actions });
   useEffect(() => {
     const n = focus?.current;
     if (!n) return;
@@ -51,11 +62,15 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null, focus 
     if (returnTo !== button) returnTo?.focus();
     onRemove(row, returnTo);
   };
+  const removeFromKeys = (row: RuleRow) => {
+    const button = body.current?.querySelector<HTMLElement>(`tr[data-n="${row.n}"] .linkbtn`);
+    if (button && !off) press(row, button);
+  };
   // With no rule to show, a line under the hairline takes the table's place: what fills it, or why
   // the list can't be read.
   if (rows.length === 0) return <EmptyLine>{unreadable ?? EMPTY[list]}</EmptyLine>;
   return (
-    <div className="tscroll">
+    <div className="tscroll" ref={box}>
       <table className="t ruletable">
         <thead>
           <tr>
@@ -69,7 +84,7 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null, focus 
         <tbody ref={body}>
           {rows.map((r) =>
             r.error ? (
-              <tr key={r.n} data-n={r.n}>
+              <tr key={r.n} data-n={r.n} data-rowkey={ruleKey(r)} className={inFocus === ruleKey(r) ? 'krow' : undefined}>
                 <td>
                   <span className="chip">#{r.n}</span>
                 </td>
@@ -81,7 +96,7 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null, focus 
                 </td>
               </tr>
             ) : (
-              <tr key={r.n} data-n={r.n}>
+              <tr key={r.n} data-n={r.n} data-rowkey={ruleKey(r)} className={inFocus === ruleKey(r) ? 'krow' : undefined}>
                 <td>
                   <Scope rule={r.rule ?? {}} />
                 </td>
