@@ -232,7 +232,7 @@ export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
 // in, its answer's decision against the recorded one, ranked by consequence; the providers' model
 // retirement dates; and the sessions the store keeps.
 export { promptOf, promptParts, samePrompt, withoutEarlierThinking, withPrompt, type RequestPrompt } from './prompt.js';
-export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LABELS, STOP_WORDS, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, promoteByJudge, sameModel, shownSample, stepDelta, unjudgedSample } from './decisions.js';
+export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, MIGRATE_ID, NO_TOKENS, RANK_LABELS, STOP_WORDS, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionStepState, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, judgeWords, majorityRank, modelFamily, promoteByJudge, sameModel, samplesWords, shownSample, stepDelta, stepsAsked, unjudgedSample, type DecisionStepState } from './decisions.js';
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
@@ -240,6 +240,7 @@ export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, m
 // What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
+export { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, type VerifiedTally } from './verified-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,

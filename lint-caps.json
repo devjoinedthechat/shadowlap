@@ -266,7 +266,7 @@
       "walkValue": 41
     },
     "packages/engine/src/decisions.ts": {
-      "formatDecisions": 77
+      "formatDecisions": 67
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 65
@@ -519,7 +519,7 @@
     }
   },
   "max-lines": {
-    "packages/cli/src/decisions.ts": 1086,
+    "packages/cli/src/decisions.ts": 1085,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
