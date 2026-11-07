@@ -1,13 +1,21 @@
-import { createElement } from 'react';
+import { act, createElement, useEffect, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { afterForkLines, markFixApplied, plain, recordBlame, recordRepair, recordVerdict, Store, type BlameReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail, withAbouts } from '../src/fixes.js';
-import type { Client } from '../ui/api.js';
+import { ApiError, JOB_KINDS, type Client } from '../ui/api.js';
+import { JobDrawer } from '../ui/components/Drawer.js';
+import { jobFooter } from '../ui/job-actions.js';
+import type { WatchedJob } from '../ui/job-store.js';
+import { OPEN_GOLDENS } from '../ui/fixes/job-footers.js';
+import { OPEN_BLAME, refusedPress } from '../ui/fixes/page-fix.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { minuteStamp } from '../ui/format.js';
 import { GLOSSARY } from '../ui/glossary.js';
+import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { errorText, type ToastAction } from '../ui/toast.js';
+import type { JobView } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
@@ -301,5 +309,127 @@ describe('the Verify step', () => {
     expect(r!.all('.fxreceipt .nw').map(text)).toContain('judge checks: 3 upstream requests, ≈$0.0020');
     const order = r!.all('ul.fxwarn, .fxreceipt, .cmdline').map((x) => x.className.split(' ')[0]);
     expect(order).toEqual(['fxwarn', 'fxreceipt', 'fxreceipt', 'fxreceipt', 'cmdline']);
+  });
+});
+
+describe('the drawers’ ways on', () => {
+  const g = globalThis as Record<string, unknown>;
+  const saved = { location: g.location, history: g.history };
+  afterEach(() => void Object.assign(g, saved));
+
+  /** The address bar as the router reads it: a replace rewrites it with no hashchange, a link followed sets it. */
+  function address(first: string): { now: () => string } {
+    let hash = first;
+    const location = {
+      pathname: '/',
+      search: '',
+      get hash() {
+        return hash;
+      },
+      set hash(to: string) {
+        hash = to;
+        window.dispatchEvent(new Event('hashchange'));
+      },
+    };
+    Object.assign(g, { location, history: { state: null, replaceState: (_s: unknown, _t: string, url: string) => (hash = url.slice(url.indexOf('#'))) } });
+    return { now: () => hash };
+  }
+
+  // A job's id is the server's, never one seen before: when its end was first seen is kept by it.
+  let jobs = 0;
+  const job = (o: Partial<JobView>): JobView => ({ id: `job-${(jobs += 1)}`, args: [], worktree: null, runId: null, opensRun: false, startedAt: 1, done: false, stopped: false, code: null, newRunId: null, lines: [], total: 0, ...o });
+
+  /** The page the address opens, the job drawer under it following `jobs` as `on.set` changes them. */
+  async function page(first: JobView): Promise<{ set: (o: Partial<JobView>) => Promise<void>; toasts: string[] }> {
+    const base = app();
+    const on = { set: (_fn: (l: WatchedJob[]) => WatchedJob[]): void => undefined, toasts: [] as string[] };
+    function Host() {
+      const [jobs, setJobs] = useState<WatchedJob[]>([{ job: first, lines: [], open: true }]);
+      useEffect(() => {
+        on.set = setJobs;
+      }, []);
+      const route = useRoute();
+      const value = { ...base, conn: 'ok', runs: [], jobs, dropToast: () => undefined, closeJob: () => undefined, openJob: () => undefined, toast: (t: string) => on.toasts.push(t) } as unknown as AppState;
+      return createElement(AppContext.Provider, { value }, createElement('main', { id: 'view', tabIndex: -1 }, route.page === 'fixes' && route.id ? createElement(FixPage, { id: route.id, step: route.step, sub: route.sub }) : null), createElement(JobDrawer));
+    }
+    r = await render(createElement(Host));
+    return { set: (o) => act(async () => on.set((l) => l.map((w) => ({ ...w, job: { ...w.job, done: true, code: 0, ...o } })))), toasts: on.toasts };
+  }
+  const wayOn = () => r!.all('.drawer .jfoot a, .drawer .jfoot .jkind button').map((b) => [text(b), b.className]);
+
+  it('ends a blame on the fix’s next step while its page is on the screen, plain beside the page’s lime, and on the CLI’s Open fix alone elsewhere', async () => {
+    const { fixId } = blamed();
+    const opened = { label: 'Open fix', href: `#/fixes/${fixId}/blame` };
+    const bar = address(`#/fixes/${fixId}/blame`);
+    const drawer = await page(job({ kind: JOB_KINDS.blame, fixId, title: 'Blaming again' }));
+    await r!.until('the fix to load', () => r!.all('h1').length === 1);
+    const lime = r!.one('#view .ph .actions .btn.lime');
+    await drawer.set({ links: [opened] });
+    await r!.until('its next step', () => wayOn().length > 0);
+    // The CLI's Open fix is this page: the drawer ends on what the header leads with, plain.
+    expect(wayOn()).toEqual([[text(lime), 'btn']]);
+    expect(bar.now()).toBe(`#/fixes/${fixId}/blame`);
+    await r!.unmount();
+    // Off the fix's page, Open fix leads, lime, with nothing beside it.
+    address('#/fixes');
+    const off = await page(job({ kind: JOB_KINDS.blame, fixId }));
+    await off.set({ links: [opened] });
+    expect(wayOn()).toEqual([['Open fix', 'btn lime']]);
+  });
+
+  it('opens a verify’s verdict in place once it ends, the drawer still open, and ends it on the fix’s next step', async () => {
+    const { fixId, left } = verified();
+    const bar = address(`#/fixes/${fixId}/verify`);
+    const drawer = await page(job({ kind: JOB_KINDS.verify, fixId, title: 'Verifying' }));
+    await r!.until('the fix to load', () => r!.all('h1').length === 1);
+    const { verdict } = recordVerdict(store, { report: verifyReport([{ runId: left, role: 'target', pass: false }]), expect: SEND_ONCE, command: `shadowlap verify --fixes ${left}`, rerun: { flags: [], command: null }, at: (at += DAY) });
+    await drawer.set({ code: 1, result: { verdict: 'rejected', verifyId: verdict.verifyId }, links: [{ label: 'Open fix', href: `#/fixes/${fixId}/verify/${verdict.verifyId}` }] });
+    await r!.until('its verdict', () => bar.now().endsWith(verdict.verifyId));
+    expect(bar.now()).toBe(`#/fixes/${fixId}/verify/${verdict.verifyId}`);
+    await r!.until('the verdict shown', () => text(r!.one('.verdict .vw')) === 'rejected');
+    expect(r!.all('section.drawer')).toHaveLength(1);
+    await r!.until('its next step', () => wayOn().length > 0);
+    expect(wayOn()).toEqual([[text(r!.one('#view .ph .actions .btn.lime')), 'btn']]);
+  });
+
+  it('ends an apply that left every other golden passing on Open goldens in Tests, unless Tests is the page', async () => {
+    address('#/fixes/f1');
+    const Footer = jobFooter(JOB_KINDS.applyFix)!;
+    const ended = (o: Partial<JobView>, plain?: boolean) => createElement(AppContext.Provider, { value: app() }, createElement(Footer, { job: job({ kind: JOB_KINDS.applyFix, done: true, code: 0, result: { outdated: [] }, ...o }), ...(plain ? { plain } : {}) }));
+    r = await render(ended({}));
+    expect(r.all('a').map((a) => [text(a), a.getAttribute('href'), a.className])).toEqual([[OPEN_GOLDENS, '#/tests', 'btn lime']]);
+    await r.unmount();
+    r = await render(ended({}, true));
+    expect(r.one('a').className).toBe('btn');
+    await r.unmount();
+    r = await render(ended({ code: 1 }));
+    expect(r.all('a')).toEqual([]);
+    await r.unmount();
+    address('#/tests');
+    r = await render(ended({}));
+    expect(r.all('a')).toEqual([]);
+  });
+
+  it('offers Open Blame on a blame press the server refused as moved on, unless the page shows the Blame step', async () => {
+    const { fixId } = blamed();
+    const toasts: Array<{ text: string; action?: ToastAction }> = [];
+    const watched: unknown[] = [];
+    const fake = { toast: (t: string, _kind?: string, action?: ToastAction) => toasts.push({ text: t, ...(action ? { action } : {}) }), watchJob: (p: Promise<unknown>) => void p.catch((e: unknown) => watched.push(e)) };
+    const moved = new ApiError(409, `${fixId.slice(0, 8)}'s blame settled where its run was lost, or the fix isn't open: there is nothing to blame again`);
+    const bar = address(`#/fixes/${fixId}/repair`);
+    await open(fixId, 'repair');
+    refusedPress(fake, JOB_KINDS.blame, { fixId, again: true }, moved);
+    expect(toasts.map((t) => [t.text, t.action?.label])).toEqual([[errorText(moved), OPEN_BLAME]]);
+    toasts[0].action!.run();
+    expect(bar.now()).toBe(`#/fixes/${fixId}/blame`);
+    // Another refusal, or another job's, goes as every job's does.
+    refusedPress(fake, JOB_KINDS.repair, { fixId }, moved);
+    refusedPress(fake, JOB_KINDS.blame, { fixId }, new ApiError(400, 'name the model to blame with'));
+    await r!.unmount();
+    address(`#/fixes/${fixId}/blame`);
+    await open(fixId, 'blame');
+    refusedPress(fake, JOB_KINDS.blame, { fixId, again: true }, moved);
+    await Promise.resolve();
+    expect([toasts.length, watched.length]).toEqual([1, 3]);
   });
 });

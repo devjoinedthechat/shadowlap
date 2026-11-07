@@ -14,6 +14,7 @@ import { BlameAgainDialog, StrongerDialog } from './BlameAgain.js';
 import { blameNextPrice, verifyPrice } from './estimates.js';
 import { ApplyDialog, RepairDialog } from './FixPage.js';
 import { LEAD_KIND, leadCard, leadReadsFix } from './list.js';
+import { refusedPress } from './page-fix.js';
 import { VerifyAsk, VerifyLeftAsk } from './VerifyStep.js';
 
 /**
@@ -55,14 +56,16 @@ function fieldsOf(lead: FixLead): Record<string, unknown> {
 type Open = { kind: 'ask'; estimate: Estimate | null | undefined } | { kind: 'fix'; fix: FixDetail; estimate: Estimate | null | undefined };
 
 /**
- * A fix's next step on its Fixes row (`fixLead`), small and plain: it runs or asks as the same button on
- * the fix's page does. A press asks the fix's estimates, and the fix's detail for a step whose dialog
+ * A fix's next step on its Fixes row (`fixLead`), small and plain, or where a job's drawer ends on its
+ * fix's page (job-footers.tsx: its `className`, and the page's `fix`, so a press reads none): it runs
+ * or asks as the same button on the fix's page does. A press asks the fix's estimates, and the fix's detail for a step whose dialog
  * shows it (Run blame with stronger model…, Run repair, Apply fix, Mark applied, Finish applying), then
  * opens that dialog; Run blame again, Run more attempts, Verify again and Verify this run follow Spending from the lead's
  * own fields, starting at or under the threshold, else asking. While a read is out the button is busy
- * and another press does nothing. `why` is the list's: one jobs read for every row.
+ * and another press does nothing. `why` is the list's: one jobs read for every row. A press refused once
+ * the fix's blame moved on offers Open Blame (`refusedPress`).
  */
-export function RowStep({ fixId, lead, why, version }: { fixId: string; lead: FixLead; why: string | null; version: string }) {
+export function RowStep({ fixId, lead, why, version, className = 'btn sm', fix: detail }: { fixId: string; lead: FixLead; why: string | null; version: string; className?: string; fix?: FixDetail }) {
   const app = useApp();
   const press = useBilledPress();
   const [got, setGot] = useState<{ version: string; e: FixEstimates | null } | null>(null);
@@ -84,7 +87,7 @@ export function RowStep({ fixId, lead, why, version }: { fixId: string; lead: Fi
       (err: unknown) => {
         const asked = fields.yes === undefined ? consentAsked(err) : null;
         if (asked) setConsent({ ...asked, fields });
-        else app.watchJob(Promise.reject(err));
+        else refusedPress(app, LEAD_KIND[lead.key], { fixId }, err);
       },
     );
   const onClick = () =>
@@ -93,7 +96,7 @@ export function RowStep({ fixId, lead, why, version }: { fixId: string; lead: Fi
       out.current = true;
       setReading(true);
       const e = !api || !bills ? Promise.resolve(null) : estimatesOf(api, fixId, version);
-      const fix = leadReadsFix(lead) ? app.client.fix(fixId) : Promise.resolve(null);
+      const fix = !leadReadsFix(lead) ? Promise.resolve(null) : detail ? Promise.resolve(detail) : app.client.fix(fixId);
       void Promise.all([e, fix])
         .then(
           ([e, fix]) => {
@@ -114,7 +117,7 @@ export function RowStep({ fixId, lead, why, version }: { fixId: string; lead: Fi
   return (
     <>
       <ActionButton
-        className="btn sm"
+        className={className}
         why={why}
         aria-busy={reading || undefined}
         tip={lead.label}

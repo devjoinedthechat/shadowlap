@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { consentAsked } from '../actions.js';
-import { JOB_KINDS, ApiError, type JobView } from '../api.js';
+import { JOB_KINDS, ApiError } from '../api.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Link } from '../components/Link.js';
 import { Status } from '../components/Status.js';
 import { ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { DialogSteps, DialogTip } from '../components/DialogFacts.js';
-import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
 import { headingRef } from '../focus-manager.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
@@ -14,8 +13,6 @@ import { APPLY_ASK } from '../page-ask.js';
 import { Unshown } from '../shell/unshown.js';
 import { copyText } from '../dom.js';
 import { GLUED_SEPARATOR, shortId } from '../format.js';
-import { useLoad } from '../hooks.js';
-import { addJobFooter } from '../job-actions.js';
 import { href } from '../route.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
@@ -24,13 +21,14 @@ import type { FixEstimates } from '../estimates-api.js';
 import { copiedTo, GoldenNameFields, nameFields, nameFlags, useGoldenNames } from './ApplyNames.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { applySteps, keepsOf, markLead, PULLED_LINE, repairCost, updateOutdatedAsk } from './dialog-words.js';
+import { applySteps, keepsOf, markLead, PULLED_LINE, repairCost } from './dialog-words.js';
 import { blameNextAsk } from './BlameAgain.js';
 import { blameNextPrice, repairCard, useFixEstimates, verifyPrice } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
-import { appliedButton, blameNextStep, failingLine, fixAction, fixName, fixStamp, laterStamp, leadingVerdict, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, stepFor } from './model.js';
+import { appliedButton, blameNextStep, failingLine, fixAction, fixName, fixStamp, laterStamp, leadingVerdict, patchLines, repairAsk, repairAside, shortFixId, stepFor } from './model.js';
 import { FixStepper, REPAIR_SPENT, showPatchCard, useFitFixHead } from './head.js';
 import { failingCard, leadCard, rungStatus } from './list.js';
+import { useFixRead, useFollowJobs } from './page-fix.js';
 import { FailedMust } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
 import { useTreeBusy } from './tree.js';
@@ -40,9 +38,6 @@ export { StrongerDialog } from './BlameAgain.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { sentEstimate } from '../spending.js';
-import { JobButton } from '../components/JobButton.js';
-import { testsJob } from '../pages/tests-cards.js';
-import { updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 
 /**
  * A fix (#/fixes/<id>[/<step>[/<sub>]]): its title, check and runs; the stepper (Blame, Repair,
@@ -51,12 +46,14 @@ import { updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.
  */
 export function FixPage({ id, step, sub }: { id: string; step: string | null; sub: string | null }) {
   const { client, tick, feeds } = useApp();
-  // Again when runs change, or fixes do (a title set in a terminal, a repair's report).
-  const loaded = useLoad(() => client.fix(id), `fix:${id}`, `${tick}:${feeds.fixes ?? 0}`);
+  // Again when runs change, or fixes do (a title set in a terminal, a repair's report), each answer
+  // shared with what a job of the fix ends on in the drawer.
+  const loaded = useFixRead(client, id, `${tick}:${feeds.fixes ?? 0}`);
   const fix = loaded.data;
   useEffect(() => {
     if (fix) rememberFix(fix, id);
   }, [fix, id]);
+  useFollowJobs(id, fix);
   if (!fix) {
     if (loaded.error instanceof ApiError && loaded.error.status === 404)
       return (
@@ -563,44 +560,3 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
     </Dialog>
   );
 }
-
-/**
- * The apply drawer's last word when the patch made other goldens diverge: Update goldens re-records
- * them (`shadowlap test <goldens> --update`), asking first, as the Tests screen's Update goldens does.
- * Its card and its dialog's Cost line say what re-recording them together would bill (`GET
- * /api/tests/estimates`, read once the apply has ended), and the job keeps the estimate shown.
- */
-function ApplyFooter({ job, plain }: { job: JobView; plain?: boolean }) {
-  const app = useApp();
-  const [asking, setAsking] = useState<Price | false>(false);
-  const [started, setStarted] = useState(false);
-  const outdated = outdatedOf(job.result);
-  const names = outdated.map((g) => g.golden).join('\n');
-  const paths = useMemo(() => (names ? names.split('\n') : []), [names]);
-  const shows = job.done && paths.length > 0 && app.hasKind(JOB_KINDS.testUpdate);
-  const prices = useTestsEstimates(shows ? job.id : null, paths);
-  if (!shows) return null;
-  const ask = updateOutdatedAsk(outdated);
-  const card = { tip: ACTIONS.updateGoldens.label, command: ask.command };
-  return (
-    <>
-      <JobButton className={plain ? 'btn' : 'btn lime'} disabled={started} {...testsJob(card, updatesPrice(prices, paths), (e) => app.guard(() => setAsking(e)))}>
-        {ACTIONS.updateGoldens.label}
-      </JobButton>
-      {asking !== false ? (
-        <UpdateGoldenDialog
-          plan={ask}
-          estimate={asking}
-          onClose={() => setAsking(false)}
-          onUpdate={() => {
-            const went = app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { ...ask.fields, ...sentEstimate(asking) })));
-            if (went) setStarted(true);
-            return went;
-          }}
-        />
-      ) : null}
-    </>
-  );
-}
-
-addJobFooter(JOB_KINDS.applyFix, ApplyFooter);

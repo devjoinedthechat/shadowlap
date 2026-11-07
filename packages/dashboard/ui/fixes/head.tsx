@@ -4,6 +4,7 @@ import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import type { FixDetail, JobListItem, StepKey } from '../types.js';
 import { pluralS as s } from '../../../engine/src/words.js';
+import { isStepJob } from './page-fix.js';
 import { Flagged } from './parts.js';
 import { STEP_NAMES } from './row-scope.js';
 import { useServerJobs } from './tree.js';
@@ -45,8 +46,6 @@ export interface RunningStep {
   title: string;
   meta: string;
 }
-
-const isStepJob = (kind: string | undefined): boolean => kind === JOB_KINDS.blame || kind === JOB_KINDS.repair || kind === JOB_KINDS.verify;
 
 /** A verify job's line, by what it settles: more attempts up to the limit the verdict's own step names, the same runs again, or the runs no accepted verdict checked. */
 function verifyingLine(fix: Pick<FixDetail, 'actions' | 'verify'>, title: string | undefined): string {
