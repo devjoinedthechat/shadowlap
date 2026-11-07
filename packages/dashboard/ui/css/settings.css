@@ -105,6 +105,7 @@ ul.fails { margin: 0; padding-left: 18px; color: var(--dim); font-size: 13px; li
    that opens a tab (Store with no store yet). Sections after it sit 40px apart, each under its own hairline. */
 .settab > .panel.sec:first-child { border-top: 0; padding-top: 0; }
 .settab > .stepempty:first-child { border-top: 0; padding-top: 6px; }
+.settab > .loaderr:first-child { margin-top: 0; border-top: 0; padding-top: 6px; }
 .settab > .panel + .panel, .settab > .panel + .panel.sec { margin-top: 40px !important; }
 /* A section's parts are headed in words, as sentences start, never small capitals in mono (column heads keep those). The
    source keeps them lowercase; the first letter is raised here. */

@@ -27,10 +27,10 @@ import { MCP_FORMS, addServerNotes, copiedLineText, entryEnvFor, mcpEntryText, m
  */
 export function ToolsTab() {
   const { client } = useApp();
-  const { data, error } = useSettingsData(() => client.settings.tools(), 'settings:tools');
+  const { data, error, reload } = useSettingsData(() => client.settings.tools(), 'settings:tools');
   const [adding, setAdding] = useState(false);
   const gone = useFolderGone();
-  if (error && !data) return <LoadProblem error={error} />;
+  if (error && !data) return <LoadProblem error={error} retry={reload} />;
   if (!data) return <Loading title="Tools" />;
   const none = !data.live.length && !data.fenced.length;
   return (

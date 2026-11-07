@@ -82,7 +82,9 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
     await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(r.one('.settab .emptyline').textContent).toBe('The rules can’t be read until the file is fixed.');
     expect(r.all('.setrow b').map((b) => b.textContent)).toEqual(['Dates and times']);
-    expect(r.one('.verdict h2').textContent).toBe('Fix shadowlap.config.json to change these settings');
+    // A verdict line: its word first, in the error tone, which its heading names for a screen reader too.
+    expect(r.one('.verdict h2').textContent.replace(/\s+/g, ' ')).toBe('can’t read Fix shadowlap.config.json to change these settings');
+    expect(r.one('.verdict .vw').className).toBe('vw err');
   });
 
   it('says so on Redaction too, with no preview of rules it can’t read', async () => {
@@ -351,5 +353,30 @@ describe('the rest of Settings while its file or folder can’t be read', () => 
     r = await page(app({ client: { matching: async () => matching(null) } }), 'matching');
     await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(pressed(r)).toEqual(['true', 'false']);
+  });
+});
+
+describe('a tab that is loading, or whose read failed', () => {
+  it('draws its section in quiet bars under its title while it loads', async () => {
+    r = await page(app({ client: { tools: () => new Promise<never>(() => undefined) } }), 'tools');
+    await r.until('the bars', () => r!.all('.settab .skel').length > 0);
+    expect(r.one('.settab .skel h2').textContent).toBe('Tools');
+    expect(r.one('.settab .skel [role="status"]').textContent.trim()).toBe('Loading Tools…');
+    expect(r.all('.settab .skel .skbars i')).toHaveLength(3);
+  });
+
+  it('says what the server said in one line in the error tone, and reads the tab again on Retry', async () => {
+    let asked = 0;
+    const project = async () => {
+      asked++;
+      throw new Error('The dashboard server answered 500 for this page’s data.');
+    };
+    r = await page(app({ client: { project } }), 'project');
+    await r.until('the error', () => r!.all('.settab .loaderr').length > 0);
+    expect(r.one('.settab .loaderr .st.err').textContent).toBe('couldn’t load');
+    expect(r.one('.settab .loaderr p').textContent).toContain('The dashboard server answered 500 for this page’s data.');
+    const before = asked;
+    await r.click(r.byText('.settab .loaderr button', 'Retry'));
+    await r.until('a second read', () => asked > before);
   });
 });

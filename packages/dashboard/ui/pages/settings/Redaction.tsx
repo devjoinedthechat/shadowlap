@@ -41,7 +41,7 @@ export function RedactionTab() {
   const putBack = useRef<number | null>(null);
   const teamStore = !!useTeamStore();
   const gone = useFolderGone();
-  if (error && !data) return <LoadProblem error={error} />;
+  if (error && !data) return <LoadProblem error={error} retry={reload} />;
   if (!data) return <Loading title="Redaction" />;
   const off = app.actionsOff ?? gone ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
   const version = data.config.version ?? 'absent';

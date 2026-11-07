@@ -32,7 +32,7 @@ export function StoreTab() {
   const setup = useSettingsData<StoreSetupView | null>(() => client.storeSetup.view().catch(() => null), 'store:setup');
   const editor = useEditor(data?.config.version ?? null, reload);
   const gone = useFolderGone();
-  if (error && !data) return <LoadProblem error={error} />;
+  if (error && !data) return <LoadProblem error={error} retry={reload} />;
   if (!data || (setup.loading && !setup.data)) return <Loading title="Store" />;
   const view = setup.data;
   if (!data.configured || !data.status) {

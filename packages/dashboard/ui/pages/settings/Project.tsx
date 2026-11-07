@@ -20,11 +20,11 @@ import { SpendingRow } from './SpendingRow.js';
 export function ProjectTab() {
   const app = useApp();
   const { client } = app;
-  const { data, error } = useSettingsData(() => client.settings.project(), 'settings:project');
+  const { data, error, reload } = useSettingsData(() => client.settings.project(), 'settings:project');
   const removal = useProjectRemoval();
   const [removing, setRemoving] = useState(false);
   const gone = useFolderGone();
-  if (error && !data) return <LoadProblem error={error} />;
+  if (error && !data) return <LoadProblem error={error} retry={reload} />;
   if (!data) return <Loading title="Project" />;
   const current = removal?.current() ?? null;
   const blocked = current ? current.blocked : ONLY_PROJECT;

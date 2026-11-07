@@ -4,6 +4,8 @@ import { ApiError } from '../../api.js';
 import { PAUSED } from '../../connection.js';
 import { useLoad, type Loaded } from '../../hooks.js';
 import { messageOf } from '../../../../engine/src/message-of.js';
+import { ErrorState, Skeleton } from '../../components/States.js';
+import { VerdictLine } from '../../components/VerdictLine.js';
 import { useApp, type AppState } from '../../state.js';
 import { sentence, type ToastAction } from '../../toast.js';
 import { onSettingsChanged, settingsChanged } from './events.js';
@@ -216,41 +218,34 @@ export function editErrorText(err: unknown): string {
   return messageOf(err);
 }
 
-/** The config can't be read: what the loader says, and that Settings shows it again once it is fixed. */
+/**
+ * The config can't be read: a verdict line, its word first in the error tone, what the loader says
+ * under it, and that Settings shows it again once it is fixed.
+ */
 export function ConfigProblem({ error }: { error: string }) {
   return (
-    <div className="verdict no">
-      <span className="badge no">can’t read</span>
-      <div>
-        <h2>Fix {CONFIG_FILE} to change these settings</h2>
-        <p>{error.replace(/\.$/, '')}. Every command refuses the file until it is fixed; Settings reads it again when you come back.</p>
-      </div>
-    </div>
+    <VerdictLine word="can’t read" tone="err" facts={`${error.replace(/\.$/, '')}. Every command refuses the file until it is fixed; Settings reads it again when you come back.`}>
+      {`Fix ${CONFIG_FILE} to change these settings`}
+    </VerdictLine>
   );
 }
 
-/** A tab whose read failed: what the server said. */
-export function LoadProblem({ error, children }: { error: Error; children?: ReactNode }) {
+/** A tab whose read failed, under the header and the tabs: one line in the error tone, what the server said, and Retry, which reads the tab again. */
+export function LoadProblem({ error, retry, children }: { error: Error; retry?: (() => void) | undefined; children?: ReactNode }) {
   return (
-    <section className="panel stepempty">
-      <h3>This tab didn’t load</h3>
-      <p>{error.message}</p>
+    <ErrorState retry={retry}>
+      {error.message}
       {children}
-    </section>
+    </ErrorState>
   );
 }
 
-/** While a tab loads for the first time: its panel's frame, so the page doesn't jump when it arrives. */
-export function Loading({ title }: { title: string }) {
+/** While a tab loads for the first time: its section in quiet bars under its title, so the page doesn't jump when it arrives. */
+export function Loading({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <section className="panel set">
-      <header>
-        <h2>{title}</h2>
-      </header>
-      <div className="pbody">
-        <p className="muted">Loading…</p>
-      </div>
-    </section>
+    <Skeleton what={title} title={title}>
+      {children}
+    </Skeleton>
   );
 }
 

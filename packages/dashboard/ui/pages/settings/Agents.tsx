@@ -24,11 +24,11 @@ import { Section } from '../../components/Section.js';
  */
 export function AgentsTab() {
   const { client } = useApp();
-  const { data, error } = useSettingsData(() => client.settings.agents(), 'settings:agents');
+  const { data, error, reload } = useSettingsData(() => client.settings.agents(), 'settings:agents');
   const gone = useFolderGone();
   const [asking, setAsking] = useState<{ install: Install; title: string; lead: string; path: string; others: boolean } | null>(null);
   const start = useInstall();
-  if (error && !data) return <LoadProblem error={error} />;
+  if (error && !data) return <LoadProblem error={error} retry={reload} />;
   if (!data) return <Loading title="Coding agents" />;
   const skill = data.skill;
   const found = data.files.filter((f) => f.found);

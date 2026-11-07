@@ -37,9 +37,9 @@ export function CiTab() {
     Object.assign(kept, patch);
     setChanged({ ...kept });
   };
-  const { view, error } = useCiWorkflows(changed);
+  const { view, error, reload } = useCiWorkflows(changed);
   if (!view) {
-    if (error) return <LoadProblem error={error} />;
+    if (error) return <LoadProblem error={error} retry={reload} />;
     return (
       <>
         <Loading title="Your workflow" />
@@ -77,9 +77,10 @@ export function CiTab() {
 /**
  * The panels for what was changed: the server's answer, kept while the next one is asked so nothing
  * empties as you type. Asked again when the window comes back (Push from CI may have been switched
- * in a terminal meanwhile), when Settings changed from elsewhere, and in another project.
+ * in a terminal meanwhile), when Settings changed from elsewhere, in another project, and on Retry
+ * (`reload`).
  */
-function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView | null; error: Error | null } {
+function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView | null; error: Error | null; reload: () => void } {
   const { client, meta } = useApp();
   const options = useLatest(o);
   const [seen, setSeen] = useState(0);
@@ -106,7 +107,7 @@ function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView 
       alive = false;
     };
   }, [client, key, options]);
-  return served;
+  return { ...served, reload: () => setSeen((n) => n + 1) };
 }
 
 /**

@@ -143,7 +143,7 @@ describe('Settings → CI', () => {
     const ask = vi.fn(async (o: Partial<CiWorkflowOptions> = {}) => ciWorkflows({ ...CI_DEFAULTS, ...o }, { preview: null, failing: 0, at: null, repository: null, branch: null, goldens: [], configError }));
     r = await render(createElement(AppContext.Provider, { value: app(ask as unknown as Client['ciWorkflows']) }, createElement(SettingsPage, { tab: 'ci' })));
     await r.until('the panels', () => r!.all('#workflow .cilist').length > 1);
-    expect(r.one('.settab .verdict h2').textContent).toBe('Fix shadowlap.config.json to change these settings');
+    expect(r.one('.settab .verdict h2').textContent.replace(/\s+/g, ' ')).toBe('can’t read Fix shadowlap.config.json to change these settings');
     expect(r.one('.settab .verdict p').textContent).toContain('not valid JSON');
     const unread = r.all('#workflow .cimain .cilist li').find((li) => li.textContent.startsWith('which goldens run live'))!;
     expect(unread.querySelector('i')!.getAttribute('class')).toBe('warn');

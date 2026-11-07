@@ -37,7 +37,7 @@ export function MatchingTab() {
   // A rule an Undo put back: its Remove takes the focus once the table shows it.
   const putBack = useRef<number | null>(null);
   const gone = useFolderGone();
-  if (error && !data) return <LoadProblem error={error} />;
+  if (error && !data) return <LoadProblem error={error} retry={reload} />;
   if (!data) return <Loading title="Matching" />;
   const off = app.actionsOff ?? gone ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
   const version = data.config.version ?? 'absent';
