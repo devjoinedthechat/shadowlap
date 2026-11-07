@@ -246,7 +246,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.verifiedAt).toBeGreaterThanOrEqual(shown.openedAt);
     expect(shown.goodRuns.map((r: { runId: string }) => r.runId)).toEqual([good]);
     expect(shown.failingRuns.map((r: { runId: string }) => r.runId)).toEqual(failed);
-    expect(shown.steps.map((x: { state: string }) => x.state)).toEqual(['done', 'todo', 'done']);
+    expect(shown.steps.map((x: { state: string; short: string }) => [x.state, x.short])).toEqual([['done', `lost at #${decision}`], ['done', 'by hand'], ['done', '2 fixed · 1 kept']]);
     expect(shown.steps[2]).toMatchObject({ short: '2 fixed · 1 kept', title: '2 fixed · 1 kept', meta: '1 earlier change rejected' });
     expect(shown.verify.map((v: { verdict: string }) => v.verdict)).toEqual(['accepted', 'rejected']);
     expect(shown.defaultVerify).toBe(shown.verify[0].verifyId);

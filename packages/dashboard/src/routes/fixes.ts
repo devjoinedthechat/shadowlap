@@ -1,12 +1,13 @@
 import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { APPLY_GOLDENS, fixBundles, fixDetail, fixList, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
+import { APPLY_GOLDENS, fixBundles, fixDetail, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree, rewritesHere } from '../patch-in-tree.js';
 import { storePrStates } from '../pr-state.js';
 import { captureExpect } from '../next-step.js';
+import { nextStepWork } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
 import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
@@ -15,7 +16,8 @@ import { loadRunIndex } from '../run-index.js';
 import { MODEL, modelParam, verifyRule } from './estimates.js';
 
 /**
- * Fixes: the list (`GET /api/fixes`), a fix with its three steps (`GET /api/fixes/:id`), what its
+ * Fixes: the list (`GET /api/fixes`: every fix in to-do order, with the counts per chip, what they
+ * took and the failing runs nobody has blamed, fixes-view.ts), a fix with its three steps (`GET /api/fixes/:id`), what its
  * billed buttons would cost (`GET /api/fixes/:id/estimates`), its title (`PUT /api/fixes/:id/title`),
  * and the attempts blame and verify made in a run's family, bundled for the Forks view
  * (`GET /api/fixes/family/:runId`). Four job kinds act on them: `blame` (a
@@ -144,7 +146,7 @@ function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' 
   const next = req.again === true ? d.actions.blameAgain! : d.actions.blameStronger!;
   const consent = needsConsent({ runs: [run], yes: req.yes, args, pulled: next.pulled ? { what: `${id}'s blame`, left: next.left } : null });
   if ('ask' in consent) return consent.ask;
-  return { args: [...args, ...consent.yes], runId: run.runId, title: req.again === true ? ACTIONS.runBlameAgain.doing : ACTIONS.runBlameStronger.doing };
+  return { args: [...args, ...consent.yes], runId: run.runId, fixId: fix.fixId, title: req.again === true ? ACTIONS.runBlameAgain.doing : ACTIONS.runBlameStronger.doing };
 }
 
 /**
@@ -162,7 +164,7 @@ function verifyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   const runs = v.rows.map((x) => store.getRun(x.runId)).filter((r): r is RunRecord => r !== null);
   const consent = needsConsent({ runs, yes: req.yes, args: v.more.argv, pulled: v.more.pulled ? { what: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)}`, left: v.more.left } : null });
   if ('ask' in consent) return consent.ask;
-  return { args: [...v.more.argv, ...consent.yes], title: v.more.kind === 'more' ? ACTIONS.runMoreAttempts.doing : ACTIONS.verifyAgain.doing };
+  return { args: [...v.more.argv, ...consent.yes], fixId: fix.fixId, title: v.more.kind === 'more' ? ACTIONS.runMoreAttempts.doing : ACTIONS.verifyAgain.doing };
 }
 
 function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, configDir: string | null): JobBuildResult {
@@ -235,7 +237,7 @@ function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   const args = repairJobArgv(d.actions.repair.argv, configured);
   const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes, args);
   if ('ask' in consent) return consent.ask;
-  return { args: [...args, ...consent.yes] };
+  return { args: [...args, ...consent.yes], fixId: fix.fixId };
 }
 
 /**
@@ -271,7 +273,7 @@ function applyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | '
   if (apply.refused) return { error: `${short(fix.fixId)}'s patch is not the change its repair verified: ${apply.refused}. Nothing ran`, status: 409 };
   const named = namesFor(req.names, apply.names);
   if ('error' in named) return named;
-  return { args: [...apply.argv, ...goldenNameArgs(named.names)], title: apply.kind === 'mark' ? 'Marking the fix applied' : d.actions.applied ? 'Finishing the apply' : ACTIONS.applyFix.doing };
+  return { args: [...apply.argv, ...goldenNameArgs(named.names)], fixId: fix.fixId, title: apply.kind === 'mark' ? 'Marking the fix applied' : d.actions.applied ? 'Finishing the apply' : ACTIONS.applyFix.doing };
 }
 
 export function register(router: Router, ctx: RouteContext): void {
@@ -282,11 +284,13 @@ export function register(router: Router, ctx: RouteContext): void {
   // dashboard asks no one, as it changes nothing.
   const prs = ctx.readOnly ? null : storePrStates(() => store, { projectDir: ctx.project?.path ?? null });
 
-  router.get('/fixes', (r) => {
+  // Every fix's reports and every run's row: beside the server's thread (fixes-view.ts). What
+  // GitHub says of each pull request is asked here, where its state is kept, and lands in the store.
+  router.get('/fixes', async (r) => {
     const status = r.query.get('status') ?? 'all';
     if (!STATUSES.has(status)) throw new HttpError(400, `status is one of ${[...STATUSES].join(', ')}`);
     prs?.refresh(store.listFixes());
-    r.tagged(fixList(store, { status: status as FixStatus | 'all' }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'fixes', status: status as FixStatus | 'all', project: ctx.project?.path ?? null, repairer: configuredRepairer(ctx), next: nextStepWork(ctx) }));
   });
 
   // The attempts in a run's family, bundled as the Forks view shows them. Before /fixes/:id would

@@ -6,11 +6,11 @@ import type { ProjectConfig, RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobNotice } from '../jobs.js';
 import { addedMessage, addProjectPage, projectSwitcher, removeDialog, removedToast, setupView, type PickedFolder, type SetupView } from '../projects.js';
+import { packTestKind } from '../pack-test.js';
 import { answerData } from '../read-pool.js';
+import { readingStores } from '../reading-stores.js';
 import type { Router } from '../router.js';
 import { countsOf, readTeamStoreInput } from '../team-store.js';
-import { keptGoldenAsk } from '../tests-live.js';
-import { sessionBusy, testsBusy } from './tests.js';
 
 /**
  * Projects: one dashboard over several folders, each with its own store (`DashboardOptions.projects`).
@@ -29,15 +29,17 @@ import { sessionBusy, testsBusy } from './tests.js';
  * And three job kinds: `init` (inspect the folder: `shadowlap init`, which writes what it finds to
  * the project list), `record` (`shadowlap run -- <command>`, the one place the browser sends a
  * command line: the agent's own, which only ever goes after `--`, split without a shell, and
- * confirmed the first time it runs in a folder) and `pack-test` (keep the setup's recording as a
- * golden: `pack <run> <golden>`, then `test <golden>`; only the test once it is packed; asking first,
- * as Run tests does, when its tests entry runs that test live, its `yes` the answer). Setup
+ * confirmed the first time it runs in a folder) and `pack-test` (a recording packed as a golden:
+ * `pack <run> <golden>`, then `test <golden>`; only the test once it is packed; asking first, as Run
+ * tests does, when its tests entry runs that test live, its `yes` the answer: pack-test.ts). Setup
  * requests may name the project the page shows (`project`): one that is no longer current is
  * refused, so a click never acts on a project switched to elsewhere. The routes that name a project
  * by its id (switching, adding, removing) take any page's.
  *
- * A dashboard that serves one store (tests, `shadowlap ui`, `--read-only`) has none of this: these
- * routes answer 404 and the job kinds aren't registered, and the pages fall back to the commands.
+ * A dashboard that serves one store (tests, `shadowlap ui`, `--read-only`) has none of this but
+ * `pack-test` for a run the request names, which a run page's Pack as golden… starts wherever there
+ * is a project folder: these routes answer 404, `init` and `record` aren't registered, and the pages
+ * fall back to the commands.
  */
 
 export const ONE_STORE = 'this dashboard serves one store: start shadowlap dashboard to add and switch projects';
@@ -79,11 +81,12 @@ export function register(router: Router, ctx: RouteContext): void {
    * every run (read-jobs.ts `store-facts`): the current project's through its own threads, another's
    * from its file. A folder gone from disk has none, and a store that can't be read is left out, for
    * the host to read on this thread and say why. `keep`: the setup's recording, as the setup lists it.
+   * A project removed meanwhile waits for the read of its store to end (reading-stores.ts).
    */
   const factsBeside = async (h: ProjectHost<ProjectConfig>, projects: readonly ProjectEntry[], o: { keep?: boolean } = {}): Promise<Record<string, StoreFacts>> => {
     const current = h.currentProject();
     const stores = projects.filter((p) => existsSync(p.path)).map((p) => ({ id: p.id, dbPath: p.id === current ? null : h.context(p.id).dbPath, keep: o.keep ? p.setup.runId : null }));
-    return stores.length ? answerData<Record<string, StoreFacts>>(await ctx.reads.run({ kind: 'store-facts', stores })) : {};
+    return stores.length ? answerData<Record<string, StoreFacts>>(await readingStores(h, stores.map((s) => s.dbPath), () => ctx.reads.run({ kind: 'store-facts', stores }))) : {};
   };
   /** The last calibrate job's outcome per project, for its setup's third step (until the replay is clean). */
   const calibrations = new Map<string, { runId: string; outcome: CalibrationOutcome }>();
@@ -252,6 +255,9 @@ export function register(router: Router, ctx: RouteContext): void {
     r.json({ project: id, stage: entry.setup.stage, skipped: entry.setup.skipped, golden: entry.setup.golden });
   });
 
+  // Pack as golden…, for any run on a dashboard with a project folder, and the setup's Keep it as a test.
+  ctx.jobs.registerJobKind('pack-test', packTestKind(ctx, projects));
+
   if (!projects) return;
   const h = projects;
 
@@ -281,31 +287,6 @@ export function register(router: Router, ctx: RouteContext): void {
       // jobs, the dashboard stopping) asks again next time.
       if (plan.confirm && req.confirmed !== true) return { error: `${plan.confirm.title}: confirm it first: ${plan.display}`, status: 409 };
       return { args: plan.args, cwd: plan.cwd, env: plan.env, opensRun: true, title: 'Recording', ...(plan.confirm ? { started: () => void h.confirmCommand(projectId, plan) } : {}) };
-    },
-  });
-
-  // Keep it as a test: the setup's recording packed as a golden, then its test, as one job; once
-  // it is packed (here or in a terminal), the test alone, to run it again.
-  ctx.jobs.registerJobKind('pack-test', {
-    title: () => 'Packing and testing',
-    build: (req, { store, projectId, project }) => {
-      if (!project || !projectId) return { error: ONE_STORE, status: 501 };
-      if (typeof req.project === 'string' && req.project && req.project !== projectId) return { error: `The dashboard switched to ${projectId}. Open ${req.project} again to keep its golden.`, status: 409 };
-      const entry = entryOf(h, projectId);
-      const setup = h.setup(projectId);
-      const run = setup.run;
-      if (!run || setup.live || !setup.steps.recorded) return { error: 'Record a first run before you keep it as a test.', status: 409 };
-      const asked = typeof req.golden === 'string' && req.golden.trim() ? req.golden : (setup.golden ?? '');
-      const check = goldenPath(asked, { folder: entry.path, runId: run.runId });
-      if (!check.ok) return { error: check.error };
-      // It replays a golden, so it waits as Tests' jobs do: for one of them in this project, and for a
-      // test session started in a terminal or another dashboard.
-      const busy = testsBusy(ctx.jobs.list(), projectId, 'keep it as a test') ?? sessionBusy(store, 'keep it as a test');
-      if (busy) return { error: busy, status: 409 };
-      const packed = h.context(projectId).packs().some((p) => p.path === check.path && p.runIds.includes(run.runId));
-      const job = packed ? { args: setupJobArgs.test(check.path), runId: run.runId, title: 'Testing the golden' } : { args: setupJobArgs.pack(run.runId, check.path), then: [setupJobArgs.test(check.path)], runId: run.runId };
-      // A test that runs the golden live (its tests entry marks it fork, or gives it an injection gate) asks first, as Run tests does.
-      return keptGoldenAsk(entry.path, check.path, [job.args, ...('then' in job ? job.then : [])], req.yes) ?? job;
     },
   });
 

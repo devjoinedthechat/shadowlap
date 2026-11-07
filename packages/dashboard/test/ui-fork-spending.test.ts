@@ -74,7 +74,9 @@ describe('a fork menu by Spending', () => {
     forgetRunEstimates();
     p = await page(0.5, { blame: null, actions: { a: price(0.51) } });
     await r!.click(p.row('Run live from #17'));
-    expect([p.sent, p.asked()]).toEqual([[], true]);
+    // The dialog an action asks in is a part of its own (actions.tsx): it shows once its script is in.
+    await r!.until('its dialog', p.asked);
+    expect(p.sent).toEqual([]);
   });
 
   it('starts Run live at Never ask, and still asks before forcing a write live', async () => {

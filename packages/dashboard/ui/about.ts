@@ -219,6 +219,9 @@ function measureIn(font: string): (text: string) => number {
   };
 }
 
+/** A text's width in a font, by the pen the about lines are fitted with: the run header's about line asks for its whole. */
+export const textWidth = (font: string, text: string): number => measureIn(font)(text);
+
 function boxWidth(el: HTMLElement): number {
   const cs = getComputedStyle(el);
   return el.getBoundingClientRect().width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth);

@@ -30,7 +30,7 @@ that draws one has.
 | `SegmentedControl` (`Seg`) | `Segmented.tsx` | A choice of a few (Chart or Table, a transport, a provider): plain options, the chosen one ink on a raised ground with a hairline ring, no panel and no ink pill (`.seg`). |
 | `Switch` | `Switch.tsx` | On and off, never two options: a button with the switch role (`.switch`), its track 28 by 16, its taps 44 by 24; the page toasts what changed. |
 | `CodeBox` | `CodeBox.tsx` | Every command box (`command`, one or several), block of code (`code`) and file of code (`file`), each with one Copy and no other, named by what it copies (Copy command, Copy commands, Copy whole command, or `what`), copying the whole thing and never the `$` (`full` where the box shows it shortened); a box that shows a change has none (`change`). |
-| `Link` | `Link.tsx` | A link in ink at 500, underlined on hover, at its line's size (`.more`; `quiet`, a reference in a quiet line, `.dlink`); `to` ends one that names where it goes in →. |
+| `Link` | `Link.tsx` | A link in ink at 500, underlined on hover, at its line's size (`.more`; `quiet`, a reference in a quiet line, `.dlink`); `to` ends one that names where it goes in →; `tip` gives one that says more on hover its card (`tipCard`). |
 | `Id` | `Id.tsx` | A run's id in mono, never broken (`code.rnm`), its about line on hover, a link with `href`. In a list of runs (`list`) its first six characters quieter, drawn by its own ground, so the text stays the id as it is: one text that copies, searches and reads whole. |
 | `Term`, `glossed` | `Term.tsx` | A word the glossary defines (`ui/glossary.ts`, one table), defined where it first shows on a page: a dotted underline, its definition on hover and to a screen reader (`aria-describedby`), and the focus; later uses read as plain words. The first of each word in the page's order is the one defined, a dialog's and a drawer's apart from the page's, and never one in a control or a place with a hover card of its own. `glossed(text)` marks the terms in a status word, a legend or a bound. |
 | `AttemptsCell`, `AttemptList` | `AttemptsCell.tsx` | A gate's attempts in a cell: the tally and its bound as the server words them, each kept whole, the interval's 64px bar (`IntervalBar`) against the gate's two marks, and its attempts on request, each a run that opens: a line each, or past six a cell each, a picture whose cells say their attempt on hover, under it lines for the first three not judged or failed. A row that draws the list elsewhere holds the toggle (`open`, `onToggle`). |
@@ -53,7 +53,7 @@ that draws one has.
 
 | Component | File | Use it for |
 |---|---|---|
-| `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. Declare a part beside the page that shows it, never in `pages/lazy.tsx`, and `preload()` it on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
+| `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. Declare a part beside the page that shows it, never in `pages/lazy.tsx`: the one part the page list shows itself, the page that says another project holds what a link names, is declared in `pages/held-elsewhere.tsx`, which the pages showing it import too, and the bundle test pins it. `preload()` a part on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
 | `LoadFailed` | `bits.tsx` | What a part shows where its script didn't come (`onShow`'s `failed`; a page's in `pages/lazy.tsx`, under its title): an `ErrorState` whose Retry loads the page again, since a browser never asks twice for a script that failed. Retry waits while the server can't be reached (`guard`). |
 
 ## Overlays
@@ -152,8 +152,8 @@ page and asks there (`page-ask.ts`; Apply fix asks by the fix's id). A source ru
 with what it has and calls `paletteSourcesChanged()` when more arrives, and an open palette reads
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
-The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`),
-and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
+The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`;
+a person's name, which every page says, in `person.ts`), and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
 capture… and Push local runs while runs are only here), the filter field (`FilterField.tsx`: its
 terms on hover, how many runs match, `onCommit` for Enter), the row of days (`DaysRow.tsx`, a bar a
 week on a phone, its days picked by `day-picks.ts`) and the calendar it opens (`Calendar.tsx`, its

@@ -7,7 +7,7 @@ import { finalAnswer } from '../responses.js';
 import type { StoreOf } from '../store.js';
 import type { CallRecord, JudgeOutcome } from '../types.js';
 import { asNumber, hasWildcard, pathAt, type CallCondition, type CallRule, type CheckResult, type CountRange, type ExpectSpec, type JudgeCheck, type Matcher, type NamedPath, type Operand, type Reference, type TestSpec, type TextCheck, type WhenRule } from './grammar.js';
-import { COUNT_NOUNS, NEGATED, PHRASE, TEXT_NOUNS, callRuleLabel, costLabel, countLabel, formatCount, judgeLabel, orList, showValue, textLabel, toolCheckLabel, whenLabel, type CountKey, type TextKey } from './labels.js';
+import { COUNT_NOUNS, NEGATED, PHRASE, TEXT_NOUNS, callRuleLabel, costLabel, countLabel, formatCount, judgeLabel, orList, showValue, textLabel, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './labels.js';
 
 /**
  * A run judged by its checks: each check's status, what it expected and what happened, from the
@@ -114,10 +114,7 @@ export function evaluateChecks(spec: ExpectSpec | TestSpec, input: CheckInput, o
       // Writes fenced after a fork count too, said exactly: `(2 blocked)`, `(1 stubbed)`, `(1 blocked, 1 stubbed)`.
       const blocked = matching.filter((c) => c.origin === 'blocked').length;
       const stubbed = matching.filter((c) => c.origin === 'stubbed').length;
-      const fenced = [blocked ? `${blocked} blocked` : '', stubbed ? `${stubbed} stubbed` : ''].filter(Boolean).join(', ');
-      detail = `called ${formatCount({ min: n, max: n })}${fenced ? ` (${fenced})` : ''}`;
-      if (t.args && named.length > n) detail += `; ${named.length} call${named.length === 1 ? '' : 's'} with other arguments`;
-      if (named.length === 0 && tools.length) detail += `; tools called: ${[...new Set(tools.map((c) => c.name))].join(', ')}`;
+      detail = toolCountDetail({ count: n, blocked, stubbed, named: named.length, args: Boolean(t.args), tools: [...new Set(tools.map((c) => c.name))] });
     }
     results.push(verdict(detail === null, toolCheckLabel(t), detail));
   }

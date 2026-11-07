@@ -164,20 +164,14 @@
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
     },
-    "packages/dashboard/src/fix-list.ts": {
-      "stepsOf": 31
-    },
     "packages/dashboard/src/fix-verify-step.ts": {
       "verifyMore": 41
-    },
-    "packages/dashboard/src/fixes.ts": {
-      "fixDetail": 33
     },
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
     },
     "packages/dashboard/src/jobs.ts": {
-      "JobManager.start": 37
+      "JobManager.start": 35
     },
     "packages/dashboard/src/projects.ts": {
       "calibrateStep": 32,
@@ -219,13 +213,13 @@
       "normalizeRunDetail": 36
     },
     "packages/dashboard/ui/pages/Compare.tsx": {
-      "Comparison": 51
+      "Comparison": 46
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 79
+      "Workspace": 48
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
@@ -233,28 +227,16 @@
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
       "StoreSetup": 65
     },
-    "packages/dashboard/ui/run/Inspector.tsx": {
-      "ConversationTab": 33,
-      "DetailsTab": 33
-    },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 71
-    },
-    "packages/dashboard/ui/run/banner.ts": {
-      "attemptBanner": 52,
-      "bannerFor": 73
-    },
-    "packages/dashboard/ui/run/metrics.ts": {
-      "metricItems": 34
+      "RunHeader": 64
     },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31
     },
     "packages/dashboard/ui/run/parts.tsx": {
-      "Banner": 60,
       "DiffPanel": 32
     },
     "packages/engine/src/about.ts": {
@@ -444,13 +426,13 @@
       "fixBundles": 180
     },
     "packages/dashboard/src/routes/projects.ts": {
-      "register": 239
+      "register": 221
     },
     "packages/dashboard/src/training.ts": {
       "trainingView": 166
     },
     "packages/dashboard/ui/api.ts": {
-      "createClient": 172
+      "createClient": 169
     },
     "packages/dashboard/ui/fixes/BlameStep.tsx": {
       "BlameStepView": 193
@@ -458,26 +440,14 @@
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 162
     },
-    "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 195
-    },
     "packages/dashboard/ui/pages/Tests.tsx": {
       "TestsPage": 234
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
       "StoreSetup": 284
     },
-    "packages/dashboard/ui/run/ContextView.tsx": {
-      "ContextView": 164
-    },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 267
-    },
-    "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 163
-    },
-    "packages/dashboard/ui/run/parts.tsx": {
-      "Banner": 194
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
       "PaletteDialog": 175

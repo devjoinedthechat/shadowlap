@@ -64,12 +64,6 @@ export function presetWhy(p: PresetAttempt): string {
   return p.verdict === 'inconclusive' || !p.played ? which : `${which}: ${p.played}, played in by the preset`;
 }
 
-/** The status chip a preset's verdict gives its attempt: failed in red, inconclusive in amber; one that passed keeps its kind's. */
-export function presetTag(p: PresetAttempt | null): { cls: string; text: string } | null {
-  if (!p) return null;
-  return p.verdict === 'failed' ? { cls: 'fail', text: 'failed' } : p.verdict === 'inconclusive' ? { cls: 'inc', text: 'inconclusive' } : null;
-}
-
 /**
  * How a fork that exited with an error says so in its meta line: an attempt its preset failed, as
  * the preset's result says why (`the agent exited with code 1 (TimeoutError: …)`), the line the

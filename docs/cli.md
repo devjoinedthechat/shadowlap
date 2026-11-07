@@ -1253,7 +1253,8 @@ With `--json`, each subcommand prints:
 Lists fixes, the most recently opened first. Each fix takes up to three lines:
 
 1. Its status (`open`, `verified`, `applied`), id, title, label, failing runs, and how far each step
-   got (*lost at #5 · prompt change · 3 fixed · 1 kept*).
+   got (*lost at #5 · prompt change · 3 fixed · 1 kept*). Repair says *by hand* for a change you made
+   yourself that verify checked.
 2. What its failing runs did and the check they must meet
    (*failed: send_email called twice, not once · must: send_email called once*), where the fix came
    from (*from CI · PR #138*) and when it was opened.
@@ -1315,6 +1316,8 @@ repairer from here (`claude` isn't on the PATH).
 | `commands` | The `blame`, `repair` and `verify` commands to run it again |
 | `repairer` | The repairer the config names (below) |
 | `applied` | Once applied, how: `patch`, `repairId`, the `goldens` copied, `tests`, `by`, `via` |
+| `rung` | Where it stands: `open`, `blamed` once a blame finds the call, `verified`, `applied`, or `merged` once its pull request is |
+| `pr` | Its pull request, with `number`, `url` and `state` (`open`, `closed`, `merged`, or null when unknown); null for none |
 
 The fix's own fields:
 
@@ -1324,9 +1327,10 @@ The fix's own fields:
   the exit code alone).
 - `source` says where it came from, such as `from CI · PR #138`.
 
-`steps` holds blame, repair and verify, each with `state` (`done`, `todo`, or `no` for a verify that
-only rejected), a `title`, a `meta` line and a `short` form. Only verdicts that count move the verify
-step.
+`steps` holds blame, repair and verify, each with `state` (`done`, `todo`, `no` for a verify that
+only rejected, or `warn` for a step that ran and needs a look), a `title`, a `meta` line and a `short`
+form. Only verdicts that count move the verify step. Repair is `done` with the change repair made,
+or `by hand` for one you made that a verdict checked.
 
 `blame` has:
 
@@ -4131,7 +4135,7 @@ skipped.
 A run still recording is refused, exit status 2: every export waits for a run to end, or the copy would
 show it recording for good. With `--lineage`, so is a run whose ancestor is still recording.
 
-A 30-call run comes to about 1.1 MB, most of it the dashboard's own code, styles and fonts, which every
+A 30-call run comes to about 1.4 MB, most of it the dashboard's own code, styles and fonts, which every
 copy carries.
 
 ## export dataset

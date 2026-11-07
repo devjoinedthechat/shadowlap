@@ -16,13 +16,19 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  *
  * The shell's pages load this way (pages/lazy.tsx), its palette and shortcuts sheet (shell/Shell.tsx),
  * and each part of a page heavy enough to wait for a script of its own: a run's views but Calls
- * (pages/Run.tsx). So must the structural diff
+ * (pages/Run.tsx), the dialog a run's action asks in (run/actions.tsx), and the dialogs a run's page
+ * rarely opens, a diverged test's (run/diverged.tsx), Export dataset… (run/ShareMenu.tsx), Edit and
+ * fork's (run/EditDialog.tsx), and Find breaking commit's and Delete run's (run/RunDialogs.tsx),
+ * which keep the run page within its budget.
+ * So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
- * the parts they show and none of the dashboard's other pages. The bundle size test holds each
- * page's and each part's script to a budget of its own.
+ * the parts they show and none of the dashboard's other pages. The one part the page list shows
+ * itself, the page that says another project holds what a link names, is declared in a module of its
+ * own that the pages showing it import too (pages/held-elsewhere.tsx), and the bundle size test pins
+ * it. The bundle size test holds each page's and each part's script to a budget of its own.
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;

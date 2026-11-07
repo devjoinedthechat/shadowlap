@@ -9,12 +9,13 @@ import { isFailure, type Origin7 } from '../origins.js';
  * of any other kind, unless the run made only those.
  */
 
-/** A call as the page has it: its number, kind and how it ended. */
+/** A call as the page has it: its number, kind, what a tool's call does and how it ended. */
 export interface OpenCall {
   callNo: number;
   kind: string;
   origin: string;
   outcome: 'ok' | 'error' | null;
+  effect?: string | null;
 }
 
 /** A clock read or a random value: a value read, never a step to open on. */
@@ -46,14 +47,14 @@ export function firstStep(calls: readonly OpenCall[]): number | null {
 }
 
 export interface OpenInput {
-  /** Where a replay forked (the strip's FORK). */
+  /** Where a replay forked (the strip's FORK), or a test's replay diverged. */
   forkAt: number | null;
   /** Where blame found the run lost. */
   lostAt: number | null;
+  /** The call the run's outcome names, its first fact's (a check's failing call); none where it names none. */
+  outcomeAt?: number | null;
   /** The run is recording: its page follows its newest call. */
   live: boolean;
-  /** The run failed, as the server's state has it (its check, its agent's exit, a fix's check). */
-  failed: boolean;
   calls: readonly OpenCall[];
   origins?: readonly Origin7[] | null;
   /**
@@ -63,14 +64,49 @@ export interface OpenInput {
   total?: number | null;
 }
 
+/** A call a run may open on: one of its own, and no clock or random read. */
+function stepAt(calls: readonly OpenCall[], n: number | null | undefined): number | null {
+  if (n === null || n === undefined) return null;
+  const c = calls.find((x) => x.callNo === n);
+  return c && isRead(c) ? null : n;
+}
+
 /**
- * Where a run opens: where it forked, else where blame found it lost; a recording at its newest
- * call; a run that failed at its first call that failed; else at its first call, clock and random
- * reads passed over.
+ * Where a run opens, the most telling call first, as the design picks it: a recording at its newest
+ * call; where blame found it lost; where it forked or diverged; the call its outcome names; its first
+ * call that failed, whether or not the run failed for it; its first write; its last model call; else
+ * its first call. Never a clock or random read, unless the run made only those. A long run's first
+ * write and last model call are of the calls read so far: only its failures are known past them.
  */
 export function openingCall(i: OpenInput): number | null {
-  if (i.forkAt !== null) return i.forkAt;
-  if (i.lostAt !== null) return i.lostAt;
   if (i.live) return Math.max(i.total ?? 0, i.calls.at(-1)?.callNo ?? 0) || null;
-  return (i.failed ? firstFailedCall(i.calls, i.origins ?? null) : null) ?? firstStep(i.calls);
+  const named = stepAt(i.calls, i.lostAt) ?? stepAt(i.calls, i.forkAt) ?? stepAt(i.calls, i.outcomeAt);
+  if (named !== null) return named;
+  const write = i.calls.find((c) => c.kind === 'tool' && c.effect === 'write')?.callNo ?? null;
+  let model: number | null = null;
+  for (let k = i.calls.length - 1; k >= 0 && model === null; k--) if (i.calls[k]!.kind === 'api') model = i.calls[k]!.callNo;
+  return firstFailedCall(i.calls, i.origins ?? null) ?? write ?? model ?? firstStep(i.calls);
+}
+
+/** The call picked on each run's page this session, so a run opened again comes back to it. */
+const picked = new Map<string, number>();
+
+/** Remembers the call a run's page shows, one its address named too. */
+export function rememberCall(runId: string, callNo: number): void {
+  picked.set(runId, callNo);
+}
+
+/** The call a run's page last showed this session, if any. */
+export function pickedCall(runId: string): number | null {
+  return picked.get(runId) ?? null;
+}
+
+/** Where a run's page opens with no call named: the call picked on it earlier in the session, else the most telling; a recording follows its newest. */
+export function openOn(runId: string, i: OpenInput): number | null {
+  return (i.live ? null : pickedCall(runId)) ?? openingCall(i);
+}
+
+/** Forgets every picked call: for tests, which open the same run one after another. */
+export function forgetPickedCalls(): void {
+  picked.clear();
 }

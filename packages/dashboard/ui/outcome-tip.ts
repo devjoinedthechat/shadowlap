@@ -30,7 +30,7 @@ function rowOf(c: { label: string; status: CheckStatus; detail: string | null })
 }
 
 /** The check a status names, in a line: `send_email called at most 1 time, but called 2 times`, `judge "polite" answers yes: inconclusive · not judged: …`. */
-function firstWords(j: JudgedLike): string | null {
+export function firstWords(j: JudgedLike): string | null {
   const f = j.first;
   if (!f) return j.why ?? null;
   const failed = j.verdict === 'failed';
@@ -72,6 +72,9 @@ function howToCheck(tools: number): string {
   return tools ? 'Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.' : 'It made no tool call, and a check on calls reads them.';
 }
 
+/** How a run that failed by its agent's exit says so: with its code where it was one, on Runs and Fixes alike. */
+export const exitWords = (code: number | null | undefined): string => (typeof code === 'number' && code !== 0 ? `The agent exited with code ${code}` : 'The agent exited with an error');
+
 /** The card for a run's status: `out` is its outcome as outcomeOf says it; `tools`, the tool calls it made (null on a list, which doesn't count them). */
 export function outcomeTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf }, tools: number | null = null): OutcomeTip {
   const j = r.judged;
@@ -90,7 +93,7 @@ export function outcomeTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf },
     case 'check':
       return plain('Check failed', r.outcome?.check ?? null);
     case 'exit':
-      return plain(typeof r.exitCode === 'number' && r.exitCode !== 0 ? `The agent exited with code ${r.exitCode}` : 'The agent exited with an error');
+      return plain(exitWords(r.exitCode));
     case 'inconclusive':
       return plain('Inconclusive', r.outcome?.check ?? null);
     case 'passed':

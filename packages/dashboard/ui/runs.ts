@@ -221,20 +221,6 @@ export function runTag(r: RunLike): { cls: string; text: string } {
 }
 
 /**
- * The chip beside a run's id on its page: its status only, since the eyebrow above it names what kind
- * of run it is and the meta line under it why it failed. In progress, failed, inconclusive (amber) or
- * interrupted (neutral); none for a run with nothing to report, so no word in the header says twice
- * what another says.
- */
-export function headerStatus(r: RunLike): { cls: string; text: string } | null {
-  if (isLive(r)) return { cls: 'live', text: 'in progress' };
-  if (isFailed(r)) return { cls: 'fail', text: 'failed' };
-  if (runOutcome(r).tone === 'warn') return { cls: 'inc', text: 'inconclusive' };
-  if (isInterrupted(r)) return { cls: '', text: 'interrupted' };
-  return null;
-}
-
-/**
  * The tag Compare's path headers give each side, as the design's `typeTag` does: what kind of run it
  * is, a fork by where it forked (`fork @7`) whether or not it failed, since the paths under it show
  * what it did; a recording or a test that failed says FAILED, as on its page.
@@ -399,6 +385,9 @@ export function judgedOutcome(r: RunLike): RunOutcomeWords | null {
   return { tone: 'mu', text: 'not applicable', ...today };
 }
 
+/** A failed test replay its golden's next replay passed, as Status and its page's finding name it: by the run that passed (`fixed by 01K5CQ7A3M`). */
+export const fixedByWords = (runId: string): string => `fixed by ${shortId(runId)}`;
+
 /**
  * How a run came out, and what decided it, in the words the Runs table's Status and a run's first
  * fact say: in progress; a failed test replay its golden's next replay passed, muted, by the run that
@@ -413,7 +402,7 @@ export function outcomeOf(r: RunLike): RunOutcomeWords & { of: OutcomeOf } {
   if (isLive(r)) return { of: 'live', tone: 'live', text: 'in progress' };
   const o = r.outcome;
   if (o?.kind === 'running') return { of: 'live', tone: 'live', text: 'in progress' };
-  if (r.fixedBy) return { of: 'fixed', tone: 'mu', text: `fixed by ${shortId(r.fixedBy)}` };
+  if (r.fixedBy) return { of: 'fixed', tone: 'mu', text: fixedByWords(r.fixedBy) };
   const diverged = o ? (o.kind === 'diverged' && typeof o.callNo === 'number' ? o.callNo : null) : r.test && r.divergence ? r.divergence.callNo : null;
   if (diverged !== null) return { of: 'diverged', ...atCall('err', 'diverged at', diverged) };
   const judged = judgedOutcome(r);

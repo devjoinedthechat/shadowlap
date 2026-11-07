@@ -24,6 +24,9 @@ export function replayAction(step: NextStep | null): ActionItem | null {
   return step?.key === 'replay' && step.action ? normalizeAction(step.action as unknown as ActionItem) : null;
 }
 
+/** What Pack as golden… waits with, as it packs a golden and tests it: a Tests job holds the goldens. */
+export const PACK_VERB = 'pack it';
+
 /**
  * What a step that runs a job waits for, by the verb its button says it in: a Tests job for a job
  * replaying or rewriting the goldens too, every one for what holds the working tree.
@@ -37,6 +40,7 @@ const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean 
   blame: { verb: 'blame', tests: false },
   'injection-test': { verb: 'test it', tests: false },
   'injection-again': { verb: 'test it', tests: false },
+  pack: { verb: PACK_VERB, tests: true },
 };
 
 /** The job a step runs, for what it waits for and how its button words that; none for a link, or a step that waits for no job. */

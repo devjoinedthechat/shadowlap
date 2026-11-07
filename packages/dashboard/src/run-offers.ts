@@ -1,10 +1,12 @@
-import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, storeView, type Normalizer, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
+import { resolve } from 'node:path';
+import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, shortRunId, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
-import { loadRunIndex } from './run-index.js';
+import { loadRunIndex, type IndexedRun } from './run-index.js';
 import { fixForRun, type FixForRun } from './fixes.js';
+import { injectionResults, type InjectionRow } from './injection.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
-import { bisectChoices, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
+import { bisectChoices, testOf, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
 import { passedSince } from './runs-filter.js';
 import { runState } from './runs-list.js';
 
@@ -66,6 +68,22 @@ export interface RunOffers {
   bisect: BisectChoices | null;
   /** A replay made by `shadowlap test` whose golden diverged: Add normalizer and Update golden, or that the normalizer was added. */
   test: TestOffer | null;
+  /**
+   * Pack as golden…, whatever step leads: a recording a golden can be made from (next-step.ts's
+   * `keepable`), with the folder the dialog offers; null otherwise, and with no project to pack into.
+   */
+  keep: { folder: string } | null;
+  /**
+   * Share's Security report: this run's newest kept injection result that has ended (one still
+   * running has no report yet), and whether it planted payloads or tested a clean answer; null with none.
+   */
+  security: { resultId: string; mode: InjectionRow['mode'] } | null;
+  /**
+   * A test replay whose agent exited with an error: the last line it printed, and the call it stopped
+   * at of its golden's recorded calls where the replay kept them (`ended_early`); absent or null for
+   * any other run, and for a crash that kept no output.
+   */
+  crash?: { line: string; at: number | null; of: number | null } | null;
 }
 
 export interface RunOffersInput {
@@ -77,6 +95,45 @@ export interface RunOffersInput {
   goldens?: readonly GoldenSource[];
   /** The commit the project's HEAD is at, for Find breaking commit on a run that passed; null outside git. */
   head?: string | null;
+  /** The project's folder, which goldens are packed into; none packs nothing. */
+  dir?: string | null;
+}
+
+/** The folder a run is packed into as a golden: `goldens/` and its short id in lower case, never a label, which groups and filters runs and names none. */
+export const goldenFolder = (runId: string): string => `goldens/${shortRunId(runId).toLowerCase()}`;
+
+/**
+ * Whether a recording can be packed as a golden yet: there is a project to pack it into, and no golden
+ * is made from it, one whose pack holds it or one it was unpacked from. One of a fork or a replay of
+ * it says nothing of this one.
+ */
+export function packableIn(dir: string | null | undefined, goldens: readonly Pick<GoldenSource, 'runId' | 'path'>[], run: RunRecord): boolean {
+  if (!dir) return false;
+  const from: unknown = run.meta?.imported?.from;
+  const unpacked = typeof from === 'string' && from ? resolve(dir, from) : null;
+  return !goldens.some((g) => g.runId === run.runId || resolve(dir, g.path) === unpacked);
+}
+
+/**
+ * A recording a golden can be made from, as Pack as golden… takes one: it ended, didn't fail, holds
+ * calls and the command it was recorded with, and no golden is made from it yet. A golden from a
+ * failed run would pass on the failure and diverge once the fix ships. Its outcome by today's checks
+ * is the page's to add.
+ */
+export function keepable(row: Pick<IndexedRun, 'kind' | 'status' | 'failed' | 'calls'>, run: RunRecord, dir: string | null | undefined, goldens: readonly Pick<GoldenSource, 'runId' | 'path'>[]): boolean {
+  return row.kind === 'recording' && row.status === 'completed' && !row.failed && row.calls > 0 && hasRecordedCommand(run) && packableIn(dir, goldens, run);
+}
+
+/** Pack as golden… for a recording a golden can be made from: from the run index, reading no call. */
+function keepOffer(store: Store, run: RunRecord, input: RunOffersInput): RunOffers['keep'] {
+  const row = loadRunIndex(store).byId.get(run.runId);
+  return row && keepable(row, run, input.dir, input.goldens ?? []) ? { folder: goldenFolder(run.runId) } : null;
+}
+
+/** Share's Security report: the newest of the run's kept injection results with a report, not one still running. */
+function securityOffer(store: Store, run: RunRecord): RunOffers['security'] {
+  const done = injectionResults(store, { runId: run.runId }).results.find((r) => !r.running);
+  return done ? { resultId: done.resultId, mode: done.mode } : null;
 }
 
 function teamOf(store: StoreOf<'recording' | 'readModels' | 'team'>, run: RunRecord, raw: unknown): RunOffers['team'] {
@@ -213,6 +270,23 @@ export function testOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord,
   return { ...banner, normalized, passingRun: normalized ? passedSince(store, run, banner.golden) : null, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
 }
 
+/** Whether a test replay's agent exited with an error, as its golden's result says (a run keeps no exit of its own): a crash. */
+export function crashed(row: Pick<IndexedRun, 'status' | 'outcome'> | null, result: TestResult | null): boolean {
+  if (result) return result.failure === 'exit';
+  return !!row && row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
+}
+
+/** A test replay that crashed (`crashed`, by its golden's result): what the agent printed last, and where it stopped. */
+export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord): NonNullable<RunOffers['crash']> | null {
+  const test = testOf(run);
+  const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
+  if (!result || !crashed(null, result)) return null;
+  const line = result.data?.output?.split('\n').map((l) => l.trim()).filter(Boolean).at(-1);
+  if (!line) return null;
+  const d = run.divergence?.type === 'ended_early' ? run.divergence : null;
+  return { line, at: d?.callNo ?? null, of: d?.recorded ?? null };
+}
+
 /**
  * Find breaking commit for a run blame found failing when this store holds no fix to say which check: one
  * that exited 0 and kept no checks of its own failed the check blame was given. With the run's fix
@@ -277,5 +351,8 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     blame: blameOffer(store, run, input.config?.tests),
     bisect: passingBisect(blamedBisect(run, bisectChoices(asListed(store, run), run.runId, { goldens: input.goldens ?? [] })), input.head),
     test: testOffer(store, run, input.config?.normalize, input.goldens ?? []),
+    keep: keepOffer(store, run, input),
+    security: securityOffer(store, run),
+    crash: crashOffer(store, run),
   };
 }

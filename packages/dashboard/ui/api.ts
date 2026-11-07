@@ -13,7 +13,7 @@ import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js
 import { changesApi, type ChangesApi } from './changes-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
-import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
+import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
@@ -190,10 +190,12 @@ export interface Client extends ChangesApi {
   stopJob(jobId: string): Promise<{ stopped: boolean }>;
   /** The jobs the server remembers, newest first, running ones included, without their output. */
   jobs(): Promise<JobListItem[]>;
-  /** Deletes a run, with the attempts bundled under it (`attempts`, their ids), as `shadowlap rm` does. */
-  remove(id: string): Promise<{ deleted: string; attempts?: string[] }>;
+  /** Deletes a run, with the attempts bundled under it (`attempts`, their ids), as `shadowlap rm` does. `keepalive`: sent as the page goes, so the browser sees it out (`pending-delete.ts`); with no body, it takes none of keepalive's 64 KiB. */
+  remove(id: string, o?: { keepalive?: boolean }): Promise<{ deleted: string; attempts?: string[] }>;
   /** Saves a run, with the runs it came from, as one HTML file. */
   exportHtml(id: string): Promise<{ filename: string; redacted: boolean }>;
+  /** Saves a kept injection result's report as one HTML file, as Share's Security report does. */
+  injectionReport(resultId: string): Promise<{ filename: string; redacted: boolean }>;
   /** Saves a file a job wrote. */
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
@@ -224,8 +226,8 @@ export interface Client extends ChangesApi {
   activity(limit: number): Promise<ActivityPage>;
 
   // ---- Fixes (`/api/fixes`)
-  /** Every fix, newest first, with the counts the filter chips show. */
-  fixes(): Promise<FixList>;
+  /** Every fix in to-do order, with the counts the chips show, what they took and the failing runs nobody has blamed. */
+  fixes(): Promise<FixesView>;
   /** One fix, by its id or a unique prefix, with its three steps. */
   fix(id: string): Promise<FixDetail>;
   renameFix(id: string, title: string): Promise<FixDetail>;
@@ -298,6 +300,13 @@ function shape<T extends object, U>(raw: T, fn: (raw: T) => U): U {
   shaped.set(raw, out);
   holdWhile(out, raw);
   return out;
+}
+
+/** A report the server sent as a file, saved: its name, and whether the project's redaction rules masked it. */
+async function savedReport(file: Promise<{ filename: string; res: Response }>): Promise<{ filename: string; redacted: boolean }> {
+  const { filename, res } = await file;
+  saveBlob(await res.blob(), filename);
+  return { filename, redacted: res.headers.get('x-shadowlap-redacted') === 'yes' };
 }
 
 function saveBlob(blob: Blob, filename: string): void {
@@ -442,14 +451,11 @@ export function createClient(token: string): Client {
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
     stopJob: (jobId) => request<{ stopped: boolean }>(`jobs/${id(jobId)}/stop`, { method: 'POST', body: '{}' }),
     jobs: async () => (await request<{ jobs: JobListItem[] }>('jobs')).jobs,
-    remove: (runId) => request<{ deleted: string; attempts?: string[] }>(`runs/${id(runId)}`, { method: 'DELETE' }),
+    remove: (runId, o) => request<{ deleted: string; attempts?: string[] }>(`runs/${id(runId)}`, { method: 'DELETE', ...(o?.keepalive ? { keepalive: true } : {}) }),
     // The API authenticates with a header, which a plain link cannot send, and a token in a URL would
     // end up in history and logs: so a file is fetched here and handed to the browser to save.
-    exportHtml: async (runId) => {
-      const { filename, res } = await fetchFile(`runs/${id(runId)}/export`, `shadowlap-${runId.slice(0, 10).toLowerCase()}.html`);
-      saveBlob(await res.blob(), filename);
-      return { filename, redacted: res.headers.get('x-shadowlap-redacted') === 'yes' };
-    },
+    exportHtml: (runId) => savedReport(fetchFile(`runs/${id(runId)}/export`, `shadowlap-${runId.slice(0, 10).toLowerCase()}.html`)),
+    injectionReport: (resultId) => savedReport(fetchFile(`injection/${id(resultId)}/report`, 'shadowlap-injection.html')),
     downloadFile: async (file) => {
       const { filename, res } = await fetchFile(`files/${id(file.fileId)}`, file.name);
       saveBlob(await res.blob(), filename);
@@ -492,7 +498,7 @@ export function createClient(token: string): Client {
         throw err;
       }
     },
-    fixes: () => request<FixList>('fixes'),
+    fixes: () => request<FixesView>('fixes'),
     fix: (fixId) => request<FixDetail>(`fixes/${id(fixId)}`),
     renameFix: (fixId, title) => request<FixDetail>(`fixes/${id(fixId)}/title`, { method: 'PUT', body: JSON.stringify({ title }) }),
     // A server that does not bundle them, or one that never heard of the run: the Forks view lists the attempts as runs.
@@ -584,6 +590,7 @@ export function createExportedClient(data: StaticPayload): Client {
     jobs: () => Promise.resolve([]),
     remove: readOnly,
     exportHtml: readOnly,
+    injectionReport: readOnly,
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
     // An exported copy lists its runs from the file: the Runs page works them out itself.

@@ -39,6 +39,11 @@ describe('the Share menu', () => {
     expect(shareWhy(otel, team)).toBe(otel.why);
     // Parallel nouns, the copy each makes, an ellipsis on each that asks first.
     expect(shareItems({ can: all, team }).map((i) => i.label)).toEqual(['Share link', 'HTML report', 'Pack…', 'Eval dataset…', 'OpenTelemetry trace…', 'HAR file']);
+    // A run with a kept injection result: its report last, a download with no command of its own.
+    const plant = shareItems({ can: all, team: null, security: { resultId: 'inj-1', mode: 'plant' } }).at(-1)!;
+    expect([plant.label, plant.flag, plant.why, shareCommand(plant, RUN)]).toEqual(['Security report', null, 'The kept test’s report: the matrix and each proof', null]);
+    expect(shareItems({ can: all, team: null, security: { resultId: 'inj-2', mode: 'clean' } }).at(-1)!.why).toBe('The kept answer’s report: each write, its verdict and tally');
+    expect(shareItemOff('security', { actionsOff: 'Read-only', live: false })).toBeNull();
   });
 
   it('titles and confirms each copy’s dialog with its action’s verb, and the runs it copies', () => {
@@ -50,10 +55,10 @@ describe('the Share menu', () => {
 
   it('says how many redaction rules each copy applies, and when a trace takes fewer', () => {
     const copies = (total: number, otel: number) => ({ copies: { total, pathless: otel, formats: [{ id: 'html' as const, applies: 'all' as const, rules: total }, { id: 'otel' as const, applies: 'attributes' as const, rules: otel }] } });
-    expect(shareNote(copies(3, 3), null)).toEqual({ text: '3 redaction rules apply to every copy.', link: 'Settings' });
+    expect(shareNote(copies(3, 3), null)).toEqual({ text: '3 redaction rules apply to every copy.' });
     expect(shareNote(copies(2, 1), null).text).toBe('2 redaction rules apply to every copy, 1 to a trace.');
     expect(shareNote(copies(1, 0), null).text).toBe('1 redaction rule applies to every copy, none to a trace.');
-    expect(shareNote(copies(0, 0), null)).toEqual({ text: 'No redaction rules yet: a copy holds what was recorded.', link: 'Add some' });
+    expect(shareNote(copies(0, 0), null)).toEqual({ text: 'No redaction rules yet: a copy holds what was recorded.' });
     // An older server: its count, or the config's rules in words.
     expect(shareNote(null, 2).text).toBe('2 redaction rules apply to every copy.');
     expect(shareNote(null, null).text).toBe('The redaction rules in shadowlap.config.json apply to every copy.');

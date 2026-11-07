@@ -6,6 +6,10 @@ import { href } from '../ui/route.js';
 import { navigate, useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+import { forgetPickedCalls } from '../ui/run/open-at.js';
+
+// A call picked on a run's page is remembered for the session: each test opens its runs afresh.
+afterEach(forgetPickedCalls);
 
 /**
  * Calls grouped on the run's page: each tool call under the model call that asked for it, a batch's

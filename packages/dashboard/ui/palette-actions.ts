@@ -125,12 +125,12 @@ addPaletteSource(({ app, go }) =>
   app.exported ? [] : SETTINGS_TABS.map((t) => ({ group: 'Settings' as const, label: t.label, ...SETTINGS_FOUND[t.key], typed: true, run: () => go(href.settings(t.key)) })),
 );
 
-// Apply fix for each verified fix not yet applied, typed only, found by its label too: its page
-// opens and asks there, as its button does. Like the button, it waits while a job holds the working
-// tree, dimmed, saying why.
+// Apply fix for each fix ready to apply (verified, not applied, and not shipped with its merged pull
+// request), typed only, found by its label too: its page opens and asks there, as its button does.
+// Like the button, it waits while a job holds the working tree, dimmed, saying why.
 addPaletteSource(({ app, go }) => {
   if (app.exported || app.actionsOff || !app.hasKind(JOB_KINDS.applyFix)) return [];
-  const verified = knownFixes().filter((f) => f.status === 'verified');
+  const verified = knownFixes().filter((f) => f.bucket === 'ready');
   const held = verified.length ? treeWait(app, 'writes', 'apply the patch') : null;
   return verified.map((f) => ({
     group: 'Actions' as const,

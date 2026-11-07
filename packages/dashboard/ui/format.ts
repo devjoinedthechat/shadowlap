@@ -181,6 +181,9 @@ export const GLUED_SEPARATOR = '\u00a0· ';
 /** Items joined by ` · ` as a line that wraps only after a separator's space, never before its dot. */
 export const glued = (text: string): string => text.replaceAll(' · ', GLUED_SEPARATOR);
 
+/** A tally kept whole where a line wraps, as the design's findings keep it: "5 of 5", "18 of 30" never part. */
+export const wholeTallies = (text: string): string => text.replace(/(\d+) of (\d+)/g, '$1\u00a0of\u00a0$2');
+
 /** A count kept with its unit where a line wraps, as a tally is: "1 time", "2 times (2 blocked)", "3 calls" never part. */
 export const wholeCounts = (text: string): string => text.replace(/(\d) (?=(?:times?|calls?|attempts?|blocked|stubbed)\b)/g, '$1\u00a0');
 

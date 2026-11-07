@@ -8,7 +8,7 @@ import { confirmWords } from '../labels.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { ONLY_PROJECT, onProjectsChanged, provideProjectRemoval } from '../project-actions.js';
 import { expectProject, onProjectSwitched, takeDialogDropped, takeLanding, type ProjectsView } from '../projects-api.js';
-import { exportedLine, exportedNote, keepsPageOnSwitch, switchedText } from '../projects.js';
+import { exportedLine, exportedNote, keepsPageOnSwitch, switchedText, switchToLabel } from '../projects.js';
 import { projectInitial as initial } from '../../src/project-initial.js';
 import { href, parseRoute } from '../route.js';
 import { navigate } from '../router.js';
@@ -67,7 +67,7 @@ export async function switchProject(app: AppState, id: string, to: string = href
 addPaletteSource(({ app }) =>
   (lastList?.items ?? [])
     .filter((p) => !p.current)
-    .map((p) => ({ group: 'Projects' as const, label: `Switch to ${p.name}`, hint: p.path, run: () => app.guard(() => void switchProject(app, p.id)) })),
+    .map((p) => ({ group: 'Projects' as const, label: switchToLabel(p.name), hint: p.path, run: () => app.guard(() => void switchProject(app, p.id)) })),
 );
 
 export function ProjectBlock({ meta }: { meta: Meta | null }) {

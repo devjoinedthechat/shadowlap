@@ -105,7 +105,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
       </div>
       <Tabs label="The selected call" idPrefix="itab" panelId="ibody" items={TAB_ITEMS()} value={tab} onChange={onTab} />
       <div className="ibody" id="ibody" key={`${runId}:${call.callNo}:${tab}`} role="tabpanel" aria-labelledby={`itab-${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
+        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} flag={flag ?? null} />}
       </div>
     </section>
   );
@@ -158,7 +158,7 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
     const args = (detail.request as { args?: unknown } | null)?.args ?? detail.request;
     return (
       <>
-        <div className="ibar">A {c.kind === 'tool' ? 'tool' : c.kind} call has no conversation. Its arguments, then its result:</div>
+        <div className="ibar">Its arguments, then its result:</div>
         <div className="jbox">{jsonText(args ?? {}, format)}</div>
         <div className="jbox">{result ? jsonText(result.error ?? result.result ?? null, format) : c.outcome === null ? 'no result yet' : 'no result'}</div>
         <ConversationLink detail={detail} calls={calls} onSelect={onSelect} />
@@ -166,25 +166,8 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
     );
   }
   const conv = detail.conversation;
-  const injected = c.origin === 'injected';
+  const note = <CallNote c={c} flag={flag} />;
   const failed = c.outcome === 'error';
-  const note = failed ? (
-    <div className={`inote ${injected ? 'inj' : 'err'}`}>
-      {injected ? (
-        <>
-          <b>Never sent.</b> Shadowlap answered with HTTP {c.status ?? '?'} (<code>{flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at'}</code>){c.attempts ? `, ${c.attempts + 1} attempts` : ''}. This is the conversation the agent would have sent.
-        </>
-      ) : refusedOffline(c) ? (
-        <>
-          <b>Refused.</b> The replay is offline and this request is not in the recording, so it got HTTP {c.status}. This is what the agent sent.
-        </>
-      ) : (
-        <>
-          <b>{c.status ? `HTTP ${c.status}.` : 'It failed.'}</b> {(c.error ?? 'The call ended in an error').replace(/\.?$/, '.')} This is what the agent sent.
-        </>
-      )}
-    </div>
-  ) : null;
   if (!conv) return <>{note}<div className="ibar">The request could not be read as a conversation; the Request tab shows it as stored.</div></>;
   const turns = conv.turns;
   // A run of many conversations (a batch): which one this call's is.
@@ -233,6 +216,56 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
         </Fragment>
       ))}
     </>
+  );
+}
+
+type FailedBy = 'shadowlap' | 'replay' | 'provider';
+/** A failed model call's words in each place, by who answered it. */
+const RESPONSE_BY: Readonly<Record<FailedBy, string>> = { shadowlap: ' · written by Shadowlap, nothing sent', replay: ' · refused offline', provider: ' · from the provider' };
+const OUTCOME_BY: Readonly<Record<FailedBy, string>> = { shadowlap: 'by --fail-at, never sent', replay: 'refused offline', provider: 'from the provider' };
+const LATENCY_BY: Readonly<Record<FailedBy, string>> = { shadowlap: 'answered by Shadowlap', replay: 'refused by the replay', provider: 'answered by the provider' };
+
+/** Who answered a model call that failed: Shadowlap's --fail-at (never sent), an offline replay (refused), or the provider. */
+function failedBy(c: CallDetail['call']): FailedBy | null {
+  if (c.kind !== 'api' || c.outcome !== 'error') return null;
+  return c.origin === 'injected' ? 'shadowlap' : refusedOffline(c) ? 'replay' : 'provider';
+}
+
+/** A failed call's error without the status the note already says, so `HTTP 529: Overloaded` names 529 once. */
+function errorWords(c: Pick<CallDetail['call'], 'status' | 'error'>): string {
+  const e = (c.error ?? '').trim();
+  return (c.status ? e.replace(new RegExp(`^(HTTP\\s*)?${c.status}\\b[\\s:·.-]*`, 'i'), '') : e).replace(/\.+$/, '');
+}
+
+/** Why a call failed, in a sentence: the provider's status and error, the error alone, or that it ended in one. */
+export function failedWhy(c: Pick<CallDetail['call'], 'status' | 'error'>): string {
+  const why = errorWords(c);
+  if (c.status) return `The provider answered HTTP ${c.status}${why ? `: ${why}` : ''}.`;
+  return why ? `${why}.` : 'The call ended in an error.';
+}
+
+/**
+ * What happened to a call that ended in an error, over its conversation: the verdict on a line of its own in its colour
+ * (Never sent., Refused., Failed.), then why, a plain line over a hairline as the mock draws it.
+ */
+export function CallNote({ c, flag }: { c: CallDetail['call']; flag: string | null }) {
+  if (c.outcome !== 'error') return null;
+  if (c.origin === 'injected')
+    return (
+      <div className="inote inj">
+        <b>Never sent.</b> Shadowlap answered with HTTP {c.status ?? '?'} (<code>{flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at'}</code>){c.attempts ? `, ${c.attempts + 1} attempts` : ''}. This is the conversation the agent would have sent.
+      </div>
+    );
+  if (refusedOffline(c))
+    return (
+      <div className="inote err">
+        <b>Refused.</b> The replay is offline and this request is not in the recording, so it got HTTP {c.status}. This is what the agent sent.
+      </div>
+    );
+  return (
+    <div className="inote err">
+      <b>Failed.</b> {failedWhy(c)} This is the conversation the agent sent.
+    </div>
   );
 }
 
@@ -327,7 +360,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
   const [raw, setRaw] = useState(false);
   if (c.kind !== 'api') {
     const result = detail.result as { result?: unknown; error?: { name?: string; message?: string } } | null;
-    const head = c.origin === 'blocked' ? (c.effect === 'read' ? 'Fenced: a read the recording doesn\'t hold, after the fork. The agent got this instead of a live result:' : 'Blocked: a write tool after the fork. The agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:';
+    const head = c.origin === 'blocked' ? (c.effect === 'read' ? 'Fenced: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:' : 'Blocked: a write tool after the fork, so the agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:';
     return (
       <>
         <div className="ibar">
@@ -364,7 +397,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
           <>
             <div className="ibar err">
               HTTP {c.status ?? '?'}
-              {c.origin === 'injected' ? ' · written by Shadowlap, nothing sent' : ''}
+              {RESPONSE_BY[failedBy(c) ?? 'provider']}
             </div>
             <div className="jbox">{r.raw}</div>
           </>
@@ -491,12 +524,39 @@ function RequestTab({ detail }: { detail: CallDetail }) {
 
 // ---------------------------------------------------------------------------------------------- details
 
-function DetailsTab({ runId, detail, models }: { runId: string; detail: CallDetail; models?: Readonly<Record<string, string>> | undefined }) {
-  const c = detail.call;
-  const rows: Array<[string, ReactNode]> = [];
+/** Details' Origin and Outcome: what made the call, an overridden one by the flag that did, and who answered a failed one. */
+function originRows(c: CallDetail['call'], flag: string | null): Array<[string, ReactNode]> {
   const origin = originOf(c);
-  rows.push(['Origin', <>{origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>answered by Shadowlap with --fail-at</small></> : c.origin}</>]);
-  rows.push(['Outcome', c.outcome === null ? 'pending' : c.outcome === 'ok' ? `ok${c.status ? ` · HTTP ${c.status}` : ''}` : <>error{c.status ? ` · HTTP ${c.status}` : ''}{origin === 'inject' ? <small> never sent</small> : null}</>]);
+  const over = origin === 'over' && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
+  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>answered by Shadowlap with --fail-at</small></> : over ? <>{c.origin} <small>{over}</small></> : c.origin;
+  const http = c.status ? ` · HTTP ${c.status}` : '';
+  const by = failedBy(c);
+  const outcome = c.outcome === null ? 'pending' : c.outcome === 'ok' ? `ok${http}` : <>error{http}{by ? <small> {OUTCOME_BY[by]}</small> : null}</>;
+  return [['Origin', made], ['Outcome', outcome]];
+}
+
+/**
+ * Details' tokens, cost and time. A failed model call's input is what its request held, with nothing spent where it was
+ * never sent, and its latency says who answered.
+ */
+function spendRows(c: CallDetail['call']): Array<[string, ReactNode]> {
+  const rows: Array<[string, ReactNode]> = [];
+  const by = failedBy(c);
+  const unsent = by === 'shadowlap' || by === 'replay';
+  if (c.usage) {
+    const parts = by ? (unsent ? 'in the request; nothing was sent' : 'in the request') : `${num(c.usage.cacheRead)} ${INPUT_PARTS.cacheRead} · ${num(c.usage.cacheWrite)} ${INPUT_PARTS.cacheCreation} · ${num(c.usage.input)} ${INPUT_PARTS.uncached}`;
+    rows.push(['Input tokens', <>{num(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)} <small>{parts}</small></>]);
+    rows.push(['Output tokens', num(c.usage.output)]);
+  }
+  if (c.kind === 'api') rows.push(['Cost', unsent ? '$0' : c.cost === null ? <small>no price for this model · add one under prices in shadowlap.config.json</small> : <>≈{formatUsd(c.cost)}{c.origin === 'replayed' ? <small> not re-spent</small> : null}</>]);
+  const answered = by && c.origin !== 'replayed' ? <small> {LATENCY_BY[by]}</small> : null;
+  if (c.latencyMs !== null) rows.push(['Latency', <>{dur(c.latencyMs)}{c.ttftMs !== null ? <small> first token at {dur(c.ttftMs)}</small> : null}{c.origin === 'replayed' ? <small> replayed</small> : answered}</>]);
+  return rows;
+}
+
+function DetailsTab({ runId, detail, models, flag }: { runId: string; detail: CallDetail; models?: Readonly<Record<string, string>> | undefined; flag: string | null }) {
+  const c = detail.call;
+  const rows: Array<[string, ReactNode]> = originRows(c, flag);
   if (c.effect) rows.push(['Effect', c.effect]);
   if (c.scope) rows.push(['Scope', c.scope]);
   // A call made to a host of another's format: the format it speaks, and the host it went to.
@@ -514,19 +574,7 @@ function DetailsTab({ runId, detail, models }: { runId: string; detail: CallDeta
   if (c.extraRead) rows.push(['Extra read', <small key="x">answered live: the recording held no counterpart, and the replay went on replaying, as a clock, random or pure read may</small>]);
   if (c.model) rows.push(['Model', modelLabel(models, c.model)]);
   if (c.stopReason) rows.push(['Stop reason', c.stopReason]);
-  if (c.usage)
-    rows.push([
-      'Input tokens',
-      <>
-        {num(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)}{' '}
-        <small>
-          {num(c.usage.cacheRead)} {INPUT_PARTS.cacheRead} · {num(c.usage.cacheWrite)} {INPUT_PARTS.cacheCreation} · {num(c.usage.input)} {INPUT_PARTS.uncached}
-        </small>
-      </>,
-    ]);
-  if (c.usage) rows.push(['Output tokens', num(c.usage.output)]);
-  if (c.kind === 'api') rows.push(['Cost', c.cost === null ? <small>no price for this model · add one under prices in shadowlap.config.json</small> : <>≈{formatUsd(c.cost)}{c.origin === 'replayed' ? <small> not re-spent</small> : null}</>]);
-  if (c.latencyMs !== null) rows.push(['Latency', <>{dur(c.latencyMs)}{c.ttftMs !== null ? <small> first token at {dur(c.ttftMs)}</small> : null}{c.origin === 'replayed' ? <small> replayed</small> : null}</>]);
+  rows.push(...spendRows(c));
   if (c.bytes !== null) rows.push(['Size', `${(c.bytes / 1024).toFixed(1)} kB response`]);
   if (c.attempts || c.kind === 'api') rows.push(['Retries', c.attempts ? `${c.attempts} before the final outcome` : '0']);
   if (c.replayedFrom !== null) rows.push(['Replayed from', `#${c.replayedFrom} of the parent run`]);
@@ -615,7 +663,7 @@ function Notes({ runId, callNo, notes }: { runId: string; callNo: number; notes:
         >
           <textarea placeholder="Add a note on this call" aria-label={`A note on #${callNo}`} value={text} onChange={(e) => setText(e.target.value)} />
           <ActionButton className="btn" type="submit" disabled={saving || !text.trim()}>
-            Add
+            Add note
           </ActionButton>
         </form>
       ) : null}

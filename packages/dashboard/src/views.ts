@@ -60,6 +60,8 @@ export interface JobView {
   worktree: { use: 'reads' | 'writes'; doing: string; folder: string | null } | null;
   /** The run the job is about (full id), or null when it is about none (an import, the tests). */
   runId: string | null;
+  /** The fix it blames, repairs, verifies or applies (full id), so its row can say so; absent for a job about no fix yet. */
+  fixId?: string;
   /** Whether the job makes a run to open when it ends. */
   opensRun: boolean;
   startedAt: number;

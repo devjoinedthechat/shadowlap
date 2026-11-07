@@ -125,7 +125,7 @@ test('a run’s inspector tabs, menus and dialogs have no serious or critical ax
     for (const tab of ['Response', 'Request', 'Details', 'Conversation']) states.push([`run ${name} · inspector ${tab}`, click(page, '.insp [role="tablist"] button', tab, { shows: `.insp [role="tab"][aria-selected="true"]:has-text("${tab}")` })]);
     states.push([`run ${name} · Share`, click(page, '.rhead .actions button', 'Share', { shows: MENU })], [`run ${name} · Share closed`, escape(page, MENU)]);
     states.push([`run ${name} · the fork menu`, click(page, '#forkBtn', undefined, { shows: MENU })], [`run ${name} · the fork menu closed`, escape(page, MENU)]);
-    states.push([`run ${name} · Delete`, click(page, '.rhead .actions button', 'Delete', { shows: DIALOG })], [`run ${name} · Delete closed`, escape(page)]);
+    states.push([`run ${name} · More`, click(page, '#moreBtn', undefined, { shows: MENU })], [`run ${name} · Delete`, click(page, `${MENU} [role="menuitem"]`, 'Delete run', { shows: DIALOG })], [`run ${name} · Delete closed`, escape(page)]);
   }
   // Edit and fork's dialog, from the inspector of the tool call the run failed at, which it opens on.
   states.push(['run failTool', run(page, dash().runs.failTool as string)], ['run failTool · Edit and fork', click(page, '.insp button', 'Edit and fork', { shows: DIALOG })], ['run failTool · Edit and fork closed', escape(page)]);
@@ -163,7 +163,8 @@ test('every overlay has no serious or critical axe violation: the switcher, a pi
     [`Share closed${where}`, escape(page, MENU)],
     [`the fork menu${where}`, click(page, '#forkBtn', undefined, { shows: MENU })],
     [`the fork menu closed${where}`, escape(page, MENU)],
-    [`Delete${where}`, click(page, '.rhead .actions button', 'Delete', { shows: DIALOG })],
+    [`More${where}`, click(page, '#moreBtn', undefined, { shows: MENU })],
+    [`Delete${where}`, click(page, `${MENU} [role="menuitem"]`, 'Delete run', { shows: DIALOG })],
     [`Delete closed${where}`, escape(page)],
     [`the shortcuts${where}`, press(page, '?', { shows: '.help' })],
     [`the shortcuts closed${where}`, escape(page, '.help')],
@@ -292,6 +293,10 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const opened = (name: string, where: () => Promise<void>, ...open: Array<() => Promise<void>>): Array<[string, () => Promise<void>]> => [[`${name}: its page`, where], ...open.map((o, i): [string, () => Promise<void>] => [i === open.length - 1 ? name : `${name}: step ${i + 1}`, o]), [`${name}: closed`, press(page, 'Escape', { hides: DIALOG })]];
   const onRun = (name: string, of: string, text: string) => opened(name, run(page, id(of)), button('.rhead .actions button', text));
   const fork = (name: string, of: string, row: string) => opened(name, run(page, id(of)), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
+  // The call a row belongs to picked first: a run opens on the call its outcome names or its first write, whose menu may
+  // have no model call's rows (the ticket's), nor a user reply's (the chat's, a `user_input` tool call).
+  const forkOn = (call: string) => (name: string, of: string, row: string) => opened(name, run(page, id(of)), click(page, `main#view tr[data-wi]:has(td.name[title${call}])`), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
+  const forkModel = forkOn('^="POST "');
   // A write's own call picked first: Force live on it asks, with its red line.
   const forceWrite = (name: string, of: string, tool: string) => opened(name, run(page, id(of)), click(page, `main#view tr[data-wi]:has(td.name[title="${tool}"])`), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, `Force ${tool} live`));
   const share = (name: string, row: string) => opened(name, run(page, id('ticket')), click(page, '.rhead .actions button', 'Share', { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
@@ -299,19 +304,19 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
   const states = (): Array<[string, () => Promise<void>]> => [
-    ...onRun('Delete run', 'ticket', 'Delete'),
+    ...opened('Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
     ...onRun('The consent question', 'packed', 'Replay'),
     ...onRun('Pack as golden', 'digest', 'Pack as golden'),
-    ...fork('Inject instruction', 'ticket', 'Inject instruction'),
-    ...fork('Switch model', 'ticket', 'Switch model'),
-    ...fork('Fail with HTTP status', 'ticket', 'Fail with HTTP status'),
+    ...forkModel('Inject instruction', 'ticket', 'Inject instruction'),
+    ...forkModel('Switch model', 'ticket', 'Switch model'),
+    ...forkModel('Fail with HTTP status', 'ticket', 'Fail with HTTP status'),
     ...fork('Override result', 'failTool', 'Override result'),
     ...fork('Fail with tool error', 'failTool', 'Fail with tool error'),
     ...fork('Plant instruction', 'failTool', 'Plant instruction'),
-    ...fork('Override user reply', 'chat', 'Override user reply'),
+    ...forkOn('="user_input"')('Override user reply', 'chat', 'Override user reply'),
     ...fork('Repeat fork 5 times', 'override', 'Repeat 5 times'),
     ...fork('Replay with your command', 'har', 'Replay with your command'),
-    ...fork('Find commit that changed it', 'ticket', 'Find commit that changed it'),
+    ...forkModel('Find commit that changed it', 'ticket', 'Find commit that changed it'),
     ...fork('Find breaking commit', 'planted', 'Find breaking commit'),
     ...forceWrite('Force send_email live', 'twice', 'send_email'),
     ...opened('Edit and fork', run(page, id('failTool')), button('.insp button', 'Edit and fork')),

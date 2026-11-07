@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { decideVerify, formatBlame, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixAttemptGroups } from '../src/attempt-groups.js';
-import { fixDetail, fixList } from '../src/fixes.js';
+import { fixDetail } from '../src/fixes.js';
+import { fixesView } from '../src/fixes-view.js';
 import { JOB_KINDS, type Client } from '../ui/api.js';
 import { jobFooter } from '../ui/job-actions.js';
 import type { FixEstimates } from '../ui/estimates-api.js';
@@ -48,7 +49,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?
     // The fix's estimates, where a test gives them; else none can be read, and each billed button asks.
     ...(o.estimates ? { estimates: { fixEstimates: () => Promise.resolve({ repair: null, blameAgain: null, blameStronger: null, verify: {}, ...o.estimates }) } } : {}),
     fix: (id: string) => Promise.resolve(fixDetail(store, id, { ...(o.inTree ? { patchInTree: () => true } : {}), ...(o.problem ? { checkRepairer: () => o.problem! } : {}), ...(o.held ? { goldensFolder: () => ({ there: o.there ?? [], held: o.held! }) } : {}) })),
-    fixes: () => Promise.resolve(fixList(store)),
+    fixes: () => Promise.resolve(fixesView(store)),
     attemptGroups: (id: string) => Promise.resolve(fixAttemptGroups(store, id)),
     jobs: () => Promise.resolve([]),
     startJob: (kind: string, fields: unknown) => {
@@ -117,8 +118,8 @@ describe('what failed', () => {
   it('says it on each row of the list, after how many runs failed', async () => {
     opened('Refunds above the limit issued without approval');
     r = await render(createElement(AppContext.Provider, { value: app() }, createElement(FixesPage, { id: null, step: null, sub: null })));
-    await r.until('the list to load', () => r!.all('.pslist a').length === 1);
-    expect(text(r.one('.pslist .rs .nw'))).toBe('1 failing run');
+    await r.until('the list to load', () => r!.all('.pslist a.rt').length === 1);
+    expect(text(r.one('.pslist .rs a.dlink'))).toBe('1 failing run');
     // The check no longer follows the count unlabelled, as if it were the failure.
     expect(text(r.one('.pslist .rs'))).not.toContain('never called');
     expect(r.all('.pslist .fm .fmu').map(text)).toEqual(['Failed: issue_refund called with amount 240', 'Must: issue_refund never called with {"amount":240}']);
@@ -676,8 +677,8 @@ describe('opening a fix', () => {
       return createElement('main', { id: 'view', tabIndex: -1 }, route.page === 'fixes' ? createElement(FixesPage, { id: route.id, step: route.step, sub: route.sub }) : null);
     }
     r = await render(createElement(AppContext.Provider, { value: app() }, createElement(Routed)));
-    await r.until('the list to load', () => r!.all('.pslist a').length === 1);
-    const link = r.one('.pslist a');
+    await r.until('the list to load', () => r!.all('.pslist a.rt').length === 1);
+    const link = r.one('.pslist a.rt');
     // Clicked (or Enter on it): the link has the focus, and the browser follows it.
     await r.click(link);
     location.hash = link.getAttribute('href')!;
