@@ -30,6 +30,15 @@ export interface RemovedProject {
   current: string;
   deleted: string[];
   message: string;
+  /** Its toast offers Undo ({@link ProjectsApi.restore}): not once its recordings are deleted, nor with its folder gone. */
+  undo: boolean;
+}
+
+/** A removed project back on the dashboard, at the place it left; the current project stays current. */
+export interface RestoredProject {
+  project: { id: string; name: string };
+  current: string;
+  message: string;
 }
 
 /** The dialog that asks before a command's first run in a folder. */
@@ -64,6 +73,8 @@ export interface ProjectsApi {
   /** What the Remove dialog shows for a project. */
   removal(id: string): Promise<RemoveDialogView>;
   remove(id: string, options: { deleteRecordings: boolean; name: string }): Promise<RemovedProject>;
+  /** The Undo of a removal: the project back at its place. */
+  restore(id: string): Promise<RestoredProject>;
   /** The current project's setup, or null when the server serves one store. */
   setup(): Promise<SetupView | null>;
   /** What recording `command` in the project's folder runs, and the confirmation to show first. Changes nothing. */
@@ -199,6 +210,7 @@ export function projectsApi(request: Request): ProjectsApi {
     add: (path) => send('POST', 'projects', { path }),
     removal: (projectId) => request<RemoveDialogView>(`projects/${id(projectId)}/remove`),
     remove: (projectId, o) => send('POST', `projects/${id(projectId)}/remove`, { deleteRecordings: o.deleteRecordings, name: o.name }),
+    restore: (projectId) => send('POST', `projects/${id(projectId)}/restore`, {}),
     setup: () => orNull(request<SetupView>('setup')),
     planRecording: (project, command) => send('POST', 'setup/record', { project, command }),
     checkGolden: (project, golden) => send('POST', 'setup/golden', { project, golden }),
@@ -215,6 +227,7 @@ export function noProjects(refuse: () => Promise<never>): ProjectsApi {
     add: refuse,
     removal: refuse,
     remove: refuse,
+    restore: refuse,
     setup: () => Promise.resolve(null),
     planRecording: refuse,
     checkGolden: refuse,
