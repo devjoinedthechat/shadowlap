@@ -189,7 +189,7 @@ describe('Settings → Project', () => {
     expect(dd[5].querySelector('code')?.textContent).toBe('127.0.0.1:4777');
     // Clean up old runs says what it does on its card: what it would free first, then it asks.
     const clean = r.byText('.settab .setfoot .btn', 'Clean up old runs');
-    expect(JSON.parse(clean.getAttribute('data-tip')!)).toMatchObject({ t: 'Clean up old runs', s: 'Shows what it would free, then asks before deleting', cmd: 'shadowlap gc --older-than 30 --dry-run' });
+    expect(JSON.parse(clean.getAttribute('data-tip')!)).toMatchObject({ t: 'Clean up old runs', s: 'Shows what it would free, then asks before deleting', cmd: '$ shadowlap gc --older-than 30 --dry-run' });
   });
 
   it('says what Shadowlap is here without a version when the dashboard has none', async () => {

@@ -76,7 +76,7 @@ export function ProjectTab() {
           why={canClean ? null : cleanTitle}
           tip="Clean up old runs"
           sub="Shows what it would free, then asks before deleting"
-          command={`shadowlap gc --older-than ${data.cleanup.olderThanDays} --dry-run`}
+          command={`$ shadowlap gc --older-than ${data.cleanup.olderThanDays} --dry-run`}
           onClick={() => app.guard(() => app.watchJob(client.startJob(JOB_KINDS.gc, { olderThanDays: data.cleanup.olderThanDays })))}
         >
           Clean up old runs

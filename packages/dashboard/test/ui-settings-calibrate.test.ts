@@ -60,7 +60,7 @@ describe('Calibrate', () => {
     await r.until('the row', () => r!.all('.setrow .rpick').length === 1);
     const button = r.byText('.setrow button.btn', 'Calibrate');
     expect(r.one('.setrow .rpick').getAttribute('aria-label')).toBe('The recording to calibrate: 01M5GS3GZR, Refund order 4412');
-    expect(card(button)).toMatchObject({ t: 'Calibrates 01M5GS3GZR', s: 'Refund order 4412', cmd: 'shadowlap calibrate 01M5GS3GZR' });
+    expect(card(button)).toMatchObject({ t: 'Calibrates 01M5GS3GZR', s: 'Refund order 4412', cmd: '$ shadowlap calibrate 01M5GS3GZR' });
     // The picker sits between the row's line and its button, and isn't drawn as the line.
     expect(r.all('.setrow')[1].children.map((c) => c.className)).toEqual(['', 'pick', 'btn']);
     await r.click(button);
@@ -77,7 +77,7 @@ describe('Calibrate', () => {
     await r.click(r.one('.setrow .rpick'));
     await r.click(r.all('[role="option"]')[1]);
     const button = r.byText('.setrow button.btn', 'Calibrate');
-    expect(card(button)).toMatchObject({ t: 'Calibrates 01M5GS9K2P', s: 'Cancel ticket T-8812', cmd: 'shadowlap calibrate 01M5GS9K2P' });
+    expect(card(button)).toMatchObject({ t: 'Calibrates 01M5GS9K2P', s: 'Cancel ticket T-8812', cmd: '$ shadowlap calibrate 01M5GS9K2P' });
     await r.click(button);
     expect(startJob).toHaveBeenCalledWith('calibrate', { runId: B });
     await r.unmount();

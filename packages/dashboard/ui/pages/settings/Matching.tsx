@@ -161,7 +161,7 @@ function CalibrateRow({ cal, gone }: { cal: MatchingSettings['calibrate']; gone:
         why={why}
         tip={id ? `Calibrates ${id}` : 'Calibrate'}
         sub={sub || null}
-        command={id ? `shadowlap calibrate ${id}` : undefined}
+        command={id ? `$ shadowlap calibrate ${id}` : undefined}
         onClick={() => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, { runId: pick })))}
       >
         Calibrate
