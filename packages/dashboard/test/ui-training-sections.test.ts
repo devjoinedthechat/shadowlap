@@ -15,6 +15,8 @@ import { render, type Rendered } from './ui-render.js';
 
 const RUN = '01M5GS3GZRK7Q2W8E4R6T9Y1U3';
 const ATTEMPT = '01M5GS9K2PAAAAAAAAAAAAAAAA';
+/** A second attempt that passed: one call of one run has one answer. */
+const AGAIN = '01M5GSB4XQBBBBBBBBBBBBBBBB';
 
 function view(o: { best?: boolean; ready?: number } = {}): TrainingView {
   const ready = o.ready ?? 1;
@@ -46,7 +48,7 @@ function view(o: { best?: boolean; ready?: number } = {}): TrainingView {
           rejected: { text: 'issue_refund({"amount":240})', what: 'the recording', runId: RUN, callNo: 5, href: `#/run/${RUN}/5` },
           chosen: [
             { text: 'escalate({"reason":"above the limit"})', what: 'blame attempt, passed', runId: ATTEMPT, callNo: 5, href: `#/run/${ATTEMPT}/5` },
-            { text: 'escalate({"reason":"needs approval"})', what: 'blame attempt, passed', runId: ATTEMPT, callNo: 5, href: `#/run/${ATTEMPT}/5` },
+            { text: 'escalate({"reason":"needs approval"})', what: 'blame attempt, passed', runId: AGAIN, callNo: 5, href: `#/run/${AGAIN}/5` },
           ],
           ids: ['p1', 'p2'],
         },
@@ -173,7 +175,7 @@ describe('Training → Pairs', () => {
     const rows = r.all('.pans .pa');
     expect(rows.map((row) => row.className)).toEqual(['pa rej', 'pa cho', 'pa cho']);
     expect(rows.map((row) => row.querySelector('.pak')!.textContent)).toEqual(['Rejected', 'Chosen', '']);
-    expect(rows.map((row) => row.querySelector('.paw')!.textContent)).toEqual(['the recording', 'blame attempt, passed · 01M5GS9K2P', 'blame attempt, passed · 01M5GS9K2P']);
+    expect(rows.map((row) => row.querySelector('.paw')!.textContent)).toEqual(['the recording', 'blame attempt, passed · 01M5GS9K2P', 'blame attempt, passed · 01M5GSB4XQ']);
     expect(r.one('.pg1 .prun').textContent).toBe('01M5GS3GZR#5');
   });
 
