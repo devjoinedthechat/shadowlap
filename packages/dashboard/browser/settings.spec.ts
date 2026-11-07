@@ -1,10 +1,12 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { openPage } from './dashboard.js';
+import { dash, openPage } from './dashboard.js';
 
 /**
  * Settings and Training on a phone, 390 px: no tab scrolls the page sideways (a table scrolls in a
- * box of its own), the tabs keep one row with the one shown in view, and a row's label and line sit
- * over its control.
+ * box of its own), the tabs keep one row with the one shown in view, a row's label and line sit
+ * over its control, and a rule removed comes back from its toast's Undo, the file as it was.
  */
 
 const TABS = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
@@ -32,4 +34,26 @@ test('a Settings row puts its label and line over its control on a phone, and Tr
   expect(control!.y).toBeGreaterThanOrEqual(words!.y + words!.height);
   await openPage(page, '/training', 'main#view .ph');
   expect(await page.evaluate(sideways)).toBe(0);
+});
+
+test('a redaction rule removed on a phone comes back from its toast’s Undo, shadowlap.config.json as it was', async ({ page }) => {
+  // The suite shares one config: whatever happens here, it is put back (the other specs read it too).
+  const file = join(dash().demo, 'support-agent', 'shadowlap.config.json');
+  const before = readFileSync(file, 'utf8');
+  await page.setViewportSize({ width: 390, height: 844 });
+  try {
+    await openPage(page, '/settings/redaction', 'main#view table.ruletable tbody tr');
+    const rows = page.locator('main#view table.ruletable tbody tr');
+    const count = await rows.count();
+    await page.getByRole('button', { name: 'Remove redaction rule #1', exact: true }).click();
+    const undo = page.locator('.toast button', { hasText: 'Undo' });
+    await expect(undo).toBeVisible();
+    await expect(rows).toHaveCount(count - 1);
+    expect(await page.evaluate(sideways)).toBe(0);
+    await undo.click();
+    await expect(rows).toHaveCount(count);
+    await expect.poll(() => readFileSync(file, 'utf8')).toBe(before);
+  } finally {
+    if (readFileSync(file, 'utf8') !== before) writeFileSync(file, before);
+  }
 });
