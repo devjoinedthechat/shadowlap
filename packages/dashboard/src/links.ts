@@ -9,15 +9,15 @@
  *   #/runs[?q=&types=&sort=&from=&to=]   Runs, filtered when the link asks
  *   #/run/<id>[/<call>[/<view>]]         a run, a call, a view
  *   #/changes[/verdicts/<rev>]           Changes: Verdicts, and a revision's page there
- *   #/changes/decisions[/<id>]           Changes: a preview (`shadowlap decisions`)
- *   #/changes/migrate[/<id>]             Changes: a migration (`shadowlap migrate`)
+ *   #/changes/decisions[/<id>[/<run>[/<call>]]]   Changes: a preview (`shadowlap decisions`), a run's row, a cell
+ *   #/changes/migrate[/<id>[/<run>[/<call>]]]     Changes: a migration (`shadowlap migrate`), a run's row, a cell
  *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a call of theirs
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
  *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup  #/setup/store
  */
 
 /** A run page's views; Calls is the default and leaves the link. */
-export type LinkView = 'calls' | 'turns' | 'context' | 'timeline' | 'forks' | 'provenance';
+export type LinkView = 'calls' | 'turns' | 'context' | 'timeline' | 'forks' | 'provenance' | 'decisions';
 
 /** The chips a link to Runs can pick. */
 export type RunsLinkType = 'all' | 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed' | 'local';
@@ -221,7 +221,9 @@ export const links = {
   /** Changes: Verdicts, the tab it opens on, and a revision's page there (`no-revision` for a session that knew none). */
   changes: (rev?: string | null): string => (rev ? `#/changes/verdicts/${enc(rev)}` : '#/changes'),
   /** Changes: a preview's tab (`decisions`) or a migration's (`migrate`), at a session. */
-  changeSession: (kind: 'decisions' | 'migrate', id?: string | null): string => `#/changes/${kind}${id ? `/${enc(id)}` : ''}`,
+  /** A session on its tab; with `run`, that run's row, its most telling step open (or the `call` given). */
+  changeSession: (kind: 'decisions' | 'migrate', id?: string | null, run?: string | null, call?: number | null): string =>
+    `#/changes/${kind}${id ? `/${enc(id)}${run ? `/${enc(run)}${call ? `/${call}` : ''}` : ''}` : ''}`,
   /** Compare, under Changes: one run picked, two, and a call of theirs (which needs both). */
   compare: (a?: string | null, b?: string | null, call?: number | null): string => (a ? `#/compare/${enc(a)}${b ? `/${enc(b)}${call ? `/${call}` : ''}` : ''}` : '#/compare'),
   /** Fixes, a fix, one of its steps (`blame`, `repair`, `verify`), and a verdict of its Verify step. */

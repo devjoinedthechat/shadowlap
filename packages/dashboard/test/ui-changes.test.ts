@@ -165,6 +165,13 @@ describe('Changes’ addresses', () => {
     expect(parseRoute('#/changes/verdicts/..%2Fetc')).toEqual({ page: 'changes', tab: 'verdicts', id: null });
     expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A')).toEqual({ page: 'changes', tab: 'decisions', id: 'dc-01M5000000000000000000000A' });
     expect(parseRoute('#/changes/migrate')).toEqual({ page: 'changes', tab: 'migrate', id: null });
+    // A run's row opens its most telling step; a call, its cell. A call that isn't a number is dropped; a run that can't be an id, or more parts, is no page.
+    expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A/01M5MXZ7H9ABCDEF')).toEqual({ page: 'changes', tab: 'decisions', id: 'dc-01M5000000000000000000000A', run: '01M5MXZ7H9ABCDEF' });
+    expect(parseRoute('#/changes/migrate/mg-01M5000000000000000000000B/01M5MXZ7H9ABCDEF/17')).toEqual({ page: 'changes', tab: 'migrate', id: 'mg-01M5000000000000000000000B', run: '01M5MXZ7H9ABCDEF', call: 17 });
+    expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A/01M5MXZ7H9ABCDEF/x')).toEqual({ page: 'changes', tab: 'decisions', id: 'dc-01M5000000000000000000000A', run: '01M5MXZ7H9ABCDEF' });
+    expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A/not-a-run').page).toBe('notfound');
+    expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A/01M5MXZ7H9ABCDEF/17/more').page).toBe('notfound');
+    expect(parseRoute('#/changes/verdicts/d2e8a1f/more').page).toBe('notfound');
     expect(parseRoute('#/changes/other')).toMatchObject({ page: 'notfound' });
     expect(parseRoute('#/changes/verdicts/d2e8a1f/more')).toMatchObject({ page: 'notfound' });
   });

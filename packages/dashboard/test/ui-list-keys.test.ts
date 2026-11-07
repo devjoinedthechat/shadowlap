@@ -603,6 +603,9 @@ describe('the way back’s rules', () => {
     expect(isDetail(to('#/changes/verdicts/d2e8a1f'))).toBe(true);
     expect(isDetail(to('#/changes'))).toBe(false);
     expect(isDetail(to('#/changes/decisions/dc-01M5000000000000000000000A'))).toBe(false);
+    // A cell opens and closes on its session's page, so the focus stays on the cell that opened it.
+    expect(pageSig(to('#/changes/decisions/dc-01M5000000000000000000000A/01M5MXZ7H9ABCDEF/17'))).toBe(pageSig(to('#/changes/decisions/dc-01M5000000000000000000000A')));
+    expect(isDetail(to('#/changes/decisions/dc-01M5000000000000000000000A/01M5MXZ7H9ABCDEF/17'))).toBe(false);
   });
 
   it('empties on a page that is no detail page, adds nothing by Esc or along a list, and cuts back to a page it passed', () => {
