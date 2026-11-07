@@ -49,7 +49,7 @@ async function world(o: { dbPath?: (root: string) => string } = {}) {
   };
   const ids = async () => (await api<{ items: Array<{ id: string }> }>('projects')).body.items.map((p) => p.id);
   const current = async () => (await api<{ project: { id: string }; dbPath: string }>('meta')).body;
-  return { support, research, triage, registry, api, ids, current };
+  return { support, research, triage, registry, api, ids, current, url: dash.url };
 }
 
 describe('Undo after removing a project', () => {
@@ -81,6 +81,16 @@ describe('Undo after removing a project', () => {
     expect((await w.api('projects/research-agent/remove', {})).body).toMatchObject({ message: 'Removed research-agent · nothing on disk changed', undo: false });
     expect(await w.api('projects/research-agent/restore', {})).toMatchObject({ status: 400, body: { error: '~/research-agent isn’t on disk any more.' } });
     expect(await w.ids()).toEqual(['support-agent']);
+  });
+
+  it('needs the session token, as every route does', async () => {
+    const w = await world();
+    expect((await w.api('projects/research-agent/remove', {})).body).toMatchObject({ undo: true });
+    for (const token of [null, 'wrong']) {
+      const res = await fetch(`${w.url}/api/projects/research-agent/restore`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { 'x-shadowlap-token': token } : {}) }, body: '{}' });
+      expect(res.status, `token ${token}`).toBe(401);
+    }
+    expect(await w.ids()).toEqual(['support-agent', 'triage-bot']);
   });
 
   it('reads the store --db named for the project again, not one in its folder', async () => {

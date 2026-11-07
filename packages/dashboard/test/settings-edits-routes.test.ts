@@ -86,6 +86,17 @@ describe('Undo of a removed rule', () => {
     await send('POST', 'settings/rules/everything/1/restore', { rule: removed.rule, expect: await version() }, 404);
     await send('POST', 'settings/rules/redact/0/restore', { rule: removed.rule, expect: await version() }, 400);
   });
+
+  it('needs the session token, as every route does', async () => {
+    const added = await send<{ version: string }>('POST', 'settings/rules/redact', { rule: { pattern: 'email', replace: '<EMAIL>' }, expect: await version() });
+    const removed = await send<{ n: number; rule: unknown; version: string }>('DELETE', `settings/rules/redact/1?expect=${added.version}`, undefined);
+    const after = file();
+    for (const token of [null, 'wrong']) {
+      const res = await fetch(`${dash.url}/api/settings/rules/redact/1/restore`, { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { 'x-shadowlap-token': token } : {}) }, body: JSON.stringify({ rule: removed.rule, expect: removed.version }) });
+      expect(res.status, `token ${token}`).toBe(401);
+    }
+    expect(file()).toBe(after);
+  });
 });
 
 describe('Undo of the clock and Push from CI', () => {
