@@ -7,6 +7,8 @@
 /* A row's lines under its label, never the spans of a picker or a field beside them. */
 .setrow > :where(div:first-child) span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
 .setrow span.fieldnote { margin-top: 6px; }
+/* A picker's about line keeps to one line, fitted to the button (base.css sets every row's spans in pretty lines, which wrap). */
+.setrow .pick .rab { white-space: nowrap; }
 .preview { border-top: 1px solid var(--line); }
 .pvhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 @media (min-width: 641px) { .pvhead .rpick { width: 340px; } }
@@ -116,6 +118,10 @@ ul.fails { margin: 0; padding-left: 18px; color: var(--dim); font-size: 13px; li
 .settab .kvs dd code { font: 12.5px var(--mono); }
 /* A setting under a list of values starts on the list's last hairline, not a second one under it (Store, Project). */
 .settab dl.kvs + .setrow { border-top: 0; }
+/* On a phone a button beside a value (Copy access policy, Check again) takes a line of its own, whole; at 340px and under
+   each value goes under its key. */
+@media (max-width: 640px) { .settab .kvs dd :is(.btn, .linkbtn) { display: flex; width: fit-content; margin-top: 6px; } }
+@media (max-width: 340px) { .settab .kvs { grid-template-columns: minmax(0, 1fr); } .settab .kvs dt { border-bottom: 0; padding-bottom: 0; } }
 /* Rows run the section's full width: sections sit between hairlines, not in boxes. */
 .panel.sec.set .setrow { padding-left: 0; padding-right: 0; }
 .panel.sec.set dl.kvs { padding-left: 0 !important; padding-right: 0 !important; }
