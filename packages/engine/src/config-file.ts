@@ -517,13 +517,14 @@ export function removeRule(cwd: string, list: RuleList, which: string | number, 
 /**
  * Puts a removed rule back at its number: the Undo of removeRule. `rule` is the entry removeRule
  * returned, written as given, so a remove and its restore leave the file as it was, byte for byte.
- * Its fields are checked as validateRule checks a new rule (keys a newer version wrote are kept,
- * as the file kept them). A number past the end puts it last; a rule the list holds already (added
- * again since) stays where it is, and nothing is written.
+ * It is checked as the file's own rules are when they load (parseRules, readRules), not as a rule
+ * typed into a form: any rule the list holds without an error goes back, one written by hand that
+ * `add` would refuse included, with keys a newer version wrote kept. A number past the end puts it
+ * last; a rule the list holds already (added again since) stays where it is, and nothing is written.
  */
 export function restoreRule(cwd: string, list: RuleList, n: number, rule: unknown, options: EditOptions = {}): { file: ConfigFile; n: number; event: ConfigEvent | null } {
   if (!Number.isInteger(n) || n < 1) throw new RuleError('a rule goes back at its number, from 1');
-  const checked = validateRule(list, isObject(rule) ? Object.fromEntries(Object.entries(rule).filter(([k]) => (FIELDS as readonly string[]).includes(k))) : rule);
+  const checked = checkStored(rule);
   const { file, result, changed } = editConfigFile(cwd, options, (data) => {
     const rules = [...rulesIn(data, list)];
     const there = rules.findIndex((r) => sameRule(r, checked) || sameRule(rule, r as Normalizer));

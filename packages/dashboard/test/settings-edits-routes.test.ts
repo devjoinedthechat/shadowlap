@@ -67,12 +67,22 @@ describe('Undo of a removed rule', () => {
     expect(store.listEvents().map((e) => [e.kind, e.ref])).toContainEqual(['normalizer.added', '$.to']);
   });
 
-  it('is refused once the file changed since the removal, in the rule’s words for one that isn’t, and for a list or number that isn’t one', async () => {
+  it('puts back a rule written into the file by hand that adding would refuse', async () => {
+    // It loads with no error, so Settings offers Undo on its Remove: the file holds it as it held it.
+    writeFileSync(join(project, 'shadowlap.config.json'), `${JSON.stringify({ normalize: [{ path: '$.a', pattern: '/x*/', replace: '<X>' }, { path: '$', replace: '<ANY>' }] }, null, 2)}\n`);
+    const before = file();
+    const removed = await send<{ n: number; rule: unknown; version: string }>('DELETE', `settings/rules/normalize/1?expect=${await version()}`, undefined);
+    expect((await send<{ error: string }>('POST', 'settings/rules/normalize', { rule: removed.rule, expect: removed.version }, 400)).error).toMatch(/matches an empty string/);
+    await send('POST', `settings/rules/normalize/${removed.n}/restore`, { rule: removed.rule, expect: removed.version });
+    expect(file()).toBe(before);
+  });
+
+  it('is refused once the file changed since the removal, in the rule’s words for one the file couldn’t hold, and for a list or number that isn’t one', async () => {
     const added = await send<{ version: string }>('POST', 'settings/rules/redact', { rule: { pattern: 'email', replace: '<EMAIL>' }, expect: await version() });
     const removed = await send<{ n: number; rule: unknown; version: string }>('DELETE', `settings/rules/redact/1?expect=${added.version}`, undefined);
     await send('POST', 'settings/rules/redact', { rule: { pattern: 'uuid', replace: '<ID>' }, expect: removed.version });
     expect((await send<{ error: string }>('POST', 'settings/rules/redact/1/restore', { rule: removed.rule, expect: removed.version }, 409)).error).toMatch(/changed since it was read/);
-    expect((await send<{ error: string }>('POST', 'settings/rules/redact/1/restore', { rule: { replace: '<X>' }, expect: await version() }, 400)).error).toMatch(/give a path, a pattern or both/);
+    expect((await send<{ error: string }>('POST', 'settings/rules/redact/1/restore', { rule: { pattern: 'email' }, expect: await version() }, 400)).error).toMatch(/replace must be text/);
     await send('POST', 'settings/rules/everything/1/restore', { rule: removed.rule, expect: await version() }, 404);
     await send('POST', 'settings/rules/redact/0/restore', { rule: removed.rule, expect: await version() }, 400);
   });
