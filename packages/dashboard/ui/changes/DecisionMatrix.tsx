@@ -7,6 +7,7 @@ import { Receipt } from '../components/Receipt.js';
 import { glossed } from '../components/Term.js';
 import { cellLook, drawnCells, receiptWords, type DrawnCell } from '../decisions.js';
 import { shortId } from '../format.js';
+import { glueBound } from '../matrix.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import type { DecisionCell, PreviewKeyEntry, PreviewSession } from '../types.js';
@@ -111,7 +112,7 @@ function Ending({ row, cleared }: { row: Row; cleared: string }) {
       {row.verified ? (
         <span className={`dsv ${OUTCOME_TONE[row.verified.outcome] ?? 'y'}`}>
           <b>{glossed(row.verified.outcome)}</b>
-          {row.verified.tally}
+          {glueBound(row.verified.tally)}
         </span>
       ) : row.cleared ? (
         <span className="dsv" data-tip={tipCard('Not run end to end', [], cleared)}>

@@ -146,6 +146,16 @@ describe('the Preview page', () => {
     expect(shown(p.one('.cmdline'))).toContain('shadowlap decisions goldens/* --model claude-haiku-4-5');
   });
 
+  it('ends a verified run’s row on its outcome and tally, its bound kept whole, and a run it cleared as not run end to end', async () => {
+    const verified: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], verified: { outcome: 'kept', tally: ' · 4 of 4 · rate >= 0.6 (95%)' } }, { ...flagged.matrix[1], cleared: true }] };
+    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.resolve(verified) });
+    await p.until('the matrix', () => p.all('.dmr').length === 2);
+    // The outcome is a defined term, its card's words beside it: its tally follows, the bound glued to its figures.
+    const [kept, cleared] = p.all('.dsv');
+    expect([kept.className, kept.querySelector('b')!.textContent.startsWith('kept'), kept.textContent.endsWith(' · 4 of 4 · rate >=\u00a00.6\u00a0(95%)')]).toEqual(['dsv ok', true, true]);
+    expect([cleared.className, cleared.textContent]).toEqual(['dsv', 'not run end to end']);
+  });
+
   it('says a preview it doesn’t hold, with the way back to the newest', async () => {
     const { ApiError } = await import('../ui/api.js');
     const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')) }, 'dc-01M5NOTKEPT0000000000000');
