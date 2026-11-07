@@ -41,6 +41,8 @@ interface CallSpec {
   name?: string;
   origin?: Origin;
   request?: unknown;
+  /** A request ref the store holds no body for, in place of `request`. */
+  requestRef?: string;
   result?: unknown;
   meta?: Record<string, unknown>;
 }
@@ -56,7 +58,7 @@ function addRun(o: { parent?: string; meta?: RunMeta; calls: CallSpec[]; diverge
     const callNo = i + 1;
     const kind = c.kind ?? (callNo === 2 ? 'tool' : 'api');
     const identity = { kind, name: c.name ?? (kind === 'api' ? 'POST /v1/messages' : 'lookup_policy'), fingerprint: `fp${callNo}-${run.runId}`, occurrence: 1 };
-    const requestRef = c.request === undefined ? null : kind === 'api' ? storeApiRequest(store, c.request) : store.putJson(c.request);
+    const requestRef = c.requestRef ?? (c.request === undefined ? null : kind === 'api' ? storeApiRequest(store, c.request) : store.putJson(c.request));
     store.appendCallStart({ runId: run.runId, callNo, ...identity, origin: c.origin ?? (o.parent ? 'replayed' : 'live'), effect: kind === 'tool' ? 'read' : null, requestRef, meta: {}, at: (at.now += 10) });
     const responseRef = c.result === undefined ? null : store.putJson(c.result);
     store.appendCallEnd(identity, { runId: run.runId, callNo, attempt: 0, responseRef, outcome: 'ok', meta: { latencyMs: 10, ...(c.meta ?? {}) }, at: (at.now += 10) });
@@ -84,6 +86,7 @@ let orphan = '';
 let orphanUser = '';
 let orphanGemini = '';
 let unkept = '';
+let unread = '';
 let codeChange = '';
 let retried = '';
 let uuidTest = '';
@@ -143,6 +146,8 @@ beforeAll(async () => {
     calls: [{ ...replayed(1), name: gemini('gemini-2.5-pro') }, replayed(2), { name: gemini('gemini-2.5-pro'), origin: 'live', request: { contents: [{ role: 'user', parts: [{ text: 'Refund order 1042' }] }], generationConfig: { temperature: 0.2 } } }],
     divergence: { type: 'request_changed', callNo: 3, name: gemini('gemini-2.5-pro'), counterpart: { runId: '01K8ZZ00000000000000000099', callNo: 3 }, diff: [{ path: '$.generationConfig.temperature', op: 'changed', before: 0, after: 0.2 }] },
   });
+  // Its own request's body gone from the store too.
+  unread = addRun({ parent: rec, calls: [replayed(1), replayed(2), { origin: 'live', requestRef: '0'.repeat(64) }], divergence: { type: 'request_changed', callNo: 3, counterpart: { runId: '01K8ZZ00000000000000000099', callNo: 3 }, diff: [userChanged] } });
   // A recording whose call was kept without its request.
   const bare = addRun({ calls: [{ request: request() }, lookup(), {}] });
   unkept = addRun({ parent: bare, calls: [replayed(1), replayed(2), { origin: 'live', request: request({ user: UUID_B }) }], divergence: { type: 'request_changed', callNo: 3, counterpart: { runId: bare, callNo: 3 }, diff: [userChanged] } });
@@ -234,6 +239,9 @@ describe('the request a fork changed', () => {
     // Gemini's model is in the path, and its conversation is `contents`.
     expect(diffOf(orphanGemini)).toMatchObject({ whole: false, was: { generationConfig: { temperature: 0 } }, now: { generationConfig: { temperature: 0.2 } }, leftOut: ['contents'] });
     expect(diffOf(orphanGemini).was).not.toHaveProperty('model');
+    // With no body to read the model or the conversation from, the changes alone.
+    expect(diffOf(unread)).toMatchObject({ whole: false, was: { metadata: { user_id: UUID_A } }, now: { metadata: { user_id: UUID_B } }, leftOut: [] });
+    expect(diffOf(unread).now).not.toHaveProperty('model');
   });
 
   it('builds both sides from the changes where the recording kept its call without its request, the model read from this run’s', () => {

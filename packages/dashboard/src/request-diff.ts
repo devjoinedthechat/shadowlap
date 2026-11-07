@@ -226,7 +226,15 @@ function bodiesOf(store: Store, run: RunRecord, at: CallRecord, against: Request
   const theirs = parent && against ? callOf(store, parent.runId, against.callNo) : undefined;
   const rule = requestReadRule(parent ?? run, run);
   const read = (c: CallRecord) => comparedRequest(store, c, rule.rounded, rule.secretNames);
-  if (!theirs) return { what: 'request', ...changesAlone(own, at, own && at.kind === 'api' ? read(at) : null), whole: false, theirs };
+  // This run's body, read only for what a request built from its changes holds besides them: none where it can't be read.
+  const held = (): unknown => {
+    try {
+      return own && at.kind === 'api' ? read(at) : null;
+    } catch {
+      return null;
+    }
+  };
+  if (!theirs) return { what: 'request', ...changesAlone(own, at, held()), whole: false, theirs };
   const was = read(theirs);
   const now = read(at);
   if (at.kind !== 'api' && canonicalize(was) === canonicalize(now)) return { what: 'result', was: storedResult(store, theirs), now: storedResult(store, at), whole: true, leftOut: [], theirs };
