@@ -185,7 +185,11 @@ function AccessWords({ access }: { access: string }) {
   );
 }
 
-/** Push from CI: its Switch, with Undo, and Copy CI step beside it for the CI the setup added. */
+/**
+ * Push from CI: its Switch, with Undo, and Copy CI step beside it for the CI the setup added. Copy
+ * CI step holds the place of the design's link to the workflow (`.wflink`), so on a phone it comes
+ * after the Switch, which sits right under what it turns on.
+ */
 function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; version: string; ci: CopiedStep | null; editor: ReturnType<typeof useEditor>; gone: string | null }) {
   const app = useApp();
   const { client } = app;
@@ -197,7 +201,7 @@ function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; ver
         <span id="ciPush-help">CI pushes every test run, its report and each fix it opens, so history covers every pull request.</span>
       </div>
       {ci ? (
-        <CopyButton text={ci.text} label={`the ${ci.name} step`} name="Copy CI step" sub={`${ci.name}, ${ci.file}${ci.oidc ? ' · short-lived credentials, no stored keys' : ''}`}>
+        <CopyButton className="linkbtn wflink" text={ci.text} label={`the ${ci.name} step`} name="Copy CI step" sub={`${ci.name}, ${ci.file}${ci.oidc ? ' · short-lived credentials, no stored keys' : ''}`}>
           Copy CI step
         </CopyButton>
       ) : null}

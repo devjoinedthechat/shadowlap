@@ -43,6 +43,8 @@
 @media (max-width: 640px) {
   .set header .sub { display: none; }
   .setrow { flex-direction: column; align-items: flex-start; gap: 10px; }
+  /* a row's switch comes right under what it turns on, and a link to where its step lives after it */
+  .setrow > .wflink { order: 1; }
   .pvhead .pick, .pvhead select, .setrow > .pick { width: 100%; }
   .pvrule { grid-template-columns: auto 28px minmax(0, 1fr); }
 }
