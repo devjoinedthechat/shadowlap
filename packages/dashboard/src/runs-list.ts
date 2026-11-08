@@ -60,8 +60,13 @@ export interface RunFilter {
    * sorted by spent, the totals of runs it has yet to add up. What the dashboard asks for.
    */
   known?: boolean;
-  /** What `status:` judges a run by besides its index (run-outcome.ts `judgeFor`), read beside the server; without it, only what the index says. */
+  /**
+   * What `status:` judges a run by besides its index (run-outcome.ts `judgeFor`), read beside the
+   * server, as Failed does for a run its family's checks fail today; without it, only what the index says.
+   */
   judge?: JudgeRun | null;
+  /** Failed counts a run's own failure only, never its family's: what Find breaking commit can start from (runs-failures.ts). */
+  ownFailures?: boolean;
 }
 
 export interface RunsPageOptions extends RunFilter, StatsOptions {
@@ -153,7 +158,7 @@ interface Matcher {
   scope: (r: IndexedRun) => boolean;
   /** The chips' kinds, Local and the filter field, without Failed: what failures are counted out of. */
   base: (r: IndexedRun) => boolean;
-  /** Counted as failed (runs-filter.ts `listFailed`): what Failed narrows to. */
+  /** Counted as failed: its own failure (runs-filter.ts `listFailed`), or its family's checks' today: what Failed narrows to. */
   failed: (r: IndexedRun) => boolean;
   /** Everything the filter asks for. */
   matches: (r: IndexedRun) => boolean;
@@ -192,7 +197,7 @@ function matcher(filter: RunFilter, reads: MatchReads = {}): Matcher {
   const localOnly = types.includes('local');
   const local = filter.localRuns ?? null;
   const { words, labels, types: typeTerms, statuses, tools } = filterTerms(filter.q);
-  const { about = () => '', fixed = NOT_FIXED, verdict, recorded } = reads;
+  const { about = () => '', fixed = NOT_FIXED, verdict, recorded, failedByFamily } = reads;
   // `type:` narrows as a chip does, by the kinds it names: with a chip too, each narrows the other.
   const typed = (r: IndexedRun) => typeTerms.every((t) => Object.hasOwn(TYPE_KINDS, t) && TYPE_KINDS[t as keyof typeof TYPE_KINDS].includes(r.kind));
   // `status:` reads the verdict Status says, and a run not judged yet matches none until it is; `tool:`, a tool it called by its start.
@@ -211,7 +216,8 @@ function matcher(filter: RunFilter, reads: MatchReads = {}): Matcher {
   const scope = (r: IndexedRun) => (filter.includeAttempts || !r.bundled) && (filter.from == null || r.startedAt >= filter.from) && (filter.to == null || r.startedAt < filter.to);
   // Local narrows what failures are counted out of, as a kind does: the calendar's "8 of 12 local runs".
   const base = (r: IndexedRun) => scope(r) && (!kinds.size || kinds.has(r.kind)) && typed(r) && (!localOnly || !!local?.has(r.runId)) && text(r);
-  const failed = (r: IndexedRun) => listFailed(r, fixed);
+  // A run's own failure, or one its family's checks find today (a capture's stays the verdict it kept).
+  const failed = (r: IndexedRun) => listFailed(r, fixed) || (!filter.ownFailures && !!failedByFamily?.(r));
   return { scope, base, failed, matches: (r) => base(r) && (!failedOnly || failed(r)) };
 }
 

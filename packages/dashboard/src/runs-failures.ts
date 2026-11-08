@@ -26,7 +26,8 @@ export const RUNS_FAILURES_READS: ReadTable<RunsFailuresJob> = {
   // Oldest first, the first failure on the days picked first, LATER_FAILURES at most.
   'runs-failures': (store, job) => {
     const types = [...new Set([...(job.options.types ?? []), 'failed' as const])];
-    const failures = matchingRuns(store, { ...job.options, types, known: true, judge: judgeFor(store, job.outcome ?? null) })
+    // A run's own failures: bisect can't yet tell where one that fails only its family's checks started.
+    const failures = matchingRuns(store, { ...job.options, types, known: true, ownFailures: true, judge: judgeFor(store, job.outcome ?? null) })
       .reverse()
       .slice(0, LATER_FAILURES)
       .map((r): DayFailure => ({ runId: r.runId, label: r.label, command: r.source ?? r.argv.join(' '), startedAt: r.startedAt }));
