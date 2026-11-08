@@ -1044,7 +1044,7 @@ A cell opens under the matrix (`#/changes/decisions/<id>/<run>/<call>`), named *
 - its cost either way, compared after the project's normalizers;
 - the conversation up to the call, as the inspector draws it: the first two and the last six messages, the rest folded. In a fork, the message the fork changed is marked, with **Jump to change**.
 
-**Close** or Esc closes it, and Esc puts the focus back on its cell.
+**Close**, Esc or its cell pressed again closes it, the focus back on its cell. A cell opens and closes in place of the address, so Back leaves Preview rather than going back through each cell opened.
 
 #### No preview
 
@@ -2446,8 +2446,8 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 - `/api/decisions`: the sessions kept, newest first, `limit` of them (50 unless given, at most 200), the project's `goldens` count, and the models the goldens use that retire. Each session gives its `name`, its `runs` and how many were `goldens` (its `unit`, `golden` or `run`), its `samples` a step and how many runs it `flagged`. Its `href` opens Changes: a preview on Preview (`#/changes/decisions/<id>`), a migration on Verdicts (`#/changes/migrate/<id>`).
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix` and its `view`, read on a thread of its own. The `view` holds Preview's words, worked out on the server: the verdict as Verdicts gives it, what was asked, verify's verdict and what it verified end to end, the next step's facts, the key, the warnings and the receipt.
-- `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or the one `runId` names, is priced in the role its checks give it as recorded, at what it costs under the change. `verify` is `null` when there is nothing to verify.
-- `/api/runs/:id/decisions`: a run's decisions under each session that asked it again, newest first. Each gives its name and samples, its row, what verify found of the run, and the `steps` its Decisions view lists, worded. Its `href` opens the view at the run's most consequential call, and `changes` its cell on Preview. `later` is the line about later steps, and its card.
+- `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or those the `runId` parameters name (up to 500), is priced in the role its checks give it as recorded, at what it costs under the change. Preview names the runs no verify took yet. `verify` is `null` when there is nothing to verify, as for a named run the session cleared.
+- `/api/runs/:id/decisions`: a run's decisions under each session that asked it again, newest first, read on a thread of its own. Each gives its name and samples, its row, what verify found of the run, and the `steps` its Decisions view lists, worded. Its `href` opens the view at the run's most consequential call, and `changes` its cell on Preview. `later` is the line about later steps, and its card.
 - `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
 
 The `matrix` has a row per run and a cell per model call. A row is named by its run's short id (`title`) with its `about` line. It says whether the store still holds the run (`inStore`), whether the session left it to verify, what verify found, and what the row ends on (`ending`). Each cell holds:
@@ -2514,7 +2514,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `coverage {}` | Scan again |
 | `coverage-pack { key?, command?, confirmed?, fork?, expect? }` | `coverage --pack` |
 | `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify? }` | A decision diff |
-| `decisions-verify { sessionId, runId? }` | `decisions --verify` |
+| `decisions-verify { sessionId, runId?, runIds?, yes? }` | `decisions --verify` |
 | `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or `{ format: "langfuse", traceId, host? }`, with `project?` too for `phoenix` |
@@ -2549,6 +2549,7 @@ What some of them do:
 - **`coverage-pack`** packs a golden of the behaviour `key` names, or of each no golden covers, reproduced with the agent's command a run here gives or the one typed, which runs only once confirmed. With `fork` and `expect`, it packs a golden that forks. It is refused with a 409 while a test session, an update or another pack runs.
 - **`decisions`**: `samples` as [`--samples`](./cli.md#decisions) takes it, 1 included. Without it, each step is asked 3 times under the change and 3 times as recorded, six requests a step.
 - **`decisions-verify`** verifies each run the session could not clear under its own checks (its golden's, or for a run named by id, those of the recording it comes from). It runs one verify per set of checks, in the role its recording plays under them, and keeps the result in the session.
+- **`decisions-verify` with `runIds`** (at most 500, an empty list naming none) verifies only those runs, as Preview's Verify does once verify took some. A run the session cleared is refused with a 409, and one it never asked with a 404, each named.
 - **`injection`** plants the templates (`all`, `none` or their ids) or an uploaded payload file at every untrusted read. With `clean`, a call number (a run only), it tests whether that read caused the run's writes; `writes` picks them by call number.
 - **`injection` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only with `yes`. That is the `confirm` of the 409 that named both its command and the test's own line, so a yes to one test runs no other.
 
