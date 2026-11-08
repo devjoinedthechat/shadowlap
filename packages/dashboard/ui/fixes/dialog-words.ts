@@ -3,7 +3,7 @@ import { shortId } from '../format.js';
 import { commandText } from '../goldens.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import type { FixDetail } from '../types.js';
-import { recordingCost, updateSteps, type UpdatePlan } from '../update-plan.js';
+import { eitherWay, recordingCost, updateSteps, type UpdatePlan } from '../update-plan.js';
 import type { OutdatedGolden } from './model.js';
 
 /** What Fixes' dialogs say: the page's words, so the first look doesn't load them. No DOM here: the tests import it. */
@@ -60,9 +60,12 @@ export function repairCost(repair: NonNullable<FixDetail['actions']['repair']>, 
 
 /**
  * What the apply drawer's Update goldens asks before it re-records them, as the Tests screen's Update
- * goldens does: which, where the patch made them diverge, what an update does, and the command.
+ * goldens does: which, where the patch made them diverge, what an update does, and the command. Where
+ * the last replay of one diverged on a value made anew every run (`mask`, from their divergences on
+ * Tests: update-plan.ts's maskFirst), Add normalizer and update leads, lime, masking it first, Update
+ * anyway plain beside it, either way billed as their recordings cost, said once.
  */
-export function updateOutdatedAsk(outdated: readonly OutdatedGolden[]): UpdatePlan & { fields: Record<string, unknown> } {
+export function updateOutdatedAsk(outdated: readonly OutdatedGolden[], mask: Pick<UpdatePlan, 'advise' | 'instead'> = { advise: null, instead: null }): UpdatePlan & { fields: Record<string, unknown> } {
   const names = outdated.map((g) => g.golden);
   const one = names.length === 1;
   const short = (g: string) => g.split('/').pop()!;
@@ -72,13 +75,13 @@ export function updateOutdatedAsk(outdated: readonly OutdatedGolden[]): UpdatePl
     doc: 'goldenUpdates',
     facts: [],
     goldens: outdated.map((g) => ({ path: g.golden, name: short(g.golden), where: `#${g.callNo} ~ ${g.path}` })),
-    steps: updateSteps(one ? 'Replaced only if its checks pass' : 'Each replaced only if its checks pass', null),
-    advise: null,
-    instead: null,
+    steps: updateSteps(one ? 'Replaced only if its checks pass' : 'Each replaced only if its checks pass', mask.advise ? 'value' : null),
+    advise: mask.advise,
+    instead: mask.instead,
     note: null,
     command: commandText(['test', ...names, '--update']),
-    cost: recordingCost(one),
-    ok: one ? confirmWords(ACTIONS.updateGolden.label) : `Update ${names.length} goldens`,
+    cost: mask.instead ? eitherWay(recordingCost(one)) : recordingCost(one),
+    ok: mask.advise ? 'Update anyway' : one ? confirmWords(ACTIONS.updateGolden.label) : `Update ${names.length} goldens`,
     fields: one ? { golden: names[0] } : { goldens: names },
   };
 }

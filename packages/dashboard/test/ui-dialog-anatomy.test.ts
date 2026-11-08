@@ -35,6 +35,7 @@ import { importWords } from '../ui/runspage/imports.js';
 import { ApiError, type BisectOffer, type TestsView } from '../ui/api.js';
 import { render, type Rendered } from './ui-render.js';
 import { resetSpending } from '../ui/spending.js';
+import { maskFirst } from '../ui/update-plan.js';
 
 /**
  * One dialog anatomy: every dialog and every ask before a job, drawn as the page draws it, read for
@@ -453,8 +454,12 @@ describe('a golden’s dialogs', () => {
     holds(await open(createElement(UpdateGoldensDialog, { view: quiet, paths: ['goldens/a'], has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update a?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
   });
   it('Update goldens from the apply drawer', async () => {
-    const ask = updateOutdatedAsk([{ golden: 'goldens/a', callNo: 3, path: '$.x' }, { golden: 'goldens/b', callNo: 1, path: '$.y' }]);
+    const outdated = [{ golden: 'goldens/a', callNo: 3, path: '$.x' }, { golden: 'goldens/b', callNo: 1, path: '$.y' }];
+    const ask = updateOutdatedAsk(outdated);
     holds(await open(createElement(UpdateGoldenDialog, { plan: ask, onUpdate: () => undefined, ...closes })), { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: OK, ok: 'Update 2 goldens' });
+    // One last diverged on a value made anew every run: its normalizer and the update lead, Update anyway plain.
+    const masked = updateOutdatedAsk(outdated, maskFirst({ divergences: [{ ...div, newRules: [['normalize', 'add']] }] } as unknown as TestsView, ['goldens/a', 'goldens/b'], () => true));
+    holds(await open(createElement(UpdateGoldenDialog, { plan: masked, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: '.dlg-alt', ok: 'Update anyway', tone: 'plain' });
   });
   it('Add normalizer and update', async () => {
     holds(await open(createElement(NormalizeUpdateDialog, { name: 'a', steps: [['normalize', 'add'], ['test', 'goldens/a', '--update']], onRun: () => undefined, ...closes })), { title: 'Add normalizer and update a?', doc: 'goldenUpdates', first: OK, ok: 'Add normalizer and update' });

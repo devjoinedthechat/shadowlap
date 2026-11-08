@@ -453,6 +453,43 @@ describe('the drawers’ ways on', () => {
     expect(r.all('a')).toEqual([]);
   });
 
+  it('ends an apply that left goldens behind on Update goldens, led by Add normalizer and update where one last diverged on a value made anew every run', async () => {
+    address('#/fixes/f1');
+    const outdated = [
+      { golden: 'goldens/refund-in-limit', callNo: 1, path: '$.system' },
+      { golden: 'goldens/escalate-over-limit', callNo: 1, path: '$.system' },
+    ];
+    const goldens = outdated.map((g) => g.golden);
+    // refund-in-limit's last replay, before the patch, diverged on a user id made anew every run, whose rule isn't in the config.
+    const userId = { golden: goldens[0], name: 'refund-in-limit', callNo: 3, volatile: { path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', certain: true }, rulesAdded: false, newRules: [['normalize', 'add', '$.metadata.user_id']] };
+    const started: Array<[string, Record<string, unknown>]> = [];
+    const ended = (divergences: unknown[]) => {
+      const base = app();
+      const client = { ...base.client, tests: () => Promise.resolve({ rows: [], divergences, inconclusive: [] }), startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), new Promise(() => undefined)) };
+      return createElement(AppContext.Provider, { value: { ...base, client } as unknown as AppState }, createElement(jobFooter(JOB_KINDS.applyFix)!, { job: job({ kind: JOB_KINDS.applyFix, done: true, code: 0, result: { outdated } }) }));
+    };
+    const footer = () => r!.all('[role="dialog"] footer button').map((b) => [text(b), b.className.includes('lime')]);
+    r = await render(ended([userId]));
+    await r.wait(0);
+    await r.click(r.byText('button', 'Update goldens'));
+    // The normalizer and the update in one job, lime; Update anyway plain, re-recording a value that diverges again.
+    expect(footer()).toEqual([['Cancel', false], ['Update anyway', false], ['Add normalizer and update', true]]);
+    expect(text(r.one('.advise p'))).toBe('refund-in-limit diverged on a value that is new every run. Add normalizer and update masks it first.');
+    expect(r.all('.dcost').map(text)).toHaveLength(1);
+    expect(text(r.one('.dcost'))).toMatch(/^Billed by your provider\W+either way, as their recordings cost$/);
+    await r.click(r.byText('[role="dialog"] footer button', 'Add normalizer and update'));
+    expect(started).toEqual([[JOB_KINDS.testUpdate, { goldens, normalize: true }]]);
+    await r.unmount();
+    // Neither did: the update alone, as before.
+    started.length = 0;
+    r = await render(ended([{ ...userId, volatile: null, newRules: [] }]));
+    await r.wait(0);
+    await r.click(r.byText('button', 'Update goldens'));
+    expect(footer().map(([label]) => label)).toEqual(['Cancel', 'Update 2 goldens']);
+    await r.click(r.byText('[role="dialog"] footer button', 'Update 2 goldens'));
+    expect(started).toEqual([[JOB_KINDS.testUpdate, { goldens }]]);
+  });
+
   it('offers Open Blame on a blame press the server refused as moved on, unless the page shows the Blame step', async () => {
     const { fixId } = blamed();
     const toasts: Array<{ text: string; action?: ToastAction }> = [];
