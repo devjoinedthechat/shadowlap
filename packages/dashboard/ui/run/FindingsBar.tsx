@@ -478,19 +478,18 @@ function MoreToggle({ findings, open, onToggle }: { findings: readonly Finding[]
 }
 
 /**
- * The first bad commit Find breaking commit named for the crash: its rev and subject, then who made
- * it (where names are shown), when and what the search cost (`foundLine`), and Show change where it
- * kept the change. Gone once a later replay of its golden passed: the run reads fixed by it then.
+ * The first bad commit Find breaking commit named for the crash: its rev, then its subject leading
+ * the line as every finding's lead does, then who made it (where names are shown), when and what the
+ * search cost (`foundLine`), which give way a part at a time; and Show change where it kept the
+ * change. Gone once a later replay of its golden passed: the run reads fixed by it then.
  */
 function CommitFinding({ c, x, s }: { c: FoundCommit; x: Draw; s: Slot }) {
   const f = foundLine(c);
   return (
     <section className={cls('blame', s)}>
       <span className="bk">first bad commit</span>
-      <span className="why">
-        <code>{f.rev}</code> <b>{f.subject}</b>
-        {f.meta ? ` · ${f.meta}` : null}
-      </span>
+      <code>{f.rev}</code>
+      <Why lead={f.subject || undefined}>{f.meta}</Why>
       {x.changeToggle ? <span className="end">{x.changeToggle}</span> : null}
       {s.more}
     </section>

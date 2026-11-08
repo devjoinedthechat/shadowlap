@@ -199,9 +199,11 @@ describe('a named crash on its run’s page', () => {
     page = await render(within(app().a, createElement(Place, { run: crashed(), offers: OFFERS })));
     const first = page.all('.findings section')[0] ?? page.all('section.blame')[0];
     expect(first.querySelector('.bk')!.textContent).toBe('first bad commit');
-    expect(first.querySelector('.why code')!.textContent).toBe('ccccccc');
-    expect(first.querySelector('.why b')!.textContent).toBe('Log the total');
-    expect(first.querySelector('.why')!.textContent).toContain(`· ${shortDate(FOUND.date)} · 0 tokens`);
+    // Its rev, then its subject leading the line in ink, as every finding's lead does, then its facts.
+    expect(first.children.map((c) => c.className || c.tagName.toLowerCase())).toEqual(expect.arrayContaining(['bk', 'code', 'why']));
+    expect(first.querySelector('code')!.textContent).toBe('ccccccc');
+    expect(first.querySelector('.why .lead')!.textContent).toBe('Log the total');
+    expect(first.querySelector('.why')!.textContent).toBe(`Log the total\u00a0· ${shortDate(FOUND.date)}\u00a0· 0 tokens`);
     const toggle = page.one('[data-act="change"]');
     expect([toggle.textContent, toggle.getAttribute('aria-expanded')]).toEqual(['Show change', 'false']);
     await page.click(toggle);

@@ -65,8 +65,6 @@
 .banner .bn { font: 600 12.5px var(--mono); cursor: pointer; border: 0; background: none; padding: 0; }
 .banner code { font-size: 12.5px; }
 .banner .why { color: var(--faint); }
-/* The first bad commit's subject, in ink between its rev and its facts. */
-.banner .why b { color: var(--ink); font-weight: 500; }
 .banner .path { font: 12.5px var(--mono); color: var(--add); }
 /* A flag and its value (an --override's JSON) or a path has no space to break at: where the banner
    wraps, it breaks anywhere rather than widen the page on a phone. */
