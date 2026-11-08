@@ -14,7 +14,7 @@ import { shortcut } from '../shortcuts.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { isFailed, runType } from '../runs.js';
-import { labelSuggestions } from '../runspage/bulk.js';
+import { labelSuggestions } from '../runspage/bulk-words.js';
 import { pendingRunOf, useDeleteRun } from './delete-run.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
