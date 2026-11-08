@@ -15,6 +15,7 @@ import {
   decide,
   decideCount,
   describeGate,
+  explainGate,
   dropProbability,
   formatPassK,
   formatTally,
@@ -556,6 +557,14 @@ describe('what a label rounds to', () => {
     const h: BaselineGate = { kind: 'baseline', ...BASELINE_DEFAULTS, risk: 0.00045 };
     expect(describeGate(h)).toContain('once 99.955% likely');
     expect(describeGate({ ...h, risk: 1 / 600 })).toContain('once 99.833% likely');
+  });
+
+  it('words what a gate tells apart in one sentence, a split risk and a share of the suite’s included', () => {
+    expect(explainGate(sprt({}))).toBe('Tells an agent that passes 90% of the time or more from one that passes 70% or less, each verdict wrong at most 5% of the time at those two rates, and gives up after 80 attempts.');
+    expect(explainGate(sprt({ failRisk: 0.0005 }))).toContain('a pass wrong at most 5% of the time and a failure at most 0.05% at those two rates');
+    const h: BaselineGate = { kind: 'baseline', ...BASELINE_DEFAULTS };
+    expect(explainGate(h)).toBe('Asks whether this golden’s pass rate dropped 15 points or more from its last 10 sessions: it fails once that is 95% likely and passes once it is no likelier than not, deciding from attempt 5 up to 40.');
+    expect(explainGate({ ...h, risk: 0.00045, window: 1 })).toContain('from its last 1 session: it fails once that is 99.955% likely');
   });
 });
 

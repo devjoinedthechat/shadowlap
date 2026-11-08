@@ -7,6 +7,7 @@ import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
+import { ciGates } from '../tests-gate.js';
 import { lastFullSession, testPatterns, testsSummary, type GoldenSource } from '../tests.js';
 import { editFolder, failed, VERSION } from './settings-edits.js';
 import { GOLDENS_FOLDER } from './tests.js';
@@ -103,6 +104,7 @@ export function register(router: Router, ctx: RouteContext): void {
       repo,
       root: git.root,
       session: ciSession(ctx.store, list),
+      gates: ciGates(project, list, GOLDENS_FOLDER),
     });
     return { view, repo };
   };

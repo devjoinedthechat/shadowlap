@@ -1,11 +1,12 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import { judgeTarget, lostRange, lostWords, type DiffLine, type StoreOf } from '@shadowlap/engine';
+import { judgeTarget, lostRange, lostWords, SUITE_RISK, type DiffLine, type StoreOf } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { workflowState, type FileSwitches, type RepositoryWorkflow } from './ci-file.js';
 import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, COMMENT_NEED, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, REPAIRER, REPAIRERS, VERSION, WORKFLOW_FILE, workflowFile, type BucketCredentials, type LiveGoldens, type WorkflowFileSettings } from './ci-yaml.js';
 import { fixDetail, fixList, type FixDetail } from './fixes.js';
 import type { TeamStoreInput } from './team-store.js';
+import type { CiGates } from './tests-gate.js';
 import { liveReasons } from './tests-live.js';
 
 /**
@@ -179,6 +180,8 @@ export interface CiWorkflowsView {
   recordings: string;
   /** `owner/repo` from the project's git remote, or null. */
   repository: string | null;
+  /** What Gates sends with its figures, and names under them. */
+  gates: CiGates;
   /**
    * Why shadowlap.config.json can't be read, as Settings' other tabs say it; null when it reads. The
    * steps then can't tell which goldens run live or whether Fix on failure pushes: each says what it
@@ -582,6 +585,8 @@ export interface CiContext {
   root?: boolean;
   /** The test session the line under Your workflow names. */
   session?: CiSession | null;
+  /** The suite's risk and the goldens on each kind's defaults, for Gates (`ciGates`). */
+  gates?: CiGates;
 }
 
 /** What the options come to in this project: the goldens, their keys, the default branch, and Push from CI. */
@@ -726,5 +731,6 @@ export function ciWorkflows(o: CiWorkflowOptions, context: CiContext): CiWorkflo
     recordings: c.recordings,
     repository: context.repository,
     configError: c.configError,
+    gates: context.gates ?? { suiteRisk: SUITE_RISK, uses: { sprt: [], baseline: [] } },
   };
 }

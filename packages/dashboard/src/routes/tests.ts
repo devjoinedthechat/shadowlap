@@ -18,7 +18,7 @@ import { bisectChoices, bisectJob, checkedRevision, gatePreview, liveTestSession
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
  * replay and Find breaking commit (`GET /api/tests/runs/:id`), what a gate's figures would do
  * (`GET /api/tests/gate?good=&bad=&risk=&max=`, or `?baseline=history&drop=&window=&min=&max=`
- * figured against `&history=47/50`, as Settings → CI's Gates previews them), what Tests' buttons and
+ * figured against `&history=47/50`, with `&suiteRisk=` for CI's figure, as Settings → CI's Gates previews them), what Tests' buttons and
  * Find breaking commit would bill (`GET /api/tests/estimates`, `GET /api/estimates/bisect`, worked
  * out beside the server: estimates.ts), and the jobs the Tests screen starts:
  *

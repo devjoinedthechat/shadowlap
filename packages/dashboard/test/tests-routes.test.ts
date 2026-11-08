@@ -160,10 +160,20 @@ describe('GET /api/tests/gate', () => {
     expect(preview.odds.find((o) => o.rate === 0.7)!.pass).toBeCloseTo(0.0222, 4);
     // About the default gate: 80 attempts turn one in seven of a healthy agent's CI runs red, counting inconclusive ones.
     expect((preview as unknown as { ci: { red: number } }).ci.red).toBeGreaterThan(0.99);
-    expect((await getJson<{ ci: { goldens: number; red: number; redWarn: number } }>(dash, 'tests/gate')).ci).toMatchObject({ goldens: 100, red: expect.closeTo(0.1458, 4), redWarn: expect.closeTo(0.1435, 4) });
+    // Each extreme's verdict line, and the gate's sentence, in the engine's words.
+    expect(preview).toMatchObject({ extremes: { pass: 'passed · 12 of 12 · rate >= 0.73 (95%)', fail: 'failed · 0 of 3 · rate <= 0.71 (95%)' }, sentence: 'Tells an agent that passes 90% of the time or more from one that passes 70% or less, each verdict wrong at most 5% of the time at those two rates, and gives up after 20 attempts.' });
+    // CI's figure is the session `shadowlap test` plans: the suite's 5% split across 100 goldens, about once in 55,000 runs (docs/gating.md).
+    const plain = await getJson<{ ci: { goldens: number; risk: number; red: number; redWarn: number } }>(dash, 'tests/gate');
+    expect(plain.ci).toMatchObject({ goldens: 100, risk: 0.05, red: expect.closeTo(0.000018, 6), redWarn: expect.closeTo(0.0000558, 6) });
+    // A suite's risk of its own, as the config's tests.suiteRisk gives it, splits as the session would.
+    expect((await getJson<{ ci: { risk: number; red: number } }>(dash, 'tests/gate?suiteRisk=0.2')).ci).toMatchObject({ risk: 0.2, red: expect.any(Number) });
+    expect((await getJson<{ ci: { red: number } }>(dash, 'tests/gate?suiteRisk=0.2')).ci.red).toBeGreaterThan(plain.ci.red);
+    expect((await api(dash, 'tests/gate?suiteRisk=0.6')).status).toBe(400);
     // A gate against history is figured against a baseline: its power to catch a drop, by the pass rate now.
-    const history = await getJson<{ gate: unknown; toPass: null; history: unknown; odds: Array<{ rate: number; fail: number; attempts: number }> }>(dash, 'tests/gate?baseline=history');
-    expect(history).toMatchObject({ gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40 }, toPass: null, history: { passes: 47, attempts: 50 } });
+    const history = await getJson<{ gate: unknown; toPass: number; history: unknown; odds: Array<{ rate: number; fail: number; attempts: number }> }>(dash, 'tests/gate?baseline=history');
+    // An agent whose attempts all pass needs 5, its verdict line naming the baseline over the window's sessions.
+    expect(history).toMatchObject({ gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40 }, toPass: 5, toFail: null, extremes: { pass: 'passed · 5 of 5 · rate >= 0.47 (95%) · against 0.94 over the last 10 sessions (47 of 50)', fail: null }, history: { passes: 47, attempts: 50 } });
+    expect(history).toMatchObject({ sentence: 'Asks whether this golden’s pass rate dropped 15 points or more from its last 10 sessions: it fails once that is 95% likely and passes once it is no likelier than not, deciding from attempt 5 up to 40.' });
     expect(history.odds.map((o) => o.rate)).toEqual([0.95, 0.9, 0.85, 0.75, 0.6, 0.5, 0.2]);
     expect(history.odds.find((o) => o.rate === 0.75)!.fail).toBeCloseTo(0.242, 3);
     expect(history.odds.find((o) => o.rate === 0.95)!.attempts).toBeCloseTo(5.67, 2);

@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
-import { cliSpawner, startDashboard, type CiWorkflowsView, type Dashboard } from '../src/index.js';
+import { BASELINE_DEFAULTS, SPRT_DEFAULTS, Store } from '@shadowlap/engine';
+import { cliSpawner, startDashboard, type CiWorkflowsView, type Dashboard, type GoldenSource } from '../src/index.js';
+import { ciGates } from '../src/tests-gate.js';
 
 /** Settings → CI's Write file and its Undo, against a project folder that is its repository's root. */
 
@@ -106,5 +107,21 @@ describe('Write file', () => {
     expect((await send('PUT', 'ci/workflow', { options: { comment: false }, expect: off.version, shown: off.workflow.shown })).status).toBe(200);
     expect(readFileSync(file(), 'utf8')).toContain('    timeout-minutes: 30 # ours\n');
     expect((await view()).comment.on).toBe(false);
+  });
+});
+
+describe('Gates in the CI view', () => {
+  const golden = (path: string, gate: GoldenSource['gate'], error: string | null = null): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, gate, checks: [], error });
+
+  it('sends the config’s suite risk with the figures, and names the goldens each kind’s defaults stand for', async () => {
+    expect((await view()).gates).toEqual({ suiteRisk: 0.05, uses: { sprt: [], baseline: [] } });
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { suiteRisk: 0.1 } }));
+    const list = [golden('goldens/refund', { kind: 'sprt', ...SPRT_DEFAULTS }), golden('goldens/slow', { kind: 'sprt', ...SPRT_DEFAULTS, max: 40 }), golden('goldens/order', { kind: 'baseline', ...BASELINE_DEFAULTS }), golden('goldens/broken', { kind: 'sprt', ...SPRT_DEFAULTS }, 'run.json is missing'), golden('goldens/plain', null)];
+    expect(ciGates(project, list, 'goldens')).toEqual({ suiteRisk: 0.1, uses: { sprt: ['refund'], baseline: ['order'] } });
+    // A config that can't be read, or a suite risk it refuses, leaves the default: every session refuses the file meanwhile.
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { suiteRisk: 0.7 } }));
+    expect(ciGates(project, [], 'goldens').suiteRisk).toBe(0.05);
+    writeFileSync(join(project, 'shadowlap.config.json'), '{ not json');
+    expect(ciGates(project, [], 'goldens').suiteRisk).toBe(0.05);
   });
 });
