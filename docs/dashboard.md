@@ -438,7 +438,7 @@ The header's one lime button is the run's next step: the first of these that app
 | A test whose judge check couldn't be judged offline | **Update golden** |
 | An injection attempt that obeyed, no golden made from the recording it tested | **Pack with injection gate…** |
 | Any other attempt, failed or not | **Compare with parent** |
-| A test replay whose agent exited | **Find breaking commit**, until the commit is named |
+| A test replay whose agent exited | **Find breaking commit**, **Revert** once the commit is named |
 | A recording whose newest injection test failed | **Open proof** |
 | One that stopped early | **Run injection test…** |
 | One that showed too little to say | **Re-run injection test**, **Re-run test** for a golden's gate |
@@ -454,7 +454,7 @@ The header's one lime button is the run's next step: the first of these that app
 
 Every other action stays beside it, plain, and no finding offers the step again. Its hover says what it does, what it bills and the command it runs. Search or jump to lists it first under This run. While a job holds what it needs, it goes plain and says why, there too.
 
-The lime button comes last, before **…**, which holds **Delete run**. From 1280px wide, where the buttons won't fit beside the id, the plain ones fold into **…** one at a time: Replay first, then Pack as golden…, Compare, Push and Run blame. Narrower, the buttons go under the header, the lime one first.
+The lime button comes last, before **…**, which holds **Delete run**. From 1280px wide, where the buttons won't fit beside the id, the plain ones fold into **…** one at a time: Replay first, then Pack as golden…, Open in editor, Compare, Push and Run blame. Narrower, the buttons go under the header, the lime one first.
 
 What each step does:
 
@@ -463,8 +463,11 @@ What each step does:
 - **Compare with parent** leads for a fork, and for an attempt: a blame probe's, a verify's, a `--repeat`'s, an injection test's, a model's scoring, an error-path preset's, or a golden's repeated replay in one test session, whose failure counts towards its golden's result.
 - **Update golden**: a change it was made for reads as a changed system prompt, a tool's definition or the model, which go into every request.
 - **Find breaking commit** starts on the click, offline and free, from the newest commit its golden passed at. With no such commit, or on a golden marked fork, it asks first and reads **Find breaking commit…**.
-- **Run blame beside it**: on a crash, **Run blame** stays plain before **Fork at #n**, with what it runs and bills on hover, until the commit is named or a fix holds the run.
-- **A replay it can't start from**: one cut short, or one of a session its golden came out inconclusive in, says nothing of its golden, so the rows after it decide.
+- **Revert** leads once Find breaking commit names the crash's first bad commit. It undoes the commit in your working tree, uncommitted, then tests the golden, and always asks first: see [Revert](#revert).
+  - **Open in editor**, plain beside it where the answer kept the commit's change, opens the changed file at the line it added.
+  - **No Revert** where the golden's newest result, newer than the answer, was tested with changes on top of a commit (reverted already, or other work in the tree). A fix or a blame leads then, as before the search.
+- **Run blame beside it**: on a crash, **Run blame** stays plain before **Fork at #n**, beside Find breaking commit and then Revert, with what it runs and bills on hover, until a fix holds the run.
+- **A replay it can't start from**: one cut short, or one of a session its golden came out inconclusive in, says nothing of its golden, so the rows after it decide. Find breaking commit in the Fork menu says why, with **Open Tests**, where the golden's own search starts.
 - **Open proof** opens the first attempt that shows the verdict. Presets left inconclusive change nothing, since running them again finds the same.
 - **Pack as golden…** asks for a folder, `goldens/` and the run's short id in lower case unless you change it. A golden of a fork or a replay of the recording doesn't count as made from it.
   - It packs the golden, then tests it, as one job, for any run. A recording from someone's pack or the team store asks first, since its test runs the command it was recorded with. So does a test that would run the golden live, in the same question.
@@ -509,6 +512,15 @@ A finding never says what the header's first fact already does, but for the run 
 | A test replay its golden passed since | What it failed, muted, with nothing to mend | *fixed by 01K5CQ7A3M*, as Runs' Status says it |
 
 A blame that placed the failure on no call says how it stands as the finding's label instead: *stopped* or *inconclusive* in amber, *not rescued* in red. A blame that found the call says *lost at #17*, with **Rescued fork →** where the fork that rescued the run is kept. Words the glossary defines, such as *lost*, *stubbed* and *fenced*, are underlined, with their meaning on hover.
+
+**The first bad commit.** Once Find breaking commit names the commit a crashed test replay's golden broke at, its finding leads the crash's: *first bad commit*, the commit's short id and subject, then who made it where names show, when, and the tokens the search spent. It goes once a later replay of the golden passes, and the run reads *fixed by* that replay.
+
+**Show change**, where the answer kept the commit's change, opens it in the inspector's place, as *The change at the first bad commit*:
+
+- **The file's head** names the file, with **Open in editor** and **Copy git revert** (`git revert <rev>`, `-m 1` for a merge), which commits the revert for you to review.
+- **The hunk** against the commit's first parent, its added lines and those taken out marked.
+
+**Hide change** or Esc gives the inspector back, and the focus to **Show change**.
 
 **An attempt.** An attempt of blame, verify, `replay --repeat` or a test says it is one: *blame attempt*, *verify attempt*, *repeat attempt* or *test attempt* above its id. A test attempt is a golden one `shadowlap test` session replayed more than once, other than the attempt its result shows. The fork blame rescued a run with is its *rescued fork*.
 
@@ -1104,7 +1116,7 @@ With no golden yet, it offers to pack the newest run whose step is **Pack as gol
 
 A verdict leads, in one line: its word in its colour, *passed*, *failed* or *inconclusive*, then the tally of goldens that passed and the first failure named, as *2 of 3 goldens passed · refund-in-limit diverged at call 1*. With none failing, it is *inconclusive*, in amber, when a [gate](./gating.md) ran out of attempts between its bounds or a check couldn't decide.
 
-The first failure's step is lime beside it: the button its run's page leads with, such as **Add normalizer and re-run** or **Run more attempts**. **Run tests** and each failure's buttons are plain while it leads.
+The first failure's step is lime beside it: the button its run's page leads with, such as **Add normalizer and re-run**, **Run more attempts** or **Revert**. **Run tests** and each failure's buttons are plain while it leads.
 
 With it comes the line of the newest session that ran them all (CI's, or **Run tests**): its command, revision, time, its own passed and failed counts, and upstream requests. That session reads:
 
@@ -1171,6 +1183,8 @@ Find breaking commit's answer is the first bad commit, or why there is none betw
 - **A golden passing at the commit it fails at**: when the search found that, the failure is in changes not committed there, or doesn't happen every time. It says so, and offers no other commit until it fails at another one.
 
 A failed check, a non-zero exit or a replay with no calls shows with its checks and the agent's last lines of output, as `test --markdown` prints them. It offers **Find breaking commit…** unless the pack can't be read.
+
+**A named commit's change** shows under its card wherever the answer kept it, in the box **Show change** opens on a run's page. A crash whose first bad commit stands offers **Revert** first, and its hint says what to do with the commit: *The agent stopped part way at the commit above: revert it or fix the code, then run the tests.*
 
 ### Inconclusive goldens
 
@@ -1704,8 +1718,9 @@ Tests runs its goldens as jobs too:
 | **Add normalizer and re-run** | `shadowlap normalize add …`, then `shadowlap test <golden>`                         |
 | **Add normalizer and update** | `shadowlap normalize add …` for each rule, then `shadowlap test <goldens> --update` |
 | **Find breaking commit**      | `shadowlap bisect`, from the newest revision where the golden passed                |
+| **Revert**                    | `git revert --no-commit <rev>`, then `shadowlap test <golden>`                      |
 
-These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find breaking commit** wait, saying what is running:
+These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run**, **Find breaking commit** and **Revert** wait, saying what is running:
 
 - another of these jobs, **Find breaking commit** on a golden among them, which reads its pack and answers the failure it started from;
 - a setup packing and testing its golden;
@@ -1737,8 +1752,32 @@ For several goldens that diverged on values that change every run, **Update gold
 - **A golden that never passed** offers the few commits before its failure as *not tested there*, and when it was tested at none, the field says *none tested yet*.
 - **Another commit** is a field under the list, for any other: what it holds is searched from, and picking from the list again clears it.
 - **Only commits this checkout has**, as on Runs and a run's page. A golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD.
+- **Its drawer ends on Revert** once it names a crash's commit and the page leads with **Revert**, pressing the page's own. Otherwise it ends on the CLI's link.
 
 A job only names goldens the project has on disk.
+
+#### Revert
+
+**Revert** undoes the first bad commit Find breaking commit named for a crash, in your working tree, and leaves it uncommitted for you to review. Then it tests the golden. It is offered on a crash's run page, on Tests and in Search or jump to, and asks first every time, in a dialog titled *Revert 9a3c5e0?* with no docs link:
+
+- **The commit**: its subject, then who made it where names show, and when.
+- **Untested**, in amber, for the commits just before it that couldn't be tested: the first bad commit may be among them.
+- **Then**: *`refund-flow` is tested*, by the golden's name.
+- **The change reversed**, where the answer kept it, and the command it runs. A warning says how many of the commit's files are outside the project, as git reverts those too.
+- **Its Cost line**: *Free · replays offline*, or what the test bills where the golden runs live, as Re-run test is priced.
+
+git runs first, with no shell, on the commit the store holds for the golden's answer, never one the request names. A merge is reverted against its first parent (`-m 1`). A test that runs live asks as **Run tests** does, and the dialog's **Revert** answers for it.
+
+Its drawer reads *Reverting 9a3c5e0*. It shows `$ git revert --no-commit 9a3c5e0`, git's lines as git printed them, *reverted 9a3c5e0 in your working tree · not committed*, then the test's command and lines. It ends on one of these:
+
+| End | Means |
+| --- | --- |
+| *passed · exit 0* | Reverted, and the golden passed: *Reverted 9a3c5e0* |
+| *reverted · test failed · exit 1* | The revert stays in your tree, and the golden still fails |
+| *not reverted · exit 128* | git refused, with changes to the commit's files in your tree; the test didn't run |
+| *conflicts left in your working tree · exit 1* | git left conflicts for you to resolve; the test didn't run |
+
+Where git didn't revert, the toast reads *Tried reverting 9a3c5e0*. Nothing is kept of the revert itself, as git shows the change. Its test keeps a session as any test does, so the crashed replay reads *fixed by* the run that passed, and **Open passing run** opens it.
 
 ### Actions in Settings
 
@@ -1800,11 +1839,11 @@ The server asks that question itself: a 409 naming the exact command lines, with
 
 ### One job at a time on your working tree
 
-An apply changes your working tree, and a repair makes its candidates from it, so each runs alone in its project:
+An apply or a revert changes your working tree, and a repair makes its candidates from it, so each runs alone in its project:
 
 - **It can't start** while a job runs your agent from that tree: a recording, a blame, a replay or fork, a test, a calibration.
 - **Until it is done**, any of those is refused, with what holds the tree. Their buttons wait, with the reason on hover, as Calibrate and Apply fix do in Search or jump to.
-- **Run blame**, **Run repair**, **Apply fix** and the Tests actions that run your agent (**Run tests**, **Update golden**, **Add normalizer and re-run**) are off meanwhile, and say so on hover.
+- **Run blame**, **Run repair**, **Apply fix**, **Revert** and the Tests actions that run your agent (**Run tests**, **Update golden**, **Add normalizer and re-run**) are off meanwhile, and say so on hover.
 - **Any other action that runs your agent** is refused, with the reason.
 - **A job in another project's folder** doesn't wait.
 
@@ -1908,7 +1947,7 @@ These keys work on a run's page:
 | `+` / `-`       | Label the run good or bad, again to take it off                                              |
 | Esc             | Back to where you came from                                                                  |
 
-**`b`** presses Run blame only where the run's page leads with it, not the Run blame beside a crash's Find breaking commit.
+**`b`** presses Run blame only where the run's page leads with it, not the Run blame beside a crash's Find breaking commit or Revert.
 
 **Esc** does one thing a press: it closes a menu, a dialog or the palette, hides or closes a job's drawer, then closes the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run, a fix or a revision's page goes back the way you came, Runs' selection clears, and the row in focus lets go.
 
@@ -2176,7 +2215,7 @@ Every request needs the session token in `x-shadowlap-token`.
 
 | Endpoint | What it answers |
 | --- | --- |
-| `GET /api/meta` | Version, store and its size, address, read-only and why, runs and attempts counted apart, live runs, job kinds, project folder, and what Open in editor runs here |
+| `GET /api/meta` | Version, store and its size, address, read-only and why, runs and attempts counted apart, live runs, job kinds, project folder, `editor` |
 | `GET /api/changes?since=<cursor>` | What changed since the cursor: runs, calls, activity, jobs, and the live runs with their call counts and call events (starts and answers) |
 | `GET /api/activity?limit=&before=` | The activity feed, newest first, `limit` entries a page |
 | `GET /api/summary?tz=` | The Overview, in the viewer's time zone (IANA, UTC without one) |
@@ -2186,7 +2225,8 @@ Every request needs the session token in `x-shadowlap-token`.
 | `POST /api/editor/open { file, line }` | Open in editor: a file of the project folder at a line, in the editor `$VISUAL` or `$EDITOR` names |
 
 - **`/api/activity`**: pass `next` (opaque) as `before` for the page after, or a time in milliseconds for everything older.
-- **`/api/editor/open`** reads only `file`, a path relative to the project folder, and `line`. The file must be a regular file inside the folder through its real path. The editor comes from the server's environment, run as git runs one, the file and line only as arguments. Meta's `editor` is the form it runs (`code --goto <file>:<line>`), or null where this machine has no editor it can open: none set, a terminal-only one, no display, or an exported copy.
+- **`/api/editor/open`** reads only `file`, a path relative to the project folder, and `line`. The file must be a regular file inside the folder through its real path.
+- **The editor** comes from the server's environment, run as git runs one, the file and line only as arguments. Meta's `editor` is the form it runs (`code --goto <file>:<line>`), or null where this machine has no editor it can open: none set, a terminal-only one, no display, or an exported copy.
 - **`/api/summary`** gives each grid row's and each recording in progress's `about` line, and a failed run's never blamed in Needs a look, as `/api/runs` gives it. Until the totals of the runs it adds up are kept, it answers `{ warming: { done, total } }` at once.
 
 **Search** (`/api/search`): hits from recordings, forks, tests and captures come first, then hits from attempts of a run with none of its own, each naming that run (`attemptOf`). It answers from what the index holds, once it has taken in what runs still recording said since the last search (20 ms at most, waited for 0.3 s at most). While the index catches up, `indexing` says how many runs it has yet to read, of how many.
@@ -2252,7 +2292,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - how each run `ended`;
 - the fork's `writes`, each with its `fate`.
 
-**Offers**: how many redaction rules each copy applies, where the run stands with the team store, whether Run blame applies (and the check it would likely use), and Find breaking commit's revisions. For a test that diverged, the actions it offers, or that its normalizer was added and the replay that passed since.
+**Offers**: how many redaction rules each copy applies, where the run stands with the team store, whether Run blame applies (and the check it would likely use), and Find breaking commit's revisions. A crashed test replay has the first bad commit its golden's search named, while it stands (`commit`). For a test that diverged, the actions it offers, or that its normalizer was added and the replay that passed since.
 
 **Compare.** `part=head` answers at once with what the page shows while the whole comparison is worked out:
 
@@ -2318,6 +2358,7 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 - each golden's `gate`, and what it decided last (`last.gate`, below);
 - each golden's error-path `presets` as their last session left them: `null` when none ran, else their verdict, how many ran, passed, failed and were inconclusive, a `line`, and the attempt to open;
 - the divergences and other failures as the CLI printed them, each with Find breaking commit's range, and what it last said about this failure (`found`, or `missed` with why and its `outcome`);
+- a `found` commit's `change`, or null for an answer that kept none: the `file` it opens, every file changed (`files`), the `hunk` against the first parent and whether it was `cut`. It also has the `line` to open, `merge`, the file's `path` in the project folder (null outside it) and how many files are `outside` it;
 - the commits Find breaking commit's dialog offers (`revisions`), each with its subject and its tally there (`rate`: `passes` of `attempts`), and for a golden that never passed, the commits before its failure that no session tested (`untested`, each a `rev` and `subject`);
 - for a divergence on values that change every run, the `normalize add` arguments of each rule the config lacks (`newRules`);
 - the inconclusive goldens apart from them, with `judge` (below);
@@ -2362,7 +2403,7 @@ An attempt the provider cut short is `inconclusive`, never the agent's failure; 
 
 A gate against history is figured at seven pass rates against the baseline `history` names, 47 of 50 unless given: the chance it fails at each of those pass rates is its power to catch a drop. Figures the config would refuse are a 400 with its message.
 
-**A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find breaking commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start. `before` limits the good commits to runs before it.
+**A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find breaking commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start, with `onTests` where that reason sends you to Tests. `before` limits the good commits to runs before it.
 
 **Their estimates** are the engine's for each job as it runs, worked out beside the server:
 
