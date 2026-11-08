@@ -59,6 +59,8 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'bisect-estimate': { kind: 'bisect-estimate', commits: 6, target: { runId: FORK, fork: true } },
   'decision-estimates': { kind: 'decision-estimates', sessionId: SESSION, runId: null, work: null, rule: { keptMax: null, baseline: 'paired' } },
   'held-by': { kind: 'held-by', what: 'run', ids: [REC], stores: [] },
+  'check-context': { kind: 'check-context', runId: REC, at: 3 },
+  'check-preview': { kind: 'check-preview', expect: { tools: { issue_refund: 0 } }, agent: 'node refund_agent.mjs', madeFrom: REC, goldens: [{ path: 'goldens/refund', runId: REC, pack: null }], limit: 200 },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };
