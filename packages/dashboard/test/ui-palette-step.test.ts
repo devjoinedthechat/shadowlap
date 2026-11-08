@@ -82,7 +82,7 @@ describe('This run', () => {
     expect(stepEntry({ key: 'replay', label: 'Replay with your command…', runId: RUN }).key).toBe('r');
     expect(stepEntry({ key: 'compare', label: 'Compare with parent', parent: PARENT, href: `#/compare/${PARENT}/${RUN}` }).key).toBe('c');
     // A step no key presses has none: its own button, or a link the header has no key for.
-    expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'F1', status: 'open', href: '#/fixes/F1' })).not.toHaveProperty('key');
+    expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'F1', status: 'open', check: 'exit code 0', href: '#/fixes/F1' })).not.toHaveProperty('key');
     expect(stepEntry({ key: 'pack', label: 'Pack as golden…', runId: RUN, folder: 'goldens/x' })).not.toHaveProperty('key');
   });
 
@@ -163,7 +163,7 @@ describe('This run', () => {
       expect((await thisRun(detail(rerun), { meta: PROJECT, jobs: [{ job: { id: 'j2', kind: 'test', done: false, project: { id: 'p1' } } }] } as unknown as Partial<AppState>))[0]?.wait).toMatch(/run it again once it is done/);
       // The same job waits nothing for blame, which only a job holding the tree stops.
       expect((await thisRun(detail(blame), { meta: PROJECT, jobs: [{ job: { id: 'j2', kind: 'test', done: false, project: { id: 'p1' } } }] } as unknown as Partial<AppState>))[0]?.wait).toBeUndefined();
-      const link: NextStep = { key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', href: '#/fixes/fx-1', title: '“Refunds”' };
+      const link: NextStep = { key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', check: 'exit code 0', href: '#/fixes/fx-1', title: '“Refunds”' };
       expect((await thisRun(detail(link), { meta: PROJECT, jobs: holding() } as unknown as Partial<AppState>))[0]).not.toHaveProperty('wait');
       const replay: NextStep = { key: 'replay', label: 'Replay', runId: RUN, command: 'shadowlap replay x' };
       expect((await thisRun(detail(replay, { actions: [{ key: 'r', label: 'Replay', disabled: 'no agent to run' }] })))[0]).toMatchObject({ hint: 'no agent to run', wait: 'no agent to run' });
@@ -183,7 +183,7 @@ describe('This run', () => {
   });
 
   it('words an entry from the step alone', () => {
-    expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', href: '#/fixes/fx-1', title: '“Refunds”' })).toEqual({ group: 'This run', label: 'Open fix', hint: '“Refunds”' });
+    expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', check: 'exit code 0', href: '#/fixes/fx-1', title: '“Refunds”' })).toEqual({ group: 'This run', label: 'Open fix', hint: '“Refunds”' });
     expect(stepEntry({ key: 'rule', label: 'Add normalizer' })).toEqual({ group: 'This run', label: 'Add normalizer', hint: '', job: true });
   });
 });

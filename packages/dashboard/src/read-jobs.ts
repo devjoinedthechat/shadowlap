@@ -16,6 +16,7 @@ import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { ESTIMATE_READS } from './estimates.js';
+import { TESTS_EVIDENCE_READS } from './tests-evidence.js';
 import { FIXES_READS } from './fixes-view.js';
 import { CROSS_PROJECT_READS } from './cross-project.js';
 import { withExitCodes } from './exit-codes.js';
@@ -338,7 +339,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;
