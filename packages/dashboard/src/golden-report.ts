@@ -1,7 +1,10 @@
 import { relative, isAbsolute, resolve } from 'node:path';
-import { checkLine, checkStatus, firstSentence, formatPassK, parseTraceback, plural, rateBound, safe, safeLines, testResultVerdict, type ParsedTraceback, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
-import { shortFailure } from './fix-shared.js';
+import { checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, parseTraceback, plural, proofHead, proofLine, rateBound, safe, safeLines, testResultVerdict, type AttemptReport, type InjectionGateData, type InjectionReport, type ParsedTraceback, type PlantReport, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { commandLine, shortFailure } from './fix-shared.js';
 import { links } from './links.js';
+import { answer, type ReadTable } from './read-registry.js';
+import { judgeFor, type OutcomeWork } from './run-outcome.js';
+import { matchingRuns } from './runs-list.js';
 import type { BisectMiss, FoundCommit } from './tests-bisect.js';
 import { causeOf, divergenceOf } from './tests-normalize.js';
 import type { DivergenceView, FailureView, GoldenRow, GoldenSource, InconclusiveView, TestsView } from './tests.js';
@@ -42,7 +45,11 @@ export type ReportPart =
   /** The attempts, read when the report opens: the check they failed and only what the verdict doesn't say, the attempts carried over, where they forked. */
   | { kind: 'attempts'; check: { label: string; detail: string } | null; carried: { count: number; at: number | null } | null; forked: number | null }
   | { kind: 'commit'; found: FoundCommit }
-  | { kind: 'missed'; missed: BisectMiss };
+  | { kind: 'missed'; missed: BisectMiss }
+  /** An injection gate's proof: the attempt it is, the engine's line of it (each `#n` a call of that attempt), and, for an attempt that showed nothing, why. */
+  | { kind: 'proof'; runId: string; line: string; why: string | null }
+  /** What an injection gate's attempts did, by verdict; where they were planted, while the kept result says; the command that writes every attempt. */
+  | { kind: 'injection-attempts'; totals: { obeyed: number; influenced: number; inconclusive: number; ignored: number }; where: string | null; each: string | null; command: string };
 
 /**
  * The hint under a report's next steps, by what the report is: the browser words it in one sentence
@@ -63,7 +70,8 @@ export type HintKey =
   | { key: 'no-preload' }
   | { key: 'blocked'; hosts: string[] }
   | { key: 'injection' }
-  | { key: 'injection-inconclusive' }
+  /** Why it showed too little to say: a model call that got no answer, nothing marked untrusted to plant in, attempts cut short, or nothing shown. */
+  | { key: 'injection-inconclusive'; why: 'unanswered' | 'no-reads' | 'stopped' | 'nothing' }
   | { key: 'checks-changed' }
   | { key: 'error' };
 
@@ -184,7 +192,7 @@ const failedCheck = (r: TestResult): StoredCheck | null => (r.data?.checks ?? []
 const failWords = (c: StoredCheck | null, r: TestResult): string => (c ? shortFailure(c.detail ? `${c.label}, but ${c.detail}` : c.label) : shortFailure(r.reason ?? undefined));
 
 export interface ReportInput {
-  store: StoreOf<'recording' | 'tests'>;
+  store: StoreOf<'recording' | 'tests' | 'injection'>;
   /** The goldens on disk, for the recording a golden replays and the checks it has now. */
   goldens: readonly GoldenSource[];
   normalizers: TestsNormalizers;
@@ -197,6 +205,8 @@ interface Built {
   sub: Array<string | null>;
   parts: ReportPart[];
   hint: HintKey | null;
+  /** What its header opens, where it isn't the result's own run. */
+  open?: GoldenReport['open'];
 }
 
 /** The project's own name for a file the agent's traceback names: relative where it is inside the folder, else as printed. */
@@ -287,8 +297,69 @@ function failureParts(r: TestResult, f: FailureView, row: GoldenRow, i: ReportIn
     if (row.checks.length) parts.push({ kind: 'checks', labels: row.checks });
     return { head: c ? ['Check failed: ', { code: c.label }, `, but ${c.detail ?? 'failed'}`] : [asSentence(f.reason)], sub: parts.length && parts[0]!.kind === 'replay' ? [] : [upstream(r)], parts, hint: { key: 'check' } };
   }
-  const hint: HintKey = f.blocked?.length ? { key: 'blocked', hosts: f.blocked } : f.failure === 'no-calls' ? { key: 'no-calls' } : f.failure === 'guard' ? (/^The network guard could not watch every process of the agent/.test(f.reason) ? { key: 'unguarded' } : { key: 'no-preload' }) : f.failure === 'injection' ? (f.reason.startsWith('injection inconclusive') ? { key: 'injection-inconclusive' } : { key: 'injection' }) : { key: 'error' };
+  const hint: HintKey = f.blocked?.length ? { key: 'blocked', hosts: f.blocked } : f.failure === 'no-calls' ? { key: 'no-calls' } : f.failure === 'guard' ? (/^The network guard could not watch every process of the agent/.test(f.reason) ? { key: 'unguarded' } : { key: 'no-preload' }) : { key: 'error' };
   return { head: [asSentence(f.reason)], sub: [upstream(r)], parts: row.checks.length && f.checks?.length ? [{ kind: 'checks', labels: row.checks }] : [], hint };
+}
+
+/** The kept result an injection gate's verdict came from, while the store has it. */
+function keptPlant(store: StoreOf<'injection'>, gate: InjectionGateData | undefined): PlantReport | null {
+  const kept = gate?.resultId ? store.getInjectionResult(gate.resultId) : null;
+  const report = kept?.data as unknown as InjectionReport | undefined;
+  return report?.mode === 'plant' ? report : null;
+}
+
+/** The attempt an injection gate's proof is: the first that obeyed, else the first influenced, else the first that couldn't say. */
+function proofAttempt(report: PlantReport | null): AttemptReport | null {
+  for (const verdict of ['obeyed', 'influenced', 'inconclusive'] as const) {
+    const a = report?.attempts.find((x) => x.verdict === verdict);
+    if (a) return a;
+  }
+  return null;
+}
+
+/** Where an injection gate planted, broken at its comma: its payloads at its untrusted reads, then so many attempts each. */
+function plantedWhere(report: PlantReport): { where: string; each: string } | null {
+  if (!report.payloads.length || !report.reads.length) return null;
+  const templates = report.payloads.filter((p) => p.source === 'template');
+  const every = templates.length === injectionTemplates().templates.length;
+  const named = [...(every ? ['every template'] : templates.map((p) => p.id)), ...report.payloads.filter((p) => p.source === 'file').map((p) => p.id)].join(', ');
+  const planted = report.reads.filter((x) => x.planted).length;
+  return { where: `${named} at ${planted === report.reads.length ? 'every untrusted read' : `${planted} of ${plural(report.reads.length, 'untrusted read')}`},`, each: `${plural(report.repeat, 'attempt')} each` };
+}
+
+/**
+ * An injection gate's reason as the verdict's sentence: what obeyed and its limit, the proof left to
+ * its part; for one that showed too little to say, what kept it from saying, `got HTTP 529` for a
+ * call that failed (its message left to the printed lines), and the rest for the proof.
+ */
+function injectionWords(reason: string, failed: boolean): { head: string; rest: string } {
+  if (failed) return { head: reason.replace(/^(.*?\(at most \d+ allowed\)).*$/, '$1'), rest: '' };
+  const pieces = reason.split(': ');
+  // How to mark a read untrusted runs on in the reason; the hint says it in a sentence.
+  const n = /^no untrusted read/.test(reason) ? 1 : 2;
+  return { head: pieces.slice(0, n).join(': ').replace(/ failed with (HTTP \d+)(?: \([^)]*\))?/, ' got $1'), rest: pieces.slice(n).join(': ') };
+}
+
+/** Why an injection gate showed too little to say, by its reason, for its hint. */
+const injectionWhy = (reason: string): Extract<HintKey, { key: 'injection-inconclusive' }>['why'] => (/could not be judged/.test(reason) ? 'unanswered' : /^no untrusted read/.test(reason) ? 'no-reads' : / ran \(/.test(reason) ? 'stopped' : 'nothing');
+
+/** A golden whose verdict is its injection gate's: its proof, what its attempts did and where they were planted; its header opens the proof. */
+function injectionParts(r: TestResult, i: ReportInput, golden: string): Built {
+  const gate = r.data?.injection;
+  const failed = testResultVerdict(r) === 'failed';
+  const reason = gate?.reason ?? (r.reason ?? '').replace(/^injection( inconclusive)?: /, '');
+  const { head, rest } = injectionWords(reason, failed);
+  const report = keptPlant(i.store, gate);
+  const a = proofAttempt(report);
+  const parts: ReportPart[] = [];
+  if (a) parts.push(a.verdict === 'inconclusive' ? { kind: 'proof', runId: a.runId, line: proofHead(a), why: rest || a.why } : { kind: 'proof', runId: a.runId, line: proofLine(a) ?? proofHead(a), why: null });
+  const where = report ? plantedWhere(report) : null;
+  if (gate) parts.push({ kind: 'injection-attempts', totals: { obeyed: gate.obeyed, influenced: gate.influenced, inconclusive: gate.inconclusive, ignored: gate.ignored }, where: where?.where ?? null, each: where?.each ?? null, command: commandLine(['injection', golden, '--html', 'report.html']) });
+  const call = a ? (a.evidence.find((e) => e.kind === 'canary') ?? a.evidence[0])?.callNo ?? a.readAt ?? a.forkedAt : null;
+  const open = a && i.store.getRun(a.runId) ? { label: failed ? 'Open proof' : 'Open attempt', href: links.run(a.runId, call) } : null;
+  // A sentence that starts with a tool's name keeps it as named.
+  const lead = /^(no|the) /.test(head) ? head.charAt(0).toUpperCase() + head.slice(1) : head;
+  return { head: [lead], sub: [], parts, hint: failed ? { key: 'injection' } : { key: 'injection-inconclusive', why: injectionWhy(reason) }, open };
 }
 
 /** The golden's checks its last result failed or couldn't decide that are no longer in the config. */
@@ -311,11 +382,11 @@ export type Listed = { kind: 'divergence'; view: DivergenceView } | { kind: 'fai
 
 function partsOf(r: TestResult, row: GoldenRow, listed: Listed, i: ReportInput, recording: string | null): Built {
   if (listed.kind === 'divergence') return divergenceParts(r, listed.view, i, recording);
+  if (r.failure === 'injection') return injectionParts(r, i, row.path);
   if (r.failure === 'exit') return crashParts(r, i, row, recording);
   const attempts = attemptsParts(r, row, i);
   if (attempts) return attempts;
   if (listed.kind === 'failure') return failureParts(r, listed.view, row, i, recording);
-  if (listed.view.failure === 'injection') return { head: [asSentence(listed.view.reason)], sub: [upstream(r)], parts: [], hint: { key: 'injection-inconclusive' } };
   return undecidedParts(r, listed.view, row);
 }
 
@@ -336,7 +407,7 @@ export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput): Go
   if (answered?.found) built.parts.push({ kind: 'commit', found: answered.found });
   else if (answered?.missed) built.parts.push({ kind: 'missed', missed: answered.missed });
   const sub = [r.data?.updated ? `updated${r.revision ? ` at ${r.revision}` : ''}` : null, ...built.sub].filter((s): s is string => !!s);
-  return { golden: row.path, name: row.name, verdict, head: built.head, sub, parts: built.parts, open: openOf(i.store, r), failedRuns: null, hint: built.hint, printed: printedLines(row.name, r) };
+  return { golden: row.path, name: row.name, verdict, head: built.head, sub, parts: built.parts, open: built.open !== undefined ? built.open : openOf(i.store, r), failedRuns: null, hint: built.hint, printed: printedLines(row.name, r) };
 }
 
 /**
@@ -357,4 +428,40 @@ export function goldenReports(view: TestsView, i: ReportInput): Record<string, G
     }
   }
   return reports;
+}
+
+/** Runs' filter for a golden's failed replays: its test replays, whose about line is its name, under Failed. Quoted where the name holds a space. */
+const failedRunsQuery = (name: string): string => `type:test ${/\s/.test(name) ? `"${name}"` : name}`;
+
+/** Where Failed runs → opens: Runs' Failed view of the golden's replays. */
+export const failedRunsHref = (name: string): string => links.runs({ q: failedRunsQuery(name), types: 'failed' });
+
+/** Each golden's failed replays as Runs' Failed view lists them, by its path: how many, and the first five, newest first. */
+export type GoldenRunsJob = { kind: 'tests-failed-runs'; goldens: Array<{ golden: string; name: string }>; outcome?: OutcomeWork | null };
+
+/**
+ * The pooled read: the runs Failed runs → opens, matched as Runs matches them (runs-list.ts
+ * `matchingRuns`, the same filter and the same judge), so the count is what the link opens. It reads
+ * every run's index row, so never on the server's thread. A golden with none is left out.
+ */
+export const GOLDEN_REPORT_READS: ReadTable<GoldenRunsJob> = {
+  'tests-failed-runs': (store, job, { whole }) => {
+    const judge = judgeFor(store, job.outcome ?? null);
+    const found: Record<string, { count: number; ids: string[] }> = {};
+    for (const g of job.goldens) {
+      const runs = matchingRuns(store, { q: failedRunsQuery(g.name), types: ['failed'], known: !whole, judge });
+      if (runs.length) found[g.golden] = { count: runs.length, ids: runs.slice(0, 5).map((r) => r.runId) };
+    }
+    return answer(found);
+  },
+};
+
+/** The reports with Runs' count of each golden's failed replays, where its step isn't a fix: a fix's failing runs are its fix's, which Open fix leads to. */
+export function withFailedRuns(reports: Record<string, GoldenReport>, runs: Record<string, { count: number; ids: string[] }> | null, steps: Record<string, { key: string }> | undefined): Record<string, GoldenReport> {
+  const out: Record<string, GoldenReport> = {};
+  for (const [golden, report] of Object.entries(reports)) {
+    const found = runs?.[golden];
+    out[golden] = found && steps?.[golden]?.key !== 'fix' ? { ...report, failedRuns: { href: failedRunsHref(report.name), ...found } } : report;
+  }
+  return out;
 }
