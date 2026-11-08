@@ -3868,10 +3868,15 @@ instrumentations): LLM spans with `llm.input_messages`, `llm.output_messages`, `
 `output.value` where its OpenAI and Anthropic instrumentations log the request and response themselves.
 When a framework's span wraps the client library's span for the same call, the inner one is kept.
 
+**Agents.** A model call keeps the agents whose spans it ran inside, outermost first
+(`supervisor/researcher`), which the dashboard [shows](./dashboard.md#agents). An agent span names
+`gen_ai.agent.name` or runs `invoke_agent`, or is an OpenInference AGENT span, OpenLLMetry's agent span
+or Pydantic AI's `agent run`. It is for reading only: a replay never matches by it.
+
 **`langfuse`** reads the trace's observations from the Observations API v2
 (`GET /api/public/v2/observations`, a page of 1,000 at a time), or `GET /api/public/traces/<id>` from a
 self-hosted Langfuse without it. Generations are model calls. TOOL observations, and spans named after a
-tool a generation asked for, are tool calls.
+tool a generation asked for, are tool calls. AGENT observations name the agent of the calls under them.
 
 The run keeps the trace's page in Langfuse, its `htmlPath` on the host the API answered from, for the
 dashboard's **Open in Langfuse ↗**. Read from the v2 API, the trace is asked for once more, after the
