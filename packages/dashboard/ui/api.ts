@@ -12,6 +12,7 @@ import { holdWhile, Revalidation } from './revalidate.js';
 import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
 import { changesApi, type ChangesApi } from './changes-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
+import { checksApi, noChecks, type ChecksApi } from './checks-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
@@ -247,6 +248,8 @@ export interface Client extends ChangesApi {
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
   settings: SettingsApi;
+  /** The check builder: a golden's checks read, a draft judged on the recordings, and its tests entry written (`checks-api.ts`). */
+  checks: ChecksApi;
   /** What billed jobs would cost, and Spending, the threshold above which one asks first. */
   estimates: EstimatesApi;
   /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
@@ -521,8 +524,8 @@ export function createClient(token: string): Client {
 }
 
 /** The parts of the client that are APIs of their own, each written beside its routes. */
-function ownApis(request: Request): Pick<Client, 'settings' | 'storeSetup' | 'projects' | 'estimates'> {
-  return { settings: settingsApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
+function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates'> {
+  return { settings: settingsApi(request), checks: checksApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
 }
 
 /** What a long run's first answer leaves to reads of their own, as its analysis has them. */
@@ -613,6 +616,7 @@ export function createExportedClient(data: StaticPayload): Client {
     testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
     settings: noSettings(readOnly),
+    checks: noChecks(readOnly),
     estimates: noEstimates(readOnly),
     storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
