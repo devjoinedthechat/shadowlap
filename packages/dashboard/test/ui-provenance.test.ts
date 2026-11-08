@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { copyRules, endpointSamples, exportedLine, lineageWords, redactRuleCount, tallyProviders } from '../ui/run/provenance.js';
+import { copyRules, endpointSamples, exportedLine, lineageWords, recordedScopes, redactRuleCount, tallyProviders } from '../ui/run/provenance.js';
 import type { RunLike } from '../ui/runs.js';
 
 // Provenance names the provider a run's model calls went to, and what a copy made now would apply,
@@ -30,6 +30,14 @@ describe('the provider of a run’s model calls', () => {
       { provider: 'anthropic', calls: 3 },
     ]);
     expect(tallyProviders([])).toEqual([]);
+  });
+});
+
+describe('the scopes the ledger shows', () => {
+  it('are the ones the calls were recorded in, the judge’s too, never an agent the server names', () => {
+    // A run with no scope: no Scope column, and no "1 scopes" for the agent its system prompt names.
+    expect(recordedScopes([{ callNo: 1, agent: 'support-agent' }, { callNo: 2, agent: 'support-agent/Explore' }])).toEqual([]);
+    expect(recordedScopes([{ callNo: 1, scope: 'agent', agent: 'agent/summarizer' }, { callNo: 2, scope: 'shadowlap:judge', agent: 'shadowlap:judge' }])).toEqual(['agent', 'shadowlap:judge']);
   });
 });
 
