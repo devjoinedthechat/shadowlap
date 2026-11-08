@@ -2,8 +2,8 @@ import { sentEstimate } from '../spending.js';
 import type { FixDetail, FixLead } from '../types.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { BlameAgainDialog, StrongerDialog } from './BlameAgain.js';
-import { ApplyDialog, RepairDialog } from './FixPage.js';
-import { VerifyAsk, VerifyLeftAsk } from './VerifyStep.js';
+import { ApplyDialog, RepairDialog } from './FixDialogs.js';
+import { VerifyAsk, VerifyLeftAsk } from './verify-asks.js';
 
 /**
  * The dialog a list row's fix lead opens (RowStep.tsx): the one the fix's page opens for the same
