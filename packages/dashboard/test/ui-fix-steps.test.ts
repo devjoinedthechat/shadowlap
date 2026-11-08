@@ -111,8 +111,10 @@ describe('the Blame step', () => {
     ]);
     // A call keeps its name for a screen reader.
     expect(r!.all('ol.callrow .cn')[0].getAttribute('aria-label')).toBe('Call #1');
-    // Rescued and lost are defined terms, each with its definition for a screen reader.
-    expect(r!.all('.legend.fxleg > span').map(text)).toEqual([`rescued${GLOSSARY.rescued}`, `lost${GLOSSARY.lost}`, 'blamed: the last call that still rescues the run', 'ring: model call · dot: tool call']);
+    // Rescued and lost are defined terms, each with its definition for a screen reader, hidden: the key shows only its words.
+    const key = r!.all('.legend.fxleg > span');
+    expect(key.map(text)).toEqual([`rescued${GLOSSARY.rescued}`, `lost${GLOSSARY.lost}`, 'blamed: the last call that still rescues the run', 'ring: model call · dot: tool call']);
+    expect(key.map((s) => s.querySelectorAll('span').filter((x) => x.hasAttribute('hidden')).map(text))).toEqual([[GLOSSARY.rescued], [GLOSSARY.lost], [], []]);
   });
 
   it('lists the probes in one Attempts cell each, the verdict a status, the attempts under a row on request', async () => {

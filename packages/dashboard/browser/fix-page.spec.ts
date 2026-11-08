@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { GLOSSARY } from '../ui/glossary.js';
 import { demoId, openPage } from './dashboard.js';
 
 /**
@@ -36,4 +37,21 @@ for (const width of [1440, 1280, 390])
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), fix).toBe(0);
     }
+  });
+
+for (const width of [1440, 390])
+  test(`the Blame step's key shows only its words, a term's definition kept for its hover card, at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    let defined = 0;
+    for (const fix of ['emailFix', 'refundFix']) {
+      await openPage(page, `/fixes/${demoId(fix)}/blame`, 'fix');
+      const key = page.locator('main#view .legend.fxleg');
+      await key.waitFor();
+      defined += await key.locator('.term[aria-describedby]').count();
+      const shown = await key.evaluate((el) => (el as HTMLElement).innerText);
+      expect(shown, fix).toMatch(/model call/);
+      for (const words of Object.values(GLOSSARY)) expect(shown, fix).not.toContain(words);
+    }
+    // the demo's keys define a term, so the check above reads a definition the page holds
+    expect(defined).toBeGreaterThan(0);
   });

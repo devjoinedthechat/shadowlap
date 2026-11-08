@@ -1,6 +1,9 @@
 /* What every page shares: the page itself (its ground, focus rings, scrollbars, line breaks) and the parts several
    pages draw (a page's header, buttons, links, panels, tables, statuses, chips and tags, code boxes, fields). */
 * { box-sizing: border-box; }
+/* the hidden attribute always hides, whatever a part's own rule for its spans or divs sets: a glossary term's definition,
+   kept for its hover card and a screen reader, never shows in a key or a cell */
+[hidden]:not([hidden="until-found"]) { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13.5px/1.5 var(--body); -webkit-font-smoothing: antialiased; overflow: hidden; }
 button { font: inherit; color: inherit; }
