@@ -2176,15 +2176,17 @@ Every request needs the session token in `x-shadowlap-token`.
 
 | Endpoint | What it answers |
 | --- | --- |
-| `GET /api/meta` | Version, store and its size, address, read-only and why, runs and attempts counted apart, live runs, job kinds, project folder |
+| `GET /api/meta` | Version, store and its size, address, read-only and why, runs and attempts counted apart, live runs, job kinds, project folder, and what Open in editor runs here |
 | `GET /api/changes?since=<cursor>` | What changed since the cursor: runs, calls, activity, jobs, and the live runs with their call counts and call events (starts and answers) |
 | `GET /api/activity?limit=&before=` | The activity feed, newest first, `limit` entries a page |
 | `GET /api/summary?tz=` | The Overview, in the viewer's time zone (IANA, UTC without one) |
 | `GET /api/search?q&limit` | What runs recorded that matches every word, at most two hits a run |
 | `GET /api/files/:fileId` | A file a job wrote, as an attachment |
 | `POST /api/uploads` | A file for a job of the current project (raw body, name in `x-filename`); answers its `uploadId` |
+| `POST /api/editor/open { file, line }` | Open in editor: a file of the project folder at a line, in the editor `$VISUAL` or `$EDITOR` names |
 
 - **`/api/activity`**: pass `next` (opaque) as `before` for the page after, or a time in milliseconds for everything older.
+- **`/api/editor/open`** reads only `file`, a path relative to the project folder, and `line`. The file must be a regular file inside the folder through its real path. The editor comes from the server's environment, run as git runs one, the file and line only as arguments. Meta's `editor` is the form it runs (`code --goto <file>:<line>`), or null where this machine has no editor it can open: none set, a terminal-only one, no display, or an exported copy.
 - **`/api/summary`** gives each grid row's and each recording in progress's `about` line, and a failed run's never blamed in Needs a look, as `/api/runs` gives it. Until the totals of the runs it adds up are kept, it answers `{ warming: { done, total } }` at once.
 
 **Search** (`/api/search`): hits from recordings, forks, tests and captures come first, then hits from attempts of a run with none of its own, each naming that run (`attemptOf`). It answers from what the index holds, once it has taken in what runs still recording said since the last search (20 ms at most, waited for 0.3 s at most). While the index catches up, `indexing` says how many runs it has yet to read, of how many.

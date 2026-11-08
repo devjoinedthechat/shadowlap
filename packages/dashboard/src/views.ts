@@ -155,6 +155,12 @@ export interface MetaView {
   jobKinds: string[];
   /** The most `POST /api/uploads` takes, in bytes; null when uploads are not possible (no project folder, read-only, an exported copy). */
   uploadLimit: number | null;
+  /**
+   * Open in editor: what it runs on this machine, `code --goto <file>:<line>`, for the card to show;
+   * null where it can't open one (no project folder, no editor, or one with no terminal or display
+   * here) and in an exported copy. A read-only dashboard has one, and draws the button off.
+   */
+  editor: string | null;
   /** The project folder, or null. */
   project: ProjectView | null;
   /** An exported HTML copy: recorded data only, no server behind it. */

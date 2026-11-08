@@ -379,6 +379,8 @@ export interface Meta {
   jobKinds?: string[];
   /** The most an upload may hold, in bytes; null when uploads are not possible. */
   uploadLimit?: number | null;
+  /** Open in editor: what it runs here (`code --goto <file>:<line>`); null or absent where it can't open one, as in an exported copy. */
+  editor?: string | null;
   /**
    * With several projects: its `id` in the list, its folder as the switcher shows it (`display`),
    * whether its setup is finished, why its store can't be opened (`problem`; `missing` when its

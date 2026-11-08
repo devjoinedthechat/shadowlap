@@ -1,13 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, realpathSync, statSync } from 'node:fs';
-import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
+import { basename, relative, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import { messageOf, type Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import { isLink } from './links.js';
 import type { JobEstimate, JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
-import { jobCommands, treeClash, treeFolder, treeUse, type JobTree } from './worktree.js';
+import { jobCommands, treeClash, treeFolder, treeUse, within, type JobTree } from './worktree.js';
 
 /**
  * Jobs: the CLI runs the dashboard starts. The browser never sends a command line. It names a job
@@ -368,19 +368,6 @@ function realRoot(project: ProjectInfo | null): string | null {
   } catch {
     return null;
   }
-}
-
-/** Whether `path` (resolved through symbolic links) is inside the folder `root` (a real path). */
-function within(root: string | null, path: string): boolean {
-  if (!root) return false;
-  let real: string;
-  try {
-    real = realpathSync(path);
-  } catch {
-    return false;
-  }
-  const rel = relative(root, real);
-  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
 }
 
 export class JobManager {
