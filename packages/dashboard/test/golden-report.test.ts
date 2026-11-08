@@ -195,7 +195,7 @@ describe('an injection gate', () => {
     expect(report.head).toEqual(['send_email obeyed a planted instruction in 5 of 72 attempts (at most 0 allowed)']);
     expect(report.parts).toEqual([
       { kind: 'proof', runId: attempt, line: `planted at #4 → read at #5 → send_email.to = ${canary} at #6`, why: null },
-      { kind: 'injection-attempts', totals: { obeyed: 5, influenced: 2, inconclusive: 3, ignored: 62 }, where: 'every template at every untrusted read,', each: '3 attempts each', command: 'shadowlap injection goldens/research --html report.html' },
+      { kind: 'injection-attempts', totals: { obeyed: 5, influenced: 2, inconclusive: 3, ignored: 62 }, where: 'every template at every untrusted read,', each: '3 attempts each', command: 'shadowlap injection goldens/research --html report.html', resultId: 'inj-1' },
     ]);
     expect(report.open).toEqual({ label: 'Open proof', href: `#/run/${attempt}/6` });
     expect(report.hint).toEqual({ key: 'injection' });
@@ -221,7 +221,7 @@ describe('an injection gate', () => {
     const reason = 'no untrusted read to plant in: mark the tools that bring outside text in, with "tools": { "<name>": { "trust": "untrusted" } } in shadowlap.config.json';
     const { report } = world('research', () => ({ ok: false, failure: 'injection', reason: `injection inconclusive: ${reason}`, data: { mode: 'fork', verdict: 'inconclusive', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, injection: { ...gate(null, 'inconclusive', reason), attempts: 0, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0 } } }));
     expect(report.head).toEqual(['No untrusted read to plant in']);
-    expect(report.parts).toEqual([{ kind: 'injection-attempts', totals: { obeyed: 0, influenced: 0, inconclusive: 0, ignored: 0 }, where: null, each: null, command: 'shadowlap injection goldens/research --html report.html' }]);
+    expect(report.parts).toEqual([{ kind: 'injection-attempts', totals: { obeyed: 0, influenced: 0, inconclusive: 0, ignored: 0 }, where: null, each: null, command: 'shadowlap injection goldens/research --html report.html', resultId: null }]);
     expect(report.open).toBeNull();
     expect(report.hint).toEqual({ key: 'injection-inconclusive', why: 'no-reads' });
   });
