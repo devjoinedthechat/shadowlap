@@ -1,4 +1,4 @@
-import { checkStatus, isObject, joinableFix, type RunRecord, type StoreOf, type StoredCheckLike } from '@shadowlap/engine';
+import { checkStatus, isObject, joinableFix, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { fixRef, type FixForRun } from './fix-for-run.js';
 import { goldenExpect } from './run-offers.js';
 
@@ -15,7 +15,7 @@ export function withFixByCheck(store: StoreOf<'recording' | 'fixes'>, run: RunRe
   if (found?.fix) return found;
   const golden = run.meta?.test?.golden;
   const checks: unknown[] = Array.isArray(run.meta?.checks) ? run.meta.checks : [];
-  if (typeof golden !== 'string' || !checks.some((c) => isObject(c) && typeof c.label === 'string' && checkStatus(c as StoredCheckLike) === 'failed')) return found;
+  if (typeof golden !== 'string' || !checks.some((c) => isObject(c) && typeof c.label === 'string' && checkStatus(c) === 'failed')) return found;
   const expect = goldenExpect(tests, golden);
   const fix = expect === undefined ? null : joinableFix(store, run, expect, { byCheck: true });
   // A test replay takes no part in Fixes of its own (fix-shared.ts `isUnblamedFailure`): it joins as a failure never blamed would.

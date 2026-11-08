@@ -179,7 +179,7 @@ describe('an injection gate', () => {
     const reads = Array.from({ length: o.reads ?? 1 }, (_, i) => ({ callNo: 4 + i, name: 'fetch_page', from: 'web', readAt: 5 + i, args: {}, planted: true, why: null }));
     const payloads = templates.slice(0, o.payloads ?? templates.length).map((t) => ({ id: t.id, source: 'template', shape: t.shape, title: t.title, text: t.text, canary: true }));
     const data = { mode: 'plant', resultId: 'inj-1', runId: runs[0], golden: 'goldens/research', templates: { version: 1, ids: payloads.map((p) => p.id) }, repeat: 3, reads, payloads, cells: [], baselines: [], attempts: attempts.map((a, i) => ({ runId: runs[i], read: 4, payload: payloads[0]?.id ?? 'x', attempt: 1, canary: null, verdict: 'ignored', why: null, failed: false, plantedAt: 4, forkedAt: 5, readAt: 5, exitCode: 0, evidence: [], spent: 0, ...a })) };
-    store.putInjectionResult({ resultId: 'inj-1', runId: runs[0]!, golden: 'goldens/research', sessionId: null, mode: 'plant', at: 1, endedAt: 2, attempts: attempts.length, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0, verdict: null, actor: null, data });
+    store.putInjectionResult({ resultId: 'inj-1', runId: runs[0], golden: 'goldens/research', sessionId: null, mode: 'plant', at: 1, endedAt: 2, attempts: attempts.length, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0, verdict: null, actor: null, data });
     return { resultId: 'inj-1', runs };
   }
   const gate = (resultId: string | null, verdict: 'failed' | 'inconclusive', reason: string): InjectionGateData => ({ resultId, attempts: 72, obeyed: 5, influenced: 2, ignored: 62, inconclusive: 3, allowed: { obeyed: 0, influenced: null }, verdict, reason, skipped: null });
@@ -212,7 +212,7 @@ describe('an injection gate', () => {
     expect(report.verdict).toBe('inconclusive');
     expect(report.head).toEqual(['3 of 6 attempts could not be judged: model call #15 got HTTP 529']);
     expect(report.parts[0]).toEqual({ kind: 'proof', runId: attempt, line: 'planted at #4 → read at #5', why: 'model call #15 failed with HTTP 529 (overloaded)' });
-    expect(report.parts[1]).toMatchObject({ where: `${templates[0]!.id} at every untrusted read,`, each: '3 attempts each' });
+    expect(report.parts[1]).toMatchObject({ where: `${templates[0].id} at every untrusted read,`, each: '3 attempts each' });
     expect(report.open).toEqual({ label: 'Open attempt', href: `#/run/${attempt}/5` });
     expect(report.hint).toEqual({ key: 'injection-inconclusive', why: 'unanswered' });
   });
@@ -232,17 +232,17 @@ describe('a first bad commit, a miss, a replay gone', () => {
   const found = { rev: '9a3c5e0', subject: 'Log the order total with each refund', author: '', date: '2026-09-30', why: 'check failed', untested: [], replays: 3, tokens: 0, at: 5, change: null };
 
   it('ends with the commit Tests serves, or the search that found none', () => {
-    const named = world('refund', failedCheck, { view: (v) => void (v.failures[0]!.found = found) }).report;
+    const named = world('refund', failedCheck, { view: (v) => void (v.failures[0].found = found) }).report;
     expect(named.parts.at(-1)).toEqual({ kind: 'commit', found });
     const missed = { why: 'it already fails at c91d0f4', good: 'c91d0f4', bad: 'd2e8a1f', outcome: 'fails-at-good' as const, at: 5 };
-    expect(world('refund', failedCheck, { view: (v) => void (v.failures[0]!.missed = missed) }).report.parts.at(-1)).toEqual({ kind: 'missed', missed });
+    expect(world('refund', failedCheck, { view: (v) => void (v.failures[0].missed = missed) }).report.parts.at(-1)).toEqual({ kind: 'missed', missed });
   });
 
   it('counts the recording’s calls by its last one where the replay kept no count, and opens nothing once the replay is gone', () => {
     const { report, store, replay, reports } = world('refund', failedCheck, { calls: 'rrrr', checks: ['send_email called 0 times'] });
     expect(report.parts[0]).toEqual({ kind: 'replay', recorded: 4, replayed: 4, stop: null, words: '4 of 4 calls replayed, clean · 0 upstream requests' });
     expect(report.sub).toEqual([]);
-    expect(reports['goldens/refund']!.open).toEqual({ label: 'Open run', href: `#/run/${replay}` });
+    expect(reports['goldens/refund'].open).toEqual({ label: 'Open run', href: `#/run/${replay}` });
     store.deleteRun(replay);
     const goldens: GoldenSource[] = [{ path: 'goldens/refund', runId: null, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
     expect(goldenReports(testsView(store, goldens, { folder: 'goldens' }), { store, goldens, normalizers: [], project: null })['goldens/refund']?.open).toBeNull();
@@ -262,13 +262,13 @@ describe('Failed runs →', () => {
     const runs = JSON.parse(answer.body) as Record<string, { count: number; ids: string[] }>;
     expect(runs).toEqual({ 'goldens/refund': { count: 2, ids: [failed[1], failed[0]] } });
     const report = { golden: 'goldens/refund', name: 'refund', failedRuns: null } as unknown as GoldenReport;
-    expect(withFailedRuns({ 'goldens/refund': report }, runs, undefined)['goldens/refund']!.failedRuns).toEqual({ href: links.runs({ q: 'type:test refund', types: 'failed' }), count: 2, ids: [failed[1], failed[0]] });
+    expect(withFailedRuns({ 'goldens/refund': report }, runs, undefined)['goldens/refund'].failedRuns).toEqual({ href: links.runs({ q: 'type:test refund', types: 'failed' }), count: 2, ids: [failed[1], failed[0]] });
     store.close();
   });
 
   it('leaves the link out where the golden’s step is its fix, and quotes a name with a space', () => {
     const report = { golden: 'goldens/refund', name: 'refund', failedRuns: null } as unknown as GoldenReport;
-    expect(withFailedRuns({ 'goldens/refund': report }, { 'goldens/refund': { count: 1, ids: ['r'] } }, { 'goldens/refund': { key: 'fix' } })['goldens/refund']!.failedRuns).toBeNull();
+    expect(withFailedRuns({ 'goldens/refund': report }, { 'goldens/refund': { count: 1, ids: ['r'] } }, { 'goldens/refund': { key: 'fix' } })['goldens/refund'].failedRuns).toBeNull();
     expect(failedRunsHref('late refund')).toBe(links.runs({ q: 'type:test "late refund"', types: 'failed' }));
   });
 });
