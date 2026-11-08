@@ -599,6 +599,12 @@ describe('events as each feature records them', () => {
     // The settings slice.
     recordEvent(store, { kind: 'runs.cleaned', data: { runs: 12, blobs: 40, bytes: 1000, interrupted: 0, olderThanDays: 30, keep: null }, at: 7000 });
     recordEvent(store, { kind: 'clock.set', ref: 'exact', data: { clock: 'exact', was: 'auto' }, at: 7010 });
+    // Settings → CI's Write file: a change to the repository's workflow, one that made it, and the Undo of each.
+    const wf = '.github/workflows/agent.yml';
+    recordEvent(store, { kind: 'ci.workflow', actor: 'dana@example.com', ref: wf, data: { added: 8, removed: 1, created: false }, at: 7020 });
+    recordEvent(store, { kind: 'ci.workflow', actor: 'dana@example.com', ref: wf, data: { undo: true, removed: false }, at: 7030 });
+    recordEvent(store, { kind: 'ci.workflow', actor: 'dana@example.com', ref: wf, data: { added: 41, removed: 0, created: true }, at: 7040 });
+    recordEvent(store, { kind: 'ci.workflow', actor: 'dana@example.com', ref: wf, data: { undo: true, removed: true }, at: 7050 });
 
     const items = activity(store, { limit: 200 }).items;
     const at = (t: number) => items.find((i) => i.at === t);
@@ -633,6 +639,9 @@ describe('events as each feature records them', () => {
     expect([6000, 6010, 6020, 6030].map((t) => at(t)?.text)).toEqual(['Project added back · ~/code/support-agent', 'Set up support-agent · skipped the rest', 'Inspected support-agent · wrote shadowlap.config.json', 'Removed from the dashboard · ~/code/old-agent']);
     expect(at(7000)).toMatchObject({ kind: 'setting', text: 'Cleaned up 12 old runs' });
     expect(at(7010)?.text).toBe('Clock set to exact');
+    expect([7020, 7030, 7040, 7050].map((t) => at(t)?.text)).toEqual([`Wrote ${wf} · 8 lines added, 1 line taken out`, `Put back ${wf}`, `Wrote ${wf} · 41 lines added`, `Removed ${wf}`]);
+    // Each opens Settings → CI, where Your workflow is.
+    expect([7020, 7030, 7040, 7050].map((t) => [at(t)?.kind, at(t)?.href])).toEqual(Array(4).fill(['setting', '#/settings/ci']));
     // A blame recorded with its fix stands in for the one the run tells by itself.
     store.updateRunMeta(run, { blame: { at: 3000, outcome: 'blamed', callNo: 9, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
     expect(activity(store, { limit: 200 }).items.filter((i) => i.kind === 'blame' && i.runId === run).map((i) => i.text)).toEqual(['Blamed · confirmation email sent twice, lost at model call #9']);

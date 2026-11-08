@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,11 +66,16 @@ describe('Write file', () => {
     expect(after).toMatchObject({ exists: true, version: wrote.version });
     expect(after.fixOnFailure.on).toBe(true);
     expect(after.workflow.same).toBe(true);
-    expect(store.listEvents({ kinds: ['ci.workflow'] })[0]).toMatchObject({ ref: '.github/workflows/agent.yml' });
+    expect(store.listEvents({ kinds: ['ci.workflow'] })[0]).toMatchObject({ ref: '.github/workflows/agent.yml', actor: 'dana@example.com', data: { added: before.workflow.added, removed: 0, created: true } });
     const undo = await send('POST', 'ci/workflow/undo', { was: wrote.was, expect: wrote.version });
     expect(undo.status, await undo.clone().text()).toBe(200);
     expect(await undo.json()).toMatchObject({ removed: true, version: 'absent' });
     expect(existsSync(file())).toBe(false);
+    // The Undo in the feed too: the file it removed, the write's own entry kept under it.
+    expect(store.listEvents({ kinds: ['ci.workflow'] }).map((e) => [e.ref, e.data])).toEqual([
+      ['.github/workflows/agent.yml', { undo: true, removed: true }],
+      ['.github/workflows/agent.yml', { added: before.workflow.added, removed: 0, created: true }],
+    ]);
     // Once used, it is gone.
     expect((await send('POST', 'ci/workflow/undo', { was: wrote.was, expect: 'absent' })).status).toBe(409);
   });
@@ -95,6 +100,24 @@ describe('Write file', () => {
     expect(existsSync(file())).toBe(false);
     rmSync(join(project, '.git'), { recursive: true });
     expect((await view()).problem).toBe('Write file writes only at a repository’s root, where GitHub reads .github/workflows/, and this project folder isn’t one.');
+  });
+
+  // Root reads and writes past a file's mode, so the refusal is a person's.
+  it.skipIf(process.getuid?.() === 0)('refuses a workflow file it may not write, and leaves it as it was', async () => {
+    const first = await view();
+    expect((await send('PUT', 'ci/workflow', { options: {}, expect: first.version, shown: first.workflow.shown })).status).toBe(200);
+    const text = readFileSync(file(), 'utf8');
+    chmodSync(file(), 0o444);
+    try {
+      const fix = await view('?fix=on');
+      const res = await send('PUT', 'ci/workflow', { options: { fix: true }, expect: fix.version, shown: fix.workflow.shown });
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { error: string }).error).toBe('.github/workflows/agent.yml is read-only (EACCES): make it writable to write it');
+      expect(readFileSync(file(), 'utf8')).toBe(text);
+      expect(store.listEvents({ kinds: ['ci.workflow'] })).toHaveLength(1);
+    } finally {
+      chmodSync(file(), 0o644);
+    }
   });
 
   it('keeps the repository’s own lines and changes only what a switch owns', async () => {
