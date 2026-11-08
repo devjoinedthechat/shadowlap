@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { act, createElement, useMemo, useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BASELINE_DEFAULTS, readWorkflow, RECORD_WINDOWS, workflowVersion } from '@shadowlap/engine';
 import { fileSwitches, type RepositoryWorkflow } from '../src/ci-file.js';
@@ -392,5 +392,44 @@ describe('Settings → CI: Gates', () => {
     await open(fakeServer(DEFAULTS_FILE), () => undefined, 'offline');
     expect(r!.one('#gates .gdef').textContent).toBe('Paused until the dashboard server is back: the preview is the last it worked out.');
     expect(r!.all('#gates select').every((x) => x.props.disabled === true)).toBe(true);
+  });
+});
+
+/** The tab in a dashboard over projects, each with its own repository: `moveTo` switches as the project switcher does. */
+async function openProjects(servers: Record<string, ReturnType<typeof fakeServer>>, first: string): Promise<(to: string) => Promise<void>> {
+  let move: (to: string) => void = () => undefined;
+  function Projects() {
+    const [shown, setShown] = useState(first);
+    move = setShown;
+    const value = useMemo(() => ({ ...app(servers[shown]), meta: { project: { id: shown, name: shown, path: `/work/${shown}` } } }) as AppState, [shown]);
+    return createElement(AppContext.Provider, { value }, createElement(SettingsPage, { tab: 'ci' }));
+  }
+  r = await render(createElement(Projects));
+  await r.until('the panels', () => r!.all('#alerts .cilist').length > 1 && r!.all('#gates .gsays').length === 1);
+  return (to) => act(async () => move(to));
+}
+
+describe('Settings → CI over projects', () => {
+  it('keeps a switch changed in one project to it: another starts from its own workflow, and the first keeps the change', async () => {
+    // south-agent's workflow has no pull request comment.
+    const servers = { 'north-agent': fakeServer(DEFAULTS_FILE), 'south-agent': fakeServer(served({ comment: false }, null).workflow.text) };
+    const moveTo = await openProjects(servers, 'north-agent');
+    const on = (id: string) => r!.one(`#${id} header .switch`).getAttribute('aria-checked');
+    // Fix on failure on in north-agent, not written.
+    await r!.click(r!.one('#fix-on-failure header .switch'));
+    await r!.until('north-agent’s change', () => on('fix-on-failure') === 'true' && r!.all('#workflow header .btn').length === 1);
+    // south-agent's switches are its own file's, asked for with nothing changed: nothing to write.
+    await moveTo('south-agent');
+    await r!.until('south-agent’s workflow', () => r!.all('#workflow .wfstate').length === 1);
+    expect(servers['south-agent'].ciWorkflows.mock.calls.map(([o]) => o)).toEqual([{}]);
+    expect([on('pr-comment'), on('fix-on-failure')]).toEqual(['false', 'false']);
+    expect(r!.one('#workflow .wfstate').textContent).toBe(`The same as your repository’s ${FILE}.`);
+    expect(r!.all('#workflow header .btn')).toHaveLength(0);
+    // Back in north-agent, its change is there still, to write or to turn back.
+    await moveTo('north-agent');
+    await r!.until('north-agent’s change again', () => r!.all('#workflow .wfstate').length === 1 && on('fix-on-failure') === 'true');
+    expect([on('pr-comment'), r!.all('#workflow header .btn').length]).toEqual(['true', 1]);
+    await r!.click(r!.one('#fix-on-failure header .switch'));
+    await r!.until('north-agent’s file again', () => on('fix-on-failure') === 'false' && r!.all('#workflow header .btn').length === 0);
   });
 });

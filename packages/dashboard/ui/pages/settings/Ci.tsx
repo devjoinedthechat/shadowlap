@@ -11,6 +11,7 @@ import { useApp } from '../../state.js';
 import { CiList, Select } from './CiList.js';
 import { Gates } from './CiGates.js';
 import { YourWorkflow } from './CiWorkflow.js';
+import { AGAIN, CHANGES, keptFor } from './ci-kept.js';
 import { ConfigProblem, LoadProblem, Loading } from './common.js';
 import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
@@ -27,15 +28,17 @@ import { ciShown, typedSecret } from './logic.js';
  * do, and Write file waits. A switch changes only what Write file would write.
  */
 
-/** What the panels were changed to, kept while the dashboard is open; what isn't changed is the repository's workflow's. */
-const kept: Partial<CiWorkflowOptions> = {};
-
-/** A switch's toast, once the answer for it says whether the file now equals the repository's. */
-const AGAIN = 'Your workflow is your repository’s again';
-const CHANGES = 'Your workflow changes with it';
-
 export function CiTab() {
+  const project = useApp().meta?.project?.id ?? null;
+  // Another project's switches start from its own workflow: the tab starts again, with what was changed there.
+  return <CiPanels key={project ?? ''} project={project} />;
+}
+
+/** The tab for one project. */
+function CiPanels({ project }: { project: string | null }) {
   const { toast } = useApp();
+  // What its switches were changed to (ci-kept.ts).
+  const kept = keptFor(project);
   const [changed, setChanged] = useState<Partial<CiWorkflowOptions>>(() => ({ ...kept }));
   const [pending, setPending] = useState<{ what: string; for: string } | null>(null);
   const set = (patch: Partial<CiWorkflowOptions>) => {
