@@ -151,7 +151,7 @@ describe('the decision read models', () => {
       ['Model switch to claude-sonnet-5-5 with temperature=1', 2, true, null],
     ]);
     // Its view lists its ranked steps, most consequential first, each worded on the server.
-    expect(runDecisions(store, refunded).sessions[1]!.steps).toEqual([
+    expect(runDecisions(store, refunded).sessions[1].steps).toEqual([
       { callNo: 5, rank: 1, detail: 'issue_refund is no longer called', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
       { callNo: 3, rank: 4, detail: 'a read asked differently', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
     ]);
