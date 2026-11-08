@@ -42,8 +42,8 @@ import { proposedRules } from '../settings.js';
  */
 
 const LISTS: readonly RuleList[] = ['normalize', 'redact'];
-/** The version of the file an edit was based on: `absent`, or a SHA-256. */
-const VERSION = /^(absent|[0-9a-f]{64})$/;
+/** The version of the file an edit was based on: `absent`, or a SHA-256. Settings → CI's Write file names its file's the same way. */
+export const VERSION = /^(absent|[0-9a-f]{64})$/;
 
 function listOf(name: string | undefined): RuleList {
   if (!LISTS.includes(name as RuleList)) throw new HttpError(404, 'rules are under /settings/rules/normalize or /settings/rules/redact');
@@ -80,14 +80,14 @@ export function settingsFolder(ctx: RouteContext): string {
 const gone = (ctx: RouteContext, cwd: string) => new HttpError(409, folderGoneText(ctx.project?.name ?? basename(cwd)));
 
 /** The folder an edit writes into: refused, saying why, when it is gone, rather than with the file system's ENOENT. */
-function editFolder(ctx: RouteContext): string {
+export function editFolder(ctx: RouteContext): string {
   const cwd = settingsFolder(ctx);
   if (!existsSync(cwd)) throw gone(ctx, cwd);
   return cwd;
 }
 
 /** An edit's error as the page shows it (editError); one made while the folder went away says so. */
-function failed(ctx: RouteContext, err: unknown, cwd: string): never {
+export function failed(ctx: RouteContext, err: unknown, cwd: string): never {
   if (!existsSync(cwd)) throw gone(ctx, cwd);
   return editError(err);
 }

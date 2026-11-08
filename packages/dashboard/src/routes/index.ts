@@ -2,6 +2,8 @@ import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
 import * as activity from './activity.js';
 import * as changes from './changes.js';
+// Settings → CI: your workflow against the repository's, Write file and its Undo.
+import * as ci from './ci.js';
 // Checks: a check tried on the recordings, nothing replayed (the check builder's preview).
 import * as checks from './checks.js';
 import * as codingAgents from './coding-agents.js';
@@ -73,6 +75,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   imports,
   fixes,
   tests,
+  ci,
   settings,
   // Settings' edits to shadowlap.config.json, and their Undo.
   settingsEdits,
