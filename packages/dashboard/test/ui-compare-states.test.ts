@@ -347,4 +347,108 @@ describe('the whole comparison', () => {
     await page.until('the comparison', () => page!.all('button.cprow').length > 0);
     expect(page.all('#cmpd')).toHaveLength(0);
   });
+
+  const shown = async (c: Partial<Client>, hash: string, what: () => boolean) => {
+    addressBar(hash);
+    page = await render(createElement(AppContext.Provider, { value: app(c, [listed(REC), listed(FORK)]) }, createElement(Routed)));
+    await page.until('the comparison', what);
+  };
+
+  it('reads both calls before it draws the opened row, saying it loads, and why with Retry where one can’t be read', async () => {
+    let fail = true;
+    let release = (): void => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    const asked: string[] = [];
+    const call = async (id: string, n: number) => {
+      asked.push(`${id}:${n}`);
+      await held;
+      if (id === FORK && fail) throw new ApiError(500, 'the store could not be read');
+      return detailOf(id, n);
+    };
+    await shown({ ...client, call }, `#/compare/${REC}/${FORK}/19`, () => page!.all('#cmpd .skel').length > 0);
+    expect(page.one('#cmpd .skel [role="status"]').textContent).toBe('Loading #19 in both runs…');
+    // Neither side is drawn against nothing meanwhile.
+    expect(page.all('#cmpd .cmpdx, #cmpd .cmpk')).toHaveLength(0);
+    release();
+    await page.until('the failure said', () => page!.all('#cmpd .loaderr').length > 0);
+    expect(page.one('#cmpd .loaderr').textContent).toBe('couldn’t loadThe store could not be readRetry');
+    expect(page.all('#cmpd .cmpdx, #cmpd .skel')).toHaveLength(0);
+    fail = false;
+    await page.click(page.one('#cmpd .loaderr button'));
+    await page.until('both calls', () => page!.all('#cmpd .cmpnote').length > 0);
+    // Only the call that failed is asked for again.
+    expect(asked.sort()).toEqual([`${FORK}:19`, `${FORK}:19`, `${REC}:19`].sort());
+  });
+
+  it('numbers a row by its place, once, where a judge’s call sits between one run’s calls, each side opening its own call', async () => {
+    const judged = {
+      ...pair,
+      rows: [
+        { n: 19, a: call(20, { decision: refund }), b: call(19, { failure: { status: null, by: 'provider' } }), alike: false, similar: false },
+        { n: 20, a: null, b: call(20, { kind: 'tool', name: 'issue_refund', effect: 'write', args: '{"order":"A-1","amount":240}' }), alike: false, similar: false },
+      ],
+    };
+    const asked: string[] = [];
+    const hungUp = (id: string, n: number) => {
+      asked.push(`${id}:${n}`);
+      const d = detailOf(id, n);
+      return Promise.resolve(id === FORK ? { ...d, call: { ...d.call, origin: 'live', status: null, error: 'socket hang up' } } : d);
+    };
+    await shown({ ...client, compare: () => Promise.resolve({ ...view, pair: judged }), call: hungUp }, `#/compare/${REC}/${FORK}/19`, () => page!.all('#cmpd .cmpnote').length > 0);
+    expect(page.all('button.cprow').map((r) => [r.getAttribute('data-n'), r.querySelector('.cpn')!.textContent])).toEqual([
+      ['19', '#19'],
+      ['20', '#20'],
+    ]);
+    expect(page.all('#cmpd')).toHaveLength(1);
+    expect(asked.sort()).toEqual([`${REC}:20`, `${FORK}:19`]);
+    expect(page.all('#cmpd a.more').map((a) => a.getAttribute('href'))).toEqual([`#/run/${REC}/20`, `#/run/${FORK}/19`]);
+    // A failure with no status heads its side as its row says it, not with a status it never got.
+    expect(page.one('#cmpd .cmperr').textContent).toBe('failed');
+    expect(page.one('#cmpd .cmpnote').textContent).toBe('Failed. socket hang up.');
+  });
+
+  it('draws a row both made alike on one dimmed line, nothing in it marked', async () => {
+    const send = { ...refund, tools: [{ name: 'send_email', args: { to: 'customer@example.com', body: 'Your refund of $240 is on its way. '.repeat(6) }, effect: 'write' }] };
+    const alike = { ...pair, rows: [{ n: 19, a: call(19, { decision: send }), b: call(19, { decision: send }), alike: true, similar: false }] };
+    await shown({ ...client, compare: () => Promise.resolve({ ...view, pair: alike }) }, `#/compare/${REC}/${FORK}`, () => page!.all('button.cprow').length > 0);
+    expect(page.all('.pside.same')).toHaveLength(2);
+    expect(page.all('.pdec.wrap, .cprow mark, .cprow wbr')).toHaveLength(0);
+  });
+
+  it('names the other run where a decision calls a tool it doesn’t, for a screen reader, and heads a tool’s values with its cost and time', async () => {
+    const escalate = { ...refund, tools: [{ name: 'escalate', args: { team: 'billing' }, effect: 'write' }] };
+    const decided = { ...pair, rows: [{ n: 19, a: call(19, { decision: refund }), b: call(19, { decision: escalate }), alike: false, similar: false }, pair.rows[1]] };
+    await shown({ ...client, compare: () => Promise.resolve({ ...view, pair: decided }) }, `#/compare/${REC}/${FORK}/19`, () => page!.all('#cmpd .dtool').length === 2);
+    expect(page.all('#cmpd .dtool .sr').map((s) => s.textContent)).toEqual([', not called in 01M5GRXFM1', ', not called in 01M5GRVTKS']);
+    await page.click(page.all('button.cprow')[1]);
+    await page.until('the tool’s row', () => page!.all('#cmpd .cmptool').length > 0);
+    // Its run, its call, what it cost and took, then its arguments and result, then the way to its run.
+    const order = [...page.all('#cmpd .cmpdc')[0].children].filter((e) => e.tagName === 'P' || e.tagName === 'A').map((e) => e.className);
+    expect(order).toEqual(['cmpwho', 'cmptool', 'cmpmeta', 'cmpk', 'cmpk', 'more']);
+  });
+
+  it('says a side still records under the lines it draws with no verdict, and counts the calls past the rows', async () => {
+    const recording = { ...pair, verdict: null, endings: { ...pair.endings, b: { failures: null, writes: [], end: { kind: 'running', callNo: 19 }, quit: false } }, more: 3 };
+    const live = (id: string) => {
+      const r = run(id, id === FORK ? REC : null);
+      return Promise.resolve(id === FORK ? { ...r, run: { ...r.run, status: 'running' } } : r);
+    };
+    await shown({ ...client, run: live, compare: () => Promise.resolve({ ...view, pair: recording }) }, `#/compare/${REC}/${FORK}`, () => page!.all('button.cprow').length > 0);
+    expect(page.all('.verdict')).toHaveLength(0);
+    expect(page.all('p.cmpv.cmplive .cmpends > span').map((l) => l.textContent)).toEqual(['issue_refund · answered at #21 · ≈$0.051 spent', 'no write · still running · ≈$0.051 spent']);
+    expect(page.all('.cmpmore').map((p) => p.textContent)).toEqual(['… 3 more calls', 'recording · more calls as they arrive']);
+  });
+
+  it('names each side by its run’s own id where the address names it otherwise, which a row’s address keeps', async () => {
+    const [a, b] = [REC.slice(0, 10).toLowerCase(), FORK.slice(0, 10).toLowerCase()];
+    const bar = addressBar(`#/compare/${a}/${b}`);
+    page = await render(createElement(AppContext.Provider, { value: app({ ...client, run: (id: string) => Promise.resolve(id === a ? run(REC, null) : run(FORK, REC)) }, [listed(REC), listed(FORK)]) }, createElement(Routed)));
+    await page.until('the comparison', () => page!.all('button.cprow').length > 0);
+    expect(page.all('.cph > code').map((c) => c.textContent)).toEqual(['01M5GRVTKS', '01M5GRXFM1']);
+    expect(page.all('button.cprow')[0].textContent).toContain('01M5GRVTKS: ');
+    await page.click(page.all('button.cprow')[0]);
+    expect(bar.hash).toBe(`#/compare/${a}/${b}/19`);
+    await page.until('the row opened', () => page!.all('#cmpd .cmpnote').length > 0);
+    expect(page.all('#cmpd .cmpwho').map((w) => w.textContent)).toEqual(['01M5GRVTKS', '01M5GRXFM1']);
+  });
 });

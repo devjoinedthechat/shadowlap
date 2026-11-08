@@ -8,9 +8,11 @@ import type { DecisionView } from '../types.js';
  * side makes the same way is marked → faint, one it makes otherwise → in ink, one it doesn't make −
  * (struck through) on the recorded side and + on the changed one, an added write in red; the stop
  * line in amber where the two stops differ. `stop` is the engine's words for it (STOP_WORDS), sent
- * with the data, since a page can't load the engine's decisions module.
+ * with the data, since a page can't load the engine's decisions module. `notCalled` is what a screen
+ * reader hears after a tool the other side doesn't call: a preview's words unless given (Compare
+ * names the other run).
  */
-export function Decision({ d, other, side, stop, stopDiffers }: { d: DecisionView; other: DecisionView | null; side: 'recorded' | 'now'; stop: string; stopDiffers: boolean }) {
+export function Decision({ d, other, side, stop, stopDiffers, notCalled = side === 'recorded' ? ', not called under the change' : ', not called as recorded' }: { d: DecisionView; other: DecisionView | null; side: 'recorded' | 'now'; stop: string; stopDiffers: boolean; notCalled?: string }) {
   const marks = toolMarks(d, other, side);
   return (
     <>
@@ -25,7 +27,7 @@ export function Decision({ d, other, side, stop, stopDiffers }: { d: DecisionVie
             </span>
             <b>{t.name}</b>
             <span className={`eff ${tag}`}>{tag}</span>
-            {mark === 'gone' || mark === 'new' ? <span className="sr">{mark === 'gone' ? ', not called under the change' : ', not called as recorded'}</span> : null}
+            {mark === 'gone' || mark === 'new' ? <span className="sr">{notCalled}</span> : null}
             <code>
               {argParts(JSON.stringify(t.args ?? null)).map((p, k) => (
                 <Fragment key={k}>

@@ -74,6 +74,23 @@ export function refusedOffline(c: Pick<CallLike, 'status' | 'error'>): boolean {
   return c.status === 503 && /\boffline\b/i.test(c.error ?? '');
 }
 
+/** Who answered a failed model call: Shadowlap (`--fail-at`), an offline replay that refused it, or the provider. */
+export type FailedBy = 'injected' | 'offline' | 'provider';
+
+/** Who answered a failed model call, by its detail: one Shadowlap answered keeps `injected` as its origin. */
+export const failedBy = (c: Pick<CallLike, 'origin' | 'status' | 'error'>): FailedBy => (c.origin === 'injected' ? 'injected' : refusedOffline(c) ? 'offline' : 'provider');
+
+/**
+ * A failed model call's note, as the inspector leads with it (CallNote, which then says what its
+ * view shows) and Compare's opened row says it: its word, then why, in parts, the flag Shadowlap
+ * answered with as code (`--fail-at 19=529` where the fork's flag is one) and the attempts it took.
+ */
+export function failureNote(c: Pick<CallLike, 'status' | 'error' | 'attempts'>, by: FailedBy, flag: string | null): { word: string; why: Array<string | { code: string }> } {
+  if (by === 'injected') return { word: 'Never sent.', why: [`Shadowlap answered with HTTP ${c.status ?? '?'} (`, { code: flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at' }, `)${c.attempts ? `, ${c.attempts + 1} attempts` : ''}.`] };
+  if (by === 'offline') return { word: 'Refused.', why: [`The replay is offline and this request is not in the recording, so it got HTTP ${c.status ?? '?'}.`] };
+  return { word: 'Failed.', why: [failedWhy(c)] };
+}
+
 /**
  * The tools each model call asked for, by the calls the run made for it (`requestedBy`), as the Calls
  * view words them: `search_web, read_file`, a tool asked for more than once with its count.

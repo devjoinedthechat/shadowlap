@@ -335,7 +335,7 @@ function Compared({ c, a, b, ra, rb, runs, call }: { c: CompareView; a: string; 
       <WhatChanged c={c} />
       <Prefix c={c} />
       {c.firstRequestDifference ? <ChangedRequest c={c} /> : null}
-      {pair?.rows.length ? <PairRows a={{ ...sides.a, id: a }} b={{ ...sides.b, id: b }} pair={pair} call={call} runs={runs} flag={c.intervention?.kind === 'fail' ? c.intervention.flag : null} /> : null}
+      {pair?.rows.length ? <PairRows a={sides.a} b={sides.b} at={{ a, b }} pair={pair} call={call} runs={runs} flag={c.intervention?.kind === 'fail' ? c.intervention.flag : null} /> : null}
       {pair?.more ? <p className="cmpmore">… {num(pair.more)} more calls</p> : null}
       {pair && recording ? <p className="cmpmore">recording · more calls as they arrive</p> : null}
       <ResponseDifferences c={c} />
