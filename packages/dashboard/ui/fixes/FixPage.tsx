@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { issueKey } from '../../src/issue-keys.js';
+import { issueClick } from '../runspage/open-issue.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError } from '../api.js';
 import { tipCard } from '../components/HoverCard.js';
@@ -128,7 +130,7 @@ function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void;
           <Status tone={status.tone}>{status.text}</Status>
           {GLUED_SEPARATOR}
           <span>
-            <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)}>
+            <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)} onClick={issueClick(issueKey.fix(fix.fixId))}>
               {failingLine(fix)}
             </Link>
           </span>

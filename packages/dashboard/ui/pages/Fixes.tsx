@@ -1,4 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { issueKey } from '../../src/issue-keys.js';
+import { issueClick } from '../runspage/open-issue.js';
 import { Chips, PageHeader } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Id } from '../components/Id.js';
@@ -187,7 +189,7 @@ const FixListRow = memo(function FixListRow({ f, jobs, focused, why, version }: 
             <span className="chip">{f.source}</span>
           ) : null}
           <span className="nw">
-            <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)}>
+            <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)} onClick={issueClick(issueKey.fix(f.fixId))}>
               {failingLine(f)}
             </Link>
           </span>
