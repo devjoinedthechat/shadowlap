@@ -30,8 +30,9 @@ export function forgetDecisionsPick(): void {
 }
 
 export function DecisionsView({ runId, selected, onSelect }: { runId: string; selected: number | null; onSelect: (n: number) => void }) {
-  const { client } = useApp();
-  const answer = useLoad<RunDecisionsView>(() => (client.exported ? null : client.runDecisions(runId)), runId);
+  const { client, feeds } = useApp();
+  // A preview or a migration that ends while the view is open joins it, as Preview reloads on the same count.
+  const answer = useLoad<RunDecisionsView>(() => (client.exported ? null : client.runDecisions(runId)), `run-decisions:${runId}`, feeds.decisions ?? 0);
   const [, repick] = useState(0);
   // A copy keeps no previews, so it says so rather than that nobody previewed the run.
   if (client.exported) return <p className="dview dvnone">An exported copy holds no previews.</p>;

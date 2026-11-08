@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
@@ -320,6 +320,22 @@ describe('the Preview page', () => {
       ({ p } = await view(both));
       await p.until('the chips', () => p.all('.dvpick button').length === 2);
       expect(p.all('.dvpick button').map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+    });
+
+    it('reads the run’s previews again as a preview or a migration ends, as Preview does', async () => {
+      const asked: string[] = [];
+      const answer = runDecisions(store, a);
+      const runDecisionsOf = (id: string) => (asked.push(id), Promise.resolve(answer));
+      function Host() {
+        const [ended, setEnded] = useState(0);
+        return createElement(AppContext.Provider, { value: { ...app({ runDecisions: runDecisionsOf }), feeds: { decisions: ended } } }, createElement('button', { className: 'ended', type: 'button', onClick: () => setEnded((n) => n + 1) }), createElement(DecisionsView, { runId: a, selected: null, onSelect: () => undefined }));
+      }
+      const p = await render(createElement(Host));
+      page = p;
+      await p.until('the steps', () => p.all('.dvstep').length === 1);
+      await p.click(p.one('button.ended'));
+      await p.until('the second read', () => asked.length === 2);
+      expect([asked, p.all('.dvstep').length]).toEqual([[a, a], 1]);
     });
 
     it('says a run decided as recorded, a run nobody previewed with the command, and that an exported copy holds no previews', async () => {
