@@ -64,7 +64,7 @@ i.dg.spl { display: inline-flex; flex-direction: column-reverse; gap: 1px; backg
 i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-muted-fill); } i.dg.spl i.w { background: var(--cq-red); }
 /* the matrix: one grid, a row per run (its parts are the grid's cells, so the columns line up whatever a row holds): its id
    with its about line, its cells (the room they need, never more than there is), what changed most */
-.dmx { container-type: inline-size; margin-top: 28px; }
+.dmx { container: matrix / inline-size; margin-top: 28px; }
 .dmkey { grid-column: 2 / -1; min-width: 0; padding: 0 11px 12px; }
 .dmg { display: grid; grid-template-columns: minmax(170px, 270px) minmax(0, max-content) minmax(180px, 1fr); }
 .dmh, .dmr { display: contents; }
@@ -103,6 +103,15 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 .dc::before { content: ""; position: absolute; inset: -4px -1.5px; }
 .dmc.dense .dc::before { inset: -4px -.5px; }
 @media (max-width: 640px), (pointer: coarse) { .dmc:not(.dense) { gap: 6px; } .dmc:not(.dense) .dc::before { inset: -4px -3px; } }
+/* on a phone the gap is what the row has left after 18px cells, from 3 to 6px, so a narrow row keeps its cells' size rather
+   than shrink them for gaps; each cell still takes taps across its whole step, the later cell's 3px taking the overlap */
+@media (max-width: 640px) { .dmc:not(.dense) { gap: clamp(3px, (100% - var(--n, 1) * 18px) / max(var(--n, 1) - 1, 1), 6px); } }
+/* on a touch screen a cell keeps 18px, its tap area 24px, and a row of many scrolls in its own box rather than shrink them:
+   the box reaches 3px past the row's ends, so its first and last cells' tap areas aren't cut, and draws no scrollbar */
+@media (pointer: coarse) {
+  .dmc:not(.dense) { grid-template-columns: repeat(var(--n, 1), 18px); }
+  .dmcw { margin-inline: -3px; padding-inline: 3px; scrollbar-width: none; }
+}
 .dms { font-size: 12.5px; }
 .dsl { margin: 0; text-wrap: pretty; }
 .dsm { color: var(--faint); }
