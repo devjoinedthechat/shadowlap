@@ -68,7 +68,7 @@ export function Change({ cfg, golden, merged, changed, conflict, judgeAdded, run
             file="shadowlap.config.json"
             change
             className="cb-file"
-            lines={changeLines({ key: at.key, before: at.before, after: entryAfter(at.from, merged), indent: cfg.indent, order: cfg.order, exists: cfg.exists, hasTests: 'tests' in cfg.read.keys })}
+            lines={changeLines({ key: at.key, before: at.before, after: entryAfter(at.from, merged), indent: cfg.indent, order: cfg.order, exists: cfg.exists, hasTests: cfg.hasTests })}
             actions={
               <span className="cb-ver">
                 {versionWords(cfg.version)} · <span className="nw">saved only if unchanged</span>

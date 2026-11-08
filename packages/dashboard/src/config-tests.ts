@@ -77,6 +77,8 @@ export interface ChecksConfig {
   /** The keys under `tests` in the file's order, goldens and the session's own settings alike. */
   order: string[];
   read: ConfigPrints;
+  /** The file holds `tests` as an object, whose other entries a write keeps around the golden's. */
+  hasTests: boolean;
   /** A write would lay out anew lines outside the golden's entry, as the file is laid out otherwise than a write writes it. */
   relaid: boolean;
   /** The agent the check is for, by the words of its command (`node agent.mjs`); null for a run with no command. */
@@ -168,6 +170,7 @@ export function checksConfig(store: StoreOf<'recording'>, dir: string, goldens: 
     indent: file.format.indent,
     order: isObject(tests) ? Object.keys(tests) : [],
     read: configPrints(file.data),
+    hasTests: isObject(tests),
     relaid: editRelaysConfig(dir),
     agent,
     goldens: goldens.map((g) => {
