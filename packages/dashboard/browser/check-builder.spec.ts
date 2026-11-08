@@ -97,6 +97,15 @@ for (const [width, height] of SIZES) {
     await expect(dialog).toHaveCount(0);
     await expect(link).toBeFocused();
 
+    // The change marks only what goes and comes: the file's `tests` and the entries around stay unmarked.
+    dialog = await openBuilder(page, link, 'Must call with order_id = …');
+    const lines = dialog.locator('.cb-file pre.codebox > span');
+    await expect(lines.first()).toContainText('"tests": {');
+    await expect(lines.first()).not.toHaveClass(/add|del/);
+    await expect(lines.filter({ hasText: '"order_id"' }).first()).toHaveClass('add');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+
     dialog = await openBuilder(page, link, 'Amount at most…');
     await expect(pressed).toHaveText('Every call');
     const way = dialog.locator('.dlg-ways button, footer button').filter({ hasText: /^Save/ });
@@ -160,7 +169,11 @@ for (const [width, height] of SIZES) {
     await expect(dialog.locator('.cb-warn')).toContainText('"prices" added');
     await expect(save).toHaveText('Save again');
     // Sent with the version read and the prints of what it read, for the server to name what changed.
-    expect(sent[0]).toMatchObject({ golden: 'goldens/01M6YC2XXN', version: expect.stringMatching(/^[0-9a-f]{8,}$/), read: { tests: { 'goldens/01M6YC2XXN': expect.any(String) } }, entry: { expect: { cost: '<= 0.05' } } });
+    // The golden is the demo's own, named by the run it was packed from: read from what was sent.
+    const golden = (sent[0] as { golden?: unknown }).golden;
+    expect(golden).toMatch(/^goldens\//);
+    const path = String(golden);
+    expect(sent[0]).toMatchObject({ golden: path, version: expect.stringMatching(/^[0-9a-f]{8,}$/), read: { tests: { [path]: expect.any(String) } }, entry: { expect: { cost: '<= 0.05' } } });
     await expectAccessible(page);
     // Refused by the server: its words in the dialog's amber line, the rule kept.
     await page.unroute(WRITE);
@@ -168,14 +181,18 @@ for (const [width, height] of SIZES) {
     await save.click();
     await expect(dialog.locator('.dwarn')).toContainText('goldens/refund-in-limit');
     await expect(dialog).toBeVisible();
+    // Save stays off on the server's words until something changes.
+    await expect(save).toHaveAttribute('aria-disabled', 'true');
+    await expect(save).toHaveAttribute('data-why', /goldens\/refund-in-limit/);
     await expectAccessible(page);
     // Written: it closes, says where, and the focus is back on Add check….
     await page.unroute(WRITE);
-    await page.route(WRITE, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ key: 'goldens/01M6YC2XXN', version: '0123abcd', added: ['cost at most 0.05'], removed: [], changed: [] }) }));
+    await page.route(WRITE, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ key: path, version: '0123abcd', added: ['cost at most 0.05'], removed: [], changed: [] }) }));
     await dialog.getByRole('textbox', { name: 'The expect object' }).fill('{"cost": "<= 0.04"}');
+    await expect(save).not.toHaveAttribute('aria-disabled', 'true');
     await save.click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.locator('.toast')).toContainText('Saved to shadowlap.config.json · goldens/01M6YC2XXN');
+    await expect(page.locator('.toast')).toContainText(`Saved to shadowlap.config.json · ${path}`);
     await expect(link).toBeFocused();
     await page.unroute(WRITE);
   });
