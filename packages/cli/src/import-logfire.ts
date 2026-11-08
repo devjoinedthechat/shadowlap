@@ -92,5 +92,5 @@ function storedSpan(row: Record<string, unknown>): StoredSpan | null {
 export function readLogfire(rows: Array<Record<string, unknown>>, traceId: string): Trace {
   const stored = rows.map(storedSpan).filter((s): s is StoredSpan => s !== null);
   const trace = readStoredSpans(stored).traces.find((t) => t.id === traceId);
-  return { id: traceId, calls: trace?.calls ?? [], spans: stored.length, skipped: trace?.skipped ?? [], ...(trace?.parents ? { parents: trace.parents } : {}) };
+  return { id: traceId, calls: trace?.calls ?? [], spans: stored.length, skipped: trace?.skipped ?? [], ...(trace?.parents ? { parents: trace.parents } : {}), ...(trace?.agents ? { agents: trace.agents } : {}) };
 }

@@ -4,6 +4,7 @@ import type { CallRow } from '../api.js';
 import { Org, SrSpace } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { callName, kindShort } from '../format.js';
+import { agentOf } from '../scopes.js';
 import type { CallIndex } from '../recorded.js';
 import { cssVars } from '../dom.js';
 import { callDetail, originOf, resultLine, timeOf, tokensText } from './model.js';
@@ -105,7 +106,7 @@ export function CallsTable({
         <tr aria-rowindex={1}>
           <th className="n">#</th>
           <th>Call</th>
-          {scoped ? <th className="hide-sm">Scope</th> : null}
+          {scoped ? <th className="hide-sm">Agent</th> : null}
           <th className="orgh">
             <span className="orgw">Origin</span>
           </th>
@@ -251,7 +252,7 @@ const Row = memo(function Row({
       </td>
       {scoped ? (
         <td className="hide-sm scopecell">
-          <code title={c.scope ?? undefined}>{c.scope ?? ''}</code>
+          <code title={agentOf(c) ?? undefined}>{agentOf(c) ?? ''}</code>
         </td>
       ) : null}
       <td>
