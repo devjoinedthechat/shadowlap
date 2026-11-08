@@ -32,8 +32,8 @@ export interface ListOptions<T> {
   keyOf: (row: T) => string;
   /** The box that holds the rows. */
   root: RefObject<HTMLElement | null>;
-  /** Enter on the row. A row with none offers its actions instead. */
-  open?: ((row: T) => void) | null;
+  /** Enter on the row; it answers false where the row leads nowhere of its own. A row with none offers its actions instead. */
+  open?: ((row: T) => unknown) | null;
   /** `x`, where rows have a checkbox. */
   pick?: ((row: T) => void) | null;
   /** ⌘K on the row. */
@@ -145,7 +145,7 @@ export function listKeys(e: KeyboardEvent, openScope: () => void): boolean {
   const o = at.l.o.current;
   if (k === 'x' && o.pick) return o.pick(row), true;
   if (k !== 'Enter' || document.activeElement !== (o.box?.(at.el!) ?? at.el) || at.el!.matches('a, button')) return false;
-  if (o.open) return o.open(row), true;
+  if (o.open && o.open(row) !== false) return true;
   if (!o.actions) return false;
   scope = o.actions(row);
   if (scope) openScope();

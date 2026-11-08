@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
-import type { UpdatePlan } from '../update-plan.js';
+import { eitherWay, type UpdatePlan } from '../update-plan.js';
 import { CommandRow } from './CommandRow.js';
 import { CostLine } from './CostLine.js';
 import { Dialog, type WayOn } from './Dialog.js';
@@ -22,7 +22,8 @@ function CommandName({ name, controls, open, onToggle }: { name: string; control
  * Update golden, on Tests and on a test replay's page (`updatePlan`): the golden or the diverged
  * goldens as rows between hairlines, what happens, and when what diverged is a value made anew on
  * every run the normalizer's way on, lime, beside Update anyway, each with its own command and what
- * it bills. A golden that only lacks a judge's verdict names no row: nothing diverged.
+ * it bills (several goldens' normalizer and update bills what the update does, said once, under the
+ * update's). A golden that only lacks a judge's verdict names no row: nothing diverged.
  */
 export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClose }: { plan: UpdatePlan; estimate?: Estimate | null | undefined; onUpdate: WayOn; onInstead?: WayOn | undefined; onClose: () => void }) {
   const one = plan.goldens.length === 1 ? plan.goldens[0]! : null;
@@ -41,8 +42,9 @@ export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClos
       onOk={onUpdate}
       onClose={onClose}
       command={instead ? { command: plan.command, id: `${id}update`, className: `updany${shown.update ? ' open' : ''}` } : plan.command}
-      // The update's estimate once it has come, in place of the words that say what it bills.
-      cost={{ ...plan.cost, estimate }}
+      // The update's estimate once it has come, in place of the words that say what it bills: for several
+      // goldens' normalizer and update too, which bills the same, said under the update's command.
+      cost={{ ...plan.cost, estimate: estimate && instead?.run === 'normalize-update-all' ? eitherWay(estimate) : estimate }}
     >
       {!plan.goldens.length ? null : one ? (
         <div className="rmp">
@@ -76,7 +78,7 @@ export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClos
                 <code>{plan.advise.path}</code>{' '}
               </>
             ) : null}
-            {plan.advise.text}
+            <Advice text={plan.advise.text} name={instead?.label ?? null} />
           </p>
         </div>
       ) : null}
@@ -84,7 +86,7 @@ export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClos
         <>
           <CommandName name={instead.label} controls={`${id}instead`} open={shown.instead} onToggle={() => setShown({ ...shown, instead: !shown.instead })} />
           <CommandRow id={`${id}instead`} className={`updany${shown.instead ? ' open' : ''}`} command={instead.command} />
-          <CostLine {...instead.cost} flow />
+          {instead.cost ? <CostLine {...instead.cost} flow /> : null}
         </>
       ) : null}
       {plan.advise ? steps : null}
@@ -95,5 +97,18 @@ export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClos
       ) : null}
       {instead ? <CommandName name={plan.ok} controls={`${id}update`} open={shown.update} onToggle={() => setShown({ ...shown, update: !shown.update })} /> : null}
     </Dialog>
+  );
+}
+
+/** The advice's words, the action it names (`name`, Add normalizer and update, say) kept whole on its line. */
+function Advice({ text, name }: { text: string; name: string | null }) {
+  const at = name ? text.indexOf(name) : -1;
+  if (!name || at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <span className="nw">{name}</span>
+      {text.slice(at + name.length)}
+    </>
   );
 }

@@ -1,4 +1,5 @@
 import { consentAsked, type CostWords } from './actions.js';
+import { justNow } from './format.js';
 import { commandText } from './goldens.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
@@ -28,7 +29,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 /** When something was done, as the strip and the score cards say it: `just now`, `10:20` today, `Oct 1, 10:20` before. */
 export function whenDone(ms: number, now = Date.now()): string {
-  if (now - ms < 60_000 && now >= ms - 60_000) return 'just now';
+  if (justNow(ms, now)) return 'just now';
   const d = new Date(ms);
   const t = new Date(now);
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;

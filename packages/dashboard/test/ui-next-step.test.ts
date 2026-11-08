@@ -95,7 +95,7 @@ const DIVERGED = { parent: PARENT, state: { ...failedState, kind: 'test', outcom
 
 describe('the run page’s next step', () => {
   const verified = { id: 'fx-01M5JERA0H', status: 'verified', title: 'Refunds above the limit issued without approval', href: '#/fixes/fx-01M5JERA0H/blame' };
-  const FIX: NextStep = { key: 'fix', label: 'Open fix', fixId: verified.id, status: 'verified', href: verified.href, title: `“${verified.title}”` };
+  const FIX: NextStep = { key: 'fix', label: 'Open fix', fixId: verified.id, status: 'verified', check: 'exit code 0', href: verified.href, title: `“${verified.title}”` };
   const lost = { callNo: 5, confidence: 'high', rescuedRunId: null, scope: null, outcome: 'blamed', modelCall: { k: 3, m: 5 }, short: 'asked again, it calls escalate instead' };
 
   it('opens the fix of a blamed failure, its status on hover and in the banner, where Fix → was', async () => {
