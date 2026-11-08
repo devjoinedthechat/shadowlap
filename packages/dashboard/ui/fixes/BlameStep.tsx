@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import type { FixAttemptGroups } from '../../src/attempt-groups.js';
 import { type Attempt, AttemptList, AttemptsCell } from '../components/AttemptsCell.js';
-import { EmptyState } from '../components/bits.js';
+import { EmptyState, SrSpace } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { DotParts } from '../components/DotParts.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
@@ -239,10 +239,8 @@ function ProbeRow({ b, p, focus, open, onToggle, groups }: { b: BlameStep; p: Pr
           <Status tone={tone}>{word}</Status>
           {blamed ? (
             <>
-              {/* a space a screen reader says, so the status and the mark are two words; the mark's margin shows it */}
-              <span className="srsp">
-                <span className="sr"> </span>
-              </span>
+              {/* the status and the mark are two words; the mark's margin shows it */}
+              <SrSpace />
               <b className="bmk">blamed</b>
             </>
           ) : null}
