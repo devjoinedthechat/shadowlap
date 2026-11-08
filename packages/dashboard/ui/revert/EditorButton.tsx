@@ -1,5 +1,6 @@
 import { messageOf } from '../../../engine/src/message-of.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { ACTIONS } from '../labels.js';
 import { useApp } from '../state.js';
 import type { FoundChange } from '../types.js';
 import { editorOpened, editorSub, editorTarget } from './editor.js';
@@ -16,9 +17,10 @@ export function EditorButton({ change, className = 'btn', fold }: { change: Pick
   const t = exported ? null : editorTarget(change, meta?.editor);
   if (!t) return null;
   const open = () => client.editor.open(t.path, t.line).then((o) => toast(editorOpened(o)), (err: unknown) => toast(messageOf(err)));
+  const { label } = ACTIONS.openInEditor;
   return (
-    <ActionButton className={className} tip="Open in editor" sub={editorSub(t)} command={`$ ${t.cmd}`} {...(fold ? { 'data-fold': fold } : {})} onClick={() => void open()}>
-      Open in editor
+    <ActionButton className={className} tip={label} sub={editorSub(t)} command={`$ ${t.cmd}`} {...(fold ? { 'data-fold': fold } : {})} onClick={() => void open()}>
+      {label}
     </ActionButton>
   );
 }

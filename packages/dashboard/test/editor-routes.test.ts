@@ -19,17 +19,23 @@ let outside: string;
 let store: Store;
 let dash: Dashboard;
 let spawned: Array<{ cmd: string; args: string[]; opts: Record<string, unknown> }>;
+/** How the program the spawner starts ends as soon as it has started: an exit code, or still running. */
+let ends: number | 'running';
 
-/** A spawner that starts nothing: it records what it was asked, and says the program started. */
+/** A spawner that starts nothing: it records what it was asked, and says the program started, then ended as `ends` says. */
 const fakeSpawn = ((cmd: string, args: string[], opts: Record<string, unknown>) => {
   spawned.push({ cmd, args, opts });
   const child = Object.assign(new EventEmitter(), { unref: () => undefined });
-  setImmediate(() => child.emit('spawn'));
+  const code = ends;
+  setImmediate(() => {
+    child.emit('spawn');
+    if (code !== 'running') child.emit('exit', code, null);
+  });
   return child;
 }) as unknown as typeof spawn;
 
 const start = (o: { env?: NodeJS.ProcessEnv; readOnly?: boolean; project?: boolean; platform?: NodeJS.Platform } = {}) =>
-  startDashboard({ store, readOnly: o.readOnly ?? false, ...(o.project === false ? {} : { project: { path: project } }), editor: { env: o.env ?? { EDITOR: 'code' }, platform: o.platform ?? 'darwin', spawn: fakeSpawn } });
+  startDashboard({ store, readOnly: o.readOnly ?? false, ...(o.project === false ? {} : { project: { path: project } }), editor: { env: o.env ?? { EDITOR: 'code' }, platform: o.platform ?? 'darwin', spawn: fakeSpawn, settleMs: 30 } });
 
 type Answer = { status: number; body: Record<string, unknown> };
 async function api(d: Dashboard, path: string, init: { method?: string; body?: unknown; token?: string | null } = {}): Promise<Answer> {
@@ -44,6 +50,7 @@ const open = (body: unknown, d: Dashboard = dash, token?: string | null) => api(
 
 beforeEach(async () => {
   spawned = [];
+  ends = 0;
   project = realpathSync(mkdtempSync(join(tmpdir(), 'sl-editor-')));
   outside = realpathSync(mkdtempSync(join(tmpdir(), 'sl-editor-outside-')));
   mkdirSync(join(project, 'agent'));
@@ -86,6 +93,19 @@ describe('POST /api/editor/open', () => {
     dash = await start({ env: { EDITOR: 'gedit' } });
     await open({ file: 'agent/refund.py', line: 7 });
     expect(spawned[1]).toMatchObject({ cmd: 'gedit', args: ['+7', real] });
+  });
+
+  it('answers once the editor has started and not failed at once, and refuses one that fails as it starts with why', async () => {
+    await dash.close();
+    dash = await start({ env: { VISUAL: 'code --wait' } });
+    // Still running once the watch ends: it opened the file, and holds it open.
+    ends = 'running';
+    expect((await open({ file: 'agent/refund.py', line: 2 })).status).toBe(200);
+    // sh found no such program on the server's PATH.
+    ends = 127;
+    expect(await open({ file: 'agent/refund.py', line: 2 })).toEqual({ status: 409, body: { error: "code could not start: the dashboard's PATH has no code" } });
+    ends = 2;
+    expect(await open({ file: 'agent/refund.py', line: 2 })).toEqual({ status: 409, body: { error: 'code could not start: it exited 2' } });
   });
 
   it('is a write, behind the token, refused with why where no editor can open', async () => {

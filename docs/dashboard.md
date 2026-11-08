@@ -2227,6 +2227,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - **`/api/activity`**: pass `next` (opaque) as `before` for the page after, or a time in milliseconds for everything older.
 - **`/api/editor/open`** reads only `file`, a path relative to the project folder, and `line`. The file must be a regular file inside the folder through its real path.
 - **The editor** comes from the server's environment, run as git runs one, the file and line only as arguments. Meta's `editor` is the form it runs (`code --goto <file>:<line>`), or null where this machine has no editor it can open: none set, a terminal-only one, no display, or an exported copy.
+- **It answers once the editor has started** and hasn't failed in its first second. One that fails as it starts, such as a program the server's `PATH` lacks, is refused with why.
 - **`/api/summary`** gives each grid row's and each recording in progress's `about` line, and a failed run's never blamed in Needs a look, as `/api/runs` gives it. Until the totals of the runs it adds up are kept, it answers `{ warming: { done, total } }` at once.
 
 **Search** (`/api/search`): hits from recordings, forks, tests and captures come first, then hits from attempts of a run with none of its own, each naming that run (`attemptOf`). It answers from what the index holds, once it has taken in what runs still recording said since the last search (20 ms at most, waited for 0.3 s at most). While the index catches up, `indexing` says how many runs it has yet to read, of how many.

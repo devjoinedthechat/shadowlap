@@ -1,7 +1,7 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, delimiter, isAbsolute, join, normalize, sep } from 'node:path';
-import { messageOf } from '@shadowlap/engine';
+import { ACTIONS, messageOf } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import { within } from './worktree.js';
 
@@ -15,12 +15,21 @@ import { within } from './worktree.js';
  * other, `+<line> <file>`. A terminal-only editor has no terminal to run in, so there is none.
  */
 
-/** What reads the editor: the server's environment and platform; tests pass their own, and a spawner. */
+/** What reads the editor: the server's environment and platform; tests pass their own, a spawner, and a shorter watch. */
 export interface EditorOptions {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   spawn?: typeof nodeSpawn;
+  /** How long a started editor is watched for an early failure ({@link EDITOR_SETTLE_MS}). */
+  settleMs?: number;
 }
+
+/**
+ * How long a started editor is watched before the route answers: one that ends at once with a
+ * failure opened nothing, as when `sh` finds no such program on the server's PATH (127). One that
+ * ended well (a launcher handing the file to an editor already open) or still runs then opened it.
+ */
+export const EDITOR_SETTLE_MS = 1000;
 
 /** How this machine opens a file at a line: the program, its arguments for a file and a line, and the form the page shows. */
 export interface EditorCommand {
@@ -93,7 +102,7 @@ export function editorCommand(o: EditorOptions = {}): EditorCommand | { off: str
   const env = o.env ?? process.env;
   const platform = o.platform ?? process.platform;
   const value = (env.VISUAL?.trim() || env.EDITOR?.trim()) ?? '';
-  if (!value) return { off: 'Open in editor opens a file in the editor $VISUAL or $EDITOR names, and neither is set where the dashboard runs' };
+  if (!value) return { off: `${ACTIONS.openInEditor.label} opens a file in the editor $VISUAL or $EDITOR names, and neither is set where the dashboard runs` };
   const name = programOf(value);
   if (TERMINAL_ONLY.has(name)) return { off: `${name} runs in a terminal, and the dashboard has none to open it in: set $VISUAL to a windowed editor, such as code` };
   if (platform === 'linux' && !env.DISPLAY && !env.WAYLAND_DISPLAY) return { off: `there is no display here to open ${name} on` };
@@ -134,24 +143,39 @@ export function projectFile(root: string, raw: unknown): { real: string; name: s
   return { real, name: raw };
 }
 
+/** Why an editor that ended at once opened nothing: `sh` found no such program (127) or couldn't run it (126), or it failed or was stopped. */
+function endedWords(name: string, code: number | null, signal: NodeJS.Signals | null): string {
+  if (code === 127) return `${name} could not start: the dashboard's PATH has no ${name}`;
+  if (code === 126) return `${name} could not start: this machine can't run it as it is`;
+  return `${name} could not start: ${code === null ? `it was stopped (${signal ?? 'a signal'})` : `it exited ${code}`}`;
+}
+
 /**
  * Starts the editor at `line` of the file at `real`, in the project folder, and lets it go: detached,
- * its output ignored. Resolves once it has started, or with why it couldn't.
+ * its output ignored. Resolves once it has started and not failed at once (`settleMs`): an exit of 0
+ * answers then, one that still runs once the watch ends too; or with why it couldn't.
  */
 export function openEditor(e: EditorCommand, real: string, line: number, cwd: string, o: EditorOptions = {}): Promise<{ ok: true } | { error: string }> {
   const spawn = o.spawn ?? nodeSpawn;
   const args = e.args(real, String(line));
   const [cmd, argv] = e.shell ? ['sh', ['-c', `${e.value} "$@"`, e.value, ...args]] : [e.value, args];
   return new Promise((resolve) => {
+    let watch: ReturnType<typeof setTimeout> | undefined;
+    const answer = (a: { ok: true } | { error: string }) => {
+      clearTimeout(watch);
+      resolve(a);
+    };
     try {
       const child = spawn(cmd, argv, { cwd, stdio: 'ignore', detached: true, env: o.env ?? process.env });
-      child.on('error', (err) => resolve({ error: `${e.name} could not start: ${err.message}` }));
+      child.on('error', (err) => answer({ error: `${e.name} could not start: ${err.message}` }));
+      child.on('exit', (code, signal) => answer(code === 0 ? { ok: true } : { error: endedWords(e.name, code, signal) }));
       child.on('spawn', () => {
         child.unref();
-        resolve({ ok: true });
+        watch = setTimeout(() => answer({ ok: true }), o.settleMs ?? EDITOR_SETTLE_MS);
+        watch.unref();
       });
     } catch (err) {
-      resolve({ error: `${e.name} could not start: ${messageOf(err)}` });
+      answer({ error: `${e.name} could not start: ${messageOf(err)}` });
     }
   });
 }
