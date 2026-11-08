@@ -6,7 +6,7 @@ import { runJob } from '../src/read-jobs.js';
 import type { OutcomeWork, RunJudged } from '../src/run-outcome.js';
 import { normalizeJudged, normalizeRunDetail, normalizeRuns } from '../ui/normalize.js';
 import { outcomeTip } from '../ui/outcome-tip.js';
-import { outcomeFact } from '../ui/run/metrics.js';
+import { outcomeFact, toolsToCheck } from '../ui/run/metrics.js';
 import { Metrics } from '../ui/run/parts.js';
 import { RunsTable } from '../ui/runspage/RunsTable.js';
 import { outcomeOf, runOutcome, runStatus, sideStatus, type RunLike } from '../ui/runs.js';
@@ -128,6 +128,15 @@ describe('the card on hover', () => {
     expect(tip({ ...BASE, source: 'otel', judged: null }).sub).toBe('Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.');
     expect(tip({ ...BASE, source: 'otel', judged: null }, 0).sub).toBe('It made no tool call, and a check on calls reads them.');
     expect(tip({ ...BASE, status: 'running', outcome: { kind: 'running' } })).toMatchObject({ title: 'Still recording', sub: 'It is judged once it finishes.' });
+  });
+
+  it('counts the tool calls a check is added from, a person’s recorded answers left out once every row is in', () => {
+    const rows: { kind: string; input?: boolean }[] = [{ kind: 'api' }, { kind: 'tool', input: true }, { kind: 'tool' }];
+    expect(toolsToCheck(rows, 3, 2)).toBe(1);
+    // A run whose only tool calls are recorded answers has none to pick: its hover says so.
+    expect(toolsToCheck(rows.slice(0, 2), 2, 1)).toBe(0);
+    // A long run's pages yet to come: its summary's count.
+    expect(toolsToCheck(rows.slice(0, 2), 900, 40)).toBe(40);
   });
 });
 

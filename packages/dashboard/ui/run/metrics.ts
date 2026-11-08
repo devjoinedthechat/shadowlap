@@ -135,6 +135,15 @@ function verdictFact(v: FactVerdicts): Omit<OutcomeFact, 'callNo' | 'today'> | n
 }
 
 /**
+ * The tool calls no checks' hover counts, those a check is added from: a person's recorded answers
+ * are left out, as Add check… leaves them, once every call's row is in; while a long run's pages are
+ * yet to come, its summary's count of tool calls.
+ */
+export function toolsToCheck(calls: readonly { kind: string; input?: boolean }[], callsTotal: number, summaryTools: number): number {
+  return calls.length >= callsTotal ? calls.filter((c) => c.kind === 'tool' && !c.input).length : summaryTools;
+}
+
+/**
  * How the run came out, its page's first fact, in the words Runs' Status has (outcomeOf): the
  * verdict of the checks that judged it, the call it turned on apart, by today's checks after it when
  * they came after the run. A run no check judges says `no checks`, by a grey dot, a clean replay and a

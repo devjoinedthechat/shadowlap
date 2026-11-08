@@ -13,7 +13,7 @@ import { useApp } from '../state.js';
 import type { PresetAttempt } from './preset.js';
 import { attemptOutcome } from './banner.js';
 import { refusedOffline } from './calls.js';
-import { metricItems, outcomeFact, type MetricInput, type OutcomeFact } from './metrics.js';
+import { metricItems, outcomeFact, toolsToCheck, type MetricInput, type OutcomeFact } from './metrics.js';
 import { attemptOf, checksOf, originOf, pulledSpender, runLikeOf } from './model.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
@@ -72,7 +72,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
-  const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: s.byKind.tool, pending, preset, rescued, attempt: attemptVerdictOf(run, checksOf(run)) });
+  const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: toolsToCheck(run.calls, run.callsTotal, s.byKind.tool), pending, preset, rescued, attempt: attemptVerdictOf(run, checksOf(run)) });
   return (
     <section className="metrics" aria-label="How it went">
       <Outcome fact={fact} runId={run.run.runId} />
