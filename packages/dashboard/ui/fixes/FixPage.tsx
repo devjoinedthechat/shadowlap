@@ -531,8 +531,6 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
   if (apply.kind === 'mark' || (apply.inTree && !fix.actions.applied))
     return (
       <Dialog {...asks} title={apply.inTree && apply.goldens ? 'Mark fix applied?' : 'Mark fix applied'} lead={markLead(apply)} facts={apply.pulled ? [{ label: 'Recordings', value: 'stay on the machine that ran the repair' }] : []}>
-        {/* Merged in its pull request and in the tree already: the patch is left as it is, and the rest runs as applying would. */}
-        {fix.rung === 'merged' && apply.inTree ? <DialogSteps steps={applySteps(apply, { count: apply.held ? names.offered.length : apply.goldens, to: copiedTo(names) }, { pr: fix.pr?.number ?? null })} /> : null}
         {fields}
       </Dialog>
     );

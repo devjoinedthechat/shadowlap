@@ -592,6 +592,17 @@ describe('a fix’s dialogs', () => {
     const again = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, pending: 'goldens' }, applied: true }), label: 'Finish applying', onRun: () => true, ...closes }));
     holds(again, { title: 'Finish applying fix?', doc: 'repairHandover', first: OK, ok: 'Finish applying' });
   });
+  it('Mark fix applied asks of a merged fix whose patch is in the tree what it asks of one applied by hand, with no steps of its own', async () => {
+    // Merged sits above applied on the ladder, so a merged fix's header offers no Mark applied: its dialog has no merged words.
+    const inTree = { ...APPLY, inTree: true };
+    const byHand = await open(createElement(ApplyDialog, { fix: fix({ status: 'verified', rung: 'verified', pr: null }, { apply: inTree }), label: 'Mark applied', onRun: () => true, ...closes }));
+    const asked = byHand.one('[role="dialog"]').textContent;
+    await byHand.unmount();
+    const merged = await open(createElement(ApplyDialog, { fix: fix({ status: 'verified', rung: 'merged', pr: { url: 'https://github.com/acme/agent/pull/138', number: 138, state: 'merged' } }, { apply: inTree }), label: 'Mark applied', onRun: () => true, ...closes }));
+    holds(merged, { title: 'Mark fix applied?', doc: 'repairHandover', first: OK, ok: 'Mark applied' });
+    expect(merged.all('.ondisk.steps li')).toEqual([]);
+    expect(merged.one('[role="dialog"]').textContent).toBe(asked);
+  });
   it('Show patch', async () => {
     holds(await open(createElement(PatchDialog, { fix: fix({}, { apply: APPLY }), diff: '--- a\n', ...closes })), { title: 'Show patch', doc: 'repairHandover', first: CANCEL, ok: null });
   });
