@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { gateResult, Store, type DiffEntry } from '@shadowlap/engine';
+import { checkKey, gateResult, Store, type DiffEntry } from '@shadowlap/engine';
 import { goldenSteps, type NextStepWork } from '../src/next-step.js';
 import type { GoldenSource } from '../src/tests.js';
 import { addRun } from './read-model-store.js';
@@ -46,5 +46,20 @@ describe('a golden’s step on Tests', () => {
     const gate = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 3 }, [true, false, true], { decision: 'inconclusive' });
     tested(rec, T0 + MIN, { ok: false, failure: 'inconclusive', data: { verdict: 'inconclusive', gate } });
     expect(goldenSteps(store, [GOLDEN], work([source(rec)]))).toEqual({ [GOLDEN]: { key: 'more-attempts', label: 'Run more attempts', golden: GOLDEN, command: `shadowlap test ${GOLDEN} --max-attempts 6 --continue` } });
+  });
+
+  it('leads a replay that failed a check with the open fix of that check, which no fix holds yet, and with none once that fix is applied', () => {
+    const rec = addRun(store, { startedAt: T0, calls: 'lll' });
+    const check = { tools: { send_email: { max: 0 } } };
+    const session = store.startTestSession({ command: ['shadowlap', 'test', GOLDEN], startedAt: T0 + MIN, revision: 'bbbbbbb' }).sessionId;
+    const run = addRun(store, { parent: rec, startedAt: T0 + MIN, calls: 'r', status: 'failed', meta: { test: { golden: GOLDEN, session }, checks: [{ label: 'send_email called 0 times', ok: false, status: 'failed', detail: 'called 1 time' }] } });
+    store.addTestResult({ sessionId: session, golden: GOLDEN, ok: false, failure: 'check', runId: run, goldenRunId: rec, revision: 'bbbbbbb', at: T0 + MIN });
+    const w = { ...work([source(rec)]), tests: { [GOLDEN]: { expect: check } } };
+    expect(goldenSteps(store, [GOLDEN], w)[GOLDEN]?.key).not.toBe('fix');
+    const fixId = 'fx-01K8RG00000000000000000009';
+    store.insertFix({ fixId, title: 'Emails sent on refunds', labels: [], check: { expect: check, key: checkKey(check), oracle: [], text: 'send_email called 0 times' }, status: 'open', openedAt: T0, verifiedAt: null, appliedAt: null, data: {} });
+    expect(goldenSteps(store, [GOLDEN], w)[GOLDEN]).toMatchObject({ key: 'fix', label: 'Open fix', fixId, href: `#/fixes/${fixId}` });
+    store.updateFix(fixId, { status: 'applied', appliedAt: T0 + 2 * MIN });
+    expect(goldenSteps(store, [GOLDEN], w)[GOLDEN]?.key).not.toBe('fix');
   });
 });

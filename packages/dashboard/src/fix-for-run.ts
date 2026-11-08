@@ -48,7 +48,8 @@ export interface FixForRun {
   expect?: unknown;
 }
 
-function fixRef(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix): FixRef {
+/** A fix as a run's page and its next step name it. */
+export function fixRef(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix): FixRef {
   return { fixId: fix.fixId, href: fixHref(fix.fixId), title: fix.title, status: fix.status, label: fixLabelInfo(store, fix).label, check: fix.check.text };
 }
 
