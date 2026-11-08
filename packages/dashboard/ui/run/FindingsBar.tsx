@@ -4,6 +4,8 @@ import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
 import type { TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { LoadFailed } from '../components/bits.js';
+import { onShow } from '../components/OnShow.js';
 import { Icon } from '../components/Icon.js';
 import { glossed } from '../components/Term.js';
 import { firstWords } from '../outcome-tip.js';
@@ -11,6 +13,7 @@ import { tipCard, tipText } from '../components/HoverCard.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { glued, GLUED_SEPARATOR, wholeTallies } from '../format.js';
+import { useLoad } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { fixedByWords, runType } from '../runs.js';
@@ -20,7 +23,6 @@ import type { PendingAction } from './actions.js';
 import { findingPath, notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
 import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
-import { DifferencesPanel, useForkDifferences } from './ForkDifferences.js';
 import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
 import { attemptLinks, attemptOf, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
@@ -444,6 +446,29 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
     </button>
   );
   return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: next?.key === 'bisect' && !!next.blame, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, onAction: p.onAction };
+}
+
+/**
+ * What a fork did differently from its parent, a finding of a fork's page alone: a part of its own
+ * (OnShow.tsx), asked for as the differences are, so the two come together.
+ */
+const DifferencesPanel = onShow(() => import('./ForkDifferences.js').then((m) => m.DifferencesPanel), { failed: <LoadFailed what="finding" /> });
+
+/** What the fork did differently, read once `want` says the run is a fork that has ended; null until it comes, or with none to say. */
+function useForkDifferences(runId: string, want: boolean): Differences | null {
+  const { client } = useApp();
+  const load = () => {
+    if (!want) return null;
+    DifferencesPanel.preload();
+    return client.forkDifferences(runId);
+  };
+  return useLoad(load, `differences:${runId}:${want ? 'fork' : 'none'}`).data;
+}
+
+/** What a fork did differently alone, read from the server as the bar reads it: for tests. */
+export function ForkDifferences({ runId }: { runId: string }) {
+  const d = useForkDifferences(runId, true);
+  return d ? <DifferencesPanel d={d} /> : null;
 }
 
 /** Which runs' bars are open, by run, for the session: a module's memory, as the inspector's last tab is. */

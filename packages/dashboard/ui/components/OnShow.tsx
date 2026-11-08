@@ -26,7 +26,8 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
  * the parts they show and none of the dashboard's other pages. The bundle size test holds each
- * page's and each part's script to a budget of its own.
+ * page's and each part's script to a budget of its own. What a fork did differently waits so too,
+ * a finding of a fork's page alone, asked for with the differences (run/FindingsBar.tsx).
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;
