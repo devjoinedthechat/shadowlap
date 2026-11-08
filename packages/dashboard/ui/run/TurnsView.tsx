@@ -2,32 +2,32 @@ import { useMemo } from 'react';
 import type { CallRow } from '../api.js';
 import { Org } from '../components/bits.js';
 import { ktok, num } from '../format.js';
-import { scopesOf } from '../scopes.js';
+import { agentOf, scopesOf } from '../scopes.js';
 import { originOf, tokensText, turnsOf, type Turn } from './model.js';
 import { useWindow } from './window-hook.js';
 
 /**
- * Turns: each model call with the tool calls it led to. With scopes, each scope is its own line of
+ * Turns: each model call with the tool calls it led to. With agents, each agent is its own line of
  * work, under a header with its model calls and input tokens. Only the turns in view and a
  * screenful either side are drawn (window-hook.ts).
  */
 
-/** A line of the list: a scope's header, or a turn. */
+/** A line of the list: an agent's header, or a turn. */
 export type TurnLine = { kind: 'head'; scope: string; calls: number; tokens: number } | { kind: 'turn'; turn: Turn<CallRow> };
 
-/** The turns in the order they show: by scope with a header each when scoped, then those in none. */
+/** The turns in the order they show: by agent with a header each when there are agents, then those of none. */
 export function turnLines(calls: readonly CallRow[], scoped: boolean): TurnLine[] {
   const turns = turnsOf(calls, scoped);
   if (!scoped) return turns.map((turn) => ({ kind: 'turn', turn }));
   const out: TurnLine[] = [];
   for (const sc of scopesOf(calls)) {
-    const ts = turns.filter((t) => t.model.scope === sc);
+    const ts = turns.filter((t) => agentOf(t.model) === sc);
     if (!ts.length) continue;
     const tokens = ts.reduce((s, t) => s + (t.model.usage ? t.model.usage.input + t.model.usage.cacheRead + t.model.usage.cacheWrite : 0), 0);
     out.push({ kind: 'head', scope: sc, calls: ts.length, tokens });
     for (const turn of ts) out.push({ kind: 'turn', turn });
   }
-  for (const turn of turns) if (!turn.model.scope) out.push({ kind: 'turn', turn });
+  for (const turn of turns) if (!agentOf(turn.model)) out.push({ kind: 'turn', turn });
   return out;
 }
 

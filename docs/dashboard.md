@@ -661,11 +661,20 @@ The strip's key is the call filter: *all*, then each kind or origin the run has,
 
 **Filter calls** (`/`) at the strip's end filters by text, and typing shows Calls too. Esc leaves the field with its words kept.
 
-### Scopes
+### Agents
 
-A run made with `scope()` gets a chip per scope, nested ones included, with counts. Picking one dims the strip outside it and narrows every view to it.
+A run of several agents gets a chip per agent, nested ones included, with counts. Picking one dims the strip outside it and narrows every view to it. A run of one agent and no scope shows no chips.
 
-The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*).
+The dashboard names the agents itself, so a run needs no `scope()` to show them. Each conversation is one agent's, named by the first of these that applies:
+
+- **Its scope**, in a run made with [`scope()`](./sdk.md#scopes): `researcher`.
+- **An imported trace's agent span**, as [an import keeps it](./cli.md#traces): `supervisor/researcher`.
+- **The tool that started it**: a model call asked for a tool, such as Claude Code's `Task` or an agent called as a tool, whose words open the conversation's first request. It is a sub-agent, named for what the tool started (`claude-code/Explore`).
+- **Its system prompt**: the conversations sent one system prompt, its numbers aside, are one agent's. It is named for who the prompt says it is (*You are a research assistant* is `research-assistant`), else `agent-2`.
+
+A handoff (`transfer_to_billing`) keeps the conversation and changes its agent: the calls after it are `billing`'s. The names are for reading only: replay matches calls by scope, never by them.
+
+The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line.
 
 ### Views of the run
 
@@ -676,7 +685,7 @@ Beside the inspector, six views show the run, and `v` goes through them all:
 | [Calls](#calls-view)           | Every call with its kind, name, origin, tokens and time               |
 | [Turns](#turns-view)           | Each model call, what it said, and the tool calls that followed it    |
 | [Context](#context-view)       | Tokens per model call, split by the cache, and where the cache missed |
-| [Timeline](#timeline-view)     | Every call on a clock, scope by scope                                 |
+| [Timeline](#timeline-view)     | Every call on a clock, agent by agent                                 |
 | [Forks](#forks-view)           | The run's family: its recording, and every replay and fork of it      |
 | [Provenance](#provenance-view) | The run's record, its lineage, and what a copy would mask             |
 
@@ -714,9 +723,9 @@ A call's origin shows in the strip's colors, with an injected or a failed call's
 Each call sits under the call it belongs to, the list still in the run's order:
 
 - **A tool call** sits under the model call that asked for it.
-- **Any other call** sits under the latest model call of its own scope and conversation.
-- **A sub-agent's calls** (a scope inside another, as `agent/policy-checker` in `agent`) sit under the model call whose tool started it.
-- **In a batch**, a run that works through several conversations one after another in one scope, each conversation sits under its first call, named beside it (*conversation 3 of 40*).
+- **Any other call** sits under the latest model call of its own agent and conversation.
+- **A sub-agent's calls** sit under the model call whose tool started it: a subagent of Claude Code's `Task` tool, or a scope inside another, as `agent/policy-checker` in `agent`.
+- **In a batch**, a run that works through several conversations of one agent, each conversation sits under its first call, named beside it (*conversation 3 of 40*). A sub-agent's conversations are never a batch's.
 
 A call with calls under it has a fold mark that hides them and shows them again; folded, it says how many it holds.
 
@@ -728,7 +737,7 @@ The groups the selected call sits in never stay folded, so a link, the strip or 
 
 ### Turns view
 
-Turns shows each model call with its tokens and stop reason, what it said, and the tool calls that followed it, grouped by scope.
+Turns shows each model call with its tokens and stop reason, what it said, and the tool calls that followed it, grouped by agent.
 
 ### Context view
 
@@ -744,7 +753,7 @@ What the misses tell you:
 
 ### Timeline view
 
-Timeline shows every call on a clock, scope by scope, colored by origin, or on a recording by what each call was, in the strip's key, with the first token of streamed responses marked. It shows how long model calls and tools took, the longest call, and what ran at once.
+Timeline shows every call on a clock, agent by agent, colored by origin, or on a recording by what each call was, in the strip's key, with the first token of streamed responses marked. It shows how long model calls and tools took, the longest call, and what ran at once.
 
 ### Forks view
 
@@ -813,7 +822,7 @@ The inspector shows the selected call, in four tabs:
 
 **Response**: **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded.
 
-**Details** lists origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes.
+**Details** lists origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes. It names the call's scope and agent too, and for a sub-agent's call, the call that started it.
 
 On a failed model call, the input tokens are what its request held, `in the request; nothing was sent` where Shadowlap answered it or the replay refused it, and then its cost is `$0`. Its latency says who answered: `answered by Shadowlap`, `refused by the replay` or `answered by the provider`.
 

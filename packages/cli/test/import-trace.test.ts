@@ -668,3 +668,54 @@ describe('reading a trace store', () => {
     await expect(fetchLangsmithRuns('abc', { host: empty, apiKey: 'k' })).rejects.toThrow(/no runs for trace abc/);
   });
 });
+
+describe('import: the agents a trace names', () => {
+  type OtlpSpan = { spanId: string; parentSpanId?: string; name: string; attributes: Array<{ key: string; value: { stringValue: string } }> };
+
+  it('keeps on each model call the agent spans it ran inside, outermost first, for reading only', () => {
+    const doc = JSON.parse(fixture('otel-genai.json')) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: OtlpSpan[] }> }> };
+    const spans = doc.resourceSpans[0].scopeSpans[0].spans;
+    const support = spans.find((s) => s.spanId === '00f067aa0ba902b7')!;
+    const agent = (spanId: string, parentSpanId: string, name: string): OtlpSpan => ({
+      ...support,
+      spanId,
+      parentSpanId,
+      name: `invoke_agent ${name}`,
+      attributes: [
+        { key: 'gen_ai.operation.name', value: { stringValue: 'invoke_agent' } },
+        { key: 'gen_ai.agent.name', value: { stringValue: name } },
+      ],
+    });
+    // A supervisor runs the support agent, then hands the second model call to billing.
+    support.parentSpanId = 'b0b0b0b0b0b00001';
+    spans.push(agent('b0b0b0b0b0b00001', '', 'supervisor'), agent('b0b0b0b0b0b00002', 'b0b0b0b0b0b00001', 'billing'));
+    spans.find((s) => s.spanId === 'a1b2c3d4e5f60004')!.parentSpanId = 'b0b0b0b0b0b00002';
+    const store = open();
+    const { result } = importTrace(store, readOtel(parseOtlpFile(JSON.stringify(doc))).traces[0], { source: '/tmp/agents.json', labels: [] });
+    const calls = store.getCalls(result.run.runId);
+    expect(calls.map((c) => [c.kind, c.meta.agent])).toEqual([
+      ['api', 'supervisor/support'],
+      ['tool', undefined],
+      ['api', 'supervisor/billing'],
+    ]);
+    // Never a scope: a replay matches the agent's calls as it sends them, with no scope of its own.
+    expect(calls.every((c) => c.meta.scope === undefined)).toBe(true);
+    store.close();
+  });
+
+  it("reads Langfuse's AGENT observations as the agent of the generations under them", () => {
+    const trace = JSON.parse(fixture('langfuse-trace.json')) as { observations: Array<Record<string, unknown>> };
+    trace.observations.find((o) => o.id === 'obs-agent-span')!.type = 'AGENT';
+    const store = open();
+    const { result } = importTrace(store, readLangfuse(trace), { source: 'langfuse', labels: [] });
+    expect(store.getCalls(result.run.runId).filter((c) => c.kind === 'api').map((c) => c.meta.agent)).toEqual(['support-agent', 'support-agent', 'support-agent']);
+    store.close();
+  });
+
+  it('names no agent where no span is one', () => {
+    const store = open();
+    const { result } = importTrace(store, readLangfuse(JSON.parse(fixture('langfuse-trace.json')) as Record<string, unknown>), { source: 'langfuse', labels: [] });
+    expect(store.getCalls(result.run.runId).some((c) => c.meta.agent !== undefined)).toBe(false);
+    store.close();
+  });
+});
