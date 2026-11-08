@@ -219,7 +219,7 @@
       "ScoreDialog": 34
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 65
+      "StoreSetup": 50
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 95
@@ -438,7 +438,7 @@
       "TestsPage": 234
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 284
+      "StoreSetup": 221
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 267
