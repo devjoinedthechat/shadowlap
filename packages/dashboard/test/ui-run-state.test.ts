@@ -223,6 +223,29 @@ describe('the scope the page suggests blaming within', () => {
     expect(agentsShown(scoped.slice(0, 1))).toBe(true);
     expect(scopeHint(scoped, realScopes(scoped), 'agent/summarizer')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
   });
+
+  it("gives Shadowlap's judge no chip, no bar and no blame hint of its own: its calls are under All", () => {
+    const judge = { callNo: 9, scope: 'shadowlap:judge', agent: 'shadowlap:judge', kind: 'api' };
+    // A judge call beside a scoped one: the chips, and the scopes blame is offered, are the agent's alone.
+    const scoped = [{ callNo: 1, scope: 'agent', agent: 'agent', kind: 'api' }, { callNo: 2, scope: 'agent', agent: 'agent', kind: 'tool' }, judge];
+    expect(scopeChips(scoped)).toEqual(['agent']);
+    expect(realScopes(scoped)).toEqual(['agent']);
+    // Never "not the shadowlap:judge it answers", nor `--scope shadowlap:judge`, picked or not.
+    expect(scopeHint(scoped, realScopes(scoped), 'all')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
+    expect(scopeHint(scoped, realScopes(scoped), 'shadowlap:judge')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
+    // Nor does it hide the model that plays the user in an eval it judges.
+    const evaluated = [{ callNo: 0, scope: 'customer', agent: 'customer', kind: 'api' }, ...scoped];
+    expect(scopeHint(evaluated, realScopes(evaluated), 'all')).toEqual({ lead: 'Blame only the agent, not the customer it answers', scope: 'agent' });
+    expect(scoped.filter((c) => inScope(c, 'all'))).toHaveLength(3);
+    // One agent, judged: no bar, as with no judge.
+    const one = [{ callNo: 1, agent: 'support-agent', kind: 'api' }, { callNo: 2, agent: 'support-agent', kind: 'tool' }, judge];
+    expect(agentsShown(one)).toBe(false);
+    expect(agentsShown([judge])).toBe(false);
+    // Two agents, judged: the bar, with no chip for the judge.
+    const two = [...one, { callNo: 3, agent: 'support-agent/Explore', kind: 'api' }];
+    expect(agentsShown(two)).toBe(true);
+    expect(scopeChips(two)).toEqual(['support-agent', 'support-agent/Explore']);
+  });
 });
 
 describe('a dataset of many runs', () => {
