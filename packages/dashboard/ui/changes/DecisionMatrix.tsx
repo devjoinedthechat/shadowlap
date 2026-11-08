@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Id } from '../components/Id.js';
@@ -6,7 +6,7 @@ import { MatrixKey, type KeyEntry } from '../components/MatrixKey.js';
 import { Receipt } from '../components/Receipt.js';
 import { DecisionCells, topCall } from './DecisionCells.js';
 import { glossed } from '../components/Term.js';
-import { outcomeTone, receiptWords } from '../decisions.js';
+import { drawnCells, outcomeTone, receiptWords } from '../decisions.js';
 import { glueBound } from '../matrix.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
@@ -69,15 +69,24 @@ function Ending({ row, cleared }: { row: Row; cleared: string }) {
   );
 }
 
-export function DecisionMatrix({ session, open, onOpen }: { session: PreviewSession; open: { run: string; call: number | null } | null; onOpen: (run: string, call: number | null) => void }) {
+/**
+ * `open` is the cell the page shows, by its run and call; a press, or Enter on a row, opens a cell and
+ * says whether it was the one shown (`current`), which the page closes.
+ */
+export function DecisionMatrix({ session, open, onOpen }: { session: PreviewSession; open: { run: string; call: number } | null; onOpen: (run: string, call: number | null, current: boolean) => void }) {
   const { view, matrix } = session;
   const box = useRef<HTMLDivElement>(null);
   useFitAbouts(box);
+  // Every row's grid has the widest row's columns, as the mock's matrix has, so the calls line up down the rows.
+  const cols = useMemo(() => matrix.reduce((n, row) => Math.max(n, drawnCells(row.cells).length), 1), [matrix]);
   const inFocus = useListKeys({
     rows: matrix,
     keyOf: (row) => row.runId,
     root: box,
-    open: (row) => onOpen(row.runId, topCall(row)),
+    open: (row) => {
+      const call = topCall(row);
+      onOpen(row.runId, call, open?.run === row.runId && open.call === call);
+    },
     // A row is drawn as its cells (`display: contents`): its label takes the focus.
     box: (el) => (el.firstElementChild as HTMLElement | null) ?? el,
   });
@@ -104,7 +113,7 @@ export function DecisionMatrix({ session, open, onOpen }: { session: PreviewSess
                 </span>
                 {row.about ? <AboutLine about={row.about} className="dmab" /> : null}
               </div>
-              <DecisionCells row={row} open={mine ? (open?.call ?? null) : null} onOpen={(c) => onOpen(row.runId, c)} />
+              <DecisionCells row={row} cols={cols} open={mine ? (open?.call ?? null) : null} onOpen={(c, current) => onOpen(row.runId, c, current)} />
               <div className="dms">
                 <Ending row={row} cleared={view.cleared} />
               </div>

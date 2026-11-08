@@ -1,5 +1,5 @@
-import { createElement, useState } from 'react';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { act, createElement, useState } from 'react';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { previewSession, type PreviewSession } from '../src/decision-view.js';
@@ -10,9 +10,11 @@ import { argParts, cellCost, cellLead, cellLook, cellWeight, chipWhen, drawnCell
 import { forgetConversationPrefs } from '../ui/components/Conversation.js';
 import { DecisionsView, forgetDecisionsPick } from '../ui/run/DecisionsView.js';
 import { minuteStamp } from '../ui/format.js';
+import { pageUp } from '../ui/focus-manager.js';
+import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DecisionCell, DecisionSessionView, RunDecisionsView } from '../ui/types.js';
-import { render, type Rendered } from './ui-render.js';
+import { FakeElement, render, type Rendered } from './ui-render.js';
 
 /**
  * Changes › Preview: how a cell is drawn and the call a range stands for, the verdict's state, the
@@ -42,7 +44,7 @@ const step = (callNo: number, rank: DecisionStep['rank'], o: Partial<DecisionSte
 });
 const runOf = (runId: string, golden: string | null, decisions: DecisionStep[]): DecisionRun => {
   const ranks = decisions.map((d) => d.rank).filter((r): r is NonNullable<typeof r> => r !== null);
-  return { runId, golden, steps: decisions.length, asked: decisions.length, rank: ranks.length ? (Math.min(...ranks) as DecisionRun['rank']) : null, majority: null, counts: emptyCounts(), cost: { before: 0.04, after: 0.02, spent: 0.02 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions, warnings: [] };
+  return { runId, golden, steps: decisions.length, asked: decisions.length, rank: ranks.length ? (Math.min(...ranks) as DecisionRun['rank']) : null, majority: ranks.length ? (Math.min(...ranks) as DecisionRun['majority']) : null, counts: emptyCounts(), cost: { before: 0.04, after: 0.02, spent: 0.02 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions, warnings: [] };
 };
 const cell = (o: Partial<DecisionCell>): DecisionCell => ({ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null, state: 'same', sampled: null, ranks: [0, 0], control: null, detail: null, words: 'the same', open: null, ...o });
 
@@ -55,6 +57,9 @@ describe('a cell, a range and the next step, worked out', () => {
     expect(cellLook(cell({ state: 'not-asked', rank: null, ranks: [] }))).toMatchObject({ dashed: true });
     expect(cellLook(cell({ state: 'unsettled', rank: null, ranks: [1, 0] }))).toMatchObject({ dashed: true, bands: null });
     expect(cellLook(cell({ state: 'ranked', rank: 5, judge: 'inconclusive' })).ring).toBe(true);
+    // Only words a judge couldn't read are ringed: a read change, or a write that most samples don't show, keeps its colour.
+    expect(cellLook(cell({ state: 'ranked', rank: 3, ranks: [3, 3], judge: 'inconclusive' }))).toMatchObject({ fill: 'r', ring: false });
+    expect(cellLook(cell({ state: 'ranked', rank: 1, majority: 5, ranks: [1, 5, 5], judge: 'inconclusive' }))).toMatchObject({ fill: 'w', bands: ['w', 'm', 'm'], ring: false });
   });
 
   it('draws a row past 60 calls as ranges, each as its most consequential call', () => {
@@ -82,10 +87,13 @@ describe('a cell, a range and the next step, worked out', () => {
     expect(sessionHint(s, { now: AT + 60_000 })).toBe(`7 goldens · ${minuteStamp(AT, AT + 60_000)}`);
     expect(sessionHint({ ...s, runs: 1, unit: 'run' }, { full: true, now: AT })).toBe(`1 run · 3 samples a step · ${minuteStamp(AT, AT)}`);
     expect([pricePair(0.028, 0.014), pricePair(0.0181, 0.0184), pricePair(0.02, 0.02)]).toEqual(['≈$0.028 → ≈$0.014', '≈$0.0181 → ≈$0.0184', '≈$0.020 → ≈$0.020']);
-    const words = receiptWords({ perRun: { before: 0.028, after: 0.014, change: '−50%' }, spent: 0.8, requests: 336, unknownModels: [], judge: { requests: 2, spent: 0.069, unknownModels: [] }, stopReason: null }, '4,000 → 5,000 input tokens (+25%)');
+    const words = receiptWords({ perRun: { before: 0.028, after: 0.014, change: '−50%' }, tokens: { before: 4000, after: 5000 }, spent: 0.8, requests: 336, unknownModels: [], judge: { requests: 2, spent: 0.069, unknownModels: [] }, stopReason: null }, '4,000 → 5,000 input tokens (+25%)');
     expect(words.map((w) => w.parts)).toEqual([['per run ≈$0.028 → ≈$0.014 (−50%)', 'this preview spent ≈$0.869'], ['336 requests to the model, 2 to the judge'], ['end to end 4,000 → 5,000 input tokens (+25%)']]);
-    expect(words[0].card!.rows).toEqual([['asking', '≈$0.800 · 336 upstream requests'], ['judging', '≈$0.069 · 2 upstream requests']]);
-    expect(receiptWords({ perRun: null, spent: 0.01, requests: 1, unknownModels: ['m-x'], judge: null, stopReason: 'the spend limit was reached' }, null).map((w) => w.parts)).toEqual([['this preview spent ≈$0.010 (no price for m-x)', 'stopped: the spend limit was reached'], ['1 request to the model']]);
+    // Its card leads with a run's tokens either way, then what asking and judging spent.
+    expect(words[0].card!.rows).toEqual([['per run', '4,000 → 5,000 input tokens'], ['asking', '≈$0.800 · 336 upstream requests'], ['judging', '≈$0.069 · 2 upstream requests']]);
+    const unpriced = receiptWords({ perRun: null, tokens: null, spent: 0.01, requests: 1, unknownModels: ['m-x'], judge: null, stopReason: 'the spend limit was reached' }, null);
+    expect(unpriced.map((w) => w.parts)).toEqual([['this preview spent ≈$0.010 (no price for m-x)', 'stopped: the spend limit was reached'], ['1 request to the model']]);
+    expect(unpriced[0].card!.rows).toEqual([['asking', '≈$0.010 · 1 upstream request']]);
   });
 });
 
@@ -118,7 +126,9 @@ describe('an opened cell, worked out', () => {
     expect(cellLead(cell({ state: 'ranked', rank: 1, detail: 'issue_refund is no longer called', words: 'issue_refund is no longer called · in 3 of 3 samples, 0 of 3 as recorded' }))).toEqual({ rank: 1, text: 'issue_refund is no longer called', quiet: '· in 3 of 3 samples, 0 of 3 as recorded' });
     expect(cellLead(cell({ state: 'noise', rank: 0, detail: 'a write changed', words: "a write changed · within the model's own variation: in 1 of 3 samples, 1 of 3 as recorded" }))).toEqual({ rank: null, text: 'a write changed', quiet: "· within the model's own variation: in 1 of 3 samples, 1 of 3 as recorded" });
     expect([cellLead(cell({ answered: 3 })), cellLead(cell({ state: 'not-asked', words: 'not asked: HTTP 529' })), cellLead(cell({ state: 'left', words: 'left as recorded: made with gpt-4o' }))]).toEqual([{ sentence: 'The same decision in all 3 samples.' }, { sentence: 'Not asked: HTTP 529.' }, { sentence: 'Left as recorded: made with gpt-4o.' }]);
-    expect([cellCost('+120 tokens · +$0.0020', false), cellCost('', true)]).toEqual(['+120 tokens · +$0.0020 · compared after the project’s normalizers, dates near the run’s start masked', 'compared after the project’s normalizers, dates near the run’s start masked · values masked by its redaction rules']);
+    expect([cellCost('+120 tokens · +$0.0020', { redacted: false, clock: 'auto' }), cellCost('', { redacted: true, clock: 'auto' })]).toEqual(['+120 tokens · +$0.0020 · compared after the project’s normalizers, dates near the run’s start masked', 'compared after the project’s normalizers, dates near the run’s start masked · values masked by its redaction rules']);
+    // An exact clock masks no date, as decisions doesn't; a config that couldn't be read says nothing of its clock.
+    expect([cellCost('', { redacted: false, clock: 'exact' }), cellCost('', { redacted: false, clock: null })]).toEqual(['compared after the project’s normalizers', 'compared after the project’s normalizers']);
   });
 
   it('says why a run’s Decisions view lists no step, when a session asked it on its chip, and an outcome’s colour', () => {
@@ -189,7 +199,11 @@ describe('the Preview page', () => {
       ['dc', '-1', '#1 · step 1: the same in every sample: calls tools'],
       ['dc w', '0', '#3 · step 3: issue_refund is no longer called · in 2 of 2 samples'],
     ]);
-    expect(p.all('.dmr .dsl').map(shown)).toEqual(['#3 issue_refund is no longer called · in 2 of 2', 'the same decisions']);
+    // The flagged run ends on what flags it, in its colour; the other decided as recorded.
+    expect(p.all('.dmr .dsl').map((l) => [shown(l), l.querySelector('span')!.className])).toEqual([
+      ['#3 issue_refund is no longer called', 'dsd q1'],
+      ['the same decisions', 'dsm'],
+    ]);
     expect(p.all('.dnotes li').map(shown)).toEqual(['1 step got no answer: rate limited']);
     expect(p.all('.mxfoot .mxr').map(shown)).toEqual(['per run ≈$0.028 → ≈$0.014 (−50%) · this preview spent ≈$0.0040', '6 requests to the model']);
     expect(shown(p.one('.cmdline'))).toContain('shadowlap decisions goldens/* --model claude-haiku-4-5');
@@ -242,6 +256,100 @@ describe('the Preview page', () => {
     await p.click(p.one('.dconv .expand'));
     expect(p.all('.dconv .msg').length).toBe(10);
     expect(p.all('.dmr')[0].querySelectorAll('button.dc')[1].getAttribute('aria-current')).toBe('true');
+  });
+
+  it('opens a cell in place of the address and closes it pressed again, by its × or Esc, so Back leaves Preview rather than walking the cells', async () => {
+    const at = `#/changes/decisions/${ID}`;
+    const bar = { hash: at, search: '', pathname: '/', host: '' };
+    const replaced: string[] = [];
+    vi.stubGlobal('location', bar);
+    vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void replaced.push((bar.hash = url.slice(url.indexOf('#')))) });
+    const revealed = vi.spyOn(FakeElement.prototype, 'scrollIntoView');
+    try {
+      const detail = { call: { callNo: 3, kind: 'api', outcome: 'ok' }, conversation: { turns: [], fromCallNo: 3, n: null } };
+      const Routed = () => {
+        const r = useRoute();
+        return r.page === 'changes' ? createElement(PreviewTab, { id: r.id, run: r.run ?? null, call: r.call ?? null }) : null;
+      };
+      const p = await render(createElement(AppContext.Provider, { value: app({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.resolve(flagged), call: () => Promise.resolve(detail) } as unknown as Partial<Client>) }, createElement(Routed)));
+      page = p;
+      await p.until('the matrix', () => p.all('.dmr').length === 2);
+      const cell = () => p.all('.dmr')[0].querySelectorAll('button.dc')[1];
+      const opened = () => p.all('.dcell').length === 1;
+      // A press opens the cell under the matrix, in place of the address, the panel brought into view and the focus kept on the cell.
+      await p.click(cell());
+      await p.until('the cell', opened);
+      expect([replaced, revealed.mock.calls]).toEqual([[`${at}/${a}/3`], [[{ block: 'nearest' }]]]);
+      expect([cell().getAttribute('aria-current'), p.focused()]).toEqual(['true', cell()]);
+      // Pressed again, it closes, in place too.
+      await p.click(cell());
+      await p.until('the cell closed', () => !opened());
+      expect(replaced).toEqual([`${at}/${a}/3`, at]);
+      // Its × closes it as its link would, in place, the focus back on its cell.
+      await p.click(cell());
+      await p.until('the cell', opened);
+      await p.click(p.one('.dcell .dacts a.ibtn'));
+      await p.until('the cell closed', () => !opened());
+      expect([replaced.at(-1), p.focused()]).toEqual([at, cell()]);
+      // Esc, which the shell asks of the page first: in place, and the cell keeps the focus.
+      await p.click(cell());
+      await p.until('the cell', opened);
+      await p.focus(p.one('.dcell .dacts a.btn'));
+      let closed: boolean | undefined;
+      await act(async () => void (closed = pageUp.current?.()));
+      expect(closed).toBe(true);
+      await p.until('the cell closed', () => !opened());
+      expect([replaced.length, replaced.at(-1), p.focused()]).toEqual([6, at, cell()]);
+      // Only a press brings a cell into view, never an address opened afresh.
+      expect(revealed.mock.calls).toHaveLength(3);
+    } finally {
+      revealed.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('lines up every row’s calls in the widest row’s columns, dense together, and words a range and a call as their cards say them', async () => {
+    const many = Array.from({ length: 130 }, (_, i) => cell({ callNo: i + 1, step: i + 1 }));
+    many[5] = cell({ callNo: 6, step: 6, state: 'ranked', rank: 2, ranks: [2, 2], changed: 2, detail: 'it stops differently', words: 'it stops differently · in 2 of 2 samples', rankWords: 'it stops, hands over or is judged differently' });
+    const few = Array.from({ length: 8 }, (_, i) => cell({ callNo: i + 1, step: i + 1 }));
+    few[2] = cell({ callNo: 3, step: 3, state: 'ranked', rank: 1, ranks: [1, 1], changed: 2, detail: 'issue_refund is no longer called', words: 'issue_refund is no longer called · in 2 of 2 samples', rankWords: 'a write changed', scope: 'billing' });
+    const wide: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], cells: many }, { ...flagged.matrix[1], cells: few }] };
+    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.resolve(wide) });
+    await p.until('the matrix', () => p.all('.dmr').length === 2);
+    // 130 calls draw as 44 ranges: the row of 8 takes the same 44 columns, so call k sits under call k, and both go dense.
+    expect(p.all('.dmr .dmc').map((d) => [d.className, (d.props.style as Record<string, number>)['--n']])).toEqual([
+      ['dmc dense', 44],
+      ['dmc dense', 44],
+    ]);
+    const tip = (b: FakeElement) => JSON.parse(b.getAttribute('data-tip')!) as unknown;
+    const [same, changed] = p.all('.dmr')[0].querySelectorAll('button.dc');
+    expect([same.getAttribute('aria-label'), tip(same)]).toEqual(['#1–#3 · steps 1–3: the same decisions at every call asked', { t: '#1–#3 · steps 1–3', s: 'the same decisions at every call asked', rows: [] }]);
+    expect([changed.getAttribute('aria-label'), tip(changed)]).toEqual(['#4–#6 · steps 4–6: 1 changed call, most: #6 it stops differently', { t: '#4–#6 · steps 4–6', s: '1 call of 3 changed', rows: [['#6', 'it stops differently', 'var(--cq-amber)']] }]);
+    // A call's card: its scope in its title, its rank in its colour.
+    expect(tip(p.all('.dmr')[1].querySelectorAll('button.dc')[2])).toEqual({ t: '#3 · step 3 · billing', s: 'issue_refund is no longer called · in 2 of 2 samples', rows: [['rank 1', 'a write changed', 'var(--cq-red)']] });
+  });
+
+  it('offers and prices only the runs no verify took yet, naming them in its command and its job', async () => {
+    const next = flagged.view.next;
+    const partial: PreviewSession = { ...flagged, view: { ...flagged.view, next: { ...next, verify: { runs: [b], every: false, gone: 0 } } } };
+    const priced: Array<readonly string[] | undefined> = [];
+    const started: Array<[string, Record<string, unknown>]> = [];
+    const client = {
+      decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }),
+      decisionSession: () => Promise.resolve(partial),
+      estimates: { decisionEstimates: (_id: string, runIds?: readonly string[]) => (priced.push(runIds), Promise.resolve({ verify: null })) },
+      startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), Promise.resolve({ jobId: 'j1', kind, status: 'running' })),
+    };
+    const p = await open(client as unknown as Partial<Client>);
+    await p.until('the verdict', () => !!p.one('.dverdict .actions button') && priced.length > 0);
+    const verify = p.one('.dverdict .actions button');
+    expect([shown(verify), priced]).toEqual(['Verify 1 run', [[b]]]);
+    expect(JSON.parse(verify.getAttribute('data-tip')!)).toMatchObject({ cmd: `$ shadowlap decisions --verify ${ID} ${b.slice(0, 10)}` });
+    await p.click(verify);
+    await p.until('the ask', () => p.all('.dialog').length === 1);
+    await p.click(p.byText('.dialog button', 'Verify 1 run'));
+    await p.until('the job', () => started.length === 1);
+    expect(started[0]).toEqual(['decisions-verify', expect.objectContaining({ sessionId: ID, runIds: [b] })]);
   });
 
   it('marks the message a forked run’s cell changed against its parent’s call, with Jump to change', async () => {

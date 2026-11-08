@@ -1,5 +1,5 @@
 import { canonicalize } from '../../engine/src/canonical.js';
-import { approx, clock, minuteStamp } from './format.js';
+import { approx, clock, minuteStamp, num } from './format.js';
 import type { DecisionCell, DecisionRun, DecisionSessionView, DecisionView, PreviewNext, PreviewReceipt, PreviewView } from './types.js';
 
 /**
@@ -20,7 +20,7 @@ export interface CellLook {
   fill: Band;
   /** A band a sample, the most consequential first, which the cell draws at its bottom; null where every sample draws alike. */
   bands: Band[] | null;
-  /** An amber ring: a judge couldn't judge its words. */
+  /** An amber ring on the muted fill: its change is in its words alone, which a judge couldn't judge. A change a cell shows besides keeps its colour. */
   ring: boolean;
   /** Hollow: the change leaves the call as recorded. */
   hollow: boolean;
@@ -37,7 +37,7 @@ export function cellLook(c: Pick<DecisionCell, 'state' | 'rank' | 'sampled' | 'r
   const fill = hollow || dashed ? 'm' : bandOf(c.state === 'noise' ? c.sampled : c.rank);
   const each = c.ranks.map((r) => bandOf(r || null));
   const bands = !hollow && !dashed && each.length > 1 && each.some((b) => b !== each[0]) ? [...each].sort((a, b) => BAND_ORDER[a] - BAND_ORDER[b]) : null;
-  return { fill, bands, ring: c.judge === 'inconclusive', hollow, dashed };
+  return { fill, bands, ring: c.judge === 'inconclusive' && fill === 'm' && !hollow && !dashed, hollow, dashed };
 }
 
 /** A cell's weight, to pick the call a range stands for: a write the most, then a stop, a read, words a judge couldn't read, words, the same, not asked, left as recorded. */
@@ -135,13 +135,14 @@ const unpriced = (models: readonly string[]) => (models.length ? ` (no price for
 
 /**
  * The receipt at the matrix's foot: what a run costs as recorded and under the change and what the
- * preview spent, then what it asked; asking and judging apart on the first line's card. Once verify
+ * preview spent, then what it asked; a run's tokens either way, then asking and judging apart, on the
+ * first line's card. Once verify
  * ran, what the runs it verified cost end to end joins it.
  */
 export function receiptWords(r: PreviewReceipt, endToEnd: string | null): ReceiptWords[] {
   const spent = r.spent + (r.judge?.spent ?? 0);
   const first = [r.perRun ? `per run ${pricePair(r.perRun.before, r.perRun.after)} (${r.perRun.change})` : null, `this preview spent ${approx(spent)}${unpriced([...r.unknownModels, ...(r.judge?.unknownModels ?? [])])}`, r.stopReason ? `stopped: ${r.stopReason}` : null].filter((x): x is string => !!x);
-  const rows: Array<[string, string]> = [['asking', `${approx(r.spent)} · ${requests(r.requests, 'upstream request')}`], ...(r.judge ? [['judging', `${approx(r.judge.spent)} · ${requests(r.judge.requests, 'upstream request')}`] as [string, string]] : [])];
+  const rows: Array<[string, string]> = [...(r.tokens ? [['per run', `${num(r.tokens.before)} → ${num(r.tokens.after)} input tokens`] as [string, string]] : []), ['asking', `${approx(r.spent)} · ${requests(r.requests, 'upstream request')}`], ...(r.judge ? [['judging', `${approx(r.judge.spent)} · ${requests(r.judge.requests, 'upstream request')}`] as [string, string]] : [])];
   return [
     { parts: first, card: { title: 'What it cost', rows } },
     { parts: [`${requests(r.requests, 'request')} to the model${r.judge ? `, ${r.judge.requests} to the judge` : ''}`], card: null },
@@ -187,9 +188,13 @@ export function cellLead(c: Pick<DecisionCell, 'state' | 'rank' | 'detail' | 'wo
   return { rank: c.state === 'ranked' ? c.rank : null, text, quiet: quiet.trim() };
 }
 
-/** What an opened cell's cost line says: the step's cost either way, how it was compared, and the masking where the project redacts. */
-export function cellCost(delta: string, redacted: boolean): string {
-  return [delta, 'compared after the project’s normalizers, dates near the run’s start masked', redacted ? 'values masked by its redaction rules' : ''].filter(Boolean).join(' · ');
+/**
+ * What an opened cell's cost line says: the step's cost either way, how it was compared (after the
+ * project's normalizers, and dates near the run's start masked unless its clock is exact), and the
+ * masking where the project redacts. A config that couldn't be read says nothing of its clock.
+ */
+export function cellCost(delta: string, o: Pick<PreviewView, 'redacted' | 'clock'>): string {
+  return [delta, `compared after the project’s normalizers${o.clock === 'auto' ? ', dates near the run’s start masked' : ''}`, o.redacted ? 'values masked by its redaction rules' : ''].filter(Boolean).join(' · ');
 }
 
 const OUTCOME_TONE: Readonly<Record<string, string>> = { kept: 'ok', fixed: 'ok', broken: 'no', 'not fixed': 'no', 'not-fixed': 'no' };

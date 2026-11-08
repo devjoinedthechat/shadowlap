@@ -1,4 +1,4 @@
-import { Fragment, useEffect } from 'react';
+import { Fragment, useCallback, useEffect, type MouseEvent } from 'react';
 import { Conversation, useChange } from '../components/Conversation.js';
 import { Decision } from '../components/Decision.js';
 import { Icon } from '../components/Icon.js';
@@ -32,31 +32,47 @@ function stepOf(session: PreviewSession, runId: string, callNo: number): Decisio
   return runs?.find((r) => r.runId === runId)?.decisions.find((s) => s.callNo === callNo) ?? null;
 }
 
+/** Set as a press opens a cell: its panel, as it first draws, comes into view. An address opened afresh leaves the page where it is. */
+let reveal = false;
+export const revealCell = (): void => {
+  reveal = true;
+};
+
 /**
- * Esc closes an opened cell before the matrix lets go of its row (the shell asks `pageUp` first): it
- * goes back to its session's page, the focus on the cell's own button where it was in the panel or lost.
+ * An opened cell closes by Esc or its ×, back to its session's page in place of the address (as the
+ * cell opened), the focus on the cell's own button where it was in the panel or lost. Esc closes it
+ * before the matrix lets go of its row: the shell asks `pageUp` first.
  */
-function useEscCloses(to: string): void {
+function useCellClose(to: string): () => boolean {
+  const close = useCallback((): boolean => {
+    const a = document.activeElement;
+    const lost = !a || a === document.body || !!a.closest('#dcell');
+    const cell = lost ? document.querySelector<HTMLElement>('.dmx button.dc[aria-current="true"]') : null;
+    navigate(to, true);
+    if (cell) focusQuiet(cell);
+    return true;
+  }, [to]);
   useEffect(() => {
-    const close = (): boolean => {
-      const a = document.activeElement;
-      const lost = !a || a === document.body || !!a.closest('#dcell');
-      const cell = lost ? document.querySelector<HTMLElement>('.dmx button.dc[aria-current="true"]') : null;
-      navigate(to);
-      if (cell) focusQuiet(cell);
-      return true;
-    };
     pageUp.current = close;
     return () => {
       if (pageUp.current === close) pageUp.current = null;
     };
-  }, [to]);
+  }, [close]);
+  return close;
 }
+
+/** A plain press of a link the page handles itself; one with a modifier, or another button, opens as a link does. */
+const plainPress = (e: MouseEvent): boolean => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 
 export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSession; row: Row; callNo: number }) {
   const cell = row.cells.find((c) => c.callNo === callNo) ?? null;
   const close = href.changeSession('decisions', session.sessionId);
-  useEscCloses(close);
+  const shut = useCellClose(close);
+  useEffect(() => {
+    if (!reveal) return;
+    reveal = false;
+    document.querySelector<HTMLElement>('#dcell')?.scrollIntoView({ block: 'nearest' });
+  }, []);
   const runLink = href.run(row.runId, callNo, 'decisions');
   const step = cell ? stepOf(session, row.runId, callNo) : null;
   return (
@@ -75,7 +91,16 @@ export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSe
               Open run
             </a>
           ) : null}
-          <a className="ibtn" href={close} aria-label="Close">
+          <a
+            className="ibtn"
+            href={close}
+            aria-label="Close"
+            onClick={(e) => {
+              if (!plainPress(e)) return;
+              e.preventDefault();
+              shut();
+            }}
+          >
             <Icon name="x" />
           </a>
         </span>
@@ -156,7 +181,7 @@ function CellBody({ session, row, cell, step }: { session: PreviewSession; row: 
               ))}
             </ul>
           ) : null}
-          <p className="dspend">{cellCost(open.delta, v.redacted)}</p>
+          <p className="dspend">{cellCost(open.delta, v)}</p>
         </>
       ) : null}
     </>

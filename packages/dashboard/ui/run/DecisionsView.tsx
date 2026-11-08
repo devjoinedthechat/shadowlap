@@ -134,7 +134,7 @@ function Step({ st, sel, onSelect }: { st: ViewStep; sel: boolean; onSelect: (n:
           </>
         )}
         <Said detail={st.detail} />
-        {st.rank === null ? <span className="dlm">{' · within the model’s own variation'}</span> : null}
+        {st.within ? <span className="dlm">{` · ${st.within}`}</span> : null}
         {st.short ? <span className="dlm">{` · ${st.short}`}</span> : null}
         {st.waits ? <span className="dsy">{' · waits on a judge'}</span> : null}
       </p>

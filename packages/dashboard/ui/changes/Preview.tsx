@@ -23,7 +23,7 @@ import { Unshown } from '../shell/unshown.js';
 import { useApp } from '../state.js';
 import type { Tone } from '../components/Status.js';
 import type { DecisionSessionView, PreviewSession, PreviewView } from '../types.js';
-import { DecisionCellPanel } from './DecisionCell.js';
+import { DecisionCellPanel, revealCell } from './DecisionCell.js';
 import { DecisionMatrix } from './DecisionMatrix.js';
 
 /**
@@ -60,7 +60,6 @@ export function PreviewTab({ id, run, call }: { id: string | null; run: string |
     );
   if (detail.error && !session) return <ErrorState retry={detail.reload}>{failedWords(detail.error)}</ErrorState>;
   if (!session) return <Skeleton what="this preview" lines={8} />;
-  const open = run ? { run, call } : null;
   const opened = openedCell(session, run, call);
   return (
     <>
@@ -68,11 +67,22 @@ export function PreviewTab({ id, run, call }: { id: string | null; run: string |
         <SessionPicker sessions={sessions} shown={session} />
       </div>
       <Verdict session={session} />
-      <DecisionMatrix session={session} open={open} onOpen={(r, c) => navigate(href.changeSession('decisions', session.sessionId, r, c))} />
+      <DecisionMatrix session={session} open={opened ? { run: opened.row.runId, call: opened.callNo } : null} onOpen={(r, c, current) => openCell(session.sessionId, r, c, current)} />
       {opened ? <DecisionCellPanel key={`${opened.row.runId}:${opened.callNo}`} session={session} row={opened.row} callNo={opened.callNo} /> : null}
       <CodeBox command={session.view.command} className="chcmd" />
     </>
   );
+}
+
+/**
+ * A cell opens under the matrix, and pressed again closes, in place of the address as a pick in a page
+ * is: Back leaves Preview rather than walking back through every cell opened, and the page keeps its
+ * scroll. A cell that opens is brought into view the nearest way, as one from a tall matrix's top row
+ * could open below the window.
+ */
+function openCell(sessionId: string, run: string, call: number | null, current: boolean): void {
+  if (!current) revealCell();
+  navigate(current ? href.changeSession('decisions', sessionId) : href.changeSession('decisions', sessionId, run, call), true);
 }
 
 /** The cell an address opens: its run's row at its call; a run's address without a call, the call its row ends on, else its first. */
