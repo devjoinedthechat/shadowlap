@@ -1,5 +1,5 @@
-import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, percentChange, plural, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, verdictWord, verifiedCount, verifyHead, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
-import type { DecisionCell, DecisionRow } from './decision-cells.js';
+import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, plural, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, verdictWord, verifiedCount, verifyHead, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
+import { LATER_STEPS, type DecisionCell, type DecisionRow } from './decision-cells.js';
 import { decisionSession, sessionReport } from './decisions.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsWithin } from './run-about.js';
@@ -264,7 +264,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     verdict: { word: verdict.word, tone: verdict.tone, line: verdict.line, toVerify: verdict.toVerify, flaggedRank: verdict.flaggedRank, moved: verdict.moved },
     headline,
     steps: { text: stepsAsked({ counts: c, samples: report.samples, runs }), once: report.samples === 1, tail: [...(c.notAsked ? [`${c.notAsked} not asked`] : []), 'no tool ran'], notes: report.notes ?? [] },
-    later: headline.asked ? { text: JUDGED_LATER, title: JUDGED_IN_RECORDED_STATE.split(':')[0]!, card: JUDGED_IN_RECORDED_STATE } : null,
+    later: headline.asked ? { text: JUDGED_LATER, ...LATER_STEPS } : null,
     within: withinLine({ samples: report.samples, flagged: report.flagged, runs }),
     verify: v ? verifyView(v, runs) : null,
     next: nextFacts(store, session.kind, report, v, { asked: headline.asked, word: verdict.word }),

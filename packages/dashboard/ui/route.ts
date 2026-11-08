@@ -17,9 +17,8 @@ import { isRevisionKey, links, parseRunsQuery, type LinkView, type RunsFilterRea
  *   #/setup/store                        the team store's setup
  */
 
-// Until the run page draws its Decisions view (port/preview-page's stage E), the page's views leave it out: a link to it opens Calls.
-export type View = Exclude<LinkView, 'decisions'>;
-export const VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timeline', 'forks', 'provenance'];
+export type View = LinkView;
+export const VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timeline', 'forks', 'provenance', 'decisions'];
 
 export type Route =
   | { page: 'overview' }

@@ -1,6 +1,6 @@
 import { canonicalize } from '../../engine/src/canonical.js';
-import { approx, minuteStamp } from './format.js';
-import type { DecisionCell, DecisionSessionView, DecisionView, PreviewNext, PreviewReceipt, PreviewView } from './types.js';
+import { approx, clock, minuteStamp } from './format.js';
+import type { DecisionCell, DecisionRun, DecisionSessionView, DecisionView, PreviewNext, PreviewReceipt, PreviewView } from './types.js';
 
 /**
  * Changes' Preview and a run's Decisions view, worked out from what the server words (src/decision-view.ts):
@@ -190,4 +190,21 @@ export function cellLead(c: Pick<DecisionCell, 'state' | 'rank' | 'detail' | 'wo
 /** What an opened cell's cost line says: the step's cost either way, how it was compared, and the masking where the project redacts. */
 export function cellCost(delta: string, redacted: boolean): string {
   return [delta, 'compared after the project’s normalizers, dates near the run’s start masked', redacted ? 'values masked by its redaction rules' : ''].filter(Boolean).join(' · ');
+}
+
+const OUTCOME_TONE: Readonly<Record<string, string>> = { kept: 'ok', fixed: 'ok', broken: 'no', 'not fixed': 'no', 'not-fixed': 'no' };
+/** What verify found of a run, in its colour: kept and fixed green, broken and not fixed red, else amber (inconclusive). */
+export const outcomeTone = (outcome: string): string => OUTCOME_TONE[outcome] ?? 'y';
+
+/** What a run's Decisions view says where it lists no step: why it wasn't asked, else that it decided as recorded. */
+export function noneLine(run: Pick<DecisionRun, 'refused' | 'asked' | 'decisions'>): string {
+  if (run.refused) return sentence(`not asked: ${run.refused.split('\n')[0] ?? ''}`);
+  if (run.asked) return 'The same decision at every step asked.';
+  const error = run.decisions.find((d) => d.error)?.error;
+  return error ? sentence(`nothing asked: ${error}`) : 'The change leaves this run’s requests as recorded.';
+}
+
+/** When a session asked a run, on its chip in the run's Decisions view: the time alone today (`14:05`), else with its day (`Nov 6, 14:05`). */
+export function chipWhen(ms: number, now = Date.now()): string {
+  return new Date(ms).toDateString() === new Date(now).toDateString() ? clock(ms) : minuteStamp(ms, now);
 }

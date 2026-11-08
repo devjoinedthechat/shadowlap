@@ -69,6 +69,8 @@ const VIEWS = [
   ['Timeline', '.tl'],
   ['Forks', '.fnode'],
   ['Provenance', '.prov'],
+  // A copy keeps no previews, and says so.
+  ['Decisions', '.dview.dvnone'],
 ] as const;
 
 test('an exported copy opens on the run that was shared and draws each of its views from its one script, with no serious or critical axe violation', async ({ page }) => {

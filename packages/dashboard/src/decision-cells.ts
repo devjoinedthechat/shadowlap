@@ -1,4 +1,4 @@
-import { argsDelta, decisionLine, decisionStepState, judgedOutcome, judgeOpen, judgeWords, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type DecisionView, type Palette } from '@shadowlap/engine';
+import { argsDelta, decisionLine, decisionStepState, judgedOutcome, judgeOpen, judgeWords, JUDGED_IN_RECORDED_STATE, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type DecisionView, type Palette } from '@shadowlap/engine';
 
 /**
  * A preview's matrix as Changes and a run's Decisions view draw it: a row per run, a cell per model
@@ -90,6 +90,9 @@ export function toned(words: (p: Palette) => string): Toned[] {
   }
   return out;
 }
+
+/** The line about later steps, `Later steps are judged in the recorded run's state`, and its card, the engine's whole sentence: Preview's and a run's Decisions view's. */
+export const LATER_STEPS = { title: JUDGED_IN_RECORDED_STATE.split(':')[0]!, card: JUDGED_IN_RECORDED_STATE };
 
 /** Each changed argument of a step, field by field: `lookup_policy.amount: 240 → —`. */
 const argLines = (s: DecisionStep): string[] => s.changes.filter((c) => c.kind === 'write-arguments' || c.kind === 'read-arguments').flatMap((c) => argsDelta(c.before, c.after).map((d) => `${c.tool ?? ''}.${d}`));

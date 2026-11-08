@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useChange } from '../components/Conversation.js';
-import type { CallDetail, RunDetail } from '../api.js';
+import type { CallDetail, CallRow, RunDetail } from '../api.js';
 import { LoadFailed } from '../components/bits.js';
 import { Tabs } from '../components/Tabs.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
@@ -46,7 +46,7 @@ import { lastRunsHref } from '../runs-view.js';
 
 /**
  * A run: its header and numbers, a banner for how it forked, where it was lost or that it is
- * recording, the strip of every call, scopes, the five views and Provenance, and the inspector. The
+ * recording, the strip of every call, scopes, the five views, Provenance and Decisions, and the inspector. The
  * URL holds the call and the view; a run still recording grows as calls arrive.
  */
 
@@ -64,8 +64,9 @@ export const VIEW_PARTS = {
   timeline: onShow(() => import('../run/TimelineView.js').then((m) => m.TimelineView), VIEW_OPTIONS),
   forks: onShow(() => import('../run/ForksView.js').then((m) => m.ForksView), VIEW_OPTIONS),
   provenance: onShow(() => import('../run/ProvenanceView.js').then((m) => m.ProvenanceView), VIEW_OPTIONS),
+  decisions: onShow(() => import('../run/DecisionsView.js').then((m) => m.DecisionsView), VIEW_OPTIONS),
 } satisfies Record<Exclude<View, 'calls'>, unknown>;
-const { turns: TurnsView, context: ContextView, timeline: TimelineView, forks: ForksView, provenance: ProvenanceView } = VIEW_PARTS;
+const { turns: TurnsView, context: ContextView, timeline: TimelineView, forks: ForksView, provenance: ProvenanceView, decisions: DecisionsView } = VIEW_PARTS;
 
 function warmViews(): void {
   for (const part of Object.values(VIEW_PARTS)) part.preload();
@@ -73,7 +74,7 @@ function warmViews(): void {
 
 let lastTab: InspectorTab = 'conversation';
 
-const VIEW_NAMES: Readonly<Record<View, string>> = { calls: 'Calls', turns: 'Turns', context: 'Context', timeline: 'Timeline', forks: 'Forks', provenance: 'Provenance' };
+const VIEW_NAMES: Readonly<Record<View, string>> = { calls: 'Calls', turns: 'Turns', context: 'Context', timeline: 'Timeline', forks: 'Forks', provenance: 'Provenance', decisions: 'Decisions' };
 
 /** The call `n` jumps to where it is the fork or the lost call, and the card on the banner's call that shows it. */
 function jumpOf(forkAt: number | null, lostAt: number | null): { n: number; card: string } | null {
@@ -89,6 +90,26 @@ function viewTabs(v: View, calls: number, turns: number | undefined) {
     const tip = key === 'provenance' ? tipCard(VIEW_NAMES[key], [], 'The run’s record: what made it, where it came from, what a copy would mask, and each call’s fingerprint.') : mark?.['aria-keyshortcuts'] ? tipText(VIEW_NAMES[key]) : undefined;
     return { key, label: VIEW_NAMES[key], count: key === 'calls' ? calls : key === 'turns' ? turns : undefined, tip, mark };
   });
+}
+
+/** The view shown: Calls as the page draws it (`children`), every other one from its part. */
+function ViewSwitch({ v, run, calls, selected, scoped, byKind: kinds, onSelect, children }: { v: View; run: RunDetail; calls: CallRow[]; selected: number | null; scoped: boolean; byKind: boolean; onSelect: (n: number) => void; children: ReactNode }) {
+  switch (v) {
+    case 'calls':
+      return children;
+    case 'turns':
+      return <TurnsView calls={calls} selected={selected} scoped={scoped} onSelect={onSelect} />;
+    case 'context':
+      return <ContextView run={run} calls={calls} selected={selected} onSelect={onSelect} />;
+    case 'timeline':
+      return <TimelineView calls={calls} selected={selected} scoped={scoped} byKind={kinds} onSelect={onSelect} />;
+    case 'forks':
+      return <ForksView runId={run.run.runId} />;
+    case 'provenance':
+      return <ProvenanceView run={run} selected={selected} />;
+    case 'decisions':
+      return <DecisionsView runId={run.run.runId} selected={selected} onSelect={onSelect} />;
+  }
 }
 
 /**
@@ -360,12 +381,9 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
               of a run whose model called no tool and Context may hold nothing that takes the focus, so
               the view takes it itself, to be scrolled by keyboard. */}
           <div className="vbody" id="vbody" key={v} role="tabpanel" aria-labelledby={`vtab-${v}`} tabIndex={PANE_VIEWS.includes(v) ? 0 : -1}>
-            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
-            {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
-            {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
-            {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} byKind={kinds} onSelect={select} /> : null}
-            {v === 'forks' ? <ForksView runId={runId} /> : null}
-            {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
+            <ViewSwitch v={v} run={run} calls={scopedCalls} selected={selected} scoped={scoped} byKind={kinds} onSelect={select}>
+              <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} />
+            </ViewSwitch>
           </div>
         </section>
         <InspectorPlace panel={panel} run={run} test={offers?.test ?? null} onClose={closePanel} onPick={select}>

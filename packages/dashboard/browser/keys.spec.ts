@@ -87,7 +87,7 @@ test('a run’s views and the inspector are tabs with one Tab stop, the arrows m
   await expect(page.locator('#vtab-turns')).toBeFocused();
   await expect(page.locator('#vbody')).toHaveAttribute('aria-labelledby', 'vtab-turns');
   await page.keyboard.press('End');
-  await expect(page.locator('#vtab-provenance')).toBeFocused();
+  await expect(page.locator('#vtab-decisions')).toBeFocused();
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('#vtab-calls')).toBeFocused();
   await expect(page.locator('#vtab-turns')).toHaveAttribute('aria-keyshortcuts', 'v');
@@ -95,8 +95,10 @@ test('a run’s views and the inspector are tabs with one Tab stop, the arrows m
   await expect(tabs).toHaveCount(4);
   await expect(tabs.nth(2)).toHaveAttribute('aria-keyshortcuts', '3');
   await expect(page.locator('#ibody')).toHaveAttribute('role', 'tabpanel');
-  // From the provenance view v comes round to Calls.
+  // From the provenance view v reaches Decisions, and from Decisions comes round to Calls.
   await page.locator('#vtab-provenance').click();
+  await page.keyboard.press('v');
+  await expect(page.locator('#vtab-decisions')).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('v');
   await expect(page.locator('#vtab-calls')).toHaveAttribute('aria-selected', 'true');
   expect(await seriousViolations(page)).toEqual([]);

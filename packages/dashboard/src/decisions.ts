@@ -1,5 +1,5 @@
 import { commandIsImported, type DecisionRun, fieldValue, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, type RetirementNotice, retirementOf, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyWords } from '@shadowlap/engine';
-import { decisionRow, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
+import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
@@ -108,12 +108,13 @@ export interface RunDecisionsSession {
   verified: { outcome: string; tally: string; rule: string | null } | null;
 }
 
-/** A run's decisions under each session that asked its model calls again, newest first, for its page's Decisions view. */
-export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string, limit = 10): { runId: string; sessions: RunDecisionsSession[] } {
+/** A run's decisions under each session that asked its model calls again, newest first, for its page's Decisions view; with the line about later steps where one did. */
+export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string, limit = 10): { runId: string; sessions: RunDecisionsSession[]; later: typeof LATER_STEPS | null } {
   const rows = store.decisionsOfRun(runId, limit);
   const facts = sessionFacts(store, rows.map((r) => r.sessionId));
   return {
     runId,
+    later: rows.length ? LATER_STEPS : null,
     sessions: rows.map((r) => {
       const run = r.data as unknown as DecisionRun;
       const f = facts.get(r.sessionId);

@@ -5,7 +5,7 @@ import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
 import { Link } from '../components/Link.js';
 import { glossed } from '../components/Term.js';
-import { cellCost, cellLead, drawnCells } from '../decisions.js';
+import { cellCost, cellLead, drawnCells, outcomeTone } from '../decisions.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { glueBound } from '../matrix.js';
@@ -23,8 +23,6 @@ import type { CellOpen, DecisionCell, DecisionRun, DecisionStep, PreviewSession,
  */
 
 type Row = PreviewSession['matrix'][number];
-
-const OUTCOME_TONE: Record<string, string> = { kept: 'ok', fixed: 'ok', broken: 'no', 'not fixed': 'no', 'not-fixed': 'no' };
 
 /** The report's step behind a cell, which keeps both decisions: a preview keeps its runs under `runs`, a migration under `decisions`. */
 function stepOf(session: PreviewSession, runId: string, callNo: number): DecisionStep | null {
@@ -88,7 +86,7 @@ function CellBody({ session, row, cell, step }: { session: PreviewSession; row: 
           </>
         )}
         {row.verified ? (
-          <span className={`dlv ${OUTCOME_TONE[row.verified.outcome] ?? 'y'}`}>
+          <span className={`dlv ${outcomeTone(row.verified.outcome)}`}>
             verified: <b>{glossed(row.verified.outcome)}</b>
             {glueBound(row.verified.tally)}
           </span>

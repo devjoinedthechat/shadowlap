@@ -3,13 +3,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { previewSession, type PreviewSession } from '../src/decision-view.js';
+import { runDecisions } from '../src/decisions.js';
 import type { Client } from '../ui/api.js';
 import { PreviewTab } from '../ui/changes/Preview.js';
-import { argParts, cellCost, cellLead, cellLook, cellWeight, drawnCells, nextStep, pricePair, receiptWords, sessionHint, toolMarks, verdictState, verifyLabel } from '../ui/decisions.js';
+import { argParts, cellCost, cellLead, cellLook, cellWeight, chipWhen, drawnCells, nextStep, noneLine, outcomeTone, pricePair, receiptWords, sessionHint, toolMarks, verdictState, verifyLabel } from '../ui/decisions.js';
 import { forgetConversationPrefs } from '../ui/components/Conversation.js';
+import { DecisionsView, forgetDecisionsPick } from '../ui/run/DecisionsView.js';
 import { minuteStamp } from '../ui/format.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { DecisionCell, DecisionSessionView } from '../ui/types.js';
+import type { DecisionCell, DecisionSessionView, RunDecisionsView } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -117,6 +119,19 @@ describe('an opened cell, worked out', () => {
     expect(cellLead(cell({ state: 'noise', rank: 0, detail: 'a write changed', words: "a write changed · within the model's own variation: in 1 of 3 samples, 1 of 3 as recorded" }))).toEqual({ rank: null, text: 'a write changed', quiet: "· within the model's own variation: in 1 of 3 samples, 1 of 3 as recorded" });
     expect([cellLead(cell({ answered: 3 })), cellLead(cell({ state: 'not-asked', words: 'not asked: HTTP 529' })), cellLead(cell({ state: 'left', words: 'left as recorded: made with gpt-4o' }))]).toEqual([{ sentence: 'The same decision in all 3 samples.' }, { sentence: 'Not asked: HTTP 529.' }, { sentence: 'Left as recorded: made with gpt-4o.' }]);
     expect([cellCost('+120 tokens · +$0.0020', false), cellCost('', true)]).toEqual(['+120 tokens · +$0.0020 · compared after the project’s normalizers, dates near the run’s start masked', 'compared after the project’s normalizers, dates near the run’s start masked · values masked by its redaction rules']);
+  });
+
+  it('says why a run’s Decisions view lists no step, when a session asked it on its chip, and an outcome’s colour', () => {
+    const run = (o: Partial<DecisionRun>) => ({ refused: null, asked: 0, decisions: [], ...o }) as DecisionRun;
+    expect([
+      noneLine(run({ refused: 'it was recorded on another model\nmore' })),
+      noneLine(run({ asked: 4 })),
+      noneLine(run({ decisions: [step(1, null, { error: 'HTTP 529' })] })),
+      noneLine(run({})),
+    ]).toEqual(['Not asked: it was recorded on another model.', 'The same decision at every step asked.', 'Nothing asked: HTTP 529.', 'The change leaves this run’s requests as recorded.']);
+    const now = new Date(2026, 9, 1, 18, 0).getTime();
+    expect([chipWhen(new Date(2026, 9, 1, 10, 12).getTime(), now), chipWhen(new Date(2026, 8, 30, 10, 12).getTime(), now)]).toEqual(['10:12', 'Sep 30, 10:12']);
+    expect(['kept', 'fixed', 'broken', 'not fixed', 'inconclusive'].map(outcomeTone)).toEqual(['ok', 'ok', 'no', 'no', 'y']);
   });
 });
 
@@ -240,5 +255,62 @@ describe('the Preview page', () => {
     await p.until('the empty state', () => p.all('.stepempty').length === 1);
     expect(shown(p.one('.stepempty'))).toContain('shadowlap decisions goldens/* --model <model>');
     expect(verdictState(flagged.view)).toBe('flagged');
+  });
+
+  describe('a run’s Decisions view', () => {
+    afterEach(() => forgetDecisionsPick());
+    const view = async (answer: RunDecisionsView | null, runId = a, selected: number | null = 3, client: Partial<Client> = {}) => {
+      const picked: number[] = [];
+      const p = await render(createElement(AppContext.Provider, { value: app({ runDecisions: () => Promise.resolve(answer!), ...client }) }, createElement(DecisionsView, { runId, selected, onSelect: (n: number) => picked.push(n) })));
+      page = p;
+      return { p, picked };
+    };
+
+    it('shows the preview that asked the run, its cells, its ranked steps worded and the line about later steps; a step or a cell picks its call', async () => {
+      const { p, picked } = await view(runDecisions(store, a));
+      await p.until('the steps', () => p.all('.dvstep').length === 1);
+      expect(shown(p.one('.dvhead p'))).toBe(`Model switch to claude-haiku-4-5 · ${minuteStamp(AT)} · 2 samples a step`);
+      expect([shown(p.one('.dvhead a.more')), p.one('.dvhead a.more').getAttribute('href')]).toEqual(['Preview in Changes →', `#/changes/decisions/${ID}/${a}/3`]);
+      expect(p.all('.dvstrip button.dc').map((c) => [c.getAttribute('tabindex'), c.getAttribute('aria-current')])).toEqual([['-1', 'false'], ['0', 'true']]);
+      expect([p.one('.dvstep').className, shown(p.one('.dvs1'))]).toEqual(['dvstep sel', '#3 rank 1 issue_refund is no longer called · in 2 of 2']);
+      expect(p.all('.dvs2').map(shown)).toEqual(['recorded calls tools', 'now calls tools']);
+      expect([shown(p.one('.dvlater')), p.one('.dvlater span').getAttribute('tabindex'), p.one('.dvlater span').getAttribute('data-tip')]).toEqual(["Later steps are judged in the recorded run's state.", '0', expect.stringContaining('not where the changed run would have got to')]);
+      expect(p.all('.dvpick').length).toBe(0);
+      await p.click(p.one('.dvstep'));
+      await p.click(p.all('.dvstrip button.dc')[0]);
+      expect(picked).toEqual([3, 1]);
+    });
+
+    it('offers a chip a preview where several asked the run, the pick kept for the run while the page is open', async () => {
+      const one = runDecisions(store, a);
+      const older = { ...one.sessions[0], sessionId: 'dc-01M4000000000000000000000B', name: 'Model switch to gpt-4o', at: AT - 86_400_000, kind: 'migrate' as const };
+      const both: RunDecisionsView = { ...one, sessions: [one.sessions[0], older] };
+      let { p } = await view(both);
+      await p.until('the chips', () => p.all('.dvpick button').length === 2);
+      expect(p.all('.dvpick button').map((b) => [b.getAttribute('aria-pressed'), b.getAttribute('title')])).toEqual([
+        ['true', `Model switch to claude-haiku-4-5 · ${minuteStamp(AT)}`],
+        ['false', `Model switch to gpt-4o · ${minuteStamp(AT - 86_400_000)}`],
+      ]);
+      await p.click(p.all('.dvpick button')[1]);
+      expect([shown(p.one('.dvhead b')), shown(p.one('.dvhead a.more'))]).toEqual(['Model switch to gpt-4o', 'Migration in Changes →']);
+      await p.unmount();
+      ({ p } = await view(both));
+      await p.until('the chips', () => p.all('.dvpick button').length === 2);
+      expect(p.all('.dvpick button').map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+    });
+
+    it('says a run decided as recorded, a run nobody previewed with the command, and that an exported copy holds no previews', async () => {
+      let { p } = await view(runDecisions(store, b), b, null);
+      await p.until('the line', () => p.all('.dvnone').length === 1);
+      expect([shown(p.one('.dvnone')), p.all('.dvstep').length]).toEqual(['The same decision at every step asked.', 0]);
+      await p.unmount();
+      ({ p } = await view({ runId: 'r-none', sessions: [], later: null }, 'r-none', null));
+      await p.until('the empty view', () => p.all('.dvempty').length === 1);
+      expect(shown(p.one('.dvempty p'))).toBe('No change has been previewed on this run. Each of its model calls can be asked again with only the change swapped in, and no tool runs.');
+      expect(shown(p.one('.dvempty'))).toContain('shadowlap decisions r-none --model <model>');
+      await p.unmount();
+      ({ p } = await view(null, a, null, { exported: true }));
+      expect(shown(p.one('.dview'))).toBe('An exported copy holds no previews.');
+    });
   });
 });
