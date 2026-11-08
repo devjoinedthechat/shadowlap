@@ -28,7 +28,7 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * the parts they show and none of the dashboard's other pages. A part a copy never draws, such as
  * Revert's dialog and the first bad commit's change box, is the exception: the served entry hands it
  * in (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it, and a test pins
- * what keeps it undrawn there (test/revert-copy.test.ts). The one part the page list shows
+ * what keeps it undrawn there (test/ui-revert-copy.test.ts). The one part the page list shows
  * itself, the page that says another project holds what a link names, is declared in a module of its
  * own that the pages showing it import too (pages/held-elsewhere.tsx), and the bundle size test pins
  * it. The bundle size test holds each page's and each part's script to a budget of its own.

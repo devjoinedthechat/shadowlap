@@ -6,7 +6,7 @@ import type { RevertDialogProps } from './revert/RevertDialog.js';
  * The parts a page draws only where the dashboard runs, never in an exported copy, handed in by the
  * served entry (App.tsx, from pages/served.tsx) as it hands the shell its pages: a copy's script then
  * holds none of their code, and a page that finds one missing draws nothing in its place. What keeps
- * each undrawn in a copy is pinned by a test (test/revert-copy.test.ts: a copy's run has no revert
+ * each undrawn in a copy is pinned by a test (test/ui-revert-copy.test.ts: a copy's run has no revert
  * step and no offers, so no first bad commit to show, and its Tests page is not in it).
  */
 export interface ServedParts {

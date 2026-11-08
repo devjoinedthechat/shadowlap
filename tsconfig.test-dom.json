@@ -17,6 +17,8 @@
     "packages/dashboard/test/ui-timeline-notch.test.ts",
     "packages/dashboard/test/ui-timeline-kinds.test.ts",
     "packages/dashboard/test/ui-inspector-panel.test.ts",
+    "packages/dashboard/test/ui-revert-copy.test.ts",
+    "packages/dashboard/test/ui-revert.test.ts",
     "packages/dashboard/test/ui-context-axis.test.ts",
     "packages/dashboard/test/ui-check-words.test.ts",
     "packages/dashboard/test/ui-inspector-notes.test.ts",
