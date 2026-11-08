@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo } from 'react';
 import { ApiError } from '../api.js';
+import { ActionButton } from '../components/ActionButton.js';
 import { AskNote } from '../components/AskNote.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { ConfirmDialog } from '../components/Dialog.js';
@@ -229,11 +230,12 @@ function NextStepButton({ session }: { session: PreviewSession }) {
   if (step.kind === 'verify') {
     const named = step.every ? '' : ` ${step.runs.map(shortId).join(' ')}`;
     const command = `shadowlap decisions --verify ${id}${named}`;
+    // A run gone from the store can't be verified (the server refuses it): Verify waits, saying why, as a job that can't start does.
     if (step.gone)
       return (
-        <button className="btn" type="button" disabled title={`${step.gone === 1 ? 'A run' : `${step.gone} runs`} this preview left to verify ${step.gone === 1 ? 'is' : 'are'} no longer in the store`}>
+        <ActionButton className="btn lime" why={`${step.gone === 1 ? 'A run' : `${step.gone} runs`} this preview left to verify ${step.gone === 1 ? 'is' : 'are'} no longer in the store`} tip="Each runs end to end under the change, writes stubbed, until verify’s gate decides" command={`$ ${command}`}>
           {step.label}
-        </button>
+        </ActionButton>
       );
     return (
       <VerifyButton

@@ -205,6 +205,15 @@ describe('the Preview page', () => {
     expect([cleared.className, cleared.textContent]).toEqual(['dsv', 'not run end to end']);
   });
 
+  it('has Verify wait, plain and saying why, where a run the preview left to verify is gone from the store', async () => {
+    const next = flagged.view.next;
+    const gone: PreviewSession = { ...flagged, view: { ...flagged.view, next: { ...next, verify: { ...next.verify!, gone: 1 } } } };
+    const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.resolve(gone) });
+    await p.until('the verdict', () => !!p.one('.dverdict .actions button'));
+    const verify = p.one('.dverdict .actions button');
+    expect([shown(verify), verify.className, verify.getAttribute('aria-disabled'), verify.getAttribute('data-why')]).toEqual(['Verify 1 run', 'btn', 'true', 'A run this preview left to verify is no longer in the store']);
+  });
+
   it('opens a cell under the matrix: its head, its lead, both decisions marked, its cost and the conversation, folded', async () => {
     forgetConversationPrefs();
     const tools = (...t: Array<[string, unknown, 'write' | 'read' | 'unknown']>) => t.map(([name, args, effect]) => ({ name, args, effect }));
