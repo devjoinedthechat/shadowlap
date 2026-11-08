@@ -5,6 +5,7 @@ import { RunPage } from '../ui/pages/Run.js';
 import { href } from '../ui/route.js';
 import { navigate, useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { styleRules } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
 import { forgetPickedCalls } from '../ui/run/open-at.js';
 import { forgetFolds } from '../ui/run/folds.js';
@@ -98,9 +99,9 @@ describe('Calls, grouped', () => {
     const items = r!.all('table.calls tbody tr.tgr');
     expect(items.map((tr) => tr.getAttribute('data-fold'))).toEqual(['i1', 'i2']);
     // An item's row is a button over the row, never a call: no number, no selection.
-    expect(items[0]!.hasAttribute('aria-selected')).toBe(false);
-    expect(items[0]!.getAttribute('data-wi')).toBe('0');
-    const sum = items[0]!.querySelector('button.tgsum')!;
+    expect(items[0].hasAttribute('aria-selected')).toBe(false);
+    expect(items[0].getAttribute('data-wi')).toBe('0');
+    const sum = items[0].querySelector('button.tgsum')!;
     expect(sum.getAttribute('aria-label')).toBe('conversation 1 of 2, 4 calls');
     expect(sum.getAttribute('aria-expanded')).toBe('true');
     expect(caretOf(2)!.getAttribute('aria-label')).toBe('Hide tool call of #2');
@@ -197,5 +198,21 @@ describe('Calls, grouped', () => {
     await r!.until('the matches', () => rows().join() === '2,3,6,7');
     expect(r!.one('table.calls').className).toBe('calls');
     expect(r!.all('table.calls .tgr, table.calls .tcaret')).toHaveLength(0);
+  });
+});
+
+describe('the trace’s rules', () => {
+  it('steps 16px a level, gives a caret a 24px tap on a touch screen, and the held row the selection’s ground under the pointer too', () => {
+    const rules = styleRules();
+    const decl = (selector: string, prop: string, condition?: string) =>
+      rules
+        .filter((x) => x.selectors.includes(selector) && (condition ? x.conditions.some((c) => c.includes(condition)) : !x.conditions.length))
+        .flatMap((x) => x.decls.filter(([p]) => p === prop).map(([, v]) => v))
+        .at(-1);
+    expect(decl('table.calls.grouped td.name', 'padding-left')).toBe('calc(26px + var(--d, 0) * 16px)');
+    expect(decl('table.calls td.tgc', 'padding-left', 'max-width: 640px')).toBe('calc(24px + var(--d, 0) * 12px)');
+    expect(decl('table.calls .tcaret::before', 'inset', 'pointer: coarse')).toBe('-3px -5px');
+    expect(decl('table.calls tbody tr.held td', 'background')).toBe('var(--sel)');
+    expect(decl('table.calls tbody tr.held td:first-child', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
   });
 });
