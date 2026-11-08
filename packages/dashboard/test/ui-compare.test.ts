@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answersSub, changedAnswers, changeCards, codeNote, comparingLive, diffTexts, madeBy, pickable, prefixCells, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
+import { answersSub, changedAnswers, changeCards, codeNote, compareFacts, comparingLive, diffTexts, madeBy, pickable, prefixCells, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
 import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
 import type { CallRow, CompareView } from '../ui/types.js';
 
@@ -16,6 +16,30 @@ const changes = (o: Partial<CompareView['changes']> = {}): CompareView['changes'
 });
 
 const card = (c: Pick<CompareView, 'changes' | 'code'>, key: string) => changeCards(c).find((x) => x.key === key)!;
+
+describe('what changed, a line a fact', () => {
+  it("words each changed card its own way, and what didn't change in one line with a row a fact", () => {
+    const changed = changes({ code: { a: 'a7b3c2e', b: 'c91d0f4' }, systemPrompt: true, models: { a: ['claude-sonnet-5'], b: ['claude-haiku-4-5'] }, tools: { added: ['lookup'], removed: ['email'], redefined: false } });
+    const facts = compareFacts(changeCards({ changes: changed, code: { commits: 1, newer: 'b', subjects: ['harness: pass refund_limit through'], uncommitted: false } }));
+    expect(facts.changed.map((f) => [f.lead, f.code, f.note])).toEqual([
+      ['Code changed', 'a7b3c2e → c91d0f4', 'harness: pass refund_limit through'],
+      ['System prompt changed', null, null],
+      ['Tools changed', '+lookup −email', null],
+      ['Model changed', 'claude-sonnet-5 → claude-haiku-4-5', null],
+    ]);
+    expect([facts.same, facts.sameRows]).toEqual([null, []]);
+    // Only a definition changed: the tools' line says it in words.
+    const redefined = compareFacts(changeCards({ changes: changes({ tools: { added: [], removed: [], redefined: true } }), code: null }));
+    expect(redefined.changed).toEqual([{ key: 'tools', lead: 'Tools changed', code: null, note: 'a definition changed', tip: null }]);
+    expect(redefined.same).toBe('Code, system prompt and model unchanged');
+    expect(redefined.sameRows).toEqual([
+      { key: 'Code', value: 'a7b3c2e' },
+      { key: 'System prompt', value: 'sha 3f9e…a21' },
+      { key: 'Model', value: 'claude-sonnet-5' },
+    ]);
+    expect(compareFacts(changeCards({ changes: changes(), code: null })).same).toBe('Code, system prompt, tools and model unchanged');
+  });
+});
 
 describe('the change cards', () => {
   it('say unchanged as the mock does: the revision, the prompt by its hash, the declarations, the model', () => {

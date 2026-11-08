@@ -68,6 +68,51 @@ export function changeCards(c: Pick<CompareView, 'changes' | 'code'>): ChangeCar
   ];
 }
 
+/** A changed fact's line in What changed: `Code changed`, what changed set as code, then a muted note. */
+export interface ChangedFact {
+  key: ChangeCard['key'];
+  /** `Code changed`, `System prompt changed`. */
+  lead: string;
+  /** What changed, as code: `a7b3c2e → c91d0f4`, `+lookup −email`, `claude-sonnet-5 → claude-haiku-4-5`. */
+  code: string | null;
+  /** Words after it, muted: the commit's subject, `a definition changed`. */
+  note: string | null;
+  /** More on hover: the commits between the revisions, every tool added and removed. */
+  tip: string | null;
+}
+
+/** What changed between the two runs, a line a changed fact, and what didn't in one muted line, with a row a fact for its hover. */
+export interface CompareFacts {
+  changed: ChangedFact[];
+  /** `Code, system prompt, tools and model unchanged`; null when every fact changed. */
+  same: string | null;
+  /** The unchanged line's card, `The same on both sides`: each fact and what it is in both runs. */
+  sameRows: Array<{ key: string; value: string }>;
+}
+
+const sentenceCase = (s: string): string => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
+const listed = (xs: readonly string[]): string => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)!}` : xs.join(''));
+
+/**
+ * The change cards' words regrouped as What changed says them: each card words its change its own
+ * way, as their titles and notes don't line up. The code's revisions and the model's names as code,
+ * the commit's subject muted after them; the tools added and removed as code, or in words where
+ * only a definition changed; a system prompt that changed, alone (its note says it again).
+ */
+export function compareFacts(cards: readonly ChangeCard[]): CompareFacts {
+  const changed = cards
+    .filter((c) => c.changed)
+    .map((c): ChangedFact => {
+      const fact = { key: c.key, lead: `${sentenceCase(c.key)} changed`, code: null, note: null, tip: null };
+      if (c.key === 'code') return { ...fact, code: c.title, note: c.note || null, tip: c.tip };
+      if (c.key === 'model') return { ...fact, code: c.title };
+      if (c.key === 'tools') return /^[+−]/.test(c.note) ? { ...fact, code: c.note, tip: c.tip } : { ...fact, note: c.note, tip: c.tip };
+      return fact;
+    });
+  const same = cards.filter((c) => !c.changed);
+  return { changed, same: same.length ? `${sentenceCase(listed(same.map((c) => c.key)))} unchanged` : null, sameRows: same.map((c) => ({ key: sentenceCase(c.key), value: c.note })) };
+}
+
 /**
  * The answers that changed, for the table: a model that answered a call the same way again (its text,
  * tool calls and thinking; only the new response's id or token counts differ) gave no different answer.
