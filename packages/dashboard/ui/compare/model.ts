@@ -252,7 +252,8 @@ export function requestLines(diff: readonly DiffEntry[]): JsonLine[] {
     const cut = long ? diffTexts(e) : null;
     const [was, now] = cut ? [cut.before, cut.after] : [e.before, e.after];
     const walked = e.op === 'added' ? signed(jsonDiff(now, now), '+') : e.op === 'removed' ? signed(jsonDiff(was, was), '-') : jsonDiff(was, now);
-    const head: JsonLine = { sign: ' ', depth: 0, key: e.what ?? e.path, value: [], whole: false, json: false, fold: false, path: e.path, ...(e.what ? { tip: e.path } : {}) };
+    // A heading, not a key: the field's name with no colon after it, its path on hover where it names it otherwise.
+    const head: JsonLine = { sign: ' ', depth: 0, key: null, value: [{ text: e.what ?? e.path, marked: false }], whole: false, json: false, fold: false, path: e.path, ...(e.what ? { tip: e.path } : {}) };
     return [head, ...walked.map((l) => ({ ...l, depth: l.depth + 1 }))];
   });
 }

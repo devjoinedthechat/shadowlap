@@ -129,6 +129,7 @@ button.cprow.open { background: var(--sel); box-shadow: -12px 0 0 var(--sel), 12
 .dtool { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 3px 0; font: 12.5px/1.55 var(--mono); color: var(--dim); }
 .dtool b { color: var(--ink); font-weight: 500; }
 .dtool .ar { width: 10px; color: var(--faint); }
+.dtool .eff { margin-left: 0; }
 .dtool code { flex-basis: 100%; padding-left: 18px; color: var(--dim); overflow-wrap: anywhere; }
 .dtool .nw { white-space: nowrap; }
 .dtool.gone b { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line2); }

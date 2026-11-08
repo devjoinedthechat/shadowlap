@@ -261,12 +261,13 @@ describe('both paths in one list, a row a call', () => {
 describe('the changed request', () => {
   it('names each differing field, its path on hover, and walks its two values a level under it', () => {
     const lines = requestLines([{ op: 'changed', path: '$.messages[3].content[0].content', what: 'tool_result lookup_policy', before: '{"refund_limit":50}', after: '{"refund_limit":100}' }]);
-    expect(lines[0]).toMatchObject({ sign: ' ', depth: 0, key: 'tool_result lookup_policy', tip: '$.messages[3].content[0].content' });
+    // A heading with no key, so no colon: the field's name, its path on hover.
+    expect(lines[0]).toMatchObject({ sign: ' ', depth: 0, key: null, value: [{ text: 'tool_result lookup_policy', marked: false }], tip: '$.messages[3].content[0].content' });
     expect(lines.slice(1).every((l) => l.depth >= 1)).toBe(true);
     expect(lines.filter((l) => l.sign === '+').map((l) => `${l.key}: ${l.value.map((p) => p.text).join('')}`)).toEqual(['refund_limit: 100']);
     // A field one side lacks is all added, or all removed; one named by its path has no hover.
     const added = requestLines([{ op: 'added', path: '$.temperature', after: 0.2 }]);
-    expect(added[0]).toMatchObject({ key: '$.temperature' });
+    expect(added[0]).toMatchObject({ key: null, value: [{ text: '$.temperature', marked: false }] });
     expect(added[0].tip).toBeUndefined();
     expect(added.slice(1).every((l) => l.sign === '+')).toBe(true);
     // At most twelve fields.
