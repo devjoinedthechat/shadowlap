@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -138,6 +138,13 @@ describe('shadowlap check, named more than one way', () => {
     const printed = await shadowlap(['check', runs.under, '--expect', JSON.stringify({ output: { includes: 'Done' } })]);
     expect(printed.code).toBe(3);
     expect(printed.out.match(/a check reads what the agent printed/g)).toHaveLength(1);
+  }, 60_000);
+
+  it('refuses a folder that is no pack in the words it always has, before reading anything from it', async () => {
+    mkdirSync(join(work, 'not-a-pack'), { recursive: true });
+    const r = await shadowlap(['check', 'not-a-pack', '--expect', REFUND_RULE]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain(`${join(work, 'not-a-pack')}: no run.json: not a pack`);
   }, 60_000);
 
   it('words a recording that passed as every report does: a check that did not apply is not counted as passed', () => {
