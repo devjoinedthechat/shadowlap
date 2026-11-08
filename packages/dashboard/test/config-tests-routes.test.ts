@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { NO_COMMAND, Store, checkLabels, packRun, parseExpect, type RunMeta } from '@shadowlap/engine';
+import { DEFAULT_PRICES, NO_COMMAND, Store, checkLabels, packRun, parseExpect, type RunMeta } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import type { CheckContext, CheckPreview } from '../src/check-preview.js';
 import type { ChecksConfig } from '../src/config-tests.js';
@@ -85,6 +85,10 @@ describe('the builder reads the config', () => {
     writeConfig({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: 'not-a-pattern', replace: '<X>' }], tests: { suiteRisk: 0.05, 'goldens/refund': { fork: false, expect: { tools: { send_email: 0 } } }, 'goldens/refund-*': { fork: true }, 'goldens/other': {} } });
     const read = await get<ChecksConfig>(`checks/goldens?run=${rec}`);
     expect(read).toMatchObject({ exists: true, indent: '  ', order: ['suiteRisk', 'goldens/refund', 'goldens/refund-*', 'goldens/other'], relaid: false, agent: 'node agent.mjs', redactions: 1, judges: ['claude-haiku-4-5'] });
+    // Ask a judge…'s models: the docs' example first, the project's judges', then each the engine prices that a judge takes, once each.
+    expect(read.models.slice(0, 2)).toEqual(['claude-haiku-4-5', 'claude-fable-5-1']);
+    expect(read.models).toHaveLength(Object.keys(DEFAULT_PRICES).length);
+    expect(read.models).toContain('gemini-2.5-flash');
     expect(read.version).toMatch(/^[0-9a-f]{64}$/);
     expect(read.goldens.map((g) => [g.path, g.key, g.pattern, g.mode.label, g.inStore])).toEqual([
       ['goldens/refund', 'goldens/refund', false, 'replay', true],

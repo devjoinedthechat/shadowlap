@@ -135,6 +135,9 @@ export function moreEstimate(more: MoreFigure, spends: readonly number[]): Estim
   };
 }
 
+/** Why a judge never asked yet has no price: the check builder's Ask a judge… says it too. */
+export const JUDGE_UNASKED = 'its judge has not been asked yet, so what a call of it costs is unknown';
+
 /**
  * Update golden(s) (`test <goldens> --update`): each golden recorded again live, writes stubbed,
  * about what its recording cost, its judges' calls with it; a golden whose replay is clean and only
@@ -146,7 +149,7 @@ export function updateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCa
   let usd = 0;
   for (const g of goldens) {
     if (g.judge !== undefined) {
-      if (g.judge === null) return { ...noEstimate('update', 'its judge has not been asked yet, so what a call of it costs is unknown'), always };
+      if (g.judge === null) return { ...noEstimate('update', JUDGE_UNASKED), always };
       usd += g.judge;
       continue;
     }

@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import {
   CONFIG_FILE,
+  DEFAULT_PRICES,
+  JUDGE_MODEL,
   RuleError,
   TEST_SETTINGS,
   agentOfArgv,
@@ -84,7 +86,15 @@ export interface ChecksConfig {
   redactions: number;
   /** The models the project's judges use, first seen first. */
   judges: string[];
+  /**
+   * What Ask a judge…'s model picker offers before Other…: the model docs/judges.md's example asks,
+   * the project's judges' models, then each model the engine prices that a judge takes.
+   */
+  models: string[];
 }
+
+/** The model a new judge starts on: the one docs/judges.md's example asks. */
+const JUDGE_DEFAULT = 'claude-haiku-4-5';
 
 const print = (v: unknown): string =>
   createHash('sha1')
@@ -151,6 +161,7 @@ export function checksConfig(store: StoreOf<'recording'>, dir: string, goldens: 
   const file = readConfigFile(dir);
   const tests = file.data.tests;
   const redactions = readRules(file, 'redact').filter((r) => r.error === null).length;
+  const judges = [...new Set(goldens.flatMap((g) => g.judges ?? []))];
   return {
     version: file.version,
     exists: file.exists,
@@ -174,7 +185,8 @@ export function checksConfig(store: StoreOf<'recording'>, dir: string, goldens: 
       };
     }),
     redactions,
-    judges: [...new Set(goldens.flatMap((g) => g.judges ?? []))],
+    judges,
+    models: [...new Set([JUDGE_DEFAULT, ...judges, ...Object.keys(DEFAULT_PRICES).filter((m) => JUDGE_MODEL.test(m))])],
   };
 }
 
