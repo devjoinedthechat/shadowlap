@@ -12,13 +12,15 @@ import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { liveAsk } from '../tests-live.js';
-import { bisectChoices, bisectJob, checkedRevision, gatePreview, liveTestSession, normalizeAndTestJob, runTestsJob, testRunBanner, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
+import { gateQuery } from '../tests-gate.js';
+import { bisectChoices, bisectJob, checkedRevision, liveTestSession, normalizeAndTestJob, runTestsJob, testRunBanner, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
  * replay and Find breaking commit (`GET /api/tests/runs/:id`), what a gate's figures would do
  * (`GET /api/tests/gate?good=&bad=&risk=&max=`, or `?baseline=history&drop=&window=&min=&max=`
- * figured against `&history=47/50`, with `&suiteRisk=` for CI's figure, as Settings → CI's Gates previews them), what Tests' buttons and
+ * figured against `&history=47/50`, with `&suiteRisk=` for CI's figure, as Settings → CI's Gates
+ * previews them, worked out beside the server: tests-gate.ts), what Tests' buttons and
  * Find breaking commit would bill (`GET /api/tests/estimates`, `GET /api/estimates/bisect`, worked
  * out beside the server: estimates.ts), and the jobs the Tests screen starts:
  *
@@ -237,15 +239,16 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, await ctx.reads.run({ kind: 'bisect-estimate', commits, target, ...prices() }, reads));
   });
 
-  // A gate's figures, previewed before they are saved: what it means, what it costs, and its odds.
-  router.get('/tests/gate', (r) => {
-    let preview;
+  // A gate's figures, previewed before they are saved: what it means, what it costs, and its odds,
+  // worked out beside the server, since CI's figure plans a session.
+  router.get('/tests/gate', async (r) => {
+    let figures;
     try {
-      preview = gatePreview(r.query);
+      figures = gateQuery(r.query);
     } catch (err) {
       throw new HttpError(400, messageOf(err));
     }
-    r.tagged(preview);
+    sendAnswer(r, await ctx.reads.run({ kind: 'gate-preview', ...figures }));
   });
 
   // `shadowlap test` on one golden links to its replay itself: the one that passed, or the one that

@@ -2077,6 +2077,7 @@ The work done on those threads:
 - the activity feed, and a search;
 - Settings → Tools' list;
 - what the project switcher and a project's setup count of its store;
+- Settings → CI's gate preview, whose CI figure plans a session;
 - Training's pairs, and Copy JSON.
 
 **Spare threads.** While every thread is busy, a spare thread answers what comes behind them. Each ends once it has had nothing to do for a while.

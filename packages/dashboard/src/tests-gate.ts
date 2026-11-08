@@ -1,9 +1,12 @@
 import { attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, decide, describeGate, explainGate, gateOdds, gateOddsAt, gateResult, parseGate, parseTestSettings, passesPerFailure, planSuite, readConfigFile, riskPercent, runsRed, SPRT_DEFAULTS, SUITE_RISK, verdictLine, type Gate, type GateDecision, type GateHistory, type Tally } from '@shadowlap/engine';
+import { answer, type ReadTable } from './read-registry.js';
 import type { GoldenSource } from './tests.js';
 
 /**
  * Gates on the server: what a gate's figures would do before they are saved, as Settings → CI's
- * Gates previews them (`GET /api/tests/gate`). Its answer is a function of its query alone.
+ * Gates previews them (`GET /api/tests/gate`). Its answer is a function of its query alone, worked
+ * out beside the server (`GATE_READS`): CI's figure plans a session, half a second for a gate
+ * against history the first time its figures are seen.
  */
 
 /** What a gate would do, before it is saved: Settings → CI's preview of the gate's figures. */
@@ -110,7 +113,9 @@ function always(gate: Gate, pass: boolean, history: GateHistory | null): { decis
 
 /** A healthy agent's history, against which a gate against history is planned and figured in CI: 95 of its last 100 attempts passed. */
 const HEALTHY: Tally = { passes: 95, attempts: 100 };
+/** CI's figure: a run of 100 forked goldens of an agent that passes 95% of the time, as healthy as HEALTHY. */
 const CI_GOLDENS = 100;
+const CI_RATE = 0.95;
 /** Sessions planned so far, by figures and risk: planning one walks the gate's curves many times over. */
 const planned = new Map<string, { red: number; redWarn: number }>();
 
@@ -130,7 +135,7 @@ function sessionRed(gate: Gate, risk: number): { red: number; redWarn: number } 
   const red = (mode: 'fail' | 'warn'): number => {
     const plan = planSuite([golden], { risk: risk / CI_GOLDENS, inconclusive: mode });
     const own = plan?.planned[0]?.gate ?? gate;
-    return runsRed(gateOdds(own, 0.95, history), CI_GOLDENS, mode);
+    return runsRed(gateOdds(own, CI_RATE, history), CI_GOLDENS, mode);
   };
   const out = { red: red('fail'), redWarn: red('warn') };
   if (planned.size >= 64) planned.clear();
@@ -138,13 +143,23 @@ function sessionRed(gate: Gate, risk: number): { red: number; redWarn: number } 
   return out;
 }
 
+/** A preview's figures, read from its query: the gate, the baseline a gate against history is figured against, and the suite's risk CI's figure splits. */
+export interface GateQuery {
+  gate: Gate;
+  history: { passes: number; attempts: number } | null;
+  risk: number;
+}
+
+/** A gate's preview, worked out on a read-model thread: plain data, as the thread gets it. */
+export type GatePreviewJob = { kind: 'gate-preview' } & GateQuery;
+
 /**
- * A gate's preview from its figures as a page sends them (query values, all optional): `good`,
- * `bad`, `risk`, `max`, or `baseline=history` with `drop`, `risk`, `window`, `min`, `max` and the
- * baseline to figure it against, `history=47/50`; and `suiteRisk`, the config's, which CI's figure
- * splits. Throws with the config's own message for a gate it would refuse.
+ * A preview's figures as a page sends them (query values, all optional): `good`, `bad`, `risk`,
+ * `max`, or `baseline=history` with `drop`, `risk`, `window`, `min`, `max` and the baseline to figure
+ * it against, `history=47/50`; and `suiteRisk`, the config's, which CI's figure splits. Throws with
+ * the config's own message for a gate it would refuse.
  */
-export function gatePreview(query: { get(name: string): string | null }): GatePreview {
+export function gateQuery(query: { get(name: string): string | null }): GateQuery {
   const json: Record<string, unknown> = {};
   for (const key of ['baseline', 'good', 'bad', 'risk', 'max', 'drop', 'window', 'min']) {
     const raw = query.get(key);
@@ -152,8 +167,16 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
     json[key] = key === 'baseline' ? raw : Number(raw);
   }
   const gate = parseGate(json, 'gate');
-  const history = gate.kind === 'baseline' ? historyQuery(query.get('history')) : null;
-  const risk = suiteRiskQuery(query.get('suiteRisk'));
+  return { gate, history: gate.kind === 'baseline' ? historyQuery(query.get('history')) : null, risk: suiteRiskQuery(query.get('suiteRisk')) };
+}
+
+/** A gate's preview from its query, as `GET /api/tests/gate` answers it. Throws as `gateQuery` does. */
+export function gatePreview(query: { get(name: string): string | null }): GatePreview {
+  return previewOf(gateQuery(query));
+}
+
+/** A gate's preview from its figures. */
+export function previewOf({ gate, history, risk }: GateQuery): GatePreview {
   const odds = gateOddsAt(gate, gate.kind === 'sprt' ? PREVIEW_RATES : HISTORY_RATES, history);
   // Its verdict lines say over how many sessions the baseline was pooled: the window's.
   const pooled = gate.kind === 'baseline' && history ? { ...history, sessions: gate.window } : null;
@@ -170,8 +193,12 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
     extremes: { pass: up.line, fail: sprt ? always(gate, false, null).line : null },
     odds: odds.map((o) => ({ rate: o.rate, pass: o.pass, fail: o.fail, inconclusive: o.inconclusive, attempts: o.attempts })),
     history,
-    ci: { goldens: CI_GOLDENS, rate: 0.95, risk, ...ci, redText: riskPercent(ci.red), redWarnText: riskPercent(ci.redWarn) },
+    ci: { goldens: CI_GOLDENS, rate: CI_RATE, risk, ...ci, redText: riskPercent(ci.red), redWarnText: riskPercent(ci.redWarn) },
     defaults: { sprt: { ...SPRT_DEFAULTS }, baseline: { ...BASELINE_DEFAULTS }, blame: { ...BLAME_DEFAULTS } },
   };
 }
 
+/** The preview, beside the server: it reads nothing of the store. */
+export const GATE_READS: ReadTable<GatePreviewJob> = {
+  'gate-preview': (_store, job) => answer(previewOf(job), { tagged: true }),
+};
