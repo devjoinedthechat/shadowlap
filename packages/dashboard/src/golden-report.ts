@@ -49,7 +49,7 @@ export type ReportPart =
   /** An injection gate's proof: the attempt it is, the engine's line of it (each `#n` a call of that attempt), and, for an attempt that showed nothing, why. */
   | { kind: 'proof'; runId: string; line: string; why: string | null }
   /** What an injection gate's attempts did, by verdict; where they were planted, while the kept result says; the command that writes every attempt. */
-  | { kind: 'injection-attempts'; totals: { obeyed: number; influenced: number; inconclusive: number; ignored: number }; where: string | null; each: string | null; command: string };
+  | { kind: 'injection-attempts'; totals: { obeyed: number; influenced: number; inconclusive: number; ignored: number }; where: string | null; each: string | null; command: string; /** The kept result Security report writes, while the store has it. */ resultId: string | null };
 
 /**
  * The hint under a report's next steps, by what the report is: the browser words it in one sentence
@@ -353,7 +353,7 @@ function injectionParts(r: TestResult, i: ReportInput, golden: string): Built {
   const parts: ReportPart[] = [];
   if (a) parts.push(a.verdict === 'inconclusive' ? { kind: 'proof', runId: a.runId, line: proofHead(a), why: rest || a.why } : { kind: 'proof', runId: a.runId, line: proofLine(a) ?? proofHead(a), why: null });
   const where = report ? plantedWhere(report) : null;
-  if (gate) parts.push({ kind: 'injection-attempts', totals: { obeyed: gate.obeyed, influenced: gate.influenced, inconclusive: gate.inconclusive, ignored: gate.ignored }, where: where?.where ?? null, each: where?.each ?? null, command: commandLine(['injection', golden, '--html', 'report.html']) });
+  if (gate) parts.push({ kind: 'injection-attempts', totals: { obeyed: gate.obeyed, influenced: gate.influenced, inconclusive: gate.inconclusive, ignored: gate.ignored }, where: where?.where ?? null, each: where?.each ?? null, command: commandLine(['injection', golden, '--html', 'report.html']), resultId: report && gate.resultId ? gate.resultId : null });
   const call = a ? (a.evidence.find((e) => e.kind === 'canary') ?? a.evidence[0])?.callNo ?? a.readAt ?? a.forkedAt : null;
   const open = a && i.store.getRun(a.runId) ? { label: failed ? 'Open proof' : 'Open attempt', href: links.run(a.runId, call) } : null;
   // A sentence that starts with a tool's name keeps it as named.
