@@ -2355,6 +2355,7 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 - each revision's commit as git has it (`revisionFacts`): its `subject`, and its author (`by`) only where names show;
 - `older` when the session the verdict names tested a clean commit and the working tree changed since;
 - each golden that didn't pass, by its path, with the step its replay's page leads with (`steps`);
+- each golden that didn't pass, by its path, with its report (`reports`, below);
 - whether a golden has an injection test, which runs live (`injection`);
 - each golden's checks as its last result came out on each (`checkResults`, below);
 - each golden's `gate`, and what it decided last (`last.gate`, below);
@@ -2390,6 +2391,16 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 - its name and model, and why;
 - what its pack `held`: `none`; `older`, a verdict given to an older form of the judge's request; or `material`, one given on other material, with where it `changed`;
 - what settles it: `update` for a golden that replays offline, or the `keys` its provider reads for one that forks.
+
+`reports` holds, for each golden that didn't pass:
+
+- its `verdict`, the sentence that says what happened (`head`, in pieces, a path or a check as `code`), and the grey line under it (`sub`);
+- its `parts`, in the order its report draws them: `checks-changed`, `replay`, `error` (the exception the agent died of, read from its last lines, and the file it was raised in), `checks`, `gate`, `attempts`, an injection gate's `proof` and `injection-attempts`, then `commit` or `missed`;
+- what its header opens (`open`), and Runs' Failed view of its failed replays (`failedRuns`: its `href`, `count` and first five `ids`), null where its step is a fix;
+- the key of its `hint`;
+- its lines as `shadowlap test` prints them (`printed`, each with its `tone`).
+
+The store keeps the agent's last lines cut: each line at 400 characters, the whole at its last 6000. The CLI prints the last 20 lines whole. The notes the CLI prints under a golden's line aren't kept, so `printed` leaves them out. A report that can't be built is left out, and its row still shows.
 
 **A golden's evidence** (`/api/tests/evidence?golden=`): asked when the row under a gated golden opens, never with the page. It answers `attempts` (each with `runId`, `outcome` and a `note` from its failed check), `carried` (how many came from the sessions Run more attempts continued) and `gone` (runs no longer in the store, left out).
 
