@@ -548,8 +548,8 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & 
  * word, the tally and the Wilson bound) and what its attempts spent, `rescued · 2 of 2 · rate >= 0.34
  * (95%) · ≈$0.032`, its rule said once under the family; attempts no report names, "4 attempts, 2
  * passed" (those that could not be judged counted apart). A verify's then names the change it
- * checked and how that came out, as the Verify step's switch names it: `fixed · 12 of 12 · rate >=
- * 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted`, since a run kept under a change says
+ * checked and how that came out, as the Verify step's switch names it: `fixed · 12 of 12 passed ·
+ * rate >= 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted`, since a run kept under a change says
  * nothing of whether the change was accepted, and "· doesn't count" after one that doesn't count
  * for the fix. The verdict is a page's word for it: inconclusive for one that didn't settle every
  * run, never verify's incomplete. A revision stays with the "at" before it (`keepAt`).

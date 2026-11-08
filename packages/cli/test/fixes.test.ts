@@ -253,6 +253,9 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts" });
     // Each run shows its tally and the bound, at the confidence it was decided at.
     expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', bound: 'rate >= 0.73 (95%)' });
+    // And its tally in verify's words, as verify printed it for the run (engine verifyTally), whatever its parts.
+    const words = (r: { tally: string; cutShort: string | null; bound: string | null }) => `${r.tally}${r.cutShort ? ` (${r.cutShort})` : ''}${r.bound ? ` · ${r.bound}` : ''}`;
+    for (const r of shown.verify[0].rows) expect(accepted.stdout).toMatch(new RegExp(`${r.runId.slice(0, 10)} +${r.outcome} +${words(r).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(  |\n|$)`));
     expect(shown.verify[0].rows.map((r: { role: string; outcome: string }) => [r.role, r.outcome])).toEqual([
       ['target', 'fixed'],
       ['target', 'fixed'],

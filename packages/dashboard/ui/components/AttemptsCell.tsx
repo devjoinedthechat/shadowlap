@@ -86,15 +86,16 @@ export function AttemptList({ attempts, rescued, id }: { attempts: readonly Atte
 const BAR_TONE: Partial<Record<Tone, 'ok' | 'no' | 'y'>> = { ok: 'ok', err: 'no', warn: 'y' };
 
 /**
- * The cell: `tally` ("17 of 18", as the server words it) and `bound` ("rate >= 0.74 (95%)", the
- * first on a page a defined term, `boundTitle` how it was worked out, on hover), the interval
- * against `marks` when a gate decided it, and a toggle that shows the attempts under the tally
- * (`open`, where it starts). A row that draws the
+ * The cell: `tally` ("17 of 18", as the server words it), what it says apart in brackets (`note`, free
+ * to wrap) and `bound` ("rate >= 0.74 (95%)", the first on a page a defined term, `boundTitle` how it
+ * was worked out, on hover), the interval against `marks` when a gate decided it, and a toggle that
+ * shows the attempts under the tally (`open`, where it starts). A row that draws the
  * attempts elsewhere (a table's row under it) holds the toggle itself: `onToggle`, its `open` then
  * the state, and `listId`, the id of the list it draws.
  */
 export function AttemptsCell({
   tally,
+  note,
   bound,
   boundTitle,
   interval,
@@ -107,6 +108,8 @@ export function AttemptsCell({
   listId,
 }: {
   tally: string;
+  /** What the tally says apart, after it in brackets: verify's "1 cut short by the provider, counted against either verdict". */
+  note?: string | null;
   bound?: string | null;
   /** The bound's method, as the CLI's report says it rests on: "the bound: exact under the gate’s stopping rule". */
   boundTitle?: string | undefined;
@@ -133,8 +136,10 @@ export function AttemptsCell({
       <span className="acell">
         <span className="nw">
           {tally}
-          {bound ? ' ·' : ''}
+          {bound && !note ? ' ·' : ''}
         </span>
+        {/* the note wraps; the dot after it stays with its last word */}
+        {note ? ` (${note})${bound ? '\u00a0·' : ''}` : null}
         {bound ? (
           <>
             {' '}

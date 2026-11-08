@@ -1,4 +1,4 @@
-import { decisionWord, describeBaselineRule, describeGate, dropBound, gateOf, outcomeOf, probeFinding, rescueRule, runOutcomeWord, verdictLine, rateBound, type BlameProbe, type BlameReport, type Gate, type GateResult, type SprtGate, type VerifiedRun, type VerifyReport } from '@shadowlap/engine';
+import { decisionWord, describeBaselineRule, describeGate, gateOf, outcomeOf, probeFinding, rescueRule, runOutcomeWord, verdictLine, verifyTally, verifyTallyLine, type BlameProbe, type BlameReport, type Gate, type GateResult, type SprtGate, type VerifiedRun, type VerifyReport, type VerifyTally } from '@shadowlap/engine';
 
 /**
  * A gate's verdict as every page says it (decision 9): the verdict word, the tally and the Wilson
@@ -56,50 +56,29 @@ export function probeLine(p: BlameProbe, r: Pick<BlameReport, 'needed' | 'attemp
 }
 
 /**
- * A run verify took, as its verdict reads: `fixed · 12 of 12 · rate >= 0.76 (95%)`; `kept · clean
- * replay` for one its first attempt settled; a good run decided against its own baseline by both
- * tallies and the bound on its drop, `kept · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)`; with a
- * fixed count, the tally alone; an attempt that could not be judged counted apart, with no bound, as
- * the CLI prints it (`inconclusive · 2 of 2 passed, attempt 3 not judged`). One its attempts left
- * open is inconclusive too, the one word a page has for it, whether its gate couldn't decide or the
- * verify stopped first (verify's report says unsettled).
+ * A run verify took, as its verdict reads: the word, then its tally as `shadowlap verify` says it
+ * (engine `verifyTallyLine`), `fixed · 12 of 12 passed · rate >= 0.76 (95%)`; `kept · clean replay` for
+ * one its first attempt settled; a good run decided against its own baseline by both tallies and the
+ * bound on its drop, `kept · 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)`; with a fixed
+ * count, the tally alone; an attempt that could not be judged counted apart, with no bound
+ * (`inconclusive · 2 of 3 passed, attempt 4 not judged`). One its attempts left open is inconclusive
+ * too, the one word a page has for it, whether its gate couldn't decide or the verify stopped first
+ * (verify's report says unsettled).
  */
 export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone } {
   const p = verifiedParts(x);
-  return { line: [p.word, p.tally, p.bound].filter(Boolean).join(' · '), tone: p.tone };
+  return { line: `${p.word} · ${verifyTallyLine(p)}`, tone: p.tone };
 }
 
 /**
- * A run verify took, as its verdict reads (`verifiedLine`), in its parts, for a cell that draws the
- * tally and its bound apart (a fix's Verify step): the word and its tone; the tally, `12 of 12`,
- * `2 of 2 passed, attempt 3 not judged`, `38 of 38, baseline 38 of 38` or `clean replay`; and the
- * bound beside it, `rate >= 0.76 (95%)` or `drop <= 0.10 (95%)`, null where there is none.
+ * A run verify took, as its verdict reads (`verifiedLine`), in its parts, for a cell that draws them
+ * apart (a fix's Verify step): the word and its tone, then the engine's parts of its tally
+ * (`verifyTally`): what it counted, why an attempt stopped it, the attempts the provider cut short,
+ * and the bound, null where there is none or a stored report's figures can't give one.
  */
-export function verifiedParts(x: VerifiedRun): { word: string; tone: VerdictTone; tally: string; bound: string | null } {
+export function verifiedParts(x: VerifiedRun): { word: string; tone: VerdictTone } & VerifyTally {
   const word = runOutcomeWord(outcomeOf(x));
-  const tone = toneOf(word);
-  if (x.undecided) {
-    const judged = x.attempts.filter((a) => a.verdict !== 'inconclusive').length;
-    return { word, tone, tally: `${judged ? `${x.passes} of ${judged} passed, ` : ''}attempt ${x.attempts.length} not judged`, bound: null };
-  }
-  if (x.deterministic) return { word, tone, tally: 'clean replay', bound: null };
-  // Against its baseline, its pass rate says nothing alone: both tallies, and the bound on the drop.
-  if (x.baseline) {
-    let drop: string | null;
-    try {
-      drop = x.drop ? dropBound(x.drop, x.decision) : null;
-    } catch {
-      drop = null;
-    }
-    return { word, tone, tally: `${x.passes} of ${x.attempts.length}, baseline ${x.baseline.passes} of ${x.baseline.attempts}`, bound: drop };
-  }
-  let bound: string | null;
-  try {
-    bound = x.gate && x.attempts.length ? rateBound(x.gate) : null;
-  } catch {
-    bound = null;
-  }
-  return { word, tone, tally: `${x.passes} of ${x.attempts.length}`, bound };
+  return { word, tone: toneOf(word), ...verifyTally(x) };
 }
 
 /**

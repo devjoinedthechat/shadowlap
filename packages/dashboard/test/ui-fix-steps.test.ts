@@ -16,7 +16,8 @@ import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { errorText, type ToastAction } from '../ui/toast.js';
 import type { JobView } from '../ui/types.js';
-import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { FakeElement, render, type Rendered } from './ui-render.js';
+import { reportOf, tallyCases } from './verify-tally-cases.js';
 
 /**
  * A fix's steps as they render, from the read model's own answer for a store built here: each opens
@@ -62,6 +63,8 @@ async function open(fixId: string, step: string): Promise<Rendered> {
 }
 
 const text = (el: FakeElement) => el.textContent.replace(/\s+/g, ' ').trim();
+/** An element's text as a reader sees it: what a hidden element holds (a term's definition) left out. */
+const seen = (el: FakeElement): string => el.childNodes.map((c) => (c instanceof FakeElement ? (c.hasAttribute('hidden') ? '' : seen(c)) : c.textContent)).join('');
 const tip = (el: FakeElement): string => (JSON.parse(el.getAttribute('data-tip') ?? '{}') as { t?: string }).t ?? '';
 
 /** A run blamed under the fix's check, opening the fix or joining the one its label points to. */
@@ -294,6 +297,15 @@ describe('the Verify step', () => {
     await r!.click(row.querySelector('td.va button.xbtn')!);
     expect(r!.all('table.vruns tr.sub .alist > .al')).toHaveLength(4);
     expect(text(r!.one('.cmdline'))).toContain('shadowlap verify');
+  });
+
+  it('draws each run’s tally as verify prints it, the attempts the provider cut short said apart and the bound after them', async () => {
+    const cases = tallyCases(engineStore());
+    const { fixId } = blamed({ run: cases[0].run.runId });
+    recordVerdict(store, { report: reportOf(cases.map((c) => c.run)), expect: SEND_ONCE, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', rerun: { flags: [], command: null }, at: (at += DAY) });
+    await open(fixId, 'verify');
+    const cell = (runId: string) => r!.all('table.vruns tbody tr').find((x) => text(x.querySelector('td.vid')!) === runId.slice(0, 10))!.querySelector('td.va .acell')!;
+    expect(cases.map((c) => seen(cell(c.run.runId)).replace(/\s+/g, ' ').trim())).toEqual(cases.map((c) => c.line));
   });
 
   it('says the failing runs an accepted verdict left out, each with its about line: what the header’s Verify this run does while it leads, else a small one of its own', async () => {

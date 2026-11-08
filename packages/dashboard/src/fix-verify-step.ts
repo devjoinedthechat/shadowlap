@@ -1,4 +1,4 @@
-import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
+import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome, verifyTallyLine } from '@shadowlap/engine';
 import { verifyEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { changeName, commandLine, countArgs, finite, fixHref, gateArg, gateMarks, notVerified, PULLED_CAP, pulledGate, ROLE, runHref, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
@@ -170,7 +170,9 @@ function verifyRow(x: VerifiedRun): VerifyRow {
     tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
     cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,
     evidence: verifyEvidence(x),
-    tally: parts.tally,
+    // What it counted and why an attempt stopped it, as verify's line says them, then the rest of its parts.
+    tally: verifyTallyLine({ tally: parts.tally, undecided: parts.undecided }),
+    cutShort: parts.cutShort,
     bound: parts.bound,
     // Against its baseline the drop bound says it, with no bar: the row's interval is of its pass rate alone.
     interval: rate?.bound && !x.baseline ? { lo: rate.lo, hi: rate.hi } : null,

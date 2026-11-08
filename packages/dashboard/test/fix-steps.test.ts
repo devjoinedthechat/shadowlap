@@ -316,7 +316,7 @@ describe('the Verify step’s runs', () => {
     const d = detail(fixId);
     const v = d.verify[0];
     const row = v.rows.find((x) => x.runId === verified)!;
-    expect(row).toMatchObject({ tally: '4 of 4', bound: null, interval: null, attempts: 4 });
+    expect(row).toMatchObject({ tally: '4 of 4 passed', cutShort: null, bound: null, interval: null, attempts: 4 });
     expect(row.tries).toHaveLength(4);
     expect(row.tries.every((t) => t.outcome === 'passed' && t.href.endsWith(t.runId))).toBe(true);
     expect(v.marks).toBeNull();

@@ -179,7 +179,7 @@ function RunRow({ v, x, focus, open, onToggle, groups }: { v: VerifyStep; x: Ver
           <Status tone={tone}>{runOutcomeWord(x.outcome)}</Status>
         </td>
         <td className="va">
-          <AttemptsCell tally={x.tally} bound={x.bound} boundTitle={x.evidence?.method && !x.evidence.baseline ? `the bound: ${x.evidence.method}` : undefined} interval={x.interval} marks={v.marks ?? []} tone={tone} attempts={attempts} open={open} onToggle={onToggle} listId={listId} />
+          <AttemptsCell tally={x.tally} note={x.cutShort} bound={x.bound} boundTitle={x.evidence?.method && !x.evidence.baseline ? `the bound: ${x.evidence.method}` : undefined} interval={x.interval} marks={v.marks ?? []} tone={tone} attempts={attempts} open={open} onToggle={onToggle} listId={listId} />
           {x.evidence?.unavailable ? <span className="fxdim"> · {x.evidence.unavailable} unavailable</span> : null}
         </td>
         <td className="vnote fxwhere">

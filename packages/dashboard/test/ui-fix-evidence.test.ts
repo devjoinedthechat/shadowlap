@@ -131,7 +131,7 @@ describe('a fix’s page, with what its verdicts say beyond their tallies', () =
     const rows = page.all('table.t tbody tr');
     const good = rows.find((x) => text(x).startsWith('good'))!;
     // Both tallies and the bound on the drop in its Attempts cell, where its baseline came from beside where it went.
-    expect(text(good.querySelector('td.va')!)).toMatch(/^\d+ of \d+, baseline 12 of 12 · drop <= 0\.10 \(95%\)/);
+    expect(text(good.querySelector('td.va')!)).toMatch(/^\d+ of \d+ passed, baseline 12 of 12 · drop <= 0\.10 \(95%\)/);
     expect(text(good.querySelector('.fxbase')!)).toBe('baseline paired at a7b3c2e');
     expect(good.querySelector('.fxbase')!.getAttribute('title')).toBe('Kept unless its pass rate drops 10 points or more below its baseline’s');
     expect(text(good)).toContain('· 1 unavailable');

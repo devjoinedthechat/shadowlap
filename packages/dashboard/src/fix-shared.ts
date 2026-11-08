@@ -58,11 +58,16 @@ export interface VerifyRow {
   /** Where it went: where it forked, or why it failed. */
   note: string;
   /**
-   * Its tally and the bound beside it, as its verdict reads (src/verdict.ts `verifiedParts`): `12 of
-   * 12` and `rate >= 0.73 (95%)`; `2 of 2 passed, attempt 3 not judged`; `38 of 38, baseline 38 of 38`
-   * and `drop <= 0.10 (95%)`; `clean replay`. `bound` is null where there is none.
+   * Its tally in the words `shadowlap verify` prints, in the parts its cell draws apart (engine
+   * `verifyTally`, through src/verdict.ts `verifiedParts`). `tally` is what it counted and why an
+   * attempt stopped it: `12 of 12 passed`, `38 of 38 passed, baseline 38 of 38`, `clean replay`, `2 of
+   * 3 passed, attempt 4 not judged`, `the provider unavailable`. `cutShort` is the attempts the
+   * provider cut short, `1 cut short by the provider, counted against either verdict`, and `bound`
+   * the bound, `rate >= 0.73 (95%)` or `drop <= 0.10 (95%)`; each is null where there is none. Joined as
+   * verify joins them, `<tally> (<cutShort>) · <bound>`, they are its line.
    */
   tally: string;
+  cutShort: string | null;
   bound: string | null;
   /** The interval its gate decided it on, for its bar against the step's `marks`: null for a fixed count, a clean replay, and a run kept against its baseline, whose drop bound says it. */
   interval: { lo: number; hi: number } | null;
