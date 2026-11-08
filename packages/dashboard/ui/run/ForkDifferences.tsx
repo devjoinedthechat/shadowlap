@@ -38,7 +38,6 @@ const RANK_WORDS: Record<number, string> = { 1: 'a write', 2: 'how it ends', 3: 
 
 const FATE_WORDS: Record<string, string> = { blocked: 'blocked', stubbed: 'stubbed', live: 'ran live', overridden: 'overridden', replayed: 'replayed', failed: 'failed' };
 
-
 export function ForkDifferences({ runId }: { runId: string }) {
   const d = useForkDifferences(runId, true);
   return d ? <DifferencesPanel d={d} /> : null;

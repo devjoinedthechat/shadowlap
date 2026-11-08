@@ -1,7 +1,11 @@
 import { num, plural, shortId } from '../format.js';
 import type { BulkSkip } from '../types.js';
 
-/** The words a bulk action and a run's own Delete and Add label… share, apart from the bulk bar's, so a run's page loads them alone. No DOM here. */
+/**
+ * What Runs' bulk bar and a run's page both say: the runs an action took, in its toast, and Add
+ * label…'s suggestions. Apart from the bulk bar's own words (bulk.ts), so a run's page loads none of
+ * them. No DOM here: the tests import it.
+ */
 
 export const named = (ids: readonly string[]) => (ids.length === 1 ? shortId(ids[0]!) : `${num(ids.length)} runs`);
 
