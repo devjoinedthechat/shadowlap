@@ -13,7 +13,7 @@ import { useApp } from '../state.js';
 import type { PresetAttempt } from './preset.js';
 import { attemptOutcome } from './banner.js';
 import { refusedOffline } from './calls.js';
-import { metricItems, outcomeFact, type MetricInput, type OutcomeFact } from './metrics.js';
+import { metricItems, outcomeFact, spentWords, type MetricInput, type OutcomeFact } from './metrics.js';
 import { attemptOf, checksOf, originOf, pulledSpender, runLikeOf } from './model.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
@@ -41,6 +41,18 @@ export function useJudgedAt(run: RunDetail): { judged: RunDetail['judged']; outc
 }
 
 /** How an attempt came out, as its finding says it: the first fact says it too, where the chip beside the id once did. */
+/**
+ * How a run came out, its header's first fact (outcomeFact): by the checks that judged it, a fork
+ * blame rescued a run with, an error-path preset's verdict or an attempt's. Compare's line a run
+ * says it the same way.
+ */
+export function runFact(run: RunDetail, judged: NonNullable<RunDetail['judged']> | null, o: { pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean }): OutcomeFact {
+  return outcomeFact({ ...runLikeOf(run), judged }, { tools: run.summary.byKind.tool, ...o, attempt: attemptVerdictOf(run, checksOf(run)) });
+}
+
+/** What a run spent, in its header's words (spentWords): Compare's line a run says it again. */
+export const runSpentWords = (run: RunDetail): ReturnType<typeof spentWords> => spentWords({ cost: run.summary.cost, capture: runType(runLikeOf(run)) === 'capture', ...spentBy(run) });
+
 function attemptVerdictOf(run: RunDetail, checks: ReturnType<typeof checksOf>) {
   const a = attemptOf(run);
   return a ? attemptOutcome({ status: run.run.status, checks, ...(run.state ? { interrupted: run.state.interrupted } : {}) }, a) : null;
@@ -72,7 +84,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
-  const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: s.byKind.tool, pending, preset, rescued, attempt: attemptVerdictOf(run, checksOf(run)) });
+  const fact = runFact(run, judged ?? null, { pending, preset, rescued });
   return (
     <section className="metrics" aria-label="How it went">
       <Outcome fact={fact} runId={run.run.runId} />

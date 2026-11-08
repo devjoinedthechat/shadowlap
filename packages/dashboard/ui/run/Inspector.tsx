@@ -12,7 +12,9 @@ import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '
 import { shortcut, shortcutCard } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { refusedOffline } from './calls.js';
+import { failedWhy, refusedOffline } from './calls.js';
+
+export { failedWhy };
 import { EditAndFork } from './EditAndFork.js';
 import { viaWords } from './notes.js';
 import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
@@ -229,19 +231,6 @@ const LATENCY_BY: Readonly<Record<FailedBy, string>> = { shadowlap: 'answered by
 function failedBy(c: CallDetail['call']): FailedBy | null {
   if (c.kind !== 'api' || c.outcome !== 'error') return null;
   return c.origin === 'injected' ? 'shadowlap' : refusedOffline(c) ? 'replay' : 'provider';
-}
-
-/** A failed call's error without the status the note already says, so `HTTP 529: Overloaded` names 529 once. */
-function errorWords(c: Pick<CallDetail['call'], 'status' | 'error'>): string {
-  const e = (c.error ?? '').trim();
-  return (c.status ? e.replace(new RegExp(`^(HTTP\\s*)?${c.status}\\b[\\s:·.-]*`, 'i'), '') : e).replace(/\.+$/, '');
-}
-
-/** Why a call failed, in a sentence: the provider's status and error, the error alone, or that it ended in one. */
-export function failedWhy(c: Pick<CallDetail['call'], 'status' | 'error'>): string {
-  const why = errorWords(c);
-  if (c.status) return `The provider answered HTTP ${c.status}${why ? `: ${why}` : ''}.`;
-  return why ? `${why}.` : 'The call ended in an error.';
 }
 
 /**

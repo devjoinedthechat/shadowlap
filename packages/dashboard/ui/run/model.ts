@@ -152,6 +152,16 @@ export function recordingWords(r: Pick<RunDetail['run'], 'meta'>): string {
 }
 
 /**
+ * What kind of run it is, as its page's eyebrow says it, and Compare's head over each side's calls:
+ * a fork where it forked (`fork @7`, a failed one too), else `clean replay`, `replay`, `test replay`,
+ * `capture`, or the recording's words.
+ */
+export function runKindWords(d: Parameters<typeof forkKindWords>[0] & { run: Pick<RunDetail['run'], 'meta'> }, type: RunType, rescued: boolean): string {
+  const fork = forkKindWords(d, type, rescued);
+  return fork ? fork : type === 'clean' ? 'clean replay' : type === 'replay' ? 'replay' : type === 'test' ? 'test replay' : type === 'capture' ? 'capture' : recordingWords(d.run);
+}
+
+/**
  * Who spent what a run pulled from the team store spent, where it was recorded: its author by name
  * ("maya", as Runs' By column names them). Undefined for a run made here, for a capture (whose calls
  * were paid for where that traffic ran), and for a run that names no one, such as one in an HTML
