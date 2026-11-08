@@ -1,7 +1,9 @@
 import {
   agentOfRun,
+  asNumber,
   checkRecording,
   checkRecordings,
+  intoText,
   isJudgeCall,
   isObject,
   isUserInput,
@@ -128,20 +130,10 @@ const agentTools = (calls: readonly CallRecord[]): CallRecord[] => calls.filter(
 
 const toolsOf = (calls: readonly CallRecord[]): string[] => [...new Set(agentTools(calls).map((c) => c.name))];
 
-/** A value a comparison can read as a number: a finite number, or text that is one. */
-const numeric = (v: unknown): v is number | string => (typeof v === 'number' ? Number.isFinite(v) : typeof v === 'string' && /^\s*-?\d+(\.\d+)?([eE][+-]?\d+)?\s*$/.test(v));
-
-/** A result as an object its fields are read from: as recorded, or JSON held in a string, as a reference reads it. */
+/** A result as an object its fields are read from: as recorded, or JSON held in a string, as a reference reads it (the engine's rule). */
 function resultObject(value: unknown): Record<string, unknown> | null {
-  if (typeof value === 'string') {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      return isObject(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-  return isObject(value) ? value : null;
+  const v = intoText(value);
+  return isObject(v) ? v : null;
 }
 
 /** The number fields the calls' results recorded, the latest per tool and field, in the order first seen. Results that failed, were blocked or hold an error are left out. */
@@ -153,9 +145,9 @@ function numberFields(calls: readonly CallRecord[], resultOf: (c: CallRecord) =>
     const result = resultObject(resultOf(c));
     if (!result || 'error' in result) continue;
     for (const [field, value] of Object.entries(result)) {
-      if (!numeric(value)) continue;
+      if (asNumber(value) === null) continue;
       const key = `${c.name}\n${field}`;
-      const f = { tool: c.name, field, value, callNo: c.callNo };
+      const f = { tool: c.name, field, value: value as number | string, callNo: c.callNo };
       const i = at.get(key);
       if (i === undefined) at.set(key, out.push(f) - 1);
       else out[i] = f;

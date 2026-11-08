@@ -1,4 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { asNumber } from '../../../engine/src/checks/grammar.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import type { CallDetail, CallRow, RunDetail } from '../api.js';
@@ -30,14 +31,6 @@ export function addsCheck(run: RunDetail, call: Pick<CallRow, 'kind' | 'scope' |
   return !!call && call.kind === 'tool' && !call.input && call.scope !== JUDGE_SCOPE && run.run.status !== 'running' && !run.source && !o.exported && !o.actionsOff;
 }
 
-const NUMBER = /^\s*-?\d+(\.\d+)?([eE][+-]?\d+)?\s*$/;
-
-/** An argument's value as a number: a finite number, or a string that reads as one; else null. */
-export function numberValue(v: unknown): number | null {
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  return typeof v === 'string' && NUMBER.test(v) ? Number(v) : null;
-}
-
 /** A tool call's arguments, as the inspector reads them from its request. */
 export function argsOf(detail: CallDetail): Record<string, unknown> {
   const request = detail.request as { args?: unknown } | null;
@@ -49,7 +42,8 @@ export function argsOf(detail: CallDetail): Record<string, unknown> {
 export function checkMenuItems(name: string, args: Record<string, unknown>): Array<{ kind: CheckKind; label: string; keys: string }> {
   const keys = Object.keys(args);
   const [first] = keys;
-  const num = keys.find((k) => numberValue(args[k]) !== null);
+  // A number as a check compares one: the engine's rule, which the builder's argument picker reads by too.
+  const num = keys.find((k) => asNumber(args[k]) !== null);
   return [
     { kind: 'never', label: `Never call ${name}`, keys: 'tools' },
     ...(first !== undefined
@@ -83,7 +77,7 @@ function CheckMenu({ anchor, call, onPick, onClose }: { anchor: HTMLElement; cal
   return (
     <Popover key="menu" anchor={anchor} onClose={onClose} className="fkm ckm" label={`Add check at #${c.callNo}`}>
       <div className="pk">
-        Add check · #{c.callNo} <code>{c.name}</code>
+        Add check · #{c.callNo} <code className="rnm">{c.name}</code>
       </div>
       {checkMenuItems(c.name, argsOf(call)).map((i) => item(i.kind, i.label, i.keys))}
       <hr />

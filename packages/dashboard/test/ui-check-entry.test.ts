@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { CallDetail, CallRow, RunDetail } from '../ui/api.js';
 import type { OnShow } from '../ui/components/OnShow.js';
-import { addsCheck, argsOf, checkMenuItems, numberValue, useCheckEntry } from '../ui/run/check-entry.js';
+import { addsCheck, argsOf, checkMenuItems, useCheckEntry } from '../ui/run/check-entry.js';
 import { CheckBuilderPart, type BuilderProps } from '../ui/run/check-part.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render } from './ui-render.js';
@@ -42,8 +42,9 @@ describe('Add check… on a run’s page', () => {
     expect(checkMenuItems('issue_refund', { order_id: 'A-1042', refund_total: '12.5' }).map((i) => i.label)).toContain('Refund total at most…');
   });
 
-  it('reads a number argument as a number or a string that reads as one, and the arguments from the call’s request', () => {
-    expect([numberValue(3), numberValue(' -1.5e2 '), numberValue('12a'), numberValue(Infinity), numberValue(null)]).toEqual([3, -150, null, null, null]);
+  it('reads a number argument as the engine’s checks read one, and the arguments from the call’s request', () => {
+    const atMost = (args: Record<string, unknown>) => checkMenuItems('issue_refund', args).some((i) => i.kind === 'every');
+    expect([atMost({ amount: 3 }), atMost({ amount: ' -1.5e2 ' }), atMost({ amount: '12a' }), atMost({ amount: Infinity }), atMost({ amount: null })]).toEqual([true, true, false, false, false]);
     expect(argsOf({ request: { args: { amount: 1 } } } as unknown as CallDetail)).toEqual({ amount: 1 });
     expect(argsOf({ request: { amount: 1 } } as unknown as CallDetail)).toEqual({ amount: 1 });
     expect(argsOf({ request: null } as unknown as CallDetail)).toEqual({});

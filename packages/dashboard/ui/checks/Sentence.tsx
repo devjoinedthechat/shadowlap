@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 import { asNumber } from '../../../engine/src/checks/grammar.js';
+import { referenceParts } from '../../../engine/src/checks/parse.js';
 import type { ContextCall, ResultField } from '../checks-api.js';
 import { SegmentedControl } from '../components/Segmented.js';
 import { JudgeRows } from './Judge.js';
 import { Row } from './Row.js';
-import { CALL_OPS, COND_OPS, KINDS, THEN_COUNTS, argList, firstCall, numberArgs, threshold, type ArgPick, type CallOp, type CondOp, type Rule, type RuleContext, type RuleKind } from './model.js';
+import { CALL_OPS, COND_OPS, KINDS, THEN_COUNTS, argList, fieldRef, firstCall, numberArgs, threshold, type ArgPick, type CallOp, type CondOp, type Rule, type RuleContext, type RuleKind } from './model.js';
 
 /**
  * The rule being built, as a sentence of picked values: what it checks (the kinds), then its rows,
@@ -154,8 +155,6 @@ function fieldsBefore(ctx: RuleContext, c: ContextCall | null): ResultField[] {
   return ctx.context.conds.filter((f) => f.callNo < c.callNo);
 }
 
-const REF = /^@([^.\s]+)\.result\.(.+)$/;
-const refOf = (f: Pick<ResultField, 'tool' | 'field'>) => `@${f.tool}.result.${f.field}`;
 const chipText = (f: { tool: string; field: string; value: unknown; callNo: number | null }) => `${f.tool} → ${f.field}${f.callNo ? `: ${valueText(f.value)}` : ''}`;
 
 /** Every call: the tool, the tools it must come after, and a number argument against an earlier call's value or a number. */
@@ -205,9 +204,10 @@ function ValueRow({ rule, ctx, c, onRule }: { rule: Of<'every'>; ctx: RuleContex
   const nums = numberArgs(c?.args);
   if (rule.arg && !nums.includes(rule.arg)) nums.unshift(rule.arg);
   const ref = rule.val && 'ref' in rule.val ? rule.val.ref : null;
-  const fields: Array<{ tool: string; field: string; value: unknown; callNo: number | null }> = fieldsBefore(ctx, c);
-  const held = ref ? REF.exec(ref) : null;
-  if (held && !fields.some((f) => refOf(f) === ref)) fields.unshift({ tool: held[1]!, field: held[2]!, value: null, callNo: null });
+  const fields: Array<{ tool: string; field: string; value: unknown; callNo: number | null; ref: string }> = fieldsBefore(ctx, c).map((f) => ({ ...f, ref: fieldRef(f) }));
+  // A reference the rule holds that no call before offers keeps its chip, named by the engine's reading of it.
+  const held = ref ? referenceParts(ref) : null;
+  if (ref && held && !fields.some((f) => f.ref === ref)) fields.unshift({ tool: held.tool, field: held.path, value: null, callNo: null, ref });
   if (!nums.length && !rule.arg) return null;
   const hint = rule.arg ? (fields.length ? 'a value an earlier call returned, or a number' : c ? `a number: no call before #${c.callNo} returned one` : 'a number') : `an argument of ${rule.tool} to compare`;
   return (
@@ -230,7 +230,7 @@ function ValueRow({ rule, ctx, c, onRule }: { rule: Of<'every'>; ctx: RuleContex
           {fields.length ? (
             <span className="cb-chips">
               {fields.map((f) => {
-                const r = refOf(f);
+                const r = f.ref;
                 return (
                   <Chip key={r} on={ref === r} title={f.callNo ? `from #${f.callNo}: ${r}` : r} onClick={() => onRule({ ...rule, val: ref === r ? null : { ref: r } })}>
                     {chipText(f)}
