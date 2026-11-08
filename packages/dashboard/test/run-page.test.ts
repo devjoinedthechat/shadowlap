@@ -2,10 +2,11 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { blameSteps, packRun, previewRedaction, showJson, Store, type BlameRecord, type RunIntervention, type RunMeta } from '@shadowlap/engine';
+import { blameSteps, JUDGE_SCOPE, packRun, previewRedaction, showJson, Store, type BlameRecord, type RunIntervention, type RunMeta } from '@shadowlap/engine';
 // The record a replay keeps of its flags is written by the sidecar when the replay starts.
 import { describeInterventions } from '@shadowlap/sidecar';
 import { callDetail, countMasked, exportHtml, provenance, runDetail, showRunJson, startDashboard, type RunDetail } from '../src/index.js';
+import { runCallsPage } from '../src/api.js';
 
 type RunDetailShape = Pick<RunDetail, 'intervention' | 'interventions' | 'notRecorded'>;
 import { assistant, batchRun, closingBatch, RunBuilder, subagentRun, subagentRunLive, SYSTEM, text, toolResult, toolUse, TOOLS, usage, user } from '../../engine/test/run-fixtures.js';
@@ -99,6 +100,76 @@ describe('the run page: conversations', () => {
       [lp, 'agent/policy-checker'],
       [a2, 'agent'],
     ]);
+    store.close();
+  });
+
+  it('says what each conversation of a top agent was asked, on its first model call, as a batch’s items show it', () => {
+    const store = Store.open(':memory:');
+    const { runId, byTicket } = batchRun(store, 40);
+    const d = runDetail(store, runId)!;
+    const said = new Map(d.calls.map((c) => [c.callNo, c.conversationInput]));
+    for (const [t, [, m1, ...rest]] of byTicket) {
+      expect(said.get(m1), `ticket ${t}`).toBe(`Ticket T-${9100 + t}: order A-${2000 + t} arrived damaged`);
+      expect(rest.map((n) => said.get(n)), `ticket ${t}`).toEqual([null, null, null, null]);
+      expect(said.get(byTicket.get(t)![0])).toBeNull();
+    }
+    // A page of its calls says the same as the run's first answer.
+    const page = runCallsPage(store, runId, { from: 101, limit: 50 })!;
+    expect(page.calls.length).toBe(50);
+    for (const c of page.calls) expect(c.conversationInput, `#${c.callNo}`).toBe(said.get(c.callNo));
+    store.close();
+  });
+
+  it('says what a top agent was asked in a run of several, never a sub-agent nor Shadowlap’s own scope', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    const c1 = b.model({ messages: [user('Start.')] }, [text('Refund please.')], { scope: 'customer' });
+    const a1 = b.model({ messages: [user('Refund please. Order A-1042.')] }, [toolUse('lookup_order', {}, 't1')], { scope: 'agent' });
+    const p1 = b.model({ messages: [user('Does a $240 refund need approval?')] }, [text('Yes.')], { scope: 'agent/policy-checker' });
+    const j1 = b.model({ messages: [user('Did the agent refund the order?')] }, [text('{"verdict":"no"}')], { scope: JUDGE_SCOPE });
+    const quiet = b.model({ messages: [user([toolResult('t0', 'x')])] }, [text('Ok.')], { scope: 'auditor' });
+    b.end();
+    const d = runDetail(store, b.runId)!;
+    expect(d.calls.map((c) => [c.callNo, c.conversationInput])).toEqual([
+      [c1, 'Start'],
+      [a1, 'Refund please'],
+      [p1, null],
+      [j1, null],
+      [quiet, null],
+    ]);
+    // A sub-agent started by a tool is no top agent either.
+    const r = subagentRun(store);
+    expect(runDetail(store, r.runId)!.calls.map((c) => [c.callNo, c.conversationInput])).toEqual([
+      [r.main1, 'Why do refunds over $100 fail?'],
+      [r.sub1, null],
+      [r.grep, null],
+      [r.sub2, null],
+      [r.task, null],
+      [r.main2, null],
+    ]);
+    store.close();
+  });
+
+  it('says what a recording’s first ticket was asked before a second one starts, and each later one as it comes', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    const ticket = (t: number) => {
+      b.tool('get_ticket', { ticket: `T-${t}` }, { ticket: `T-${t}` });
+      const q = [user(`Ticket T-${t}: a refund. Handle it end to end.`)];
+      const first = b.model({ messages: q }, [toolUse('lookup_order', {}, `t${t}`)]);
+      b.tool('lookup_order', {}, { amount: 40 }, {});
+      b.model({ messages: [...q, assistant([toolUse('lookup_order', {}, `t${t}`)]), user([toolResult(`t${t}`, { amount: 40 })])] }, [text('Refunded.')]);
+      return first;
+    };
+    const first = ticket(1);
+    const one = runDetail(store, b.runId)!;
+    expect(one.run.status).toBe('running');
+    expect(one.calls.find((c) => c.callNo === first)!.conversationInput).toBe('Ticket T-1: a refund');
+    const second = ticket(2);
+    const later = runDetail(store, b.runId, {}, { after: one.calls.at(-1)!.callNo })!;
+    expect(later.calls.map((c) => c.callNo)[0]).toBe(second - 1);
+    expect(later.calls.find((c) => c.callNo === second)!.conversationInput).toBe('Ticket T-2: a refund');
+    b.end();
     store.close();
   });
 
@@ -415,6 +486,19 @@ describe('the run page: a fork’s flags in a copy of it', () => {
       expect(html).not.toContain('SLSEC_HTML_');
       expect(html).toContain('--api-key');
     }
+    store.close();
+  });
+
+  it('masks what a conversation was asked in an HTML export', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    b.model({ messages: [user('Ticket from jane.doe@corp.example: a refund. Handle it.')] }, [text('Done.')]);
+    b.end();
+    expect(runDetail(store, b.runId)!.calls[0].conversationInput).toBe('Ticket from jane.doe@corp.example: a refund');
+    const html = exportHtml({ store, runIds: [b.runId], uiDir, redact: rules }).html;
+    expect(html).not.toContain('jane.doe@corp.example');
+    const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(html)![1].replace(/<\\\//g, '</')) as { responses: Record<string, { calls: Array<{ conversationInput: string | null }> }> };
+    expect(data.responses[`runs/${b.runId}`].calls[0].conversationInput).toBe('Ticket from <EMAIL>: a refund');
     store.close();
   });
 

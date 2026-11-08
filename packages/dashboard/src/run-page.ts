@@ -3,7 +3,9 @@ import {
   CHECK_STATUSES,
   cacheMisses,
   canonicalModel,
+  firstSentence,
   isObject,
+  isReservedScope,
   Lru,
   hasRecordedCommand,
   LiveConversations,
@@ -22,6 +24,7 @@ import {
   summarizeRun,
   toolResultLine,
   type CacheMiss,
+  type CallAgent,
   type CallRecord,
   type CheckStatus,
   type ConversationSpan,
@@ -80,9 +83,17 @@ export interface CallFacts {
   agent: string | null;
   /** A call of a sub-agent's conversation: the model call whose tool started it. */
   spawnedBy: number | null;
+  /**
+   * The model call that starts a conversation of a top agent (not a sub-agent's, nor one of
+   * Shadowlap's own scopes): the first sentence of what it was asked, its first user message, for a
+   * batch's item to show. Every such start carries it, batch or not, since a recording's page reads
+   * each call once and its first ticket starts before the second says it is a batch. Null on every
+   * other call, and on one whose request holds no user text.
+   */
+  conversationInput: string | null;
 }
 
-export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null, agent: null, spawnedBy: null });
+export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null, agent: null, spawnedBy: null, conversationInput: null });
 
 export interface RunAnalysis {
   /**
@@ -317,6 +328,13 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
   const recorded = run.mode !== 'replay' ? new Map<number, number>() : numbered ? recordedDurations(store, run, calls) : recordedOf(store, run, calls);
   const misses = new Map<number, CacheMiss>(cache.misses.map((m) => [m.callNo, m]));
   const byNo = new Map(calls.map((c) => [c.callNo, c]));
+  // Each conversation's input, worked out once: the first sentence of its first user message.
+  const inputs = new Map<number, string | null>();
+  const inputOf = (n: number): string | null => {
+    let line = inputs.get(n);
+    if (line === undefined) inputs.set(n, (line = agents ? firstSentence(agents.input(n) ?? '') || null : null));
+    return line;
+  };
   // Each conversation's requests in call order, for requestFor.
   const requests = new Map<number, CallRecord[]>();
   for (const c of calls) {
@@ -353,6 +371,8 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
     facts(callNo) {
       const c = conversations.byCall.get(callNo);
       const miss = misses.get(callNo);
+      const who = agents ? agents.of(callNo) : ownOf(byNo.get(callNo));
+      const n = numbered && c?.starts ? c.conversation : null;
       return {
         conversation: numbered ? (c?.conversation ?? null) : null,
         conversationStart: numbered ? (c?.starts ?? false) : false,
@@ -361,7 +381,8 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
         cacheMiss: miss ? { sentAgain: miss.sentAgain, previousCallNo: miss.previousCallNo } : null,
         recordedMs: recorded.get(callNo) ?? null,
         asks: asks.get(callNo) ?? null,
-        ...(agents ? agents.of(callNo) : ownOf(byNo.get(callNo))),
+        ...who,
+        conversationInput: n !== null && topAgent(byNo.get(callNo), who) ? inputOf(n) : null,
       };
     },
   };
@@ -369,6 +390,12 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
 }
 
 const ownOf = (c: CallRecord | undefined) => (c ? ownAgent(c) : { agent: null, spawnedBy: null });
+
+/** A call of a top agent: none a sub-agent's (nested by name or started by a tool), none of Shadowlap's own scopes. */
+function topAgent(c: CallRecord | undefined, who: CallAgent): boolean {
+  if (!c || who.spawnedBy !== null || isReservedScope(c.meta.scope)) return false;
+  return !(who.agent ?? (typeof c.meta.scope === 'string' ? c.meta.scope : '')).includes('/');
+}
 
 /**
  * Tool results in a line, per store, by what the line depends on: the result blob (content
