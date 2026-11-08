@@ -16,7 +16,8 @@ import { render, type Rendered } from './ui-render.js';
  * An exported copy is built from an entry of its own (ui/main-copy.tsx), with only the pages it
  * shows (ui/pages/copy.tsx): its runs, a run's page and Compare between them. Drawn here from a real
  * export's data, as the copy draws it, it still opens on the run that was shared, lists its runs,
- * compares them, and sends every other page to its runs.
+ * compares them, and sends every other page to its runs. It draws nothing that opens a part only the
+ * served dashboard hands in (ui/served-parts.ts), whose code its script doesn't hold.
  */
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent', import.meta.url));
 
@@ -107,6 +108,14 @@ describe('an exported copy', () => {
     expect(r!.one('.ph .eyebrow').textContent).toBe('not found');
     expect(r!.one('.ph').textContent).toContain(`No run ${runId} in this copy. Open Runs`);
     expect(r!.one('.ph a.more').getAttribute('href')).toBe('#/runs');
+  });
+
+  it('draws no Share on a run’s page, so nothing there opens Share’s menu, which the served dashboard alone hands in', async () => {
+    await open([forkId, runId], `#/run/${forkId}`);
+    await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
+    expect(r!.all('#shareBtn')).toHaveLength(0);
+    expect(r!.all('.rhead .actions button').map((b) => b.textContent)).not.toContain('Share');
+    expect(r!.all('[role="menu"]')).toHaveLength(0);
   });
 
   it('lists its runs, and only those', async () => {

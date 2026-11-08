@@ -146,9 +146,9 @@ describe('the failed runs nobody has blamed', () => {
 });
 
 describe('the step a fix leads with', () => {
-  const actions = (o: Partial<FixActions> = {}): FixActions => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, ...o });
-  const repair = { argv: ['repair'], command: 'shadowlap repair --fixes label:send_email', noFix: null, noFixWhy: null, candidates: 3 };
-  const apply = { kind: 'patch' as const, argv: ['fix', 'apply', 'F'], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: null, change: null };
+  const actions = (o: Partial<FixActions> = {}): FixActions => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, ...o });
+  const repair = { argv: ['repair'], command: 'shadowlap repair --fixes label:send_email', noFix: null, noFixWhy: null, candidates: 3, spent: false };
+  const apply = { kind: 'patch' as const, argv: ['fix', 'apply', 'F'], command: 'shadowlap fix apply F', gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: null, change: null };
   const recOf = (fixId: string) => fixRecords(store, store.getFix(fixId)!);
 
   it('leads an open fix with blame again, blame with a stronger model, or Run repair, in that order', () => {

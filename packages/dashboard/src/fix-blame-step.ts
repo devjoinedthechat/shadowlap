@@ -1,7 +1,7 @@
-import { type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, probedInScope, describeBlocks, describeRescue, expectArgs, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeTally, probeWord, type PulledFrom, rescueRule, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
+import { agentCallsOf, type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, blameStateWord, blameSteps, probedInScope, describeBlocks, describeRescue, expectArgs, failureReason, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeInterval, probeTally, probeWord, type PulledFrom, rescueRule, type RunRecord, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
-import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate } from './fix-shared.js';
+import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, gateMarks, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate, type StepLine } from './fix-shared.js';
 
 /** A fix's Blame step: where blame found the run lost, the probes that showed it, and what to run next. */
 
@@ -9,9 +9,21 @@ export interface BlameStep {
   blameId: string;
   runId: string;
   runExists: boolean;
+  /**
+   * Its agent exited with an error, the first reason the run failed by the engine's rule
+   * (`failureReason`), as its run page says: Open run opens it whole, where that shows, not at a call.
+   */
+  exited: boolean;
   at: number;
   outcome: StoredBlame['outcome'];
   title: string;
+  /**
+   * Its verdict line: `blamed` in ink, its head the blamed probe's tally and the next one's (`3 of 4
+   * rescued from #5`, `0 of 4 from #7`), its finding `boundary`; else the engine's word for a blame
+   * that found no call (`inconclusive`, `not rescued`, `stopped`) in amber, headed by its first
+   * probe's tally (` by <model>` after a stronger model's), or how far a stopped search got.
+   */
+  line: StepLine;
   /** The model call whose recorded answer lost the run, by call number. */
   lostAt: number | null;
   /** Its position among the model calls of the blame's scope: model call `step` of `steps`. */
@@ -40,14 +52,30 @@ export interface BlameStep {
   attemptsPerProbe: number;
   /** How a probe decides, its gate's rule said once: `gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts`, or `a rescue needs 2 of 5 attempts to pass`. */
   rule: string;
-  /** Each probe: its tally and verdict, and under a gate the Wilson bound on the attempts it decided on (`bound`, `rate >= 0.34 (95%)`; null for a fixed count). */
-  /** Each probe: `inconclusive` counts its attempts that could not be judged, neither passed nor failed. */
-  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; inconclusive: number; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; blamed: boolean; href: string; gate: GateEvidence }>;
+  /**
+   * Each probe: its tally and verdict, and under a gate the bound on the attempts it decided on
+   * (`bound`, `rate >= 0.34 (95%)`) and the interval it is read from (`interval`, for its bar against
+   * `marks`), both null for a fixed count. `attempts` is how many ran, and `inconclusive` how many of
+   * them could not be judged, neither passed nor failed; `tally` says both as the engine does
+   * (`probeTally`: `2 of 4`, `1 of 1, an attempt not judged`). Its attempts are its bundle's.
+   */
+  probes: Array<{ callNo: number; step: number; passes: number; attempts: number; inconclusive: number; tally: string; verdict: 'rescued' | 'lost' | 'inconclusive' | 'rescued · blamed'; bound: string | null; interval: { lo: number; hi: number } | null; blamed: boolean; href: string; gate: GateEvidence }>;
+  /** The gate's two marks, `[bad, good]`, for the probes' bars; null for a fixed count. */
+  marks: [number, number] | null;
   /** The attempts, bundled per probe. */
   bundles: Array<{ callNo: number; title: string; blamed: boolean; passes: number; attempts: Array<{ runId: string; passed: boolean; verdict: AttemptVerdict; note: string; spent: number; href: string }> }>;
-  /** Every call of the run, for the row that shows where it was lost; `inScope` is false for a call blame doesn't probe, outside its scope or in a reserved one (the engine's probedInScope). */
-  callRow: Array<{ callNo: number; kind: string; inScope: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number; inconclusive: number }>;
-  cost: { attempts: number; upstreamRequests: number; spent: number; unknownModels: string[] };
+  /**
+   * The agent's calls of the run, the judge's left out (the engine's `agentCallsOf`), for the row that
+   * shows where it was lost: `inScope` is false for a call outside the blame's scope or in a reserved
+   * one (`probedInScope`), and `probed` true for a model call blame's search steps through (`blameSteps`:
+   * one that ended, in scope), as many as `steps` and the CLI's blame header count. A probed call's
+   * `tally` is its probe's passes of the attempts judged (`3/4`); null for one no probe re-asked. A
+   * call that isn't a model call carries its `name` (the tool's) for its hover, in a run short enough
+   * for the row to draw it (`CALL_ROW_NAMED`).
+   */
+  callRow: Array<{ callNo: number; kind: string; name?: string; inScope: boolean; probed: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number; inconclusive: number; tally: string | null }>;
+  /** What the blame ran and spent; `judge`, what its judge checks' calls cost apart, as the CLI's report adds it, null when no judge was asked. */
+  cost: { attempts: number; upstreamRequests: number; spent: number; unknownModels: string[]; judge: { upstreamRequests: number; spent: number } | null };
   oracle: string[];
   recordedFailures: string[];
   stopReason: string | null;
@@ -83,6 +111,94 @@ function blamePairs(store: StoreOf<'recording' | 'readModels' | 'fixes'>, runId:
 }
 
 /**
+ * Each probe's part of a blame's head, its tally kept whole where the head wraps (the mock's
+ * `rescuedHead`): `3 of 4 rescued from #5` first, then `0 of 4 from #7`, an attempt not judged
+ * counted apart as the engine counts it (`probeTally`).
+ */
+function rescuedParts(ps: ReadonlyArray<Parameters<typeof probeTally>[0] & { callNo: number }>): string[] {
+  return ps.map((p, i) => {
+    const tally = probeTally(p, `${i ? '' : ' rescued'} from #${p.callNo}`);
+    // With no attempt of it judged, the tally names no call: where it was, after it.
+    return tally.includes(`#${p.callNo}`) ? tally : `${tally} at #${p.callNo}`;
+  });
+}
+
+/**
+ * What a blame found, as its step says it: its title, the evidence on both sides of the boundary in
+ * one sentence (`boundary`), and its verdict line (`BlameStep['line']`), whose finding it is.
+ */
+function blameFinding(b: StoredBlame, r: BlameReport): { title: string; boundary: string; line: StepLine } {
+  if (b.outcome === 'blamed' && r.blamed) {
+    // Two calls when it pinned no one: lost gradually around them, or between them when the probes there could not decide.
+    const checked = r.pin ? ` ${pinWords(r.pin)}` : '';
+    const boundary =
+      (r.gate && r.blamed.decision
+        ? `The re-asked call #${r.blamed.callNo}: ${probeFinding(r.blamed, r.gate)}; ${r.lost ? `#${r.lost.callNo}, the next model call: ${probeFinding(r.lost, r.gate)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`
+        : `Resampling #${r.blamed.callNo} rescued ${probeTally(r.blamed, ' attempts')}; ${r.lost?.undecided ? `#${r.lost.callNo}, the next model call, was inconclusive: ${probeTally(r.lost, ' passed')}.` : r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${probeTally(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`) + checked;
+    // The last model call heads with its own tally alone.
+    return { title: lostWords(r.blamed.callNo, r.range, 'title'), boundary, line: { word: 'blamed', tone: 'done', head: rescuedParts(r.lost ? [r.blamed, r.lost] : [r.blamed]), finding: boundary } };
+  }
+  const unsettled = unsettledFirst(r);
+  if (b.outcome === 'unrescuable') {
+    // Blame's own headline, without its mark: inconclusive at the first model call when its first
+    // probe couldn't tell, which is no finding that no answer lost it; else not rescued, from any
+    // model call only where its bound bears that out.
+    const title = unrescuedHead(r).replace(/^\S+ /, '');
+    const boundary = unrescuedWhy(r).evidence ?? 'No probe rescued the run.';
+    const first = r.probes[0];
+    const model = r.rescue?.fields.model;
+    const by = !unsettled && typeof model === 'string' ? ` by ${model}` : '';
+    return { title, boundary, line: { word: blameStateWord('unrescuable', unsettled), tone: 'warn', head: first ? rescuedParts([first]).map((x) => x + by) : [title], finding: boundary } };
+  }
+  // The probe past the last rescue lost the run there, or could not tell, which is no loss.
+  const after = r.lost ? (probeWord(r.lost) === 'inconclusive' ? `, inconclusive at #${r.lost.callNo}` : `, lost from #${r.lost.callNo}`) : '';
+  const boundary = `${r.stopReason ? `Stopped: ${r.stopReason}. ` : ''}${r.blamed ? `So far: rescued up to #${r.blamed.callNo}${after}.` : 'No probe had settled.'}`;
+  const head = r.blamed ? `Rescued up to #${r.blamed.callNo} so far` : 'No probe settled before it stopped';
+  return { title: 'Stopped before the search finished', boundary, line: { word: blameStateWord('stopped', unsettled), tone: 'warn', head: [head], finding: boundary } };
+}
+
+/** Why a blame is as sure as it is, which its confidence says on hover. */
+function confidenceWhyOf(r: BlameReport): string {
+  return r.confidence === 'low'
+    ? r.nonMonotone.length
+      ? `rescue worked again at ${r.nonMonotone.map((x) => `#${x.rescued} after failing at #${x.lost}`).join(', ')}, so the boundary is not clean`
+      : unsettledFirst(r)
+        ? `#${r.probes[0]!.callNo} was inconclusive: whether resampling rescues the run is undecided`
+        : 'the search did not finish'
+    : r.confidence === 'medium' && r.lost
+      ? r.lost.decision === 'inconclusive'
+        ? `#${r.lost.callNo} was inconclusive: the run was not reliably lost there`
+        : `#${r.lost.callNo} still passed ${probeTally(r.lost)}, below the bar: the run was not reliably lost there`
+      : 'rescue stops cleanly at the boundary';
+}
+
+/** An attempt that could not be judged is counted apart (probeTally), never as one that failed. */
+const unsure = (x: Parameters<typeof probeTally>[0] | undefined): number => x?.attempts.filter((a) => a.verdict === 'inconclusive').length ?? 0;
+
+/**
+ * The most calls the Blame step's row draws whole, its tool calls among them (ui/fixes/model.ts's
+ * `CALL_ROW_MAX`, which test/fix-steps.test.ts holds equal): a longer run's row shows its model calls
+ * only, so its other calls carry no name, and a run of thousands of calls reads none.
+ */
+export const CALL_ROW_NAMED = 18;
+
+/** The Blame step's row (`BlameStep['callRow']`): the agent's calls of the blamed run, each probed one with its probe's verdict and tally. */
+function callRowOf(store: StoreOf<'recording'>, b: StoredBlame): BlameStep['callRow'] {
+  const blamedCall = b.report.blamed?.callNo ?? null;
+  const probeOf = new Map(b.report.probes.map((x) => [x.callNo, x]));
+  const calls = agentCallsOf(store.getCalls(b.runId));
+  const probed = new Set(blameSteps(calls, b.scope).map((c) => c.callNo));
+  const named = calls.length <= CALL_ROW_NAMED;
+  return calls.map((c) => {
+    const p = probeOf.get(c.callNo);
+    return { callNo: c.callNo, kind: c.kind, ...(named && c.kind !== 'api' ? { name: c.name } : {}), inScope: probedInScope(c.meta.scope, b.scope), probed: probed.has(c.callNo), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p), tally: p ? `${p.passes}/${p.attempts.length - unsure(p)}` : null };
+  });
+}
+
+/** Whether a run failed first on its agent's exit, by the engine's rule, before any check of its own. */
+const exitedFirst = (run: RunRecord | null): boolean => run !== null && failureReason({ status: run.status, checks: run.meta?.checks ?? [] })?.kind === 'exit';
+
+/**
  * A blame as the Blame step shows it. `fallback` is the fix's own blame command, which a pulled
  * blame shows when its fields can't be made into one.
  */
@@ -90,67 +206,26 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
   // The gate as it can be read: a malformed one reads as none, the fixed count's words then.
   const r = { ...b.report, gate: sprtGate(b.report.gate) };
   const run = store.getRun(b.runId);
-  // An attempt that could not be judged is counted apart (probeTally), never as one that failed.
-  const unsure = (x: Parameters<typeof probeTally>[0] | undefined) => x?.attempts.filter((a) => a.verdict === 'inconclusive').length ?? 0;
   const blamedCall = r.blamed?.callNo ?? null;
-  let boundary: string;
-  let title: string;
-  if (b.outcome === 'blamed' && r.blamed) {
-    // Two calls when it pinned no one: lost gradually around them, or between them when the probes there could not decide.
-    title = lostWords(r.blamed.callNo, r.range, 'title');
-    const checked = r.pin ? ` ${pinWords(r.pin)}` : '';
-    boundary =
-      r.gate && r.blamed.decision
-        ? `The re-asked call #${r.blamed.callNo}: ${probeFinding(r.blamed, r.gate)}; ${r.lost ? `#${r.lost.callNo}, the next model call: ${probeFinding(r.lost, r.gate)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`
-        : `Resampling #${r.blamed.callNo} rescued ${probeTally(r.blamed, ' attempts')}; ${r.lost?.undecided ? `#${r.lost.callNo}, the next model call, was inconclusive: ${probeTally(r.lost, ' passed')}.` : r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${probeTally(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
-    boundary += checked;
-  } else if (b.outcome === 'unrescuable') {
-    // Blame's own headline, without its mark: inconclusive at the first model call when its first
-    // probe couldn't tell, which is no finding that no answer lost it; else not rescued, from any
-    // model call only where its bound bears that out.
-    title = unrescuedHead(r).replace(/^\S+ /, '');
-    boundary = unrescuedWhy(r).evidence ?? 'No probe rescued the run.';
-  } else {
-    title = 'Stopped before the search finished';
-    // The probe past the last rescue lost the run there, or could not tell, which is no loss.
-    const after = r.lost ? (probeWord(r.lost) === 'inconclusive' ? `, inconclusive at #${r.lost.callNo}` : `, lost from #${r.lost.callNo}`) : '';
-    boundary = `${r.stopReason ? `Stopped: ${r.stopReason}. ` : ''}${r.blamed ? `So far: rescued up to #${r.blamed.callNo}${after}.` : 'No probe had settled.'}`;
-  }
-  const confidenceWhy =
-    r.confidence === 'low'
-      ? r.nonMonotone.length
-        ? `rescue worked again at ${r.nonMonotone.map((x) => `#${x.rescued} after failing at #${x.lost}`).join(', ')}, so the boundary is not clean`
-        : unsettledFirst(r)
-          ? `#${r.probes[0]!.callNo} was inconclusive: whether resampling rescues the run is undecided`
-          : 'the search did not finish'
-      : r.confidence === 'medium' && r.lost
-        ? r.lost.decision === 'inconclusive'
-          ? `#${r.lost.callNo} was inconclusive: the run was not reliably lost there`
-          : `#${r.lost.callNo} still passed ${probeTally(r.lost)}, below the bar: the run was not reliably lost there`
-        : 'rescue stops cleanly at the boundary';
-  const probeOf = new Map(r.probes.map((x) => [x.callNo, x]));
+  const { title, boundary, line } = blameFinding(b, r);
   const verdictOf = (x: Parameters<typeof probeWord>[0] & { callNo: number }) => (x.callNo === blamedCall ? 'rescued · blamed' : probeWord(x));
-  const callRow = run
-    ? store.getCalls(b.runId).map((c) => {
-        const p = probeOf.get(c.callNo);
-        return { callNo: c.callNo, kind: c.kind, inScope: probedInScope(c.meta.scope, b.scope), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p) };
-      })
-    : [];
   const contrast = r.contrast;
   const rescuedNote = contrast ? `passed · ${askedAgain(contrast.rescued)}` : 'passed';
   return {
     blameId: b.blameId,
     runId: b.runId,
     runExists: run !== null,
+    exited: exitedFirst(run),
     at: b.at,
     outcome: b.outcome,
     title,
+    line,
     lostAt: blamedCall,
     step: r.blamed?.step ?? null,
     steps: r.steps,
     scope: b.scope,
     confidence: r.confidence,
-    confidenceWhy,
+    confidenceWhy: confidenceWhyOf(r),
     boundary,
     next: r.lost ? { callNo: r.lost.callNo, step: r.lost.step, passes: r.lost.passes, attempts: r.lost.attempts.length } : null,
     rescuedRunId: contrast?.rescuedRunId ?? null,
@@ -160,7 +235,11 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
     needed: r.needed,
     attemptsPerProbe: r.attemptsPerProbe,
     rule: rescueRule(r),
-    probes: r.probes.map((x) => ({ callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length, inconclusive: unsure(x), verdict: verdictOf(x), bound: probeBound(x, r.gate), blamed: x.callNo === blamedCall, href: runHref(b.runId, x.callNo), gate: gateEvidence(x) })),
+    probes: r.probes.map((x) => {
+      const interval = probeInterval(x, r.gate);
+      return { callNo: x.callNo, step: x.step, passes: x.passes, attempts: x.attempts.length, inconclusive: unsure(x), tally: probeTally(x), verdict: verdictOf(x), bound: probeBound(x, r.gate), interval: interval ? { lo: interval.lo, hi: interval.hi } : null, blamed: x.callNo === blamedCall, href: runHref(b.runId, x.callNo), gate: gateEvidence(x) };
+    }),
+    marks: gateMarks(r.gate),
     bundles: r.probes.map((x) => ({
       callNo: x.callNo,
       title: `blame · probe #${x.callNo}`,
@@ -168,8 +247,8 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
       passes: x.passes,
       attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: a.passed ? (a.runId === contrast?.rescuedRunId ? rescuedNote : 'passed') : attemptNote(false, a.failures[0], undefined, keptAttemptVerdict(a)), spent: a.spent, href: runHref(a.runId) })),
     })),
-    callRow,
-    cost: { attempts: r.attempts, upstreamRequests: r.upstreamRequests, spent: r.spent, unknownModels: r.unknownModels },
+    callRow: run ? callRowOf(store, b) : [],
+    cost: { attempts: r.attempts, upstreamRequests: r.upstreamRequests, spent: r.spent, unknownModels: r.unknownModels, judge: r.judge ? { upstreamRequests: r.judge.upstreamRequests, spent: r.judge.spent } : null },
     oracle: r.oracle,
     recordedFailures: r.recordedFailures,
     stopReason: r.stopReason,

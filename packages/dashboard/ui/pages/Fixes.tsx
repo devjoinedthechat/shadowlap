@@ -8,6 +8,8 @@ import { EmptyLine, EmptyState, ErrorState, Skeleton } from '../components/State
 import { Status } from '../components/Status.js';
 import { rememberList } from '../fixes/data.js';
 import { FixPage } from '../fixes/FixPage.js';
+// What a fix's jobs end on in the drawer, registered as the Fixes chunk loads.
+import '../fixes/job-footers.js';
 import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadWait, rowCells, rungStatus, STEP_NAMES, UNBLAMED_CELLS, unblamedBlameCard, unblamedFailed, unblamedShows, unblamedTitle, type StepCell } from '../fixes/list.js';
 import { chipKeeps, failingLine, FIX_CHIPS, fixStamp, treeBusy, type FixChip } from '../fixes/model.js';
 import { FailedMust, Whole } from '../fixes/parts.js';
