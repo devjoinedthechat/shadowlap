@@ -36,7 +36,11 @@ function DiffLine({ l }: { l: JsonLine }) {
       </span>
       <span className="jt">
         {l.sign === '+' ? <span className="sr">added: </span> : l.sign === '-' ? <span className="sr">removed: </span> : null}
-        {keyed ? <span className="jk">{l.key}:</span> : null}
+        {keyed ? (
+          <span className="jk" title={l.tip}>
+            {l.key}:
+          </span>
+        ) : null}
         {keyed && l.json ? (
           <>
             {' '}

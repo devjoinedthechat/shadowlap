@@ -40,6 +40,8 @@ export interface JsonLine {
   fold: boolean;
   /** Where it is, as the structural diff names a path (`$.messages[2].content`): inside a JSON string, the string's. */
   path: string;
+  /** Its key's hover, where the key names it otherwise: Compare names a changed request's field by what it is, its path on hover. */
+  tip?: string;
 }
 
 /** An unchanged value longer than this is cut, with `…`. */
