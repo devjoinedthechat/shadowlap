@@ -128,7 +128,7 @@
     },
     "packages/cli/src/verify.ts": {
       "runVerify": 58,
-      "runVerify > verifyOne": 46,
+      "runVerify > verifyOne": 35,
       "runVerify > verifyOne > againstPaired": 32
     },
     "packages/cli/test/checks-schema.test.ts": {
@@ -428,8 +428,8 @@
       "startMcpListener": 228
     },
     "packages/cli/src/verify.ts": {
-      "runVerify": 289,
-      "runVerify > verifyOne": 185
+      "runVerify": 286,
+      "runVerify > verifyOne": 182
     },
     "packages/dashboard/src/fix-bundles.ts": {
       "fixBundles": 180

@@ -256,6 +256,8 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     // And its tally in verify's words, as verify printed it for the run (engine verifyTally), whatever its parts.
     const words = (r: { tally: string; cutShort: string | null; bound: string | null }) => `${r.tally}${r.cutShort ? ` (${r.cutShort})` : ''}${r.bound ? ` · ${r.bound}` : ''}`;
     for (const r of shown.verify[0].rows) expect(accepted.stdout).toMatch(new RegExp(`${r.runId.slice(0, 10)} +${r.outcome} +${words(r).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(  |\n|$)`));
+    // verify's line as each run settled says it too: the outcome, then the same tally.
+    for (const r of shown.verify[0].rows) expect(accepted.out).toContain(`  ${r.role.padEnd(8)}  ${r.runId.slice(0, 10)}  ${r.outcome} · ${words(r)}\n`);
     expect(shown.verify[0].rows.map((r: { role: string; outcome: string }) => [r.role, r.outcome])).toEqual([
       ['target', 'fixed'],
       ['target', 'fixed'],
