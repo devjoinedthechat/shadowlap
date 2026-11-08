@@ -1,9 +1,9 @@
-import { unrescuedWords } from '../../../engine/src/blame-words.js';
-import { lostWords } from '../../../engine/src/run-verdicts.js';
-import { cents, durLong, num, plural } from '../format.js';
-import { ORIGIN_CODE, type Origin7 } from '../origins.js';
+import type { Fact } from '../components/Facts.js';
+import { cents, durLong, num } from '../format.js';
+import { ORIGIN_CODE, ORIGIN_NAME, type Origin7 } from '../origins.js';
+import { href } from '../route.js';
 import type { GlyphKind } from '../runs.js';
-import type { ActivityIcon, NeedsLookRow, OverviewSummary, TestsTile } from '../types.js';
+import type { ActivityIcon, FixesFunnel, OverviewSummary, TestsTile } from '../types.js';
 
 /**
  * What the Overview says, worked out from the server's summary: the outcome strip's lines, the
@@ -42,28 +42,6 @@ export function reproducedNote(o: OverviewSummary['outcomes']['reproduced']): st
   return `replayed exactly · ${o.open ? `${num(o.open)} still open` : 'none open'}`;
 }
 
-/**
- * How a blame on Today's line came out, in the words Needs a look and the fix use: where the run
- * was lost (at a call, or around or between two), that no model call rescued it (or, when its first
- * probe couldn't tell, that it is inconclusive at the first model call), or that it stopped early; while it still probes, that
- * nothing is placed yet.
- */
-export function blameWords(b: Pick<OverviewSummary['today']['blame']['runs'][number], 'outcome' | 'lostAt'> & { unsettled?: boolean; range?: unknown }): string {
-  if (b.outcome === 'blamed' && b.lostAt) return lostWords(b.lostAt, b.range);
-  if (b.outcome === 'unrescuable') return unrescuedWords(b.unsettled === true);
-  if (b.outcome === 'stopped') return 'blame stopped part way';
-  return 'not placed yet';
-}
-
-/** How Today's newest failed test replay came out, in the words Runs uses: where it diverged, was lost or what failed. */
-export function outcomeWords(o: { kind: string; callNo?: number; range?: unknown }): string {
-  if (o.kind === 'diverged' && o.callNo) return `diverged at #${o.callNo}`;
-  if (o.kind === 'lost' && o.callNo) return lostWords(o.callNo, o.range);
-  if (o.kind === 'check-failed') return 'check failed';
-  if (o.kind === 'inconclusive') return 'inconclusive';
-  return 'failed';
-}
-
 /** The line under Fixes verified. */
 export function verifiedNote(o: OverviewSummary['outcomes']['fixesVerified']): string {
   return o.rejected ? `${num(o.rejected)} rejected before ${o.rejected === 1 ? 'it' : 'they'} shipped` : 'none rejected';
@@ -79,68 +57,134 @@ export function lastRunText(at: number, now: number): string {
 }
 
 /**
- * The goldens that didn't pass, each by its newest result as Tests shows it, in its words: "1 failed
- * · 1 not run yet", inconclusive ones apart. Empty when every golden passed.
+ * What Goldens passing is made of, every golden accounted for as Tests counts them: `3 regressions
+ * caught` or `no regressions`, then inconclusive, not run yet, and when they last ran.
  */
-export function goldensNotPassing(t: Pick<TestsTile, 'regressions' | 'inconclusive'> & { untested?: number }): string[] {
-  return [t.regressions ? `${num(t.regressions)} failed` : null, t.inconclusive ? `${num(t.inconclusive)} inconclusive` : null, t.untested ? `${num(t.untested)} not run yet` : null].filter((x): x is string => x !== null);
+export function goldensTip(t: TestsTile, now: number): string[] {
+  return [
+    t.regressions ? `${num(t.regressions)} ${t.regressions === 1 ? 'regression' : 'regressions'} caught` : 'no regressions',
+    ...(t.inconclusive ? [`${num(t.inconclusive)} inconclusive`] : []),
+    ...(t.untested ? [`${num(t.untested)} not run yet`] : []),
+    ...(t.lastRunAt ? [`last run ${lastRunText(t.lastRunAt, now)}`] : []),
+  ];
 }
 
-/** Parts of a line joined by dots, each kept whole, so a line that wraps breaks only after a dot: "1 failed ·" / "last run 10:02". */
-export function dotLine(parts: readonly string[]): string {
-  return parts.map((p) => p.replace(/ /g, '\u00a0')).join('\u00a0· ');
+const counted = (n: number, one: string, many: string) => ({ value: num(n), words: n === 1 ? one : many });
+
+/**
+ * The header's four facts, as the mock says them: `4 failures reproduced · 1 fix verified · 2 of 7
+ * goldens passing · $16.24 spent live`, the money last and quieter, each with what it is made of and
+ * last week on hover. A fix verified is lime. Without goldens, `0 goldens yet`, still a link to Tests.
+ */
+export function overviewFacts(o: OverviewSummary['outcomes'], fixes: Pick<FixesFunnel, 'attempts' | 'spent'>, now: number): Fact[] {
+  const t = o.testsPassing;
+  const v = o.fixesVerified;
+  const behind = fixes.attempts ? `${num(fixes.attempts)} ${fixes.attempts === 1 ? 'attempt' : 'attempts'} behind them, ${cents(fixes.spent)} spent live` : null;
+  const tests: Fact = t?.goldens
+    ? { value: `${num(t.passing)} of ${num(t.goldens)}`, words: t.goldens === 1 ? 'golden passing' : 'goldens passing', tip: { title: 'Goldens passing', parts: goldensTip(t, now) }, was: t.lastWeek === null ? null : `${num(t.lastWeek)} of ${num(t.goldens)} last week`, href: href.tests() }
+    : { value: '0', words: 'goldens yet', href: href.tests() };
+  return [
+    { ...counted(o.reproduced.value, 'failure reproduced', 'failures reproduced'), tip: { title: 'Failures reproduced', parts: [reproducedNote(o.reproduced)] }, was: `${num(o.reproduced.lastWeek)} last week`, href: href.fixes() },
+    { ...counted(v.value, 'fix verified', 'fixes verified'), ...(v.value > 0 ? { tone: 'ok' as const } : {}), tip: { title: 'Fixes verified', parts: [verifiedNote(v), behind] }, was: `${num(v.lastWeek)} last week`, href: href.fixes() },
+    tests,
+    { value: cents(o.spent.value), words: 'spent live', money: true, tip: { title: 'Spent live, the last 7 days', parts: [`${cents(o.spent.notRespent)} not re-spent`, `${durLong(o.spent.notWaitedMs)} not waited`] }, was: `${cents(o.spent.lastWeek)} last week` },
+  ];
+}
+
+/** A piece of a row's words: plain, kept whole (`nw`), or a run's short id, named as every run is. */
+export interface KeptPart {
+  text: string;
+  kind: 'text' | 'nw' | 'id';
+}
+
+const NB = '\u00a0';
+
+/** The longest hyphenated word kept whole as a name: a longer one, such as a project's path, is no name. */
+const NAME_MAX = 32;
+
+/**
+ * Words cut into the pieces a wrapping line keeps whole: a hyphenated name (`nw`), so a golden's name
+ * never breaks at its hyphens, and a run's short id on its own (`id`), for its about line on hover.
+ * The rest is as it is, with the no-break spaces its caller put in: a hyphenated word longer than a
+ * name, such as a path, among it, to break where it must rather than run past its panel.
+ */
+export function keepPieces(kept: string): KeptPart[] {
+  const parts: KeptPart[] = [];
+  let at = 0;
+  for (const m of kept.matchAll(/\b01[0-9A-Z]{8}\b|[^\s(]*\w-\w[^\s)]*/g)) {
+    const id = /^01[0-9A-Z]{8}$/.test(m[0]);
+    if (!id && m[0].length > NAME_MAX) continue;
+    if (m.index > at) parts.push({ text: kept.slice(at, m.index), kind: 'text' });
+    parts.push({ text: m[0], kind: id ? 'id' : 'nw' });
+    at = m.index + m[0].length;
+  }
+  if (at < kept.length) parts.push({ text: kept.slice(at), kind: 'text' });
+  return parts;
 }
 
 /**
- * Tests passing: its value, its line and its tone, with every golden on disk accounted for as Tests
- * counts them ("5 / 7 · 1 failed · 1 not run yet"), or a dash with no goldens yet. Red when a golden
- * failed; amber when the only goldens not passing are inconclusive.
+ * A Needs a look row's words in the pieces a wrapping line keeps together, as the mock keeps them: a
+ * tally (`8 of 72`, `search called 3 times`), a model with what uses it (`used by`), a date with its
+ * verb (`retires on Nov 30, 2026`) and a dot with the word before it, joined by no-break spaces; then
+ * cut as `keepPieces` cuts. No DOM here: the tests import it.
  */
-export function testsKpi(t: TestsTile | null, now: number): { value: string; note: string; tone: '' | 'err' | 'warn' } {
-  if (!t || !t.goldens) return { value: '—', note: 'no goldens yet', tone: '' };
-  const not = goldensNotPassing(t);
-  const how = not.length ? not : [t.goldens === 1 ? 'passed' : 'all passed'];
-  return { value: `${num(t.passing)} / ${num(t.goldens)}`, note: dotLine([...how, ...(t.lastRunAt ? [`last run ${lastRunText(t.lastRunAt, now)}`] : [])]), tone: t.regressions ? 'err' : t.inconclusive ? 'warn' : '' };
+export function keepParts(text: string): KeptPart[] {
+  return keepPieces(
+    text
+      .replace(/(\S+) called (\d+) (times?)\b/g, `$1${NB}called${NB}$2${NB}$3`)
+      .replace(/ · /g, `${NB}· `)
+      .replace(/\bused by /g, `used${NB}by `)
+      .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
+      .replace(/([a-z]+) on ([A-Z][a-z]{2}) (\d{1,2})(, \d{4})?/g, (_m, w: string, mo: string, d: string, y?: string) => `${w}${NB}on${NB}${mo}${NB}${d}${y ? `,${NB}${y.slice(2)}` : ''}`),
+  );
 }
 
 /**
- * Today's Tests line: each golden by its newest result, as Tests passing counts them ("1 failed · 1
- * not run yet", or "all passed"), how many goldens there are on the right, and the test replays that
- * ran today on hover, with how many failed and the newest failure.
+ * An activity entry's words with what the mock keeps as one piece inside a longer part, joined by
+ * no-break spaces: why a preview settled nothing (`56 of 60 steps got no answer`, `2 of 3 runs could
+ * not be asked`, `1 step waits on a judge`), a tally (`5 of 5`, `3 runs`, `2 goldens`), `at call 4`,
+ * `2 with a write` and `judged change`. Its dots are left as they are, for `dotParts`.
  */
-export function todayTestsLine(t: TestsTile | null, replays: { count: number; failed: number; inconclusive?: number }, failure: string | null): { text: string; icon: 'fail' | 'warn' | 'test'; count: string; title: string } {
-  const unsure = replays.inconclusive ?? 0;
-  const title = replays.count ? `${plural(replays.count, 'test replay')} today${replays.failed ? ` · ${num(replays.failed)} failed${failure ? `, the newest ${failure}` : ''}` : ''}${unsure ? ` · ${num(unsure)} inconclusive` : ''}` : 'No test replays today';
-  if (!t || !t.goldens) return { text: 'no goldens yet', icon: 'test', count: plural(0, 'golden'), title };
-  const not = goldensNotPassing(t);
-  return { text: not.length ? dotLine(not) : t.goldens === 1 ? 'passed' : 'all passed', icon: t.regressions ? 'fail' : t.inconclusive ? 'warn' : 'test', count: plural(t.goldens, 'golden'), title };
+export function activityKeep(text: string): string {
+  return text
+    .replace(/\d+ of \d+ steps got no answer|\d+ of \d+ runs? could not be asked|\d+ steps? waits? on a judge/g, (m) => m.replace(/ /g, NB))
+    .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
+    .replace(/(\d) (runs?|calls?|attempts?|goldens?|writes?)\b/g, `$1${NB}$2`)
+    .replace(/\bat call (\d+)/g, `at${NB}call${NB}$1`)
+    .replace(/(\d+) with a write/g, `$1${NB}with${NB}a${NB}write`)
+    .replace(/judged change/g, `judged${NB}change`);
 }
 
 /**
- * Today's Blame line, on the right: the blames that ran today, counted as the lines beside it count
- * replays and forks; on hover, the model calls they probed and their attempts.
+ * A run's kind as Recent runs' hover names it, a test's replay a test replay and the fork blame
+ * rescued a run with a rescued fork: `clean replay`, `fork @17`, `rescued fork`, `test replay`,
+ * `capture`, `recording`.
  */
-export function todayBlameCount(b: Pick<OverviewSummary['today']['blame'], 'blames' | 'probes' | 'attempts'>): { count: string; title: string } {
-  return { count: `${num(b.blames)} today`, title: `${plural(b.probes, 'probe')} · ${plural(b.attempts, 'attempt')}` };
+export function recentKind(kind: string, rescues?: string | null): string {
+  return rescues ? 'rescued fork' : kind === 'test' ? 'test replay' : kind;
 }
 
-/** The word before a Needs a look line's arrow: where it leads, or Open on a dashboard that runs nothing (read-only). */
-export function needsLookAction(row: Pick<NeedsLookRow, 'action'>, actionsOff: string | null): string {
-  return actionsOff ? 'Open' : row.action;
+/** What a run's mini strip says to a screen reader: `30 calls: 16 replayed, 13 live, 1 blocked`. */
+export function callsSaid(origins: readonly Origin7[]): string {
+  const counts = new Map<Origin7, number>();
+  for (const o of origins) counts.set(o, (counts.get(o) ?? 0) + 1);
+  const parts = SHOW_ORIGINS.filter((o) => counts.get(o)).map((o) => `${num(counts.get(o)!)} ${ORIGIN_NAME[o]}`);
+  return `${num(origins.length)} ${origins.length === 1 ? 'call' : 'calls'}${parts.length ? `: ${parts.join(', ')}` : ''}`;
 }
 
 /**
- * What tells a Needs a look line from the others, as React keys it: its kind, the fix and the run it
- * leads to, and its title. One fix can hold several goldens' failures (blame joins one regression's
- * failing runs into one fix), so a failing golden's line is its golden's, not its fix's.
+ * Usage's heading line, in figures: `2,785 calls in 28 runs · 37% replayed · 87% of input from the
+ * cache · $16.24 spent live this week`. No calls, no share of them; no live model call that reports
+ * the cache, no cache part.
  */
-export function needsLookKey(row: Pick<NeedsLookRow, 'kind' | 'fixId' | 'runId' | 'title'>): string {
-  return [row.kind, row.fixId ?? '', row.runId ?? '', row.title].join(':');
-}
-
-/** The line under Spent live: the receipt, what replaying saved. */
-export function spentNote(o: OverviewSummary['outcomes']['spent']): string {
-  return `${cents(o.notRespent)} not re-spent · ${durLong(o.notWaitedMs)} not waited`;
+export function usageLine(week: { calls: number; runs: number; origins: Readonly<Record<string, number>> }, readShare: number | null, spent: number): string[] {
+  const rep = originCounts(week.origins).rep;
+  return [
+    `${num(week.calls)} ${week.calls === 1 ? 'call' : 'calls'} in ${num(week.runs)} ${week.runs === 1 ? 'run' : 'runs'}`,
+    ...(week.calls ? [`${share(rep, week.calls)} replayed`] : []),
+    ...(readShare === null ? [] : [`${share(readShare, 1)} of input from the cache`]),
+    `${cents(spent)} spent live this week`,
+  ];
 }
 
 /** A round top for the daily chart's axis, at or above the largest value, and its five ticks. */
@@ -156,10 +200,10 @@ export function chartScale(values: readonly number[]): { max: number; ticks: num
   return { max: at(4), ticks: [0, at(1), at(2), at(3), at(4)] };
 }
 
-/** A tick on the chart's axis: `$0.20`, `$1.50`, `$12`. */
-export function tickText(v: number): string {
-  if (v >= 10) return `$${Math.round(v)}`;
-  return `$${v.toFixed(2)}`;
+/** A tick on the chart's axis, as the mock writes it: `$0`, then cents where a step has them (`$0.10`), else whole dollars (`$5`). */
+export function tickText(v: number, step: number): string {
+  if (!v) return '$0';
+  return `$${step % 1 ? v.toFixed(2) : num(v)}`;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -213,15 +257,6 @@ export function activityLine(text: string, ref: string | null | undefined): { te
     if (text.includes(id)) return { text, code: null };
   }
   return { text, code };
-}
-
-/** Needs a look shows three, then "Show N more" opens the rest. */
-export const NEEDS_LOOK_SHOWN = 3;
-
-/** The lines Needs a look shows, and what its button says: the lines it would open, every one of them sent. */
-export function needsLookShown(items: readonly NeedsLookRow[], open: boolean): { rows: readonly NeedsLookRow[]; more: string | null } {
-  if (items.length <= NEEDS_LOOK_SHOWN) return { rows: items, more: null };
-  return open ? { rows: items, more: 'Show fewer' } : { rows: items.slice(0, NEEDS_LOOK_SHOWN), more: `Show ${num(items.length - NEEDS_LOOK_SHOWN)} more` };
 }
 
 /** Who did something: person.ts's, which a run's page reads without the rest of this module. */

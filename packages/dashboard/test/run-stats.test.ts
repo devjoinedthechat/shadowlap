@@ -334,9 +334,8 @@ describe('the Overview, worked out in a request', () => {
     try {
       const before = runsRead(store);
       const summary = overviewSummary(store, { tz: 'UTC', now: NOW, budget: 10 });
-      const row = summary.grid.families.flatMap((f) => f.rows).find((r) => r.runId === rec)!;
-      // Its row drawn from the totals the sums had, rather than left empty past the budget, or read again.
-      expect(row.origins.l).toBe(40);
+      // Its calls counted from the totals worked out once, rather than left out past the budget, or read again.
+      expect(summary.sums.week.origins.l).toBe(40);
       expect(summary.sums.week.calls).toBe(40);
       expect(runsRead(store)).toBe(before + 1);
     } finally {

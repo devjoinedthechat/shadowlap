@@ -59,7 +59,7 @@ function findFix(store: StoreOf<'fixes'>, id: unknown): StoredFix {
 }
 
 /** The repairer shadowlap.config.json names, or null; a config that can't be read names none. */
-function configuredRepairer(ctx: RouteContext): string | null {
+export function configuredRepairer(ctx: RouteContext): string | null {
   if (!ctx.options.loadConfig) return null;
   try {
     return ctx.config().repair?.repairer ?? null;

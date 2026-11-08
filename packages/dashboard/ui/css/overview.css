@@ -20,20 +20,44 @@
 .xlabels { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 14px; margin: 6px 0 0 52px; font: 10.5px var(--mono); color: var(--faint); text-align: center; }
 
 .attn { display: flex; flex-direction: column; }
-.attn a { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 18px; border-top: 1px solid var(--line); text-decoration: none; }
-.attn a:first-child { border-top: 0; }
-.attn a:hover { background: var(--hover); }
-.attn .ic { margin-top: 2px; }
-.attn .t { font-weight: 500; }
-.attn .d { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; }
-.attn .go { color: var(--faint); font-size: 12px; white-space: nowrap; }
+/* Needs a look: its groups' heads in the UI face, quiet, with their counts; a row an item: what it is about, which opens it
+   (the whole row is its link), and its next step at its end, a small plain button above the link. The last column is kept
+   empty on every row, for Dismiss, so the steps keep one right edge. On a phone the step goes under the words, and Open hides */
+.attn .agrp { display: flex; align-items: baseline; gap: 8px; margin: 22px 0 0; padding-bottom: 4px; font: 600 12.5px var(--body); color: var(--dim); }
+.attn .agrp:first-child { margin-top: 0; }
+.attn .agrp span { font: 500 11px var(--mono); color: var(--faint); }
+.arow { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto 22px; gap: 6px 12px; align-items: center; padding: 11px 0; border-top: 1px solid var(--line); }
+.agrp + .arow { border-top: 0; padding-top: 6px; }
+.arow:hover { background: var(--hover); box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover), var(--bleed) 0 0 var(--hover); }
+.arow .ic { align-self: start; margin-top: 3px; }
+.arow .at { min-width: 0; color: inherit; text-decoration: none; }
+.arow .at::after { content: ""; position: absolute; inset: 0; }
+.arow .t { display: block; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.arow .d { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; overflow-wrap: anywhere; }
+.arow .ast { position: relative; z-index: 1; display: flex; justify-content: flex-end; pointer-events: none; }
+.arow .ast > .btn { pointer-events: auto; }
+.arow .go { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.arow:hover .go { color: var(--ink); }
+.arow .adx { position: relative; z-index: 1; display: flex; justify-content: center; align-self: center; }
+@media (max-width: 640px) {
+  .arow { grid-template-columns: 14px minmax(0, 1fr) 22px; }
+  .arow .ast { grid-column: 2; justify-content: flex-start; }
+  .arow .adx { grid-column: 3; grid-row: 1; align-self: start; }
+  .arow .ast:has(.go) { display: none; }
+}
+/* j and k: the row in focus keeps its bar in the bleed, as every list in a section does; the prompt cache's misses bleed by their own box, so .krow's bar is at its edge */
+.panel.sec .attn > .arow.krow, .panel.sec .rrows > a.krow, .panel.sec .feed > a.krow { background: var(--sel); box-shadow: calc(3px - var(--bleed)) 0 0 var(--sel), calc(-1 * var(--bleed)) 0 0 var(--ink), var(--bleed) 0 0 var(--sel); }
 .feed a { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; text-decoration: none; border-top: 1px solid var(--line); }
 .feed a:first-child { border-top: 0; }
 .feed a:hover { background: var(--hover); }
-.feed .at { font: 11.5px var(--mono); color: var(--faint); }
+.feed .at { font: 11px var(--mono); color: var(--faint); }
 .feed .ic { transform: translateY(3px); }
-.feed .w { color: var(--dim); }
-.feed .w code { font-size: 11.5px; color: var(--faint); margin-left: 6px; }
+.feed .w { color: var(--dim); overflow-wrap: anywhere; }
+/* an entry is read whole, never cut to a few lines; its run's id, or the fix, verdict or file it names, wraps as one piece
+   after its words, so it never drags the last word down with it. At 320px (a 1280px window zoomed to 400%) a part kept
+   whole may wrap, so nothing scrolls sideways; a piece too long for any line, as a project's path, breaks where it must */
+.feed .w code { font-size: 11px; color: var(--faint); margin-left: 2px; white-space: nowrap; }
+@media (max-width: 340px) { .feed .w .nw { white-space: normal; } }
 
 @media (max-width: 640px) {
   .kpi b { font-size: 22px; }
@@ -44,30 +68,23 @@ a.kpi { display: block; text-decoration: none; color: inherit; }
 .kpi b.err { color: var(--err); }
 .kpi b.warn { color: var(--warn); }
 
-/* watch live */
-.livebtn { display: inline-flex; align-items: center; gap: 10px; height: 34px; padding: 0 14px 0 13px; border-radius: 10px; text-decoration: none; color: var(--ink); font: 500 13.5px var(--body);
-  border: 1px solid var(--line2); background: none; transition: border-color .15s, background-color .15s; }
-/* Watch live is a plain button, its dot in the live colour */
-.livebtn:hover { border-color: var(--dim); }
+/* Watch live: a plain button, its dot in the live colour */
+.btn.livebtn { gap: 10px; padding: 0 14px 0 13px; }
 .livebtn .pulse { position: relative; width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--o-live); }
 .livebtn .pulse::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid var(--o-live); animation: livering 1.8s ease-out infinite; }
 
-.livebtn .lc { padding-left: 10px; border-left: 1px solid var(--line2); font: 12px var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
+.livebtn .lc { padding-left: 10px; border-left: 1px solid var(--line2); font: 12.5px var(--mono); color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* overview: this week at a glance */
 .kpi .kv { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 8px; }
 .kpi .kv b { margin-top: 0; }
-.dp { display: inline-flex; align-items: center; gap: 1px; padding: 2px 7px 2px 4px; border-radius: 999px; font: 500 11.5px var(--mono); color: var(--dim); background: color-mix(in srgb, var(--faint) 16%, transparent); white-space: nowrap; }
-.dp svg { width: 12px; height: 12px; }
-.dp.good { color: var(--ink); background: color-mix(in srgb, var(--ink) 10%, transparent); }
-.dp.bad { color: var(--err); background: color-mix(in srgb, var(--err) 13%, transparent); }
 .kv .vs { color: var(--faint); font-size: 12px; white-space: nowrap; }
 /* every overview row sits on the same three columns, so gutters line up from top to bottom */
-.ovg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
-.ovg > .ovgrid, .ovlast > :first-child { grid-column: span 2; }
-.ovg > .panel { display: flex; flex-direction: column; min-width: 0; }
-.ovg > .panel > .pbody { flex: 1; display: flex; flex-direction: column; }
-.ovside > .ovtoday { flex: 1; }
+.ovg { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 36px 48px; align-items: start; }
+.ovg > .panel.sec, .ovside > .panel.sec { margin-top: 0; }
+.panel.sec.ovuse { margin-top: 40px; }
+.panel.sec .feed a, .panel.sec .feed > .plain { padding-left: 0; padding-right: 0; }
+.panel.sec .feed a:hover { box-shadow: -12px 0 0 var(--hover), 12px 0 0 var(--hover); }
 .kstrip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; }
 .kcell { padding: 16px 18px; min-width: 0; }
 .kcell + .kcell { border-left: 1px solid var(--line); }
@@ -76,86 +93,57 @@ a.kcell:hover { background: var(--hover); }
 .kstrip > :last-child { border-radius: 0 15px 15px 0; }
 .leaknote { margin-top: auto !important; padding-top: 10px; }
 .ovbig { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
-.ovbig b { font: 700 26px/1.05 var(--disp); letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
-.ovbig span { color: var(--faint); font-size: 13px; text-wrap: balance; }
+/* a section's figure is in the run page's stat style, never larger than the page's title: Usage's, Runs' calendar's and a
+   model card's on Training */
+.ovbig b { font: 700 17px/1 var(--disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.ovbig span { color: var(--faint); font-size: 13.5px; text-wrap: balance; }
 .ovbig em { font-style: normal; color: var(--dim); }
-.gtop { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 14px; }
-.gfam + .gfam { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
-.grow { display: grid; grid-template-columns: 138px minmax(0, 1fr) 46px; gap: 12px; align-items: center; padding: 4px 8px; margin: 0 -8px; border-radius: 7px; text-decoration: none; color: var(--dim); }
-.grow:hover { background: var(--hover); }
-.grow .gid { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.grow code { font-size: 11.5px; color: var(--ink); }
-.grow .gw { text-align: right; font: 11px var(--mono); color: var(--faint); white-space: nowrap; }
-.gs { display: grid; gap: 2px; height: 12px; }
-.gs i { border-radius: 2px; }
-.gs i.rep, .segbar i.rep, .oleg i.rep { background: var(--o-rep); }
-.gs i.live, .segbar i.live, .oleg i.live { background: var(--o-live); }
-.gs i.block { background: var(--o-block-fill); }
+.segbar i.rep, .oleg i.rep { background: var(--o-rep); }
+.segbar i.live, .oleg i.live { background: var(--o-live); }
 .segbar i.block, .oleg i.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
-.gs i.stub, .segbar i.stub, .oleg i.stub { background: var(--o-stub); }
-.gs i.over, .segbar i.over, .oleg i.over { background: var(--o-over); }
-.gs i.inject, .segbar i.inject, .oleg i.inject { background: var(--o-inject); }
-.gs i.fail, .segbar i.fail, .oleg i.fail { background: var(--o-fail-fill); }
+.segbar i.stub, .oleg i.stub { background: var(--o-stub); }
+.segbar i.over, .oleg i.over { background: var(--o-over); }
+.segbar i.inject, .oleg i.inject { background: var(--o-inject); }
+.segbar i.fail, .oleg i.fail { background: var(--o-fail-fill); }
 /* the origin key's 8px swatch takes the run page's legend ring: a tint alone reads as replayed under deuteranopia */
 .oleg i.fail { box-shadow: inset 0 0 0 1.5px var(--o-fail); }
 /* the prompt cache's reads are its quiet part, as the Context view draws them: never the replayed colour */
-.ovc .segbar i.rep { background: var(--c-read); }
-.gs i.pend { background: var(--line); }
-.gs i.fk { box-shadow: 0 0 0 1.5px var(--ink); }
-.ovside { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.segbar i.cread { background: var(--c-read); }
+.ovside { display: flex; flex-direction: column; gap: 36px; min-width: 0; }
 .segbar i.pend { background: var(--line2); }
 .leakh { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; margin-top: 4px; font-size: 12.5px; color: var(--faint); }
 .leakh > * { white-space: nowrap; }
-.leakh b { font: 500 12px var(--mono); color: var(--ink); }
-.ovtoday .pbody { padding-bottom: 14px; }
-.ovtoday .attn { border-top: 1px solid var(--line); }
-.ovtoday .attn code { font-size: 12px; }
-.ovtoday .go { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
-.ovtoday .go .now { color: var(--o-live); }
+.leakh b { font: 500 12.5px var(--body); color: var(--ink); }
 .segbar { display: flex; gap: 2px; height: 10px; margin: 16px 0 12px; }
-.segbar i { border-radius: 3px; min-width: 3px; }
+.segbar i { border-radius: 2px; min-width: 3px; }
 .oleg { list-style: none; margin: 0; padding: 0; }
-.oleg li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 52px; gap: 10px; align-items: center; padding: 4px 0; font-size: 13px; color: var(--dim); }
+.oleg li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 52px; gap: 10px; align-items: center; padding: 4px 0; font-size: 13.5px; color: var(--dim); }
 .oleg i { width: 8px; height: 8px; border-radius: 2px; }
-.oleg em { font: normal 12px var(--mono); color: var(--faint); text-align: right; }
+.oleg em { font: normal 12.5px var(--mono); color: var(--faint); text-align: right; }
 .oleg b { font: 500 12.5px var(--mono); color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
 .leaks { margin-top: 6px; }
-.leaks a { display: grid; grid-template-columns: 14px auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 8px; margin: 0 -8px; border-radius: 7px; text-decoration: none; color: var(--dim); font-size: 12.5px; }
+.leaks a { display: grid; grid-template-columns: 14px auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px var(--bleed); margin: 0 calc(-1 * var(--bleed)); text-decoration: none; color: var(--dim); font-size: 12.5px; }
 .leaks a:hover { background: var(--hover); }
-.leaks code { font-size: 11.5px; color: var(--ink); }
-.leaks span { color: var(--faint); font: 11.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.leaks b { font: 500 12px var(--mono); color: var(--ink); }
+.leaks code { font-size: 11px; color: var(--ink); }
+.leaks span { color: var(--faint); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leaks b { font: 500 12.5px var(--mono); color: var(--ink); }
 .leaknote { margin: 10px 0 0; color: var(--faint); font-size: 12.5px; }
 .leaknote .ln { display: inline-block; text-wrap: balance; }
-.fsteps { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; }
-.fstep { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 8px; background: var(--bg2); overflow: hidden; font-size: 13px; color: var(--dim); }
-.fstep .fb { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--ink) 10%, transparent); }
-.fstep .fl, .fstep b { position: relative; }
-.fstep b { font: 500 12.5px var(--mono); color: var(--ink); }
 
 @media (max-width: 1180px) {
-  .ovg { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ovg > .ovgrid, .ovlast > * { grid-column: 1 / -1; }
-  .ovside { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ovg > :nth-child(3) { grid-column: 1 / -1; }
+  .ovg { grid-template-columns: minmax(0, 1fr); }
+  .ovside { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 40px; }
 }
 
 @media (max-width: 900px) { .kstrip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kcell:nth-child(3) { border-left: 0; } .kcell:nth-child(n+3) { border-top: 1px solid var(--line); } .kstrip > * { border-radius: 0 !important; } }
-@media (max-width: 760px) { .ovg { grid-template-columns: minmax(0, 1fr); } .ovside { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 560px) { .grow { grid-template-columns: 118px minmax(0, 1fr); } .grow .gw { display: none; } .grow .gid { padding-left: 0 !important; } }
+@media (max-width: 760px) { .ovside { grid-template-columns: minmax(0, 1fr); } }
 
 .feed .w .actor { color: var(--ink); font-weight: 500; }
 
 .attn-more { display: block; width: 100%; padding: 10px 18px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--ink); font: 500 12.5px var(--body); text-align: left; cursor: pointer; }
 .attn-more:hover { background: var(--hover); }
 
-.grow .gline { min-width: 0; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.grow .gline em { font-style: normal; color: var(--err); }
 
-.grow.ctx { color: var(--faint); }
-.grow.ctx code { color: var(--dim); }
-.grow.ctx .gs { opacity: .55; }
-.gs i.nextcell { animation: pulse 1.4s ease-in-out infinite; }
 a.attn-more { text-decoration: none; }
 .dlegend { margin-bottom: 14px; }
 .legend i.lc-spent, .grp i.bar-spent { background: var(--c-spent); }
@@ -164,25 +152,12 @@ table.daytable tbody tr { cursor: default; }
 table.daytable tbody tr:hover td { background: none; }
 .feed .empty { text-align: left; padding: 16px 18px; }
 
-.feed .w { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
-.ovtoday .attn .d.cmd { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-wrap: nowrap; }
 
-/* a long command in a line of Needs a look stops at two lines */
-.needs .attn .d { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 
 /* two columns and fewer: the daily chart spans the row as every panel does; its span 2 above would
    add an empty column beside the one column below 760px, narrowing Activity */
-@media (max-width: 1180px) { .ovlast > :first-child { grid-column: 1 / -1; } }
 
 .attn .d.gv, .feed .w.gv { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
-
-/* Needs a look and Activity: a gate's verdict wraps whole after its dots, never clamped mid-figure; its rule is on hover */
-.needs .attn .d.gv, .feed .w.gv { display: block; -webkit-line-clamp: none; overflow: visible; overflow-wrap: normal; }
-/* Needs a look: a failed run's about line on one line, fitted at whole words (never clamped), then what is left to do, kept whole */
-.needs .attn .d.ab { display: flex; align-items: baseline; min-width: 0; white-space: nowrap; overflow: hidden; -webkit-line-clamp: none; overflow-wrap: normal; }
-.needs .attn .d.ab .rab { flex: 0 1 auto; color: inherit; }
-.needs .attn .d.ab .abs { flex: none; }
-.needs .attn .d.ab .dot { margin: 0 5px; }
 
 /* an activity entry with nowhere to go reads as a plain row: never a link back to the page it is on */
 .feed > .plain { display: grid; grid-template-columns: 64px 14px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 9px 18px; border-top: 1px solid var(--line); cursor: default; }
@@ -193,7 +168,47 @@ table.daytable tbody tr:hover td { background: none; }
    option whose fill is lost is underlined; where you are is marked in the highlight colour. */
 @media (forced-colors: active) {
   .grp i, .oleg i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
-  /* segments and the week grid's cells as narrow as 3px keep their colours on their own dark ground */
-  .segbar, .gs { forced-color-adjust: none; background: var(--bg); box-shadow: 0 0 0 2px var(--bg); }
+  /* segments as narrow as 3px keep their colours on their own dark ground */
+  .segbar { forced-color-adjust: none; background: var(--bg); box-shadow: 0 0 0 2px var(--bg); }
   .livebtn .pulse { background: LinkText; }
 }
+
+/* Recent runs: a row a run as the sidebar has it, the id, its calls by origin and when, then its about line and what needs
+   a look, each line one line */
+.rrow { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); color: var(--dim); text-decoration: none; }
+.rrow:first-child { border-top: 0; padding-top: 2px; }
+.rrow:hover { background: var(--hover); box-shadow: -12px 0 0 var(--hover), 12px 0 0 var(--hover); }
+.rrow .ri { align-self: start; margin-top: 1.5px; }
+.rrow .rr1 { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.rrow .rr1 code { flex: none; font: 500 12.5px var(--mono); color: var(--ink); }
+/* the row's hidden summary of its calls, for a screen reader, stays inside the strip, not at the foot of the page */
+.rrow .ms { position: relative; flex: 0 1 120px; width: 120px; height: 10px; margin-left: auto; }
+.rrow .rw { flex: none; min-width: 38px; text-align: right; font: 11px var(--mono); color: var(--faint); white-space: nowrap; }
+.rrow .rr2 { grid-column: 2; display: flex; align-items: baseline; margin-top: 3px; min-width: 0; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; }
+.rrow .rr2 .rab { flex: 0 1 auto; color: var(--faint); }
+.rrow .rr2 .r2s { flex: none; }
+.rrow .rr2 .dot { margin: 0 5px; }
+.rrow .rr2 em { font-style: normal; color: var(--err); }
+.rrow .rr2 em.inc { color: var(--warn); }
+@media (max-width: 560px) { .rrow .ms { flex-basis: 72px; width: 72px; } }
+
+/* Usage, folded until asked for: its heading's line says it in figures; open, its three parts side by side */
+.ovuse > header .sub { flex: 1 1 auto; min-width: 0; }
+.ovuse > header .sp { flex: 0 0 0; }
+/* on a phone Show goes under the figures, at their left edge */
+@media (max-width: 640px) { .ovuse > header .sp { display: none; } .ovuse > header .linkbtn { margin-left: -7px; } }
+.ugrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr); gap: 32px 40px; padding: 8px 0 4px; }
+.upart { display: flex; flex-direction: column; min-width: 0; }
+.uph { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 12px; }
+.uph h3 { margin: 0; font: 600 13.5px var(--body); color: var(--ink); }
+.uph .sub { color: var(--faint); font-size: 12.5px; }
+.uph .sp { flex: 1; }
+.ovuse > .leaknote { margin-top: 14px !important; }
+/* the spend chart in its part: closer columns, so each day's label keeps to one line under its bars */
+.uspend .groups, .uspend .xlabels { gap: 8px; }
+.uspend .grp::before { inset: 0 -4px; }
+.uspend .xlabels span { white-space: nowrap; }
+/* on a phone a day's label is its number, the month only where it starts */
+@media (max-width: 640px) { .xlabels .xm { display: none; } }
+@media (max-width: 1180px) { .ugrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ugrid .uspend { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .ugrid { grid-template-columns: minmax(0, 1fr); } }
