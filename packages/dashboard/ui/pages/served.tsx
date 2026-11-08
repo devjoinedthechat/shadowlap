@@ -8,4 +8,5 @@ import type { ServedParts } from '../served-parts.js';
  */
 export const SERVED_PARTS: ServedParts = {
   ShareMenu: onShow(() => import('../run/ShareMenu.js').then((m) => m.ShareMenu)),
+  FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues)),
 };

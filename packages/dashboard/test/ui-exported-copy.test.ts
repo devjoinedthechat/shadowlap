@@ -118,6 +118,12 @@ describe('an exported copy', () => {
     expect(r!.all('[role="menu"]')).toHaveLength(0);
   });
 
+  it('keeps Failed a filter over its runs, so draws no issues, which the served dashboard alone hands in', async () => {
+    await open([forkId, runId], '#/runs?types=failed');
+    await r!.until('Failed picked', () => r!.all('.tbar .chips button[aria-pressed="true"]').some((b) => b.childNodes[0]?.textContent === 'Failed'));
+    expect(r!.all('table.issues')).toHaveLength(0);
+  });
+
   it('lists its runs, and only those', async () => {
     await open([forkId, runId], '#/runs');
     await r!.until('the runs', () => r!.all('table.runst tbody tr').length === 2);

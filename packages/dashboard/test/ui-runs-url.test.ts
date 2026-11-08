@@ -165,21 +165,22 @@ const pressed = () => r!.all('.tbar .chips button[aria-pressed="true"]').map((b)
 const chip = (label: string) => r!.all('.tbar .chips button').find((b) => b.childNodes[0].textContent === label)!;
 
 describe('Runs, from its address', () => {
+  // Under Failed the issues have no sort: a chip whose table sorts, then.
   it('shows what a link asks for, a step in the history for each chip and sort, and Back to what it showed before', async () => {
-    const bar = addressBar('#/runs?q=refund&types=failed&sort=spent&from=2026-10-20&to=2026-10-22');
+    const bar = addressBar('#/runs?q=refund&types=fork&sort=spent&from=2026-10-20&to=2026-10-22');
     const { client, asked } = server();
     r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(Routed)));
     await r.until('the first page', () => asked.length > 0);
     // The table asks for what the link asked for, the days as the viewer's own, before the calendar has come.
     const t = dayTimes({ from: '2026-10-20', to: '2026-10-22' })!;
-    expect(asked[0]).toMatchObject({ types: ['failed'], q: 'refund', sort: 'spent', from: t.from, to: t.to });
-    expect(pressed()).toEqual(['Failed']);
+    expect(asked[0]).toMatchObject({ types: ['fork'], q: 'refund', sort: 'spent', from: t.from, to: t.to });
+    expect(pressed()).toEqual(['Forks']);
     expect(r.one('.tbar input[type="search"]').value).toBe('refund');
     expect(r.one('th[aria-sort="descending"]').textContent).toBe('Spent ↓');
 
     // A chip: a step of its own, the rest kept.
     await r.click(chip('All'));
-    expect(bar.steps).toEqual(['#/runs?q=refund&types=failed&sort=spent&from=2026-10-20&to=2026-10-22', '#/runs?q=refund&sort=spent&from=2026-10-20&to=2026-10-22']);
+    expect(bar.steps).toEqual(['#/runs?q=refund&types=fork&sort=spent&from=2026-10-20&to=2026-10-22', '#/runs?q=refund&sort=spent&from=2026-10-20&to=2026-10-22']);
     await r.until('the rows of every kind', () => asked.some((q) => !q.types?.length));
     expect(pressed()).toEqual(['All']);
     // The sort: another step.
@@ -190,8 +191,8 @@ describe('Runs, from its address', () => {
     bar.back();
     await r.until('sorted by spend again', () => r!.all('th[aria-sort="descending"]')[0]?.textContent === 'Spent ↓');
     bar.back();
-    await r.until('Failed again', () => pressed()[0] === 'Failed');
-    expect(asked.at(-1)).toMatchObject({ types: ['failed'], sort: 'spent' });
+    await r.until('Forks again', () => pressed()[0] === 'Forks');
+    expect(asked.at(-1)).toMatchObject({ types: ['fork'], sort: 'spent' });
     // And Forward.
     bar.forward();
     await r.until('All again', () => pressed()[0] === 'All');
