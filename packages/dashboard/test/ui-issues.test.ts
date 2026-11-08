@@ -1,4 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Client } from '../ui/api.js';
+import { ISSUE_ASK } from '../ui/page-ask.js';
+import { FailedIssues } from '../ui/runspage/FailedIssues.js';
+import { AppContext, type AppState } from '../ui/state.js';
+import { render, shownText, type Rendered } from './ui-render.js';
 import { countName, firstPart, issueGlyph, issueHref, issuesEmpty, issuesLess, laterParts } from '../ui/runspage/issues.js';
 import { shownWarming } from '../ui/runspage/rows.js';
 import type { Issue, IssueRun, IssuesPage } from '../ui/types.js';
@@ -101,5 +107,58 @@ describe('the verdicts still being worked out', () => {
     expect(shownWarming(w, { chip: 'all', q: 'refund' })).toBeNull();
     const about = { done: 1, total: 2 };
     expect(shownWarming(about, { chip: 'all', q: 'refund' })).toBe(about);
+  });
+});
+
+describe('Failed’s issues, drawn', () => {
+  let r: Rendered | null = null;
+  afterEach(async () => {
+    await r?.unmount();
+    r = null;
+    vi.unstubAllGlobals();
+  });
+  const app = (client: Client) => ({ client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, actionsOff: null, hasKind: () => false, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined }) as unknown as AppState;
+  /** Failed's issues drawn from `page`; `before` runs once the page is up and before the issues come, as a link's ask does. */
+  const draw = async (page: IssuesPage, o: { q?: string; before?: () => void } = {}) => {
+    let answer: (p: IssuesPage) => void = () => undefined;
+    const asked = new Promise<IssuesPage>((resolve) => (answer = resolve));
+    const client = { exported: false, runsIssues: () => asked, issueRuns: () => Promise.resolve({ runs: [], more: null, count: 0 }), jobs: () => Promise.resolve([]) } as unknown as Client;
+    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(FailedIssues, { query: { q: o.q ?? '' }, refresh: '0', scrollKey: '#/runs?types=failed', above: true })));
+    o.before?.();
+    answer(page);
+    await r.until('the issues', () => r!.all('table.issues').length + r!.all('.emptyline').length > 0);
+    return r;
+  };
+
+  it('draws each issue a row whose count shows its runs, and opens the issue a link asked for, its runs shown', async () => {
+    vi.stubGlobal('requestAnimationFrame', (f: () => void) => (f(), 0));
+    vi.stubGlobal('CSS', { escape: (x: string) => x });
+    const fix = issue({ key: `fix:${FIX.fixId}`, kind: 'fix', title: FIX.title, fix: FIX, step: { key: 'fix', label: 'Open fix', href: `#/fixes/${FIX.fixId}` } as unknown as Issue['step'], stepRun: null });
+    const fail = issue();
+    // As Fixes' unblamed row asks as it goes to Failed (open-issue.ts).
+    const t = await draw({ issues: [fix, fail], total: 4 }, { before: () => ISSUE_ASK.ask(fail.key) });
+    const rows = t.all('table.issues tbody tr.iss');
+    expect(rows.map((x) => x.getAttribute('data-rowkey'))).toEqual([fix.key, fail.key]);
+    expect(t.one(`tr[data-rowkey="${fix.key}"] .it a`).getAttribute('href')).toBe(`#/fixes/${FIX.fixId}`);
+    const count = (key: string) => t.one(`tr[data-rowkey="${key}"] button.isn`);
+    expect(count(fix.key).getAttribute('aria-expanded')).toBe('false');
+    expect(count(fix.key).getAttribute('aria-label')).toBe('Show its 2 runs');
+    // The issue a link asked for is open, its runs under it, newest first.
+    expect(count(fail.key).getAttribute('aria-expanded')).toBe('true');
+    expect(t.all('.isruns .isr').map((a) => a.getAttribute('href'))).toEqual(fail.runs.map((x) => `#/run/${x.runId}`));
+    // The count shows a closed one's runs, and hides them again.
+    await t.click(count(fix.key));
+    expect(count(fix.key).getAttribute('aria-expanded')).toBe('true');
+    expect(count(fix.key).getAttribute('aria-label')).toBe('Hide its 2 runs');
+    await t.click(count(fix.key));
+    expect(count(fix.key).getAttribute('aria-expanded')).toBe('false');
+    // Its step: Open fix, a plain link.
+    expect(t.one(`tr[data-rowkey="${fix.key}"] .isfix a.btn`).getAttribute('href')).toBe(`#/fixes/${FIX.fixId}`);
+  });
+
+  it('says no failed run matches the words, or that none has failed', async () => {
+    expect(shownText((await draw({ issues: [], total: 0 }, { q: 'refund' })).one('.emptyline'))).toBe('No failed runs match.');
+    await r?.unmount();
+    expect(shownText((await draw({ issues: [], total: 0 })).one('.emptyline'))).toBe('No run has failed.');
   });
 });
