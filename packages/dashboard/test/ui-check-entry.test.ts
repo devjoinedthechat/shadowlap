@@ -1,6 +1,11 @@
+import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
-import type { CallDetail, RunDetail } from '../ui/api.js';
-import { addsCheck, argsOf, checkMenuItems, numberValue } from '../ui/run/check-entry.js';
+import type { CallDetail, CallRow, RunDetail } from '../ui/api.js';
+import type { OnShow } from '../ui/components/OnShow.js';
+import { addsCheck, argsOf, checkMenuItems, numberValue, useCheckEntry } from '../ui/run/check-entry.js';
+import { CheckBuilderPart, type BuilderProps } from '../ui/run/check-part.js';
+import { AppContext, type AppState } from '../ui/state.js';
+import { render } from './ui-render.js';
 
 const run = (o: { status?: string; source?: string | null } = {}) => ({ run: { runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', status: o.status ?? 'completed' }, source: o.source ?? null }) as unknown as RunDetail;
 const can = { exported: false, actionsOff: null };
@@ -42,5 +47,21 @@ describe('Add check… on a run’s page', () => {
     expect(argsOf({ request: { args: { amount: 1 } } } as unknown as CallDetail)).toEqual({ amount: 1 });
     expect(argsOf({ request: { amount: 1 } } as unknown as CallDetail)).toEqual({ amount: 1 });
     expect(argsOf({ request: null } as unknown as CallDetail)).toEqual({});
+  });
+
+  it('gives no entry where nothing hands the page the builder, as in an exported copy, whose script holds none', async () => {
+    const offered: boolean[] = [];
+    const Page = () => {
+      offered.push(!!useCheckEntry({ run: run(), row: { callNo: 3, ...tool } as unknown as CallRow, detail: null }).check);
+      return null;
+    };
+    const app = { exported: false, actionsOff: null } as unknown as AppState;
+    const part = Object.assign(() => null, { preload: () => undefined, script: 'idle' }) as unknown as OnShow<BuilderProps>;
+    const copy = await render(createElement(AppContext.Provider, { value: app }, createElement(Page)));
+    expect(offered.at(-1)).toBe(false);
+    await copy.unmount();
+    const served = await render(createElement(AppContext.Provider, { value: app }, createElement(CheckBuilderPart.Provider, { value: part }, createElement(Page))));
+    expect(offered.at(-1)).toBe(true);
+    await served.unmount();
   });
 });
