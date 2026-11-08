@@ -6,7 +6,7 @@ import { answerData, sendAnswer } from '../read-pool.js';
 import { deleteRunsApart } from '../delete-apart.js';
 import { filterTerms, RECORDED_MIN_CHARS } from '../links.js';
 import { knownRuns, labelRuns, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
-import { LATER_FAILURES, type DayFailure } from '../runs-failures.js';
+import { FAMILY_ONLY_FAILURES, LATER_FAILURES, type DayFailure } from '../runs-failures.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
 import { readTeamStoreInput, type TeamStoreInput } from '../team-store.js';
 import { goldensOf, projectWork } from '../outcome-work.js';
@@ -110,8 +110,8 @@ export function register(router: Router, ctx: RouteContext): void {
     if (o.from == null || o.to == null) throw new HttpError(400, 'from and to: the days picked');
     // The failures the filter matches, oldest first, matched beside the server (runs-failures.ts).
     const job = { kind: 'runs-failures' as const, options: { from: o.from, to: o.to, ...(o.types ? { types: o.types } : {}), ...(o.q ? { q: o.q } : {}) }, outcome: projectWork(ctx).outcome };
-    const { failures } = answerData<{ failures: DayFailure[] }>(await withRecorded(ctx, o.q, () => ctx.reads.run(job)));
-    if (!failures.length) return r.json({ runId: null, reason: 'nothing failed on the days picked' } satisfies DaysBisect);
+    const { failures, familyOnly } = answerData<{ failures: DayFailure[]; familyOnly?: boolean }>(await withRecorded(ctx, o.q, () => ctx.reads.run(job)));
+    if (!failures.length) return r.json({ runId: null, reason: familyOnly ? FAMILY_ONLY_FAILURES : 'nothing failed on the days picked' } satisfies DaysBisect);
     const offer = (run: DayFailure, choices: BisectChoices) => ({ ...run, choices });
     let earlier: { run: DayFailure; choices: BisectChoices } | null = null;
     for (const run of failures.slice(0, LATER_FAILURES)) {

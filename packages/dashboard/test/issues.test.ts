@@ -4,7 +4,9 @@ import { startDashboard } from '../src/index.js';
 import { type Issue, type IssueRunsPage, type IssuesPage, ISSUE_RUNS, ISSUES_READS, issueKeyOf, issueRunsByFix, type RunsIssuesJob } from '../src/issues.js';
 import { issueKey } from '../src/issue-keys.js';
 import { loadRunIndex } from '../src/run-index.js';
+import { FAMILY_ONLY_FAILURES, RUNS_FAILURES_READS } from '../src/runs-failures.js';
 import { addRun, DAY, HOUR } from './read-model-store.js';
+import { refund, T0, work } from './refund-family.js';
 
 /**
  * Runs › Failed as issues (issues.ts): the failed runs grouped by the fix whose failing runs list them
@@ -49,7 +51,7 @@ beforeAll(() => {
   id.a3 = addRun(store, { startedAt: NOW - 3 * HOUR, argv: [NO_COMMAND], calls: 'll', meta: { imported: { at: NOW - 3 * HOUR, from: '/work/cap.jsonl' }, covers: ['api'], judged: { rules: 'r', at: NOW - 3 * HOUR, verdict: 'failed', why: null, checks: [failing(LIMIT(310))] } } as never });
   // Failed as the applied fix's check does, by its count; and a fork that failed so after a planted instruction.
   id.b1 = recording(NOW - 4 * HOUR, [failing(EMAIL, 'called 2 times')]);
-  id.p1 = addRun(store, { parent: id.b1, startedAt: NOW - 5 * HOUR, calls: 'rl', meta: { interventions: [{ kind: 'plant', at: 2, flag: '--inject-result 2=@payloads/exfil-email.txt' }], checks: [failing(EMAIL, 'called 2 times')] } });
+  id.p1 = addRun(store, { parent: id.b1, startedAt: NOW - 5 * HOUR, calls: 'ro', meta: { interventions: [{ kind: 'plant', at: 2, flag: '--inject-result 2=@payloads/exfil-email.txt' }], checks: [failing(EMAIL, 'called 2 times')] } });
   // A failure no fix holds, twice with other amounts; one that is older than the days picked below.
   id.f1 = recording(NOW - 90 * MIN, [failing('cost at most $0.05', 'cost $0.07')]);
   id.f2 = recording(NOW - 3 * DAY, [failing('cost at most $0.05', 'cost $0.09')]);
@@ -79,7 +81,7 @@ describe('the issue a failed run belongs to', () => {
     const page = read();
     expect(runsOf(issueOf(page, issueKey.fix(FIX_B)))).toEqual([id.b1]);
     const planted = issueOf(page, issueKey.planted());
-    expect(planted).toMatchObject({ kind: 'planted', title: 'Failed after a planted instruction', failed: `${EMAIL}, but called 2 times`, planted: { callNo: 2, result: true }, fix: null });
+    expect(planted).toMatchObject({ kind: 'planted', title: 'Failed after a planted instruction', failed: `${EMAIL}, but called 2 times`, planted: 'planted in #2 issue_refund’s result', fix: null });
     expect(runsOf(planted)).toEqual([id.p1]);
   });
 
@@ -134,6 +136,30 @@ describe('narrowing', () => {
     expect(after.runs.map((r) => r.runId)).toEqual([id.a3, id.a1]);
     expect(after).toMatchObject({ more: null, count: 3 });
     expect(ISSUE_RUNS).toBe(50);
+  });
+});
+
+describe("a run that fails only its family's checks", () => {
+  it('is an issue of its own by what it fails today, which Find breaking commit says it can’t start from', () => {
+    const s = Store.open(':memory:');
+    try {
+      const rec = refund(s, { amount: 200 });
+      // A fork made after the golden was packed, which refunded more than the order came to.
+      const fork = refund(s, { amount: 300, parent: rec, startedAt: T0 + 120_000 });
+      const outcome = work(rec);
+      const a = ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome, next: null }, { whole: true }) as { body: string };
+      const page = JSON.parse(a.body) as IssuesPage;
+      const failed = 'every issue_refund call: after lookup_order, amount <= lookup_order.result.total, but issue_refund #4: amount 300 > lookup_order.result.total 240 (#2)';
+      expect(page.issues).toHaveLength(1);
+      expect(page.issues[0]).toMatchObject({ kind: 'today', title: failed, failed, fix: null, count: 1, step: null, stepRun: fork });
+      expect(page.issues.map((i) => i.key.split(':')[0])).toEqual(['today']);
+      const days = { from: T0 - DAY, to: T0 + DAY };
+      const bisect = RUNS_FAILURES_READS['runs-failures'](s, { kind: 'runs-failures', options: days, outcome }, { whole: true }) as { body: string };
+      expect(JSON.parse(bisect.body)).toEqual({ failures: [], familyOnly: true });
+      expect(FAMILY_ONLY_FAILURES).toBe('the runs that failed on the days picked failed only their family’s checks: Find breaking commit needs a run that failed on its own');
+    } finally {
+      s.close();
+    }
   });
 });
 

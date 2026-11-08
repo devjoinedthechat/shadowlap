@@ -2,8 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, uti
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { judgeCapture, parseTests, rulesOnCalls, shadowlapHome, Store, withLockFile, type RunRecord } from '@shadowlap/engine';
-import { RunBuilder, text, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
+import { judgeCapture, parseTests, rulesOnCalls, shadowlapHome, Store, withLockFile } from '@shadowlap/engine';
 import { CHECKS_SEEN_FILE } from '../src/checks-seen.js';
 import type { RouteContext } from '../src/context.js';
 import { runJob } from '../src/read-jobs.js';
@@ -18,6 +17,7 @@ import type { RunDetail } from '../ui/types.js';
 import { loadRunIndex } from '../src/run-index.js';
 import type { GoldenSource } from '../src/tests.js';
 import { recordLoop } from './long-run.js';
+import { refund, T0, WITHIN_TOTAL, work } from './refund-family.js';
 
 /**
  * A run's outcome by checks (run-outcome.ts, A13 and E26): its own checks; a capture's verdict by the
@@ -26,32 +26,6 @@ import { recordLoop } from './long-run.js';
  * recording, by today's checks when it was recorded before them. Kept per config version, judged
  * within a budget on a list, whole on a run's page, and always beside the server.
  */
-
-const T0 = 1_760_000_000_000;
-const ASK = [user('Order A-1042 arrived damaged. Refund it, please.')];
-const WITHIN_TOTAL = { tool: 'issue_refund', after: 'lookup_order', args: { amount: { '<=': '@lookup_order.result.total' } } };
-
-/** A refund run: the order looked up (total 240), refunded for `amount`, and an email sent. */
-function refund(store: Store, o: { amount: number; parent?: string; startedAt?: number; meta?: RunRecord['meta'] }): string {
-  const b = RunBuilder.start(store, { startedAt: o.startedAt ?? T0, ...(o.parent ? { parent: o.parent } : {}), ...(o.meta ? { meta: o.meta } : {}) });
-  b.model({ messages: ASK }, [toolUse('lookup_order', { order_id: 'A-1042' }, 'toolu_1')], { usage: usage(120) });
-  b.tool('lookup_order', { order_id: 'A-1042' }, { order_id: 'A-1042', total: 240 });
-  b.model({ messages: ASK }, [toolUse('issue_refund', { order_id: 'A-1042', amount: o.amount }, 'toolu_2')], { usage: usage(160) });
-  b.tool('issue_refund', { order_id: 'A-1042', amount: o.amount }, { refund_id: 'R-5401' }, { effect: 'write' });
-  b.tool('send_email', { to: 'ada@example.com' }, { sent: true }, { effect: 'write' });
-  b.model({ messages: ASK }, [text('Refund issued for order A-1042.')], { usage: usage(200) });
-  return b.end();
-}
-
-/** What the server would read of a project whose golden `goldens/refund` was packed from `runId` at `packedAt`, its checks changed since at `checksAt`. */
-function work(runId: string, o: { tests?: unknown; version?: string; packedAt?: number; checksAt?: number | null } = {}): OutcomeWork {
-  return {
-    version: o.version ?? 'v1',
-    tests: o.tests ?? { 'goldens/refund': { expect: { calls: [WITHIN_TOTAL], tools: { send_email: '<= 1' } } } },
-    dir: '/work/project',
-    goldens: [{ path: 'goldens/refund', runId, packedAt: o.packedAt ?? T0 + 60_000, checksAt: o.checksAt ?? null }],
-  };
-}
 
 const judge = (store: Store, id: string, w: OutcomeWork | null, o: Parameters<typeof runJudged>[4] = {}) => runJudged(store, loadRunIndex(store), id, w, o);
 

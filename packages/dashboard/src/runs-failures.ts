@@ -12,6 +12,9 @@ import { matchingRuns, type RunFilter } from './runs-list.js';
 /** Failures on the days picked that Find breaking commit looks through for one that started after the first commit. */
 export const LATER_FAILURES = 50;
 
+/** What Find breaking commit says where the days' only failures fail by their family's checks. */
+export const FAMILY_ONLY_FAILURES = 'the runs that failed on the days picked failed only their family’s checks: Find breaking commit needs a run that failed on its own';
+
 /** A failure as the dialog offers it: the run it starts from. */
 export interface DayFailure {
   runId: string;
@@ -26,11 +29,14 @@ export const RUNS_FAILURES_READS: ReadTable<RunsFailuresJob> = {
   // Oldest first, the first failure on the days picked first, LATER_FAILURES at most.
   'runs-failures': (store, job) => {
     const types = [...new Set([...(job.options.types ?? []), 'failed' as const])];
+    const filter: RunFilter = { ...job.options, types, known: true, judge: judgeFor(store, job.outcome ?? null) };
     // A run's own failures: bisect can't yet tell where one that fails only its family's checks started.
-    const failures = matchingRuns(store, { ...job.options, types, known: true, ownFailures: true, judge: judgeFor(store, job.outcome ?? null) })
+    const failures = matchingRuns(store, { ...filter, ownFailures: true })
       .reverse()
       .slice(0, LATER_FAILURES)
       .map((r): DayFailure => ({ runId: r.runId, label: r.label, command: r.source ?? r.argv.join(' '), startedAt: r.startedAt }));
-    return answer({ failures });
+    // With none of its own, whether the days' failures are such runs, so the dialog says why it can't start.
+    const familyOnly = !failures.length && matchingRuns(store, filter).length > 0;
+    return answer({ failures, ...(familyOnly ? { familyOnly } : {}) });
   },
 };
