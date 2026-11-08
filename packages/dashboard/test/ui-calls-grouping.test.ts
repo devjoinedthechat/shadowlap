@@ -7,14 +7,19 @@ import { navigate, useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 import { forgetPickedCalls } from '../ui/run/open-at.js';
+import { forgetFolds } from '../ui/run/folds.js';
 
-// A call picked on a run's page is remembered for the session: each test opens its runs afresh.
-afterEach(forgetPickedCalls);
+// A call picked on a run's page, and its folds, are remembered for the session: each test opens its runs afresh.
+afterEach(() => {
+  forgetPickedCalls();
+  forgetFolds();
+});
 
 /**
- * Calls grouped on the run's page: each tool call under the model call that asked for it, a batch's
- * conversations each under its first call, a fold mark on every call with calls under it (and no Fold all),
- * ← and → as in a tree, the selected call never folded away, and a filter's matches flat.
+ * Calls' trace on the run's page: each tool call under the model call that asked for it, its caret
+ * before the kind, a batch's conversations each under a row of its own (and no Fold all), a fold that
+ * never moves the selection, the selection's groups opened, ← and → on the selected call, the fold
+ * buttons one Tab stop, and a filter's matches flat.
  */
 
 const RUN = '01M5GRX8K406H4KHQ7DEKYWTSZ';
@@ -65,8 +70,10 @@ function addressBar(hash: string) {
   return location;
 }
 
-const rows = () => r!.all('table.calls tbody tr[data-wi]').map((tr) => Number(tr.querySelector('td.n')!.childNodes.at(-1)!.textContent));
-const foldOf = (callNo: number) => r!.all('table.calls tbody tr[data-wi]').find((tr) => tr.querySelector('td.n')!.childNodes.at(-1)!.textContent === String(callNo))!.querySelector('button.tw');
+/** The calls drawn, by number; a group's row is no call's. */
+const rows = () => r!.all('table.calls tbody tr[data-call]').map((tr) => Number(tr.getAttribute('data-call')));
+const caretOf = (callNo: number) => r!.one(`table.calls tbody tr[data-call="${String(callNo)}"]`).querySelector('button.tcaret');
+const item = (n: number) => r!.one(`table.calls tbody tr.tgr[data-fold="i${String(n)}"]`);
 
 /** The run's page as the shell routes to it: the call the address names is the one selected. */
 function Routed() {
@@ -83,56 +90,104 @@ async function open(at = 2) {
 }
 
 describe('Calls, grouped', () => {
-  it('puts each ticket of a batch under its first call, a tool call under the model call that asked for it, each fold mark saying what it does', async () => {
+  it('draws a batch’s items as rows of their own, a tool call under the model call that asked for it, its caret saying what it does', async () => {
     await open();
-    expect(r!.one('table.calls').className).toBe('calls grouped');
-    expect(foldOf(1)!.getAttribute('aria-label')).toBe('Hide the 3 calls under #1');
-    expect(foldOf(1)!.getAttribute('aria-expanded')).toBe('true');
-    expect(foldOf(2)!.getAttribute('aria-label')).toBe('Hide the call under #2');
-    expect(foldOf(3)).toBeNull();
-    // Each ticket names its conversation beside its first call.
-    expect(r!.all('table.calls .gitem').map((e) => e.textContent)).toEqual(['conversation 1 of 2', 'conversation 2 of 2']);
-  });
-
-  it('folds a group away and opens it again, a folded one saying how many calls it holds', async () => {
-    await open(6);
-    await r!.click(foldOf(1)!);
-    expect(rows()).toEqual([1, 5, 6, 7, 8]);
-    expect(foldOf(1)!.getAttribute('aria-expanded')).toBe('false');
-    expect(r!.all('table.calls .gfold').map((e) => e.textContent)).toEqual(['3 calls']);
-    await r!.click(foldOf(1)!);
     expect(rows()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(r!.one('table.calls').className).toBe('calls grouped');
+    expect(r!.one('table.calls').getAttribute('aria-rowcount')).toBe('11');
+    const items = r!.all('table.calls tbody tr.tgr');
+    expect(items.map((tr) => tr.getAttribute('data-fold'))).toEqual(['i1', 'i2']);
+    // An item's row is a button over the row, never a call: no number, no selection.
+    expect(items[0]!.hasAttribute('aria-selected')).toBe(false);
+    expect(items[0]!.getAttribute('data-wi')).toBe('0');
+    const sum = items[0]!.querySelector('button.tgsum')!;
+    expect(sum.getAttribute('aria-label')).toBe('conversation 1 of 2, 4 calls');
+    expect(sum.getAttribute('aria-expanded')).toBe('true');
+    expect(caretOf(2)!.getAttribute('aria-label')).toBe('Hide tool call of #2');
+    expect(caretOf(6)!.getAttribute('aria-expanded')).toBe('true');
+    expect(caretOf(3)).toBeNull();
+    // A step in for each group: the item's, then the model call's.
+    const depth = (n: number) => (r!.one(`table.calls tbody tr[data-call="${String(n)}"] td.name`).props.style as Record<string, number> | undefined)?.['--d'];
+    expect([depth(1), depth(2), depth(3)]).toEqual([1, 1, 2]);
+    expect((item(1).querySelector('td.tgc')!.props.style as Record<string, number>)['--d']).toBe(0);
   });
 
-  it('opens the folded groups a call picked sits in, and has no Fold all', async () => {
+  it('folds a group without moving the selection: the folded row holds it', async () => {
+    const { bar } = await open(3);
+    await r!.click(caretOf(2)!);
+    expect(rows()).toEqual([1, 2, 4, 5, 6, 7, 8]);
+    expect(bar.hash).toBe(`#/run/${RUN}/3`);
+    expect(r!.one('table.calls tbody tr[data-call="2"]').className).toBe('held');
+    expect(caretOf(2)!.getAttribute('aria-label')).toBe('Show tool call of #2');
+    // A click anywhere on an item's row folds it, once.
+    await r!.click(item(1).querySelector('td.n')!);
+    expect(rows()).toEqual([5, 6, 7, 8]);
+    expect(item(1).className).toBe('tgr held');
+    expect(bar.hash).toBe(`#/run/${RUN}/3`);
+    await r!.click(item(1).querySelector('button.tgsum')!);
+    expect(rows()).toEqual([1, 2, 4, 5, 6, 7, 8]);
+  });
+
+  it('opens the groups a call picked sits in, and a fold of one holds after it', async () => {
     await open(2);
     expect(r!.all('button').some((b) => b.textContent === 'Fold all')).toBe(false);
-    await r!.click(foldOf(6)!);
-    await r!.click(foldOf(5)!);
-    expect(rows()).toEqual([1, 2, 3, 4, 5]);
-    // Going to a call in a folded group opens the groups it sits in.
+    await r!.click(item(2));
+    expect(rows()).toEqual([1, 2, 3, 4]);
     await r!.wait(0);
     navigate(href.run(RUN, 7), true);
     await r!.until('#7 in view', () => rows().includes(7));
     expect(rows()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // Folded again around the selection, it stays folded.
+    await r!.click(item(2));
+    await r!.wait(10);
+    expect(rows()).toEqual([1, 2, 3, 4]);
+    expect(item(2).className).toBe('tgr held');
   });
 
-  it('folds and opens with ← and →, and goes up and in, as a tree does', async () => {
+  it('folds and opens with ← and → on the selected call, and goes up and in', async () => {
     const { bar, keys } = await open(3);
-    // ← on a call with nothing under it goes to the call it sits under.
+    // ← on a tool call goes to the model call it sits under.
     expect(keys()({ key: 'ArrowLeft' })).toBe(true);
     expect(bar.hash).toBe(`#/run/${RUN}/2`);
     await r!.wait(10);
-    // ← on an open group folds it, then goes up again.
+    // ← on an open model call folds its calls, then the item's row that holds it, the selection held.
     expect(keys()({ key: 'ArrowLeft' })).toBe(true);
+    await r!.wait(10);
+    expect(rows()).toEqual([1, 2, 4, 5, 6, 7, 8]);
+    expect(keys()({ key: 'ArrowLeft' })).toBe(true);
+    await r!.wait(10);
+    expect(rows()).toEqual([5, 6, 7, 8]);
+    expect(bar.hash).toBe(`#/run/${RUN}/2`);
+    // → opens what holds the selection, then its calls, then goes to the first of them.
+    expect(keys()({ key: 'ArrowRight' })).toBe(true);
     await r!.wait(10);
     expect(rows()).toEqual([1, 2, 4, 5, 6, 7, 8]);
     expect(keys()({ key: 'ArrowRight' })).toBe(true);
     await r!.wait(10);
     expect(rows()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    // → on an open group goes to its first call.
     expect(keys()({ key: 'ArrowRight' })).toBe(true);
     expect(bar.hash).toBe(`#/run/${RUN}/3`);
+  });
+
+  it('makes the fold buttons one Tab stop, moved with ↑ ↓ Home End, ← folding and → opening, each press once', async () => {
+    await open(2);
+    const stops = () => r!.all('table.calls [data-fold][tabindex="0"]');
+    expect(stops()).toHaveLength(1);
+    expect(stops()[0]).toBe(caretOf(2));
+    await r!.focus(caretOf(2)!);
+    await r!.press('ArrowDown');
+    expect(r!.focused()).toBe(item(2).querySelector('button.tgsum'));
+    expect(stops()).toEqual([item(2).querySelector('button.tgsum')]);
+    await r!.press('End');
+    expect(r!.focused()).toBe(caretOf(6));
+    await r!.press('Home');
+    expect(r!.focused()).toBe(item(1).querySelector('button.tgsum'));
+    await r!.press('ArrowLeft');
+    expect(rows()).toEqual([5, 6, 7, 8]);
+    await r!.press('ArrowLeft');
+    expect(rows()).toEqual([5, 6, 7, 8]);
+    await r!.press('ArrowRight');
+    expect(rows()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it('lists a filter’s matches flat', async () => {
@@ -141,6 +196,6 @@ describe('Calls, grouped', () => {
     // The tool calls, and the model calls that asked for them.
     await r!.until('the matches', () => rows().join() === '2,3,6,7');
     expect(r!.one('table.calls').className).toBe('calls');
-    expect(r!.all('table.calls .lead')).toHaveLength(0);
+    expect(r!.all('table.calls .tgr, table.calls .tcaret')).toHaveLength(0);
   });
 });
