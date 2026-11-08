@@ -482,11 +482,19 @@ function valueLineOf(store: StoreOf<'recording'>, c: CallRecord): string | null 
 
 /**
  * What a call row shows that is the call's own: its blobs, its fingerprint, a tool's result in a
- * line, and whether it is a person's answer the agent read (`userInput()`, or stdin through the
- * preload), which Calls tags "input" and the fork menu answers differently.
+ * line, whether it is a person's answer the agent read (`userInput()`, or stdin through the
+ * preload), which Calls tags "input" and the fork menu answers differently, and whether it was made
+ * in one of Shadowlap's own scopes (its judge's), whose questions are never a batch's items.
  */
-export function ownFacts(store: StoreOf<'recording'>, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true } {
-  return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort: resultShortOf(store, c), ...(c.kind === 'tool' && c.meta.input === true ? { input: true as const } : {}) };
+export function ownFacts(store: StoreOf<'recording'>, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true; reserved?: true } {
+  return {
+    fingerprint: c.fingerprint,
+    requestRef: c.requestRef,
+    responseRef: c.end?.responseRef ?? null,
+    resultShort: resultShortOf(store, c),
+    ...(c.kind === 'tool' && c.meta.input === true ? { input: true as const } : {}),
+    ...(isReservedScope(c.meta.scope) ? { reserved: true as const } : {}),
+  };
 }
 
 /** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */

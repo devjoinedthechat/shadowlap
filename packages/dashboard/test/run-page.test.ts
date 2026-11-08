@@ -137,6 +137,8 @@ describe('the run page: conversations', () => {
       [j1, null],
       [quiet, null],
     ]);
+    // The judge's call says it is Shadowlap's own, so the page never makes its questions a batch's items.
+    expect(d.calls.filter((c) => c.reserved).map((c) => c.callNo)).toEqual([j1]);
     // A sub-agent started by a tool is no top agent either.
     const r = subagentRun(store);
     expect(runDetail(store, r.runId)!.calls.map((c) => [c.callNo, c.conversationInput])).toEqual([

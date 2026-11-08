@@ -101,6 +101,8 @@ export interface CallRow extends CallFacts {
   resultShort: string | null;
   /** A recorded user input: a person's answer the agent read, recorded like a read tool (`user_input`). */
   input?: true;
+  /** A call made in one of Shadowlap's own scopes, such as its judge's (`shadowlap:judge`): none of the agent's. */
+  reserved?: true;
   /**
    * While its run records, a call answered with a failure the agent may retry (a 429, a 5xx, a
    * connection that broke): the retry answers it again under its number, also after calls made since
