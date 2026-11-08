@@ -159,6 +159,10 @@
     // and this is the page of them browser/primitives.spec.ts measures in a real browser.
     "packages/dashboard/test/ui-primitives.test.ts",
     "packages/dashboard/test/primitives-page.tsx",
+    // This renders the results matrix, its key, its receipt and the panel they open in, and this is
+    // the page of them browser/matrix.spec.ts measures in a real browser.
+    "packages/dashboard/test/ui-matrix.test.ts",
+    "packages/dashboard/test/matrix-page.tsx",
     // This renders the status bar, which measures what fits it.
     "packages/dashboard/test/ui-status-bar.test.ts",
     // This renders Changes: its head, Verdicts, a revision's page and Compare under its tab.

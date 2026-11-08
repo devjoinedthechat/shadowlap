@@ -241,6 +241,8 @@ describe('lime', () => {
     '.st.ok': 'a status that passed: its word, in passed’s colour as its dot is',
     '.vw.ok': 'a verdict line’s word: passed',
     '.metric b.ok': 'a page’s fact that counts what passed (a fix verified)',
+    '.rmx-c.ok i': 'a results matrix’s cell that passed: its bar, its word staying quiet',
+    '.mxsw.ok': 'a matrix’s key: what passed',
     '.alist > .al > i': 'an attempt that passed',
     '.astrip .ac': 'an attempt that passed',
     'td.hist i.pass::before': 'a golden that passed at a revision',
@@ -371,6 +373,9 @@ describe('amber', () => {
     '.connbar .cdot': 'the dashboard can’t be reached: a look',
     '.paloff .cdot': 'the palette’s line saying the server can’t be reached: a look',
     '.status .off': 'the dashboard can’t be reached: a look',
+    '.rmx-c.warn i': 'a results matrix’s cell that was inconclusive or influenced: its bar',
+    '.rmx-c.warn b': 'a results matrix’s cell that was inconclusive or influenced: its word',
+    '.mxsw.warn': 'a matrix’s key: what was inconclusive or influenced',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
@@ -460,7 +465,7 @@ describe('forced colours', () => {
   }
 
   it('keeps the colour of every mark that says something by its colour alone, edged so it shows on any ground', () => {
-    const marks = ['.cells button', '.ms', '.gs', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i'];
+    const marks = ['.cells button', '.ms', '.gs', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw'];
     for (const s of marks) expect(forced.get(s)?.get('forced-color-adjust'), s).toBe('none');
   });
 
