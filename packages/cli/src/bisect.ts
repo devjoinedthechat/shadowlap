@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, messageOf, sameCommandLine, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, type StoreOf, unpackRun, type GateHistory, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, messageOf, sameCommandLine, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, type StoreOf, unpackRun, type GateHistory, type Normalizer, type Palette, type RunRecord, UNTESTED_WORDS } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { undecidableChecks } from './attempts.js';
 import { sessionSource } from './baseline-branch.js';
@@ -612,6 +612,6 @@ export function formatBisect(r: BisectReport, p: Palette = plain): string {
   const cost = `${r.replays} replay${r.replays === 1 ? '' : 's'} · ${r.tokens.toLocaleString('en-US')} tokens · ${r.upstreamRequests} upstream request${r.upstreamRequests === 1 ? '' : 's'}${r.spent > 0 ? ` · ${formatUsd(r.spent)}` : ''} · ${formatDuration(r.seconds * 1000)}`;
   if (r.outcome !== 'found' || !r.first) return `${p.red('✗')} no first bad commit: ${r.why ?? r.outcome}\n  ${p.dim(cost)}`;
   const f = r.first;
-  const unsure = r.untested.length ? `\n  ${p.yellow(`or one just before it, which could not be tested: ${r.untested.map((c) => `${c.short} (${c.subject})`).join(', ')}`)}` : '';
+  const unsure = r.untested.length ? `\n  ${p.yellow(UNTESTED_WORDS.line(r.untested.map((c) => `${c.short} (${c.subject})`)))}` : '';
   return `${p.green('✓')} first bad commit ${f.short} · ${f.subject} · ${f.author} · ${f.date.slice(0, 10)}\n  ${f.why} · ${p.dim(cost)}${unsure}`;
 }

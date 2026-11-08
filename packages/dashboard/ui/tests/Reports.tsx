@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { UNTESTED_WORDS } from '../../../engine/src/bisect-words.js';
 import type { BisectMiss, DivergenceView, FailureView, FoundCommit, InconclusiveView } from '../api.js';
 import { tipText } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
@@ -38,7 +39,7 @@ function BisectCard({ found }: { found: FoundCommit }) {
       <code>{f.rev}</code>
       <b>{f.subject}</b>
       <span className="m">{f.meta}</span>
-      {found.untested.length ? <span className="m">or one just before it that could not be tested: {found.untested.join(', ')}</span> : null}
+      {found.untested.length ? <span className="m">{UNTESTED_WORDS.line(found.untested)}</span> : null}
     </div>
   );
 }

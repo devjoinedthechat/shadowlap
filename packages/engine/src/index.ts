@@ -242,6 +242,7 @@ export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, m
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
+export { UNTESTED_WORDS } from './bisect-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,
 // and the most characters one takes, as a judge's name in a check does.
 export { asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, type GoldenNameProblem } from './golden-names.js';
