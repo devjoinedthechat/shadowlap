@@ -266,8 +266,7 @@ function Body(props: BuilderProps & BodyProps) {
         {d.unit && !d.unit.gone ? <Sentence rule={d.rule} ctx={rctx} run={runId ? shortId(runId) : null} models={cfg.models} onRule={setRule} onKind={setKind} /> : null}
       </section>
       <Preview answer={judging.answer} error={judging.error} retry={judging.retry} notes={notes} judged={d.judged} judgesOnly={d.judgesOnly} agent={cfg.agent} />
-      {props.cfgError ? <ErrorState retry={props.reread}>{props.cfgError}</ErrorState> : null}
-      <Change cfg={cfg} golden={d.golden} merged={d.settled.merged} changed={d.settled.changed} conflict={conflict} judgeAdded={judgeAdded(s.units)} runId={runId} />
+      <Change cfg={cfg} error={props.cfgError} retry={props.reread} golden={d.golden} merged={d.settled.merged} changed={d.settled.changed} conflict={conflict} judgeAdded={judgeAdded(s.units)} runId={runId} />
     </Dialog>
   );
 }

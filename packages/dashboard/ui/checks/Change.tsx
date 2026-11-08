@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { ChecksConfig, GoldenEntry } from '../checks-api.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { Copy } from '../components/Copy.js';
+import { ErrorState } from '../components/States.js';
 import { goldenName } from '../format.js';
 import { packRunCommand } from '../run/share.js';
 import { changeLines, entryAfter, entryOf, versionWords, type Fragment } from './model.js';
@@ -13,6 +14,9 @@ import { changeLines, entryAfter, entryOf, versionWords, type Fragment } from '.
  */
 export interface ChangeProps {
   cfg: ChecksConfig;
+  /** Why reading the file again failed, said under the heading with Retry, which Save's why points to. */
+  error: string | null;
+  retry: () => void;
   golden: GoldenEntry | null;
   merged: Fragment;
   changed: boolean;
@@ -24,15 +28,18 @@ export interface ChangeProps {
   runId: string | null;
 }
 
-export function Change({ cfg, golden, merged, changed, conflict, judgeAdded, runId }: ChangeProps) {
+export function Change({ cfg, error, retry, golden, merged, changed, conflict, judgeAdded, runId }: ChangeProps) {
   const warn = useRef<HTMLParagraphElement | null>(null);
   useEffect(() => {
     if (conflict) warn.current?.scrollIntoView({ block: 'center' });
   }, [conflict]);
   const head = (
-    <p className="cb-k">
-      <span className="k">The change</span>
-    </p>
+    <>
+      <p className="cb-k">
+        <span className="k">The change</span>
+      </p>
+      {error ? <ErrorState retry={retry}>{error}</ErrorState> : null}
+    </>
   );
   if (!golden) {
     return (
