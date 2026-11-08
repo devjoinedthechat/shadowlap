@@ -5,7 +5,7 @@ import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
 import { choicesInCheckout, commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
-import { foundsHere } from '../found-here.js';
+import { foundsHere, servesFound } from '../found-here.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import { links } from '../links.js';
@@ -201,7 +201,8 @@ async function revisionsInCheckout(view: TestsView, root: string | null | undefi
 
 /** Each first bad commit as the dashboard serves one (found-here.ts): its author only where names show, its file's place in the project folder. */
 async function foundInCheckout(view: TestsView, root: string | null | undefined): Promise<TestsView> {
-  const [divergences, failures] = await Promise.all([foundsHere(view.divergences, root), foundsHere(view.failures, root)]);
+  const serve = servesFound(root);
+  const [divergences, failures] = await Promise.all([foundsHere(view.divergences, serve), foundsHere(view.failures, serve)]);
   return { ...view, divergences, failures };
 }
 

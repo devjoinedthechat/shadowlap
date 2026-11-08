@@ -12,15 +12,21 @@ import type { FoundChange, FoundCommit } from './tests-bisect.js';
  * reverts too. Without a project folder, or where git can't say which repository it is in, the change
  * has no path.
  */
-export async function foundHere(found: FoundCommit, project: string | null | undefined): Promise<FoundCommit> {
-  const shown = namesTeamStore(project) ? found : { ...found, author: '' };
-  if (!found.change || !project) return shown;
-  return { ...shown, change: changeHere(found.change, project, await rootOf(project)) };
+export const foundHere = (found: FoundCommit, project: string | null | undefined): Promise<FoundCommit> => servesFound(project)(found);
+
+/** How one request serves its found commits, as foundHere serves one: whether names are shown is read once for all of them, as it reads the config. */
+export function servesFound(project: string | null | undefined): (found: FoundCommit) => Promise<FoundCommit> {
+  const names = namesTeamStore(project);
+  return async (found) => {
+    const shown = names ? found : { ...found, author: '' };
+    if (!found.change || !project) return shown;
+    return { ...shown, change: changeHere(found.change, project, await rootOf(project)) };
+  };
 }
 
-/** Each found commit of a list served as foundHere serves one; null stays null. */
-export async function foundsHere<T extends { found: FoundCommit | null }>(rows: readonly T[], project: string | null | undefined): Promise<T[]> {
-  return Promise.all(rows.map(async (r) => (r.found ? { ...r, found: await foundHere(r.found, project) } : r)));
+/** Each found commit of a list, as `serve` serves one (servesFound, once a request); null stays null. */
+export async function foundsHere<T extends { found: FoundCommit | null }>(rows: readonly T[], serve: (found: FoundCommit) => Promise<FoundCommit>): Promise<T[]> {
+  return Promise.all(rows.map(async (r) => (r.found ? { ...r, found: await serve(r.found) } : r)));
 }
 
 const posix = (p: string) => p.split(sep).join('/');
