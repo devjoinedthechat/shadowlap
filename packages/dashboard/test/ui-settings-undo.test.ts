@@ -269,6 +269,8 @@ describe('Undo on Store’s Push from CI', () => {
     await r.until('the switch', () => r!.all('.settab [role="switch"]').length === 1);
     const on = r.one('.settab [role="switch"]');
     expect([on.getAttribute('aria-labelledby'), on.getAttribute('aria-describedby'), on.getAttribute('aria-checked')]).toEqual(['ciPush-name', 'ciPush-help', 'true']);
+    // What it runs, as the CLI writes it: the command that turns it the other way.
+    expect(on.getAttribute('title')).toBe('shadowlap store push-from-ci off');
     expect([r.one('#ciPush-name').textContent, r.one('#ciPush-help').textContent]).toEqual(['Push from CI', 'CI pushes every test run, its report and each fix it opens, so history covers every pull request.']);
     // GitHub's step is Your workflow's, on Settings → CI, which builds the one workflow.
     const link = r.byText('.settab .setrow a.wflink', 'Open Your workflow');

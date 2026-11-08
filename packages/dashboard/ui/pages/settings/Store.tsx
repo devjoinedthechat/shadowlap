@@ -2,6 +2,7 @@ import { JOB_KINDS } from '../../api.js';
 import { CopyButton } from '../../components/CodeBox.js';
 import { EmptyState } from '../../components/States.js';
 import { num } from '../../format.js';
+import { commandText } from '../../goldens.js';
 import { ACTIONS, PUSH_LOCAL } from '../../labels.js';
 import { href } from '../../route.js';
 import type { StoreSettings } from '../../settings-api.js';
@@ -216,7 +217,7 @@ function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; ver
         on={ciPush}
         labelledBy="ciPush-name"
         describedBy="ciPush-help"
-        title={`shadowlap store push-from-ci ${ciPush ? 'off' : 'on'}`}
+        title={commandText(['store', 'push-from-ci', ciPush ? 'off' : 'on'])}
         onChange={(on) =>
           void editor.run(
             () => client.settings.setCiPush(on, version),
