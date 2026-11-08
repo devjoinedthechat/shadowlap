@@ -262,6 +262,29 @@ describe('export html', () => {
     expect(bare.diff.paths.map((p) => p.path)).toEqual(['$.metadata.user_id', '$.messages[0].content']);
   });
 
+  it('compares its runs after the rules matching applies, Compare and a fork’s differences alike, as the dashboard does', () => {
+    // A recording and its fork that each opened a ticket, its id the one thing between them.
+    const ticket = (id: string, parent: string | null) => {
+      const r = store.createRun({ mode: parent ? 'replay' : 'record', ...(parent ? { parentRunId: parent } : {}), command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: Date.UTC(2026, 10, 4, parent ? 10 : 9) });
+      const identity = { kind: 'tool' as const, name: 'create_ticket', fingerprint: `ticket ${id}`, occurrence: 1 };
+      store.appendCallStart({ runId: r.runId, callNo: 1, ...identity, origin: 'live', effect: 'write', requestRef: store.putJson({ args: { id } }), meta: {}, at: 1 });
+      store.appendCallEnd(identity, { runId: r.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ result: { ok: true } }), outcome: 'ok', meta: {}, at: 2 });
+      if (parent) store.setDivergence(r.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'create_ticket', replayedBefore: 0 });
+      store.endRun(r.runId, 'completed');
+      return r.runId;
+    };
+    const parent = ticket('T-1', null);
+    const fork = ticket('T-2', parent);
+    const held = (normalize?: Array<{ kind: 'tool'; path: string; replace: string }>) => {
+      const r = embedded(exportHtml({ store, runIds: [fork, parent], uiDir, ...(normalize ? { normalize } : {}) }).html).responses;
+      const pair = r[`compare?a=${parent}&b=${fork}`] as { pair: { verdict: { words: string } } };
+      const differences = r[`runs/${fork}/differences`] as { differences: { rank: number | null } };
+      return [pair.pair.verdict.words, differences.differences.rank];
+    };
+    expect(held()).toEqual(['Different writes', 1]);
+    expect(held([{ kind: 'tool', path: '$.args.id', replace: '<id>' }])).toEqual(['The same decisions', null]);
+  });
+
   it('applies redaction rules, as pack does', () => {
     const rules = [{ pattern: 'email', replace: '<EMAIL>' }];
     const plain = exportHtml({ store, runIds: [runId], uiDir });
