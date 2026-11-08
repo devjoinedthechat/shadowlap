@@ -3,6 +3,7 @@ import { answersSub, changedAnswers, changeCards, codeNote, compareFacts, compar
 import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
 import { argPieces, cutPart, type ArgPiece } from '../ui/compare/args.js';
 import { wordMarks } from '../ui/json-diff.js';
+import { spentWords } from '../ui/run/metrics.js';
 import type { CallRow, CompareView } from '../ui/types.js';
 
 // Compare's logic without a browser: what the four change cards say, which rows after the fork the
@@ -54,6 +55,16 @@ describe("a row's arguments, as pieces a line breaks between", () => {
     expect(cutPart('x'.repeat(130))).toHaveLength(120);
     expect(cutPart('x'.repeat(130)).endsWith('…')).toBe(true);
     expect(cutPart('short')).toBe('short');
+  });
+});
+
+describe('what each run spent, in its header\'s words', () => {
+  it('says the spend as the run header does, a capture as captured and a model with no price', () => {
+    const cost = (spent: number, unknownModels: string[] = [], captured = 0) => ({ spent, saved: 0, captured, unknownModels });
+    expect(spentWords({ cost: cost(0.051), capture: false })).toEqual({ value: '≈$0.051', label: 'spent' });
+    expect(spentWords({ cost: cost(0.051), capture: false, spentBy: 'maya' }).label).toBe('spent · by maya');
+    expect(spentWords({ cost: cost(0, ['llama-4']), capture: false })).toEqual({ value: '—', label: 'spent · no price for llama-4' });
+    expect(spentWords({ cost: cost(0, [], 0.12), capture: true }).label).toBe('as captured');
   });
 });
 
