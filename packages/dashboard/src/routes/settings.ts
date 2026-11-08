@@ -79,7 +79,7 @@ const LISTS: readonly RuleList[] = ['normalize', 'redact'];
 /** Unused space worth a clean-up of its own when no run is old enough: 1 MB, as `gc` counts it. */
 const UNUSED_WORTH = 1024 * 1024;
 /** The version of the file an edit was based on: `absent`, or a SHA-256. */
-const VERSION = /^(absent|[0-9a-f]{64})$/;
+export const VERSION = /^(absent|[0-9a-f]{64})$/;
 
 function listOf(name: string | undefined): RuleList {
   if (!LISTS.includes(name as RuleList)) throw new HttpError(404, 'rules are under /settings/rules/normalize or /settings/rules/redact');
@@ -92,12 +92,44 @@ function expectOf(value: unknown): string {
 }
 
 /** An edit's error as the page shows it: the rule's fault (400), a file that changed or is busy (409), one that can't be read or written (422). */
-function editError(err: unknown): never {
+export function editError(err: unknown): never {
   if (err instanceof HttpError) throw err;
   if (err instanceof RuleError) throw new HttpError(400, err.message);
   if (err instanceof ConfigConflictError) throw new HttpError(409, err.message);
   if (err instanceof ConfigFileError) throw new HttpError(422, err.message);
   throw err;
+}
+
+/** The project folder Settings reads and edits; a dashboard without one has no Settings. */
+export function settingsFolder(ctx: RouteContext): string {
+  if (!ctx.project) throw new HttpError(409, 'Settings need the project folder: start the dashboard with shadowlap dashboard in it');
+  return ctx.project.path;
+}
+
+/** Why an edit can't be made when the folder is gone from disk: the page turns its edits off with the same words. */
+const gone = (ctx: RouteContext, cwd: string) => new HttpError(409, folderGoneText(ctx.project?.name ?? basename(cwd)));
+
+/**
+ * The folder an edit writes into: refused, saying why, when it is gone, rather than with the file
+ * system's ENOENT. `folder` is the project's folder as the edit's page needs it (Settings' by default).
+ */
+export function editFolder(ctx: RouteContext, folder: (ctx: RouteContext) => string = settingsFolder): string {
+  const cwd = folder(ctx);
+  if (!existsSync(cwd)) throw gone(ctx, cwd);
+  return cwd;
+}
+
+/** An edit's error as the page shows it (editError); one made while the folder went away says so. */
+export function failed(ctx: RouteContext, err: unknown, cwd: string): never {
+  if (!existsSync(cwd)) throw gone(ctx, cwd);
+  return editError(err);
+}
+
+/** Records the activity an edit leaves, as the CLI's edits do; the person is resolved as the CLI resolves them, in the folder the edit wrote into. */
+export function log(ctx: RouteContext, events: ReadonlyArray<ConfigEvent & { runId?: string | null }>, cwd: string = settingsFolder(ctx)): void {
+  if (!events.length) return;
+  const actor = resolveAuthor({ cwd });
+  for (const e of events) recordEvent(ctx.store, { ...e, actor });
 }
 
 function refusal(err: unknown): never {
@@ -108,26 +140,8 @@ function refusal(err: unknown): never {
 export function register(router: Router, ctx: RouteContext): void {
   const { jobs } = ctx;
 
-  /** The project folder Settings reads and edits; a dashboard without one has no Settings. */
-  const folder = (): string => {
-    if (!ctx.project) throw new HttpError(409, 'Settings need the project folder: start the dashboard with shadowlap dashboard in it');
-    return ctx.project.path;
-  };
-  /** Why an edit can't be made when the folder is gone from disk: the page turns its edits off with the same words. */
-  const gone = (cwd: string) => new HttpError(409, folderGoneText(ctx.project?.name ?? basename(cwd)));
-  /** The folder an edit writes into: refused, saying why, when it is gone, rather than with the file system's ENOENT. */
-  const editFolder = (): string => {
-    const cwd = folder();
-    if (!existsSync(cwd)) throw gone(cwd);
-    return cwd;
-  };
-  /** An edit's error as the page shows it (editError); one made while the folder went away says so. */
-  const failed = (err: unknown, cwd: string): never => {
-    if (!existsSync(cwd)) throw gone(cwd);
-    return editError(err);
-  };
   const settings = (options: { setupRun?: boolean } = {}): SettingsContext => {
-    const cwd = folder();
+    const cwd = settingsFolder(ctx);
     return {
       store: ctx.store,
       cwd,
@@ -137,12 +151,6 @@ export function register(router: Router, ctx: RouteContext): void {
       setupRunId: options.setupRun ? setupRunOf(cwd) : null,
       name: ctx.project?.name ?? null,
     };
-  };
-  /** Records the activity an edit leaves, as the CLI's edits do; the person is resolved as the CLI resolves them. */
-  const log = (events: ReadonlyArray<ConfigEvent & { runId?: string | null }>): void => {
-    if (!events.length) return;
-    const actor = resolveAuthor({ cwd: folder() });
-    for (const e of events) recordEvent(ctx.store, { ...e, actor });
   };
 
   // ---- reads ----
@@ -196,7 +204,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/settings/project', (r) => r.tagged(projectSettings(settings())));
 
   router.get('/settings/store', (r) => {
-    const cwd = folder();
+    const cwd = settingsFolder(ctx);
     // Copy CI step runs the goldens: the keys of those that run live go with it.
     r.tagged(storeSettings(settings(), readTeamStoreInput({ cwd }), liveKeys(cwd, ctx.options.goldens?.() ?? [])));
   });
@@ -207,13 +215,13 @@ export function register(router: Router, ctx: RouteContext): void {
     const list = listOf(r.params.list);
     const body = await r.body();
     const expect = expectOf(body.expect);
-    const cwd = editFolder();
+    const cwd = editFolder(ctx);
     try {
       const added = await editWhenFree((o) => addRule(cwd, list, body.rule, { ...o, expect }));
-      log(added.event ? [added.event] : []);
+      log(ctx, added.event ? [added.event] : []);
       r.json({ list, n: added.n, added: added.added, rule: added.rule, version: added.file.version });
     } catch (err) {
-      failed(err, cwd);
+      failed(ctx, err, cwd);
     }
   });
 
@@ -222,26 +230,26 @@ export function register(router: Router, ctx: RouteContext): void {
     const n = Number(r.params.n);
     if (!Number.isInteger(n) || n < 1) throw new HttpError(400, 'name the rule by its number, from 1');
     const expect = expectOf(r.query.get('expect'));
-    const cwd = editFolder();
+    const cwd = editFolder(ctx);
     try {
       const removed = await editWhenFree((o) => removeRule(cwd, list, n, { ...o, expect }));
-      log([removed.event]);
+      log(ctx, [removed.event]);
       r.json({ list, n: removed.n, rule: removed.rule, version: removed.file.version });
     } catch (err) {
-      failed(err, cwd);
+      failed(ctx, err, cwd);
     }
   });
 
   router.put('/settings/clock', async (r) => {
     const body = await r.body();
     const expect = expectOf(body.expect);
-    const cwd = editFolder();
+    const cwd = editFolder(ctx);
     try {
       const set = await editWhenFree((o) => setClock(cwd, body.mode, { ...o, expect }));
-      log(set.event ? [set.event] : []);
+      log(ctx, set.event ? [set.event] : []);
       r.json({ clock: set.clock, changed: set.changed, version: set.file.version });
     } catch (err) {
-      failed(err, cwd);
+      failed(ctx, err, cwd);
     }
   });
 
@@ -251,7 +259,7 @@ export function register(router: Router, ctx: RouteContext): void {
     if (typeof body.on !== 'boolean') throw new HttpError(400, 'on is true or false');
     const on = body.on;
     const expect = expectOf(body.expect);
-    const cwd = editFolder();
+    const cwd = editFolder(ctx);
     try {
       let previous = true;
       const edit = await editWhenFree((o) =>
@@ -264,7 +272,7 @@ export function register(router: Router, ctx: RouteContext): void {
       if (edit.changed) recordEvent(ctx.store, { kind: 'store.ci', actor: resolveAuthor({ cwd }), ...(store ? { ref: store } : {}), data: { push: on, previous } });
       r.json({ ciPush: on, previous, changed: edit.changed, version: edit.file.version });
     } catch (err) {
-      failed(err, cwd);
+      failed(ctx, err, cwd);
     }
   });
 
@@ -288,13 +296,13 @@ export function register(router: Router, ctx: RouteContext): void {
     if (!runId || !ctx.store.getRun(runId)) throw new HttpError(409, 'that calibration replayed a run this project doesn’t have: add what it proposed from its own project, or run Calibrate here');
     const rules = proposedRules(result);
     if (!rules.length) throw new HttpError(409, 'the calibration proposed nothing to add');
-    const cwd = editFolder();
+    const cwd = editFolder(ctx);
     try {
       const saved = await editWhenFree((o) => addRules(cwd, 'normalize', rules, o));
-      log(saved.events.map((e) => ({ ...e, runId, data: { ...e.data, via: 'calibrate' } })));
+      log(ctx, saved.events.map((e) => ({ ...e, runId, data: { ...e.data, via: 'calibrate' } })));
       r.json({ added: saved.rules.filter((x) => x.added).map((x) => x.n), already: saved.rules.filter((x) => !x.added).map((x) => x.n), version: saved.file.version });
     } catch (err) {
-      failed(err, cwd);
+      failed(ctx, err, cwd);
     }
   });
 
