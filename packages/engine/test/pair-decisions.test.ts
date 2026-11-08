@@ -158,19 +158,23 @@ describe("Compare's rows", () => {
       [4, true, false],
       [5, false, false],
     ]);
-    expect(p.rows[0].a!.decision).toEqual({ stop: 'tools', stops: 'calls tools', tools: [{ name: 'send_email', effect: 'write', args: '{"to":"customer@example.com","body":"Refunded"}', mark: 'changed' }], text: '' });
+    // A decision as a preview's cell takes it (Decision.tsx), with the words for its stop.
+    expect(p.rows[0].a!.decision).toEqual({ stop: 'tools', stopReason: 'tool_use', stops: 'calls tools', tools: [{ name: 'send_email', effect: 'write', args: { to: 'customer@example.com', body: 'Refunded' } }], text: '' });
     expect(p.rows[1].b).toMatchObject({ kind: 'tool', name: 'send_email', effect: 'write', origin: 'blocked', args: '{"to":"customer@example.com","body":"Escalated"}', decision: null, failure: null });
     expect(p.rows[3]).toMatchObject({ a: null, b: { callNo: 5, failure: { status: 503, by: 'offline' }, decision: null } });
     expect(p.more).toBe(0);
   });
 
-  it('marks a tool the other side calls alike, otherwise or not at all', () => {
-    const p = decide({ a: [{ kind: 'api', tools: [{ name: 'lookup_order', args: { id: 1 } }, { name: 'get_sla', args: {} }] }], b: [{ kind: 'api', tools: [{ name: 'lookup_order', args: { id: 1 } }, { name: 'refund', args: {} }] }] }, 0);
-    expect(p.rows[0].a!.decision!.tools.map((t) => [t.name, t.effect, t.mark])).toEqual([
-      ['lookup_order', 'unknown', 'same'],
-      ['get_sla', 'unknown', 'only'],
+  it("says each tool a decision calls with what it does, its arguments' strings cut to a row's worth", () => {
+    const long = 'x'.repeat(500);
+    const p = decide({ a: [{ kind: 'api', tools: [{ name: 'lookup_order', args: { id: 1 } }, { name: 'get_sla', args: { note: long } }] }], b: [{ kind: 'api', tools: [{ name: 'lookup_order', args: { id: 1 } }, { name: 'refund', args: {} }] }] }, 0);
+    expect(p.rows[0].a!.decision!.tools.map((t) => [t.name, t.effect])).toEqual([
+      ['lookup_order', 'unknown'],
+      ['get_sla', 'unknown'],
     ]);
-    expect(p.rows[0].b!.decision!.tools.map((t) => t.mark)).toEqual(['same', 'only']);
+    const note = (p.rows[0].a!.decision!.tools[1].args as { note: string }).note;
+    expect(note).toBe(`${'x'.repeat(300)}… (200 more characters)`);
+    // Not the same tools: nothing in the row to mark word by word.
     expect(p.rows[0].similar).toBe(false);
   });
 

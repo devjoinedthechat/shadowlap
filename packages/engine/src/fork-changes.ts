@@ -1,7 +1,7 @@
 import { canonicalize } from './canonical.js';
 import { isFailedOutcome, outcomeLabel, type RunOutcome } from './classify.js';
 import { lostWords } from './run-verdicts.js';
-import { clipText, compareDecisions, decisionOfResponse, decisionView, effectsOf, isHandover, STOP_WORDS, type DecisionCall, type DecisionChangeKind, type DecisionRank, type DecisionStop, type EffectOf, type ModelDecision } from './decisions.js';
+import { clipText, compareDecisions, decisionOfResponse, decisionView, effectsOf, isHandover, STOP_WORDS, type DecisionCall, type DecisionChangeKind, type DecisionRank, type DecisionView, type EffectOf, type ModelDecision } from './decisions.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { applyNormalizers, rewriteText } from './normalize.js';
 import { pairVerdict, type PairVerdict } from './pair-verdict.js';
@@ -353,19 +353,14 @@ const endKey = (e: PairEnd): string => (e.kind === 'exited' ? `exited ${e.code ?
 /** What a row shows of a call's words or arguments: a row is a line, and the opened row reads the call whole. */
 export const ROW_TEXT = 300;
 
-/** A model call's decision as a row draws it: its words, each tool it calls, and how its turn ends. */
-export interface PathDecision {
-  stop: DecisionStop;
-  /** How its turn ends, in `decisions`' words: `calls tools`, `answers and stops`. */
+/**
+ * A model call's decision as a row and its opened view draw it: the engine's decisionView (its
+ * words, each tool it calls with what it does, `unknown` where no run says, and how its turn ends),
+ * as a preview's cell takes it, with every string in it cut past ROW_TEXT, and `stops`, how its turn
+ * ends in `decisions`' words (`calls tools`), since a page can't load the decisions module.
+ */
+export interface PathDecision extends DecisionView {
   stops: string;
-  /**
-   * Each tool it calls: what it does (`unknown` where no run says), its arguments in a line, and how
-   * the other side's call in the row calls it: `same` with the same arguments, `changed` with other
-   * ones, `only` not at all.
-   */
-  tools: Array<{ name: string; effect: Effect | 'unknown' | 'handover'; args: string; mark: 'same' | 'changed' | 'only' }>;
-  /** Its words, on one line, cut past ROW_TEXT. */
-  text: string;
 }
 
 /** One side's call in a row. */
@@ -431,21 +426,18 @@ function rowCall(store: StoreOf<'recording'>, c: CallRecord, normalizers: readon
   };
 }
 
-/** A decision as a row draws it, each tool marked by how `other` calls it. */
-function rowDecision(d: ModelDecision, other: ModelDecision | null, effectOf: EffectOf): PathDecision {
-  const keys = new Set((other?.tools ?? []).map((t) => `${t.name}\u0000${canonicalize(t.args ?? null)}`));
-  const names = new Set((other?.tools ?? []).map((t) => t.name));
+/** A value with each string in it cut past `max`: a row's arguments stay a line's worth, their shape kept. */
+function clipStrings(v: unknown, max: number): unknown {
+  if (typeof v === 'string') return clipText(v, max);
+  if (Array.isArray(v)) return v.map((x) => clipStrings(x, max));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clipStrings(x, max)]));
+  return v;
+}
+
+/** A decision as a row draws it: the engine's view of it, its strings cut. */
+function rowDecision(d: ModelDecision, effectOf: EffectOf): PathDecision {
   const view = decisionView(d, effectOf);
-  return {
-    stop: d.stop,
-    stops: STOP_WORDS[d.stop],
-    tools: view.tools.map((t, i) => {
-      const own = d.tools[i]!;
-      const mark = keys.has(`${own.name}\u0000${canonicalize(own.args ?? null)}`) ? 'same' : names.has(own.name) ? 'changed' : 'only';
-      return { name: t.name, effect: t.effect, args: oneLine(t.args ?? {}, ROW_TEXT), mark };
-    }),
-    text: clipText(d.text, ROW_TEXT),
-  };
+  return { ...view, tools: view.tools.map((t) => ({ ...t, args: clipStrings(t.args ?? null, ROW_TEXT) })), text: clipText(d.text, ROW_TEXT), stops: STOP_WORDS[d.stop] };
 }
 
 /** Whether two calls at one place are alike, or similar enough to mark the words that differ. */
@@ -475,8 +467,8 @@ export function pathRows(store: StoreOf<'recording'>, aCalls: readonly CallRecor
   for (let k = prefix; k < prefix + shown; k++) {
     const x = xs[k] ? rowCall(store, xs[k]!, normalizers) : null;
     const y = ys[k] ? rowCall(store, ys[k]!, normalizers) : null;
-    if (x?.decision) x.call.decision = rowDecision(x.decision, y?.decision ?? null, o.effectOf);
-    if (y?.decision) y.call.decision = rowDecision(y.decision, x?.decision ?? null, o.effectOf);
+    if (x?.decision) x.call.decision = rowDecision(x.decision, o.effectOf);
+    if (y?.decision) y.call.decision = rowDecision(y.decision, o.effectOf);
     const same = x && y ? sameness(x, y, o.effectOf) : { alike: false, similar: false };
     rows.push({ callNo: (x ?? y)!.call.callNo, a: x?.call ?? null, b: y?.call ?? null, ...same });
   }
