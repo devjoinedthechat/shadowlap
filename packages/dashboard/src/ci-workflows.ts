@@ -149,7 +149,8 @@ export interface CiWorkflowsView {
 }
 
 const BOOL: Record<string, boolean> = { on: true, off: false, true: true, false: false, '1': true, '0': false, yes: true, no: false };
-const REPAIRER = /^(claude-code|anthropic|openai)(:[A-Za-z0-9._\-/]{1,80})?$/;
+/** A repairer as `repair --repairer` takes it: a name, then `:<model>` if you like. */
+export const REPAIRER = /^(claude-code|anthropic|openai)(:[A-Za-z0-9._\-/]{1,80})?$/;
 
 /** The panels' options from the query string; anything left out takes its default. */
 export function parseCiOptions(q: URLSearchParams): CiWorkflowOptions | { error: string } {
