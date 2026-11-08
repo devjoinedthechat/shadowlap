@@ -7,9 +7,10 @@ import { demoId, openPage, seriousViolations } from './dashboard.js';
  * demo's answers (the demo store has no crashed golden): on a crash's run page the commit's finding
  * leads, Show change opens the change in the inspector's place, and Revert leads the header with Open
  * in editor and Run blame plain; on Tests the change sits under the commit's card and Revert leads the
- * verdict. Each has no serious axe violation at 1440 and 390 with the change open. A revert's drawer
- * reads Reverting, then Reverted where git reverted, its status not saying reverted again, or Tried
- * reverting where git refused.
+ * verdict. Each has no serious axe violation at 1440 and 390 with the change open, nor has Revert's
+ * dialog, whose code box of the change undone keeps to its width. A revert's drawer reads Reverting,
+ * then Reverted where git reverted, its status not saying reverted again, or Tried reverting where
+ * git refused.
  */
 
 const DIALOG = '[role="dialog"][aria-modal="true"]';
@@ -111,8 +112,8 @@ for (const [width, height] of [
     const run = await routeCrash(page);
     await openPage(page, `/run/${run}`, 'run');
     const finding = page.locator('#view section', { has: page.locator('.bk', { hasText: 'first bad commit' }) }).first();
-    await expect(finding).toContainText(REV);
-    await expect(finding).toContainText(FOUND.subject);
+    await expect(finding.locator('code').first()).toHaveText(REV);
+    await expect(finding.locator('.why .lead')).toHaveText(FOUND.subject);
     const lead = page.locator('.rhead .btn.lime[data-next="revert"]');
     await expect(lead).toHaveText('Revert');
     const toggle = page.locator('#view [data-act="change"]');
@@ -136,6 +137,23 @@ for (const [width, height] of [
     await page.keyboard.press('Escape');
     await expect(page.locator('#insp.fpanel')).toHaveCount(0);
     await expect(toggle).toBeFocused();
+  });
+
+  test(`at ${width}×${height} Revert's dialog shows the change it undoes in a code box that keeps to its width, passing axe`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    const run = await routeCrash(page);
+    await openPage(page, `/run/${run}`, 'run');
+    await page.locator('.rhead .btn.lime[data-next="revert"]').click();
+    const dialog = page.locator(DIALOG);
+    await expect(dialog).toContainText(`Revert ${REV}?`);
+    const box = dialog.locator('pre.codebox.fxpatch');
+    await expect(box.locator('.add')).toHaveText('+    limit = policy.limit(order)');
+    await expect(box.locator('.del')).toHaveText('-    limit = policy.limit()');
+    // An added line's ground reaches the box's edges without widening it: nothing to scroll sideways.
+    expect(await box.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    expect(await seriousViolations(page)).toEqual([]);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
   });
 
   test(`at ${width}×${height} Tests shows the commit's change under its card and leads with Revert, passing axe`, async ({ page }) => {
