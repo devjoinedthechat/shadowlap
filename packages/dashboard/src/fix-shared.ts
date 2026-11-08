@@ -88,10 +88,11 @@ export interface FixActions {
   repair: { argv: string[]; command: string; noFix: string | null; noFixWhy: NoFixToTry | null; candidates: number; spent: boolean } | null;
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
-   * working tree applied (`mark`). Once `applied`, the button is "Patch applied" ("Marked applied"
-   * for a fix with no patch) and disabled, unless `pending` says what applying left undone, which
-   * running it again finishes. `pulled`: the repair came from the team store, so its recordings are
-   * on the machine that ran it, and applying here puts in the patch alone and runs nothing from it.
+   * working tree applied (`mark`), by `argv` (`command`, its line). Once `applied`, a patch offers
+   * Show patch, and a fix with no patch a disabled "Marked applied", unless `pending` says what
+   * applying left undone, which Finish applying runs again to finish. `pulled`: the repair came from
+   * the team store, so its recordings are on the machine that ran it, and applying here puts in the
+   * patch alone and runs nothing from it.
    * `files`: every file the patch changes, and `diff` the patch itself, for the confirm dialog to
    * show what goes in. `refused`: why `fix apply` won't put it in (it is more than the one rewrite
    * its repair verified); then there is no git apply command to copy either (`gitApply`, as
@@ -106,7 +107,7 @@ export interface FixActions {
    * (`--set`, `--model`) with no patch, what it set (`fieldChange`): marking it applied leaves making
    * it in the agent to you.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; names: Array<{ run: string; name: string }>; held: string[] | null; change: string | null } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; command: string; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; names: Array<{ run: string; name: string }>; held: string[] | null; change: string | null } | null;
   applied: boolean;
   /**
    * An open fix whose blame couldn't settle where its run was lost (`unsettled`: its first probe

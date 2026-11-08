@@ -100,9 +100,11 @@ function applyOffer(store: StoreOf<'team'>, rec: FixRecords, label: string | nul
   const made = defaultGoldenNames({ label, title: fix.title }, copies.length);
   const offered = copies.flatMap((g, i) => (g.copied ? [] : [{ run: g.run, name: made[i]!, source: g.source }]));
   const folder = o.folder ? o.folder(offered) : null;
+  const argv = ['fix', 'apply', fix.fixId];
   return {
     kind: toApply ? 'patch' : 'mark',
-    argv: ['fix', 'apply', fix.fixId],
+    argv,
+    command: commandLine(argv),
     // Once the patch is in the working tree, git apply would only fail.
     gitApply: patchFile && !o.refused && !o.inTree && fix.status !== 'applied' ? gitApplyCommand(patchFile) : null,
     pending: pendingText(applyLeft(fix, toApply, { pulled })),

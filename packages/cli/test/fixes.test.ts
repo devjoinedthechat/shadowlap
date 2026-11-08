@@ -271,7 +271,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
     expect(shown.blame.callRow.filter((c: { kind: string }) => c.kind === 'api')).toHaveLength(4);
     // Verified on the working tree, with no repair behind it: applying it only marks it.
-    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: [], change: null }, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null });
+    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], command: `shadowlap fix apply ${fixId}`, gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: [], change: null }, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null });
 
     const human = (await shadowlap(['fix', 'show', fixId])).stdout;
     expect(human).toContain(`${fixId}  Refunds above the limit issued without approval`);
@@ -362,7 +362,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.repair.lost).toEqual([{ runId: report.targets[0].runId, at: `model call #${decision} (3 of 4)`, href: `#/fixes/${fixId}/blame` }]);
     expect(shown.verify).toHaveLength(1);
     expect(shown.verify[0]).toMatchObject({ verifyId: report.verifyId, verdict: 'accepted', code: 'repair candidate 3', label: 'repair candidate 3 · accepted', candidate: 3, repairId: report.repairId });
-    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: `git -c core.autocrlf=false apply ${report.output.dir}/fix.patch`, pending: null, pulled: false, files: ['agent.mjs'], diff: readFileSync(join(project, report.output.patch), 'utf8'), patchFile: `${report.output.dir}/fix.patch`, refused: null, inTree: false, goldens: 2, names: report.output.goldens.map((g: string, i: number) => ({ run: basename(g), name: `${TITLED}-${i + 1}` })), held: [], change: null });
+    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], command: `shadowlap fix apply ${fixId}`, gitApply: `git -c core.autocrlf=false apply ${report.output.dir}/fix.patch`, pending: null, pulled: false, files: ['agent.mjs'], diff: readFileSync(join(project, report.output.patch), 'utf8'), patchFile: `${report.output.dir}/fix.patch`, refused: null, inTree: false, goldens: 2, names: report.output.goldens.map((g: string, i: number) => ({ run: basename(g), name: `${TITLED}-${i + 1}` })), held: [], change: null });
 
     // A golden recorded before the fix: the prompt the patch changes goes into its every request.
     expect((await shadowlap(['pack', good, 'goldens/good-refund'])).code).toBe(0);

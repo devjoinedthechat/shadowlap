@@ -124,6 +124,8 @@ describe('the header’s buttons', () => {
       ['Mark applied', 'btn'],
       ['Verify this run', 'btn lime'],
     ]);
+    // Mark applied's card shows its command, as the Fixes row's step does.
+    expect(JSON.parse(String(r!.byText('.ph .actions button', 'Mark applied').props['data-tip']))).toMatchObject({ t: 'Mark applied', cmd: `$ shadowlap fix apply ${a.fixId}` });
     await r!.click(r!.byText('.ph .actions button', 'Verify this run'));
     expect(text(r!.one('.dialog h3'))).toBe(`Verify change on ${b.run.slice(0, 10)}`);
     await r!.click(r!.one('.dialog .dlg-ok'));

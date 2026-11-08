@@ -1393,7 +1393,7 @@ or `by hand` for one you made that a verdict checked.
 
 `apply` has:
 
-- `kind`, and the `gitApply` command;
+- `kind`, the `command` that applies it, and the `gitApply` command;
 - `pending`, saying what applying left undone;
 - every file the patch changes in `files`, the patch itself in `diff`, and where it is kept in
   `patchFile`;

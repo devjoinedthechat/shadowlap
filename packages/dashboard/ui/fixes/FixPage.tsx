@@ -398,9 +398,10 @@ function ApplyButton({ fix, lime, why, ask }: Pick<ButtonsProps, 'fix' | 'lime' 
       </ActionButton>
     );
   if (action.kind !== 'apply') return null;
-  const sub = leadCard({ key: 'apply', label: action.label, command: '', use: 'writes', pending: fix.actions.applied ? (fix.actions.apply?.pending ?? null) : null });
+  const apply = fix.actions.apply;
+  const sub = leadCard({ key: 'apply', label: action.label, command: apply?.command ?? '', use: 'writes', pending: fix.actions.applied ? (apply?.pending ?? null) : null });
   return (
-    <ActionButton className={lime?.key === 'apply' ? 'btn lime' : 'btn'} why={why} tip={action.label} sub={sub} onClick={() => ask('apply')}>
+    <ActionButton className={lime?.key === 'apply' ? 'btn lime' : 'btn'} why={why} tip={action.label} sub={sub} command={apply ? `$ ${apply.command}` : undefined} onClick={() => ask('apply')}>
       {action.label}
     </ActionButton>
   );
