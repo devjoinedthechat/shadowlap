@@ -238,8 +238,8 @@ describe('importing a trace', () => {
 
 describe('a toast that reports an error', () => {
   it('starts the server’s reason with a capital, and leaves a first word that is a name alone', () => {
-    expect(errorText(new Error('the repairer in shadowlap.config.json changed since this page loaded: now anthropic. Nothing ran: open Repair from here again'))).toBe(
-      'The repairer in shadowlap.config.json changed since this page loaded: now anthropic. Nothing ran: open Repair from here again',
+    expect(errorText(new Error('the repairer in shadowlap.config.json changed since this page loaded: now anthropic. Nothing ran: open Run repair again'))).toBe(
+      'The repairer in shadowlap.config.json changed since this page loaded: now anthropic. Nothing ran: open Run repair again',
     );
     expect(sentence('no run 01K5CQ9C4H')).toBe('No run 01K5CQ9C4H');
     expect(sentence('a run is recording: gc gives space back once it ends')).toBe('A run is recording: gc gives space back once it ends');

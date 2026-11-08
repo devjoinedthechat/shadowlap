@@ -1,5 +1,5 @@
 import { ACTIONS, checkKey, type FixRecords, type SprtGate } from '@shadowlap/engine';
-import { commandLine, counting, type FixActions, rungOf } from './fix-shared.js';
+import { counting, type FixActions, rungOf } from './fix-shared.js';
 import { verifyMore } from './fix-verify-step.js';
 
 /**
@@ -19,14 +19,16 @@ export type FixLead =
   /** The verdict it settles, how many attempts a run it goes up to, and the attempts so far, which start over. */
   | { key: 'more' | 'again'; label: string; command: string; use: 'reads'; verifyId: string; max: number; attempts: number }
   /** `pending`: what applying left undone, which Finish applying does; null otherwise. */
-  | { key: 'apply'; label: string; command: string; use: 'writes'; pending: string | null };
+  | { key: 'apply'; label: string; command: string; use: 'writes'; pending: string | null }
+  /** Verify this run: the failing runs (`runs`, by id) no accepted verdict checked, on the code as it is now (`actions.verifyLeft`). */
+  | { key: 'verify-left'; label: string; command: string; use: 'reads'; runs: string[] };
 
 /**
  * A repair that tried candidates and accepted none, under the fix's check as it is, with no blame
  * since: running it again would try the same, so the fix waits for what its last verdict left, if
  * anything, or for someone to change the check or blame it again.
  */
-function repairSpent(rec: FixRecords): boolean {
+export function repairSpent(rec: FixRecords): boolean {
   const last = rec.repairs.at(-1);
   if (!last || last.accepted || !last.report.candidates.some((c) => c.state !== 'invalid' && c.state !== 'untried')) return false;
   return checkKey(last.expect) === rec.fix.check.key && !rec.blames.some((b) => b.at > last.at);
@@ -53,15 +55,18 @@ function openLead(rec: FixRecords, actions: FixActions, repairer: string | null)
 }
 
 /**
- * The fix's lead: an open fix's (`openLead`); a verified or applied fix's Apply fix, Mark applied
- * once its change is in the working tree or has no patch, or Finish applying what applying left
- * undone. None for a fix merged with its pull request, a patch `fix apply` refuses, or a fix applied
- * with nothing left to do.
+ * The fix's lead: an open fix's (`openLead`); a verified fix's Verify this run, while a failing run
+ * no accepted verdict checked is left and its change is in the working tree, then its Apply fix, or
+ * Mark applied once its change is in the working tree or has no patch; an applied fix's Finish
+ * applying what applying left undone. None for a fix merged with its pull request, a patch `fix
+ * apply` refuses, or a fix applied with nothing left to do.
  */
 export function fixLead(rec: FixRecords, actions: FixActions, o: { repairer: string | null }): FixLead | null {
   if (rec.fix.status === 'open') return openLead(rec, actions, o.repairer);
+  const left = actions.applied ? null : actions.verifyLeft;
+  if (left) return { key: 'verify-left', label: (left.runs.length === 1 ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label, command: left.command, use: 'reads', runs: left.runs };
   const apply = actions.apply;
   if (rungOf(rec) === 'merged' || !apply || apply.refused || (actions.applied && !apply.pending)) return null;
   const label = actions.applied ? 'Finish applying' : apply.kind === 'mark' || apply.inTree ? 'Mark applied' : ACTIONS.applyFix.label;
-  return { key: 'apply', label, command: commandLine(apply.argv), use: 'writes', pending: actions.applied ? apply.pending : null };
+  return { key: 'apply', label, command: apply.command, use: 'writes', pending: actions.applied ? apply.pending : null };
 }

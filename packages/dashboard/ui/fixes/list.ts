@@ -8,7 +8,7 @@ import { pluralS as s } from '../../../engine/src/words.js';
 import { repairSub } from './estimates.js';
 import { blameAgainTip, STRONGER_TIP, treeBusy, type FixChip, type TreeJob } from './model.js';
 export { STEP_NAMES } from './row-scope.js';
-import { verifyTip } from './VerifyStep.js';
+import { verifyLeftCard, verifyTip } from './VerifyStep.js';
 
 /**
  * How the Fixes list reads its answer (`GET /api/fixes`): the header's figures, what each chip says
@@ -119,6 +119,7 @@ export const LEAD_KIND: Readonly<Record<FixLead['key'], string>> = {
   apply: JOB_KINDS.applyFix,
   more: JOB_KINDS.verify,
   again: JOB_KINDS.verify,
+  'verify-left': JOB_KINDS.verify,
 };
 
 /** What a lead does once the working tree is free, as its wait says it: "repair once it is done". */
@@ -129,6 +130,7 @@ export const LEAD_VERB: Readonly<Record<FixLead['key'], string>> = {
   apply: 'apply the patch',
   more: 'run more attempts',
   again: 'verify again',
+  'verify-left': 'verify it',
 };
 
 /** A lead whose dialog shows the fix's detail, read when it is pressed: the rest ask from the lead's own fields. */
@@ -147,6 +149,8 @@ export function leadCard(lead: FixLead): string | null {
       return repairSub(lead.repairer);
     case 'apply':
       return lead.pending ? capital(lead.pending) : lead.label === ACTIONS.applyFix.label ? 'Asks first: it changes your working tree' : null;
+    case 'verify-left':
+      return verifyLeftCard(lead.runs);
     default:
       return verifyTip({ kind: lead.key, max: lead.max });
   }

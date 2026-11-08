@@ -32,13 +32,6 @@ export function chipKeeps(chip: FixChip, f: { bucket: FixChip }): boolean {
   return chip === 'all' || f.bucket === chip;
 }
 
-/** The status badge: open in amber, verified and applied in lime, an applied fix that doesn't hold in red. */
-export function statusBadge(f: Pick<FixRow, 'status' | 'broken'>): { tone: 'y' | 'ok' | 'no'; text: string } {
-  if (f.status === 'open') return { tone: 'y', text: 'open' };
-  if (f.status === 'applied' && f.broken) return { tone: 'no', text: 'broken' };
-  return { tone: 'ok', text: f.status };
-}
-
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
@@ -114,14 +107,15 @@ export function verifyFor(f: Pick<FixDetail, 'verify' | 'defaultVerify'>, sub: s
 }
 
 /**
- * Whether the step open on a fix's page leads with its own next step, as the design's fixActions()
- * reads it: the Verify step, showing a verdict that counts for the fix left incomplete, with what
- * settles it (Run more attempts, Verify again). The header's buttons read plain while it does.
+ * The verdict the step open on a fix's page leads with, as the design's fixActions() reads it: on the
+ * Verify step, the verdict it shows when that counts for the fix and was left incomplete, with what
+ * settles it (Run more attempts, Verify again); else null. The header draws its step as the lime
+ * button, rightmost, and its own plain.
  */
-export function stepLeads(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'defaultVerify'>, step: string | null, sub: string | null): boolean {
-  if (stepFor(f, step) !== 'verify') return false;
+export function leadingVerdict(f: Pick<FixDetail, 'defaultStep' | 'verify' | 'defaultVerify'>, step: string | null, sub: string | null): VerifyStep | null {
+  if (stepFor(f, step) !== 'verify') return null;
   const v = verifyFor(f, sub);
-  return !!v && v.counts && v.verdict === 'incomplete' && !!v.more;
+  return v && v.counts && v.verdict === 'incomplete' && v.more ? v : null;
 }
 
 /** Run blame again's card, on the fix's header and its Fixes row alike. */
@@ -178,14 +172,14 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
 }
 
 /**
- * The plain button an applied fix shows in place of its action, and its hover. A fix applied with a
- * patch reads "Patch applied"; one with no patch was only marked applied, so it reads "Marked
- * applied", and its hover names the change of request fields it was verified with, which the agent
- * makes, or says it was verified on the working tree as it was: never "the patch", which it hasn't got.
+ * The plain button an applied fix with no patch shows in place of its action, and its hover: it was
+ * only marked applied, so it reads "Marked applied", and its hover names the change of request fields
+ * it was verified with, which the agent makes, or says it was verified on the working tree as it was:
+ * never "the patch", which it hasn't got. None for a patch, which Show patch offers to read.
  */
-export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'kind' | 'pulled' | 'change'> | null): { label: 'Patch applied' | 'Marked applied'; title: string } {
-  if (apply?.kind === 'mark') return { label: 'Marked applied', title: apply.change ? `Verified with ${apply.change}, a change to the requests that your agent makes, not to your files` : 'Verified on your working tree as it was, and marked applied' };
-  return { label: 'Patch applied', title: apply?.pulled ? 'The patch is in the working tree; its goldens are on the machine that ran the repair' : 'The patch is in the working tree and its goldens pass' };
+export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'kind' | 'change'> | null): { label: 'Marked applied'; title: string } | null {
+  if (apply?.kind !== 'mark') return null;
+  return { label: 'Marked applied', title: apply.change ? `Verified with ${apply.change}, a change to the requests that your agent makes, not to your files` : 'Verified on your working tree as it was, and marked applied' };
 }
 
 /** A patch's lines as the dialog shows them, each line a hunk adds or removes marked; the headers are neither. */
@@ -310,6 +304,8 @@ export interface CallCell {
   callNo: number;
   /** A model call (a ring) or another call (a dot); `gap` stands for calls left out. */
   kind: 'm' | 't' | 'gap';
+  /** Another call's name (the tool's), for its hover, where the server sends it. */
+  name?: string;
   /** Where blame looked: rescued, lost, or the call it blamed. */
   verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null;
   passes: number;
@@ -318,11 +314,15 @@ export interface CallCell {
   inconclusive: number;
   /** Outside the blame's scope. */
   dim: boolean;
+  /** A model call blame's search steps through, probed or not (`BlameStep['callRow']`'s `probed`). */
+  probed: boolean;
+  /** Its probe's passes of the attempts judged, over the call (`3/4`); null for one no probe re-asked. */
+  tally: string | null;
   /** For a gap: how many calls it stands for. */
   skipped?: number;
 }
 
-/** Calls the row shows at most before it leaves some out: past this, each would be too narrow to read. */
+/** Calls the row shows at most before it leaves some out: past this, each would be too narrow to read. The server names the other calls of a run this short (src/fix-blame-step.ts's `CALL_ROW_NAMED`). */
 export const CALL_ROW_MAX = 18;
 
 /**
@@ -331,7 +331,7 @@ export const CALL_ROW_MAX = 18;
  * either side of each, and the first and last, with a gap for each stretch of model calls left out.
  */
 export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { cells: CallCell[]; toolsLeftOut: boolean } {
-  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', verdict: c.verdict, passes: c.passes, attempts: c.attempts, inconclusive: c.inconclusive ?? 0, dim: !c.inScope });
+  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', ...(c.name === undefined ? {} : { name: c.name }), verdict: c.verdict, passes: c.passes, attempts: c.attempts, inconclusive: c.inconclusive ?? 0, dim: !c.inScope, probed: c.probed, tally: c.tally });
   if (row.length <= max) return { cells: row.map(cell), toolsLeftOut: false };
   const models = row.filter((c) => c.kind === 'api' || c.verdict !== null);
   const keep = new Set<number>();
@@ -347,7 +347,7 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
     for (let i = 0; i < models.length && keep.size < max; i++) add(i);
   }
   const cells: CallCell[] = [];
-  const gap = (callNo: number, skipped: number): CallCell => ({ callNo, kind: 'gap', verdict: null, passes: 0, attempts: 0, inconclusive: 0, dim: false, skipped });
+  const gap = (callNo: number, skipped: number): CallCell => ({ callNo, kind: 'gap', verdict: null, passes: 0, attempts: 0, inconclusive: 0, dim: false, probed: false, tally: null, skipped });
   let hiddenModels = 0;
   let hidden = 0;
   for (const c of row) {
@@ -366,12 +366,12 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
 }
 
 /**
- * How a probe's verdict reads as a badge: rescued in lime (the blamed one too: it rescued the run),
+ * How a probe's verdict reads as a status: rescued in lime (the blamed one too: it rescued the run),
  * lost in red, inconclusive in amber. Amber means only that a verdict couldn't be reached; the blamed
  * call is marked apart, in ink (`probeVerdictWords`).
  */
-export function probeBadge(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'no' | 'y' {
-  return verdict === 'inconclusive' ? 'y' : verdict === 'lost' ? 'no' : 'ok';
+export function probeTone(verdict: BlameStep['probes'][number]['verdict']): 'ok' | 'err' | 'warn' {
+  return verdict === 'inconclusive' ? 'warn' : verdict === 'lost' ? 'err' : 'ok';
 }
 
 /** A probe's verdict word, and whether it is the blamed call, which the badge's row marks in ink: `rescued` and `blamed`. */
@@ -379,44 +379,38 @@ export function probeVerdictWords(verdict: BlameStep['probes'][number]['verdict'
   return verdict === 'rescued · blamed' ? { word: 'rescued', blamed: true } : { word: verdict, blamed: false };
 }
 
-/** "Model call 3 of 4" (in scope agent), or the run alone when blame placed the failure on no call. */
-export function blameWhere(b: Pick<BlameStep, 'step' | 'steps' | 'scope'>): string | null {
-  if (b.step === null) return null;
-  return `Model call ${b.step} of ${b.steps}${b.scope ? ` in scope ${b.scope}` : ''}`;
-}
-
 // ---------------------------------------------------------------------------------------------- repair
 
-/** A candidate's badge: accepted in lime, rejected in red, anything else plain. */
-export function candidateTone(v: CandidateVerdict): 'ok' | 'no' | 'n' {
-  return v === 'accepted' ? 'ok' : v === 'rejected' || v === 'build failed' ? 'no' : 'n';
+/** A candidate's verdict as a status: accepted in lime, rejected and build failed in red, anything else muted (never red for what didn't fail). */
+export function candidateTone(v: CandidateVerdict): 'ok' | 'err' | 'mu' {
+  return v === 'accepted' ? 'ok' : v === 'rejected' || v === 'build failed' ? 'err' : 'mu';
 }
 
 /**
- * Where a repair's candidates came from, as its header says it: the repairer that proposed them;
- * why none did, when one was wanted, with what to do (`the repairer could not be asked: claude was
- * not found: install Claude Code, …`); or, for a fix that needed no model, that no repairer was
- * needed. Null when nothing called for one (no failing run was rescued, the repair stopped first):
- * its why says so.
+ * Where a repair's candidates came from, as the facts under its verdict line say it: the repairer
+ * that proposed them; why none did, when one was wanted, with what to do (`the repairer could not
+ * be asked: claude was not found: install Claude Code, …`), or only what to do where the verdict
+ * line heads with why (`install Claude Code, …`); or, for a fix that needed no model, that no
+ * repairer was needed. Null when nothing called for one (no failing run was rescued, the repair
+ * stopped first): its why says so.
  */
-export function repairBy(r: Pick<RepairStep, 'repairer' | 'served' | 'noRepairer' | 'accepted'>): { repairer: string; served: string | null } | { text: string } | null {
+export function repairBy(r: Pick<RepairStep, 'repairer' | 'served' | 'noRepairer' | 'accepted' | 'why'>): { repairer: string; served: string | null } | { text: string } | null {
   if (r.repairer) return { repairer: r.repairer, served: r.served };
-  if (r.noRepairer) return { text: r.noRepairer.warning ?? r.noRepairer.text };
+  const none = r.noRepairer;
+  if (none && r.why === none.text) {
+    const rest = beyond(none.warning, none.text);
+    return rest ? { text: rest } : null;
+  }
+  if (none) return { text: none.warning ?? none.text };
   return r.accepted ? { text: 'no repairer needed' } : null;
 }
 
-/**
- * What a repair that accepted nothing says after where its candidates came from: how many it tried,
- * or why it found none (`interrupted`). Null when that is only the repairer's silence again, which
- * `repairBy` says.
- */
-export function nothingAcceptedWhy(r: Pick<RepairStep, 'candidates' | 'why' | 'noRepairer'>): string | null {
-  if (r.candidates.length) {
-    const tried = r.candidates.filter((c) => c.verdict !== 'set aside' && c.verdict !== 'not tried').length;
-    return `${tried} candidate${s(tried)} tried, none accepted`;
-  }
-  if (r.noRepairer && r.why === r.noRepairer.text) return null;
-  return r.why ?? 'nothing was accepted';
+/** What a warning says beyond `said`, which it starts or (in an older report) ends with: what to do, or what went wrong first. */
+function beyond(warning: string | null, said: string): string | null {
+  if (!warning || warning === said) return null;
+  if (warning.startsWith(said)) return warning.slice(said.length).replace(/^[\s:;,.]+/, '') || null;
+  if (warning.endsWith(said)) return warning.slice(0, -said.length).replace(/[\s:;,.]+$/, '') || null;
+  return warning;
 }
 
 /**
@@ -441,29 +435,28 @@ export function footWarnings(r: Pick<RepairStep, 'warnings' | 'noRepairer' | 're
   return said ? r.warnings.filter((w) => w !== said) : r.warnings;
 }
 
-/** The result per role, as a badge: "target 1 of 1", lime when every run held. */
-export function roleBadges(roles: RepairStep['roles']): Array<{ text: string; tone: 'ok' | 'no' }> {
-  return roles.map((r) => ({ text: `${r.role} ${r.held} of ${r.of}`, tone: r.held === r.of ? 'ok' : 'no' }));
+/** The result per role, as a status: "target 1 of 1", lime when every run held, else red. */
+export function roleStatuses(roles: RepairStep['roles']): Array<{ text: string; tone: 'ok' | 'err' }> {
+  return roles.map((r) => ({ text: `${r.role} ${r.held} of ${r.of}`, tone: r.held === r.of ? 'ok' : 'err' }));
 }
 
 /**
- * The change a repair made, cut to what changed: the text before it and after it in the new
- * version, the added text itself, and the old version. A long prompt keeps `context` characters on
- * each side of the change, with an ellipsis where it was cut.
+ * The change a repair made, once, as the text reads now: the text before it, what it took out
+ * (struck), the added text's leading spaces and punctuation (`lead`), what it added (marked) and the
+ * text after it. The lead stays outside the mark, so a mark never starts on a lone colon, and after
+ * what was struck, where the text has it. A long prompt keeps `context` characters on each side of
+ * the change, with an ellipsis where it was cut.
  */
-export function changeParts(change: NonNullable<RepairStep['change']>, context = 240): { was: string; head: string; added: string; tail: string } {
-  const cut = (text: string, from: number, to: number) => `${from > 0 ? '…' : ''}${text.slice(Math.max(0, from), Math.min(text.length, to))}${to < text.length ? '…' : ''}`;
-  if (!change.added) {
-    const at = commonPrefix(change.before, change.after);
-    return { was: cut(change.before, at - context, at + context + change.removed.length), head: cut(change.after, at - context, at + context), added: '', tail: '' };
-  }
-  const { at, text } = change.added;
+export function changeParts(change: NonNullable<RepairStep['change']>, context = 240): { head: string; removed: string; lead: string; added: string; tail: string } {
+  const at = change.added?.at ?? commonPrefix(change.before, change.after);
+  const text = change.added?.text ?? '';
+  const lead = /^[\s:;,.—-]*/.exec(text)?.[0] ?? '';
   const end = at + text.length;
-  const removedEnd = at + change.removed.length;
   return {
-    was: cut(change.before, at - context, removedEnd + context),
     head: at > context ? `…${change.after.slice(at - context, at)}` : change.after.slice(0, at),
-    added: text,
+    removed: change.removed,
+    lead,
+    added: text.slice(lead.length),
     tail: change.after.length - end > context ? `${change.after.slice(end, end + context)}…` : change.after.slice(end),
   };
 }
@@ -480,13 +473,13 @@ function commonPrefix(a: string, b: string): number {
  * A run's outcome as a badge, in the verdicts' colours: fixed and kept in lime, broken and not fixed
  * in red, and inconclusive in amber, the colour of a run nothing has decided.
  */
-export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'no' | 'y' {
-  return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' || o === 'inconclusive' ? 'y' : 'no';
+export function outcomeTone(o: VerifyRow['outcome']): 'ok' | 'err' | 'warn' {
+  return o === 'fixed' || o === 'kept' ? 'ok' : o === 'unsettled' || o === 'inconclusive' ? 'warn' : 'err';
 }
 
 /** A verdict's panel: accepted in lime, rejected in red, incomplete in amber, as inconclusive is everywhere. */
-export function verdictTone(v: VerifyStep['verdict']): 'ok' | 'no' | 'warn' {
-  return v === 'accepted' ? 'ok' : v === 'rejected' ? 'no' : 'warn';
+export function verdictTone(v: VerifyStep['verdict']): 'ok' | 'err' | 'warn' {
+  return v === 'accepted' ? 'ok' : v === 'rejected' ? 'err' : 'warn';
 }
 
 /** Tokens per run, as a person reads them: 4,329. */
@@ -555,8 +548,8 @@ export function bundleGlyph(b: Pick<FixBundle, 'kind' | 'verdict' | 'counts'> & 
  * word, the tally and the Wilson bound) and what its attempts spent, `rescued · 2 of 2 · rate >= 0.34
  * (95%) · ≈$0.032`, its rule said once under the family; attempts no report names, "4 attempts, 2
  * passed" (those that could not be judged counted apart). A verify's then names the change it
- * checked and how that came out, as the Verify step's switch names it: `fixed · 12 of 12 · rate >=
- * 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted`, since a run kept under a change says
+ * checked and how that came out, as the Verify step's switch names it: `fixed · 12 of 12 passed ·
+ * rate >= 0.76 (95%) · ≈$0.046 · repair candidate 3 · accepted`, since a run kept under a change says
  * nothing of whether the change was accepted, and "· doesn't count" after one that doesn't count
  * for the fix. The verdict is a page's word for it: inconclusive for one that didn't settle every
  * run, never verify's incomplete. A revision stays with the "at" before it (`keepAt`).

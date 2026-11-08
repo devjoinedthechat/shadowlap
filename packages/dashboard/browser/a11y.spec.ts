@@ -57,14 +57,22 @@ test('a fork’s writes and a kept run’s baseline wrap: a phone shows the fork
   expect(await table.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(0);
 });
 
-test('the fix’s steps group their attempts by what each did, with no serious or critical axe violation', async ({ page }) => {
-  await openPage(page, `/fixes/${demoId('refundFix')}/verify`, 'fix');
-  await page.waitForSelector('main#view table.t tbody tr');
-  expect(await seriousViolations(page)).toEqual([]);
-  await openPage(page, `/fixes/${demoId('refundFix')}/blame`, 'fix');
-  await page.waitForSelector('main#view table.probes tbody tr');
-  expect(await seriousViolations(page)).toEqual([]);
-});
+for (const width of [1440, 390])
+  test(`the fix’s steps show a row’s attempts under it on request, grouped by what each did, with no serious or critical axe violation, at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    // A verified run's attempts, then the blamed probe's: each row's Attempts cell opens them under it.
+    for (const [step, table] of [['verify', 'table.vruns'], ['blame', 'table.probes']] as const) {
+      await openPage(page, `/fixes/${demoId('refundFix')}/${step}`, 'fix');
+      const toggle = page.locator(`main#view ${table} tbody tr:not(.sub) button.xbtn`).first();
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const under = page.locator(`main#view ${table} tr.sub`).first();
+      await expect(under.locator('.alist > .al').first()).toBeVisible();
+      await expect(under.locator('.agroups li').first()).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+      expect(await seriousViolations(page)).toEqual([]);
+    }
+  });
 
 /** Text tokens, and the surfaces text is drawn on, as the browser computed them on the page. */
 const TEXT = ['--ink', '--dim', '--faint', '--err', '--warn', '--accent', '--o-rep', '--o-over', '--o-stub', '--o-block', '--k-write', '--c-write', '--del', '--add'];

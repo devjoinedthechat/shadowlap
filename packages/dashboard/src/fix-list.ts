@@ -1,5 +1,5 @@
 import { blameStateWord, commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, lostWords, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
-import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
+import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, notVerified, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
 
 /** The Fixes list: a row for each fix, the most recently opened first, with its status, its failing runs and how far blame, repair and verify got. */
 
@@ -96,12 +96,6 @@ function fixedKept(rec: FixRecords): { text: string; kept: number } {
     }
   }
   return { text: [fixed.size ? `${fixed.size} fixed` : '', kept.size ? `${kept.size} kept` : ''].filter(Boolean).join(' · ') || 'verified', kept: kept.size };
-}
-
-/** The fix's failing runs that no accepted verdict that counts has checked as failing runs. */
-function notVerified(rec: FixRecords): string[] {
-  const checked = new Set(counting(rec).flatMap((v) => (v.verdict === 'accepted' ? v.report.runs.filter((x) => x.role !== 'good').map((x) => x.runId) : [])));
-  return rec.failing.filter((id) => !checked.has(id));
 }
 
 function blameStepOf(rec: FixRecords): FixStep {

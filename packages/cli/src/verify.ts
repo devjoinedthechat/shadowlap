@@ -1,4 +1,4 @@
-import { addPair, afterForkOf, attemptsToPass, BASELINE_DEFAULTS, baselineSaysNothing, messageOf, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptMaxOf, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole, providerRefused, type BaselineDecision } from '@shadowlap/engine';
+import { addPair, afterForkOf, attemptsToPass, BASELINE_DEFAULTS, baselineSaysNothing, messageOf, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptMaxOf, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, verifyTally, verifyTallyLine, type BaselineRule, type GateHistory, type Palette, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole, providerRefused, type BaselineDecision } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -141,6 +141,21 @@ function withoutBaseline(result: VerifiedRun, why: string): false {
   for (const k of ['baseline', 'margin', 'drop', 'decision'] as const) delete result[k];
   result.verdict = 'open';
   return false;
+}
+
+/**
+ * A run's line once verify is done with it, after its label: its outcome, then its tally as verify's
+ * report says it (engine `verifyTally`): `fixed · 12 of 12 passed · rate >= 0.76 (95%)`, `kept · 38
+ * of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)`. The rule was said once, above. A clean
+ * replay, a fixed count and a gate that decided nothing give the outcome alone, as does a run an
+ * attempt it could not judge stopped: its attempt's line says why.
+ */
+export function settledLine(r: VerifiedRun, palette: Palette = p): string {
+  if (!r.attempts.length) return palette.yellow('not started');
+  const o = outcomeOf(r);
+  const word = o === 'fixed' || o === 'kept' ? palette.green(o) : o === 'unsettled' || o === 'inconclusive' ? palette.yellow(o) : palette.red(o);
+  const said = !r.undecided && (r.baseline || (r.gate && !r.deterministic && r.decision !== 'continue'));
+  return said ? `${word}${palette.dim(` · ${verifyTallyLine(verifyTally(r))}`)}` : word;
 }
 
 export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
@@ -457,12 +472,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         result.gate = gateResult(s.gate, c.outcomes, { clean: result.deterministic && !result.undecided, decision: result.decision ?? 'continue', ...(result.unavailable ? { unavailable: result.unavailable } : {}), ...(c.unavailableAt.length ? { unavailableAt: c.unavailableAt } : {}) });
       }
       if (result.verdict === 'fail') failed = true;
-      const o = outcomeOf(result);
-      // The tally and its bound beside the outcome; the rule was said once, above. A run an attempt it
-      // could not judge stopped has neither: its gate decided nothing, and its attempt's line says why.
-      const g = result.gate;
-      const said = result.baseline && !result.undecided ? p.dim(` · ${result.passes} of ${result.attempts.length}, baseline ${result.baseline.passes} of ${result.baseline.attempts}`) : g && !result.deterministic && !result.undecided && result.decision !== 'continue' ? p.dim(` · ${[`${g.passes} of ${g.attempts}`, rateBound(g)].filter(Boolean).join(' · ')}`) : '';
-      log(`  ${label}  ${!result.attempts.length ? p.yellow('not started') : o === 'fixed' || o === 'kept' ? p.green(o) : o === 'unsettled' || o === 'inconclusive' ? p.yellow(o) : p.red(o)}${said}`);
+      // The outcome, then the tally and its bound in the words of verify's report.
+      log(`  ${label}  ${settledLine(result)}`);
     };
 
     let next = 0;

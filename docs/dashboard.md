@@ -777,7 +777,7 @@ Attempts are bundled:
 - **A verified run** has an icon saying how it came out. A verdict that doesn't count for the fix says so, *doesn't count*, with a plain icon.
 - **Under a run several fixes share**, such as a good run every repair kept, each bundle names its fix.
 
-Each bundle says its verdict as a gate's is said: the word, the tally and the bound (*rescued · 2 of 2 · rate >= 0.15 (95%)*). A good run verify kept against its own baseline shows both tallies and the bound on its drop (*kept · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)*, under the baseline's rule). Then comes what its attempts spent. A verify's bundle then names the change it checked and how that came out (*fixed · 12 of 12 · rate >= 0.73 (95%) · ≈$0.046 · repair candidate 3 · accepted*).
+Each bundle says its verdict as a gate's is said: the word, the tally and the bound (*rescued · 2 of 2 · rate >= 0.15 (95%)*). A good run verify kept against its own baseline shows both tallies and the bound on its drop (*kept · 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)*, under the baseline's rule). Then comes what its attempts spent. A verify's bundle then names the change it checked and how that came out (*fixed · 12 of 12 passed · rate >= 0.73 (95%) · ≈$0.046 · repair candidate 3 · accepted*).
 
 Each rule they were decided by is stated once in the family. Each bundle opens its fix at that step, a verify at its verdict.
 
@@ -1017,19 +1017,26 @@ All, Open, Ready to apply and Applied filter them. A merged fix is under Applied
 
 ### A fix's page
 
-A fix's page names what failed and its check as the list does, its failing and good runs, and when it was opened and verified. It opens on its last finished step: Blame, Repair or Verify. What you can do from it is under [Actions on a fix](#actions-on-a-fix).
+A fix's page heads with its name over its title. Its about line says where it stands as its Fixes row does (*blamed*, *verified*, *merged · PR #138*), then its failing runs, a link to Runs › Failed, its good runs, and when it was opened, verified and applied. Under it: what failed and its check, as the list says them.
+
+Its buttons follow where it stands, with its next step the one lime button: the step its Fixes row leads with. Where they would crowd the title, they go under it, the lime one first. What each does is under [Actions on a fix](#actions-on-a-fix).
+
+The page opens on its last finished step: Blame, Repair or Verify. While a job of the fix runs a step, the stepper says so, its dot pulsing: *Repairing…*, or *Verifying…* for every verify.
 
 ### Blame step
 
-The Blame step shows:
+The Blame step opens on its verdict line: *blamed* in ink, or *inconclusive*, *stopped* or *not rescued* in amber. Beside the word are the probes' tallies, as *2 of 4 rescued from #5, 0 of 4 from #7*. Under it are the call, the run and the confidence, with why on hover. **Open run** opens the run at the call blamed, where a stopped search got to, or at the first probe's call, and whole where its agent exited with an error. Then comes what blame found, in one sentence.
 
-- **Where the run was lost**, on its row of calls, with each probe marked.
-- **The recorded answer** at that call next to the rescued fork's, and the training pairs they make.
-- **The probes**, each row opening the run at its call.
-- **Every attempt**, bundled per probe and grouped by what each did: the tool calls it made from the probed call on, and how it came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
-- **What finding out cost**, with the command.
+Its sections:
+
+- **Where the run was lost**, on its row of calls. Each probe's tally sits over its call, and every model call says on hover what blame made of it, a tool call its tool's name. The key names only what the row shows.
+- **The recorded answer** at that call next to the rescued fork's, and the training pairs they make. A blame that found no call shows the check instead.
+- **The probes**, each row opening the run at its call. One cell holds the tally, its bound and a bar of the interval against the gate's two marks. The verdict is a dot and a word.
+- **Every attempt** of a probe, under its row on request, grouped by what each did. A group shows the tool calls its attempts made from the probed call on and how they came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
 
 Each group of attempts shows how many took that path, why the first of a failing group failed, and one of them to open.
+
+Under the probes, one grey line says what finding out cost, with the judge's checks apart. The fix's other blames follow, newest first, then the command.
 
 Where blame's report says more than its probes, so does the step:
 
@@ -1045,17 +1052,22 @@ A blame that rescued the run from no call shows the check and how the recording 
 
 ### Repair step
 
-The Repair step shows:
+The Repair step opens on its verdict line:
 
-- **The change**: its file, the part of the prompt or tool description it rewrites, the text it adds, and how each role held under it.
-- **Why the failing runs were lost**, and the repairer's diagnosis.
-- **Every candidate tried**, with why each was dropped.
-- **The files handed over**: `fix.patch`, `report.md`, `report.json`, `goldens/`.
-- **The pull request body.**
+- **accepted**, in lime, headed as the Verify step heads the same verdict (*Fixes 1 of 1 target run, keeps 1 of 1 good*). Under it: when it was repaired and who proposed the candidates, then the gate's rule and *verified twice, the second time with fresh attempts*.
+- **rejected**, in red, where the gate turned down every candidate it tried, headed by why (*The gate accepted none of the 2 candidates tried*). *not fixed* reads red too; *no fix to try* and *stopped* read amber.
 
-A repair that accepted nothing leaves the fix open, with the candidates it tried and why.
+A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the prompt yourself and verify it.
 
-Its header says when it ran (*Accepted*, or *Ran* for one that accepted nothing) and who proposed the candidates. When no repairer did, it says why, with what to do (*the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path*). The stepper says it in a few words; *no repairer needed* is only for a fix that needed no model.
+Its sections:
+
+- **The change**: the file and the part of the prompt or tool description it rewrites, once, as the text reads with the change. What it took out is struck through and what it added is marked. How each role held under it is a dot and a word (*target 1 of 1*).
+- **Why**: where the failing runs were lost, and the repairer's diagnosis.
+- **Candidates**: every candidate tried, smallest first, each with its verdict as a dot and a word and why it was dropped. A run a why names links to the run, with its about line on hover. For a repair that accepted nothing, the header states the gate's rule once.
+- **report.md**: the pull request body as the repair wrote it, boxed. Its *What failed* and *Candidates* sections open on request, each summed up beside its heading (*1 run · lost at model call #5*), since the sections around it show both.
+- **Handed over**: `fix.patch`, `report.md`, `report.json`, `goldens/`.
+
+When no repairer proposed the candidates, the line under the verdict says why, with what to do (*the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path*). The stepper says it in a few words; *no repairer needed* is only for a fix that needed no model.
 
 A grey line above its command gives how many attempts it ran and what every stage cost: blame, the repairer and the verification of every candidate it tried. The cost reads as the CLI prints it (*87 attempts · cost: blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239*).
 
@@ -1076,7 +1088,7 @@ It opens on the newest verdict that counts for the fix. A verdict is headed by t
 
 One that doesn't count for the fix is drawn plain and headed with why (*Doesn't count for this fix: its check leaves out send_email called 1 time*). It is marked so in the switch.
 
-**A verdict that didn't settle every run** reads *inconclusive*, in amber, as it does on every page; verify's own word for it, *incomplete*, stays in its report. It leads with what settles it, the fix's header plain meanwhile:
+**A verdict that didn't settle every run** reads *inconclusive*, in amber, as it does on every page; verify's own word for it, *incomplete*, stays in its report. The fix's header leads with what settles it, as its lime button, rightmost, its other buttons plain:
 
 - **Run more attempts**, for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled.
 - **Verify again**, for one stopped by an attempt that couldn't be judged.
@@ -1090,14 +1102,23 @@ Both are built from the verdict's report and the flags kept beside it, never fro
 
 A line under the verdict says which run is open and why, and what settling it takes (*about 12 attempts, ≈$0.045*), at the run's pass rate so far and the verdict's spend per attempt.
 
+The verdict line says what it checked and its oracle under the headline. Its command is the box at the foot, with its own Copy.
+
 Then come:
 
-- **Its oracle.**
-- **Each run's role, attempts, outcome and where it went**, and, when the verdict says them, the run's baseline (paired at the base revision or from history) and the bound on its drop from it. The bound reads as the CLI says it, *drop <= 0.10 (95%)*, the margin on hover.
+- **Each run**: its role, its id, its outcome as a dot and a word, and its tally and bound in one Attempts cell, in verify's words, with the interval against the gate's two marks. A run an attempt that couldn't be judged stopped reads amber, with no bar. Its attempts, and what they did grouped as on the Blame step, open under its row; `j` and `k` walk the runs.
+- **A run kept against its baseline** shows both tallies and the bound on its drop in its cell, as the CLI says it (*drop <= 0.10 (95%)*). Where it went says where the baseline came from (paired at the base revision, or from history), the margin on hover.
+- **Each run's attempts the provider cut short**, in brackets after its tally, as `shadowlap verify` prints them.
 - **Each run's attempts the provider left unavailable**, and the method behind its bound on hover.
-- **Each run's attempts grouped by what each did**, as on the Blame step.
-- **What the change does to input tokens and cost per run**, in one quiet line as verify prints it.
-- **What finding out cost**; for an inconclusive verdict, only what it spent.
+- **The failing runs an accepted verdict left out**: *01M3RXQ4VB wasn't in this verify*, each with its about line on hover. While the header leads with Verify this run, the line says what it does; otherwise a small Verify this run sits beside it.
+
+Under them, in the order verify prints them:
+
+- its warnings;
+- **what answered the tool calls after the fork**, the change's and the baselines' apart (*after the fork, the change's 9 attempts made 41 tool calls: 35 answered as recorded, 6 stubbed*), only when an attempt made a tool call after its fork;
+- **what the change does to input tokens and cost per run**, in one quiet line;
+- **what finding out cost**, the judge's checks apart (*judge checks: 3 upstream requests, ≈$0.0020*); for an inconclusive verdict, only what it spent;
+- the command.
 
 The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1 kept*). A fix verified with a change of request fields has no patch: **Mark applied** says which fields, for you to set in your agent, and so does `fix apply`'s drawer.
 
@@ -1675,9 +1696,13 @@ Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
 
+**After a repair that accepted nothing.** When the last repair's gate rejected every candidate, and nothing has changed since (the check, or a blame after it), Run repair waits: it would try the same. Its hover says *Repair rejected every candidate*. The fix leads with what that repair's verdict left to settle, Run more attempts or Verify again, if anything.
+
+**Verify this run**, on a verified fix whose change is in your working tree, merged with its pull request or not, verifies your working tree as it is on the failing runs no accepted verdict checked. It reads *Verify these runs* for several, and runs one verify under the fix's check, by the accepted verdict's gate. It leads until no such run is left, with Mark applied plain before it until the fix is merged, and goes by [Spending](#spending), asking with *Verify change on* the run.
+
 **Copy git apply**, on a verified fix, copies the command that applies its patch by hand, `git -c core.autocrlf=false apply <patch>`. The flag keeps Git for Windows' `core.autocrlf` from writing a file with LF back with CRLF on every line. A teammate's patch with LF, for a checkout where the file has CRLF, applies only through that conversion, with plain `git apply`.
 
-**Apply fix** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. The button then reads *Patch applied*, and **Show patch** takes the place of Copy git apply.
+**Apply fix** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. Once it is applied the status says so, and **Show patch** takes the place of Copy git apply and Apply fix. A fix merged with its pull request has nothing to apply, and offers Show patch too.
 
 - **A fix with no patch** (verified on the working tree, or with a change of request fields) reads *Marked applied* once applying marks it. Its hover names the change its agent makes, or says it was verified on the working tree, and the activity feed says *Marked applied* too.
 - **A patch already in your working tree** (a pull request merged it, or you applied it by hand), which `git apply --reverse --check` recognises as `fix apply` does, needs no applying. The button reads **Mark applied**, which copies the goldens it is missing, runs them and marks the fix applied; Copy git apply is gone, and the Overview no longer counts the fix as ready to apply.
@@ -1695,10 +1720,15 @@ Under the patch, the dialog asks a name for each golden it copies: *The golden f
 
 For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too. A prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call.
 
-- The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`.
+- The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`. Where the last replay of one diverged on a value that changes every run, its dialog leads with **Add normalizer and update**, as Tests' does, with **Update anyway** beside it.
+- When none does, the drawer ends on **Open goldens in Tests**, where the goldens it copied are.
 - An applied fix whose goldens failed its test holds again once a test session passes every one of them.
 
 Applied is this machine's own: a fix a teammate applied is verified here until its patch is in this working tree.
+
+**Where a job ends.** A blame, a repair or a verify of the fix, started on its page, takes the page to what it wrote once it ends: the Blame step, the Repair step, or the verdict it gave. Its drawer stays open, and ends on the fix's next step, plain beside the header's lime: Run repair after Run blame again, Apply fix after an accepted repair. A verify the gate accepted ends on nothing more, as the header leads. On any other page, the drawer ends on **Open fix**, or a repair's on **Open change** or **Open candidates**.
+
+**A blame that moved on.** Run blame again or Run blame with stronger model, pressed after the fix's blame moved on (blamed again in another tab or a terminal), is refused with the server's reason. Its toast offers **Open Blame**, unless the page shows that step.
 
 **Rename** gives a fix a title of your own, as `shadowlap fix title` does.
 
@@ -2292,11 +2322,11 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | `GET /api/fixes?status=` | The fixes (all, open, verified or applied) in to-do order, with each chip's count, the page's totals and the failing runs nobody has blamed |
 | `GET /api/fixes/:id`; `PUT /api/fixes/:id/title` | One fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
-| `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, and each Verify step's more attempts bill |
+| `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, Verify this run, and each Verify step's more attempts bill |
 | `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run |
 
 - **Groups**: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure), and an `example` attempt to open.
-- **Its estimates**: `repair`, `blameAgain`, `blameStronger`, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
+- **Its estimates**: `repair`, `blameAgain`, `blameStronger`, `verifyLeft` for Verify this run, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
 - **A run's family**: each bundle with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone`, and the `rule` it was decided by.
 
 ### Tests and CI
@@ -2520,6 +2550,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
 | `test-update { goldens, normalize? }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
+| `verify { fixId, left: true, yes? }` | Verify this run: the failing runs no accepted verdict checked |
 
 What some of them do:
 

@@ -22,6 +22,22 @@ export function sprtGate(g: unknown): SprtGate | null {
 
 export type StepKey = 'blame' | 'repair' | 'verify';
 
+/**
+ * A step's verdict line, as the step opens on it (StepLead): its word in its tone (`done` ink,
+ * `ok` lime, `warn` amber, `err` red), its head in parts, each kept whole where the head wraps
+ * (a probe's tally, `3 of 4 rescued from #5`), and the finding sentence under it, in the engine's
+ * words; null where the step has none.
+ */
+export interface StepLine {
+  word: string;
+  tone: 'done' | 'ok' | 'warn' | 'err';
+  head: string[];
+  finding: string | null;
+}
+
+/** A gate's two marks on a 0 to 1 scale, `[bad, good]`, for the bars of the intervals it decided (IntervalBar); null without a gate. */
+export const gateMarks = (g: SprtGate | null): [number, number] | null => (g ? [g.bad, g.good] : null);
+
 export interface VerifyRow {
   role: 'target' | 'held-out' | 'good';
   runId: string;
@@ -41,6 +57,22 @@ export interface VerifyRow {
   rate: { decision: string; lo: number; hi: number; confidence: number; sentence: string; bound: string | null } | null;
   /** Where it went: where it forked, or why it failed. */
   note: string;
+  /**
+   * Its tally in the words `shadowlap verify` prints, in the parts its cell draws apart (engine
+   * `verifyTally`, through src/verdict.ts `verifiedParts`). `tally` is what it counted and why an
+   * attempt stopped it: `12 of 12 passed`, `38 of 38 passed, baseline 38 of 38`, `clean replay`, `2 of
+   * 3 passed, attempt 4 not judged`, `the provider unavailable`. `cutShort` is the attempts the
+   * provider cut short, `1 cut short by the provider, counted against either verdict`, and `bound`
+   * the bound, `rate >= 0.73 (95%)` or `drop <= 0.10 (95%)`; each is null where there is none. Joined as
+   * verify joins them, `<tally> (<cutShort>) · <bound>`, they are its line.
+   */
+  tally: string;
+  cutShort: string | null;
+  bound: string | null;
+  /** The interval its gate decided it on, for its bar against the step's `marks`: null for a fixed count, a clean replay, and a run kept against its baseline, whose drop bound says it. */
+  interval: { lo: number; hi: number } | null;
+  /** Each attempt, in the order it ran: how it came out, and where it went or why it failed. `attempts` is how many. */
+  tries: Array<{ runId: string; href: string; outcome: AttemptVerdict; note: string | null }>;
   /** Input tokens and cost per run, as recorded and under the change (the mean of its attempts). */
   tokens: { recorded: number; now: number } | null;
   cost: { recorded: number | null; now: number | null } | null;
@@ -54,15 +86,18 @@ export interface FixActions {
    * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included. `noFix`:
    * why the repair would end "No fix to try" without running the agent, in a sentence (`noFixToTry`),
    * or null when it would run it; `noFixWhy`, which of the estimate's two cases that is; `candidates`,
-   * how many it asks the repairer for.
+   * how many it asks the repairer for. `spent`: its last repair tried candidates and accepted none,
+   * under the fix's check as it is, with no blame since (fix-lead.ts `repairSpent`), so running it
+   * again would try the same: Run repair waits, and the fix leads with what that repair's verdict left.
    */
-  repair: { argv: string[]; command: string; noFix: string | null; noFixWhy: NoFixToTry | null; candidates: number } | null;
+  repair: { argv: string[]; command: string; noFix: string | null; noFixWhy: NoFixToTry | null; candidates: number; spent: boolean } | null;
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
-   * working tree applied (`mark`). Once `applied`, the button is "Patch applied" ("Marked applied"
-   * for a fix with no patch) and disabled, unless `pending` says what applying left undone, which
-   * running it again finishes. `pulled`: the repair came from the team store, so its recordings are
-   * on the machine that ran it, and applying here puts in the patch alone and runs nothing from it.
+   * working tree applied (`mark`), by `argv` (`command`, its line). Once `applied`, a patch offers
+   * Show patch, and a fix with no patch a disabled "Marked applied", unless `pending` says what
+   * applying left undone, which Finish applying runs again to finish. `pulled`: the repair came from
+   * the team store, so its recordings are on the machine that ran it, and applying here puts in the
+   * patch alone and runs nothing from it.
    * `files`: every file the patch changes, and `diff` the patch itself, for the confirm dialog to
    * show what goes in. `refused`: why `fix apply` won't put it in (it is more than the one rewrite
    * its repair verified); then there is no git apply command to copy either (`gitApply`, as
@@ -77,7 +112,7 @@ export interface FixActions {
    * (`--set`, `--model`) with no patch, what it set (`fieldChange`): marking it applied leaves making
    * it in the agent to you.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; names: Array<{ run: string; name: string }>; held: string[] | null; change: string | null } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; command: string; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; names: Array<{ run: string; name: string }>; held: string[] | null; change: string | null } | null;
   applied: boolean;
   /**
    * An open fix whose blame couldn't settle where its run was lost (`unsettled`: its first probe
@@ -97,6 +132,15 @@ export interface FixActions {
    * user says yes to its command, without what runs on no other machine (`left`).
    */
   blameStronger: { argv: string[]; command: string; attempts: number; spent: number; pulled: PulledFrom | null; left: string[] } | null;
+  /**
+   * A verified or applied fix whose change is in the working tree, with failing runs in the store
+   * that no accepted verdict that counts checked (`notVerified`): Verify this run, a verify of those
+   * runs (`runs`) on the code as it is now, under the fix's check and what the accepted verdict
+   * decided by (fix-verify-step.ts `verifyLeftArgs`). Built from the verdict's checked fields, never
+   * its command line; one a pull brought runs only once the user says yes to its command, without
+   * what runs on no other machine (`left`). Null otherwise.
+   */
+  verifyLeft: { runs: string[]; argv: string[]; command: string; pulled: PulledFrom | null; left: string[] } | null;
 }
 
 // Links come from the one builder (links.ts), which the page's route parser reads back.
@@ -127,6 +171,12 @@ export const counting = (rec: FixRecords) => rec.verdicts.filter((v) => verdictC
 
 export function acceptedVerdict(rec: FixRecords): StoredVerdict | null {
   return [...counting(rec)].reverse().find((v) => v.verdict === 'accepted') ?? null;
+}
+
+/** The fix's failing runs that no accepted verdict that counts has checked as failing runs. */
+export function notVerified(rec: FixRecords): string[] {
+  const checked = new Set(counting(rec).flatMap((v) => (v.verdict === 'accepted' ? v.report.runs.filter((x) => x.role !== 'good').map((x) => x.runId) : [])));
+  return rec.failing.filter((id) => !checked.has(id));
 }
 
 export const acceptedCandidate = (r: StoredRepair): RepairCandidate | null => (r.accepted ? (r.report.candidates.find((c) => c.id === r.report.accepted) ?? null) : null);

@@ -1,6 +1,9 @@
 /* What every page shares: the page itself (its ground, focus rings, scrollbars, line breaks) and the parts several
    pages draw (a page's header, buttons, links, panels, tables, statuses, chips and tags, code boxes, fields). */
 * { box-sizing: border-box; }
+/* the hidden attribute always hides, whatever a part's own rule for its spans or divs sets: a glossary term's definition,
+   kept for its hover card and a screen reader, never shows in a key or a cell */
+[hidden]:not([hidden="until-found"]) { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13.5px/1.5 var(--body); -webkit-font-smoothing: antialiased; overflow: hidden; }
 button { font: inherit; color: inherit; }
@@ -341,7 +344,7 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 .stabs a[aria-current="page"]::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); }
 
 /* no stubs: short multi-line text splits evenly, and labels never break inside */
-.attn .d, .verdict p, .ph p.pmeta, .kvs dd, .stepper b, .stepper .m, .nextsteps span, .ans code, .pdiff p, .prbody li, .egrp p.muted, .rule span, .sh p, .inote { text-wrap: balance; }
+.attn .d, .verdict p, .ph p.pmeta, .kvs dd, .stepper b, .stepper .m, .nextsteps span, .pdiff p, .prbody li, .egrp p.muted, .rule span, .sh p, .inote { text-wrap: balance; }
 .ph p.pmeta { max-width: none; }
 .ph p.pmeta > span { white-space: nowrap; }
 .panel > header { flex-wrap: wrap; row-gap: 2px; }
@@ -475,13 +478,13 @@ code.rnm { white-space: nowrap; }
    flags, key hints and chart axes keep their case and tracking and rise from 9 to 10.5px to --fs-label. An avatar's initials
    keep their size, which their circle sets. Scoped by :is(#root, body), which weighs as an id wherever it matches, so it
    outranks each label's own rule, in a dialog drawn over the page too; a column head larger already (a model's) is left
-   as it is. Labels that fill a line or size a column keep the width they had: tighter tracking gives back what the larger
-   size adds. */
+   as it is, and so is a fix's stepper's key, a word at the quiet size. Labels that fill a line or size a column keep the
+   width they had: tighter tracking gives back what the larger size adds. */
 @media (max-width: 640px) {
   :is(#root, body) :is(
-    .eyebrow, .k, .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
-    .tchip em, .bmk, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
-    .fxtable th, .msg .role small, .callrow .pl, .diffpanel h4,
+    .eyebrow, .k:not(.stepper>a>.k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
+    .tchip em, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
+    .fxtable th, .msg .role small, .callrow .pp, .callrow .pl, .diffpanel h4,
     .paths h4, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,
     .hkey .hkh, .evl .ev
   ) { font-size: var(--fs-label); }
