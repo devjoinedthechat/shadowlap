@@ -5,7 +5,7 @@ import { ChangesHead } from '../changes/Head.js';
 import { forgetComparePair, noteComparePair } from '../changes-tab.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
 import { Page } from '../components/Page.js';
-import { answersSub, changedAnswers, changeCards, comparingLive, diffTexts, oneRunPair, pickable, prefixLine, replayCommand, samePlaces } from '../compare/model.js';
+import { answersSub, changedAnswers, changeCards, comparingLive, diffTexts, oneRunPair, pickable, prefixCells, prefixLine, replayCommand, samePlaces } from '../compare/model.js';
 import { RunPicker } from '../compare/RunPicker.js';
 import { callName, clip, num, plural, shortId } from '../format.js';
 import { useLoad, type Loaded } from '../hooks.js';
@@ -21,7 +21,8 @@ import { lastRunsHref } from '../runs-view.js';
  * Compare, a tab of Changes: what changed between two runs (code, system prompt, tools, model), then call by call: the
  * identical prefix, what made the fork when no request shows it, the first request that differs,
  * where the paths went from there, and calls where the same request got a different answer. With no
- * runs named it opens the newest fork or replay against its parent; with one, that run against its
+ * runs named it opens the newest fork against its parent (with none, the newest replay that is no
+ * test's and has ended; defaultComparePair); with one, that run against its
  * newest fork or replay, else its parent, else it says there is nothing to compare yet. The same run
  * on both sides, or a run not in the store, says so. A run still recording is compared again as its
  * calls arrive. Every state stands under Changes' head, the pickers on a row under its tabs; an
@@ -343,7 +344,7 @@ function HeadFirst({ h, stopped = null }: { h: CompareHead; stopped?: { why: str
 
 function Prefix({ c }: { c: Parameters<typeof prefixLine>[0] }) {
   const n = c.identicalPrefix;
-  const cells = Math.max(1, Math.min(n, 120));
+  const cells = prefixCells(n);
   const line = prefixLine(c);
   return (
     <div className="prefix">

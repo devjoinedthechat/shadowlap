@@ -572,9 +572,10 @@ export function treeLines<R>(rows: ReadonlyArray<{ run: R; depth: number }>): Ar
 }
 
 /**
- * The pair Compare opens with none named: the newest fork or replay and its parent, else the two
- * newest runs. An exported copy of many runs holds each run compared with one of them only
- * (`compareWith`, its first run): it opens that run against the newest other, older one first.
+ * The pair Compare opens with none named: the newest fork against its parent; with none, the newest
+ * replay against its parent that is neither a test's nor still recording; else the two newest runs.
+ * An exported copy of many runs holds each run compared with one of them only (`compareWith`, its
+ * first run): it opens that run against the newest other, older one first.
  */
 export function defaultComparePair(runs: readonly RunLike[], compareWith: string | null = null): [string, string] | null {
   if (runs.length < 2) return null;
@@ -585,7 +586,8 @@ export function defaultComparePair(runs: readonly RunLike[], compareWith: string
     const other = byNew.find((r) => r.runId !== hub.runId)!;
     return other.startedAt < hub.startedAt ? [other.runId, hub.runId] : [hub.runId, other.runId];
   }
-  const child = byNew.find((r) => r.mode === 'replay' && r.parentRunId && ids.has(r.parentRunId));
+  const replayed = (r: RunLike) => r.mode === 'replay' && !!r.parentRunId && ids.has(r.parentRunId) && r.status !== 'running';
+  const child = byNew.find((r) => replayed(r) && runType(r) === 'fork') ?? byNew.find((r) => replayed(r) && runType(r) !== 'test');
   if (child) return [child.parentRunId!, child.runId];
   return [byNew[1]!.runId, byNew[0]!.runId];
 }

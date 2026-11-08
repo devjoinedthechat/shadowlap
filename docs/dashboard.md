@@ -972,7 +972,7 @@ A run still recording is compared again as its calls arrive.
 
 #### Open a comparison
 
-- **`#/compare`** alone opens the newest fork or replay against its parent. With fewer than two runs, it says how to make a second.
+- **`#/compare`** alone opens the newest fork against its parent. With no fork, it opens the newest replay that is neither a test's nor still recording, else the two newest runs. With fewer than two runs, it says how to make a second.
 - **Compare's tab** reopens the pair it last showed in the project. Once a run of that pair is gone, it opens as `#/compare` alone does.
 - **`#/compare/<run>`** opens that run against its newest fork, else its newest replay (a test's last), else its parent. A run with none says there is nothing to compare yet, with the replay that makes something.
 - **A fork or a replay** has *Compare with parent*. A recording compares with its first fork or replay, never an attempt bundled under it (a blame probe, a verify or `--repeat` attempt).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answersSub, changedAnswers, changeCards, codeNote, comparingLive, diffTexts, madeBy, pickable, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
+import { answersSub, changedAnswers, changeCards, codeNote, comparingLive, diffTexts, madeBy, pickable, prefixCells, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
 import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
 import type { CallRow, CompareView } from '../ui/types.js';
 
@@ -145,6 +145,20 @@ describe('the pickers and live runs', () => {
     expect(pickable(runs, '01K5CQ4N7G', runs[0].runId)).toHaveLength(3);
     // Otherwise only that run.
     expect(pickable(runs, runs[1].runId, runs[0].runId).map((r) => r.runId)).toEqual([runs[0].runId]);
+  });
+
+  it('draws the identical prefix in at most 60 cells, one a call, so a long shared start still draws', () => {
+    expect([prefixCells(906), prefixCells(60), prefixCells(16), prefixCells(1)]).toEqual([60, 60, 16, 1]);
+  });
+
+  it('opens on the newest fork against its parent, past a newer clean replay, a test replay or a fork still recording', () => {
+    const run = (runId: string, startedAt: number, o: Partial<RunLike> = {}): RunLike => ({ runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: 'node agent.mjs', codeVersion: null, startedAt, calls: 3, spent: 0, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [], ...o });
+    const fork: Partial<RunLike> = { mode: 'replay', parentRunId: 'REC', divergence: { callNo: 3, type: 'request_changed' } };
+    const runs = [run('REC', 1), run('FORK', 2, fork), run('CLEAN', 3, { mode: 'replay', parentRunId: 'REC' }), run('TEST', 4, { ...fork, test: { golden: 'refund', session: 's1' } }), run('LIVE', 5, { ...fork, status: 'running' })];
+    expect(defaultComparePair(runs)).toEqual(['REC', 'FORK']);
+    // With no fork, the newest replay that isn't a test's or still recording; with neither, the two newest.
+    expect(defaultComparePair(runs.filter((r) => r.runId !== 'FORK'))).toEqual(['REC', 'CLEAN']);
+    expect(defaultComparePair(runs.filter((r) => r.runId === 'REC' || r.runId === 'TEST' || r.runId === 'LIVE'))).toEqual(['TEST', 'LIVE']);
   });
 
   it('opens on a pair an exported copy of many runs holds: its first run with the newest other', () => {

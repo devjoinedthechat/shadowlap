@@ -100,6 +100,12 @@ export function madeBy(c: { a?: Pick<CompareView['a'], 'runId'>; intervention?: 
   return iv ? `${iv.words}${iv.run === 'a' && c.a ? ` in ${shortId(c.a.runId)}` : ''}` : null;
 }
 
+/** The identical prefix's strip draws at most this many cells, one a call, so a long shared start (906 calls) still draws. */
+export const PREFIX_CELLS = 60;
+
+/** The strip's cells for `n` identical calls: one a call, at most PREFIX_CELLS. */
+export const prefixCells = (n: number): number => Math.max(1, Math.min(n, PREFIX_CELLS));
+
 /** The line beside the identical prefix: how far the runs agree, what made the fork when no request shows it, and where they part. */
 export function prefixLine(c: Pick<CompareView, 'identicalPrefix' | 'firstRequestDifference' | 'responseDifferences' | 'onlyInA' | 'onlyInB'> & { a?: Pick<CompareView['a'], 'runId'>; intervention?: CompareView['intervention'] }): { lead: string; rest: string } {
   const n = c.identicalPrefix;
