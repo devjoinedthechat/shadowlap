@@ -173,6 +173,8 @@ describe('Settings → CI', () => {
     expect(s.ciWorkflows).toHaveBeenLastCalledWith(expect.objectContaining({ fix: true }));
     expect(toast).toHaveBeenCalledWith('Fix on failure is on · Your workflow changes with it');
     expect(r!.one('#fix-on-failure').className).toBe('panel sec set cip');
+    // The panel drawn again for the answer keeps the focus on its switch.
+    expect(r!.focused()).toBe(r!.one('#fix-on-failure header .switch'));
     const want = served({ fix: true }, DEFAULTS_FILE).workflow;
     expect(want.added).toBeGreaterThan(0);
     expect(r!.all('#wfBox pre.wfcode span.add')).toHaveLength(want.added);
@@ -225,6 +227,28 @@ describe('Settings → CI', () => {
     expect(s.undoWorkflow).toHaveBeenCalledWith('w1', workflowVersion(view.workflow.text));
     expect(s.text).toBeNull();
     expect(toast.mock.calls.map((c) => c[0])).toContain(`Removed ${FILE}, which Write file made`);
+  });
+
+  it('writes nothing over a file changed on disk since the page read it, says so in the page’s words, and shows the file as it is now', async () => {
+    const s = fakeServer(DEFAULTS_FILE);
+    const toast = vi.fn();
+    await open(s, toast);
+    await r!.click(r!.one('#fix-on-failure header .switch'));
+    await r!.until('Write file', () => r!.all('#workflow header .btn').length === 1);
+    // Someone changes the file meanwhile.
+    const theirs = `${DEFAULTS_FILE}# ours\n`;
+    s.text = theirs;
+    await r!.click(r!.byText('#workflow header .btn', 'Write file'));
+    const asked = s.ciWorkflows.mock.calls.length;
+    await r!.click(r!.one('[role="dialog"] .dlg-ok'));
+    await r!.until('the refusal', () => toast.mock.calls.some((c) => c[1] === 'error'));
+    expect(toast).toHaveBeenCalledWith(`${FILE} changed on disk since this page read it. It shows the file as it is now; nothing was changed.`, 'error');
+    expect(s.text).toBe(theirs);
+    // Read again: their line in the file it shows, Fix on failure still as it was changed here.
+    await r!.until('the file as it is now', () => s.ciWorkflows.mock.calls.length > asked && shownFile().includes('# ours'));
+    expect(r!.one('#fix-on-failure header .switch').getAttribute('aria-checked')).toBe('true');
+    await r!.click(r!.one('#fix-on-failure header .switch'));
+    await r!.until('Fix on failure off again', () => r!.one('#fix-on-failure header .switch').getAttribute('aria-checked') === 'false');
   });
 
   it('words the last test session as it was seen, and CI’s own as Last seen in CI', () => {
