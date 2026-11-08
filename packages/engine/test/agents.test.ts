@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { handoverTarget, LiveConversations, roleName, RunAgents, runAgents, runConversations, spawnedName, Store, type CallRecord } from '../src/index.js';
+import { handoverTarget, LiveConversations, loadApiRequest, roleName, RunAgents, runAgents, runConversations, spawnedName, Store, type CallRecord } from '../src/index.js';
+import { cpuOnce, times, timesOf } from './timing.js';
 import { assistant, batchRun, RunBuilder, subagentRun, SYSTEM, text, toolResult, toolUse, TOOLS, user } from './run-fixtures.js';
 
 const agentsOf = (store: Store, runId: string) => {
@@ -140,6 +141,25 @@ describe('a recording names its agents as the finished run does', () => {
     for (const c of all) expect(first.get(c.callNo)).toEqual(agents.of(c.callNo));
     store.close();
   });
+});
+
+describe('agents of a long run', () => {
+  it('names 20,000 conversations without looking back through every model call for each', () => {
+    const store = Store.open(':memory:');
+    const b = RunBuilder.start(store);
+    // A batch whose tools take short arguments: nothing links one conversation to another.
+    for (let i = 0; i < 20_000; i++) b.model({ system: SYSTEM, messages: [user(`Ticket ${i}: the blender broke on day ${i % 30}.`)] }, [toolUse('lookup_order', { order_id: `A-${i}` }, `toolu_${i}`)]);
+    b.end();
+    const calls = store.getCalls(b.runId);
+    const conversations = runConversations(store, calls, { attribute: true });
+    // Held against this machine, as conversations' own test is: naming reads each first request once
+    // more. Looking back through every model call for each conversation took tens of times that.
+    const { read } = timesOf({ read: () => calls.forEach((c) => loadApiRequest(store, c.requestRef!)) });
+    const named = cpuOnce(() => runAgents(store, calls, conversations));
+    expect(named.ms, `naming them took ${times(named.ms, read)} reading every request once`).toBeLessThan(15 * read);
+    expect(named.out.of(calls.at(-1)!.callNo)).toEqual({ agent: 'support-agent', spawnedBy: null });
+    store.close();
+  }, 60_000);
 });
 
 describe('names', () => {

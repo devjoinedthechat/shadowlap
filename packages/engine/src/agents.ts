@@ -42,6 +42,8 @@ const NONE: CallAgent = Object.freeze({ agent: null, spawnedBy: null });
 
 /** How many model calls with a linking argument a conversation's first request looks back through for what started it. */
 const SPAWN_LOOK_BACK = 64;
+/** How many model calls it looks back through at most, linking or not: a batch of thousands is read in time that grows with it. */
+const SPAWN_SCAN = 256;
 /** The fewest characters of a tool's argument that link a conversation to it: shorter ones are too common to tell. */
 const LINK_MIN = 24;
 /** How much of an argument, from its start, has to open the conversation. */
@@ -265,7 +267,8 @@ export class RunAgents {
   /** The model call, of another conversation, whose tool's words open this request, answered before it was sent. */
   private spawner(c: CallRecord, text: string): { model: number; tool: RequestedTool } | null {
     if (text.length < LINK_MIN) return null;
-    for (let i = this.models.length - 1, looked = 0; i >= 0 && looked < SPAWN_LOOK_BACK; i--) {
+    const from = Math.max(0, this.models.length - SPAWN_SCAN);
+    for (let i = this.models.length - 1, looked = 0; i >= from && looked < SPAWN_LOOK_BACK; i--) {
       const m = this.byNo.get(this.models[i]!)!;
       if (isReservedScope(scopeOf(m))) continue;
       const links = this.linksOf(m);
