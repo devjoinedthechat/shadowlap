@@ -317,6 +317,16 @@ describe('the Verify step', () => {
     expect(text(r!.one('.vleft > span'))).toBe(`${left.slice(0, 10)} wasn’t in this verify ·`);
   });
 
+  it('names the header’s button as the header does when the verdict left out more than one run: Verify these runs', async () => {
+    const { fixId, left } = verified();
+    const other = blamed().run;
+    await open(fixId, 'verify');
+    expect(r!.byText('.ph .actions button', 'Verify these runs').className).toBe('btn lime');
+    const line = text(r!.one('.vleft'));
+    expect([line.includes(left.slice(0, 10)), line.includes(other.slice(0, 10))]).toEqual([true, true]);
+    expect(line).toMatch(/ wasn’t in this verify: Verify these runs checks the code as it is now on them\.$/);
+  });
+
   it('ends on what verify printed, in its order: its warnings, what answered after the fork, per run, what it cost with the judge’s checks apart, then its command', async () => {
     const { fixId, report } = verified({ judge: true, afterFork: true, warnings: ['the base revision has uncommitted changes'] });
     await open(fixId, 'verify');

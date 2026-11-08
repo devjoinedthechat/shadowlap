@@ -207,15 +207,20 @@ function RunRow({ v, x, focus, open, onToggle, groups }: { v: VerifyStep; x: Ver
   );
 }
 
+/** Verify this run, or Verify these runs for more than one: the button's name wherever the page names it. */
+const leftLabel = (runs: readonly string[]) => (runs.length === 1 ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label;
+
 /**
  * The failing runs of the fix an accepted verdict left out (`left`), each with its about line on
  * hover: `01M3RXQ4VB wasn’t in this verify`. While the change is in the working tree, either what
- * the header's Verify this run does, when it leads, or a small Verify this run of the step's own.
+ * the header's Verify this run (or Verify these runs) does, when it leads, by the name the header
+ * gives it, or a small one of the step's own.
  */
 function LeftOut({ fix, v }: { fix: FixDetail; v: VerifyStep }) {
   const prices = useFixEstimates(fix);
   if (!v.left.length) return null;
-  const can = !!fix.actions.verifyLeft;
+  const left = fix.actions.verifyLeft;
+  const can = !!left;
   const inHead = can && fix.lead?.key === 'verify-left';
   return (
     <p className="vleft">
@@ -227,7 +232,7 @@ function LeftOut({ fix, v }: { fix: FixDetail; v: VerifyStep }) {
           </Fragment>
         ))}{' '}
         wasn’t in this verify
-        {inHead ? `: Verify this run checks the code as it is now on ${v.left.length > 1 ? 'them' : 'it'}.` : can ? ' ·' : null}
+        {left && inHead ? `: ${leftLabel(left.runs)} checks the code as it is now on ${v.left.length > 1 ? 'them' : 'it'}.` : can ? ' ·' : null}
       </span>
       {can && !inHead ? <VerifyLeftButton fix={fix} prices={prices} lead={false} small /> : null}
     </p>
@@ -247,7 +252,7 @@ export function VerifyLeftButton({ fix, prices, lead, small = false }: { fix: Fi
     <FixJobButton
       kind={JOB_KINDS.verify}
       fields={{ fixId: fix.fixId, left: true }}
-      label={(left.runs.length === 1 ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label}
+      label={leftLabel(left.runs)}
       verb="verify it"
       lead={lead}
       // On the step, beside the ids it names: its card says what it does, with no ids again.
@@ -318,7 +323,7 @@ export function VerifyLeftAsk({ left, estimate, onRun, onClose }: { left: { runs
   ) : (
     `Verify change on ${left.runs.length} runs`
   );
-  const label = (one ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label;
+  const label = leftLabel(left.runs);
   const lead = one ? 'Verifies the code as it is now on the failing run the change wasn’t verified on.' : 'Verifies the code as it is now on the failing runs the change wasn’t verified on.';
   return <ConfirmDialog title={title} lead={lead} doc="verify" command={left.command} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={onRun} onClose={onClose} />;
 }
