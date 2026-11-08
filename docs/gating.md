@@ -164,7 +164,7 @@ And each CI run like this:
 | A gate per golden at its own 5%, `max` 80 | 15% | 14% |
 | A gate per golden at its own 5%, `max` 40 | 61% | 14% |
 | A gate per golden at its own 5%, `max` 20 | 100% | 13% |
-| The default: 5% for the suite, split 100 ways | 0.0018% | 0.0018% |
+| The default: 5% for the suite, split 100 ways | 0.0018% | 0.0056% |
 
 A gate per golden keeps each golden's risk, but a hundred of them add up: 0.15% of a healthy agent's goldens fail, and one in seven runs goes red. So `shadowlap test` gives the session [one risk](#one-risk-for-the-whole-suite) and splits it: a healthy suite then goes red about once in 55,000 runs, at 16.75 attempts a golden instead of 16.7.
 
