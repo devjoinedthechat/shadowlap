@@ -21,7 +21,7 @@ import { FIXES_READS } from './fixes-view.js';
 import { CROSS_PROJECT_READS } from './cross-project.js';
 import { withExitCodes } from './exit-codes.js';
 import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
-import { ISSUES_READS } from './issues.js';
+import { failedChecks, ISSUES_READS } from './issues.js';
 import { judgeAfter, judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
 import { RUNS_FAILURES_READS } from './runs-failures.js';
 import { analyseRun } from './run-page.js';
@@ -197,13 +197,14 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'ju
 /**
  * A fix's page, with what the server's thread found in the working tree: patches in it already, and
  * pulled ones `fix apply` refuses there. The names the project's goldens folder holds, which the
- * goldens Apply fix copies can't take, are read here, beside the server.
+ * goldens Apply fix copies can't take, are read here, beside the server, and so are the runs that
+ * failed its check, which its header's link opens under Runs › Failed (issues.ts `failedChecks`).
  */
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
   const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
-  return d ? answer(withAbouts(store, d), { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+  return d ? answer({ ...withAbouts(store, d), failedCheck: failedChecks(store, loadRunIndex(store))(d.fixId) }, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 
 /**

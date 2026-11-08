@@ -1,9 +1,9 @@
 import { JOB_KINDS } from '../api.js';
 import type { Fact } from '../components/Facts.js';
-import { cents, shortId } from '../format.js';
+import { cents } from '../format.js';
 import { ACTIONS } from '../labels.js';
 import { exitWords } from '../outcome-tip.js';
-import type { FixesView, FixesViewRow, FixLead, FixRow, JobListItem, StepKey, UnblamedRow } from '../types.js';
+import type { FailedCheck, FixesView, FixesViewRow, FixLead, FixRow, JobListItem, StepKey, UnblamedRow } from '../types.js';
 import { pluralS as s } from '../../../engine/src/words.js';
 import { repairSub } from './estimates.js';
 import { blameAgainTip, STRONGER_TIP, treeBusy, type FixChip, type TreeJob } from './model.js';
@@ -61,11 +61,16 @@ export function ciCard(f: Pick<FixesViewRow, 'pr'>): string {
   return pr.state === null ? `${opened}.` : `${opened}; it ${pr.state === 'open' ? 'is' : 'was'} ${pr.state}.`;
 }
 
-/** The failing runs' link's card: how many, the first five by id, and where it leads. */
-export function failingCard(f: Pick<FixesViewRow, 'failing' | 'failingIds'>): { title: string; text: string } {
-  const n = f.failing;
-  const ids = f.failingIds.join(', ') + (n > f.failingIds.length ? ` and ${n - f.failingIds.length} more` : '');
-  return { title: `${n} run${s(n)} failed its check`, text: `${f.failingIds.length ? `${ids}. ` : ''}${n === 1 ? 'Opens it' : 'Opens them'} on Runs, under Failed` };
+/**
+ * The failing runs' link's card: how many runs failed the fix's check, the first five by id, and
+ * where it leads. It counts the runs the link opens under Failed (`failedCheck`), where any are
+ * there, else the fix's own; the link's words keep the fix's own count, as Verify replays them.
+ */
+export function failingCard(f: Pick<FixesViewRow, 'failing' | 'failingIds'> & { failedCheck?: FailedCheck | null }): { title: string; text: string } {
+  const n = f.failedCheck?.count ?? f.failing;
+  const shown = f.failedCheck?.ids ?? f.failingIds;
+  const ids = shown.join(', ') + (n > shown.length ? ` and ${n - shown.length} more` : '');
+  return { title: `${n} run${s(n)} failed its check`, text: `${shown.length ? `${ids}. ` : ''}${n === 1 ? 'Opens it' : 'Opens them'} on Runs, under Failed` };
 }
 
 /** A step's cell: its word, and its state, `busy` while a job of the fix's runs it. */
@@ -99,10 +104,6 @@ export const unblamedTitle = (u: Pick<UnblamedRow, 'count'>): string => `${count
 
 /** What its newest run failed: the check, in the engine's words, else its agent's exit. */
 export const unblamedFailed = (u: Pick<UnblamedRow, 'failed'>): string => u.failed ?? exitWords(null);
-
-/** Run blame's card on the unblamed row: the run it blames, and what it does. */
-export const unblamedBlameCard = (u: Pick<UnblamedRow, 'count' | 'runId'>): string =>
-  `Blames ${u.count > 1 ? 'the newest, ' : ''}${shortId(u.runId)}: finds the model call that lost it, and joins it to the fix its failure belongs to`;
 
 // ---------------------------------------------------------------------------------------------- the next step
 

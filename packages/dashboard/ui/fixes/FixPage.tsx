@@ -116,7 +116,7 @@ function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void;
   const [renaming, setRenaming] = useState(false);
   const head = useFitFixHead();
   const status = rungStatus(fix);
-  const card = failingCard({ failing: fix.failing, failingIds: fix.failingRuns.slice(0, 5).map((r) => shortId(r.runId)) });
+  const card = failingCard({ failing: fix.failing, failingIds: fix.failingRuns.slice(0, 5).map((r) => shortId(r.runId)), failedCheck: fix.failedCheck });
   const prNamed = fix.rung === 'merged' && fix.pr?.number != null;
   return (
     <div className="ph fxh" ref={head}>

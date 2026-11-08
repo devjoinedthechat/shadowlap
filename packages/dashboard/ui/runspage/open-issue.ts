@@ -10,17 +10,17 @@ import { navigate } from '../router.js';
  * in it: Fixes and the palette import it.
  */
 
-/** Opens the issue `key` (src/issue-keys.ts) at `href`, an address under Failed: for Enter and the palette, which go there themselves. */
-export function openIssue(href: string, key: string): void {
-  ISSUE_ASK.ask(key);
+/** Opens the issue `key` (src/issue-keys.ts) at `href`, an address under Failed: for Enter and the palette, which go there themselves. A null key, a run Failed doesn't count, opens the address alone. */
+export function openIssue(href: string, key: string | null): void {
+  if (key !== null) ISSUE_ASK.ask(key);
   navigate(href);
 }
 
-/** A link's click that opens the issue `key` where the link goes; a click with a modifier opens the address alone. */
+/** A link's click that opens the issue `key` where the link goes; a click with a modifier, or a null key, opens the address alone. */
 export const issueClick =
-  (key: string) =>
+  (key: string | null) =>
   (e: MouseEvent<HTMLAnchorElement>): void => {
-    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (key === null || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     ISSUE_ASK.ask(key);
   };
 

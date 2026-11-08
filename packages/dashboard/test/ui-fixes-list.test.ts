@@ -2,10 +2,11 @@ import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { markFixApplied, recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { blameCard } from '../src/failed-words.js';
 import { fixDetail } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
 import { JOB_KINDS, type Client } from '../ui/api.js';
-import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadCard, leadReadsFix, leadWait, rowCells, rungStatus, unblamedBlameCard, unblamedTitle } from '../ui/fixes/list.js';
+import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadCard, leadReadsFix, leadWait, rowCells, rungStatus, unblamedTitle } from '../ui/fixes/list.js';
 import { fixRowScope, unblamedScope } from '../ui/fixes/row-scope.js';
 import { forgetRunEstimates } from '../ui/run/estimates.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
@@ -112,14 +113,15 @@ describe('a row’s words', () => {
       ['Verify', 'held'],
     ]);
     const pressed: string[] = [];
-    const un = unblamedScope({ name: unblamedTitle({ count: 2 }), command: 'shadowlap blame r1', wait: 'A repair is running: blame once it is done.', press: () => pressed.push('blame') });
+    const un = unblamedScope({ name: unblamedTitle({ count: 2 }), issue: 'fail:the agent exited with an error', command: 'shadowlap blame r1', wait: 'A repair is running: blame once it is done.', press: () => pressed.push('blame') });
     expect(un.name).toBe('2 failing runs nobody has blamed');
     expect(un.items()).toEqual([expect.objectContaining({ label: 'Open', hint: '#/runs?types=failed' }), expect.objectContaining({ label: 'Run blame', hint: 'shadowlap blame r1', job: true, wait: 'A repair is running: blame once it is done.' })]);
     un.items()[1]?.run();
     expect(pressed).toEqual(['blame']);
     // No Run blame where the row has none.
-    expect(unblamedScope({ name: 'x', command: null, wait: null, press: () => undefined }).items().map((i) => i.label)).toEqual(['Open']);
-    expect(unblamedBlameCard({ count: 1, runId: 'run-0123456789abc' })).toBe('Blames run-012345: finds the model call that lost it, and joins it to the fix its failure belongs to');
+    expect(unblamedScope({ name: 'x', issue: null, command: null, wait: null, press: () => undefined }).items().map((i) => i.label)).toEqual(['Open']);
+    // Run blame's card is the sentence Needs a look and Runs' issues say, from the server.
+    expect(blameCard('run-0123456789abc', false)).toBe('Blames run-012345: finds the model call that lost it, then joins the fix its failure belongs to');
   });
 });
 
@@ -244,7 +246,7 @@ describe('the Fixes list', () => {
     expect(cellsOf('unblamed')).toEqual(['todo Blame not blamed', 'todo Repair —', 'todo Verify —']);
     const blame = un.querySelector('.psn button')!;
     expect(text(blame)).toBe('Run blame');
-    expect(tipOf(blame)).toMatchObject({ t: 'Run blame', s: `Blames the newest, ${newest.slice(0, 10)}: finds the model call that lost it, and joins it to the fix its failure belongs to` });
+    expect(tipOf(blame)).toMatchObject({ t: 'Run blame', s: `Blames the newest, ${newest.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to` });
     await chip('Open');
     expect(keys()).toEqual(['unblamed', open.href]);
     await chip('Ready to apply');
@@ -260,7 +262,7 @@ describe('the Fixes list', () => {
     const blame = () => row('unblamed').querySelector('.psn button')!;
     await r!.until('the estimate', () => !!tipOf(blame()).est);
     const u = fixesView(store).unblamed!;
-    expect(tipOf(blame())).toEqual({ t: 'Run blame', s: `Blames ${run.slice(0, 10)}: finds the model call that lost it, and joins it to the fix its failure belongs to`, rows: [], cmd: `$ ${u.next!.command!}`, est: { usd: 0.42, ceiling: true } });
+    expect(tipOf(blame())).toEqual({ t: 'Run blame', s: `Blames ${run.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to`, rows: [], cmd: `$ ${u.next!.command!}`, est: { usd: 0.42, ceiling: true } });
   });
 
   it('says on each row its rung, its chips, its failing runs and its day, its three steps, and Open → where it has no step', async () => {

@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { NO_COMMAND, Store } from '@shadowlap/engine';
+import { fixesView } from '../src/fixes-view.js';
 import { startDashboard } from '../src/index.js';
 import { type Issue, type IssueRunsPage, type IssuesPage, ISSUE_RUNS, ISSUES_READS, issueKeyOf, issueRunsByFix, type RunsIssuesJob } from '../src/issues.js';
 import { issueKey } from '../src/issue-keys.js';
+import { runJob } from '../src/read-jobs.js';
 import { loadRunIndex } from '../src/run-index.js';
 import { FAMILY_ONLY_FAILURES, RUNS_FAILURES_READS } from '../src/runs-failures.js';
 import { addRun, DAY, HOUR } from './read-model-store.js';
@@ -169,6 +171,20 @@ describe('lookups for links', () => {
     expect(issueRunsByFix(store, index).get(FIX_A)).toEqual([id.a2, id.a3, id.a1]);
     expect(issueKeyOf(store, index, id.a3)).toBe(issueKey.fix(FIX_A));
     expect(issueKeyOf(store, index, id.t1)).toBeNull();
+  });
+
+  it("counts on a fix's card, on Fixes and on its page, the runs that failed its check, while its link keeps its own; and names the unblamed row's issue", async () => {
+    const short = (...runs: string[]) => runs.map((r) => r.slice(0, 10));
+    const view = fixesView(store);
+    expect(view.fixes.find((f) => f.fixId === FIX_A)).toMatchObject({ failing: 1, failedCheck: { count: 3, ids: short(id.a2, id.a3, id.a1) } });
+    // The applied fix holds none of its own, and one failed as its check does.
+    expect(view.fixes.find((f) => f.fixId === FIX_B)).toMatchObject({ failing: 0, failedCheck: { count: 1, ids: short(id.b1) } });
+    expect(view.totals.failing).toBe(1);
+    const page = (await runJob(store, { kind: 'fix', fixId: FIX_A, repairer: null }, { whole: true })) as { body: string };
+    expect(JSON.parse(page.body)).toMatchObject({ failing: 1, failedCheck: { count: 3, ids: short(id.a2, id.a3, id.a1) } });
+    const u = view.unblamed!;
+    expect(u.issue).toBe(issueKeyOf(store, loadRunIndex(store), u.runId));
+    expect(u.issue).not.toBeNull();
   });
 });
 

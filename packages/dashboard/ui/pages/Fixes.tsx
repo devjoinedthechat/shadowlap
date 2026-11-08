@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { issueKey } from '../../src/issue-keys.js';
-import { issueClick } from '../runspage/open-issue.js';
+import { issueClick, openIssue } from '../runspage/open-issue.js';
 import { Chips, PageHeader } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Id } from '../components/Id.js';
@@ -12,7 +12,7 @@ import { rememberList } from '../fixes/data.js';
 import { FixPage } from '../fixes/FixPage.js';
 // What a fix's jobs end on in the drawer, registered as the Fixes chunk loads.
 import '../fixes/job-footers.js';
-import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadWait, rowCells, rungStatus, STEP_NAMES, UNBLAMED_CELLS, unblamedBlameCard, unblamedFailed, unblamedShows, unblamedTitle, type StepCell } from '../fixes/list.js';
+import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadWait, rowCells, rungStatus, STEP_NAMES, UNBLAMED_CELLS, unblamedFailed, unblamedShows, unblamedTitle, type StepCell } from '../fixes/list.js';
 import { chipKeeps, failingLine, FIX_CHIPS, fixStamp, treeBusy, type FixChip } from '../fixes/model.js';
 import { FailedMust, Whole } from '../fixes/parts.js';
 import { fixRowScope, unblamedScope } from '../fixes/row-scope.js';
@@ -128,11 +128,11 @@ function Rows({ view, chip, version }: { view: FixesView; chip: FixChip; version
     rows,
     keyOf,
     root: box,
-    open: (r) => navigate(r.kind === 'fix' ? r.f.href : FAILED),
+    open: (r) => (r.kind === 'fix' ? navigate(r.f.href) : openIssue(FAILED, r.u.issue)),
     actions: (r) =>
       r.kind === 'fix'
         ? fixRowScope(r.f)
-        : unblamedScope({ name: unblamedTitle(r.u), command: r.u.next ? (r.u.next.command ?? ACTIONS.runBlame.label) : null, wait: blameWait, press: () => box.current?.querySelector<HTMLElement>('[data-rowkey="unblamed"] .psn .btn')?.click() }),
+        : unblamedScope({ name: unblamedTitle(r.u), issue: r.u.issue, command: r.u.next ? (r.u.next.command ?? ACTIONS.runBlame.label) : null, wait: blameWait, press: () => box.current?.querySelector<HTMLElement>('[data-rowkey="unblamed"] .psn .btn')?.click() }),
   });
   if (!rows.length) return <EmptyLine>{CHIP_EMPTY[chip]}</EmptyLine>;
   return (
@@ -210,7 +210,7 @@ function UnblamedListRow({ u, jobs, focused }: { u: UnblamedRow; jobs: readonly 
   return (
     <div className={focused ? 'psrow psun krow' : 'psrow psun'} role="listitem" data-rowkey="unblamed">
       <span className="pst">
-        <a className="rt" href={FAILED}>
+        <a className="rt" href={FAILED} onClick={issueClick(u.issue)}>
           {unblamedTitle(u)}
         </a>
         <span className="rs">
@@ -234,7 +234,7 @@ function UnblamedListRow({ u, jobs, focused }: { u: UnblamedRow; jobs: readonly 
             runId={u.runId}
             offer={{ failed: u.checks, from: u.from ?? 'ask' }}
             className="btn sm"
-            title={unblamedBlameCard(u)}
+            title={u.next.sub}
             jobs={jobs}
             {...(u.next.capture ? { capture: true } : {})}
             {...(u.next.command ? { line: u.next.command } : {})}

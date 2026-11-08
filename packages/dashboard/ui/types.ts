@@ -473,7 +473,7 @@ export interface StaticPayload {
 export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, RunGrid, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
 export type { BulkSkip, ChipCounts, DayCount, DeleteResult, RunRow, RunsByDay, RunsPage, RunSort as ServerRunSort, RunType as ServerRunType } from '../src/runs-list.js';
 export type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
-export type { Issue, IssueKind, IssueRun, IssueRunsPage, IssuesPage } from '../src/issues.js';
+export type { FailedCheck, Issue, IssueKind, IssueRun, IssueRunsPage, IssuesPage } from '../src/issues.js';
 export type { TraceSourceView } from '../src/routes/imports.js';
 export type { TeamStoreStatus } from '../src/team-store.js';
 export type { ActivityIcon, ActivityItem, ActivityPage, UploadView } from '../src/views.js';

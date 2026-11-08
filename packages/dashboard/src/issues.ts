@@ -1,4 +1,4 @@
-import { blameStateWord, type FixRecords, type FixStatus, goldenWords, isObject, lostWords, shownBlame, type Store, type StoredFix, type TestResult } from '@shadowlap/engine';
+import { blameStateWord, type FixRecords, type FixStatus, goldenWords, isObject, lostWords, shownBlame, shortRunId, type Store, type StoredFix, type TestResult } from '@shadowlap/engine';
 import { withExitCodes } from './exit-codes.js';
 import { blameCard, failedWords, NOT_BLAMED, plantedWords } from './failed-words.js';
 import { keptFixRecords } from './fix-records.js';
@@ -171,10 +171,23 @@ export function issueRunsByFix(store: Store, index: RunIndex = loadRunIndex(stor
   return grouping(store, index).byFix;
 }
 
-/** A fix's issue runs, as `issueRunsByFix` has them. */
-export function issueRunsOfFix(store: Store, index: RunIndex, fixId: string): { count: number; ids: readonly string[] } {
-  const ids = issueRunsByFix(store, index).get(fixId) ?? [];
-  return { count: ids.length, ids };
+/** The runs that failed a fix's check, as its issue holds them on every day: how many, and the first five by id, short. */
+export interface FailedCheck {
+  count: number;
+  ids: string[];
+}
+
+/**
+ * Each fix's failing-runs card on Fixes and on its page, from one grouping for every fix
+ * (`issueRunsByFix`): null where its issue holds no run (each fixed or deleted since), so the card
+ * keeps the fix's own. The link's words keep the fix's own count, as the CLI and Verify say it.
+ */
+export function failedChecks(store: Store, index: RunIndex): (fixId: string) => FailedCheck | null {
+  const byFix = issueRunsByFix(store, index);
+  return (fixId) => {
+    const ids = byFix.get(fixId) ?? [];
+    return ids.length ? { count: ids.length, ids: ids.slice(0, 5).map(shortRunId) } : null;
+  };
 }
 
 /** The issue a failed run is under on Runs › Failed; null for a run Failed doesn't count, or one that fails only its family's checks. */
