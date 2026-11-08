@@ -80,7 +80,7 @@ describe("Compare's decisions on any two runs", () => {
     expect(c.pair).toMatchObject({ from: { a: 3, b: 3 }, rank: 1, verdict: { words: 'Different writes', where: 'after #2' }, more: 0 });
     // The checks came out otherwise too: the recording's failed, the other has none.
     expect(c.pair!.changes.map((x) => x.kind)).toContain('ended');
-    expect(c.pair!.rows.map((r) => [r.callNo, r.alike, r.similar])).toEqual([
+    expect(c.pair!.rows.map((r) => [r.n, r.alike, r.similar])).toEqual([
       [3, false, false],
       [4, false, false],
       [5, false, false],

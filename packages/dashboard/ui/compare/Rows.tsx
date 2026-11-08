@@ -43,13 +43,13 @@ export function PairRows({ a, b, pair, call, runs, flag }: { a: PairRun; b: Pair
         <ColumnHead side={b} from={pair.from.b} runs={runs} />
       </div>
       {pair.rows.map((r) => (
-        <Fragment key={r.callNo}>
-          <button type="button" className={`cprow${r.callNo === open ? ' open' : ''}`} data-n={r.callNo} aria-expanded={r.callNo === open} aria-controls={r.callNo === open ? 'cmpd' : undefined} onClick={() => toggle(r.callNo === open ? null : r.callNo)}>
-            <span className="cpn">#{r.callNo}</span>
+        <Fragment key={r.n}>
+          <button type="button" className={`cprow${r.n === open ? ' open' : ''}`} data-n={r.n} aria-expanded={r.n === open} aria-controls={r.n === open ? 'cmpd' : undefined} onClick={() => toggle(r.n === open ? null : r.n)}>
+            <span className="cpn">#{r.n}</span>
             <Side id={a.id} row={r} side="a" />
             <Side id={b.id} row={r} side="b" />
           </button>
-          {r.callNo === open ? <Opened a={a.id} b={b.id} row={r} flag={flag} onClose={() => close(r.callNo)} /> : null}
+          {r.n === open ? <Opened a={a.id} b={b.id} row={r} flag={flag} onClose={() => close(r.n)} /> : null}
         </Fragment>
       ))}
     </div>
@@ -198,7 +198,7 @@ function toolValues(d: CallDetail | null): { args: unknown; result: unknown } {
 /** The row opened: both calls side by side under it, as their runs' inspectors show them, each opening its run there; the same tool's arguments and result as one split diff. */
 function Opened({ a, b, row, flag, onClose }: { a: string; b: string; row: PathRow; flag: string | null; onClose: () => void }) {
   const { client } = useApp();
-  const n = row.callNo;
+  const n = row.n;
   const da = useLoad(() => (row.a ? client.call(a, row.a.callNo) : null), `${a}:${row.a?.callNo ?? 'none'}:cmp`).data;
   const db = useLoad(() => (row.b ? client.call(b, row.b.callNo) : null), `${b}:${row.b?.callNo ?? 'none'}:cmp`).data;
   const ref = useRef<HTMLElement>(null);

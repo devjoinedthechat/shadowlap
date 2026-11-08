@@ -261,8 +261,8 @@ describe('the whole comparison', () => {
       b: { failures: null, writes: [], end: { kind: 'stopped', callNo: 19, status: 529 }, quit: true },
     },
     rows: [
-      { callNo: 19, a: call(19, { decision: refund }), b: call(19, { origin: 'injected', failure: { status: 529, by: 'injected' } }), alike: false, similar: false },
-      { callNo: 20, a: call(20, { kind: 'tool', name: 'issue_refund', effect: 'write', args: '{"order":"A-1","amount":240}' }), b: null, alike: false, similar: false },
+      { n: 19, a: call(19, { decision: refund }), b: call(19, { origin: 'injected', failure: { status: 529, by: 'injected' } }), alike: false, similar: false },
+      { n: 20, a: call(20, { kind: 'tool', name: 'issue_refund', effect: 'write', args: '{"order":"A-1","amount":240}' }), b: null, alike: false, similar: false },
     ],
     more: 0,
   };

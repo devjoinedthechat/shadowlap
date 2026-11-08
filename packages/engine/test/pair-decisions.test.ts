@@ -152,7 +152,7 @@ describe("Compare's rows", () => {
     const a: Call[] = [lookup, ask('send_email', { to: 'customer@example.com', body: 'Refunded' }), { kind: 'tool', name: 'send_email', args: { to: 'customer@example.com', body: 'Refunded' }, effect: 'write' }, { kind: 'api', text: 'Done.' }];
     const b: Call[] = [lookup, ask('send_email', { to: 'customer@example.com', body: 'Escalated' }), { kind: 'tool', name: 'send_email', args: { to: 'customer@example.com', body: 'Escalated' }, effect: 'write', origin: 'blocked' }, { kind: 'api', text: 'Done.' }, { kind: 'api', status: 503, offline: true }];
     const p = decide({ a, b }, 1);
-    expect(p.rows.map((r) => [r.callNo, r.alike, r.similar])).toEqual([
+    expect(p.rows.map((r) => [r.n, r.alike, r.similar])).toEqual([
       [2, false, true],
       [3, false, true],
       [4, true, false],
@@ -178,11 +178,31 @@ describe("Compare's rows", () => {
     expect(p.rows[0].similar).toBe(false);
   });
 
-  it('leaves a judge out, numbers a row by the first run, and says who refused a failure', () => {
+  it('leaves a judge out, numbers a row by its place, and says who refused a failure', () => {
     const p = decide({ a: [lookup, { kind: 'judge' }, { kind: 'api', status: 529, injected: true }], b: [lookup, { kind: 'api', status: 529 }] }, 1);
     expect(p.from).toEqual({ a: 3, b: 2 });
     expect(p.rows).toHaveLength(1);
-    expect(p.rows[0]).toMatchObject({ callNo: 3, alike: true, a: { origin: 'injected', failure: { status: 529, by: 'injected' } }, b: { callNo: 2, origin: 'live', failure: { status: 529, by: 'provider' } } });
+    expect(p.rows[0]).toMatchObject({ n: 2, alike: true, similar: false, a: { callNo: 3, origin: 'injected', failure: { status: 529, by: 'injected' } }, b: { callNo: 2, origin: 'live', failure: { status: 529, by: 'provider' } } });
+  });
+
+  it('numbers every row once where a judge sits among the first run’s calls, each side keeping its own call numbers', () => {
+    const p = decide({ a: [lookup, lookup, { kind: 'judge' }, ask('escalate', {})], b: [lookup, lookup, ask('refund', {}), { kind: 'api', text: 'Done.' }, { kind: 'api', text: 'Bye.' }] }, 2);
+    expect(p.rows.map((r) => [r.n, r.a?.callNo ?? null, r.b?.callNo ?? null])).toEqual([
+      [3, 4, 3],
+      [4, null, 4],
+      [5, null, 5],
+    ]);
+  });
+
+  it('marks nothing in a row both made alike: the same tools called alike are alike, not similar', () => {
+    const send = ask('send_email', { to: 'customer@example.com', body: 'Refunded in full.' });
+    const p = decide({ a: [send, { kind: 'api', status: 529 }], b: [send, { kind: 'api', status: 529 }] }, 0);
+    expect(p.rows.map((r) => [r.n, r.alike, r.similar])).toEqual([
+      [1, true, false],
+      [2, true, false],
+    ]);
+    // Asked otherwise, the same tool is similar: its words that differ are marked.
+    expect(decide({ a: [send], b: [ask('send_email', { to: 'customer@example.com', body: 'Escalated.' })] }, 0).rows[0]).toMatchObject({ alike: false, similar: true });
   });
 
   it('draws at most the rows asked for and counts the rest', () => {
@@ -190,7 +210,7 @@ describe("Compare's rows", () => {
     const p = decide({ a: many, b: [] }, 0, { rows: 5 });
     expect(p.rows).toHaveLength(5);
     expect(p.more).toBe(7);
-    expect(p.rows[0]).toMatchObject({ callNo: 1, b: null, alike: false });
+    expect(p.rows[0]).toMatchObject({ n: 1, a: { callNo: 1 }, b: null, alike: false });
   });
 
   it('masks what the normalizers mask before telling two calls alike, and cuts a long line', () => {
@@ -201,7 +221,7 @@ describe("Compare's rows", () => {
     const effectOf = () => null;
     expect(pathRows(store, calls(x), calls(y), 0, { effectOf }).rows[0]).toMatchObject({ alike: false, similar: true });
     const masked = pathRows(store, calls(x), calls(y), 0, { effectOf, normalizers: [{ kind: 'tool', path: '$.args.id', replace: '<id>' }] }).rows[0];
-    expect(masked.alike).toBe(true);
+    expect(masked).toMatchObject({ alike: true, similar: false });
     expect(masked.a!.args).toHaveLength(300);
     expect(masked.a!.args!.endsWith('…')).toBe(true);
   });

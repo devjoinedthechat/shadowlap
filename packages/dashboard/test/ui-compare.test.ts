@@ -250,9 +250,9 @@ describe('both paths in one list, a row a call', () => {
     expect(sideClass(row, 'a')).toBe('pside del same');
     expect(sideClass({ ...row, alike: false }, 'b')).toBe('pside add diff');
     expect(sideClass({ ...row, alike: false, a: null }, 'b')).toBe('pside add');
-    expect(openRow([{ callNo: 19 }, { callNo: 20 }], 20)).toBe(20);
-    expect(openRow([{ callNo: 19 }], 4)).toBeNull();
-    expect(openRow([{ callNo: 19 }], null)).toBeNull();
+    expect(openRow([{ n: 19 }, { n: 20 }], 20)).toBe(20);
+    expect(openRow([{ n: 19 }], 4)).toBeNull();
+    expect(openRow([{ n: 19 }], null)).toBeNull();
   });
 });
 

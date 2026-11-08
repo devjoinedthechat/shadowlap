@@ -200,7 +200,7 @@ describe('GET /api/compare', () => {
   it('carries what the second run decided differently after the calls they share, which the head leaves out', async () => {
     const c = await get(ids.recorded, ids.forked);
     expect(c.pair).toMatchObject({ from: { a: 1, b: 1 }, verdict: { words: 'The same decisions', where: 'from #1', tone: 'done' }, more: 0 });
-    expect(c.pair?.rows.map((r) => r.callNo)).toEqual([1]);
+    expect(c.pair?.rows.map((r) => r.n)).toEqual([1]);
     const head = await fetch(`${dash.url}/api/compare?a=${ids.recorded}&b=${ids.forked}&part=head`, { headers: { 'x-shadowlap-token': dash.token } });
     expect(await head.json()).not.toHaveProperty('pair');
   });

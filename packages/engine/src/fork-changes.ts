@@ -350,7 +350,11 @@ export function pairEnding(store: StoreOf<'recording'>, run: Pick<RunRecord, 'st
 /** An end as two are compared: how the turn ended, an exit with its code; not where, nor a failure's status. */
 const endKey = (e: PairEnd): string => (e.kind === 'exited' ? `exited ${e.code ?? ''}` : e.kind);
 
-/** What a row shows of a call's words or arguments: a row is a line, and the opened row reads the call whole. */
+/**
+ * How much of a call's words or arguments a row carries, each string cut past it: a row is a line.
+ * The opened row draws a model call's decision from the same copy, and a tool's arguments and result
+ * whole, from the call's detail; Open run at #N shows the whole call.
+ */
 export const ROW_TEXT = 300;
 
 /**
@@ -384,13 +388,17 @@ export interface PathCall {
 
 /** Both runs' calls at one place after the identical prefix: by position, judge calls left out. */
 export interface PathRow {
-  /** The row's number: the call in `a`, or in `b` past `a`'s end. */
-  callNo: number;
+  /**
+   * The row's number, its place among both runs' agent calls (`#1–#N identical`, then N + 1): what
+   * the row shows and Compare's address names, unlike either side's call number where a judge's
+   * call sits between, which each side keeps as its own `callNo`.
+   */
+  n: number;
   a: PathCall | null;
   b: PathCall | null;
   /** Both made the same call: a model call deciding alike with the same status, a tool or a read asked alike. */
   alike: boolean;
-  /** Not alike, but alike enough to mark the words that differ: model calls that call the same tools, or both failed; calls of the same name. */
+  /** Not alike, but alike enough to mark the words that differ: model calls that call the same tools, or both failed; calls of the same name. Never with `alike`. */
   similar: boolean;
 }
 
@@ -440,8 +448,14 @@ function rowDecision(d: ModelDecision, effectOf: EffectOf): PathDecision {
   return { ...view, tools: view.tools.map((t) => ({ ...t, args: clipStrings(t.args ?? null, ROW_TEXT) })), text: clipText(d.text, ROW_TEXT), stops: STOP_WORDS[d.stop] };
 }
 
-/** Whether two calls at one place are alike, or similar enough to mark the words that differ. */
+/** Whether two calls at one place are alike, or, not alike, similar enough to mark the words that differ: a row both made alike has none to mark. */
 function sameness(x: ReturnType<typeof rowCall>, y: ReturnType<typeof rowCall>, effectOf: EffectOf): { alike: boolean; similar: boolean } {
+  const { alike, similar } = likeness(x, y, effectOf);
+  return { alike, similar: similar && !alike };
+}
+
+/** Whether two calls at one place are alike, and whether they are alike enough to mark the words that differ, alike or not. */
+function likeness(x: ReturnType<typeof rowCall>, y: ReturnType<typeof rowCall>, effectOf: EffectOf): { alike: boolean; similar: boolean } {
   const a = x.call;
   const b = y.call;
   if (a.kind !== b.kind) return { alike: false, similar: false };
@@ -470,7 +484,7 @@ export function pathRows(store: StoreOf<'recording'>, aCalls: readonly CallRecor
     if (x?.decision) x.call.decision = rowDecision(x.decision, o.effectOf);
     if (y?.decision) y.call.decision = rowDecision(y.decision, o.effectOf);
     const same = x && y ? sameness(x, y, o.effectOf) : { alike: false, similar: false };
-    rows.push({ callNo: (x ?? y)!.call.callNo, a: x?.call ?? null, b: y?.call ?? null, ...same });
+    rows.push({ n: k + 1, a: x?.call ?? null, b: y?.call ?? null, ...same });
   }
   return { rows, more: total - shown };
 }
