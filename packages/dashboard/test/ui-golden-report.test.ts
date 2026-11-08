@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
+import { links } from '../src/links.js';
+import { askedReport, reportOpen, setReportOpen } from '../ui/tests/report-open.js';
 import { hintWords, reportHint } from '../ui/tests/report-words.js';
 
 /**
@@ -49,5 +51,23 @@ describe('a report’s hint', () => {
   it('says a normalizer already in the config needs a re-run, or an update where the request carries more', () => {
     expect(hintWords({ key: 'rules-added', path: '$.metadata.user_id', update: false })).toBe('The normalizer for $.metadata.user_id is in shadowlap.config.json now: run the golden again to see it pass.');
     expect(hintWords({ key: 'rules-added', path: '$.metadata.user_id', update: true })).toMatch(/: update the golden\.$/);
+  });
+});
+
+describe('a report asked for by a link', () => {
+  it('reads the golden a link to its report names, as links write it, and nothing from another address', () => {
+    expect(askedReport(links.tests({ report: 'refund-in-limit' }))).toBe('refund-in-limit');
+    expect(askedReport(links.tests({ report: 'evals/kept elsewhere' }))).toBe('evals/kept elsewhere');
+    expect(askedReport('#/tests?update&report=late%20refund')).toBe('late refund');
+    expect(askedReport(links.tests())).toBeNull();
+    expect(askedReport('#/runs?report=refund')).toBeNull();
+    expect(askedReport('#/tests?report=%E0%A4%A')).toBeNull();
+  });
+
+  it('keeps a report open by its name until it is folded again', () => {
+    setReportOpen('refund', true);
+    expect(reportOpen('refund')).toBe(true);
+    setReportOpen('refund', false);
+    expect(reportOpen('refund')).toBe(false);
   });
 });
