@@ -1,6 +1,7 @@
 import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { gateResult, parseGate, Store, type StoredCheck } from '@shadowlap/engine';
+import { goldenReports, type TestsAnswer } from '../src/golden-report.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { pageUp } from '../ui/focus-manager.js';
@@ -32,7 +33,7 @@ const GOLDENS: GoldenSource[] = [
   golden('goldens/budget', ['at most 29000 input tokens'], { mode: 'fork', gate: parseGate({ baseline: 'history' }, 'gate') }),
 ];
 
-function view(goldens: GoldenSource[]): TestsView {
+function view(goldens: GoldenSource[]): TestsAnswer {
   const s = Store.open(':memory:');
   const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f', startedAt: T0 });
   const result = (golden: string, ok: boolean, data: NonNullable<Parameters<Store['addTestResult']>[0]['data']>, failure?: 'check' | 'inconclusive') => s.addTestResult({ sessionId: session.sessionId, golden, ok, ...(failure ? { failure } : {}), reason: ok ? null : 'failed', runId: null, revision: 'd2e8a1f', at: T0 + 1, data });
@@ -42,8 +43,10 @@ function view(goldens: GoldenSource[]): TestsView {
   result('goldens/judged', false, { mode: 'replay', verdict: 'inconclusive', checks: [passed('escalate called 1 time'), { ok: false, status: 'inconclusive', label: JUDGE, detail: 'not judged: no recorded verdict and the test runs offline', judge }] }, 'inconclusive');
   s.finishTestSession(session.sessionId, { passed: 1, failed: 1, upstreamRequests: 0, endedAt: T0 + 100 });
   const v = testsView(s, goldens);
+  // As GET /api/tests answers: each golden that didn't pass with its report, built from the same store.
+  const reports = goldenReports(v, { store: s, goldens, normalizers: [], project: null });
   s.close();
-  return v;
+  return { ...v, reports };
 }
 
 const evidenceAsked: string[] = [];
@@ -92,7 +95,7 @@ afterEach(async () => {
 async function open(started: Array<{ kind: string; fields: Record<string, unknown> }> = [], goldens = GOLDENS, shape?: (v: TestsView) => TestsView) {
   g.location = { hash: '#/tests' };
   r = await render(page(started, goldens, shape));
-  await r.until('the goldens to load', () => r!.all('table.gt tbody tr').length === goldens.length);
+  await r.until('the goldens to load', () => r!.all('table.gt tbody tr[data-rowkey]').length === goldens.length);
   return r;
 }
 
@@ -106,7 +109,7 @@ const all = (el: FakeElement, selector: string) => el.querySelectorAll(selector)
 
 /** The checks of a golden's row, as the Checks column shows them: each one's class, mark and words. */
 function checks(page: Rendered, name: string) {
-  const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === name)!;
+  const tr = page.all('table.gt tbody tr[data-rowkey]').find((row) => all(row, 'code')[0].textContent === name)!;
   return all(one(tr, 'td.chk'), '.ck').map((ck) => ({ cls: ck.className, mark: all(ck, 'b.cm')[0]?.textContent ?? null, words: one(ck, '.cw').textContent }));
 }
 
@@ -163,7 +166,9 @@ describe('the Tests page', () => {
     const page = await open(started);
     const panel = page.all('section.gpanel').find((s) => one(s, 'h2').textContent === 'judged')!;
     expect(panel.textContent).not.toContain('a key to ask');
-    expect(one(panel, 'p.hintx').textContent).toContain('Update golden asks it once, live, and keeps its verdict in the pack');
+    // Its hint says why in one sentence; what Update golden does is its hover.
+    expect(one(panel, 'p.hintx').textContent).toBe('Its pack holds no verdict for the judge check explains-escalation, and the test replays offline.');
+    expect(all(panel, 'button').find((b) => b.textContent.trim() === 'Update golden')!.getAttribute('data-tip')).toContain('Asks the judge once, live, and keeps its verdict in the pack');
     await page.click(all(panel, 'button').find((b) => b.textContent.trim() === 'Update golden')!);
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
@@ -186,10 +191,11 @@ describe('the Tests page', () => {
     const sub = 'The fix for this failure: no refund without an email';
     expect(JSON.parse(one(verdict, '.actions .btn.lime').getAttribute('data-tip')!)).toMatchObject({ t: '“Refunds skip the email”', s: sub });
     expect(page.all('.ph .btn').filter((b) => b.className.includes('lime'))).toEqual([]);
-    // ⌘K on the golden it leads with offers that step too, which its report has no button for.
+    // ⌘K on the golden it leads with offers that step once: its report draws it too, plain, and the verdict's isn't offered again.
     const scope = (leads: boolean) => goldenRowScope({ name: 'refunds', runId: null }, () => page.one('.page') as unknown as ParentNode, leads);
-    expect(scope(true)!.items()[0]).toMatchObject({ label: 'Open fix', hint: sub });
-    expect(scope(false)?.items().map((i) => i.label) ?? []).not.toContain('Open fix');
+    expect(scope(true)!.items().filter((i) => i.label === 'Open fix')).toHaveLength(1);
+    expect(scope(false)!.items()[0]).toMatchObject({ label: 'Open fix' });
+    expect(all(page.one('section[id="report-refunds"]'), '.actions .btn')[0].className).toBe('btn');
     await r!.unmount();
     const plain = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': { key: 'compare', label: 'Compare with parent', parent: 'R1' } } }));
     expect(all(plain.one('.verdict.tv'), '.actions')).toHaveLength(0);
@@ -218,7 +224,7 @@ describe('the Tests page', () => {
 
   it('names what a row opens with a real link to the same place, and a row that opens nothing with none', async () => {
     const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row, i) => (i ? row : { ...row, runId: '01M5H2DKE9AAAAAAAAAAAAAAAA' })) }));
-    const rows = page.all('table.gt tbody tr');
+    const rows = page.all('table.gt tbody tr[data-rowkey]');
     const opening = rows.filter((row) => row.className !== 'still');
     expect(opening.length).toBeGreaterThan(0);
     for (const row of rows) expect(all(row, 'code.gn a.rowa')).toHaveLength(row.className === 'still' ? 0 : 1);
@@ -229,7 +235,7 @@ describe('the Tests page', () => {
     const page = await open();
     expect(page.one('section.panel.gtw .tscroll table.t.gt')).toBeTruthy();
     expect(page.all('table.gt thead th').map((th) => th.className)).toEqual(['gg', 'gck', 'hist', 'glast']);
-    const row = page.all('table.gt tbody tr')[0];
+    const row = page.all('table.gt tbody tr[data-rowkey]')[0];
     expect(all(row, 'td').map((td) => td.className)).toEqual(['gg', 'chk gck', 'hist', 'glast']);
     expect(one(row, 'td.gg .gmeta .chip').textContent).toBe('replay');
     expect(all(row, 'td.gg .gmeta .gstrip i')).toHaveLength(1);
@@ -244,7 +250,7 @@ describe('the Tests page', () => {
 
   it('draws each cell as a picture named by its card\'s words, the phone\'s strip as a group of them, and keys them under the table', async () => {
     const page = await open();
-    const rows = page.all('table.gt tbody tr');
+    const rows = page.all('table.gt tbody tr[data-rowkey]');
     expect(rows.map((row) => one(row, 'td.hist i').getAttribute('aria-label'))).toEqual(['d2e8a1f: passed', 'd2e8a1f: failed, failed', 'd2e8a1f: inconclusive, 0 of 1 attempts passed · failed', 'd2e8a1f: not tested here']);
     expect(rows.map((row) => one(row, 'td.hist i').className)).toEqual(['hc r0 pass', 'hc r0 fail', 'hc r0 inc', 'hc r0 none']);
     for (const row of rows) {
@@ -262,7 +268,7 @@ describe('a gated golden’s evidence', () => {
     const decided = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, Array<boolean>(12).fill(true));
     const gate = { ...decided, tally: '12 of 12', perAttempt: null, more: null, words: evidenceWords(decided, 3) };
     const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, last: { ...row.last, gate } } : row)) }));
-    const bar = page.one('button.gev');
+    const bar = page.one('button.gev:not(.grptog)');
     expect([bar.getAttribute('aria-expanded'), bar.getAttribute('aria-label'), one(bar, 'small').textContent]).toEqual(['false', 'Show why it stopped at attempt 12, against .70 and .90', 'against .70 and .90']);
     expect(JSON.parse(bar.getAttribute('data-tip')!)).toMatchObject({ t: 'passes · passed at attempt 12', s: 'the score after each attempt: a pass adds 0.25, a failure −1.10; it passes at +3.00 and fails at −3.00', rows: [['pass^5', gate.words!.passK, 'var(--faint)']] });
     evidenceAsked.length = 0;
@@ -278,12 +284,12 @@ describe('a gated golden’s evidence', () => {
     expect(one(row, 'p.receipt').textContent).toMatch(/^a pass adds 0\.25, a failure −1\.10 · pass\^5/);
     expect(one(row, 'p.receipt').textContent).toContain('forked at call 3, each attempt live from there');
     expect(evidenceAsked).toEqual(['goldens/passes']);
-    expect([page.one('button.gev').getAttribute('aria-expanded'), page.one('button.gev').getAttribute('aria-controls')]).toEqual(['true', one(row, 'section.gevx').getAttribute('id')]);
+    expect([page.one('button.gev:not(.grptog)').getAttribute('aria-expanded'), page.one('button.gev:not(.grptog)').getAttribute('aria-controls')]).toEqual(['true', one(row, 'section.gevx').getAttribute('id')]);
     await page.focus(one(row, '.alist a'));
     expect(pageUp.current?.()).toBe(true);
     await page.until('the evidence to close', () => page.all('tr.gevrow').length === 0);
-    expect([page.one('button.gev').getAttribute('aria-expanded'), page.all('table.gt tbody tr.open').length]).toEqual(['false', 0]);
-    expect(page.focused()).toBe(page.one("button.gev"));
+    expect([page.one('button.gev:not(.grptog)').getAttribute('aria-expanded'), page.all('table.gt tbody tr.open').length]).toEqual(['false', 0]);
+    expect(page.focused()).toBe(page.one("button.gev:not(.grptog)"));
     expect(pageUp.current?.()).toBe(false);
   });
 });
@@ -338,7 +344,7 @@ describe('Tests\' states, parts and keys', () => {
     expect(page.all('section.gpanel').map((s) => s.getAttribute('id'))).toEqual(['report-refunds', 'report-judged']);
     expect([page.one('p.muted.tfoot').textContent, page.all('p.hintx.tfoot').length]).toEqual([expect.stringContaining('__recordings__/'), 0]);
     await page.wait(0);
-    const passes = page.all('table.gt tbody tr').find((tr) => one(tr, 'code.gn').textContent === 'passes')!;
+    const passes = page.all('table.gt tbody tr[data-rowkey]').find((tr) => one(tr, 'code.gn').textContent === 'passes')!;
     expect(all(passes, '.rsub .term').map((t) => [t.textContent, t.className, t.getAttribute('data-term')])).toEqual([['rate >= 0.78 (95%)', 'term on', 'bound']]);
     // Each part kept whole, the bound's hidden definition aside.
     expect(all(passes, '.rsub > .nw').map((p) => p.textContent.split('The tally')[0])).toEqual(['passed ·', '12 of 12 ·', 'rate >= 0.78 (95%)']);
@@ -347,7 +353,7 @@ describe('Tests\' states, parts and keys', () => {
   it('keys each golden by where it leads, and offers on ⌘K what its report offers, pressing the report\'s own button', async () => {
     const RUN = '01M5H2DKE9AAAAAAAAAAAAAAAA';
     const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/judged' ? { ...row, runId: RUN } : row)) }));
-    expect(page.all('table.gt tbody tr').map((tr) => tr.getAttribute('data-rowkey'))).toEqual(['goldens/passes', 'goldens/refunds', `#/run/${RUN}`, 'goldens/budget']);
+    expect(page.all('table.gt tbody tr[data-rowkey]').map((tr) => tr.getAttribute('data-rowkey'))).toEqual(['goldens/passes', 'goldens/refunds', `#/run/${RUN}`, 'goldens/budget']);
     const scope = goldenRowScope({ name: 'judged', runId: RUN }, () => page.one('.page') as unknown as ParentNode)!;
     const items = scope.items();
     expect([scope.name, items.map((i) => [i.label, i.hint])]).toEqual(['judged', [['Open run', expect.stringMatching(/^01M5H2DKE9/)], ['Update golden', 'shadowlap test goldens/judged --update']]]);
@@ -365,7 +371,7 @@ describe('Tests\' states, parts and keys', () => {
     const verdict = page.one('.verdict.tv');
     expect([one(verdict, '.vw').textContent, one(verdict, 'h2').textContent.replace(/\u00a0/g, ' '), all(verdict, '.actions').length]).toEqual(['running', 'running 3 of 4 goldens', 0]);
     expect(one(verdict, 'p').textContent).toMatch(/ · rev d2e8a1f · just now · 1 passed, 1 failed, 1 inconclusive so far$/);
-    const rows = page.all('table.gt tbody tr').map((tr) => [one(tr, 'code.gn').textContent, all(tr, 'td.glast > .st').map((x) => `${x.className}: ${x.textContent}`)[0], all(tr, 'td.glast > .rsub')[0]?.textContent, one(tr, '.glastw').hasAttribute('hidden')]);
+    const rows = page.all('table.gt tbody tr[data-rowkey]').map((tr) => [one(tr, 'code.gn').textContent, all(tr, 'td.glast > .st').map((x) => `${x.className}: ${x.textContent}`)[0], all(tr, 'td.glast > .rsub')[0]?.textContent, one(tr, '.glastw').hasAttribute('hidden')]);
     expect(rows).toEqual([
       ['passes', 'st ok: passed', 'this session, just now', true],
       ['refunds', 'st live: running', 'this session, now', true],
