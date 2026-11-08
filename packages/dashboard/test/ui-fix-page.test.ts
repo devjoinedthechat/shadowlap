@@ -719,7 +719,8 @@ describe('Update’s estimates: the apply drawer’s and a task’s', () => {
     const started: Array<[string, unknown]> = [];
     const update = { kind: 'update', usd: 0.4, ceiling: false, always: 'it replaces goldens', parts: ['2 goldens', 'live, as their recordings cost'] };
     const a = app({ started });
-    Object.assign(a.client, { estimates: { testsEstimates: (paths?: readonly string[]) => (asked.push(paths), Promise.resolve({ run: null, goldens: {}, update })) } });
+    // Tests' view, where the drawer reads their last divergences: neither on a value made anew every run.
+    Object.assign(a.client, { estimates: { testsEstimates: (paths?: readonly string[]) => (asked.push(paths), Promise.resolve({ run: null, goldens: {}, update })) }, tests: () => Promise.resolve({ rows: [], divergences: [], inconclusive: [] }) });
     const outdated = [
       { golden: 'goldens/refund', callNo: 4, path: '$.messages[1]' },
       { golden: 'goldens/cancel', callNo: 2, path: '$.model' },
