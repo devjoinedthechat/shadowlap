@@ -1291,8 +1291,9 @@ three steps.
    repairer did (*not fixed · the repairer could not be asked: claude was not found*), and the repair's
    warnings.
 3. **Verify**: every verdict, named by what changed (a repair's candidate, the request fields it set,
-   or the code version) and headed by the runs it checked, with each run's role and outcome. One that
-   doesn't count for the fix says why in its heading.
+   or the code version) and headed by the runs it checked, with each run's role, outcome and tally as
+   `shadowlap verify` prints it (*12 of 12 passed · rate >= 0.73 (95%)*). One that doesn't count for
+   the fix says why in its heading.
 
 It ends with what to do next. It says when the repair it suggests would end *No fix to try* without
 running the agent, and why (the blames it would reuse rescued no failing run), or couldn't ask its

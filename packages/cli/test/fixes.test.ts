@@ -288,8 +288,10 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(human).toContain('probes: gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 31 attempts');
     expect(human).toMatch(/0 of 6 passed · rate <= 0\.59 \(99%\) +lost/);
     // The failing runs by their gate; the good one against its own baseline at HEAD, pair by pair.
-    expect(human).toMatch(/fixed +12 of 12 · rate >= 0\.73 \(95%\)/);
-    expect(human).toMatch(/kept +38 of 38/);
+    expect(human).toMatch(/fixed +12 of 12 passed · rate >= 0\.73 \(95%\)/);
+    expect(human).toMatch(/kept +38 of 38 passed, baseline \d+ of \d+ · drop <= 0\.\d\d \(95%\)/);
+    // Each run's row in verify's words, as --json's parts and verify's report have them.
+    for (const r of shown.verify[0].rows) expect(human).toMatch(new RegExp(`${r.runId.slice(0, 10)} +${r.outcome} +${words(r).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(  |\n|$)`));
     expect(human).toContain('its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     expect(human).not.toMatch(/at least|at most|of the time/);
     expect(human).toContain(`next: shadowlap fix apply ${fixId.slice(0, 13)}`);
