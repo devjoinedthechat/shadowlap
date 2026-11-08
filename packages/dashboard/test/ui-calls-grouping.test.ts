@@ -170,6 +170,22 @@ describe('Calls, grouped', () => {
     expect(bar.hash).toBe(`#/run/${RUN}/3`);
   });
 
+  it('steps with j and k through every call, a folded one too, opening what j reaches', async () => {
+    const { bar, keys } = await open(3);
+    await r!.click(caretOf(2)!);
+    expect(rows()).toEqual([1, 2, 4, 5, 6, 7, 8]);
+    // From #3, held under #2: k selects #2, and its calls stay folded.
+    expect(keys()({ key: 'k' })).toBe(true);
+    expect(bar.hash).toBe(`#/run/${RUN}/2`);
+    await r!.wait(10);
+    expect(rows()).toEqual([1, 2, 4, 5, 6, 7, 8]);
+    // j selects #3 and opens #2.
+    expect(keys()({ key: 'j' })).toBe(true);
+    expect(bar.hash).toBe(`#/run/${RUN}/3`);
+    await r!.until('#3 drawn again', () => rows().includes(3));
+    expect(caretOf(2)!.getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('makes the fold buttons one Tab stop, moved with ↑ ↓ Home End, ← folding and → opening, each press once', async () => {
     await open(2);
     const stops = () => r!.all('table.calls [data-fold][tabindex="0"]');
