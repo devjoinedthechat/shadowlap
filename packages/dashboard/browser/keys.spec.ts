@@ -221,6 +221,15 @@ test('a control’s hover card says its key, and Provenance’s card its name ov
   await expect(page.locator('.tip .kbd')).toHaveText('v');
 });
 
+test('c on a fork opens Compare against the run it forked from, the verdict first', async ({ page }) => {
+  const fork = demoId('override');
+  await openPage(page, `/run/${fork}`, 'run');
+  await page.keyboard.press('c');
+  await expect.poll(() => hash(page)).toBe(`#/compare/${demoId('ticket')}/${fork}`);
+  await expect(page.locator('main#view .verdict.cmpv')).toBeVisible();
+  await expect(page.locator('main#view .paths2 button.cprow').first()).toBeVisible();
+});
+
 test('n’s call on a fork’s banner says its key, and n selects it', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
   const mark = page.locator('#view [data-shortcut="jump"]');
