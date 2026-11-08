@@ -10,17 +10,22 @@ import type { RunOffers } from '../types.js';
  * under them on how many redaction rules each applies (decision 6). The tests import it.
  */
 
-export type ShareKey = 'link' | 'html' | 'pack' | 'dataset' | 'otel' | 'har';
+export type ShareKey = 'link' | 'html' | 'pack' | 'dataset' | 'otel' | 'har' | 'security';
+/** The copies a job makes, each by its command. */
+type CopyKey = Exclude<ShareKey, 'security'>;
 
-/** A row of the menu: its words, what it runs (a command without `shadowlap` before it), and what it is for, on its hover card. */
+/**
+ * A row of the menu: its words, what it runs (a command without `shadowlap` before it; none for the
+ * Security report, which only downloads), and what it is for, on its hover card.
+ */
 export interface ShareItem {
   key: ShareKey;
   label: string;
-  flag: string;
+  flag: string | null;
   why: string;
 }
 
-const ITEMS: Record<ShareKey, Omit<ShareItem, 'key'>> = {
+const ITEMS: Record<CopyKey, Omit<ShareItem, 'key'>> = {
   link: { label: 'Share link', flag: 'share', why: 'A redacted report in your bucket; the link expires in 7 days' },
   html: { label: ACTIONS.exportHtml.label, flag: 'export html', why: 'These views in one file that opens anywhere' },
   pack: { label: ACTIONS.pack.label, flag: 'pack', why: 'A folder for a golden, or for a colleague to replay' },
@@ -49,6 +54,14 @@ export function packRunCommand(runId: string, dir: string): string {
   return draftCommand(['pack', shortId(runId), dir.trim()]);
 }
 
+/** What Pack as golden… waits with, as it packs a golden and tests it: a Tests job holds the goldens. */
+export const PACK_VERB = 'pack it';
+
+/** What Pack as golden… runs, a line each: the pack into the golden's folder, then its test. */
+export function packTestCommands(runId: string, dir: string): readonly string[] {
+  return [packRunCommand(runId, dir), draftCommand(['test', dir.trim()])];
+}
+
 /** What a pack holds, its one fact besides that. */
 export const PACK_HOLDS: FactWords = { label: 'Holds', value: '`run.json`, `calls.jsonl` and one file per blob' };
 
@@ -61,9 +74,10 @@ const fileId = (runId: string) => runId.slice(0, 10).toLowerCase();
  * dialog (a dataset, a trace) names the run, and the dialog's command row says the rest. A card shows
  * a long one up to its first arguments (`tipCmd`).
  */
-export function shareCommand(item: Pick<ShareItem, 'key' | 'flag'>, runId: string): string {
+export function shareCommand(item: Pick<ShareItem, 'key' | 'flag'>, runId: string): string | null {
+  if (item.key === 'security' || item.flag === null) return null;
   const id = fileId(runId);
-  const rest: Record<ShareKey, string> = {
+  const rest: Record<CopyKey, string> = {
     link: ' --lineage',
     html: ` ${EXPORTS}/shadowlap-${id}.html --lineage`,
     pack: ` ${defaultPackFolder(runId)}`,
@@ -82,14 +96,17 @@ export function shareWhy(item: Pick<ShareItem, 'key' | 'why'>, team: RunOffers['
 /**
  * The copies the menu lists: the share link first when the project has a team store and the server
  * can make one, then the HTML file (which downloads even from a server without its job), then each
- * copy the server can make (`can`: its job kind is listed, or for a pack, the run's own action).
+ * copy the server can make (`can`: its job kind is listed, or for a pack, the run's own action), and
+ * last the Security report of a run with a kept injection result, the test's or the clean answer's.
  */
-export function shareItems(o: { can: (key: ShareKey) => boolean; team: RunOffers['team'] | null | undefined }): ShareItem[] {
-  const keys: ShareKey[] = [];
+export function shareItems(o: { can: (key: CopyKey) => boolean; team: RunOffers['team'] | null | undefined; security?: RunOffers['security'] | null | undefined }): ShareItem[] {
+  const keys: CopyKey[] = [];
   if (o.team && o.can('link')) keys.push('link');
   keys.push('html');
   for (const key of ['pack', 'dataset', 'otel', 'har'] as const) if (o.can(key)) keys.push(key);
-  return keys.map((key) => ({ key, ...ITEMS[key] }));
+  const items: ShareItem[] = keys.map((key) => ({ key, ...ITEMS[key] }));
+  if (o.security) items.push({ key: 'security', label: 'Security report', flag: null, why: o.security.mode === 'plant' ? 'The kept test’s report: the matrix and each proof' : 'The kept answer’s report: each write, its verdict and tally' });
+  return items;
 }
 
 /**
@@ -112,16 +129,19 @@ const rulesWord = (n: number) => `${num(n)} redaction ${n === 1 ? 'rule' : 'rule
  * text, so only the rules without a path apply to it, and the note says so when that is fewer. With
  * only a count (an older server), every copy is said to apply it; with nothing, the config's rules.
  */
-export function shareNote(offers: Pick<RunOffers, 'copies'> | null | undefined, fallback: number | null): { text: string; link: 'Settings' | 'Add some' } {
+export function shareNote(offers: Pick<RunOffers, 'copies'> | null | undefined, fallback: number | null): { text: string } {
   const total = offers?.copies.total ?? fallback;
-  if (total === null || total === undefined) return { text: 'The redaction rules in shadowlap.config.json apply to every copy.', link: 'Settings' };
-  if (total === 0) return { text: 'No redaction rules yet: a copy holds what was recorded.', link: 'Add some' };
+  if (total === null || total === undefined) return { text: 'The redaction rules in shadowlap.config.json apply to every copy.' };
+  if (total === 0) return { text: 'No redaction rules yet: a copy holds what was recorded.' };
   const trace = offers?.copies.formats.find((f) => f.id === 'otel')?.rules;
   const head = `${rulesWord(total)} ${total === 1 ? 'applies' : 'apply'} to every copy`;
-  if (trace === undefined || trace === total) return { text: `${head}.`, link: 'Settings' };
+  if (trace === undefined || trace === total) return { text: `${head}.` };
   // A trace keeps no prompt text: only the rules without a path have anything to mask in it.
-  return { text: `${head}, ${trace === 0 ? 'none' : num(trace)} to a trace.`, link: 'Settings' };
+  return { text: `${head}, ${trace === 0 ? 'none' : num(trace)} to a trace.` };
 }
+
+/** The note's way to the rules, whatever it says. */
+export const REDACTION_SETTINGS = 'Redaction settings →';
 
 /**
  * The most runs one dataset takes, as the server's `export-dataset` job does (run-exports.ts
@@ -177,8 +197,9 @@ export function defaultPackFolder(runId: string): string {
   return `${EXPORTS}/${fileId(runId)}`;
 }
 
-/** Why a run can't be copied yet, on each copy's hover. */
-export const STILL_RECORDING = 'Still recording: copy it once it has ended';
+/** Why a run can't be copied yet, on each copy, and its card's line. */
+export const STILL_RECORDING = 'Still recording: try when it ends';
+export const STILL_RECORDING_CARD = 'Waits until the recording ends: a copy now would be cut off';
 
 /** What decides how a copy is made: whether the page can run jobs, the job kinds the server lists, the run. */
 export interface ShareContext {
@@ -202,11 +223,12 @@ export function htmlCopyVia(o: Pick<ShareContext, 'actionsOff' | 'hasJob'>): 'jo
 
 /**
  * Why a copy in the menu is off, for its hover; null when it can be made. Nothing is copied while
- * the run records. The HTML file downloads where jobs can't run; every other copy is a job.
+ * the run records. The HTML file and the Security report download where jobs can't run; every other
+ * copy is a job.
  */
 export function shareItemOff(key: ShareKey, o: Pick<ShareContext, 'actionsOff' | 'live'>): string | null {
   if (o.live) return STILL_RECORDING;
-  if (key === 'html') return null;
+  if (key === 'html' || key === 'security') return null;
   return o.actionsOff;
 }
 

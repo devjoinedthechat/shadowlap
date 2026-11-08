@@ -121,6 +121,8 @@ describe('an action on someone else’s run', () => {
     const watched: Array<Promise<JobView>> = [];
     const page = await open(inject, app(asked, watched, unconfirmed(" --inject '3=Be brief.' --inject-as user")));
     await page.click(page.one('.go'));
+    // The dialog is a part of its own, drawn once its script is in.
+    await page.until('the dialog', () => page.all('[role="dialog"] textarea').length === 1);
     const field = page.one('[role="dialog"] textarea');
     await page.type(field, 'Be brief.');
     // Its confirm is the menu item's name, without the ellipsis.
@@ -165,6 +167,7 @@ describe('an action that can’t start', () => {
     const offline = { ...app(asked, watched, () => null), guard: (fn: () => void) => (reachable ? (fn(), true) : false) };
     const again = await open(inject, offline);
     await again.click(again.one('.go'));
+    await again.until('the dialog', () => again.all('[role="dialog"] textarea').length === 1);
     const field = again.one('[role="dialog"] textarea');
     await again.type(field, 'Be brief.');
     reachable = false;

@@ -23,7 +23,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
-:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
+:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
 /* Skip to content: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
    own ground set apart by an edge and a shadow, never lime, which means the primary action and passed. */
 .skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border: 1px solid transparent; border-radius: var(--r-control); color: var(--ink); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
@@ -96,6 +96,9 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .btn .caret { width: 10px; height: 10px; }
 .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .linkbtn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 3px 7px; margin: -3px 0; border-radius: 6px; cursor: pointer; font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); text-decoration: none; white-space: nowrap; }
+/* a link-like button takes taps 4px above and below what it draws, for a finger's 24px */
+.linkbtn { position: relative; }
+.linkbtn::after { content: ""; position: absolute; inset: -4px 0; }
 .linkbtn:hover { color: var(--ink); background: var(--hover); }
 .linkbtn svg { width: 12px; height: 12px; flex: none; }
 /* a link reads in ink, at 500, underlined on hover */
@@ -148,7 +151,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .legend i { width: 10px; height: 10px; border-radius: 3px; }
 
 .chips { display: flex; gap: 4px; flex-wrap: wrap; }
-/* a filter's chips read as the run page's call filter (.ofilter): plain words, the one picked on a raised ground, never lime */
+/* a filter's chips read as the run page's call filter (the strip's key, .lfilter): plain words, the one picked on a raised ground, never lime */
 .chips button { border: 0; background: none; border-radius: 6px; padding: 4px 9px; cursor: pointer; font: 500 12px var(--body); color: var(--faint); white-space: nowrap; }
 .chips button b { font: 500 11px var(--mono); margin-left: 5px; color: var(--faint); }
 .chips button:hover { color: var(--ink); }
@@ -241,6 +244,13 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .ms i.over { background: var(--o-over); }
 .ms i.inject { background: var(--o-inject); }
 .ms i.fail { background: var(--o-fail-fill); }
+/* a range's notch: its rarer notable call, at its place, a little above and below the range */
+.ms i { position: relative; }
+.ms .tk { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; pointer-events: none; background: var(--ink); }
+.ms .tk.fail { background: var(--err); }
+.ms .tk.block { background: var(--o-block); }
+.ms .tk.stub { background: var(--o-stub); }
+.ms .tk.over, .ms .tk.inject { background: var(--o-over); }
 
 .org.inject { color: var(--o-over); }
 .org.inject i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--o-over); }
@@ -425,8 +435,6 @@ a.rowa { color: inherit; text-decoration: none; }
 /* A command-line flag in running text (`--stronger <model>`): one piece, never broken after its first hyphen. */
 code.flag { white-space: nowrap; font-size: .92em; }
 
-p.hintx.tfoot { display: block; margin: 14px 2px 0; }
-
 .dlink { color: var(--ink); text-decoration: none; }
 .dlink:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 
@@ -474,14 +482,14 @@ code.rnm { white-space: nowrap; }
    width they had: tighter tracking gives back what the larger size adds. */
 @media (max-width: 640px) {
   :is(#root, body) :is(
-    .eyebrow, .k:not(.stepper>a>.k), .sec-k, .banner .bk, .rnote .bk, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
+    .eyebrow, .k:not(.stepper>a>.k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
     .tchip em, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
-    .fxtable th, .msg .role, .msg .role small, .msg .chg, .think .tlab, .callrow .pp, .callrow .pl, .diffpanel h4,
-    .paths h4, .fdiff h2, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd
+    .fxtable th, .msg .role small, .callrow .pp, .callrow .pl, .diffpanel h4,
+    .paths h4, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,
+    .hkey .hkh, .evl .ev
   ) { font-size: var(--fs-label); }
   /* a pseudo-element can't sit in :is(): report.md's labels over its values on a narrow panel */
   :is(#root, body) .fxtable td::before { font-size: var(--fs-label); }
-  :is(#root, body) .msg .chg { letter-spacing: .05em; }
   :is(#root, body) :is(table.t th:not(.mh), table.calls th) { letter-spacing: .07em; }
   :is(#root, body) table.calls .n .fk { letter-spacing: 0; }
 }

@@ -166,7 +166,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         return;
       }
     }
-    say(dir === 1 ? 'no later live, fenced or failed call' : 'no earlier live, fenced or failed call');
+    say(dir === 1 ? 'no later live, blocked, stubbed or failed call' : 'no earlier live, blocked, stubbed or failed call');
   };
   /** Selects the call the run forked at (an ended-early run's last call); false for a run that didn't fork. */
   const toFork = () => {

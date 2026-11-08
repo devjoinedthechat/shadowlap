@@ -1,10 +1,11 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
+import { routeTestsFixture } from './tests-fixture.js';
 
 /**
  * axe-core's WCAG 2.2 A and AA rules over everything the whole demo shows: every page, every run with
  * each view, its inspector's tabs, its menus and dialogs, Fixes and each fix's steps, Tests and its
- * dialogs, Settings' tabs, the team store's setup, the palette, the shortcuts on every kind of page,
+ * dialogs, a gated golden's evidence, Settings' tabs, the team store's setup, the palette, the shortcuts on every kind of page,
  * a toast with Undo and the bar that says the dashboard can't be reached; and again on a phone, 390 px
  * wide. Any serious or critical violation fails, named with the state it was found in.
  */
@@ -85,7 +86,7 @@ const revision = (page: Page) => async () => {
   }, view.lead.key);
   await settled(page, { shows: 'main#view table.vdg tbody tr' });
 };
-const click = (page: Page, selector: string, text?: string, o: { shows?: string } = {}) => async () => {
+const click = (page: Page, selector: string, text?: string, o: { shows?: string; hides?: string } = {}) => async () => {
   apiRequests(page);
   await page.locator(selector, text ? { hasText: text } : {}).first().click();
   await settled(page, o);
@@ -97,6 +98,17 @@ const press = (page: Page, key: string, o: { shows?: string; hides?: string } = 
 };
 /** Escape, and the dialog or menu it closes gone. */
 const escape = (page: Page, closes: string = DIALOG) => press(page, 'Escape', { hides: closes });
+/**
+ * Update goldens from Tests, as the palette opens it (`#/tests?update`): the header offers it only
+ * when more than one golden diverged, and the demo has one, so its dialog is for that one.
+ */
+const updateGoldens = (page: Page) => async () => {
+  apiRequests(page);
+  await page.evaluate(() => {
+    location.hash = '#/tests?update';
+  });
+  await settled(page, { shows: DIALOG });
+};
 
 test.describe.configure({ timeout: 300_000 });
 
@@ -125,7 +137,7 @@ test('a run’s inspector tabs, menus and dialogs have no serious or critical ax
     for (const tab of ['Response', 'Request', 'Details', 'Conversation']) states.push([`run ${name} · inspector ${tab}`, click(page, '.insp [role="tablist"] button', tab, { shows: `.insp [role="tab"][aria-selected="true"]:has-text("${tab}")` })]);
     states.push([`run ${name} · Share`, click(page, '.rhead .actions button', 'Share', { shows: MENU })], [`run ${name} · Share closed`, escape(page, MENU)]);
     states.push([`run ${name} · the fork menu`, click(page, '#forkBtn', undefined, { shows: MENU })], [`run ${name} · the fork menu closed`, escape(page, MENU)]);
-    states.push([`run ${name} · Delete`, click(page, '.rhead .actions button', 'Delete', { shows: DIALOG })], [`run ${name} · Delete closed`, escape(page)]);
+    states.push([`run ${name} · More`, click(page, '#moreBtn', undefined, { shows: MENU })], [`run ${name} · Delete`, click(page, `${MENU} [role="menuitem"]`, 'Delete run', { shows: DIALOG })], [`run ${name} · Delete closed`, escape(page)]);
   }
   // Edit and fork's dialog, from the inspector of the tool call the run failed at, which it opens on.
   states.push(['run failTool', run(page, dash().runs.failTool as string)], ['run failTool · Edit and fork', click(page, '.insp button', 'Edit and fork', { shows: DIALOG })], ['run failTool · Edit and fork closed', escape(page)]);
@@ -163,7 +175,8 @@ test('every overlay has no serious or critical axe violation: the switcher, a pi
     [`Share closed${where}`, escape(page, MENU)],
     [`the fork menu${where}`, click(page, '#forkBtn', undefined, { shows: MENU })],
     [`the fork menu closed${where}`, escape(page, MENU)],
-    [`Delete${where}`, click(page, '.rhead .actions button', 'Delete', { shows: DIALOG })],
+    [`More${where}`, click(page, '#moreBtn', undefined, { shows: MENU })],
+    [`Delete${where}`, click(page, `${MENU} [role="menuitem"]`, 'Delete run', { shows: DIALOG })],
     [`Delete closed${where}`, escape(page)],
     [`the shortcuts${where}`, press(page, '?', { shows: '.help' })],
     [`the shortcuts closed${where}`, escape(page, '.help')],
@@ -210,13 +223,8 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
     await runTests.first().click();
     await settled(page, { shows: DIALOG });
   }], ['Tests · Run tests asks · closed', escape(page)]);
-  // Update goldens's dialog, when a golden diverged.
-  states.push(['Tests · Update goldens', async () => {
-    const update = page.locator('main#view button', { hasText: 'Update goldens' });
-    if (!(await update.count())) return;
-    await update.first().click();
-    await settled(page, { shows: DIALOG });
-  }], ['Tests · Update goldens closed', press(page, 'Escape')]);
+  // Update goldens' dialog, as the palette opens it.
+  states.push(['Tests · Update goldens', updateGoldens(page)], ['Tests · Update goldens closed', escape(page)]);
   states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture…', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · import closed', escape(page)]);
   states.push(['Runs · a run ticked', click(page, 'main#view table.runst tbody tr input[type="checkbox"]')]);
   // The palette's hits in what was recorded come from the server: swept once they have come.
@@ -240,6 +248,30 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
   const found = await sweep(page, states);
   await page.keyboard.press('u');
   expect(found).toEqual([]);
+});
+
+/**
+ * Tests as the demo can't draw it (tests-fixture.ts): a gated golden's evidence open under its row,
+ * then Update goldens for two goldens, with Add normalizer and update, wide and on a phone.
+ */
+test('Tests with a gated golden’s evidence open, and Update goldens for two goldens, have no serious or critical axe violation, wide and on a phone', async ({ page }) => {
+  // Every billed press asks, so Update goldens opens its dialog and starts nothing.
+  await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
+  await routeTestsFixture(page);
+  const states = (on: string): Array<[string, () => Promise<void>]> => [
+    [`Tests${on}`, at(page, '/tests', 'main#view table.gt')],
+    [`a gated golden’s evidence${on}`, click(page, 'main#view button.gev', undefined, { shows: 'main#view tr.gevrow .alist' })],
+    [`Update goldens for two${on}`, async () => {
+      await click(page, 'main#view button', 'Update goldens', { shows: DIALOG })();
+      await expect(page.locator(DIALOG).getByRole('button', { name: 'Add normalizer and update' })).toBeVisible();
+    }],
+    [`Update goldens for two closed${on}`, escape(page)],
+    // Closed again, as a page that stays drawn keeps it open: the phone's sweep opens it anew.
+    [`a gated golden’s evidence closed${on}`, click(page, 'main#view button.gev', undefined, { hides: 'main#view tr.gevrow' })],
+  ];
+  const wide = await sweep(page, states(''));
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect([...wide, ...(await sweep(page, states(' on a phone')))]).toEqual([]);
 });
 
 test('the bar that says the dashboard can’t be reached has no serious or critical axe violation', async ({ page }) => {
@@ -292,6 +324,10 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const opened = (name: string, where: () => Promise<void>, ...open: Array<() => Promise<void>>): Array<[string, () => Promise<void>]> => [[`${name}: its page`, where], ...open.map((o, i): [string, () => Promise<void>] => [i === open.length - 1 ? name : `${name}: step ${i + 1}`, o]), [`${name}: closed`, press(page, 'Escape', { hides: DIALOG })]];
   const onRun = (name: string, of: string, text: string) => opened(name, run(page, id(of)), button('.rhead .actions button', text));
   const fork = (name: string, of: string, row: string) => opened(name, run(page, id(of)), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
+  // The call a row belongs to picked first: a run opens on the call its outcome names or its first write, whose menu may
+  // have no model call's rows (the ticket's), nor a user reply's (the chat's, a `user_input` tool call).
+  const forkOn = (call: string) => (name: string, of: string, row: string) => opened(name, run(page, id(of)), click(page, `main#view tr[data-wi]:has(td.name[title${call}])`), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
+  const forkModel = forkOn('^="POST "');
   // A write's own call picked first: Force live on it asks, with its red line.
   const forceWrite = (name: string, of: string, tool: string) => opened(name, run(page, id(of)), click(page, `main#view tr[data-wi]:has(td.name[title="${tool}"])`), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, `Force ${tool} live`));
   const share = (name: string, row: string) => opened(name, run(page, id('ticket')), click(page, '.rhead .actions button', 'Share', { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
@@ -299,19 +335,19 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
   const states = (): Array<[string, () => Promise<void>]> => [
-    ...onRun('Delete run', 'ticket', 'Delete'),
+    ...opened('Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
     ...onRun('The consent question', 'packed', 'Replay'),
     ...onRun('Pack as golden', 'digest', 'Pack as golden'),
-    ...fork('Inject instruction', 'ticket', 'Inject instruction'),
-    ...fork('Switch model', 'ticket', 'Switch model'),
-    ...fork('Fail with HTTP status', 'ticket', 'Fail with HTTP status'),
+    ...forkModel('Inject instruction', 'ticket', 'Inject instruction'),
+    ...forkModel('Switch model', 'ticket', 'Switch model'),
+    ...forkModel('Fail with HTTP status', 'ticket', 'Fail with HTTP status'),
     ...fork('Override result', 'failTool', 'Override result'),
     ...fork('Fail with tool error', 'failTool', 'Fail with tool error'),
     ...fork('Plant instruction', 'failTool', 'Plant instruction'),
-    ...fork('Override user reply', 'chat', 'Override user reply'),
+    ...forkOn('="user_input"')('Override user reply', 'chat', 'Override user reply'),
     ...fork('Repeat fork 5 times', 'override', 'Repeat 5 times'),
     ...fork('Replay with your command', 'har', 'Replay with your command'),
-    ...fork('Find commit that changed it', 'ticket', 'Find commit that changed it'),
+    ...forkModel('Find commit that changed it', 'ticket', 'Find commit that changed it'),
     ...fork('Find breaking commit', 'planted', 'Find breaking commit'),
     ...forceWrite('Force send_email live', 'twice', 'send_email'),
     ...opened('Edit and fork', run(page, id('failTool')), button('.insp button', 'Edit and fork')),
@@ -322,7 +358,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...bulk('Delete runs', 'Delete'),
     ...bulk('Pack runs', 'Pack'),
     ...bulk('Export the dataset of runs', 'Dataset'),
-    ...onPage('Update goldens', '/tests', 'Update goldens'),
+    ...opened('Update goldens', at(page, '/tests'), updateGoldens(page)),
     ...onPage('Update golden', '/tests', 'Update golden'),
     ...onPage('Add normalizer and update', '/tests', 'Add normalizer and update'),
     ...onPage('Run tests’ question', '/tests', 'Run tests'),

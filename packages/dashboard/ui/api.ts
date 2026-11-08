@@ -3,7 +3,6 @@ import type { CompareHead } from '../src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { bundleSource } from './fixes/model.js';
-import { ciQuery } from './goldens.js';
 import { normalizeCallDetail, normalizeJudged, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
@@ -11,9 +10,10 @@ import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
 import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
 import { changesApi, type ChangesApi } from './changes-api.js';
+import { testsApi, type TestsApi } from './tests-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
-import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
+import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
@@ -142,7 +142,7 @@ export function tokenInUse(): string | null {
 
 // ---------------------------------------------------------------------------------------------- client
 
-export interface Client extends ChangesApi {
+export interface Client extends ChangesApi, TestsApi {
   /** An exported copy: answers come from the file, nothing changes. */
   exported: boolean;
   meta(): Promise<Meta>;
@@ -188,10 +188,12 @@ export interface Client extends ChangesApi {
   stopJob(jobId: string): Promise<{ stopped: boolean }>;
   /** The jobs the server remembers, newest first, running ones included, without their output. */
   jobs(): Promise<JobListItem[]>;
-  /** Deletes a run, with the attempts bundled under it (`attempts`, their ids), as `shadowlap rm` does. */
-  remove(id: string): Promise<{ deleted: string; attempts?: string[] }>;
+  /** Deletes a run, with the attempts bundled under it (`attempts`, their ids), as `shadowlap rm` does. `keepalive`: sent as the page goes, so the browser sees it out (`pending-delete.ts`); with no body, it takes none of keepalive's 64 KiB. */
+  remove(id: string, o?: { keepalive?: boolean }): Promise<{ deleted: string; attempts?: string[] }>;
   /** Saves a run, with the runs it came from, as one HTML file. */
   exportHtml(id: string): Promise<{ filename: string; redacted: boolean }>;
+  /** Saves a kept injection result's report as one HTML file, as Share's Security report does. */
+  injectionReport(resultId: string): Promise<{ filename: string; redacted: boolean }>;
   /** Saves a file a job wrote. */
   downloadFile(file: JobFile): Promise<void>;
   /** What changed since `since`, or null when the server has no `/api/changes` and the UI polls instead. */
@@ -229,17 +231,6 @@ export interface Client extends ChangesApi {
   renameFix(id: string, title: string): Promise<FixDetail>;
   /** The attempts blame and verify made in a run's family, for the Forks view; null when the server does not bundle them. */
   fixBundles(runId: string): Promise<FixBundle[] | null>;
-
-  // ---- Tests
-  /** The goldens on disk and how each did (`/api/tests`). */
-  tests(): Promise<TestsView>;
-  /**
-   * A run's test banner (a replay `shadowlap test` made that diverged) and Find breaking commit's choices
-   * (`/api/tests/runs/:id`); `before` limits the good commits to runs before it, as the calendar's days do.
-   */
-  testRun(id: string, before?: number): Promise<TestRunView>;
-  /** Settings → CI's two panels for the options given; those left out take the server's defaults (`/api/ci/workflows`). */
-  ciWorkflows(options?: Partial<CiWorkflowOptions>): Promise<CiWorkflowsView>;
 
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
@@ -296,6 +287,13 @@ function shape<T extends object, U>(raw: T, fn: (raw: T) => U): U {
   shaped.set(raw, out);
   holdWhile(out, raw);
   return out;
+}
+
+/** A report the server sent as a file, saved: its name, and whether the project's redaction rules masked it. */
+async function savedReport(file: Promise<{ filename: string; res: Response }>): Promise<{ filename: string; redacted: boolean }> {
+  const { filename, res } = await file;
+  saveBlob(await res.blob(), filename);
+  return { filename, redacted: res.headers.get('x-shadowlap-redacted') === 'yes' };
 }
 
 function saveBlob(blob: Blob, filename: string): void {
@@ -440,14 +438,11 @@ export function createClient(token: string): Client {
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
     stopJob: (jobId) => request<{ stopped: boolean }>(`jobs/${id(jobId)}/stop`, { method: 'POST', body: '{}' }),
     jobs: async () => (await request<{ jobs: JobListItem[] }>('jobs')).jobs,
-    remove: (runId) => request<{ deleted: string; attempts?: string[] }>(`runs/${id(runId)}`, { method: 'DELETE' }),
+    remove: (runId, o) => request<{ deleted: string; attempts?: string[] }>(`runs/${id(runId)}`, { method: 'DELETE', ...(o?.keepalive ? { keepalive: true } : {}) }),
     // The API authenticates with a header, which a plain link cannot send, and a token in a URL would
     // end up in history and logs: so a file is fetched here and handed to the browser to save.
-    exportHtml: async (runId) => {
-      const { filename, res } = await fetchFile(`runs/${id(runId)}/export`, `shadowlap-${runId.slice(0, 10).toLowerCase()}.html`);
-      saveBlob(await res.blob(), filename);
-      return { filename, redacted: res.headers.get('x-shadowlap-redacted') === 'yes' };
-    },
+    exportHtml: (runId) => savedReport(fetchFile(`runs/${id(runId)}/export`, `shadowlap-${runId.slice(0, 10).toLowerCase()}.html`)),
+    injectionReport: (resultId) => savedReport(fetchFile(`injection/${id(resultId)}/report`, 'shadowlap-injection.html')),
     downloadFile: async (file) => {
       const { filename, res } = await fetchFile(`files/${id(file.fileId)}`, file.name);
       saveBlob(await res.blob(), filename);
@@ -495,9 +490,7 @@ export function createClient(token: string): Client {
     renameFix: (fixId, title) => request<FixDetail>(`fixes/${id(fixId)}/title`, { method: 'PUT', body: JSON.stringify({ title }) }),
     // A server that does not bundle them, or one that never heard of the run: the Forks view lists the attempts as runs.
     fixBundles: bundleSource((runId) => request<{ bundles: FixBundle[] }>(`fixes/family/${id(runId)}`).then((out) => out.bundles)),
-    tests: () => request<TestsView>('tests'),
-    testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
-    ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
+    ...testsApi(request),
     ...ownApis(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
@@ -582,6 +575,7 @@ export function createExportedClient(data: StaticPayload): Client {
     jobs: () => Promise.resolve([]),
     remove: readOnly,
     exportHtml: readOnly,
+    injectionReport: readOnly,
     downloadFile: readOnly,
     changes: () => Promise.resolve(null),
     // An exported copy lists its runs from the file: the Runs page works them out itself.
@@ -604,6 +598,7 @@ export function createExportedClient(data: StaticPayload): Client {
     tests: () => get<TestsView>('tests'),
     testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
+    testEvidence: () => Promise.reject(new ApiError(404, 'this is an exported copy, and a golden’s attempts are not part of it')),
     settings: noSettings(readOnly),
     estimates: noEstimates(readOnly),
     storeSetup: noStoreSetup(readOnly),

@@ -92,6 +92,10 @@ describe('where a call’s answer came from', () => {
   const MARKS = ['.cells button', '.ms i', '.gs i', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org'];
   const mark = (m: string, o: string) => (m === '.org' ? '.org.' + o + ' i' : `${m}.${o}`);
 
+  it('draws a recording’s calls by kind in the kind’s own token, in the strip, its key and the Timeline alike', () => {
+    for (const m of ['.cells button', '.legend i.lg', '.tl-row .bar']) for (const k of ['k-model', 'k-read', 'k-write', 'k-err']) expect(value(`${m}.${k}`, 'background'), `${m}.${k}`).toBe(`var(--${k})`);
+  });
+
   it('draws a blocked write as a neutral hatch, fenced by its outline where a mark is big enough to show one', () => {
     for (const m of MARKS) expect(value(mark(m, 'block'), 'background'), m).toBe('var(--o-block-fill)');
     for (const m of ['.cells button', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org']) expect(value(mark(m, 'block'), 'box-shadow'), m).toBe('inset 0 0 0 1px var(--o-block)');
@@ -174,6 +178,11 @@ describe('what each colour may mean', () => {
     expect(value('.org.stub', 'color')).toBe('var(--o-stub)');
   });
 
+  it('draws a blocked tool’s result in Calls in the blocked grey, as its origin is, the failure red kept for a call that failed', () => {
+    expect(value('table.calls .res.blk', 'color')).toBe('var(--o-block)');
+    expect(value('table.calls .res.err', 'color')).toBe('var(--err)');
+  });
+
   it('marks the blamed call in ink with a halo, keeping amber for a probe that couldn’t decide', () => {
     expect(value('.callrow .hot .cn', 'background')).toBe('var(--ink)');
     expect(value('.callrow .hot .pl', 'color')).toBe('var(--ink)');
@@ -228,6 +237,7 @@ describe('lime', () => {
     '.attempts span i': 'an attempt that passed',
     '.attempts a i': 'an attempt that passed',
     '.st.ok i': 'a run that came out well',
+    '.evl .ed.end.ok': 'the last point of a gate’s evidence line that passed',
     '.st.ok': 'a status that passed: its word, in passed’s colour as its dot is',
     '.vw.ok': 'a verdict line’s word: passed',
     '.metric b.ok': 'a page’s fact that counts what passed (a fix verified)',
@@ -235,6 +245,8 @@ describe('lime', () => {
     '.astrip .ac': 'an attempt that passed',
     'td.hist i.pass::before': 'a golden that passed at a revision',
     '.gtw .gstrip i.pass': 'a golden that passed at a revision',
+    'td.hist i.meter.pass b': 'a golden that passed at a revision: the share of its attempts that passed',
+    '.gtw .gstrip i.meter.pass': 'a golden that passed at a revision: the share of its attempts that passed',
     'table.gt .chk .ck.passed .cm': 'a check that passed',
     '.checks': 'a fork’s checks, passed',
     '.callrow .ok .cn': 'a probe that rescued the run',
@@ -290,6 +302,9 @@ describe('amber', () => {
   /** Needs a look or inconclusive, wherever it is drawn: a word, dot, cell, mark, line or banner. */
   const LOOK: Record<string, string> = {
     '.glyph.warn': 'a glyph that needs a look',
+    '.verdict.tv p .tstale': 'Tests’ verdict tested a commit your working tree has moved on from: run them again',
+    '.evl .ed.y': 'an attempt the provider cut short, counted against either verdict, never the agent’s failure',
+    '.evl .ed.end.y': 'the last point of a gate’s evidence line that ran out between its bounds',
     '.glyph.fixinc': 'a fix whose verify couldn’t decide',
     '.glyph.amb': 'an event that couldn’t decide, stopped or needs a look, whatever its shape',
     '.pips i.unsure': 'an attempt that couldn’t decide',
@@ -324,6 +339,8 @@ describe('amber', () => {
     '.fxwarn.bad li.unsure': 'what a fix couldn’t decide',
     'td.hist i.inc::before': 'a golden inconclusive at a revision',
     '.gtw .gstrip i.inc': 'a golden inconclusive at a revision',
+    'td.hist i.meter.inc b': 'a golden inconclusive at a revision: the share of its attempts that passed',
+    '.gtw .gstrip i.meter.inc': 'a golden inconclusive at a revision: the share of its attempts that passed',
     'table.gt .chk .ck.inconclusive .cm': 'a check that couldn’t decide',
     'table.gt td.glast .gpre.warn': 'a golden whose last test needs a look',
     'pre.report .y': 'a report’s inconclusive line',
@@ -451,7 +468,7 @@ describe('forced colours', () => {
     expect(forced.get('.navlist a[aria-current="page"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('.run[aria-current="true"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
-    for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.ofilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
+    for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.legend.lfilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
   });
 

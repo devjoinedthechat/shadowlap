@@ -116,6 +116,27 @@ export function toolCheckLabel(t: ToolCheck): string {
   return `${t.name}${t.args ? ` with ${JSON.stringify(t.args)}` : ''} called ${formatCount(t.count)}`;
 }
 
+/** A tool's calls fenced after a fork, said exactly: `2 blocked`, `1 stubbed`, `1 blocked, 1 stubbed`; empty for none. */
+export function fencedLabel(blocked: number, stubbed: number): string {
+  return [blocked ? `${blocked} blocked` : '', stubbed ? `${stubbed} stubbed` : ''].filter(Boolean).join(', ');
+}
+
+/**
+ * What a tool's calls did against a count under `tools` they failed, as the check's detail says it:
+ * `called 2 times (1 blocked)`, then `; 1 call with other arguments` when the check names arguments
+ * and the tool was called with others too (`named` counts every call of it), or `; tools called:
+ * lookup_order, send_email` when it was never called. `evaluateChecks` reports it, and the dashboard
+ * says a fix's check a run failed in the same words.
+ */
+export function toolCountDetail(d: { count: number; blocked: number; stubbed: number; named: number; args: boolean; tools: readonly string[] }): string {
+  const fenced = fencedLabel(d.blocked, d.stubbed);
+  let detail = `called ${formatCount({ min: d.count, max: d.count })}${fenced ? ` (${fenced})` : ''}`;
+  const other = d.named - d.count;
+  if (d.args && other > 0) detail += `; ${other} call${other === 1 ? '' : 's'} with other arguments`;
+  if (d.named === 0 && d.tools.length) detail += `; tools called: ${d.tools.join(', ')}`;
+  return detail;
+}
+
 /** The counts an expect may hold beside `tools`, in the order they are reported, by what each one counts. */
 export const COUNT_NOUNS = { modelCalls: 'model call', toolCalls: 'tool call', inputTokens: 'input token', outputTokens: 'output token' } as const;
 export type CountKey = keyof typeof COUNT_NOUNS;

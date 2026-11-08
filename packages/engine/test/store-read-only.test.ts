@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -54,6 +55,17 @@ describe('a connection that only reads', () => {
     (raw as unknown as { db: { exec(sql: string): void } }).db.exec(`UPDATE meta SET value = '999' WHERE key = 'schema_version'`);
     raw.close();
     expect(() => Store.openReadOnly(path)).toThrow(/newer Shadowlap/);
+  });
+
+  // The files this process has open, where the system lists them.
+  it.skipIf(process.platform === 'win32')('refuses a database that holds no store, and closes its connection', () => {
+    const other = new DatabaseSync(path);
+    other.exec('CREATE TABLE notes (body TEXT)');
+    other.close();
+    const files = () => readdirSync('/dev/fd').length;
+    const before = files();
+    expect(() => Store.openReadOnly(path)).toThrow(/no such table/);
+    expect(files()).toBe(before);
   });
 });
 

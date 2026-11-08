@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { ForkChange, ForkDifferences as Differences, ForkEnd, ForkWrite } from '../../src/fork-differences.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -6,7 +6,7 @@ import { href } from '../route.js';
 import { useApp } from '../state.js';
 
 /**
- * What the fork did differently from its parent, under its banner: from the call it left its parent
+ * What the fork did differently from its parent, one of its findings: from the call it left its parent
  * at on, the tool calls it made and didn't, the tools it called with other arguments, how each run
  * ended and its last words, most consequential first as `shadowlap decisions` ranks them (a write
  * changed, how the run ends, a read added or removed, a read asked differently, other words); then
@@ -39,21 +39,29 @@ const RANK_WORDS: Record<number, string> = { 1: 'a write', 2: 'how it ends', 3: 
 
 const FATE_WORDS: Record<string, string> = { blocked: 'blocked', stubbed: 'stubbed', live: 'ran live', overridden: 'overridden', replayed: 'replayed', failed: 'failed' };
 
-export function ForkDifferences({ runId }: { runId: string }) {
+/** What the fork did differently, read once `want` says the run is a fork that has ended; null until it comes, or with none to say. */
+export function useForkDifferences(runId: string, want: boolean): Differences | null {
   const { client } = useApp();
-  const loaded = useLoad(() => client.forkDifferences(runId), `differences:${runId}`);
-  const d = loaded.data;
-  if (!d) return null;
-  return <DifferencesPanel d={d} />;
+  return useLoad(() => (want ? client.forkDifferences(runId) : null), `differences:${runId}:${want ? 'fork' : 'none'}`).data;
 }
 
-export function DifferencesPanel({ d }: { d: Differences }) {
+export function ForkDifferences({ runId }: { runId: string }) {
+  const d = useForkDifferences(runId, true);
+  return d ? <DifferencesPanel d={d} /> : null;
+}
+
+/**
+ * The fork's differences as one of the run's findings (FindingsBar.tsx): its heading, where it left
+ * its parent and Compare → on its line, `more` (the bar's toggle) at its end, and its changes and
+ * writes under it (`.fbody`), which a closed bar hides. `fx`: a finding the closed bar folds away.
+ */
+export function DifferencesPanel({ d, fx = false, more = null }: { d: Differences; fx?: boolean; more?: ReactNode }) {
   const [all, setAll] = useState(false);
   const shown = all ? d.changes : d.changes.slice(0, SHOWN);
   const parent = shortId(d.parentRunId);
   const same = d.changes.length === 0;
   return (
-    <section className="fdiff" aria-labelledby="fdiffT">
+    <section className={`fdiff${fx ? ' fx' : ''}`} aria-labelledby="fdiffT">
       <header>
         <h2 id="fdiffT">What the fork did differently</h2>
         <span className="sub">
@@ -68,22 +76,25 @@ export function DifferencesPanel({ d }: { d: Differences }) {
         <a className="more" href={href.compare(d.parentRunId, d.runId)}>
           Compare →
         </a>
+        {more}
       </header>
-      {same ? (
-        <p className="fdsame">The same tool calls as its parent from #{d.from}, and it ended as its parent did: {d.ended.fork.words}.</p>
-      ) : (
-        <ol className="fdl">
-          {shown.map((c, i) => (
-            <Change key={`${c.kind}:${c.tool ?? ''}:${i}`} c={c} ended={d.ended} ranks={d.ranks} />
-          ))}
-        </ol>
-      )}
-      {d.changes.length > SHOWN ? (
-        <button className="linkbtn fdall" type="button" aria-expanded={all} onClick={() => setAll(!all)}>
-          {all ? 'Show the first few' : `Show all ${d.changes.length}`}
-        </button>
-      ) : null}
-      <Writes d={d} />
+      <div className="fbody">
+        {same ? (
+          <p className="fdsame">The same tool calls as its parent from #{d.from}, and it ended as its parent did: {d.ended.fork.words}.</p>
+        ) : (
+          <ol className="fdl">
+            {shown.map((c, i) => (
+              <Change key={`${c.kind}:${c.tool ?? ''}:${i}`} c={c} ended={d.ended} ranks={d.ranks} />
+            ))}
+          </ol>
+        )}
+        {d.changes.length > SHOWN ? (
+          <button className="linkbtn fdall" type="button" aria-expanded={all} onClick={() => setAll(!all)}>
+            {all ? 'Show the first few' : `Show all ${d.changes.length}`}
+          </button>
+        ) : null}
+        <Writes d={d} />
+      </div>
     </section>
   );
 }

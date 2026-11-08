@@ -5,12 +5,13 @@ import type { Client } from '../ui/api.js';
 import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { attemptLinks, attemptOf, forkKindWords } from '../ui/run/model.js';
-import { Banner, DiffPanel, type BannerProps } from '../ui/run/parts.js';
+import { Banner, type BannerProps } from '../ui/run/FindingsBar.js';
+import { DiffPanel } from '../ui/run/DiffPanel.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { familyLine, kindTag, runTag, type RunLike } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { LineageNode, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
-import { render, type Rendered } from './ui-render.js';
+import { render, shownText, type Rendered } from './ui-render.js';
 
 
 /**
@@ -237,6 +238,25 @@ describe('an attempt', () => {
     expect(forkKindWords({ run: { meta: {}, divergence: null } }, 'recording', false)).toBeNull();
   });
 
+  it('reads a golden’s test attempt by its golden, its place in the session and the code it tested, and leads to Tests', () => {
+    const meta = { test: { golden: 'goldens/refund-over-limit', session: 'S1', attempt: 2, of: TICKET } };
+    const a = attemptOf({ run: { meta }, attemptPlace: { k: 2, n: 8 } });
+    expect(a).toEqual({ kind: 'test', k: 2, n: 8, golden: 'goldens/refund-over-limit' });
+    // Without the server's count, attempt k alone; the attempt the session's result shows is its test replay, no attempt.
+    expect(attemptOf({ run: { meta } })).toMatchObject({ k: 2, n: null });
+    expect(attemptOf({ run: { meta: { test: { golden: 'goldens/refund-over-limit', session: 'S1', attempt: 1 } } }, attemptPlace: null })).toBeNull();
+    expect(forkKindWords({ run: { meta, divergence: { callNo: 3 } } } as never, 'test', false)).toBe('test attempt');
+    // A golden that may fork went live from its fork, its writes blocked as `shadowlap test` blocks them.
+    const forked = { ...base, type: 'test' as const, divergence: { callNo: 3, type: 'request_changed', name: 'POST /v1/messages', replayedBefore: 2 }, outcome: { kind: 'passed' }, codeVersion: 'd2e8a1f', attempt: a };
+    expect(bannerFor(forked)).toEqual({ kind: 'attempt', of: 'test', callNo: 3, outcome: { tone: 'ok', text: 'passed' }, why: 'refund-over-limit, attempt\u00a02\u00a0of\u00a08 · test at\u00a0d2e8a1f: live from where the golden may fork · writes blocked', flag: null, diff: false });
+    // --writes says otherwise; one that left its recording where it shouldn't have says how; one that forked nowhere replayed every call.
+    expect(bannerFor({ ...forked, interventions: [{ flag: '--writes', value: 'allow', callNo: null }] })).toMatchObject({ why: expect.stringMatching(/ · writes allowed$/) });
+    expect(bannerFor({ ...forked, outcome: { kind: 'diverged' }, codeVersion: null, divergence: { ...forked.divergence, diff: [{ path: '$.system' }] } })).toMatchObject({ why: 'refund-over-limit, attempt\u00a02\u00a0of\u00a08: a request changed (~ $.system) · writes blocked', diff: true });
+    expect(bannerFor({ ...forked, divergence: null })).toMatchObject({ callNo: null, why: 'refund-over-limit, attempt\u00a02\u00a0of\u00a08 · test at\u00a0d2e8a1f: every call replayed from the recording' });
+    // Its way back is Tests, where its session's result is, as the design's is.
+    expect(attemptLinks({ run: { runId: 'T2' }, fix: null }, a!)).toEqual([{ href: '#/tests', label: 'Tests →' }]);
+  });
+
   it('leads back to where it counted, and to its bundle: all its attempts, counted, when they are several', () => {
     const fix = { id: 'fx-1', status: 'verified', title: 'Refunds above the limit' };
     expect(attemptLinks({ run: { runId: 'A1' }, fix, probeOf: { of: REFUND, callNo: 5 } }, { kind: 'probe', k: 2, n: 3, callNo: 5 })).toEqual([
@@ -258,7 +278,7 @@ describe('an attempt', () => {
     expect(attemptLinks({ run: { runId: 'V2' }, fix: null }, { kind: 'verify', k: 4, n: null, role: 'good' })).toEqual([{ href: '#/run/V2/forks', label: 'Forks →' }]);
   });
 
-  it('draws its verdict first, in its colour, on a line that wraps, with its links and no Run blame', async () => {
+  it('draws what was asked again on a line that wraps, leaving its verdict to the first fact, with its links and no Run blame', async () => {
     const run = detail({
       runId: '01M5GRW4YMYK6SK2VFC2XFKCDA',
       parent: REFUND,
@@ -277,10 +297,9 @@ describe('an attempt', () => {
     const offers = { blame: { from: 'run', failed: ['issue_refund with {"amount":240} called 0 times'] }, test: null } as unknown as RunOffers;
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, props(run, { offers }))));
     expect(page.one('.banner.fork.wrap .bk').textContent).toBe('forked at');
-    // The verdict first, then each part held to the one before by a no-break space, so a wrapped line never starts with a dot.
-    expect(page.one('.banner .why').textContent).toBe('failed\u00a0· resampled #1, attempt\u00a01\u00a0of\u00a08: the model was asked #1 again, the request as recorded\u00a0· writes stubbed');
-    expect(page.one('.banner .why em').className).toBe('no');
-    expect(page.one('.banner .why em').textContent).toBe('failed');
+    // What was asked again, each part held to the one before by a no-break space, so a wrapped line never starts with a dot.
+    expect(shownText(page.one('.banner .why'))).toBe('resampled #1, attempt\u00a01\u00a0of\u00a08: the model was asked #1 again, the request as recorded\u00a0· writes stubbed');
+    expect(page.all('.banner .why em')).toHaveLength(0);
     expect(page.all('.banner .end a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Probe #1 →', '#/fixes/fx-01M5GRW7X3/blame'],
       ['All 8 attempts →', '#/run/01M5GRW4YMYK6SK2VFC2XFKCDA/forks'],

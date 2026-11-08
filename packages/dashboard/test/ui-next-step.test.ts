@@ -2,13 +2,13 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
 import { fixStatusWords, nextStepOf, stepCard, stepCostLine } from '../ui/run/next-step.js';
-import { Banner } from '../ui/run/parts.js';
+import { Banner } from '../ui/run/FindingsBar.js';
 import { useWholeStep } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import type { NextStep, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
-import { render, type Rendered } from './ui-render.js';
+import { render, shownText, type Rendered } from './ui-render.js';
 import { resetSpending } from '../ui/spending.js';
 
 /**
@@ -69,7 +69,7 @@ function detail(o: { next?: NextStep | null; replay?: NextStep | null; parent?: 
   } as unknown as RunDetail;
 }
 
-const header = (run: RunDetail, offers: RunOffers | null = null, more: { onAction?: (p: unknown) => void; onFindCommit?: () => void } = {}) => ({ run, call: null, selected: 5, rescued: false, offers, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: more.onAction ?? (() => undefined), onFindCommit: more.onFindCommit ?? (() => undefined) });
+const header = (run: RunDetail, offers: RunOffers | null = null, more: { onAction?: (p: unknown) => void; onFindCommit?: () => void } = {}) => ({ run, judged: run.judged ?? null, call: null, selected: 5, rescued: false, offers, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: more.onAction ?? (() => undefined), onFindCommit: more.onFindCommit ?? (() => undefined) });
 const bannerProps = (run: RunDetail, offers: RunOffers | null = null) => ({ run, blame: (run as unknown as { blame: never }).blame ?? null, rescued: null, checks: [], offers, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined });
 const lime = (p: Rendered) => p.all('.rhead .actions .lime').map((b) => b.textContent);
 const tip = (el: { props: Record<string, unknown> }) => JSON.parse(String(el.props['data-tip'])) as { t: string; s?: string; rows?: string[][]; cmd?: string };
@@ -95,7 +95,7 @@ const DIVERGED = { parent: PARENT, state: { ...failedState, kind: 'test', outcom
 
 describe('the run page’s next step', () => {
   const verified = { id: 'fx-01M5JERA0H', status: 'verified', title: 'Refunds above the limit issued without approval', href: '#/fixes/fx-01M5JERA0H/blame' };
-  const FIX: NextStep = { key: 'fix', label: 'Open fix', fixId: verified.id, status: 'verified', href: verified.href, title: `“${verified.title}”` };
+  const FIX: NextStep = { key: 'fix', label: 'Open fix', fixId: verified.id, status: 'verified', check: 'exit code 0', href: verified.href, title: `“${verified.title}”` };
   const lost = { callNo: 5, confidence: 'high', rescuedRunId: null, scope: null, outcome: 'blamed', modelCall: { k: 3, m: 5 }, short: 'asked again, it calls escalate instead' };
 
   it('opens the fix of a blamed failure, its status on hover and in the banner, where Fix → was', async () => {
@@ -108,7 +108,7 @@ describe('the run page’s next step', () => {
     expect(tip(open)).toMatchObject({ t: `“${verified.title}”`, s: 'verified: a change fixed its failing runs, ready to apply' });
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     // The banner says how the fix stands instead of linking it again.
-    expect(page.one('.banner .bk').textContent).toBe('lost at');
+    expect(shownText(page.one('.banner .bk'))).toBe('lost at');
     expect(page.all('.banner a').some((a) => a.textContent === 'Fix →')).toBe(false);
     expect(page.one('.banner .st').className).toBe('st ok');
     expect(page.one('.banner .st').textContent).toBe('fix verified');
@@ -118,10 +118,11 @@ describe('the run page’s next step', () => {
     const selected: number[] = [];
     const run = detail({ state: failedState, fix: verified, blame: { ...lost, range: { from: 5, to: 7, gradual: true } }, next: FIX });
     page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, { ...bannerProps(run), onSelect: (n: number) => selected.push(n) })));
-    expect(page.one('.banner .bk').textContent).toBe('lost gradually around');
+    expect(shownText(page.one('.banner .bk'))).toBe('lost gradually around');
     expect(page.all('.banner .bn').map((b) => b.textContent)).toEqual(['#5', '#7']);
     expect(page.one('.banner').textContent).toContain('#5 and #7');
-    expect(page.one('.banner .why').textContent).toContain('model calls 3 and 4 of 5');
+    // Its tally kept whole where the line wraps, as every finding keeps one.
+    expect(page.one('.banner .why').textContent).toContain('model calls 3 and 4\u00a0of\u00a05');
     await page.click(page.all('.banner .bn')[1]);
     expect(selected).toEqual([7]);
   });
@@ -138,7 +139,9 @@ describe('the run page’s next step', () => {
     const { a, started } = jobs();
     page = await render(both(failed, offers, a));
     expect(lime(page)).toEqual(['Run blame']);
-    expect(page.one('.banner .bk').textContent).toBe('failed');
+    // The outcome says it failed: the finding leads, in ink and with no label, with what failed.
+    expect(page.all('.banner .bk')).toHaveLength(0);
+    expect(page.one('.banner .why .lead').textContent).toBe('the agent exited with an error');
     expect(page.all('.banner button').some((b) => b.textContent === 'Run blame')).toBe(false);
     const lead = page.byText('.rhead .actions button', 'Run blame');
     expect(tip(lead)).toMatchObject({ t: 'Run blame', s: 'Find the model call where this run was lost, on its exit status: a passing run exits 0', rows: [], est: { usd: 10.88, ceiling: true }, cmd: `$ shadowlap blame ${REC.slice(0, 10)}` });
@@ -192,7 +195,8 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Run blame'));
     await page.type(page.one('.dialog input'), 'python agent.py');
     await page.click(page.one('.dialog .dlg-ok'));
-    await page.wait(0);
+    // Its check is asked in a dialog of its own, a part that loads the first time it opens.
+    await page.until('its check to be asked', () => page!.all('.dialog textarea').length === 1);
     expect(page.one('.dialog').textContent).toContain('What a passing run must do, as an outcome check’s expect object');
     expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --expect '<check>' -- python agent.py`);
   });
@@ -318,6 +322,8 @@ describe('the run page’s next step', () => {
     expect(page.all('.banner button').map((b) => b.textContent)).not.toContain('Update golden');
     await page.click(page.byText('.rhead .actions button', 'Update golden'));
     expect(started).toEqual([]);
+    // A diverged test's dialogs are a part of their own: it comes as its script does.
+    await page.until('its dialog', () => page!.all('.dialog h3').length > 0);
     expect(page.one('.dialog h3').textContent).toContain('Update refund-in-limit?');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['test-update', { golden: GOLDEN, estimate: { usd: 0.03, ceiling: false } }]]);
@@ -433,9 +439,98 @@ describe('the run page’s next step', () => {
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
     expect(page.one('.dialog h3').textContent).toBe(`Pack ${REC.slice(0, 10)} as golden?`);
+    expect(page.one('.dialog').textContent).toContain('Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit.');
+    expect(page.one('.dialog label').textContent).toContain('Golden');
+    // The pack, then its test, a line each.
     expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap pack ${REC.slice(0, 10)} ${folder}`);
+    expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap test ${folder}`);
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(started).toEqual([['pack', { runId: REC, dir: folder }]]);
+    expect(started).toEqual([['pack-test', { runId: REC, golden: folder }]]);
+  });
+
+  it('offers a plain Pack as golden… after Replay where another step leads, folding by its name, and none where it leads or the run failed', async () => {
+    const folder = `goldens/${REC.slice(0, 10).toLowerCase()}`;
+    const offers = { keep: { folder }, copies: { formats: [] } } as unknown as RunOffers;
+    const injection = { key: 'injection-test', label: 'Run injection test…', runId: REC } as NextStep;
+    const { a, started } = jobs();
+    page = await render(both(detail({ state: passedState, next: injection }), offers, a));
+    const names = page.all('.rhead .actions button').map((b) => b.textContent);
+    expect(names.indexOf('Pack as golden…')).toBe(names.indexOf('Replay') + 1);
+    const plain = page.byText('.rhead .actions button', 'Pack as golden…');
+    expect([plain.className, plain.getAttribute('data-fold'), plain.getAttribute('data-next')]).toEqual(['btn', 'pack', null]);
+    expect(JSON.parse(plain.getAttribute('data-tip')!)).toMatchObject({ t: 'Pack as golden', s: 'A golden that CI replays on every commit', cmd: `$ shadowlap pack ${REC.slice(0, 10)} ${folder}` });
+    await page.click(plain);
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(started).toEqual([['pack-test', { runId: REC, golden: folder }]]);
+    await page.unmount();
+    for (const [state, next] of [[failedState, injection], [passedState, { key: 'pack', label: 'Pack as golden…', runId: REC, folder } as NextStep]] as const) {
+      page = await render(both(detail({ state, next }), offers, app()));
+      expect(page.all('.rhead [data-fold="pack"]')).toHaveLength(0);
+      await page.unmount();
+    }
+    // Recorded passing, but today's checks fail it, as its first fact says: a golden made from it would
+    // pass on the failure. And none while they judge it.
+    const failing = { ...detail({ state: passedState, next: injection }), judged: { by: 'own', verdict: 'failed', counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, callNo: 4, today: true } } as unknown as RunDetail;
+    for (const props of [header(failing, offers), { ...header(detail({ state: passedState, next: injection }), offers), judged: undefined }]) {
+      page = await render(createElement(AppContext.Provider, { value: app() }, createElement(RunHeader, props)));
+      expect(page.all('.rhead [data-fold="pack"]')).toHaveLength(0);
+      await page.unmount();
+    }
+    page = null;
+  });
+
+  it('keeps Pack as golden…’s dialog open with the server’s words when it refuses the folder, and asks first of a recording from elsewhere', async () => {
+    const folder = `goldens/${REC.slice(0, 10).toLowerCase()}`;
+    const next: NextStep = { key: 'pack', label: 'Pack as golden…', runId: REC, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: `shadowlap pack ${REC.slice(0, 10)} ${folder}` };
+    const sent: Array<Record<string, unknown>> = [];
+    const answers = [
+      new ApiError(409, `${folder} already holds a golden. Give this one another name: Shadowlap never packs over a golden.`),
+      new ApiError(409, `${REC.slice(0, 10)} came from the team store: its test runs the command it was recorded with (node agent.mjs), under shadowlap test goldens/other. Confirm it to run it`, 'c'.repeat(32)),
+    ];
+    const a = app({}, {
+      startJob: (_kind: string, fields: Record<string, unknown>) => {
+        sent.push(fields);
+        const no = answers.shift();
+        return (no ? Promise.reject(no) : Promise.resolve({ id: 'j1' })) as never;
+      },
+    });
+    page = await render(both(detail({ state: passedState, next }), null, a));
+    await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
+    await page.click(page.one('.dialog .dlg-ok'));
+    // Refused: the dialog stays, with what was typed and why.
+    expect(page.one('.dialog').textContent).toContain('already holds a golden. Give this one another name');
+    await page.type(page.one('.dialog input'), 'goldens/other');
+    await page.click(page.one('.dialog .dlg-ok'));
+    // A recording from elsewhere: the question, then the job again with its yes.
+    expect(page.one('.dialog').textContent).toContain('came from the team store');
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: 'goldens/other' }, { runId: REC, golden: 'goldens/other', yes: 'c'.repeat(32) }]);
+  });
+
+  it('opens Pack as golden…’s dialog again on the folder tried, with the server’s words, when it refuses the job sent with a yes', async () => {
+    const folder = `goldens/${REC.slice(0, 10).toLowerCase()}`;
+    const next: NextStep = { key: 'pack', label: 'Pack as golden…', runId: REC, folder, title: 'Pack as golden', sub: 'A golden that CI replays on every commit', command: `shadowlap pack ${REC.slice(0, 10)} ${folder}` };
+    const answers = [
+      new ApiError(409, `${REC.slice(0, 10)} came from the team store: its test runs the command it was recorded with (node agent.mjs), under shadowlap test ${folder}. Confirm it to run it`, 'c'.repeat(32)),
+      new ApiError(409, `${folder} already holds a golden. Give this one another name: Shadowlap never packs over a golden.`),
+    ];
+    const sent: Array<Record<string, unknown>> = [];
+    const a = app({}, {
+      startJob: (_kind: string, fields: Record<string, unknown>) => {
+        sent.push(fields);
+        const no = answers.shift();
+        return (no ? Promise.reject(no) : Promise.resolve({ id: 'j1' })) as never;
+      },
+    });
+    page = await render(both(detail({ state: passedState, next }), null, a));
+    await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
+    await page.click(page.one('.dialog .dlg-ok'));
+    expect(page.one('.dialog').textContent).toContain('came from the team store');
+    await page.click(page.one('.dialog .dlg-ok'));
+    // The folder was taken in the meantime: the Pack dialog again, saying so, the folder still the one tried.
+    expect(page.one('.dialog').textContent).toContain('already holds a golden. Give this one another name');
+    expect(page.one('.dialog input').value).toBe(folder);
+    expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: folder, yes: 'c'.repeat(32) }]);
   });
 
   it('packs with an injection gate the recording it tested, naming the entry that gates it', async () => {

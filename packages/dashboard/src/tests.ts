@@ -1,6 +1,10 @@
-import { ACTIONS, attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
+import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
+import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
+import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
+import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
 
@@ -69,6 +73,8 @@ export type GateResultView = GateResult & {
   perAttempt: number | null;
   /** Run more attempts, for an inconclusive verdict; null otherwise. */
   more: MoreAttempts | null;
+  /** Its evidence in words, as the row under it says why it stopped (tests-evidence.ts); null for a clean replay. */
+  words?: EvidenceWords | null;
 };
 
 /**
@@ -162,29 +168,7 @@ export interface TestsVerdict {
   since: SinceResult[];
 }
 
-/** A golden at one revision: a cell of its history. */
-export interface HistoryCell {
-  revision: string | null;
-  /**
-   * Where the result shown was tested: the column's revision, or, for a golden run again on its own
-   * (Add normalizer and re-run, Run tests on it) with changes on top, `<revision>+dirty`.
-   */
-  tested: string | null;
-  /** Null: it wasn't a golden yet, or wasn't tested at that revision. An inconclusive result reads as `fail`: it didn't pass. */
-  result: 'pass' | 'fail' | null;
-  /** How it came out there, inconclusive told apart; null as for `result`. */
-  verdict: GoldenVerdict | null;
-  /** Its attempts there, passes of attempts: the pass rate a cell is shaded by. Null as for `result`, or when it couldn't run. */
-  rate: Tally | null;
-  /** Its gate against history failed there: a drop from its baseline (a ring). */
-  dropped: boolean;
-  /** Why it failed, for the hover. */
-  note: string | null;
-  /** `test --update` re-recorded it there (the ring). */
-  updated: boolean;
-  runId: string | null;
-  at: number | null;
-}
+export type { FollowedGolden, HistoryCell, HistoryDrop, RevisionFact, SessionFollowing } from './tests-history.js';
 
 /**
  * One of a golden's checks, with how its last result came out on it: what the table marks it by
@@ -303,7 +287,12 @@ export interface BisectRevision {
   sameChecks: boolean;
   /** The commit's subject, when the project's git has the commit (added by the route). */
   subject?: string | null;
+  /** Its attempts there, passes of all, when it ran several: the dialog says `failed 4 of 8`. */
+  rate?: Tally | null;
 }
+
+/** A commit Find breaking commit's dialog offers that the golden was never tested at, with its subject. */
+export type UntestedCommit = { rev: string; subject: string };
 
 /** A golden whose last replay diverged, as the CLI prints it, with what each button runs. */
 export interface DivergenceView {
@@ -349,6 +338,8 @@ export interface DivergenceView {
    * make it match.
    */
   rulesAdded: boolean;
+  /** Add normalizer and update for several goldens: the `normalize add` it runs for this one first, none when it masks none of its values (tests-normalize.ts). */
+  newRules?: string[][];
   /** Find breaking commit: from the last revision where it passed under today's checks to the one where it failed (null: HEAD). */
   bisect: BisectRange | null;
   /** What Find breaking commit found, kept until the golden passes again. */
@@ -357,6 +348,8 @@ export interface DivergenceView {
   missed: BisectMiss | null;
   /** Commits to offer as good ones when Find breaking commit asks, newest first. */
   revisions: BisectRevision[];
+  /** With no range to search, commits of this checkout before the one it failed at that it was never tested at: the route asks git (commits-here.ts `commitsBefore`). */
+  untested?: UntestedCommit[];
   /** Why its pack can't be read, or null: such a golden can't be bisected. */
   unreadable: string | null;
 }
@@ -391,6 +384,7 @@ export interface FailureView {
   found: FoundCommit | null;
   missed: BisectMiss | null;
   revisions: BisectRevision[];
+  untested?: UntestedCommit[];
   unreadable: string | null;
 }
 
@@ -462,10 +456,21 @@ export interface TestsView {
    */
   running: TestsSessionView | null;
   /**
+   * Where the session running now is with each golden it runs: its result once kept, else running,
+   * between its turns, or queued; `whole` when it runs every golden, so the verdict follows it.
+   */
+  following?: SessionFollowing | null;
+  /**
    * Error-path presets on goldens (`test --chaos`) running now, wherever they were started: they
    * replay the goldens' packs, so the same actions wait for them too, as the server does.
    */
   chaosRunning: { id: string; command: string; startedAt: number } | null;
+  /** Each of `revisions` as git has it, its commit's subject and its author where names show: the route asks git beside the server. */
+  revisionFacts?: RevisionFact[];
+  /** The session the verdict names tested a clean commit, and the working tree has changed since: the route asks git. */
+  older?: boolean;
+  /** Each golden that didn't pass, by its path, with the step it leads with, as its replay's page leads: the route asks beside the server (next-step.ts `goldenSteps`). */
+  steps?: Record<string, NextStep>;
   commands: {
     /**
      * The In CI panel's one command, as docs/gating.md writes it: every golden, its pattern quoted for
@@ -556,35 +561,10 @@ export function liveTestSession(store: StoreOf<'tests'>): TestSession | null {
   return null;
 }
 
-/** What volatileValues() made of a stored divergence: judged on all its changes when it was recorded. */
-function volatileOf(r: TestResult, d: DivergenceReport): VolatileValues {
-  const kept = r.data?.divergence?.volatile;
-  return kept ? storedVolatile(kept) : volatileValues(d);
-}
-
-/** Stored values, with what a result kept before ids were told apart read as it was meant then. */
-function storedVolatile(kept: NonNullable<NonNullable<NonNullable<TestResult['data']>['divergence']>['volatile']>): VolatileValues {
-  return { values: kept.values.map((v) => ({ ...v, certain: v.certain ?? true })), explainsAll: kept.explainsAll, coversAll: kept.coversAll ?? kept.explainsAll };
-}
-
-/** Whether two normalizers are the same rule: the same fields, whatever their order. */
-function sameRule(a: Normalizer, b: Normalizer): boolean {
-  return a.kind === b.kind && a.name === b.name && a.path === b.path && a.pattern === b.pattern && a.replace === b.replace;
-}
-
 /** The first value a view shows, with the command that adds its normalizer. */
 function shownValue(values: VolatileValues): DivergenceView['volatile'] {
   const v = values.values[0];
   return v ? { ...v, args: normalizeAddArgs(v.normalizer), command: normalizeAddCommand(v.normalizer) } : null;
-}
-
-function divergenceOf(r: TestResult): DivergenceReport | null {
-  const d = r.data?.divergence;
-  if (!d) return null;
-  const report: DivergenceReport = { type: d.type as DivergenceReport['type'], callNo: d.callNo, kind: d.kind as CallKind, name: d.name, replayedBefore: d.replayedBefore };
-  if (d.diff) report.diff = d.diff as NonNullable<DivergenceReport['diff']>;
-  if (d.hints) report.hints = d.hints;
-  return report;
 }
 
 /** Why a result failed, in a few words: `diverged at call 1`, `check failed: send_email called 0 times`, `inconclusive after 40 attempts`. */
@@ -609,6 +589,26 @@ export function shortReason(r: TestResult): string {
   // Its injection gate: what obeyed, without the limit and the proof the reason goes on with.
   if (r.failure === 'injection') return reason.replace(/ \(at most[^)]*\).*$/, '');
   return `couldn't run: ${reason}`;
+}
+
+/**
+ * The verdict's reason after the name: `shortReason`'s, but for a failed check its gate decided
+ * (`failed its gate`, `failed against its own history`), one over several attempts (`failed its
+ * check`), and a judge check a replay couldn't judge offline.
+ */
+function leadReason(r: TestResult): string {
+  const gate = r.data?.gate;
+  if (r.failure === 'check' && gate && gate.decision !== 'continue') return gate.kind === 'baseline' ? 'failed against its own history' : 'failed its gate';
+  if (r.failure === 'check' && (r.data?.attempts?.total ?? 1) > 1) return 'failed its check';
+  return unjudgedOffline(r) ? 'inconclusive: its judge check wasn’t judged offline' : shortReason(r);
+}
+
+/** The verdict's line: the tally first wherever a golden leads or one wasn't tested, then the golden that leads and what wasn't tested; else that they all pass ("All 1 goldens pass" isn't English). */
+function verdictTitle(c: { first: TestResult | null; passing: number; total: number; notRun: number; presetsOnly: number }, folder: string): string {
+  if (!c.first && !c.notRun && !c.presetsOnly) return c.total === 1 ? 'The golden passes' : `All ${c.total} goldens pass`;
+  const goldens = (n: number) => `${n} golden${n === 1 ? '' : 's'}`;
+  const parts = [goldensPassed(c.passing, c.total), c.first ? `${nameOf(c.first.golden, folder)} ${leadReason(c.first)}` : '', c.notRun ? `${goldens(c.notRun)} not tested yet` : '', c.presetsOnly ? `${goldens(c.presetsOnly)} tested only by ${c.presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''];
+  return parts.filter(Boolean).join(' · ');
 }
 
 /**
@@ -783,7 +783,7 @@ export function gateResultView(r: TestResult, golden: string): GateResultView | 
   const spent = typeof agent === 'number' ? agent + (typeof judges === 'number' ? judges : 0) : undefined;
   const own = r.data?.attempts?.total ?? g.attempts;
   const perAttempt = typeof spent === 'number' && spent > 0 && own > 0 ? spent / own : null;
-  return { ...g, tally: formatTally(g), rule: gateRuleOf(g), perAttempt, more: moreAttempts(g, golden, perAttempt) };
+  return { ...g, tally: formatTally(g), rule: gateRuleOf(g), perAttempt, more: moreAttempts(g, golden, perAttempt), words: evidenceWords(g, r.data?.mode === 'replay' ? null : (r.data?.divergence?.callNo ?? null)) };
 }
 
 /**
@@ -1011,7 +1011,7 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
   return [...out.values()]
     .sort((a, b) => b.r.at - a.r.at)
     .slice(0, DIALOG_REVISIONS)
-    .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', verdict: verdictOfResult(r), sameChecks: underChecks(r, checks) }));
+    .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', verdict: verdictOfResult(r), sameChecks: underChecks(r, checks), rate: attemptsOf(r) }));
 }
 
 /** What Find breaking commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
@@ -1173,7 +1173,7 @@ function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
  * count here takes the results of every session, one still running (or whose process was killed)
  * included; only a session's own totals wait for its end.
  */
-export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'chaos'>, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
+export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'chaos' | 'readModels'>, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
   const folder = options.folder ?? 'goldens';
   const rules = options.normalizers ?? [];
   const sessionsView = testSessions(store, goldens, options.revisions ?? 6);
@@ -1185,6 +1185,8 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
   for (const m of chaosMatrices(store)) if (m.golden && !presetsOf.has(m.golden)) presetsOf.set(m.golden, presetsSummary(m, (id) => store.getRun(id) !== null));
   const history = byGolden(sessionsView.results);
   const columns = new Set(revisions);
+  const sessionIds = new Set(sessionsView.columnOf.keys());
+  const columnOf = (x: TestResult) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOfRevision(x.revision, columns));
 
   const rows: GoldenRow[] = goldens.map((g) => {
     const list = history.get(g.path) ?? [];
@@ -1204,25 +1206,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       checks: g.checks,
       checkResults: goldenChecks(store, g.checks, latest),
       injection: !!g.injection,
-      history: revisions.map((rev) => {
-        // Its own column's sessions, and a session that ran only some goldens there, or on that
-        // commit with changes on top (Add normalizer and re-run), where no column is its own.
-        const here = list.filter((x) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOfRevision(x.revision, columns)) === rev);
-        // The newest result there, ringed when any session there updated it: a run after the update keeps the ring.
-        const r = here[0] ?? null;
-        return {
-          revision: rev,
-          tested: r?.revision ?? null,
-          result: r ? (r.ok ? 'pass' : 'fail') : null,
-          verdict: r ? verdictOfResult(r) : null,
-          rate: r ? attemptsOf(r) : null,
-          dropped: !!r && r.data?.gate?.kind === 'baseline' && r.data.gate.decision === 'fail',
-          note: r ? cellNote(store, r, g.checks, rules) : null,
-          updated: here.some((x) => !!x.data?.updated),
-          runId: r ? runIfKept(store, r.runId) : null,
-          at: r?.at ?? null,
-        };
-      }),
+      history: historyCells(store, list, revisions, { columnOf, columns: sessionIds, note: (r) => cellNote(store, r, g.checks, rules), runId: (r) => runIfKept(store, r.runId) }),
       last: latest
         ? { result: latest.ok ? 'pass' : 'fail', verdict: verdictOfResult(latest), failure: latest.failure, line: latest.ok || !latest.data?.updated ? lineOf(store, latest, g.checks, rules) : `updated${latest.revision ? ` at ${latest.revision}` : ''}, then ${lineOf(store, latest, g.checks, rules)}`, at: latest.at, updated: !!latest.data?.updated, gate: gateResultView(latest, g.path), injection: latest.data?.injection ?? null }
         : { result: null, verdict: null, failure: null, line: error ? `can't be read: ${error}` : presetsOf.get(g.path) ? `${presetsOf.get(g.path)!.line} · replay not tested yet` : 'not run yet', at: null, updated: false, gate: null },
@@ -1271,7 +1255,8 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
         rerun: ['test', row.path],
         update: ['test', row.path, '--update'],
         normalizeAndTest: normalizeSteps(volatile, row.path),
-        rulesAdded: volatile.values.length > 0 && volatile.values.every((v) => (options.normalizers ?? []).some((n) => sameRule(n, v.normalizer))),
+        rulesAdded: volatile.values.length > 0 && volatile.values.every((v) => rules.some((n) => sameRule(n, v.normalizer))),
+        newRules: rulesToAdd(volatile, rules).map((rule) => normalizeAddArgs(rule)),
         bisect,
         found,
         missed,
@@ -1307,8 +1292,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       inconclusive: unsure.length,
       passing,
       untested,
-      // One golden: "All 1 goldens pass" isn't English.
-      title: first ? `${nameOf(first.golden, folder)} ${shortReason(first)}` : untested ? `${passing} of ${total} goldens pass${notRun ? `, ${notRun} not run yet` : ''}${presetsOnly ? `, ${presetsOnly} tested only by ${presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''}` : total === 1 ? 'The golden passes' : `All ${total} goldens pass`,
+      title: verdictTitle({ first, passing, total, notRun, presetsOnly }, folder),
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
       session: sessionView(store, shown),
       since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, verdict: verdictOfResult(r), revision: r.revision, at: r.at })),
@@ -1317,7 +1301,6 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
 
   const diverged = divergences.map((d) => d.golden);
   const patterns = testPatterns(goldens, folder);
-  const live = liveTestSession(store);
   const presets = liveChaosSession(store);
   return {
     empty: goldens.length === 0,
@@ -1329,7 +1312,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
     failures,
     inconclusive,
     diverged,
-    running: live ? sessionView(store, live) : null,
+    ...liveSessionFields(store, liveTestSession(store), goldens.map((g) => g.path), { view: (s) => sessionView(store, s), asks: asksForAll }),
     chaosRunning: presets ? { id: presets.sessionId, command: presets.command.join(' '), startedAt: presets.startedAt } : null,
     commands: {
       ci: `shadowlap test ${patterns.map(ciWord).join(' ')} --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`,
@@ -1521,7 +1504,7 @@ export interface TestRunBanner {
 }
 
 /** The test a run says it was made by, read only as text: a pack can carry anything. */
-const testOf = (run: RunRecord) => (typeof run.meta?.test?.golden === 'string' && typeof run.meta.test.session === 'string' ? run.meta.test : null);
+export const testOf = (run: RunRecord) => (typeof run.meta?.test?.golden === 'string' && typeof run.meta.test.session === 'string' ? run.meta.test : null);
 
 /**
  * For a run made by `shadowlap test` whose golden failed because it diverged: its golden and the
@@ -1711,7 +1694,7 @@ export function bisectArgs(ref: string, good: string, bad: string | null, fork: 
 export type TestsJob = { title: string; args: string[]; runId?: string } | { title: string; steps: string[][]; runId?: string } | { error: string };
 
 /** The golden a request names, as listed on disk, or null; never a path the CLI would read as an option. */
-function knownGolden(goldens: readonly GoldenSource[], raw: unknown): string | null {
+export function knownGolden(goldens: readonly GoldenSource[], raw: unknown): string | null {
   const path = typeof raw === 'string' ? (goldens.find((g) => g.path === raw)?.path ?? null) : null;
   return path !== null && !optionLike(path) ? path : null;
 }

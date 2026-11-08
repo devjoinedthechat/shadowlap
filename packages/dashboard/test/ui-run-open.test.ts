@@ -2,11 +2,15 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CallRow, CallsPage, Client, RunDetail } from '../ui/api.js';
 import type { Origin7 } from '../ui/origins.js';
+import type { Kind } from '../ui/run/kinds.js';
 import { RunPage } from '../ui/pages/Run.js';
-import { firstFailedCall, firstStep, openingCall, type OpenCall } from '../ui/run/open-at.js';
+import { forgetPickedCalls, firstFailedCall, firstStep, openingCall, type OpenCall } from '../ui/run/open-at.js';
 import { PAGE } from '../ui/run/paging.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+
+// A call picked on a run's page is remembered for the session: each test opens its runs afresh.
+afterEach(forgetPickedCalls);
 
 /**
  * Where a run's page opens when its link names no call: a fork where it forked, a run blame found
@@ -18,29 +22,36 @@ import { render, type Rendered } from './ui-render.js';
 const RUN = '01M5GRX8K406H4KHQ7DEKYWTSZ';
 const T = 1_760_000_000_000;
 
-const oc = (callNo: number, kind: string, outcome: 'ok' | 'error' | null = 'ok', origin = 'live'): OpenCall => ({ callNo, kind, outcome, origin });
+const oc = (callNo: number, kind: string, outcome: 'ok' | 'error' | null = 'ok', origin = 'live', effect: string | null = null): OpenCall => ({ callNo, kind, outcome, origin, effect });
 
 describe('where a run opens', () => {
   const run = [oc(1, 'clock'), oc(2, 'random'), oc(3, 'api'), oc(4, 'tool', 'error'), oc(5, 'api', 'error'), oc(6, 'tool')];
 
-  it('opens a failed run at its first call that failed', () => {
-    expect(openingCall({ forkAt: null, lostAt: null, live: false, failed: true, calls: run })).toBe(4);
-    // A run that didn't fail opens at its first step, though a call in it failed and was retried past.
-    expect(openingCall({ forkAt: null, lostAt: null, live: false, failed: false, calls: run })).toBe(3);
+  it('opens a run at its first call that failed, whether or not the run failed for it', () => {
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: run })).toBe(4);
   });
 
-  it('keeps the fork, the lost call and a recording’s newest call first', () => {
-    expect(openingCall({ forkAt: 6, lostAt: 5, live: false, failed: true, calls: run })).toBe(6);
-    expect(openingCall({ forkAt: null, lostAt: 5, live: false, failed: true, calls: run })).toBe(5);
-    expect(openingCall({ forkAt: null, lostAt: null, live: true, failed: false, calls: run })).toBe(6);
+  it('keeps a recording’s newest call, the lost call, the fork and the outcome’s call first, in that order', () => {
+    expect(openingCall({ forkAt: null, lostAt: 5, live: true, calls: run })).toBe(6);
+    expect(openingCall({ forkAt: 6, lostAt: 5, live: false, calls: run })).toBe(5);
+    expect(openingCall({ forkAt: 6, lostAt: null, outcomeAt: 3, live: false, calls: run })).toBe(6);
+    expect(openingCall({ forkAt: null, lostAt: null, outcomeAt: 3, live: false, calls: run })).toBe(3);
+    // A call that isn't one of the run's steps is passed over: a clock read the outcome named.
+    expect(openingCall({ forkAt: null, lostAt: null, outcomeAt: 1, live: false, calls: run })).toBe(4);
+  });
+
+  it('opens a run that went well at its first write, else at its last model call', () => {
+    const calls = [oc(1, 'clock'), oc(2, 'api'), oc(3, 'tool', 'ok', 'live', 'read'), oc(4, 'tool', 'ok', 'live', 'write'), oc(5, 'api'), oc(6, 'tool', 'ok', 'live', 'read')];
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls })).toBe(4);
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: calls.filter((c) => c.callNo !== 4) })).toBe(5);
   });
 
   it('opens a long recording at its count while its pages come, not at the last call read', () => {
     const read = Array.from({ length: 500 }, (_, i) => oc(i + 1, i % 2 ? 'tool' : 'api'));
-    expect(openingCall({ forkAt: null, lostAt: null, live: true, failed: false, calls: read, total: 3000 })).toBe(3000);
+    expect(openingCall({ forkAt: null, lostAt: null, live: true, calls: read, total: 3000 })).toBe(3000);
     // Its pages all read, the count and the last call agree.
-    expect(openingCall({ forkAt: null, lostAt: null, live: true, failed: false, calls: read, total: null })).toBe(500);
-    expect(openingCall({ forkAt: null, lostAt: null, live: true, failed: false, calls: [], total: 0 })).toBeNull();
+    expect(openingCall({ forkAt: null, lostAt: null, live: true, calls: read, total: null })).toBe(500);
+    expect(openingCall({ forkAt: null, lostAt: null, live: true, calls: [], total: 0 })).toBeNull();
   });
 
   it('never opens on a clock or random read, unless the run made only those', () => {
@@ -49,8 +60,8 @@ describe('where a run opens', () => {
     expect(firstStep([])).toBeNull();
     // A failed clock read is no step either.
     expect(firstFailedCall([oc(1, 'clock', 'error'), oc(2, 'api'), oc(3, 'tool', 'error')])).toBe(3);
-    // A failed run whose calls all went well (it failed a check) opens at its first step.
-    expect(openingCall({ forkAt: null, lostAt: null, live: false, failed: true, calls: [oc(1, 'clock'), oc(2, 'api'), oc(3, 'tool')] })).toBe(2);
+    // A run of reads alone opens at its first.
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: [oc(1, 'clock'), oc(2, 'random')] })).toBe(1);
   });
 
   it('passes over a write fenced after a fork and a failure --fail-at played in: they failed on purpose', () => {
@@ -62,11 +73,23 @@ describe('where a run opens', () => {
     const origins: Origin7[] = Array.from({ length: 1200 }, (_, i) => (i === 899 ? 'fail' : 'live'));
     const read = Array.from({ length: 200 }, (_, i) => oc(i + 1, i % 2 ? 'tool' : 'api'));
     expect(firstFailedCall(read, origins)).toBe(900);
-    expect(openingCall({ forkAt: null, lostAt: null, live: false, failed: true, calls: read, origins })).toBe(900);
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, origins })).toBe(900);
     // A clock read already read that failed is still no step.
     const clock = [...read.slice(0, 9), oc(10, 'clock', 'error'), ...read.slice(10)];
     const both: Origin7[] = origins.map((o, i) => (i === 9 ? 'fail' : o));
     expect(firstFailedCall(clock, both)).toBe(900);
+  });
+
+  it('finds a long run’s first write and last model call past the calls read from every call’s kind', () => {
+    const read = Array.from({ length: 200 }, (_, i) => oc(i + 1, i % 2 ? 'tool' : 'api', 'ok', 'live', 'read'));
+    const kinds: Kind[] = Array.from({ length: 1200 }, (_, i) => (i === 699 ? 'k-write' : i === 1099 ? 'k-model' : 'k-read'));
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, kinds })).toBe(700);
+    // With no write, its last model call, far past the calls read.
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, kinds: kinds.map((k) => (k === 'k-write' ? 'k-read' : k)) })).toBe(1100);
+    // A failure still comes first, and every page read the kinds go unused.
+    const origins: Origin7[] = Array.from({ length: 1200 }, (_, i) => (i === 899 ? 'fail' : 'live'));
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, origins, kinds })).toBe(900);
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read.slice(0, 2), kinds: kinds.slice(0, 2) })).toBe(1);
   });
 });
 
@@ -205,12 +228,24 @@ describe('a run’s page, opened without a call', () => {
     expect(r.one('table.calls tr[aria-selected="true"] td.n').textContent).toBe('7');
   });
 
-  it('opens a run that went well at its first step, past the clock read it started with', async () => {
+  it('opens a run that went well, with no write in it, at its last model call', async () => {
     const bar = addressBar(`#/run/${RUN}`);
     const { client, details } = server(12, 12, { failed: false, failAt: null });
     r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(RunPage, { id: RUN, call: null, view: null })));
     await r.until('the call’s details', () => details.length > 0);
-    expect(bar.hash).toBe(`#/run/${RUN}/2`);
+    expect(bar.hash).toBe(`#/run/${RUN}/12`);
+  });
+
+  it('opens a run again on the call picked on its page earlier in the session', async () => {
+    const bar = addressBar(`#/run/${RUN}/7`);
+    const { client, details } = server(12, 12, { failed: false, failAt: null });
+    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(RunPage, { id: RUN, call: 7, view: null })));
+    await r.until('the call’s details', () => details.length > 0);
+    await r.unmount();
+    bar.hash = `#/run/${RUN}`;
+    r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(RunPage, { id: RUN, call: null, view: null })));
+    await r.until('the address', () => bar.hash !== `#/run/${RUN}`);
+    expect(bar.hash).toBe(`#/run/${RUN}/7`);
   });
 
   it('opens a long failed run where it failed, far past its first page, and reads that page first', async () => {

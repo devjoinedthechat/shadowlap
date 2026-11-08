@@ -7,7 +7,7 @@ import { testsView, type DivergenceView, type GoldenSource } from '../src/tests.
 import { ApiError, type Client, type JobView, type TestsView } from '../ui/api.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { TestsPage } from '../ui/pages/Tests.js';
-import { Banner } from '../ui/run/parts.js';
+import { Banner } from '../ui/run/FindingsBar.js';
 import { bannerJobsShown } from '../ui/run/diverged.js';
 import { estimatesKey, useTestsEstimates } from '../ui/tests-estimates.js';
 import { Palette } from '../ui/shell/Palette.js';
@@ -225,11 +225,11 @@ describe('a Tests job that would run goldens live', () => {
 });
 
 describe('the same question from Tests’ other buttons, on a golden that diverged', () => {
-  it('asks before Re-run, once the golden’s normalizer is in the config, with the command it runs', async () => {
+  it('asks before Re-run test, once the golden’s normalizer is in the config, with the command it runs', async () => {
     const sent: Sent[] = [];
     const watched: Array<Promise<JobView>> = [];
     const page = await tests(app(sent, watched, { live: true, tests: diverged({ rulesAdded: true }) }));
-    await page.click(page.byText('button', 'Re-run'));
+    await page.click(page.byText('button', 'Re-run test'));
     await page.until('the question', () => dialog(page) !== null);
     expect(said(dialog(page)!)).toEqual({ title: 'Re-run refund-in-limit', lead: 'Replays refund-in-limit again, live from where it forks.', commands: ['$shadowlap test goldens/refund-in-limit'], ok: 'Re-run' });
     await page.click(page.one('.dialog .dlg-ok'));
@@ -465,9 +465,9 @@ describe('a live session’s question, answered by Spending', () => {
     const state = app(sent, shell);
     const page = await shown(state, createElement('div'));
     const setup: Array<Promise<JobView>> = [];
-    startTestsJob({ client: state.client, guard: state.guard, watchJob: (p) => void setup.push(p) }, 'pack-test', { project: 'p', golden: 'goldens/first-run' }, keepAsk('Pack as a golden', 'goldens/first-run', true));
+    startTestsJob({ client: state.client, guard: state.guard, watchJob: (p) => void setup.push(p) }, 'pack-test', { project: 'p', golden: 'goldens/first-run' }, keepAsk('Pack as golden', 'goldens/first-run', true));
     await page.until('the question asked', () => !!dialog(page));
-    expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Pack as a golden');
+    expect(dialog(page)?.querySelectorAll('h3')[0].textContent).toBe('Pack as golden');
     expect(dialog(page)?.textContent).toContain('Packs the run as goldens/first-run, then runs its test.');
     expect(dialog(page)?.textContent).toContain('shadowlap test goldens/first-run');
     expect(yeses(sent)).toEqual([]);

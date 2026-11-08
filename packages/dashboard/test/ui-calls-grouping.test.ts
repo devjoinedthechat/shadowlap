@@ -6,10 +6,14 @@ import { href } from '../ui/route.js';
 import { navigate, useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+import { forgetPickedCalls } from '../ui/run/open-at.js';
+
+// A call picked on a run's page is remembered for the session: each test opens its runs afresh.
+afterEach(forgetPickedCalls);
 
 /**
  * Calls grouped on the run's page: each tool call under the model call that asked for it, a batch's
- * conversations each under its first call, a fold mark on every call with calls under it, Fold all,
+ * conversations each under its first call, a fold mark on every call with calls under it (and no Fold all),
  * ← and → as in a tree, the selected call never folded away, and a filter's matches flat.
  */
 
@@ -100,23 +104,16 @@ describe('Calls, grouped', () => {
     expect(rows()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
-  it('folds every group with Fold all, and opens what the selection goes into', async () => {
+  it('opens the folded groups a call picked sits in, and has no Fold all', async () => {
     await open(2);
-    await r!.click(r!.byText('.toolbar button', 'Fold all'));
-    // The selected call stays in view: the group it sits in opens again, its siblings with it.
-    expect(rows()).toEqual([1, 2, 4, 5]);
-    // Something is folded: the button opens it all again.
-    expect(r!.byText('.toolbar button', 'Unfold all')).toBeTruthy();
+    expect(r!.all('button').some((b) => b.textContent === 'Fold all')).toBe(false);
+    await r!.click(foldOf(6)!);
+    await r!.click(foldOf(5)!);
+    expect(rows()).toEqual([1, 2, 3, 4, 5]);
     // Going to a call in a folded group opens the groups it sits in.
     await r!.wait(0);
     navigate(href.run(RUN, 7), true);
     await r!.until('#7 in view', () => rows().includes(7));
-    expect(rows()).toEqual([1, 2, 4, 5, 6, 7, 8]);
-    await r!.click(r!.byText('.toolbar button', 'Unfold all'));
-    await r!.click(r!.byText('.toolbar button', 'Fold all'));
-    // Folded again, the other ticket goes, and #7's stays open around it.
-    expect(rows()).toEqual([1, 5, 6, 7, 8]);
-    await r!.click(r!.byText('.toolbar button', 'Unfold all'));
     expect(rows()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
@@ -140,11 +137,10 @@ describe('Calls, grouped', () => {
 
   it('lists a filter’s matches flat', async () => {
     await open();
-    await r!.type(r!.one('.toolbar input[type="search"]'), 'lookup');
+    await r!.type(r!.one('.strip .filter-in input[type="search"]'), 'lookup');
     // The tool calls, and the model calls that asked for them.
     await r!.until('the matches', () => rows().join() === '2,3,6,7');
     expect(r!.one('table.calls').className).toBe('calls');
     expect(r!.all('table.calls .lead')).toHaveLength(0);
-    expect(r!.all('.toolbar button').some((b) => b.textContent === 'Fold all')).toBe(false);
   });
 });

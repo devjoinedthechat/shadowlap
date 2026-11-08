@@ -3,6 +3,7 @@ import { ApiError, type CallRow, type Client, type RunDetail } from '../api.js';
 import { useLatest } from '../hooks.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { parseOrigins, type Origin7 } from '../origins.js';
+import { parseKinds, type Kind } from './kinds.js';
 import { isRead, nextRead, rangeOf, withPage, withRange, type Read } from './paging.js';
 
 /**
@@ -34,6 +35,8 @@ export interface Paging {
   read: number;
   /** Every call's origin, from the run's page: the strip and the counts have them before the pages come. */
   origins: readonly Origin7[] | null;
+  /** Every call's kind likewise, for a recording's strip, key and filter (kinds.ts). */
+  kinds: readonly Kind[] | null;
   /**
    * Reads the page that holds call `n` ahead of the rest, when it isn't read yet. While a page could
    * not be read, only a call picked (`pick`, the selection) tries again at once; the window waits.
@@ -130,7 +133,7 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
   }, [run, whole, live, runId]);
   const calls = useMemo(() => (own.calls.length ? withPage(own.calls, run.calls) : run.calls), [own.calls, run.calls]);
   const done = whole || nextRead(exact, null) === null;
-  const origins = useMemo(() => (done ? null : parseOrigins(run.origins)), [done, run.origins]);
+  const { origins, kinds } = useMemo(() => wholeCodes(done, run.origins, run.kinds), [done, run.origins, run.kinds]);
 
   const [wanted, setWanted] = useState<{ runId: string; n: number } | null>(null);
   const [failed, setFailed] = useState<Failure | null>(null);
@@ -216,12 +219,18 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
     if (whole) return run;
     if (!done) return calls === run.calls ? run : { ...run, calls };
     // Every page read: the run as an answer that held every call would have it.
-    const { origins: _origins, ...rest } = run;
+    const { origins: _origins, kinds: _kinds, ...rest } = run;
     void _origins;
+    void _kinds;
     return { ...rest, calls, callsNext: null };
   }, [whole, done, run, calls]);
   const error = failure?.message ?? null;
   const gone = failure?.gone === true;
-  const paging = useMemo<Paging | null>(() => (done ? null : { total: run.callsTotal, read: calls.length, origins, need, error, gone }), [done, run.callsTotal, calls.length, origins, need, error, gone]);
+  const paging = useMemo<Paging | null>(() => (done ? null : { total: run.callsTotal, read: calls.length, origins, kinds, need, error, gone }), [done, run.callsTotal, calls.length, origins, kinds, need, error, gone]);
   return { run: shown, paging };
+}
+
+/** Every call's origin and kind from the run's page, while its pages come; none once every call is read. */
+function wholeCodes(done: boolean, origins: string | undefined, kinds: string | undefined): { origins: readonly Origin7[] | null; kinds: readonly Kind[] | null } {
+  return done ? { origins: null, kinds: null } : { origins: parseOrigins(origins), kinds: parseKinds(kinds) };
 }

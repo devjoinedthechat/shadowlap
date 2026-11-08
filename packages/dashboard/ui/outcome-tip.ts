@@ -30,7 +30,7 @@ function rowOf(c: { label: string; status: CheckStatus; detail: string | null })
 }
 
 /** The check a status names, in a line: `send_email called at most 1 time, but called 2 times`, `judge "polite" answers yes: inconclusive · not judged: …`. */
-function firstWords(j: JudgedLike): string | null {
+export function firstWords(j: JudgedLike): string | null {
   const f = j.first;
   if (!f) return j.why ?? null;
   const failed = j.verdict === 'failed';

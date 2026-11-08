@@ -1,13 +1,14 @@
 import { useId, useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
-import type { BisectRevision, DivergenceView, TestsView } from '../api.js';
+import type { DivergenceView, TestsView } from '../api.js';
 import { Dialog } from '../components/Dialog.js';
 import { JobButton } from '../components/JobButton.js';
 import { DialogSteps } from '../components/DialogFacts.js';
 import { COMMIT_NAME, GoodCommitField } from '../components/GoodCommit.js';
 import { namedIn } from '../components/Id.js';
 import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
-import { commandText, revisionChoices } from '../goldens.js';
+import { commandText } from '../goldens.js';
+import { goodCommits, type GoodCommitsOf } from '../tests/good-commits.js';
 import { updatePlan, type UpdatePlan } from '../update-plan.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { useBisectEstimate } from '../runspage/bisect-estimate.js';
@@ -32,13 +33,15 @@ export function UpdateGoldensDialog({ view, paths, has, estimate, onUpdate, onIn
 
 /**
  * Find breaking commit for a golden when it can't just start: no revision where it passed under today's
- * checks is known, or a search from it (`tried`) named no first bad commit, so it asks for a commit
- * where it worked, offering the commits the golden was tested at, starting on an older one than
- * `tried`; or the golden may fork, so each replay runs live from where it forks, which its cost line
- * says first. With a `range` there is nothing to ask: it says the two commits.
+ * checks is known, or a search from one (`goods.missed`) named no first bad commit, so it asks for a
+ * commit where it worked, offering the commits the golden was tested at, each saying how it did there,
+ * starting on an older one than the one tried, then a few it was never tested at; or the golden may
+ * fork, so each replay runs live from where it forks, which its cost line says first. With a `range`
+ * there is nothing to ask: it says the two commits.
  */
-export function FindCommitDialog({ name, golden, range, live, revisions, tried, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; revisions: readonly BisectRevision[]; tried: string | null; onRun: (fields: Record<string, unknown>) => unknown; onClose: () => void }) {
-  const choices = revisionChoices(revisions, tried);
+export function FindCommitDialog({ name, golden, range, live, goods, onRun, onClose }: { name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; goods: GoodCommitsOf; onRun: (fields: Record<string, unknown>) => unknown; onClose: () => void }) {
+  const choices = goodCommits(goods);
+  const tried = goods.missed?.good ?? null;
   const id = useId();
   const [picked, setPicked] = useState(choices.initial);
   const [typed, setTyped] = useState('');
@@ -59,7 +62,7 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
       onOk={() => onRun({ good: rev, ...(range?.bad ? { bad: range.bad } : {}), ...sentEstimate(estimate) })}
       onClose={onClose}
     >
-      {range ? null : <GoodCommitField id={id} choices={choices.options} picked={picked} typed={typed} onPick={setPicked} onType={setTyped} />}
+      {range ? null : <GoodCommitField id={id} label={choices.label} choices={choices.options} picked={picked} typed={typed} onPick={setPicked} onType={setTyped} />}
     </Dialog>
   );
 }
@@ -69,12 +72,12 @@ export function FindCommitDialog({ name, golden, range, live, revisions, tried, 
  * billing nothing; where it asks for a commit it opens its dialog. For a golden marked fork it is a
  * form, its card the search's estimate from the commit its dialog opens on (`GET /api/estimates/bisect`).
  */
-export function FindCommitButton({ f, live, why, onBisect }: { f: Pick<DivergenceView, 'golden' | 'bisect' | 'missed' | 'revisions'>; live: boolean; why: string | null | undefined; onBisect: () => void }) {
+export function FindCommitButton({ f, live, why, lime = false, onBisect }: { f: Pick<DivergenceView, 'golden' | 'bisect' | 'missed' | 'revisions' | 'untested'>; live: boolean; why: string | null | undefined; lime?: boolean; onBisect: () => void }) {
   const range = f.missed ? null : f.bisect;
-  const good = range ? range.good : revisionChoices(f.revisions, f.missed?.good ?? null).initial;
+  const good = range ? range.good : goodCommits(f).initial;
   const estimate = useBisectEstimate(live ? { golden: f.golden, good, ...(range?.bad ? { bad: range.bad } : {}) } : { good: '' });
   return (
-    <JobButton className="btn" why={why} {...bisectCard(f, live)} {...(live ? { form: true, estimate } : { bills: false })} start={onBisect} ask={onBisect}>
+    <JobButton className={lime ? 'btn lime' : 'btn'} why={why} {...bisectCard(f, live)} {...(live ? { form: true, estimate } : { bills: false })} start={onBisect} ask={onBisect}>
       {live || !range ? ACTIONS.findBreakingCommit.label : confirmWords(ACTIONS.findBreakingCommit.label)}
     </JobButton>
   );

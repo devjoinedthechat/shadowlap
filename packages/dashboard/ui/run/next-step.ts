@@ -7,6 +7,7 @@ import type { PaletteEntry } from '../palette.js';
 import { keyColumn, type ShortcutId } from '../shortcuts.js';
 import type { ActionItem, BlameBeside, GateEntry, NextStep, NextStepRow, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
+import { PACK_VERB } from './share.js';
 
 /**
  * The step the run page leads with, as the server works it out (src/next-step.ts): the header's one
@@ -37,6 +38,7 @@ const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean 
   blame: { verb: 'blame', tests: false },
   'injection-test': { verb: 'test it', tests: false },
   'injection-again': { verb: 'test it', tests: false },
+  pack: { verb: PACK_VERB, tests: true },
 };
 
 /** The job a step runs, for what it waits for and how its button words that; none for a link, or a step that waits for no job. */

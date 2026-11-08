@@ -7,7 +7,7 @@ import { useRunCommands } from '../ui/run/run-commands.js';
 import type { Route } from '../ui/route.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState, type PaletteCommand } from '../ui/state.js';
-import type { BlameOffer, NextStep, RunDetail, RunListItem } from '../ui/types.js';
+import type { BlameOffer, NextStep, RunDetail, RunListItem, RunOffers } from '../ui/types.js';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import { resetSpending } from '../ui/spending.js';
 import { answerTestsQuestion, askQuestion, testsQuestion } from '../ui/tests-ask.js';
@@ -40,10 +40,10 @@ function detail(next: NextStep | null, o: { actions?: unknown[]; replay?: NextSt
 }
 
 /** What This run lists for a run's page, as the page's hook hands it to the palette. */
-async function thisRun(run: RunDetail, app: Partial<AppState> = {}): Promise<PaletteCommand[]> {
+async function thisRun(run: RunDetail, app: Partial<AppState> = {}, offers: RunOffers | null = null): Promise<PaletteCommand[]> {
   let items: PaletteCommand[] = [];
   const Page = () => {
-    useRunCommands({ run, selected: 3, canFork: true, canMark: false, labels: [], mark: () => undefined, offers: null, actions: { run: () => undefined, findCommit: () => undefined }, forkMenu: { openAt: () => undefined }, setView: () => undefined });
+    useRunCommands({ run, selected: 3, canFork: true, canMark: false, labels: [], mark: () => undefined, offers, judged: run.judged ?? null, actions: { run: () => undefined, findCommit: () => undefined }, forkMenu: { openAt: () => undefined }, setView: () => undefined });
     return null;
   };
   const value = { client: { jobs: () => Promise.resolve([]) }, feeds: {}, jobs: [], meta: null, exported: false, actionsOff: null, hasKind: () => true, toast: () => undefined, setRunCommands: (x: PaletteCommand[]) => (x.length ? (items = x) : undefined), ...app } as unknown as AppState;
@@ -54,6 +54,27 @@ async function thisRun(run: RunDetail, app: Partial<AppState> = {}): Promise<Pal
 }
 
 describe('This run', () => {
+  it('offers Pack as golden… before Share… where another step leads, the pack as its hint, found by golden, keep and test', async () => {
+    const folder = `goldens/${RUN.slice(0, 10).toLowerCase()}`;
+    const offers = { keep: { folder } } as unknown as RunOffers;
+    const blame: NextStep = { key: 'blame', label: 'Run blame', offer: { from: 'exit', expect: null, failed: [] }, command: `shadowlap blame ${RUN.slice(0, 10)}` };
+    // A run's page has its calls and its summary, which say whether it failed.
+    const page = (next: NextStep) => ({ ...detail(next), calls: [], summary: { cost: { spent: 0, saved: 0, captured: 0 }, imported: null } }) as unknown as RunDetail;
+    const items = await thisRun(page(blame), {}, offers);
+    const labels = items.map((x) => x.label);
+    expect(labels.indexOf('Pack as golden…')).toBe(labels.indexOf('Share…') - 1);
+    expect(items.find((x) => x.label === 'Pack as golden…')).toMatchObject({ group: 'This run', hint: `shadowlap pack ${RUN.slice(0, 10)} ${folder}`, job: true });
+    for (const word of ['keep', 'test', 'golden']) expect(matchPalette(items, word).map((x) => x.label)).toContain('Pack as golden…');
+    // Where it leads, its row is the step's; a copy, or a dashboard that can't start jobs, has none.
+    const lead: NextStep = { key: 'pack', label: 'Pack as golden…', runId: RUN, folder, command: `shadowlap pack ${RUN.slice(0, 10)} ${folder}` };
+    expect((await thisRun(page(lead), {}, offers)).filter((x) => x.label === 'Pack as golden…')).toHaveLength(1);
+    expect((await thisRun(page(blame), { exported: true }, offers)).map((x) => x.label)).not.toContain('Pack as golden…');
+    expect((await thisRun(page(blame), { actionsOff: 'Read-only' }, offers)).map((x) => x.label)).not.toContain('Pack as golden…');
+    // A recording today's checks fail has none, as its first fact says: a golden made from it would pass on the failure.
+    const failing = { ...page(blame), judged: { by: 'own', verdict: 'failed', counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, callNo: 4, today: true } } as unknown as RunDetail;
+    expect((await thisRun(failing, {}, offers)).map((x) => x.label)).not.toContain('Pack as golden…');
+  });
+
   it('sets the next step’s key by what it presses, never by what it says', () => {
     const blame: NextStep = { key: 'blame', label: 'Run blame', offer: { from: 'exit', expect: null, failed: [] } };
     expect(stepEntry(blame).key).toBe('b');
@@ -61,7 +82,7 @@ describe('This run', () => {
     expect(stepEntry({ key: 'replay', label: 'Replay with your command…', runId: RUN }).key).toBe('r');
     expect(stepEntry({ key: 'compare', label: 'Compare with parent', parent: PARENT, href: `#/compare/${PARENT}/${RUN}` }).key).toBe('c');
     // A step no key presses has none: its own button, or a link the header has no key for.
-    expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'F1', status: 'open', href: '#/fixes/F1' })).not.toHaveProperty('key');
+    expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'F1', status: 'open', check: 'exit code 0', href: '#/fixes/F1' })).not.toHaveProperty('key');
     expect(stepEntry({ key: 'pack', label: 'Pack as golden…', runId: RUN, folder: 'goldens/x' })).not.toHaveProperty('key');
   });
 
@@ -142,7 +163,7 @@ describe('This run', () => {
       expect((await thisRun(detail(rerun), { meta: PROJECT, jobs: [{ job: { id: 'j2', kind: 'test', done: false, project: { id: 'p1' } } }] } as unknown as Partial<AppState>))[0]?.wait).toMatch(/run it again once it is done/);
       // The same job waits nothing for blame, which only a job holding the tree stops.
       expect((await thisRun(detail(blame), { meta: PROJECT, jobs: [{ job: { id: 'j2', kind: 'test', done: false, project: { id: 'p1' } } }] } as unknown as Partial<AppState>))[0]?.wait).toBeUndefined();
-      const link: NextStep = { key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', href: '#/fixes/fx-1', title: '“Refunds”' };
+      const link: NextStep = { key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', check: 'exit code 0', href: '#/fixes/fx-1', title: '“Refunds”' };
       expect((await thisRun(detail(link), { meta: PROJECT, jobs: holding() } as unknown as Partial<AppState>))[0]).not.toHaveProperty('wait');
       const replay: NextStep = { key: 'replay', label: 'Replay', runId: RUN, command: 'shadowlap replay x' };
       expect((await thisRun(detail(replay, { actions: [{ key: 'r', label: 'Replay', disabled: 'no agent to run' }] })))[0]).toMatchObject({ hint: 'no agent to run', wait: 'no agent to run' });
@@ -162,7 +183,7 @@ describe('This run', () => {
   });
 
   it('words an entry from the step alone', () => {
-    expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', href: '#/fixes/fx-1', title: '“Refunds”' })).toEqual({ group: 'This run', label: 'Open fix', hint: '“Refunds”' });
+    expect(stepEntry({ key: 'fix', label: 'Open fix', fixId: 'fx-1', status: 'open', check: 'exit code 0', href: '#/fixes/fx-1', title: '“Refunds”' })).toEqual({ group: 'This run', label: 'Open fix', hint: '“Refunds”' });
     expect(stepEntry({ key: 'rule', label: 'Add normalizer' })).toEqual({ group: 'This run', label: 'Add normalizer', hint: '', job: true });
   });
 });

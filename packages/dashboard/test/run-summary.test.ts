@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { kindCode } from '../src/call-kinds.js';
 import { displayOrigin, JUDGE_SCOPE, ORIGIN_CODE, Store, storeApiRequest, summarizeRun, type CallKind, type Origin, type Price, type RunMeta, type RunRecord, type RunSummary } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/engine';
 import { modelName, runPageFacts } from '../src/run-page.js';
@@ -84,6 +85,7 @@ describe('what a run page says of the whole run, read in SQL', () => {
           expect(rounded(sql.summary)).toEqual(rounded(summarizeRun(run, calls, [], [], { modelOf, ...(prices ? { prices } : {}) })));
           expect(sql.calls).toBe(calls.length);
           expect(sql.origins).toBe(calls.map((c) => ORIGIN_CODE[displayOrigin(c.origin, c.end ? { outcome: c.end.outcome, injected: c.end.meta.injected } : null)]).join(''));
+          expect(sql.kinds).toBe(calls.map((c) => kindCode({ kind: c.kind, effect: c.effect, origin: c.origin, outcome: c.end?.outcome })).join(''));
           expect(sql.models).toEqual(runPageFacts(store, run, calls).models);
         });
       }

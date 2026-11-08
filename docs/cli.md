@@ -672,7 +672,7 @@ HTTP. It runs until stopped.
 shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open] [--read-only]
 ```
 
-A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any
+A local web UI over the store: runs and forks, a strip of calls by kind or origin, the conversation at any
 call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork
 actions. See [Dashboard](./dashboard.md).
 
@@ -3884,10 +3884,15 @@ instrumentations): LLM spans with `llm.input_messages`, `llm.output_messages`, `
 `output.value` where its OpenAI and Anthropic instrumentations log the request and response themselves.
 When a framework's span wraps the client library's span for the same call, the inner one is kept.
 
+**Agents.** A model call keeps the agents whose spans it ran inside, outermost first
+(`supervisor/researcher`), which the dashboard [shows](./dashboard.md#agents). An agent span names
+`gen_ai.agent.name` or runs `invoke_agent`, or is an OpenInference AGENT span, OpenLLMetry's agent span
+or Pydantic AI's `agent run`. It is for reading only: a replay never matches by it.
+
 **`langfuse`** reads the trace's observations from the Observations API v2
 (`GET /api/public/v2/observations`, a page of 1,000 at a time), or `GET /api/public/traces/<id>` from a
 self-hosted Langfuse without it. Generations are model calls. TOOL observations, and spans named after a
-tool a generation asked for, are tool calls.
+tool a generation asked for, are tool calls. AGENT observations name the agent of the calls under them.
 
 The run keeps the trace's page in Langfuse, its `htmlPath` on the host the API answered from, for the
 dashboard's **Open in Langfuse ↗**. Read from the v2 API, the trace is asked for once more, after the
@@ -4151,7 +4156,7 @@ skipped.
 A run still recording is refused, exit status 2: every export waits for a run to end, or the copy would
 show it recording for good. With `--lineage`, so is a run whose ancestor is still recording.
 
-A 30-call run comes to about 1.1 MB, most of it the dashboard's own code, styles and fonts, which every
+A 30-call run comes to about 1.4 MB, most of it the dashboard's own code, styles and fonts, which every
 copy carries.
 
 ## export dataset

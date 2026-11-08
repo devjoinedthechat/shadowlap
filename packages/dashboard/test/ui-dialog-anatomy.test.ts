@@ -7,7 +7,8 @@ import { StopJobDialog } from '../ui/components/Drawer.js';
 import { UpdateGoldenDialog } from '../ui/components/UpdateGolden.js';
 import { DOCS, docsHref, type DocKey } from '../ui/docs-links.js';
 import { ApplyDialog, PatchDialog, RenameFixDialog, RepairDialog, StrongerDialog } from '../ui/fixes/FixPage.js';
-import { CheckDialog, RunBlameButton } from '../ui/fixes/RunBlame.js';
+import { CheckDialog } from '../ui/fixes/CheckDialog.js';
+import { RunBlameButton } from '../ui/fixes/RunBlame.js';
 import { updateOutdatedAsk } from '../ui/fixes/dialog-words.js';
 import { stopAsk } from '../ui/jobs.js';
 import { RecordRunDialog } from '../ui/pages/Setup.js';
@@ -17,9 +18,9 @@ import { ReplaceSkillsDialog } from '../ui/pages/settings/Agents.js';
 import { CleanupDialog } from '../ui/pages/settings/jobs.js';
 import { RuleDialog } from '../ui/pages/settings/RuleTable.js';
 import { AddServerDialog } from '../ui/pages/settings/Tools.js';
-import { ActionDialog } from '../ui/run/actions.js';
+import { ActionDialog } from '../ui/run/ActionDialog.js';
 import { NextStepButton } from '../ui/run/NextStepButton.js';
-import { EditDialog } from '../ui/run/EditAndFork.js';
+import { EditDialog } from '../ui/run/EditDialog.js';
 import { BisectDialog, DeleteRunDialog } from '../ui/run/RunDialogs.js';
 import { OtelDialog } from '../ui/run/ShareMenu.js';
 import { BulkBar, PackDialog } from '../ui/runspage/BulkBar.js';
@@ -257,7 +258,7 @@ describe('a run’s dialogs', () => {
         ? createElement(BisectDialog, { runId: RUN, offer, onRun: (good: string) => (sent.push(good), true), ...closes })
         : where === 'runs'
           ? createElement(RunsFindCommit, { runId: RUN, choices, ...closes })
-          : createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, revisions, tried: null, onRun: (f: { good?: unknown }) => void sent.push(f.good), ...closes });
+          : createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, goods: { revisions }, onRun: (f: { good?: unknown }) => void sent.push(f.good), ...closes });
     const startJob = (_kind: string, fields: { good?: string }) => (sent.push(fields.good), new Promise(() => undefined));
     const page = await open(shown, appWith({ client: { startJob } }));
     const good = () => /--good (\S+)/.exec(page.one('[role="dialog"] .cmdline').textContent)?.[1];
@@ -434,6 +435,19 @@ describe('a golden’s dialogs', () => {
     expect(page.all('.dcost.flow')).toHaveLength(1);
     expect(page.all('.dcost')).toHaveLength(2);
   });
+  it('Update goldens with their normalizer and update lime, its cost said once under Update anyway', async () => {
+    const b = { ...div, golden: 'goldens/b', name: 'b' };
+    const several = { ...view, rows: [row, { ...row, path: 'goldens/b', name: 'b' }], divergences: [{ ...div, newRules: [['normalize', 'add']] }, b], diverged: ['goldens/a', 'goldens/b'] } as unknown as TestsView;
+    const page = await open(createElement(UpdateGoldensDialog, { view: several, paths: several.diverged, has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes }));
+    holds(page, { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: '.dlg-alt', ok: 'Update anyway', tone: 'plain' });
+    expect(page.all('[role="dialog"] footer button').map((x) => x.textContent)).toEqual(['Cancel', 'Update anyway', 'Add normalizer and update']);
+    expect(page.all('.cmdlbl').map((c) => c.textContent)).toEqual(['Add normalizer and updateShow command', 'Update anywayShow command']);
+    // The advice names the action whole, never broken across its line.
+    expect(page.all('.advise p .nw').map((x) => x.textContent)).toEqual(['Add normalizer and update']);
+    expect(page.one('.advise p').textContent).toBe('a diverged on a value that is new every run. Add normalizer and update masks it first.');
+    expect(page.all('.dcost')).toHaveLength(1);
+    expect(page.one('.dcost').textContent).toMatch(/^Billed by your provider\W+either way, as their recordings cost$/);
+  });
   it('Update golden with no advice', async () => {
     const quiet = { ...view, divergences: [{ ...div, volatile: null, normalizeAndTest: null }] } as unknown as TestsView;
     holds(await open(createElement(UpdateGoldensDialog, { view: quiet, paths: ['goldens/a'], has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update a?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
@@ -447,10 +461,19 @@ describe('a golden’s dialogs', () => {
   });
   it('Find breaking commit for a golden', async () => {
     const revisions = [{ rev: 'c91d0f4', at: 1, subject: 'A change', result: 'pass', sameChecks: true }] as never;
-    holds(await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, revisions, tried: null, onRun: () => undefined, ...closes })), { title: 'Find breaking commit for a', doc: 'bisect', first: 'input[type="text"]', ok: 'Find breaking commit' });
+    holds(await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: true, goods: { revisions }, onRun: () => undefined, ...closes })), { title: 'Find breaking commit for a', doc: 'bisect', first: 'input[type="text"]', ok: 'Find breaking commit' });
+  });
+  it('Find breaking commit saying how the golden did at each commit, and when it was tested at none', async () => {
+    const revisions = [{ rev: 'c91d0f4', at: 1, subject: 'A change', result: 'fail', verdict: 'failed', sameChecks: true, rate: { passes: 4, attempts: 8 } }] as never;
+    const untested = [{ rev: 'b'.repeat(40), subject: 'Before it' }];
+    const page = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: false, goods: { revisions, untested }, onRun: () => undefined, ...closes }));
+    expect(page.all('.bgood small').map((x) => x.textContent)).toEqual(['failed 4 of 8', 'not tested there']);
+    const none = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: null, live: false, goods: { revisions: [], untested }, onRun: () => undefined, ...closes }));
+    expect(none.one('.cmdlbl').textContent).toBe('Good commit · none tested yet');
+    expect(none.all('.bgood small')).toHaveLength(0);
   });
   it('Find breaking commit over a range, with nothing to ask', async () => {
-    const page = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: { good: 'c91d0f4', bad: 'd2e8a1f' }, live: false, revisions: [], tried: null, onRun: () => undefined, ...closes }));
+    const page = await open(createElement(FindCommitDialog, { name: 'a', golden: 'goldens/a', range: { good: 'c91d0f4', bad: 'd2e8a1f' }, live: false, goods: { revisions: [] }, onRun: () => undefined, ...closes }));
     holds(page, { title: 'Find breaking commit for a', doc: 'bisect', first: OK, ok: 'Find breaking commit' });
     expect(page.all('.dfacts div').map((d) => d.textContent)).toEqual(['Goodc91d0f4', 'Badd2e8a1fthe commit the last test session ran at']);
     expect(page.one('.dcost').textContent).toContain('bisect replays offline');

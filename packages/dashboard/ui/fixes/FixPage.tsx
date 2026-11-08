@@ -9,6 +9,7 @@ import { DialogSteps, DialogTip } from '../components/DialogFacts.js';
 import { headingRef } from '../focus-manager.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
+import { Elsewhere } from '../pages/held-elsewhere.js';
 import { APPLY_ASK } from '../page-ask.js';
 import { Unshown } from '../shell/unshown.js';
 import { copyText } from '../dom.js';
@@ -55,22 +56,35 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
   }, [fix, id]);
   useFollowJobs(id, fix);
   if (!fix) {
+    const loading = (
+      <Page>
+        <div className="empty tall">Loading the fix…</div>
+      </Page>
+    );
+    // Another project may hold it: a link from there, or a page left open across a switch.
     if (loaded.error instanceof ApiError && loaded.error.status === 404)
       return (
-        <>
-          <Unshown at={`fixes:${id}`} />
-          <NotFoundPage what={`No fix ${id}.`} />
-        </>
+        <Elsewhere
+          ask={{ what: 'fix', ids: [id] }}
+          error={loaded.error}
+          waiting={loading}
+          retry={loaded.reload}
+          fallback={
+            <>
+              <Unshown at={`fixes:${id}`} />
+              <NotFoundPage what={`No fix ${id}.`} />
+            </>
+          }
+        />
       );
+    if (!loaded.error) return loading;
     return (
       <Page>
         <div className="empty tall">
-          {loaded.error ? `Could not load the fix: ${loaded.error.message}. ` : 'Loading the fix…'}
-          {loaded.error ? (
-            <a className="more" href={href.fixes()}>
-              All fixes
-            </a>
-          ) : null}
+          {`Could not load the fix: ${loaded.error.message}. `}
+          <a className="more" href={href.fixes()}>
+            All fixes
+          </a>
         </div>
       </Page>
     );

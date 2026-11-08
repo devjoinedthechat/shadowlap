@@ -5,19 +5,42 @@
 .fnode .f2 em, .lineage small em { font-style: normal; color: var(--err); }
 
 .rv { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.rhead { display: flex; align-items: flex-start; gap: 20px; padding: 16px 24px 12px; }
-.rtitle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+/* The run's header, as every page's: the eyebrow over the id at the left, the buttons at the right (order), and under the id
+   its about line with the facts at its right. A break follows the buttons. In the DOM the buttons come last, so Tab reaches
+   them after the facts and a stacked header reads as it is drawn. */
+.rhead { position: relative; display: flex; flex-wrap: wrap; align-items: center; column-gap: 20px; padding: 26px 24px 8px; }
+.rhead::after { content: ""; order: 2; flex: 0 0 100%; }
+.rtitle { order: 0; flex: 1 1 auto; align-self: flex-start; display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; min-width: 0; }
+.rtitle .eyebrow.ek { flex: 0 0 100%; }
 /* A run's id, in the face every other id is set in: the display face draws 0 and O alike. */
 .rtitle h1 { margin: 0; font: 700 24px/1.1 var(--mono); letter-spacing: -.02em; }
 .meta { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--faint); font-size: 12.5px; }
 .meta code { color: var(--dim); font-size: 12px; }
+/* a run's start and its duration are one piece, so the duration never stands alone on a line */
+.meta .mwhen { display: inline-flex; gap: 14px; }
 .labelbar { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .labelbar .chip button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--faint); line-height: 1; }
 .labelbar .chip button:hover { color: var(--err); }
+/* the × is drawn 7px wide and takes taps over 24px, mostly to its right, so a tap on the label's name doesn't remove it */
+.labelbar .chip button { position: relative; }
+.labelbar .chip button::after { content: ""; position: absolute; inset: -7px -12px -6px -5px; }
 
 .labelbar input { height: 22px; width: 140px; border-radius: 6px; border: 1px solid var(--accent-line); background: var(--panel); color: var(--ink); font: 11.5px var(--mono); padding: 0 8px; outline: none; }
-.rhead .actions { margin-left: auto; justify-content: flex-end; }
+.rhead .actions { order: 1; flex: none; align-self: flex-start; margin-left: auto; justify-content: flex-end; }
+/* a button folded into … stays in the page, for its key, the palette and its own dialog (fit-head.ts) */
+.rhead .actions [data-folded] { display: none; }
 .metrics { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; padding: 10px 24px 12px; border-top: 1px solid var(--line); }
+/* the run's facts sit at its about line's right, how it came out first */
+.rhead .metrics { order: 4; flex: none; flex-wrap: nowrap; gap: 6px 22px; margin: 6px 0 0 auto; padding: 0; border: 0; min-width: 0; }
+.rtitle + .metrics { margin-left: 0; }
+/* where the buttons would wrap under the title they go under it all, the next step first (fitHead below 1280px always); where
+   the about line leaves the facts no room beside it, they go under it, from the left */
+.rhead.stack .actions { order: 6; flex: 1 1 100%; margin: 10px 0 0; justify-content: flex-start; flex-wrap: wrap; }
+.rhead.stack .actions .btn.lime { order: -1; }
+.rhead.fstack .metrics { flex: 1 1 100%; margin-left: 0; flex-wrap: wrap; }
+/* Delete waits in the … menu, with the buttons the header folded */
+.btn.more { width: 34px; padding: 0; justify-content: center; }
+.btn.more svg { width: 16px; height: 16px; }
 .metric { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; min-width: 0; max-width: 100%; }
 .metric b { font: 700 17px/1 var(--disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 /* the run's replayed calls, a figure in the replayed colour (metrics.ts names it lime) */
@@ -32,18 +55,17 @@
 .metric.rout .st[data-tip] { cursor: default; }
 .metric .rtoday { font-size: 12px; color: var(--faint); }
 .metric span { font-size: 12px; color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.banner { display: flex; align-items: center; gap: 12px; padding: 9px 24px; border-top: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
+.banner { display: flex; align-items: center; gap: 12px; padding: 9px 24px; border-top: 1px solid var(--line); font-size: 13.5px; flex-wrap: wrap; }
 .banner.fork { background: color-mix(in srgb, var(--warn) 5%, transparent); }
 .banner.blame { background: color-mix(in srgb, var(--err) 5%, transparent); }
 .banner.live { background: color-mix(in srgb, var(--o-live) 6%, transparent); }
-.banner .bk { font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; }
 .banner.fork .bk, .banner.fork .bn { color: var(--ink); }
 .banner.blame .bk, .banner.blame .bn { color: var(--err); }
 .banner.live .bk { color: var(--ink); }
-.banner .bn { font: 600 14px var(--mono); cursor: pointer; border: 0; background: none; padding: 0; }
+.banner .bn { font: 600 12.5px var(--mono); cursor: pointer; border: 0; background: none; padding: 0; }
 .banner code { font-size: 12.5px; }
 .banner .why { color: var(--faint); }
-.banner .path { font: 12px var(--mono); color: var(--add); }
+.banner .path { font: 12.5px var(--mono); color: var(--add); }
 /* A flag and its value (an --override's JSON) or a path has no space to break at: where the banner
    wraps, it breaks anywhere rather than widen the page on a phone. */
 .banner .why code, .banner .path { overflow-wrap: anywhere; }
@@ -59,7 +81,7 @@
    write the origin colours of the strip. */
 .fdiff { border-top: 1px solid var(--line); padding: 10px 24px 12px; font-size: 13px; }
 .fdiff header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.fdiff h2 { margin: 0; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.fdiff h2 { margin: 0; color: var(--dim); }
 .fdiff header .sub { color: var(--faint); font-size: 12px; }
 .fdiff header .sub a { color: var(--dim); text-underline-offset: 2px; text-decoration-color: var(--line2); }
 .fdiff header .sub a:hover { color: var(--ink); }
@@ -110,9 +132,9 @@
   .diffpanel .add { padding-left: calc(14px + 2ch); text-indent: -2ch; }
 }
 .diffpanel .hint { grid-column: 1 / -1; font-size: 12.5px; color: var(--faint); }
-.strip { position: relative; display: flex; align-items: center; gap: 16px; padding: 22px 24px 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.strip { position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 24px 8px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .cells { position: relative; flex: 1; display: grid; gap: 3px; min-width: 0; }
-.cells button { position: relative; height: 22px; padding: 0; border: 0; border-radius: 3px; cursor: pointer; background: var(--line2); }
+.cells button { position: relative; height: 22px; padding: 0; border: 0; border-radius: var(--r-mark); cursor: pointer; background: var(--line2); }
 .cells button.rep { background: var(--o-rep); }
 .cells button.live { background: var(--o-live); }
 .cells button.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
@@ -123,11 +145,42 @@
 /* a fork is marked in ink; a lost call in the one red */
 .cells button.mark { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
 .cells button.mark.bl { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--err); }
-.cells button .flag { position: absolute; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%); font: 600 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--ink); }
+.cells button .flag { position: absolute; left: 50%; bottom: calc(100% + 3px); transform: translateX(-50%); font: 600 var(--fs-label) / 1 var(--body); white-space: nowrap; color: var(--ink); }
+/* a marked cell's focus ring outside its mark; the selected cell ringed while the focus is in the strip */
+.cells button.mark:focus-visible { outline-offset: 5px; }
+.cells:focus-within button[aria-current="true"] { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+/* a recording's cells by kind: a model call in live's tone, a read at 40% of it, a write teal, an error the one red */
+.cells button.k-model { background: var(--k-model); }
+.cells button.k-read { background: var(--k-read); }
+.cells button.k-write { background: var(--k-write); }
+.cells button.k-err { background: var(--k-err); }
+/* a range's notch: its rarer notable call (an error, a write, what a fork changed or fenced), at its place in the range */
+.cells button .tk { position: absolute; top: -4px; height: 8px; width: 2px; margin-left: -1px; border-radius: 1px; pointer-events: none; background: var(--ink); box-shadow: 0 0 0 1px var(--bg); }
+.cells button .tk.k-err, .cells button .tk.fail { background: var(--err); }
+.cells button .tk.k-write { background: var(--k-write); }
+.cells button .tk.block { background: var(--o-block); }
+.cells button .tk.stub { background: var(--o-stub); }
+.cells button .tk.over, .cells button .tk.inject { background: var(--o-over); }
+.cells button .tk.live { background: var(--o-live); }
+@media (pointer: coarse) { .cells button { height: 24px; } }
 .cells button.bl .flag { color: var(--err); }
 .cells button[aria-current="true"]::after { content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); border: 5px solid transparent; border-bottom-color: var(--ink); }
 .cells button:hover:not(.pending) { filter: brightness(1.15); }
 .strip .legend { flex: none; }
+/* the key, which is the call filter: chips with a swatch, a word and a count; a recording says first that every call is live */
+.legend.lfilter { gap: 2px; align-items: center; font: 500 12px var(--body); }
+.legend.lfilter button { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 0; border-radius: var(--r-chip); background: none; cursor: pointer; font: inherit; color: var(--faint); white-space: nowrap; }
+.legend.lfilter button:hover { color: var(--ink); }
+.legend.lfilter button[aria-pressed="true"] { background: var(--raise); color: var(--ink); box-shadow: 0 0 0 1px var(--line2); }
+.legend.lfilter button b { font: 500 11px var(--mono); color: var(--faint); }
+.legend.lfilter i.lg { border-radius: var(--r-mark); }
+.legend.lfilter .lk { color: var(--faint); margin-right: 8px; white-space: nowrap; }
+.legend i.lg.k-model { background: var(--k-model); }
+.legend i.lg.k-read { background: var(--k-read); }
+.legend i.lg.k-write { background: var(--k-write); }
+.legend i.lg.k-err { background: var(--k-err); }
+.strip .filter-in { flex: none; margin-left: 0; }
+.strip .filter-in input { height: 26px; width: 150px; }
 .work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(380px, 1fr); }
 .views { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
 .tabs { display: flex; align-items: center; gap: 2px; padding: 8px 16px 0 18px; border-bottom: 1px solid var(--line); }
@@ -136,12 +189,8 @@
 .tabs [aria-selected="true"] { color: var(--ink); }
 .tabs [aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); }
 .tabs .count { font: 11px var(--mono); color: var(--faint); margin-left: 4px; }
+.views > .tabs { padding-top: 0; }
 .toolbar { display: flex; align-items: center; gap: 10px; padding: 9px 18px; border-bottom: 1px solid var(--line); }
-.ofilter { display: flex; gap: 2px; }
-.ofilter button { border: 0; background: none; cursor: pointer; padding: 4px 8px; border-radius: 7px; font: 500 12px var(--body); color: var(--faint); }
-.ofilter button b { font: 500 11px var(--mono); margin-left: 4px; color: var(--faint); }
-.ofilter button:hover { color: var(--ink); }
-.ofilter button[aria-pressed="true"] { background: var(--raise); color: var(--ink); box-shadow: 0 0 0 1px var(--line2); }
 .filter-in { margin-left: auto; position: relative; }
 .filter-in input { height: 30px; width: 200px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--body); padding: 0 30px 0 10px; outline: none; }
 .filter-in input:focus { border-color: var(--accent-line); }
@@ -161,16 +210,18 @@ table.calls tbody tr { cursor: pointer; }
 table.calls tbody tr:hover td { background: var(--hover); }
 table.calls tr[aria-selected="true"] td { background: var(--sel); }
 table.calls tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
-table.calls .n { width: 54px; text-align: right; font: 12px var(--mono); color: var(--faint); }
-table.calls .n .fk { font: 600 9px var(--mono); letter-spacing: .1em; color: var(--ink); margin-right: 5px; }
+table.calls .n { width: 54px; text-align: right; font: 12.5px var(--mono); color: var(--faint); }
+table.calls .n .fk { font: 600 var(--fs-label) var(--body); color: var(--ink); margin-right: 5px; }
 table.calls .n .fk.bl { color: var(--err); }
 table.calls .name { font-weight: 500; }
 table.calls .name small { font: 11px var(--mono); color: var(--faint); margin-right: 8px; }
 table.calls .name { max-width: 1px; width: 100%; overflow: hidden; text-overflow: ellipsis; }
-table.calls .det { font: 12px var(--mono); font-weight: 400; color: var(--faint); margin-left: 12px; }
+table.calls .det { font: 12.5px var(--mono); font-weight: 400; color: var(--faint); margin-left: 12px; }
 /* a tool's result sits under its call: the request on one line, what came back on the next */
-table.calls .res { display: block; margin: 1px 0 0 37px; font: 11.5px var(--mono); font-weight: 400; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
+table.calls .res { display: block; margin: 1px 0 0 37px; font: 11px var(--mono); font-weight: 400; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
 table.calls .res.err { color: var(--err); }
+/* a blocked write's result in the blocked grey, as its origin is: the fence is Shadowlap working, never the red of what failed */
+table.calls .res.blk { color: var(--o-block); }
 /* light grouping: a call under the call it belongs to, its fold mark in the room before its kind */
 table.calls .lead { display: inline-flex; justify-content: flex-end; align-items: center; height: 16px; vertical-align: -3px; margin-right: 4px; }
 table.calls .tw { width: 16px; height: 16px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--dim); cursor: pointer; }
@@ -180,9 +231,8 @@ table.calls .tw:hover { color: var(--ink); background: var(--hover); }
 table.calls .gitem { font: 11px var(--mono); font-weight: 400; color: var(--dim); margin-left: 10px; }
 table.calls .gfold { font: 11px var(--mono); font-weight: 400; color: var(--dim); margin-left: 10px; padding: 0 5px; border: 1px solid var(--line2); border-radius: 5px; }
 table.calls.grouped .res { margin-left: calc(37px + var(--lead, 0px)); }
-.toolbar .foldall { white-space: nowrap; }
 table.calls .num.was { color: var(--faint); }
-table.calls .num { text-align: right; font: 12px var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
+table.calls .num { text-align: right; font: 12.5px var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
 table.calls .rowact { width: 36px; padding: 0 8px 0 0; text-align: right; }
 table.calls .rowact button { visibility: hidden; width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 6px; border: 1px solid var(--line2); background: var(--panel); color: var(--dim); cursor: pointer; }
 table.calls .rowact button svg { width: 12px; height: 12px; }
@@ -222,6 +272,14 @@ table.calls .rowact button:hover { color: var(--ink); border-color: var(--dim); 
 .couts { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; align-items: start; height: 34px; margin-top: 2px; }
 .couts i { display: block; border-radius: 0 0 4px 4px; background: var(--c-out); }
 .clabels { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; margin-top: 4px; font: 10.5px var(--mono); color: var(--faint); text-align: center; }
+/* Context's axes: the input's beside the bars with its gridlines, the output's beside its own bars; the
+   baseline's 0 serves both, and the output's ticks run down from it */
+.cplot { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 8px; row-gap: 2px; }
+.cplot .yaxis { height: auto; }
+.cplot .couts, .cplot .clabels { margin-top: 0; }
+.cplot .couts { height: 44px; }
+.cplot .yout span:last-child { transform: none; }
+.cbars .gl { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); pointer-events: none; }
 .cnote { margin: 14px 0 0; font-size: 12.5px; color: var(--faint); }
 .cnote b { color: var(--warn); font-weight: 500; }
 table.ctab { width: 100%; border-collapse: collapse; font: 12px var(--mono); }
@@ -243,6 +301,11 @@ table.ctab tr.miss td { color: var(--warn); }
 .tl-row .bar.live { background: var(--o-live); }
 .tl-row .bar.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
 .tl-row .bar.stub { background: var(--o-stub); }
+/* A recording's bars by what each call was, in the strip's key. */
+.tl-row .bar.k-model { background: var(--k-model); }
+.tl-row .bar.k-read { background: var(--k-read); }
+.tl-row .bar.k-write { background: var(--k-write); }
+.tl-row .bar.k-err { background: var(--k-err); }
 .tl-row .ft { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--bg); }
 .tl-sum .ftkey { display: inline-block; width: 16px; height: 8px; margin-right: 6px; vertical-align: 0; border-radius: 2px; background: linear-gradient(90deg, var(--dim) 0 6px, var(--bg) 6px 8px, var(--dim) 8px); }
 .tl-sum { display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 4px 18px 16px; font-size: 12.5px; color: var(--faint); }
@@ -274,14 +337,20 @@ table.ctab tr.miss td { color: var(--warn); }
 .ihead .nav { margin-left: auto; display: flex; gap: 4px; }
 .insp .tabs { padding-left: 10px; }
 .ibody { flex: 1; overflow: auto; min-height: 0; padding: 12px 18px 24px; }
+/* a finding's diff in the inspector's place, with Hide in its head: one column, the inspector's width, scrolling with it */
+.insp.fpanel .fhead { padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.insp.fpanel .fhead .ct { font: 600 13.5px var(--body); }
+.insp.fpanel .fbody { padding: 0; }
+.insp.fpanel .diffpanel { grid-template-columns: minmax(0, 1fr); border-top: 0; padding: 14px 18px 16px; background: none; }
 .ibar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; color: var(--faint); }
 .ibar .sp { flex: 1; }
 .expand { display: block; width: 100%; margin: 4px 0 2px; padding: 8px 10px; border: 1px dashed var(--line2); border-radius: 9px; background: none; color: var(--faint); font: 12px var(--body); cursor: pointer; text-align: center; }
 .expand:hover { color: var(--ink); border-color: var(--dim); }
 .msg { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .msg:last-child { border-bottom: 0; }
-.msg .role { font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding-top: 2px; }
-.msg .role small { display: block; margin-top: 2px; font-size: 10px; letter-spacing: 0; }
+.msg .role { font: 600 12px var(--body); color: var(--faint); padding-top: 1px; }
+.msg .role::first-letter { text-transform: uppercase; }
+.msg .role small { display: block; margin-top: 2px; font: 10px var(--mono); letter-spacing: 0; color: var(--dim); }
 /* a message's role is a label, muted: the overridden colour means an overridden call, lime the primary action */
 .msg.system .role { color: var(--faint); }
 .msg.user .role { color: var(--faint); }
@@ -293,7 +362,7 @@ table.ctab tr.miss td { color: var(--warn); }
 .tu .ar { color: var(--faint); }
 .jbox { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); color: var(--dim); white-space: pre-wrap; word-break: break-word; }
 /* a message the fork changed says so under it, in ink: a fork is never amber */
-.msg .chg { display: inline-block; margin-top: 6px; font: 500 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
+.msg .chg { display: inline-block; margin-top: 6px; font: 600 12px var(--body); color: var(--ink); }
 .ins-add { color: var(--add); background: var(--add-bg); border-radius: 3px; padding: 0 2px; }
 
 .resp { font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
@@ -324,28 +393,96 @@ table.ctab tr.miss td { color: var(--warn); }
 .addnote textarea { flex: 1; min-height: 38px; max-height: 120px; resize: vertical; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 8px 10px; outline: none; }
 .addnote textarea:focus { border-color: var(--accent-line); }
 
+/* The run page keeps its views in sight. From 1001px the window doesn't scroll, so the findings and
+   the strip took their height from the views until the calls list kept a row or none. The work area
+   keeps its minimum instead, the calls list about 180px (its head and four rows) and the inspector
+   beside it or under it, and the run page scrolls (.rv) when the window is shorter, the strip kept
+   at its top as the calls' header. */
+@media (min-width: 1001px) {
+  .rv { overflow-y: auto; overscroll-behavior: contain; }
+  .work { flex: 1 1 0; min-height: 420px; }
+  .strip { position: sticky; top: 0; z-index: 6; background: var(--bg); }
+}
+/* While a job's log is open the views give up their minimum height, so the calls keep their rows
+   above it, from 1281px where the inspector sits beside them; a shorter window scrolls the page. */
+@media (min-width: 1281px) { body.docked:not(.dockfold) .work { min-height: 240px; } }
+/* The calls and the inspector stay side by side down to 1160px, the inspector at its 360px least
+   (its tabs and its title fit), the view tabs 8px a side so the counts keep inside the calls'
+   column; narrower, the inspector goes under the calls. Below 1281px the cells take the strip's
+   whole width, the key and the field under them. */
+@media (min-width: 1160px) and (max-width: 1280px) {
+  .work { grid-template-columns: minmax(0, 1fr) minmax(360px, .62fr); }
+  .views > .tabs { padding-left: 16px; }
+  .views > .tabs button { padding-left: 8px; padding-right: 8px; }
+  .views > .tabs [aria-selected="true"]::after { left: 8px; right: 8px; }
+}
 @media (max-width: 1280px) {
+  .strip { flex-wrap: wrap; row-gap: 8px; }
+  .strip .cells { flex: 1 1 100%; }
+  .strip .legend.lfilter { flex: 1 1 auto; }
+}
+@media (max-width: 1159px) {
   .work { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(280px, 1fr) minmax(320px, 1fr); }
   .views { border-right: 0; border-bottom: 1px solid var(--line); }
+}
+/* From 1001px to 1159px the inspector sits under the calls at its own height and the run page
+   scrolls to it: only the calls list scrolls inside the page, at most half the window (fit-work.ts
+   sets it lower, so the inspector's head shows under it), so nothing is a scroll inside a scroll
+   inside a scroll. The list stays a box of its own height, which its window needs to draw only
+   the rows in view. */
+@media (min-width: 1001px) and (max-width: 1159px) {
+  .work { flex: none; grid-template-rows: auto auto; min-height: 0; }
+  .vbody { max-height: max(300px, 50vh); }
+  .ibody { overflow: visible; }
+  #insp { scroll-margin-top: 84px; }
 }
 
 @media (max-width: 1000px) {
   .diffpanel { grid-template-columns: minmax(0, 1fr); }
-  .rhead { flex-direction: column; }
+  .rhead { padding: 16px 16px 12px; }
   .rhead .actions { margin-left: 0; justify-content: flex-start; }
-  .strip .legend { display: none; }
   .rv { flex: none; }
   .work { grid-template-rows: auto auto; }
   .vbody, .ibody { max-height: 70vh; }
+  /* The window scrolls: the cells stay at its top as the calls' header, the key and the field under
+     them, one 16px gutter down the page as the header's. */
+  .strip { display: contents; }
+  .strip .cells { flex: none; position: sticky; top: 0; z-index: 6; padding: 18px 16px 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--bg); }
+  .strip .legend.lfilter { flex: none; padding: 10px 16px 0; }
+  /* its rows wrap here, a chip over another: each 24px tall, a finger's target */
+  .strip .legend.lfilter button { min-height: 24px; }
+  .strip .filter-in { margin: 8px 16px 10px; }
+  .strip .filter-in input { width: 100%; }
+  .rv .scopebar { padding-left: 16px; padding-right: 16px; }
+  #insp { scroll-margin-top: 64px; }
 }
 
 @media (max-width: 640px) {
-  table.calls .tok { display: none; }
+  table.calls .tok, table.calls .hide-sm { display: none; }
   table.calls .det { display: none; }
   .toolbar { flex-wrap: wrap; padding: 9px 16px; }
-  .filter-in { margin-left: 0; flex: 1 1 100%; }
-  .filter-in input { width: 100%; }
 }
+/* Under 400px a call's name keeps its room: a cell's padding 6px, the origin its swatch alone (its
+   word kept for a screen reader, on the swatch's hover and in the inspector), a fork's or a lost
+   call's word over its number. The word is hidden inside its cell, which holds it in place. */
+@media (max-width: 400px) {
+  table.calls td, table.calls th { padding-left: 6px; padding-right: 6px; }
+  table.calls .n { width: auto; }
+  table.calls .n .fk { display: block; margin: 0 0 1px; line-height: 1.1; }
+  table.calls .org .orgw, table.calls .orgh .orgw { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  table.calls .org { position: relative; }
+}
+/* Under 360px (a 320px phone, or 400% zoom) the inspector's four tabs keep the width by tighter
+   sides; if they still don't fit, they scroll in their row rather than push the page sideways, a
+   focused tab's ring drawn inside it, whole. */
+@media (max-width: 359px) {
+  .insp .tabs { padding-right: 10px; overflow-x: auto; scrollbar-width: none; }
+  .insp .tabs::-webkit-scrollbar { display: none; }
+  .insp .tabs button { flex: none; padding-left: 6px; padding-right: 6px; }
+  .insp .tabs [aria-selected="true"]::after { left: 6px; right: 6px; bottom: 0; }
+}
+/* A scope gives its room to the call's name past 140px; its hover has all of it. */
+table.calls .scopecell code { display: inline-block; max-width: 140px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 
 .cells button.inject { background: var(--o-inject); }
 .cells button.fail { background: var(--o-fail-fill); }
@@ -358,20 +495,19 @@ table.calls .det.err { color: var(--err); }
 .metric b.err { color: var(--err); }
 /* inspector: thinking, refused and injected calls, the raw stream */
 .think { margin: 0 0 10px; padding: 9px 12px; border-left: 2px solid var(--line2); color: var(--faint); font-size: 13px; line-height: 1.55; font-style: italic; }
-.think .tlab { display: block; margin-bottom: 3px; font: normal 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; }
-.inote { margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.5; }
-.inote.inj { background: color-mix(in srgb, var(--o-over) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--o-over) 35%, transparent); }
-.inote.err { background: color-mix(in srgb, var(--err) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--err) 30%, transparent); }
+.think .tlab { display: block; margin-bottom: 3px; font: normal 600 12px var(--body); }
+.think .tlab::first-letter { text-transform: uppercase; }
+/* what happened to a call the provider never answered, plain lines over the conversation: its verdict word on a line of its
+   own in its colour (Refused., Never sent., Failed.), then why */
+.inote { margin-bottom: 12px; padding: 0 0 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; color: var(--dim); }
+.inote b { display: block; margin-bottom: 1px; font-weight: 600; }
+.inote code { white-space: nowrap; }
+.inote.inj b { color: var(--o-over); }
+.inote.err b { color: var(--cq-red); }
 .ibar.err { color: var(--err); font-family: var(--mono); }
 .rawsse { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--bg2); border: 1px solid var(--line); font: 11.5px/1.55 var(--mono); color: var(--dim); white-space: pre-wrap; word-break: break-all; max-height: 62vh; overflow: auto; }
 .rawsse .ev { color: var(--ink); }
 .kvs.hdrs dt { font-family: var(--mono); font-size: 11.5px; }
-
-/* Beside a run's id its buttons hold one row, and wrap rather than reach the id's column. */
-@media (min-width: 1001px) {
-  .rhead .rmain { flex: 1 1 0; min-width: 240px; }
-  .rhead .actions { flex: 0 1 auto; flex-wrap: wrap; }
-}
 
 /* scopes */
 .scopebar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 24px; border-bottom: 1px solid var(--line); }
@@ -416,7 +552,7 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .banner.wrap .why { flex: 1 1 280px; white-space: normal; overflow: visible; text-overflow: clip; text-wrap: pretty; }
 /* long runs */
 .cells.binned { gap: 1px; }
-.cells.binned button { border-radius: 1px; }
+.cells.binned button { border-radius: var(--r-mark); }
 .cbars.many, .couts.many, .clabels.many { gap: 1px; }
 .cbars.many .cbar > i:last-child { border-radius: 1px 1px 0 0; }
 .clabels.many span { overflow: visible; white-space: nowrap; }
@@ -446,9 +582,9 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 
 /* On a phone the run's view tabs scroll sideways inside their row instead of widening the page. */
 @media (max-width: 640px) { .views .tabs { overflow-x: auto; scrollbar-width: none; } .views .tabs::-webkit-scrollbar { display: none; } .views .tabs button { flex: none; } .views .tabs [aria-selected="true"]::after { bottom: 0; } }
+@media (max-width: 640px) { .views .tabs button:focus-visible { outline-offset: -2px; } }
 @media (max-width: 640px) { .rhead > div { max-width: 100%; } .rhead .meta code { white-space: normal; overflow-wrap: anywhere; } }
 
-.rmain { min-width: 0; }
 .rv.loading { flex: 1; }
 
 table.calls tr.wspace td, table.ctab tr.wspace td { padding: 0; border: 0; }
@@ -456,7 +592,7 @@ table.calls tbody tr.wspace { cursor: default; }
 
 table.calls tbody tr.wspace:hover td { background: none; }
 
-.meta .bad { color: var(--err); }
+.meta .mfail { color: var(--err); }
 
 .ihead.isumrow { padding-top: 2px; }
 .ihead .iedit { margin-left: auto; flex: none; padding-left: 10px; font-size: 12px; }
@@ -485,9 +621,6 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .ibar.convlink { margin-top: 12px; }
 /* its link sits on the text's line, or under the text's start when the line wraps */
 .ibar.convlink .linkbtn { margin-left: -7px; }
-/* the run header's eyebrow wraps a golden's long path onto a line of its own rather than running under the actions */
-.rhead .eyebrow { flex-wrap: wrap; row-gap: 4px; }
-.rhead .eyebrow code { overflow-wrap: anywhere; }
 
 .attempts span i.n { background: var(--faint); }
 .banner.n { background: color-mix(in srgb, var(--dim) 4%, transparent); }
@@ -497,7 +630,7 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .rnote + .rnote { border-top: 1px solid var(--line); }
 .rnote.err { background: color-mix(in srgb, var(--err) 5%, transparent); }
 .rnote.warn { background: color-mix(in srgb, var(--warn) 5%, transparent); }
-.rnote .bk { flex: none; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.rnote .bk { flex: none; color: var(--dim); }
 .rnote.err .bk { color: var(--err); }
 .rnote.warn .bk { color: var(--warn); }
 .rnote .rnw { min-width: 0; flex: 1; }
@@ -521,13 +654,12 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 /* At a phone's width the label goes over the note, which takes the whole width: no baseline alignment to hold it at its text's width. */
 @media (max-width: 760px) { .rnote { flex-direction: column; align-items: stretch; gap: 4px; padding: 8px 16px; } }
 .banner.n .bk { color: var(--dim); }
-/* a run's page at a phone's width: the origin filters wrap under each other, why a run failed
-   wraps like the sentence it is, and so do a banner's buttons (a diverged test's Add normalizer and
-   update…, Update golden and Show diff) rather than run off the screen */
-.rhead .meta > span.bad { white-space: normal; }
+/* a run's page at a phone's width: why a run failed wraps like the sentence it is, and so do a
+   banner's buttons (a diverged test's Add normalizer and update…, Update golden and Show diff)
+   rather than run off the screen */
+.rhead .meta > span.mfail { white-space: normal; }
 
 @media (max-width: 640px) {
-  .toolbar .ofilter { flex-wrap: wrap; row-gap: 4px; }
   .banner .end { flex-wrap: wrap; row-gap: 8px; }
 }
 
@@ -541,27 +673,44 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .attempts .t { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fnode > .attempts.fxwide { grid-column: 2 / -1; margin-top: -2px; }
 
-/* the header: the id is the heading, in mono so it reads exactly (its zero is dotted, never an O), with its status chip and
-   Copy ID beside it. Under it the about line, muted, on one line, and the labels after it as chips: the line shrinks
+/* the header: the id is the heading, in mono so it reads exactly (its zero is dotted, never an O), with Copy ID beside it. Under it the about line, muted, on one line, and the labels after it as chips: the line shrinks
    before the labels move under it, and they move only when it would have less than 160px. On a phone a run's labels go
    under it whenever it wouldn't fit whole beside them, so a narrower screen never shows less; + Label alone stays beside
    it. A run with no about line of its own (a clean replay) keeps its labels on the id's row, after Copy ID. */
 .rtitle h1.rnm { flex: none; margin: 0; font: 500 24px/1.15 var(--mono); letter-spacing: 0; color: var(--ink); }
-.rtitle .tag { flex: none; }
-.rabout { display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px; margin-top: 6px; min-width: 0; font-size: 13.5px; }
+/* the id is a Tab stop for its meta card: Tab draws its ring (metaon), and the page putting the focus there draws none */
+.rtitle h1.rnm:focus { outline: none; }
+.rhead.metaon .rtitle h1.rnm:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 3px; border-radius: 4px; }
+/* the meta (command, revision, time, what failed) is a card under the title, shown while the pointer is on the id or on the
+   card, or while the id has the focus Tab gave it (metaon), never for a focus the page moved there; Esc hides it (metaoff).
+   It is the id's description, so a screen reader reads it with the id. On a touch screen it is a line of its own under the facts. */
+.rhead .meta { position: absolute; z-index: 30; width: max-content; max-width: min(620px, calc(100vw - 32px)); margin: 0; padding: 9px 12px; border-radius: 10px; background: var(--pop); box-shadow: var(--shadow-pop); font-size: 12px; color: var(--dim); visibility: hidden; transition: visibility 0s .2s; }
+.rhead:not(.metaoff):has(h1.rnm:hover) .meta, .rhead:not(.metaoff) .meta:hover, .rhead.metaon .meta { visibility: visible; transition-delay: 0s; }
+.rhead.metaoff .meta { transition: none; }
+@media (hover: none) {
+  .rhead .meta { order: 5; position: static; flex: 0 0 100%; width: auto; max-width: none; margin-top: 8px; padding: 0; border-radius: 0; background: none; box-shadow: none; font-size: 12.5px; color: var(--faint); visibility: visible; }
+}
+.rtitle > .linkbtn { margin: -3px 0 -3px -2px; padding-left: 5px; padding-right: 5px; }
+.rabout { order: 3; flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 6px; margin-top: 6px; min-width: 0; font-size: 13.5px; }
 .rabout .rab { flex: 1 1 160px; max-width: max-content; }
 @media (max-width: 640px) { .rabout:has(.labelbar .chip) .rab { flex: 0 1 auto; max-width: none; } }
 .rabout .labelbar { flex: none; max-width: 100%; }
+.rabout .labelbar .linkbtn { margin: -3px 0 -3px 2px; padding-left: 5px; padding-right: 5px; }
 .rtitle .labelbar { flex: 0 1 auto; max-width: 100%; }
-/* the eyebrow says what kind of run it is; the lineage is in the crumbs. A phone has no crumbs: there the eyebrow names
-   the parent too, by its id, as a link, on the same line */
-.eyebrow .ebk { flex: none; }
-.eyebrow .ebp { display: none; }
+.rtitle .labelbar .linkbtn { margin: -3px 0; padding-left: 5px; padding-right: 5px; }
+/* the eyebrow says what kind of run it is, muted, on one line; the lineage is in the crumbs. A phone has no crumbs: there the
+   eyebrow names the parent too, by its id, as a link, on the same line */
+.rhead .eyebrow.ek { white-space: nowrap; overflow: hidden; min-width: 0; }
+.eyebrow.ek .ebk { flex: none; }
+.eyebrow.ek .ebp { display: none; }
 
 @media (max-width: 640px) {
-  .eyebrow .ebp { display: inline-flex; align-items: baseline; gap: .6em; flex: none; }
-  .eyebrow .ebp a { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 55%, transparent); }
-  .eyebrow .ebp code { font: inherit; letter-spacing: .04em; text-transform: none; }
+  .rhead .eyebrow.ek { padding-bottom: 4px; margin-bottom: -4px; }
+  .rhead .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); column-gap: 28px; row-gap: 8px; }
+  .rhead .metric.rout { grid-column: 1 / -1; flex-wrap: wrap; row-gap: 2px; }
+  .eyebrow.ek .ebp { display: inline-flex; align-items: baseline; gap: .6em; flex: none; }
+  .eyebrow.ek .ebp a { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 55%, transparent); }
+  .eyebrow.ek .ebp code { font: inherit; letter-spacing: .04em; text-transform: none; }
 }
 
 /* Provenance: the about line whole, where it comes from under it; the lineage, each run by its id and its about line */
@@ -611,7 +760,9 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
   .cells button:focus-visible { outline-color: Highlight; }
   .cells button .flag { forced-color-adjust: auto; }
   .tabs [aria-selected="true"]::after, .clabels .sel::before { background: CanvasText; }
-  .ofilter button[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
+  .legend.lfilter button[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
+  /* a range's notch in the text colour, over a cell that keeps its own */
+  .cells button .tk { forced-color-adjust: none; background: CanvasText; }
   /* the open call's and turn's fill and bar are lost: their row is outlined in the highlight colour */
   table.calls tr[aria-selected="true"], .turn.sel { outline: 2px solid Highlight; outline-offset: -2px; }
   /* a chart's thinnest parts keep their colours inside a halo of the page's own dark; the open call's bar is outlined */
@@ -623,3 +774,25 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
   .tl-row.sel .lab { color: HighlightText; }
   .attempts span i, .attempts a i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
 }
+
+/* The run's findings, one bar: plain lines between hairlines with no ground of their own, the label in the UI face, coloured
+   only when it is a verdict (lost, diverged, failed and not recorded in red; inconclusive in amber); the first whole, the
+   others opening in place under it from "2 findings", a note's tools and hint and the fork's changes with them. */
+.findings .banner, .findings .rnote, .findings .fdiff { padding-top: 6px; padding-bottom: 6px; background: none; }
+.findings .rnote { border-top: 1px solid var(--line); }
+.findings .banner .bk, .findings .rnote .bk, .findings .fdiff h2 { font: 600 13.5px var(--body); letter-spacing: 0; text-transform: none; }
+.findings .banner.fork .bk, .findings .banner.fork .bn, .findings .banner.live .bk, .findings .fdiff h2 { color: var(--ink); }
+/* a finding under an outcome that already gives its verdict leads with what the verdict stands on, in ink, and no label */
+.findings .banner .why .lead { color: var(--ink); }
+.findings .fx, .findings:not(.open) .fbody { display: none; }
+/* the checks finding lists every check: it wraps rather than push the page sideways, where other findings keep one line */
+.banner.ck { flex-wrap: wrap; row-gap: 4px; }
+.banner.ck > .st { flex: 0 1 auto; min-width: 0; white-space: normal; align-items: baseline; }
+.banner.ck > .st i { flex: none; transform: translateY(-1px); }
+.findings.open .banner.fx, .findings.open .rnote.fx { display: flex; }
+.findings.open .fdiff.fx { display: block; }
+.findings .fmore { flex: none; margin-left: auto; }
+.findings .banner .end + .fmore { margin-left: 0; }
+.findings .fmore .caret { width: 10px; height: 10px; margin-left: 4px; transition: transform .15s; }
+.findings.open .fmore .caret { transform: rotate(180deg); }
+@media (max-width: 1000px) { .findings .banner, .findings .rnote, .findings .fdiff { padding-left: 16px; padding-right: 16px; } }
