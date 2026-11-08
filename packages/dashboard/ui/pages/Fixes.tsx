@@ -10,7 +10,7 @@ import { rememberList } from '../fixes/data.js';
 import { FixPage } from '../fixes/FixPage.js';
 // What a fix's jobs end on in the drawer, registered as the Fixes chunk loads.
 import '../fixes/job-footers.js';
-import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadWait, rowCells, rungStatus, STEP_NAMES, UNBLAMED_CELLS, unblamedBlameCard, unblamedFailed, unblamedShows, unblamedTitle, type StepCell } from '../fixes/list.js';
+import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadWait, rowCells, rungStatus, STEP_NAMES, UNBLAMED_CELLS, unblamedFailed, unblamedShows, type StepCell } from '../fixes/list.js';
 import { chipKeeps, failingLine, FIX_CHIPS, fixStamp, treeBusy, type FixChip } from '../fixes/model.js';
 import { FailedMust, Whole } from '../fixes/parts.js';
 import { fixRowScope, unblamedScope } from '../fixes/row-scope.js';
@@ -27,6 +27,7 @@ import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { FixesView, FixesViewRow, JobListItem, UnblamedRow } from '../types.js';
+import { unblamedBlameCard, unblamedTitle } from '../../src/unblamed-words.js';
 
 /**
  * Fixes (#/fixes): a to-do list of failures, the failing runs nobody has blamed first, then each fix,
@@ -130,7 +131,7 @@ function Rows({ view, chip, version }: { view: FixesView; chip: FixChip; version
     actions: (r) =>
       r.kind === 'fix'
         ? fixRowScope(r.f)
-        : unblamedScope({ name: unblamedTitle(r.u), command: r.u.next ? (r.u.next.command ?? ACTIONS.runBlame.label) : null, wait: blameWait, press: () => box.current?.querySelector<HTMLElement>('[data-rowkey="unblamed"] .psn .btn')?.click() }),
+        : unblamedScope({ name: unblamedTitle(r.u.count), command: r.u.next ? (r.u.next.command ?? ACTIONS.runBlame.label) : null, wait: blameWait, press: () => box.current?.querySelector<HTMLElement>('[data-rowkey="unblamed"] .psn .btn')?.click() }),
   });
   if (!rows.length) return <EmptyLine>{CHIP_EMPTY[chip]}</EmptyLine>;
   return (
@@ -209,7 +210,7 @@ function UnblamedListRow({ u, jobs, focused }: { u: UnblamedRow; jobs: readonly 
     <div className={focused ? 'psrow psun krow' : 'psrow psun'} role="listitem" data-rowkey="unblamed">
       <span className="pst">
         <a className="rt" href={FAILED}>
-          {unblamedTitle(u)}
+          {unblamedTitle(u.count)}
         </a>
         <span className="rs">
           <Status tone="err">failed</Status>
@@ -232,7 +233,7 @@ function UnblamedListRow({ u, jobs, focused }: { u: UnblamedRow; jobs: readonly 
             runId={u.runId}
             offer={{ failed: u.checks, from: u.from ?? 'ask' }}
             className="btn sm"
-            title={unblamedBlameCard(u)}
+            title={unblamedBlameCard(u.count, shortId(u.runId))}
             jobs={jobs}
             {...(u.next.capture ? { capture: true } : {})}
             {...(u.next.command ? { line: u.next.command } : {})}

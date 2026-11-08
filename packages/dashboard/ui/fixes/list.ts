@@ -1,6 +1,6 @@
 import { JOB_KINDS } from '../api.js';
 import type { Fact } from '../components/Facts.js';
-import { cents, shortId } from '../format.js';
+import { cents } from '../format.js';
 import { exitWords } from '../outcome-tip.js';
 import type { FixesView, FixesViewRow, FixRow, JobListItem, StepKey, UnblamedRow } from '../types.js';
 import { pluralS as s } from '../../../engine/src/words.js';
@@ -99,11 +99,5 @@ export const UNBLAMED_CELLS: readonly StepCell[] = [
 
 // ---------------------------------------------------------------------------------------------- the unblamed row
 
-export const unblamedTitle = (u: Pick<UnblamedRow, 'count'>): string => `${count(u.count)} failing run${s(u.count)} nobody has blamed`;
-
 /** What its newest run failed: the check, in the engine's words, else its agent's exit. */
 export const unblamedFailed = (u: Pick<UnblamedRow, 'failed'>): string => u.failed ?? exitWords(null);
-
-/** Run blame's card on the unblamed row: the run it blames, and what it does. */
-export const unblamedBlameCard = (u: Pick<UnblamedRow, 'count' | 'runId'>): string =>
-  `Blames ${u.count > 1 ? 'the newest, ' : ''}${shortId(u.runId)}: finds the model call that lost it, and joins it to the fix its failure belongs to`;

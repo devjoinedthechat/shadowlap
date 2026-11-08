@@ -7,6 +7,7 @@ import { type NeedsLookItem, repairLeft } from '../fix-summary.js';
 import { links } from '../links.js';
 import { listedStep } from '../next-step.js';
 import { aboutsUpTo } from '../run-about.js';
+import { unblamedBlameCard, unblamedTitle } from '../unblamed-words.js';
 import { type HeldGolden, type LookSource, type LookStep, type LookWork, type NeedsLookRow, plural } from './row.js';
 
 /*
@@ -68,15 +69,15 @@ export const unblamed: LookSource = {
     // Run blame only where its page leads with it: blame can't take a run that made no model call, and a failed injection test's proof comes first.
     const next = listedStep(w.store, runId, w.next, { reads: w.reads });
     const n = week.length;
-    // Its card names the run it blames: the newest, where the row stands for several.
-    const blames = `Blames ${n > 1 ? 'the newest, ' : ''}${short(runId)}: finds the model call that lost it, then joins the fix its failure belongs to`;
-    const step: LookStep | null = next?.key !== 'blame' ? null : next.capture ? { of: 'link', label: next.label, href: links.run(runId) } : { of: 'run', runId, step: { ...next, sub: blames } };
+    // Its card names the run it blames, as Fixes' row says it: the newest, where the row stands for several.
+    const blames = unblamedBlameCard(n, short(runId));
+    const step: LookStep | null = next?.key !== 'blame' ? null : next.capture ? { of: 'link', label: next.label, href: links.run(runId), title: blames } : { of: 'run', runId, step: { ...next, sub: blames } };
     const row: NeedsLookRow = {
       key: `attn:unblamed:${runId}`,
       group: 'failing',
       kind: 'unblamed',
       icon: 'fail',
-      title: `${plural(n, 'failing run')} nobody has blamed`,
+      title: unblamedTitle(n),
       detail: `${n > 1 ? 'newest ' : ''}${short(runId)} · ${failedWords(w, runId)}`,
       step,
       href: links.runs({ types: 'failed', from: w.week.first, to: w.week.last }),
