@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { messageOf } from '../../../../engine/src/message-of.js';
 import { ApiError } from '../../api.js';
 import { CodeBox } from '../../components/CodeBox.js';
+import { tipCard } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
 import { Section } from '../../components/Section.js';
 import { SegmentedControl } from '../../components/Segmented.js';
@@ -255,8 +256,9 @@ function Preview({ p, inc, odds, setOdds }: { p: GatePreview; inc: 'fail' | 'war
         ['in CI, its history is kept by', 'keep-history', undefined],
       ];
   const red = inc === 'warn' ? p.ci.redWarnText : p.ci.redText;
-  // Its runs go red for nothing only where 95% clears the rate the gate needs; past it, they go red for a reason.
-  const idle = g.kind !== 'sprt' || g.good <= 0.95;
+  // Its runs go red for nothing only where CI's agent (95% of the time) clears the rate the gate needs; past it, they go red for a reason.
+  const idle = g.kind !== 'sprt' || g.good <= p.ci.rate;
+  const agent = `an agent that passes ${pct(p.ci.rate)} of the time`;
   const p1 = (x: number) => `${(x * 100).toFixed(1)}%`;
   const tag = (rate: number) => (g.kind !== 'sprt' ? null : rate === g.good ? <small>good</small> : rate === g.bad ? <small>bad</small> : null);
   return (
@@ -288,7 +290,7 @@ function Preview({ p, inc, odds, setOdds }: { p: GatePreview; inc: 'fail' | 'war
                 <th>passed</th>
                 <th>failed</th>
                 <th>inconclusive</th>
-                <th title="the attempts it runs on average">attempts</th>
+                <th data-tip={tipCard('attempts', [], 'the attempts it runs on average')}>attempts</th>
               </tr>
             </thead>
             <tbody>
@@ -309,7 +311,7 @@ function Preview({ p, inc, odds, setOdds }: { p: GatePreview; inc: 'fail' | 'war
         </div>
       </div>
       <p className="gnote">
-        {g.kind === 'sprt' ? `Between ${pct(g.bad)} and ${pct(g.good)} either verdict can come, so a verdict states the test, never the agent’s rate.` : `A collapse fails nearly always; a drop just past ${Math.round(g.drop * 100)} points, only sometimes.`} With 100 {sprt ? 'forked goldens of an agent that passes 95% of the time' : 'such goldens of an agent that passes 95% of the time, as its history says'}, <span className="nw">{red} of CI runs</span> go red{idle ? ' for nothing' : ''}.
+        {g.kind === 'sprt' ? `Between ${pct(g.bad)} and ${pct(g.good)} either verdict can come, so a verdict states the test, never the agent’s rate.` : `A collapse fails nearly always; a drop just past ${Math.round(g.drop * 100)} points, only sometimes.`} With {p.ci.goldens} {sprt ? `forked goldens of ${agent}` : `such goldens of ${agent}, as its history says`}, <span className="nw">{red} of CI runs</span> go red{idle ? ' for nothing' : ''}.
       </p>
     </div>
   );

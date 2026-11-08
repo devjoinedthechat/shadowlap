@@ -5,6 +5,7 @@ import { fileSwitches, type RepositoryWorkflow } from '../src/ci-file.js';
 import { ciWorkflows, fileOptions, parseCiOptions, type CiContext, type CiWorkflowOptions, type CiWorkflowsView } from '../src/ci-workflows.js';
 import { gatePreview } from '../src/tests-gate.js';
 import { ApiError } from '../ui/api.js';
+import { tipCard } from '../ui/components/HoverCard.js';
 import { sessionLine } from '../ui/pages/settings/CiWorkflow.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -348,6 +349,19 @@ describe('Settings → CI: Gates', () => {
     await r!.click(r!.byText('#gates header .seg button', 'fork · gate'));
     await r!.until('the gate preview', () => r!.all('#gates select[aria-label="Good"]').length === 1);
     expect(s.gate).toHaveBeenLastCalledWith('suiteRisk=0.05', expect.anything());
+  });
+
+  it('words its note from the answer’s CI figures, and names the attempts column in a hover card', async () => {
+    const s = fakeServer(DEFAULTS_FILE);
+    // A CI run as the answer figures it: 40 goldens of an agent that passes 85% of the time, short of the gate's good rate.
+    s.gate.mockImplementation(async (query: string) => {
+      const p = gatePreview(new URLSearchParams(query));
+      return { ...p, ci: { ...p.ci, goldens: 40, rate: 0.85, redText: '1.5%', redWarnText: '1.5%' } };
+    });
+    await open(s);
+    expect(plain(r!.one('#gates .gnote'))).toBe('Between 70% and 90% either verdict can come, so a verdict states the test, never the agent’s rate. With 40 forked goldens of an agent that passes 85% of the time, 1.5% of CI runs go red.');
+    const attempts = r!.byText('#gates table.godds th', 'attempts');
+    expect([attempts.getAttribute('data-tip'), attempts.getAttribute('title')]).toEqual([tipCard('attempts', [], 'the attempts it runs on average'), null]);
   });
 
   it('waits while the dashboard server is away, saying the preview is the last it worked out', async () => {
