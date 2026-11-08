@@ -3,6 +3,7 @@ import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResu
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
+import { judgeAsked } from './golden-report.js';
 import { causeOf, divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
@@ -804,20 +805,6 @@ function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, {
 }
 
 /**
- * What asking a judge check's verdict live cost, and in how many attempts it was asked: the result's
- * judge summary (every attempt) when this is the result's only judge check and every judge model in it
- * has a price; else, for a result of one attempt, the check's own call. Null for a verdict from the
- * recording, which is free, and when the cost isn't known.
- */
-function judgeLive(r: TestResult, c: StoredCheck): GoldenCheck['live'] {
-  if (c.source !== 'live' || !c.judge) return null;
-  const s = r.data?.judge;
-  const judges = (r.data?.checks ?? []).filter((x) => x.judge).length;
-  if (s && judges === 1 && s.live > 0 && !s.unknownModels.length) return { cost: s.spent, asked: s.live };
-  return (r.data?.attempts?.total ?? 1) <= 1 && c.judge.cost !== null ? { cost: c.judge.cost, asked: 1 } : null;
-}
-
-/**
  * A golden's checks with how its last result came out on each: the status the attempt it shows kept
  * for it (the CLI judges a diverged replay's checks too, and fails what it didn't do), where a judge's
  * verdict came from and what asking it live cost, and over several attempts, how many passed it. A
@@ -836,7 +823,7 @@ function goldenChecks(store: StoreOf<'recording'>, labels: readonly string[], r:
     used.add(i);
     const c = kept[i]!;
     const tally = tallies?.get(label);
-    return { label, status: checkStatus(c), added: false, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live: judgeLive(r!, c), attempts: tally && tally.of > 1 ? tally : null };
+    return { label, status: checkStatus(c), added: false, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live: judgeAsked(r!, c), attempts: tally && tally.of > 1 ? tally : null };
   });
 }
 
