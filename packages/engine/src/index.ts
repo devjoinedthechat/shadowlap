@@ -278,3 +278,6 @@ export { CLEAN_GATE, causeEstimate, GATE_REPEAT, injectionAgainEstimate, injecti
 export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';
 export { askedInScope, defaultFrom, modelUse, type ModelUse } from './switch-from.js';
 export { USER_SETTINGS_FILE, USER_SETTINGS_VERSION, UserSettingsError, readSpending, userSettingsFile, writeSpending, type SpendingSetting, type UserSettingsOptions } from './user-settings.js';
+// The project's GitHub Actions workflow that runs the action, as Settings → CI reads, diffs and writes it.
+export { ACTION_REPO, AGENT_WORKFLOW, NO_WORKFLOW, WORKFLOW_READ_MAX, WORKFLOWS_DIR, WorkflowConflictError, WorkflowFileError, blockEnd, diffLines, entriesUnder, findWorkflow, parseWorkflow, readWorkflow, readWorkflowFile, scalarValue, splitComment, stepUses, textLines, workflowSteps, workflowVersion, writeWorkflow } from './workflow-file.js';
+export type { ActionStep, DiffLine, WorkflowDoc, WorkflowFile, WorkflowLine, WorkflowRead, WorkflowStep } from './workflow-file.js';
