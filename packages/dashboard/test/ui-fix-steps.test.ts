@@ -192,6 +192,19 @@ function repaired(accepted = true) {
 }
 
 describe('the Repair step', () => {
+  it('heads a repair whose repairer couldn’t be asked by why, and says under it only what to do', async () => {
+    const run = makeRun(engineStore(), { labels: ['refund-bug'], calls: [...CALLS] });
+    const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: (at += DAY) });
+    const said = 'the repairer could not be asked: claude was not found';
+    const report = { ...repairReport({ targets: [run], accepted: false }), candidates: [], accepted: null, why: 'there was no candidate to try', repairer: null, noRepairer: said, warnings: [`${said}: install Claude Code, or set SHADOWLAP_CLAUDE to its path`] };
+    recordRepair(store, { repairId: 'repair-noclaude', dir: '.shadowlap/repairs/repair-noclaude', report, expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: (at += DAY) });
+    await open(fix.fixId, 'repair');
+    expect(text(r!.one('.verdict h2'))).toMatch(/ The repairer could not be asked: claude was not found$/);
+    const facts = text(r!.one('.verdict p'));
+    expect(facts).toMatch(/^Ran .+ · install Claude Code, or set SHADOWLAP_CLAUDE to its path$/);
+    expect(facts).not.toContain('could not be asked');
+  });
+
   it('opens an accepted repair on its verdict line, headed as its verdict is, then its change once, inline, the roles as status words', async () => {
     const { fixId } = repaired();
     const d = fixDetail(store, fixId)!;

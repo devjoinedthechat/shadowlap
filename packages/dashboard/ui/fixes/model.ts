@@ -387,16 +387,30 @@ export function candidateTone(v: CandidateVerdict): 'ok' | 'err' | 'mu' {
 }
 
 /**
- * Where a repair's candidates came from, as its header says it: the repairer that proposed them;
- * why none did, when one was wanted, with what to do (`the repairer could not be asked: claude was
- * not found: install Claude Code, …`); or, for a fix that needed no model, that no repairer was
- * needed. Null when nothing called for one (no failing run was rescued, the repair stopped first):
- * its why says so.
+ * Where a repair's candidates came from, as the facts under its verdict line say it: the repairer
+ * that proposed them; why none did, when one was wanted, with what to do (`the repairer could not
+ * be asked: claude was not found: install Claude Code, …`), or only what to do where the verdict
+ * line heads with why (`install Claude Code, …`); or, for a fix that needed no model, that no
+ * repairer was needed. Null when nothing called for one (no failing run was rescued, the repair
+ * stopped first): its why says so.
  */
-export function repairBy(r: Pick<RepairStep, 'repairer' | 'served' | 'noRepairer' | 'accepted'>): { repairer: string; served: string | null } | { text: string } | null {
+export function repairBy(r: Pick<RepairStep, 'repairer' | 'served' | 'noRepairer' | 'accepted' | 'why'>): { repairer: string; served: string | null } | { text: string } | null {
   if (r.repairer) return { repairer: r.repairer, served: r.served };
-  if (r.noRepairer) return { text: r.noRepairer.warning ?? r.noRepairer.text };
+  const none = r.noRepairer;
+  if (none && r.why === none.text) {
+    const rest = beyond(none.warning, none.text);
+    return rest ? { text: rest } : null;
+  }
+  if (none) return { text: none.warning ?? none.text };
   return r.accepted ? { text: 'no repairer needed' } : null;
+}
+
+/** What a warning says beyond `said`, which it starts or (in an older report) ends with: what to do, or what went wrong first. */
+function beyond(warning: string | null, said: string): string | null {
+  if (!warning || warning === said) return null;
+  if (warning.startsWith(said)) return warning.slice(said.length).replace(/^[\s:;,.]+/, '') || null;
+  if (warning.endsWith(said)) return warning.slice(0, -said.length).replace(/[\s:;,.]+$/, '') || null;
+  return warning;
 }
 
 /**

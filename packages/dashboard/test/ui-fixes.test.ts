@@ -174,9 +174,14 @@ describe('the Repair step', () => {
 
   it('says who proposed the candidates, or why no repairer did, and “no repairer needed” only when none was', () => {
     expect(repairBy(step({ repairer: 'anthropic:claude-opus-5-5', served: 'claude-fable-5-1', accepted: true }))).toEqual({ repairer: 'anthropic:claude-opus-5-5', served: 'claude-fable-5-1' });
-    // claude wasn't found: the header says so, with what to do, never that no repairer was needed.
-    expect(repairBy(step({ noRepairer: unasked, why: unasked.text }))).toEqual({ text: unasked.warning });
+    // claude wasn't found: the verdict line heads with it, so the facts say only what to do, never that no repairer was needed.
+    expect(repairBy(step({ noRepairer: unasked, why: unasked.text }))).toEqual({ text: 'install Claude Code, or set SHADOWLAP_CLAUDE to its path' });
+    // Headed by another why (the gate's, over candidates a cheaper fix tried), the facts say it whole.
+    expect(repairBy(step({ noRepairer: unasked, why: 'the gate accepted none of the 1 candidate tried' }))).toEqual({ text: unasked.warning });
     expect(repairBy(step({ noRepairer: { text: 'the repairer had nothing it could rewrite', warning: null } }))).toEqual({ text: 'the repairer had nothing it could rewrite' });
+    // An older report's warning ends with it: the facts keep what went wrong first; with no more to say, nothing.
+    expect(repairBy(step({ noRepairer: { text: 'the repairer had nothing it could rewrite', warning: 'no prompt in agent.mjs: the repairer had nothing it could rewrite' }, why: 'the repairer had nothing it could rewrite' }))).toEqual({ text: 'no prompt in agent.mjs' });
+    expect(repairBy(step({ noRepairer: { text: 'the repairer had nothing it could rewrite', warning: null }, why: 'the repairer had nothing it could rewrite' }))).toBeNull();
     // A switch to the model that rescued the runs needs no repairer.
     expect(repairBy(step({ accepted: true }))).toEqual({ text: 'no repairer needed' });
     // No failing run rescued, or stopped before: its why says it all.
