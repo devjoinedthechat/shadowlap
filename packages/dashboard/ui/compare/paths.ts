@@ -62,5 +62,5 @@ export function sideClass(row: Pick<PathRow, 'alike' | 'a' | 'b'>, side: 'a' | '
 /** A call's origin as the strip names it: a model call that failed live reads `failed`. */
 export const callOrigin = (c: Pick<PathCall, 'origin' | 'failure'>): Origin7 => displayOrigin({ origin: c.origin, outcome: c.failure ? 'error' : 'ok' });
 
-/** The row a `#/compare/<a>/<b>/<call>` address opens, by its number: one of the rows drawn, or none. */
+/** The row a `#/compare/<a>/<b>/<n>` address opens, by its number: one of the rows drawn, or none. */
 export const openRow = (rows: readonly Pick<PathRow, 'n'>[], call: number | null | undefined): number | null => (call && rows.some((r) => r.n === call) ? call : null);

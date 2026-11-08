@@ -941,8 +941,8 @@ Compare opens with a verdict: what one run decided differently from the other af
 
 | Verdict | When |
 | --- | --- |
-| **Different writes**, in red | A write tool added, removed or called with other arguments |
-| **Different endings**, in amber | One stops, hands over or ends its turn otherwise |
+| **Different writes**, in red | A write tool added, removed, called with other arguments or in another order |
+| **Different endings**, in amber | One stops, hands over or ends its turn otherwise, or its checks come out otherwise |
 | **Different reads** | A read added, removed or asked differently |
 | **Different words** | Only what the model said differs |
 | **The same decisions** | Both decided alike |
@@ -985,7 +985,7 @@ A call the model answered the same way in another response is counted in the lin
 
 #### Both runs, call by call
 
-Both runs' calls after the identical prefix are one list, a row a call by its number. Each column is headed by its run: its id, its kind and how many calls it made from there (*fork @7 · 5 calls after #18*), failed or not. Each side of a row reads as what the call did:
+Both runs' calls after the identical prefix are one list, a row a call, numbered by its place from the prefix on. Each column is headed by its run: its id, its kind and how many calls it made from there (*fork @7 · 5 calls after #18*), failed or not. Each side of a row reads as what the call did:
 
 - **A model call**: the tools it called with their arguments (*→ get_sla* and its JSON), or what it answered (*answered “Issuing the refund.”*).
 - **A model call that failed**: its HTTP status, with *refused offline* or *refused by the provider* where it was refused.
@@ -996,9 +996,11 @@ Each side ends with its call's origin: *replayed*, *live*, *overridden*, *inject
 
 The list holds 200 rows, then a line says how many more calls there are. A run still recording adds its calls as they arrive.
 
-**Open a row** to see both calls side by side, as their runs' inspectors show them: a model call's decision or why it failed, or a tool's arguments and result, then its origin, tokens, time and cost. A replayed model call reads *replayed, not re-spent*. Each side has *Open run at #19*. The same tool on both sides shows its arguments and its result as one side-by-side diff.
+**Open a row** to see both calls side by side, as their runs' inspectors show them: a model call's decision or why it failed, or a tool's name, then its origin, tokens, time and cost, then a tool's arguments and result. A replayed model call reads *replayed, not re-spent*. The same tool on both sides shows its arguments and its result as one side-by-side diff.
 
-The row's call goes into the address, `#/compare/<a>/<b>/<call>`, so a link opens it. The row again, or its ×, closes it.
+A model call's words and arguments are cut past 300 characters, as in its row. *Open run at #19*, on each side, opens that run at its own call, whole. A judge's calls take no row, so where one sits between a run's calls, that number can differ from the row's.
+
+The row's number goes into the address, `#/compare/<a>/<b>/<n>`, so a link opens it. The row again, or its ×, closes it. Until both calls are read, the row says it is loading. Where one can't be read, it says why, with Retry.
 
 #### Two long runs
 
@@ -1013,7 +1015,7 @@ A run still recording is compared again as its calls arrive.
 #### Open a comparison
 
 - **`#/compare`** alone opens the newest fork against its parent. With no fork, it opens the newest replay that is neither a test's nor still recording, else the two newest runs. With fewer than two runs, it says how to make a second.
-- **`#/compare/<a>/<b>/<call>`** opens the pair with that call's row open.
+- **`#/compare/<a>/<b>/<n>`** opens the pair with its row *#n* open.
 - **Compare's tab** reopens the pair it last showed in the project. Once a run of that pair is gone, it opens as `#/compare` alone does.
 - **`#/compare/<run>`** opens that run against its newest fork, else its newest replay (a test's last), else its parent. A run with none says there is nothing to compare yet, with the replay that makes something.
 - **A fork or a replay** has *Compare with parent*. A recording compares with its first fork or replay, never an attempt bundled under it (a blame probe, a verify or `--repeat` attempt).
@@ -1026,7 +1028,7 @@ When a side can't be compared, Compare says so:
 
 #### Compare in an exported copy
 
-An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It opens on the first against the newest other, and the pickers offer only those. A row opens from the calls the copy holds. There Compare is a page of its own, under its own head, with no tabs.
+An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It compares them, and each fork with its parent, after the matching rules of the project it was made in, as the dashboard does. It opens on the first against the newest other, and the pickers offer only those. A row opens from the calls the copy holds. There Compare is a page of its own, under its own head, with no tabs.
 
 ## Fixes
 
@@ -2146,6 +2148,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
 - **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's check, Share's eval dataset and OpenTelemetry trace dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
 - **The structural diff** a finding's diff draws has a script of its own as well. Both scripts, and a finished run's diff, are asked for once the pointer or the focus reaches Show diff, so it opens at once. The diff is kept while the page is open.
+- **What a fork did differently**, a finding of a fork's page alone, has a script of its own. It is asked for with the differences, once the fork has ended, so the two come together.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
@@ -2281,7 +2284,7 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 - `verdict`: its words, `where` and `tone`; `null` where no call follows the prefix, or while a run records;
 - `rank` and `changes`: the changes, most consequential first;
 - `endings`: each run's HTTP failures, its writes by what became of them, and how its turn ended;
-- `rows`: both paths a row a call, each call as its decision, its failure or its tool, at most 200, and `more` for the rest.
+- `rows`: both paths a row a call, each numbered by its place (`n`), each call as its decision, its failure or its tool, at most 200, and `more` for the rest.
 
 ### Jobs
 
