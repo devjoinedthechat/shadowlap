@@ -7,7 +7,8 @@ import { messageOf, type Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import { isLink } from './links.js';
 import type { JobEstimate, JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
-import { jobCommands, treeClash, treeFolder, treeUse, within, type JobTree } from './worktree.js';
+import { gitLine, isGitStep, leftConflicts, spawnGit, type GitOutcome, type GitStep } from './job-git.js';
+import { jobCommands, treeClash, treeFolder, treeUse, within, type JobTree, type TreeUse } from './worktree.js';
 
 /**
  * Jobs: the CLI runs the dashboard starts. The browser never sends a command line. It names a job
@@ -132,6 +133,12 @@ export interface JobBuild {
    * Each runs where the first does: the job's project, its store, and `env`.
    */
   then?: string[][];
+  /**
+   * A git command to run first, in the job's folder (job-git.ts): Revert's `git revert --no-commit`.
+   * Built on the server from what the store holds, like the arguments; the CLI's commands run only
+   * once it exits 0. Its job holds the working tree as a writer.
+   */
+  git?: GitStep;
   /** The run the job is about (its full id), if any. */
   runId?: string | null;
   /** The fix it acts on (its full id), if any: a blame of a fix, its repair, verify or apply. */
@@ -264,6 +271,9 @@ interface Job {
   treeAt: string | null;
   /** Commands still to run after the one running now (`JobBuild.then`). */
   rest: string[][];
+  /** Its git step, until it has started (`JobBuild.git`), and what it left once it has ended. */
+  git: GitStep | null;
+  gitOutcome: GitOutcome | null;
   /** What every command of the job gets besides the dashboard's environment (`JobBuild.env`). */
   env: Record<string, string>;
   runId: string | null;
@@ -464,14 +474,7 @@ export class JobManager {
 
   /** Builds and starts a job of `kind`. Throws an HttpError the client should see when it cannot. */
   async start(kind: unknown, req: JobRequest): Promise<JobView> {
-    if (typeof kind !== 'string' || !kind) throw new HttpError(400, 'kind is required');
-    const def = this.kinds.get(kind);
-    if (!def) throw new HttpError(400, `no job kind "${kind.slice(0, 40)}" (this dashboard runs: ${this.kindNames().join(', ') || 'none'})`);
-    const spawnCli = this.o.spawnCli;
-    if (!spawnCli) throw new HttpError(501, 'actions are not available: start the dashboard with shadowlap dashboard');
-    if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
-    if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
-
+    const { def, spawnCli } = this.startable(kind);
     const id = randomBytes(8).toString('hex');
     const uploads = this.o.uploads;
     // The project current now: the builder reads its store, and the job runs there to the end.
@@ -498,29 +501,10 @@ export class JobManager {
       uploads?.release(id);
       throw new HttpError(built.status ?? 400, built.error, built.confirm, built.live);
     }
-    let cwd: string | null;
-    let title: string;
-    let tree: JobTree | null = null;
-    let treeAt: string | null = null;
-    let env: Record<string, string>;
     const root: { value?: string | null } = {};
+    let set: ReturnType<JobManager['settle']>;
     try {
-      // A builder can take its time (an async one reads files): the dashboard may have begun to stop meanwhile.
-      if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
-      if (!isCommand(built.args)) throw new HttpError(500, `job kind "${kind}" built no command`);
-      if (built.then !== undefined && (!Array.isArray(built.then) || !built.then.every(isCommand))) throw new HttpError(500, `job kind "${kind}" built a command to run next that is not one`);
-      cwd = this.jobCwd(built.cwd, place.project, root);
-      env = checkedEnv(built.env);
-      title = clean(built.title ?? def.title(req), 120) || kind;
-      if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
-      // A project's working tree is one: no job runs the agent from it while another changes it.
-      const use = treeUse(jobCommands(built));
-      if (use) {
-        treeAt = treeFolder(cwd);
-        const clash = treeClash(this.heldTrees(), use.use, treeAt);
-        if (clash) throw new HttpError(409, `${clash.doing}: ${use.verb} once it is done`);
-        tree = { use: use.use, doing: use.doing, folder: cwd };
-      }
+      set = this.settle(kind as string, built, def.title(req), place, root);
     } catch (err) {
       uploads?.release(id);
       throw err instanceof HttpError ? err : new HttpError(500, messageOf(err));
@@ -530,16 +514,14 @@ export class JobManager {
     const ended = new Promise<void>((resolve) => (markEnded = resolve));
     const job: Job = {
       id,
-      kind,
-      title,
+      kind: kind as string,
       args: [...built.args],
       estimate: shownEstimate(req.estimate),
-      worktree: tree,
-      treeAt,
+      ...set,
       rest: (built.then ?? []).map((a) => [...a]),
-      env,
+      git: built.git ? { ...built.git, args: [...built.git.args] } : null,
+      gitOutcome: null,
       ...subjectOf(built),
-      cwd,
       startedAt: Date.now(),
       endedAt: null,
       done: false,
@@ -565,15 +547,99 @@ export class JobManager {
     this.jobs.set(id, job);
     this.evict();
     this.version++;
-    this.runCommand(job, spawnCli, job.args);
+    if (job.git) this.runGit(job, spawnCli, job.git);
+    else this.runCommand(job, spawnCli, job.args);
     if (job.child && built.started) {
       try {
         built.started();
       } catch (err) {
-        this.o.log?.(`job ${id} (${kind}): what its kind does once it starts failed: ${messageOf(err)}`);
+        this.o.log?.(`job ${id} (${kind as string}): what its kind does once it starts failed: ${messageOf(err)}`);
       }
     }
     return this.view(job);
+  }
+
+  /** The kind a job is started as, and the spawner, or why none can start now. */
+  private startable(kind: unknown): { def: JobKind; spawnCli: SpawnCli } {
+    if (typeof kind !== 'string' || !kind) throw new HttpError(400, 'kind is required');
+    const def = this.kinds.get(kind);
+    if (!def) throw new HttpError(400, `no job kind "${kind.slice(0, 40)}" (this dashboard runs: ${this.kindNames().join(', ') || 'none'})`);
+    const spawnCli = this.o.spawnCli;
+    if (!spawnCli) throw new HttpError(501, 'actions are not available: start the dashboard with shadowlap dashboard');
+    if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
+    if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
+    return { def, spawnCli };
+  }
+
+  /**
+   * What a job built runs with: its folder, environment and title, checked, and the working tree it
+   * holds, refused while another job holds it against it. A git step (`JobBuild.git`) changes the
+   * tree, so its job holds it as a writer.
+   */
+  private settle(kind: string, built: JobBuild, title: string, place: JobPlace, root: { value?: string | null }): Pick<Job, 'cwd' | 'env' | 'title' | 'worktree' | 'treeAt'> {
+    // A builder can take its time (an async one reads files): the dashboard may have begun to stop meanwhile.
+    if (this.closed) throw new HttpError(503, 'the dashboard is stopping');
+    if (!isCommand(built.args)) throw new HttpError(500, `job kind "${kind}" built no command`);
+    if (built.then !== undefined && (!Array.isArray(built.then) || !built.then.every(isCommand))) throw new HttpError(500, `job kind "${kind}" built a command to run next that is not one`);
+    if (built.git !== undefined && !isGitStep(built.git)) throw new HttpError(500, `job kind "${kind}" built a git step that is not one`);
+    const cwd = this.jobCwd(built.cwd, place.project, root);
+    const env = checkedEnv(built.env);
+    if (this.running() >= MAX_RUNNING) throw new HttpError(429, `${MAX_RUNNING} jobs are running; wait for one to finish`);
+    // A project's working tree is one: no job runs the agent from it while another changes it.
+    const use: TreeUse | null = built.git ? { use: 'writes', doing: built.git.doing, verb: built.git.verb } : treeUse(jobCommands(built));
+    if (!use) return { cwd, env, title: clean(built.title ?? title, 120) || kind, worktree: null, treeAt: null };
+    const treeAt = treeFolder(cwd);
+    const clash = treeClash(this.heldTrees(), use.use, treeAt);
+    if (clash) throw new HttpError(409, `${clash.doing}: ${use.verb} once it is done`);
+    return { cwd, env, title: clean(built.title ?? title, 120) || kind, worktree: { use: use.use, doing: use.doing, folder: cwd }, treeAt };
+  }
+
+  /**
+   * Runs a job's git step first (`JobBuild.git`), in its folder, its lines as git prints them: once
+   * it exits 0, its `ok` line, then the job's CLI commands, each shown as `$ shadowlap …`. Otherwise
+   * the job ends with git's exit code, with what git left in the tree asked of git (`GitOutcome`).
+   */
+  private runGit(job: Job, spawnCli: SpawnCli, step: GitStep): void {
+    job.git = null;
+    this.push(job, gitLine(step.args));
+    let child: ChildProcess;
+    try {
+      child = spawnGit(step.args, job.cwd, job.env);
+    } catch (err) {
+      this.push(job, `failed to start: git: ${messageOf(err)}`);
+      job.gitOutcome = 'untouched';
+      this.finish(job, 127);
+      return;
+    }
+    job.child = child;
+    job.exited = false;
+    const flushOut = lines(child.stdout, MAX_LINE, (line, cut) => this.output(job, line, cut));
+    const flushErr = lines(child.stderr, MAX_LINE, (line, cut) => this.output(job, line, cut));
+    let over = false;
+    const end = async (code: number | null) => {
+      if (over || job.done) return;
+      over = true;
+      flushOut();
+      flushErr();
+      if (code === 0 && !job.stopping && !this.closed) {
+        job.gitOutcome = 'done';
+        this.push(job, step.ok);
+        this.push(job, `$ ${commandLine(job.args)}`);
+        this.version++;
+        this.runCommand(job, spawnCli, job.args);
+        return;
+      }
+      // Stopped once git had done its part: the commands after it never ran, so it did not finish.
+      if (code === 0) this.push(job, `(stopped before ${commandLine(job.args)})`);
+      job.gitOutcome = code === 0 ? 'done' : (await leftConflicts(job.cwd)) ? 'conflicts' : 'untouched';
+      this.finish(job, code === 0 ? null : code);
+    };
+    child.on('error', (err) => {
+      this.push(job, `failed to start: git: ${err.message}`);
+      void end(127);
+    });
+    child.on('exit', () => (job.exited = true));
+    child.on('close', (code) => void end(code));
   }
 
   /**
@@ -865,6 +931,7 @@ export class JobManager {
       args: [...job.args],
       ...(job.estimate ? { estimate: { ...job.estimate } } : {}),
       worktree: job.worktree,
+      ...(job.gitOutcome ? { git: job.gitOutcome } : {}),
       runId: job.runId,
       ...(job.fixId ? { fixId: job.fixId } : {}),
       opensRun: job.opensRun,

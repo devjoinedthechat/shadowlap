@@ -418,6 +418,8 @@ describe('one name for each action, and its forms', () => {
     expect([doneWords(ACTIONS.runRepair.doing, 'ran'), doneWords(ACTIONS.findBreakingCommit.doing, 'ran'), doneWords(ACTIONS.applyFix.doing, 'not'), doneWords(ACTIONS.importCapture.doing, 'not')]).toEqual(['Tried repairing', 'Searched for breaking commit', 'Tried applying fix', 'Tried importing capture']);
     // A past tense that says only that it ran holds once it ran, and an outcome its own status gives.
     expect([doneWords(ACTIONS.runTests.doing, 'ran'), doneWords(ACTIONS.runTests.doing, 'not'), doneWords(ACTIONS.applyFix.doing, 'ran', 'applied · tests failed · exit 1')]).toEqual(['Ran tests', 'Tried running tests', 'Applied fix']);
+    // Revert names its commit: reverted once git did, its test failing after it or not; tried where git didn't.
+    expect([doneWords(`${ACTIONS.revert.doing} 9a3c5e0`, 'ok'), doneWords(`${ACTIONS.revert.doing} 9a3c5e0`, 'ran', 'reverted · test failed · exit 1'), doneWords(`${ACTIONS.revert.doing} 9a3c5e0`, 'ran', 'not reverted · exit 128')]).toEqual(['Reverted 9a3c5e0', 'Reverted 9a3c5e0', 'Tried reverting 9a3c5e0']);
   });
 
   it('is the name each place offers it by: the palette, Share, the drawer and the server’s job titles', () => {

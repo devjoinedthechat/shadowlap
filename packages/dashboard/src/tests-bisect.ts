@@ -1,4 +1,5 @@
 import { isObject, type StoreOf, type TestResult } from '@shadowlap/engine';
+import { GOLDEN_HISTORY } from './bisect-start.js';
 
 /**
  * What Find breaking commit said about a golden, as `shadowlap bisect` keeps it in the activity
@@ -163,4 +164,10 @@ export function standingAnswer(answers: readonly AnswerEvent[] | undefined, hist
     return a.answer;
   }
   return null;
+}
+
+/** The first bad commit Find breaking commit named for the failure golden `path` shows now, by the one rule (standingAnswer); null with none. */
+export function standingFound(store: StoreOf<'tests' | 'activity'>, path: string): FoundCommit | null {
+  const history = store.listTestResults({ golden: path, limit: GOLDEN_HISTORY });
+  return history[0] ? (standingAnswer(bisectAnswers(store).get(path), history, history[0])?.found ?? null) : null;
 }

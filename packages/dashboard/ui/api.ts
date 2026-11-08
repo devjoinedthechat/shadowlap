@@ -62,10 +62,11 @@ export const JOB_KINDS = {
   // The team store's setup (Settings → Store): check access to a bucket and connect it (store set --check).
   storeSet: 'store-set',
   // Tests: update goldens, find the commit (on Tests, the Runs calendar and a run's page), add a
-  // normalizer and re-run (and `tests` above runs them).
+  // normalizer and re-run (and `tests` above runs them), and revert the commit found, then test.
   testUpdate: 'test-update',
   bisect: 'bisect',
   normalizeAndTest: 'normalize-and-test',
+  revert: 'revert',
   // A project's setup (the projects slice registers these): inspect the folder, record a first run,
   // keep it as a golden (pack, then test).
   inspect: 'init',

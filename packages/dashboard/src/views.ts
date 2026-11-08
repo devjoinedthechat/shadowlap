@@ -58,6 +58,12 @@ export interface JobView {
    * it runs no agent. See worktree.ts.
    */
   worktree: { use: 'reads' | 'writes'; doing: string; folder: string | null } | null;
+  /**
+   * What its git step left in the working tree, once it ended (job-git.ts): `done`, `untouched` (git
+   * refused, the tree as it was) or `conflicts` (files left unmerged). Absent for a job with no git
+   * step, and while it runs.
+   */
+  git?: 'done' | 'untouched' | 'conflicts';
   /** The run the job is about (full id), or null when it is about none (an import, the tests). */
   runId: string | null;
   /** The fix it blames, repairs, verifies or applies (full id), so its row can say so; absent for a job about no fix yet. */

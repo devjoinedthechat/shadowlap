@@ -17,6 +17,7 @@ import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
 import { namesTeamStore } from './verdicts.js';
+import { revertJob } from '../revert-job.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { liveAsk } from '../tests-live.js';
 import { bisectChoices, bisectJob, checkedRevision, gatePreview, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource, type TestsJob, type TestsView, type UntestedCommit } from '../tests.js';
@@ -56,7 +57,7 @@ import { divergenceOf, rulesToAdd, volatileOf } from '../tests-normalize.js';
 const FOLDER = 'goldens';
 
 /** The job kinds this module registers, by what they do. */
-export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bisect', normalize: 'normalize-and-test' } as const;
+export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bisect', normalize: 'normalize-and-test', revert: 'revert' } as const;
 
 /**
  * Jobs that replay the goldens on disk or rewrite them, by what each is doing: a second one at once
@@ -64,7 +65,8 @@ export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bi
  * setup's Keep it as a test packs a new golden and tests it. Find breaking commit on a golden reads its
  * pack and answers the failure it started from, so it runs alone too; on a run, it touches none.
  * The error-path presets replay a golden's pack (on a run, they touch none), and packing goldens
- * of production writes new ones into the goldens folder.
+ * of production writes new ones into the goldens folder. Revert tests the golden once git has
+ * reverted its first bad commit (revert-job.ts).
  */
 const TEST_FAMILY = new Map<string, string>([
   ['test', 'a test session'],
@@ -74,6 +76,7 @@ const TEST_FAMILY = new Map<string, string>([
   ['bisect', confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase()],
   ['chaos', 'a session of error-path presets'],
   ['coverage-pack', 'a coverage pack'],
+  ['revert', 'a revert'],
 ]);
 
 /** Whether a job is one of those: a bisect counts when it searches a golden rather than a run (by its id), the presets when they run on a golden. */
@@ -385,6 +388,18 @@ export function register(router: Router, ctx: RouteContext): void {
     build: async (req, { store, project, projectId }) => {
       const job = await bisectHere(store, goldens(), req, project?.path ?? null);
       return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, 'find the breaking commit') : null);
+    },
+  });
+  // Revert: git first, from the golden's standing answer, then its test, which asks first as Run
+  // tests does when it runs live. It holds the working tree, and waits for the tests as they for it.
+  ctx.jobs.registerJobKind(TEST_JOB_KINDS.revert, {
+    title: () => ACTIONS.revert.doing,
+    build: async (req, { store, project, projectId }) => {
+      const list = goldens();
+      const job = await revertJob(store, list, req, project?.path ?? null);
+      if ('error' in job) return job;
+      const waits = busy(store, projectId, 'revert it');
+      return waits ? { error: waits, status: 409 } : (liveAsk(list, { title: job.title ?? ACTIONS.revert.doing, args: job.args }, req.yes) ?? job);
     },
   });
   // The golden's test after the rule asks first as Run tests does, when it runs live.

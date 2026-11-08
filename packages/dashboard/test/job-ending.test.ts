@@ -45,6 +45,18 @@ describe('how a job ends, in the words of its kind', () => {
     expect(endToast(done({ kind: 'bisect', title: 'Finding breaking commit', args: ['bisect'], code: 1 }), ['✗ no first bad commit: x'])).toBe('Searched for breaking commit · no first bad commit · exit 1');
   });
 
+  it('a revert says what git left, then how its test came out, and its toast names the commit', () => {
+    const revert = (code: number, git: 'done' | 'untouched' | 'conflicts') => done({ kind: 'revert', title: 'Reverting 9a3c5e0', args: ['test', 'goldens/a'], code, git });
+    const status = (j: ReturnType<typeof revert>, ...lines: string[]) => jobStatus(j, lines);
+    expect(status(revert(0, 'done'), '1 passed, 0 failed')).toEqual({ text: 'passed · exit 0', tone: 'ok' });
+    expect(status(revert(1, 'done'), '0 passed, 1 failed')).toEqual({ text: 'reverted · test failed · exit 1', tone: 'err' });
+    expect(status(revert(128, 'untouched'), 'error: Your local changes to the following files would be overwritten by merge:')).toEqual({ text: 'not reverted · exit 128', tone: 'err' });
+    expect(status(revert(1, 'conflicts'), 'CONFLICT (content): Merge conflict in agent.py')).toEqual({ text: 'conflicts left in your working tree · exit 1', tone: 'err' });
+    expect(endToast(revert(0, 'done'), ['1 passed, 0 failed'])).toBe('Reverted 9a3c5e0 · passed · exit 0');
+    expect(endToast(revert(1, 'done'), ['0 passed, 1 failed'])).toBe('Reverted 9a3c5e0 · test failed · exit 1');
+    expect(endToast(revert(128, 'untouched'), [])).toBe('Tried reverting 9a3c5e0 · not reverted · exit 128');
+  });
+
   it('a verify says its verdict, and a rejected one claims no more than a check', () => {
     const verify = (code: number, verdict: string) => done({ kind: 'verify', title: 'Verifying', args: ['verify'], code, result: { verdict } });
     expect(jobStatus(verify(0, 'accepted'), [])).toEqual({ text: 'accepted · exit 0', tone: 'ok' });

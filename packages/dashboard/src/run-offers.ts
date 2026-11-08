@@ -9,7 +9,7 @@ import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testOf, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
 import { fixedBy, passedSince } from './runs-filter.js';
 import { GOLDEN_HISTORY } from './bisect-start.js';
-import { bisectAnswers, standingAnswer, type FoundCommit } from './tests-bisect.js';
+import { standingFound, type FoundCommit } from './tests-bisect.js';
 import { runState } from './runs-list.js';
 
 /**
@@ -305,9 +305,8 @@ export function crashCommit(store: StoreOf<'recording' | 'tests' | 'activity' | 
   const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
   if (!test || !result || !crashed(null, result)) return null;
   const row = loadRunIndex(store).byId.get(run.runId);
-  const history = store.listTestResults({ golden: test.golden, limit: GOLDEN_HISTORY });
-  if (!row || !history[0] || fixedBy(store, row, () => history)) return null;
-  return standingAnswer(bisectAnswers(store).get(test.golden), history, history[0])?.found ?? null;
+  if (!row || fixedBy(store, row, (golden) => store.listTestResults({ golden, limit: GOLDEN_HISTORY }))) return null;
+  return standingFound(store, test.golden);
 }
 
 /**
