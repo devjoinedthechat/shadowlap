@@ -401,8 +401,9 @@ describe('the Tests page\'s styles', () => {
 
   it('put no tick before a check whatever its result, Training\'s criteria included', () => {
     expect(css).not.toMatch(/\.chk span::before/);
-    expect(css).toMatch(/table\.gt \.chk \.ck\.failed \.cm \{ color: var\(--err\); \}/);
-    expect(css).toMatch(/table\.gt \.chk \.ck\.inconclusive \.cm \{ color: var\(--warn\); \}/);
+    // A report's checks are marked as its row's are: one rule for both.
+    expect(css).toMatch(/table\.gt \.chk \.ck\.failed \.cm, \.rpck \.ck\.failed \.cm \{ color: var\(--err\); \}/);
+    expect(css).toMatch(/table\.gt \.chk \.ck\.inconclusive \.cm, \.rpck \.ck\.inconclusive \.cm \{ color: var\(--warn\); \}/);
   });
 
   it('fit the table to its panel by its own width, keeping Last result a fixed width', () => {
