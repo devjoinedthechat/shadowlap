@@ -1774,6 +1774,7 @@ Its drawer reads *Reverting 9a3c5e0*. It shows `$ git revert --no-commit 9a3c5e0
 | --- | --- |
 | *Reverted 9a3c5e0 · passed · exit 0* | git reverted it, and the golden passed |
 | *Reverted 9a3c5e0 · test failed · exit 1* | The revert stays in your tree, and the golden still fails |
+| *Reverted 9a3c5e0 · inconclusive · exit 3* | The revert stays in your tree, and the test couldn't say whether the golden passes |
 | *Tried reverting 9a3c5e0 · not reverted · exit 128* | git refused, with changes to the commit's files in your tree; the test didn't run |
 | *Tried reverting 9a3c5e0 · conflicts left in your working tree · exit 1* | git left conflicts for you to resolve; the test didn't run |
 

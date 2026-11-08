@@ -50,10 +50,14 @@ describe('how a job ends, in the words of its kind', () => {
     const status = (j: ReturnType<typeof revert>, ...lines: string[]) => jobStatus(j, lines);
     expect(status(revert(0, 'done'), '1 passed, 0 failed')).toEqual({ text: 'passed · exit 0', tone: 'ok' });
     expect(status(revert(1, 'done'), '0 passed, 1 failed')).toEqual({ text: 'reverted · test failed · exit 1', tone: 'err' });
+    // The test after it came out inconclusive, or refused before it ran: its words, after what git did.
+    expect(status(revert(3, 'done'), '0 passed, 0 failed, 1 inconclusive')).toEqual({ text: 'reverted · inconclusive · exit 3', tone: 'warn' });
+    expect(status(revert(2, 'done'), '✗ goldens/a: no run.json in it')).toEqual({ text: 'reverted · test failed · exit 2', tone: 'err' });
     expect(status(revert(128, 'untouched'), 'error: Your local changes to the following files would be overwritten by merge:')).toEqual({ text: 'not reverted · exit 128', tone: 'err' });
     expect(status(revert(1, 'conflicts'), 'CONFLICT (content): Merge conflict in agent.py')).toEqual({ text: 'conflicts left in your working tree · exit 1', tone: 'err' });
     expect(endToast(revert(0, 'done'), ['1 passed, 0 failed'])).toBe('Reverted 9a3c5e0 · passed · exit 0');
     expect(endToast(revert(1, 'done'), ['0 passed, 1 failed'])).toBe('Reverted 9a3c5e0 · test failed · exit 1');
+    expect(endToast(revert(3, 'done'), ['0 passed, 0 failed, 1 inconclusive'])).toBe('Reverted 9a3c5e0 · inconclusive · exit 3');
     expect(endToast(revert(128, 'untouched'), [])).toBe('Tried reverting 9a3c5e0 · not reverted · exit 128');
   });
 

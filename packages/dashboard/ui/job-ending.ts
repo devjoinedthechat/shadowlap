@@ -71,7 +71,8 @@ function bisectStatus(job: EndedJob, all: string, code: number): JobWords | null
  * Revert: what git left in the tree, then how the golden's test came out. git refused and left the
  * tree as it was, `not reverted`; it left conflicts, `conflicts left in your working tree`; it
  * reverted and the test failed, `reverted · test failed`, the revert kept in the tree as Apply fix's
- * patch is. A test that passed reads as a session's does.
+ * patch is. A test that passed reads as a session's does; one that ended otherwise, in a session's
+ * words after `reverted` (`reverted · inconclusive · exit 3`).
  */
 function revertStatus(job: EndedJob, all: string, code: number): JobWords | null {
   if (job.kind !== 'revert') return null;
@@ -79,7 +80,10 @@ function revertStatus(job: EndedJob, all: string, code: number): JobWords | null
   if (job.git === 'conflicts') return { text: `conflicts left in your working tree · ${exit}`, tone: 'err' };
   if (job.git !== 'done') return { text: `not reverted · ${exit}`, tone: 'err' };
   if (code === 130 || code === 143) return { text: `reverted · test interrupted · ${exit}`, tone: 'warn' };
-  return code === 0 ? sessionStatus(job, all, code) : { text: `reverted · test failed · ${exit}`, tone: 'err' };
+  const session = sessionStatus(job, all, code);
+  if (code === 0) return session;
+  // A failed golden, or no verdict at all to read, is the test that failed.
+  return !session || sessionTotals(all)?.failed ? { text: `reverted · test failed · ${exit}`, tone: 'err' } : { text: `reverted · ${session.text}`, tone: session.tone };
 }
 
 /** A verify, a change's verify and a migration, by the verdict the command reported. */
