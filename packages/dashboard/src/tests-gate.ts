@@ -176,7 +176,7 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
 }
 
 /** A gate's preview from its figures. */
-export function previewOf({ gate, history, risk }: GateQuery): GatePreview {
+function previewOf({ gate, history, risk }: GateQuery): GatePreview {
   const odds = gateOddsAt(gate, gate.kind === 'sprt' ? PREVIEW_RATES : HISTORY_RATES, history);
   // Its verdict lines say over how many sessions the baseline was pooled: the window's.
   const pooled = gate.kind === 'baseline' && history ? { ...history, sessions: gate.window } : null;
