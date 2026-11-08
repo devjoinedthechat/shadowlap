@@ -90,7 +90,7 @@ describe('the builder reads the config', () => {
       ['goldens/refund', 'goldens/refund', false, 'replay', true],
       ['goldens/refund-late', 'goldens/refund-*', true, 'replay', true],
     ]);
-    expect(read.goldens[0]!.entry).toEqual({ fork: false, expect: { tools: { send_email: 0 } } });
+    expect(read.goldens[0].entry).toEqual({ fork: false, expect: { tools: { send_email: 0 } } });
     expect(Object.keys(read.read.keys)).toEqual(['redact']);
     expect(Object.keys(read.read.tests)).toEqual(['suiteRisk', 'goldens/refund', 'goldens/refund-*', 'goldens/other']);
     // A golden asked by its path: its agent's goldens, itself first among them as listed.
@@ -235,7 +235,7 @@ describe('what a run’s calls offer a check', () => {
 
 describe('a draft judged on the agent’s recordings', () => {
   it('judges the newest finished recordings of the agent alone, as shadowlap check does, with its goldens’ and the run it is made from', async () => {
-    const over = [REFUND[0]!, { name: 'issue_refund', args: { amount: 240 }, result: { ok: true } }];
+    const over = [REFUND[0], { name: 'issue_refund', args: { amount: 240 }, result: { ok: true } }];
     const within = [{ name: 'lookup_order', result: { total: 240 } }, { name: 'issue_refund', args: { amount: 120 }, result: { ok: true } }];
     const made = recording(AGENT, over, { at: 5000, meta: { labels: ['refund-bug'] } });
     const runs = [
@@ -248,16 +248,15 @@ describe('a draft judged on the agent’s recordings', () => {
     recording(['python', 'other_agent.py'], over, { at: 4500 });
     const packed = recording(AGENT, within, { at: 900 });
     packRun(store, packed, join(project, 'goldens', 'refund-packed'));
-    goldens = [golden('goldens/refund', runs[0]!), golden('goldens/refund-packed', '01K8RG00000000000000000077')];
+    goldens = [golden('goldens/refund', runs[0]), golden('goldens/refund-packed', '01K8RG00000000000000000077')];
     const check = { calls: [{ tool: 'issue_refund', args: { amount: { '<=': 200 } } }] };
     const res = await send('POST', 'checks/preview', { expect: check, run: made });
     expect(res.status).toBe(200);
     const p = (await res.json()) as CheckPreview;
     expect(p.total).toBe(7);
     expect(p.judged.map((r) => r.runId)).toEqual([made, ...runs, packed]);
-    expect(p.counts).toEqual({ passed: 2, failed: 5, inconclusive: 0 });
-    expect(p.notApplicable).toBe(0);
-    expect(p.notes).toEqual([`Fails 4 recordings labelled good: ${runs[1]!.slice(0, 10)}, ${runs[2]!.slice(0, 10)}, ${runs[3]!.slice(0, 10)} and 1 more`]);
+    expect(p.counts).toEqual({ passed: 2, failed: 5, inconclusive: 0, notApplicable: 0 });
+    expect(p.notes).toEqual([`Fails 4 recordings labelled good: ${runs[1].slice(0, 10)}, ${runs[2].slice(0, 10)}, ${runs[3].slice(0, 10)} and 1 more`]);
     expect(p.tools).toEqual(['lookup_order', 'issue_refund']);
     expect(p.madeFrom).toMatchObject({ runId: made, outcome: 'failed', labels: ['refund-bug'] });
     expect(p.goldens.map((g) => [g.path, g.row?.outcome, g.tools, g.error])).toEqual([
@@ -270,9 +269,8 @@ describe('a draft judged on the agent’s recordings', () => {
     const rec = recording(AGENT, REFUND);
     const when = { if: { tool: 'lookup_order', result: { total: { '>': 1000 } } }, then: { tools: { issue_refund: 0 } } };
     const p = (await (await send('POST', 'checks/preview', { expect: { when: [when] }, run: rec })).json()) as CheckPreview;
-    expect(p.counts).toEqual({ passed: 1, failed: 0, inconclusive: 0 });
-    expect(p.notApplicable).toBe(1);
-    expect(p.judged[0]!.na).toBe(true);
+    expect(p.counts).toEqual({ passed: 0, failed: 0, inconclusive: 0, notApplicable: 1 });
+    expect(p.judged[0].na).toBe(true);
     const bad = await send('POST', 'checks/preview', { expect: { calls: [{ tool: 'issue_refund' }] }, run: rec });
     expect(bad.status).toBe(400);
     expect(await error(bad)).toMatch(/^expect\.calls\[0\] checks nothing/);

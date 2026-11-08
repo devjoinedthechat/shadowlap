@@ -50,7 +50,12 @@ export interface CheckReport {
   /** The checks as `--expect` gave them, or null when each recording was judged by its own. */
   expect: unknown;
   recordings: CheckedRecording[];
-  counts: { passed: number; failed: number; inconclusive: number };
+  /**
+   * The recordings by outcome. `notApplicable` counts those that passed only because none of their
+   * checks applied (`notApplicable`), and `passed` leaves them out: a check that applied to nothing
+   * never counts as passed. The exit status takes them as passed.
+   */
+  counts: { passed: number; failed: number; inconclusive: number; notApplicable: number };
   /** Recordings given that have no checks to judge them by. */
   unchecked: string[];
   /**
@@ -150,9 +155,10 @@ export function checkRecordings(recordings: readonly RecordingToCheck[], o: { ex
     bySpec.set(r.spec, judgedBy);
     out.push(checkRecording({ ...r, spec: r.spec }, o, calls));
   }
+  const na = out.filter(notApplicable).length;
   const count = (k: CheckedRecording['outcome']) => out.filter((x) => x.outcome === k).length;
   const notes = [...labelNotes(out).map((n) => labelNoteWords(n)), ...[...bySpec].flatMap(([spec, judged]) => unreadNotes(spec, judged))];
-  return { expect: o.expect ?? null, recordings: out, counts: { passed: count('passed'), failed: count('failed'), inconclusive: count('inconclusive') }, unchecked, notes };
+  return { expect: o.expect ?? null, recordings: out, counts: { passed: count('passed') - na, failed: count('failed'), inconclusive: count('inconclusive'), notApplicable: na }, unchecked, notes };
 }
 
 /**

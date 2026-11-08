@@ -95,9 +95,8 @@ export interface CheckPreview {
   total: number;
   /** The newest of them judged, newest first. */
   judged: PreviewRow[];
+  /** As `shadowlap check` counts them: `notApplicable` apart from `passed`. */
   counts: CheckReport['counts'];
-  /** Of those passed, the recordings no check applied to. */
-  notApplicable: number;
   /** What the outcomes say against the labels, and the values a check reads that no call judged has. */
   notes: string[];
   /** The tools the agent's recordings call, first seen first. */
@@ -243,7 +242,6 @@ function checkPreview(store: Store, job: CheckPreviewJob): ReadAnswer {
     total: mine.length,
     judged: report.recordings.map(rowOf),
     counts: report.counts,
-    notApplicable: report.recordings.filter(notApplicable).length,
     notes: [...others, ...report.notes.filter((n) => !labelled.has(n))],
     tools: [...tools],
     goldens: job.goldens.map((g) => judgeGolden(store, g, spec, prices)),
