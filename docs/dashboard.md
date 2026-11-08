@@ -1254,7 +1254,7 @@ The workflow has the checkout, Node 22 and a line for the agent's dependencies b
 
 **Write file** is lime while the two files differ. It asks first, *Write .github/workflows/agent.yml?*, with every line it changes, and writes your working tree only: CI runs the file once you commit and push it. Its toast offers **Undo**, which puts the file back as it was, or removes the file Write file made.
 
-**What Write file changes**: the triggers and permissions the parts need, the checkout's ref, the Claude Code install step, the bucket's sign-in steps, and the action step's `with:` and `env` keys, with its Slack steps. Every other line stays byte for byte. **Write file** waits, and says why, while:
+**What Write file changes**: the triggers and permissions the parts need, the checkout's ref, the Claude Code install step, the bucket's sign-in steps, and the action step's `with:` and `env` keys, with its Slack steps. Every other line stays byte for byte. A file that sets no permissions gets them in the action's job alone, so its other jobs keep the token they had. **Write file** waits, and says why, while:
 
 - the project folder isn't its repository's root, where GitHub reads `.github/workflows/`;
 - the file can't be read or patched line by line, as one with tabs, an anchor, or two steps that use the action;

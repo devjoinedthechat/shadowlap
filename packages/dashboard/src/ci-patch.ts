@@ -8,7 +8,8 @@ import { blockEnd, entriesUnder, parseWorkflow, readWorkflow, scalarValue, split
  * taken out when only `base` has it); every other line, the person's build step, their own steps,
  * inputs, env and jobs, and filled-in role ARNs among them, stays byte for byte. What they own:
  * - on:'s `workflow_dispatch:` (taken out only bare, as the switches write it);
- * - under the job's `permissions:`, else the file's, the keys the switches write, and their comments;
+ * - under the job's `permissions:`, else the file's, the keys the switches write, and their comments
+ *   (a file with neither gets the job's own, so its other jobs keep the token they had);
  * - the checkout's `ref:`;
  * - the step that installs Claude Code;
  * - the bucket's two sign-in steps (`shadowlap store ci`'s, by their `if:`), added with their
@@ -149,7 +150,9 @@ function patchPermissions(p: Patch, u: Pieces, a: Pieces, b: Pieces): string | n
   const gb = permissionsOf(b)!;
   const block = permissionsOf(u);
   if (block === undefined) {
-    insert(p, topKey(u.doc, 'jobs')!, [...b.doc.lines.slice(gb, blockEnd(b.doc, gb)).map((l) => l.raw), '']);
+    // Under the action's job, first: set for the whole file, it would change what every other job's token may do.
+    const indent = pad(childIndent(u.doc, u.job));
+    insert(p, u.job + 1, b.doc.lines.slice(gb, blockEnd(b.doc, gb)).flatMap((l) => (l.raw.trim() ? [indent + l.raw] : [])));
     return null;
   }
   const scalar = splitComment(lineAt(u.doc, block).value).scalar;
@@ -296,7 +299,7 @@ function ownedRanges(u: Pieces): Array<[number, number]> {
   if (on !== undefined) ranges.push([on, blockEnd(u.doc, on)]);
   const permissions = permissionsOf(u);
   if (permissions !== undefined) ranges.push([permissions, blockEnd(u.doc, permissions)]);
-  else ranges.push([topKey(u.doc, 'jobs')!, topKey(u.doc, 'jobs')!]);
+  else ranges.push([u.job + 1, u.job + 1]);
   for (const s of u.before) if (s === checkoutOf(u) || isClaudeCode(u, s) || isSignIn(u, s)) ranges.push([s.start, s.end]);
   ranges.push([u.action.start, u.action.end]);
   for (const s of u.after) if (isSlack(u, s) || isFail(u, s)) ranges.push([s.start, s.end]);

@@ -78,8 +78,26 @@ describe('patchWorkflow', () => {
     expect(out).toContain('    pull_request:\n    workflow_dispatch:\n');
     expect(out).toContain('        - uses: actions/checkout@v7\n          with:\n            ref: ${{');
     expect(out).toContain(`        - uses: devjoinedthechat/shadowlap@v${VERSION}\n          id: goldens\n          with:\n              version: ${VERSION}\n              recordings: goldens/*\n              fix-on-failure: true`);
-    expect(out).toContain('permissions:\n  contents: write\n  pull-requests: write\n  actions: write\n\njobs:');
+    // The file sets no permissions: its job gets the ones the switches need, at its own indent.
+    expect(out).toContain('    test:\n        permissions:\n          contents: write\n          pull-requests: write\n          actions: write\n        runs-on: ubuntu-latest\n');
     expect(readWorkflow(out)).toMatchObject({ problem: null, count: 1, action: { id: 'goldens', inputs: { 'fix-on-failure': 'true', repairer: 'anthropic' } } });
+  });
+
+  it('gives the action’s job the permissions the switches need when the file sets none, so its other jobs keep their token', () => {
+    const release = '  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm publish\n';
+    const text = ['name: ci', 'on:', '  pull_request:', 'jobs:', '  test:', '    runs-on: ubuntu-latest', '    steps:', '      - uses: actions/checkout@v7', '      - uses: devjoinedthechat/shadowlap@v0.0.9', '        with:', '          version: 0.0.9', ''].join('\n') + release;
+    const plain: WorkflowFileSettings = { fix: null, alerts: null };
+    const fix: WorkflowFileSettings = { fix: { budget: '2.00', repairer: 'anthropic' }, alerts: null };
+    const out = patched(text, plain, fix);
+    expect(out).toContain('  test:\n    permissions:\n      contents: write\n      pull-requests: write\n      actions: write\n    runs-on: ubuntu-latest\n');
+    // None for the whole file, and the release job as it was.
+    expect(out).not.toMatch(/^permissions:/m);
+    expect(out.endsWith(release)).toBe(true);
+    // Read back, the job's block is the switches': set in place, the other job still left alone.
+    const back = patched(out, fix, plain);
+    expect(back).toContain('  test:\n    permissions:\n      contents: read\n      pull-requests: write\n    runs-on: ubuntu-latest\n');
+    expect(back).not.toMatch(/^permissions:/m);
+    expect(back.endsWith(release)).toBe(true);
   });
 
   it('keeps a checkout ref of the person’s own and a workflow_dispatch with inputs', () => {
