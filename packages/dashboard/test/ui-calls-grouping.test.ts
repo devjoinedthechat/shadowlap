@@ -267,6 +267,37 @@ describe('Calls, grouped', () => {
     expect(bar.hash).toBe(`#/run/${RUN}/3`);
   });
 
+  it('heads a sub-agent’s row with its first call for ← and →: ← goes to it, folds its calls, then the row, then goes on to the model call that started it', async () => {
+    const { bar, key } = await open(4, SUB);
+    // ← on the sub-agent's answer goes to its first call.
+    expect(await key('ArrowLeft')).toBe(true);
+    expect(bar.hash).toBe(`#/run/${SUB}/2`);
+    await r!.wait(10);
+    // Then folds that call's tool call, then the row, the selection held.
+    expect(await key('ArrowLeft')).toBe(true);
+    await r!.wait(10);
+    expect(rows()).toEqual([1, 2, 4, 5, 6]);
+    expect(await key('ArrowLeft')).toBe(true);
+    await r!.wait(10);
+    expect(rows()).toEqual([1, 5, 6]);
+    expect(subRow().className).toBe('tgr held');
+    expect(bar.hash).toBe(`#/run/${SUB}/2`);
+    // From the folded row, on to the model call whose tool started it.
+    expect(await key('ArrowLeft')).toBe(true);
+    expect(bar.hash).toBe(`#/run/${SUB}/1`);
+    await r!.wait(10);
+    // → goes to the first call under it, which opens the row; then opens its calls, then goes to the first.
+    expect(await key('ArrowRight')).toBe(true);
+    expect(bar.hash).toBe(`#/run/${SUB}/2`);
+    await r!.until('the sub-agent’s row open', () => rows().includes(2));
+    expect(rows()).toEqual([1, 2, 4, 5, 6]);
+    expect(await key('ArrowRight')).toBe(true);
+    await r!.wait(10);
+    expect(rows()).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(await key('ArrowRight')).toBe(true);
+    expect(bar.hash).toBe(`#/run/${SUB}/3`);
+  });
+
   it('steps with j and k through every call, a folded one too, opening what j reaches', async () => {
     const { bar, key } = await open(3);
     await r!.click(caretOf(2)!);

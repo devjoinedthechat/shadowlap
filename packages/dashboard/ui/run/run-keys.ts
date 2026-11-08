@@ -52,10 +52,12 @@ export interface RunKeyState<C extends { callNo: number }> {
 const PRESSES: Readonly<Record<string, ShortcutId>> = { r: 'replay', c: 'compare', b: 'blame', f: 'fork' };
 
 /**
- * ← and → on the selected call in Calls, on the trace's groups: ← folds the calls under a model
- * call, else goes to the model call it sits under, else folds the sub-agent's or the item's row that
- * holds it, the selection held; → opens the folded group that holds it, else a model call's calls,
- * else goes to the first of them. False when there is nothing to do.
+ * ← and → on the selected call in Calls, on the trace as a tree: a group's head is its model call,
+ * or a sub-agent's stretch's first call; a batch's item has its row alone. ← folds the group the
+ * selected call heads (its tool calls, then its stretch), else goes to the head of the group it sits
+ * in, else folds the item's row that holds it, the selection held; on a held selection it goes on
+ * from the folded row that holds it. → opens the folded group that holds it, else the group it
+ * heads, else goes to the first call under it. False when there is nothing to do.
  */
 function foldKey<C extends { callNo: number }>(k: RunKeyState<C>, open: boolean): boolean {
   const { trace, selected, shown } = k;
@@ -63,18 +65,24 @@ function foldKey<C extends { callNo: number }>(k: RunKeyState<C>, open: boolean)
   const own = trace.heads.get(selected) ?? null;
   const path = pathOf(trace, selected);
   const held = path.find((g) => !shown(g));
+  const inner = path.at(-1);
+  const stretch = inner?.kind === 'sub' && inner.first === selected ? inner : null;
   if (open) {
     if (held) return k.fold(held), true;
     if (own && !shown(own)) return k.fold(own), true;
-    const i = own ? k.listed.findIndex((c) => c.callNo === selected) : -1;
+    const i = own || (stretch && stretch.last > selected) ? k.listed.findIndex((c) => c.callNo === selected) : -1;
     const next = i < 0 ? undefined : k.listed[i + 1];
     return next ? (k.select(next.callNo), true) : false;
   }
-  if (own && !held && shown(own)) return k.fold(own), true;
-  const up = path.at(-1);
-  if (up?.kind === 'model' && up.head !== null) return k.select(up.head), true;
-  const outer = [...path].reverse().find((g) => g.kind !== 'model' && shown(g));
-  return outer ? (k.fold(outer), true) : false;
+  const mine = held ? null : own && shown(own) ? own : stretch;
+  if (mine) return k.fold(mine), true;
+  // On from what shows the selection: a folded model call's row selects that call; else the group above.
+  if (held?.kind === 'model') return held.head !== null && (k.select(held.head), true);
+  const up = held ? path[path.indexOf(held) - 1] : inner;
+  if (!up) return false;
+  if (up.kind === 'model') return up.head !== null && (k.select(up.head), true);
+  if (up.kind === 'sub' && up.first !== selected) return k.select(up.first), true;
+  return k.fold(up), true;
 }
 
 /** The run before or after this one in the list you came from: Runs as it was last shown, else the sidebar's. */
