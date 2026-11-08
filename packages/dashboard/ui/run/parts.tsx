@@ -40,7 +40,6 @@ export function useJudgedAt(run: RunDetail): { judged: RunDetail['judged']; outc
   return { judged, outcomeAt };
 }
 
-/** How an attempt came out, as its finding says it: the first fact says it too, where the chip beside the id once did. */
 /**
  * How a run came out, its header's first fact (outcomeFact): by the checks that judged it, a fork
  * blame rescued a run with, an error-path preset's verdict or an attempt's. Compare's line a run
@@ -53,6 +52,7 @@ export function runFact(run: RunDetail, judged: NonNullable<RunDetail['judged']>
 /** What a run spent, in its header's words (spentWords): Compare's line a run says it again. */
 export const runSpentWords = (run: RunDetail): ReturnType<typeof spentWords> => spentWords({ cost: run.summary.cost, capture: runType(runLikeOf(run)) === 'capture', ...spentBy(run) });
 
+/** How an attempt came out, as its finding says it: the first fact says it too, where the chip beside the id once did. */
 function attemptVerdictOf(run: RunDetail, checks: ReturnType<typeof checksOf>) {
   const a = attemptOf(run);
   return a ? attemptOutcome({ status: run.run.status, checks, ...(run.state ? { interrupted: run.state.interrupted } : {}) }, a) : null;

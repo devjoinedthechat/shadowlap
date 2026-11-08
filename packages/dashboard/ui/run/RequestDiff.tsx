@@ -20,7 +20,6 @@ export { askDiff, JsonDiffPart };
  * report load too.
  */
 
-
 /** What the panel draws once the answer came: the heads and the diff with the notes under it; a fork that changed nothing in words alone. */
 function Answered({ diff }: { diff: NonNullable<Awaited<ReturnType<typeof askDiff>>> }) {
   // The server says whether the two sides are the same (`same`): no render reads both bodies to find out.
