@@ -8,6 +8,8 @@ import type {
   StoreSettings,
   ToolsSettings,
 } from '../src/settings.js';
+import type { CiWorkflowOptions } from '../src/ci-workflows.js';
+import type { GatePreview } from '../src/tests-gate.js';
 
 /**
  * Settings' part of the API client (`client.settings`): each tab's read, and the edits to
@@ -65,6 +67,15 @@ export interface SettingsApi {
   setCiPush(on: boolean | null, expect: string): Promise<{ ciPush: boolean; was: boolean | null; changed: boolean; version: string }>;
   /** "Add normalizer": the normalizers a finished calibrate job proposed, read from its result on the server. */
   writeCalibration(jobId: string): Promise<{ added: number[]; already: number[]; version: string }>;
+  /**
+   * Settings → CI's Write file: the workflow the switches build, written only while the file is the
+   * version read (`expect`) and the text the ask showed (`shown`, its hash). `was` names its Undo.
+   */
+  writeWorkflow(options: Partial<CiWorkflowOptions>, expect: string, shown: string): Promise<{ path: string; version: string; changed: boolean; was: string | null }>;
+  /** Write file's Undo: the file as the write found it, or none, against the version the write left. */
+  undoWorkflow(was: string, expect: string): Promise<{ path: string; version: string; removed: boolean }>;
+  /** What a gate's figures would do, as Gates previews them: the query `GET /api/tests/gate` takes. */
+  gate(query: string, signal?: AbortSignal): Promise<GatePreview>;
 }
 
 /** The client's request function, as `createClient` has it. */
@@ -88,6 +99,9 @@ export function settingsApi(request: Request): SettingsApi {
     setClock: (mode, expect) => send('PUT', 'settings/clock', { mode, expect }),
     setCiPush: (on, expect) => send('PUT', 'settings/store/ci-push', { on, expect }),
     writeCalibration: (jobId) => send('POST', 'settings/calibrate/write', { jobId }),
+    writeWorkflow: (options, expect, shown) => send('PUT', 'ci/workflow', { options, expect, shown }),
+    undoWorkflow: (was, expect) => send('POST', 'ci/workflow/undo', { was, expect }),
+    gate: (query, signal) => request(`tests/gate?${query}`, signal ? { signal } : {}),
   };
 }
 
@@ -108,5 +122,8 @@ export function noSettings(refuse: () => Promise<never>): SettingsApi {
     setClock: refuse,
     setCiPush: refuse,
     writeCalibration: refuse,
+    writeWorkflow: refuse,
+    undoWorkflow: refuse,
+    gate: refuse,
   };
 }

@@ -212,9 +212,10 @@ export function useEditor(
   return { busy: waiting !== null, run, landed };
 }
 
-/** An edit's refusal in the page's words. */
+/** An edit's refusal in the page's words, the file it names kept: the config, or Settings → CI's workflow. */
 export function editErrorText(err: unknown): string {
-  if (err instanceof ApiError && err.status === 409 && /changed since it was read/.test(err.message)) return `${CONFIG_FILE} changed on disk since this page read it. It shows the file as it is now; nothing was changed.`;
+  const changed = err instanceof ApiError && err.status === 409 ? /(?:(\S+) )?changed since it was read/.exec(err.message) : null;
+  if (changed) return `${changed[1] ?? CONFIG_FILE} changed on disk since this page read it. It shows the file as it is now; nothing was changed.`;
   return messageOf(err);
 }
 
