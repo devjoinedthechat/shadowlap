@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { BlameView, CheckView, RunDetail, RunOffers } from '../api.js';
 import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
@@ -20,7 +20,7 @@ import type { PendingAction } from './actions.js';
 import { notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
 import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
-import { DifferencesPanel, useForkDifferences } from './ForkDifferences.js';
+import { useForkDifferences } from './differences.js';
 import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
 import { attemptLinks, attemptOf, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
@@ -28,6 +28,10 @@ import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
 import { NoteFinding } from './RunNotes.js';
+import { onShow } from '../components/OnShow.js';
+
+/** A fork's differences, which a run's page shows only on a fork that ended: a part of its own, asked for as their read is (OnShow.tsx). */
+const DifferencesPanel = onShow(() => import('./ForkDifferences.js').then((m) => m.DifferencesPanel));
 
 /**
  * What a run's page found, as one bar under its header (findings.ts): the most telling finding whole,
@@ -504,7 +508,11 @@ function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Dif
  */
 export function FindingsBar(p: BannerProps & { notes: readonly RunNote[] }) {
   const r = p.run.run;
-  const differences = useForkDifferences(r.runId, !!r.divergence && !!r.parentRunId && r.status !== 'running');
+  const fork = !!r.divergence && !!r.parentRunId && r.status !== 'running';
+  const differences = useForkDifferences(r.runId, fork);
+  useEffect(() => {
+    if (fork) DifferencesPanel.preload();
+  }, [fork]);
   return <Findings {...p} differences={differences} />;
 }
 
