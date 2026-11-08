@@ -132,6 +132,25 @@ describe('the check builder from a call', () => {
     expect(s.onClose).not.toHaveBeenCalled();
   });
 
+  it('after a 409 shows a check added to the same golden meanwhile, keeps the rule, and saves both', async () => {
+    const conflict = 'shadowlap.config.json changed on disk since this page read it: tests["goldens/refund-flow"] changed. It shows your change against the file as it is now; nothing was changed.';
+    let saves = 0;
+    const s = stub({
+      save: () => (++saves === 1 ? Promise.reject(new ApiError(409, conflict)) : Promise.resolve({ key: 'goldens/refund-flow', version: 'e'.repeat(64), added: [], removed: [], changed: true })),
+    });
+    const now = config({ version: 'd'.repeat(64), goldens: [golden({ entry: { expect: { tools: { send_email: 0, escalate: 1 } } } })] });
+    s.checks.goldens.mockImplementationOnce(async () => config()).mockImplementationOnce(async () => now);
+    await open(s);
+    await r!.click(r!.one('.dlg-ok'));
+    await r!.until('the file read again', () => r!.all('.cb-units li').length === 3);
+    const rows = r!.all('.cb-units li').map((li) => said(li));
+    expect(rows[1]).toContain('escalate');
+    expect(rows[2]).toContain('issue_refund called 0 timesnew');
+    await r!.click(r!.one('.dlg-ok'));
+    await r!.until('the save', () => s.onClose.mock.calls.length > 0);
+    expect(s.checks.save).toHaveBeenLastCalledWith({ golden: 'goldens/refund-flow', version: now.version, read: now.read, entry: { expect: { tools: { send_email: 0, escalate: 1, issue_refund: 0 } } } });
+  });
+
   it('says a 400 in the dialog’s amber line and stays open', async () => {
     const said = 'shadowlap.config.json: tests["goldens/refund-flow"].expect.tools["issue_refund"] must be a count such as 0, ">= 1", "<= 12" or "2-4"';
     const s = stub({ save: () => Promise.reject(new ApiError(400, said)) });

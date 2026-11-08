@@ -691,6 +691,27 @@ export function withGolden(s: Units, base: unknown): Units {
 }
 
 /**
+ * The units on the file as read again after a save refused for a file changed since: the golden's
+ * checks as they are now, a check added meanwhile among them, each edit or removal of a check still
+ * there kept on it (one changed or gone meanwhile takes what the file holds), and this session's own
+ * rules after them, the editor on the same unit where it is still there.
+ */
+export function rebased(s: Units, base: unknown): Units {
+  const was = s.units.filter((u) => u.orig);
+  const used = new Set<Unit>();
+  const file = unitsOf(base).map((f) => {
+    const kept = was.find((u) => !used.has(u) && same(u.orig, f));
+    if (!kept) return fileUnit(f);
+    used.add(kept);
+    return kept;
+  });
+  const units = [...file, ...s.units.filter((u) => !u.orig)];
+  const cur = s.units[s.active];
+  const at = cur ? units.indexOf(cur) : -1;
+  return at >= 0 ? { units, active: at } : openAt(units, Math.max(0, units.length - 1));
+}
+
+/**
  * What a change is told by, against the same when the builder opened: the golden picked, and each
  * unit that differs from the file, so neither the golden a check follows nor a rule only opened is one.
  */

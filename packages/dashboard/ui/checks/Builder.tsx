@@ -26,6 +26,7 @@ import {
   keepAt,
   pickGolden,
   previewNotes,
+  rebased,
   removeAt,
   ruleFrom,
   ruleTool,
@@ -227,6 +228,12 @@ function Body(props: BuilderProps & BodyProps) {
   const fromCall = 'call' in props;
   const [seen, setSeen] = useState<Judging>({ answer: null, last: null, pending: false });
   const [s, setS] = useState<State>(() => startOf(props, cfg, ruleContext(props, cfg, props.context, [])));
+  // The file read again after a 409: the golden's checks as they are now, each edit kept on a check still there.
+  const [readFrom, setReadFrom] = useState(cfg);
+  if (readFrom !== cfg) {
+    setReadFrom(cfg);
+    setS((x) => ({ ...x, ...rebased(x, baseOf(goldenAt(cfg, x.golden))) }));
+  }
   const agentTools = useFollow(props, cfg, s, seen, setS);
   const rctx = ruleContext(props, cfg, props.context, agentTools);
   const [opened] = useState(() => snapOf(s.picked ? s.golden : null, s));
