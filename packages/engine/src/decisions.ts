@@ -107,6 +107,12 @@ export const JUDGED_IN_RECORDED_STATE = "Later steps are judged in the recorded 
 /** The same fact in a few words, where a line states what a preview asked: `56 steps asked · no tool ran · later steps judged in the recorded run's state`. */
 export const JUDGED_LATER = "later steps judged in the recorded run's state";
 
+/** What a change that decides otherwise no more often than the request as recorded is put down to. */
+export const OWN_VARIATION = "the model's own variation";
+
+/** A step whose samples decided otherwise no more often than the request as recorded did, as a report and a page word it. */
+export const WITHIN_VARIATION = `within ${OWN_VARIATION}`;
+
 /** Stop reasons by provider: Anthropic and Bedrock Converse, OpenAI Chat Completions and Responses, Gemini. */
 const STOPS: Record<string, DecisionStop> = {
   // Anthropic Messages (also on Bedrock and Vertex AI), and Bedrock Converse
@@ -650,10 +656,49 @@ export function decisionStepState(s: Pick<DecisionStep, 'rank' | 'control' | 'sa
  */
 export function samplesWords(s: Pick<DecisionStep, 'rank' | 'majority' | 'samples' | 'control'>, o: { short?: boolean } = {}): string {
   const control = s.control ? `, ${s.control.changed} of ${s.control.answered} as recorded` : '';
-  const minority = s.rank !== null && s.rank <= 2 && (s.majority === null || s.majority > 2);
+  const minority = minorityChange(s);
   if (o.short) return `in ${s.samples.changed} of ${s.samples.answered}${control}${minority ? ', not flagged' : ''}`;
   const unjudged = s.samples.unjudged ?? 0;
   return `in ${s.samples.changed} of ${s.samples.answered} samples${control}${minority ? ', fewer than half: not flagged' : ''}${unjudged ? `, ${unjudged} of them not judged` : ''}`;
+}
+
+/**
+ * Whether a step changes a write or when to stop (rank 1 or 2) in fewer than half its samples: listed,
+ * not flagged, as the model's own variation until shown otherwise.
+ */
+export function minorityChange(s: Pick<DecisionStep, 'rank' | 'majority'>): boolean {
+  return s.rank !== null && s.rank <= 2 && !(s.majority !== null && s.majority <= 2);
+}
+
+/** The note a report keeps on the steps a write or stop change shows in fewer than half the samples of (minorityChange): one, or none. */
+export function minorityNotes(steps: ReadonlyArray<Pick<DecisionStep, 'rank' | 'majority'>>): string[] {
+  const n = steps.filter(minorityChange).length;
+  return n ? [`${n} step${n === 1 ? '' : 's'} had a write, stop or judged change in fewer than half ${n === 1 ? 'its' : 'their'} samples: listed, not flagged, as a model's own variation.`] : [];
+}
+
+/**
+ * How often a step that waits on its control changed (controlOpen), as its line ends: `in 2 of 3
+ * samples; 1 of 3 answered as recorded: too few to tell from the model's own variation`, the
+ * control's error in brackets where it failed. `safe` makes the error one clean line, for a terminal.
+ */
+export function unsettledWords(s: Pick<DecisionStep, 'samples' | 'control'>, safe: (text: string) => string = (text) => text): string {
+  const c = s.control;
+  const asRecorded = c?.answered ? `${c.answered} of ${c.asked} answered as recorded` : 'as recorded, no answer';
+  return `in ${s.samples.changed} of ${s.samples.answered} samples; ${asRecorded}${c?.error ? ` (${safe(c.error)})` : ''}: too few to tell from ${OWN_VARIATION}`;
+}
+
+/**
+ * What a report says of a run none of whose steps changed: `the same decisions` where it was asked,
+ * `the change leaves its requests as recorded` where it left every one as recorded, else `nothing asked`.
+ */
+export function unchangedRunWords(run: Pick<DecisionRun, 'asked' | 'steps' | 'counts'>): string {
+  if (run.asked) return 'the same decisions';
+  return run.counts.untouched === run.steps && run.steps ? 'the change leaves its requests as recorded' : 'nothing asked';
+}
+
+/** A run's summary on its line of a report: `2 changed, most: rank 1 (a write changed)`, else unchangedRunWords. */
+function runSummary(run: DecisionRun): string {
+  return run.rank !== null ? `${run.decisions.filter((s) => s.rank !== null).length} changed, most: rank ${run.rank} (${RANK_LABELS[run.rank]})` : unchangedRunWords(run);
 }
 
 /**
@@ -866,7 +911,8 @@ export const percentChange = (a: number, b: number): string => {
   const n = Math.round((Math.abs(b - a) / a) * 100);
   return n === 0 ? 'about the same' : `${b >= a ? '+' : '−'}${n}%`;
 };
-const tokenTotal = (t: TokenCount | null) => (t ? t.input + t.cacheRead + t.cacheWrite : 0);
+/** A request's input tokens, cached or not: what a report's `input tokens` count. */
+export const tokenTotal = (t: TokenCount | null | undefined): number => (t ? t.input + t.cacheRead + t.cacheWrite : 0);
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
 /** The difference one step makes to tokens and cost, as a report line ends: `+120 tokens · +$0.002`. */
@@ -965,7 +1011,7 @@ export function decisionsUnsettled(r: { stopReason: string | null; flagged: read
   const unjudged = open.filter((x) => x.judgeOpen).length;
   if (unjudged) return `${unjudged} run${unjudged === 1 ? ' has' : 's have'} a text-only change a judge check reads that could not be judged`;
   const uncontrolled = open.filter((x) => x.controlOpen).length;
-  if (uncontrolled) return `${uncontrolled} run${uncontrolled === 1 ? ' has' : 's have'} a changed step the request as recorded got no answer for, so it could not be told from the model's own variation`;
+  if (uncontrolled) return `${uncontrolled} run${uncontrolled === 1 ? ' has' : 's have'} a changed step the request as recorded got no answer for, so it could not be told from ${OWN_VARIATION}`;
   if (r.verify?.verdict === 'incomplete') return 'verify did not settle every run it took';
   if (r.verify?.verdict === 'not-run' && r.verify.reasons.length) return `verify did not run: ${r.verify.reasons[0]!}`;
   return null;
@@ -1060,11 +1106,11 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   lines.push(`${mark} ${p.bold(h.lead)}${h.rest}${h.detail}, under ${safeLine(r.change.text)}${why}`);
   const ranks = ([1, 2, 3, 4, 5] as const).filter((k) => r.counts[k]).map((k) => `${r.counts[k]} rank ${k}`);
   const noise = r.counts.noise ?? 0;
-  lines.push(p.dim(`  ${stepsAsked(r)}: ${ranks.length ? `${ranks.join(', ')}, ` : ''}${noise ? `${noise} within the model's own variation, ` : ''}${r.counts.same} the same${r.counts.untouched ? `, ${r.counts.untouched} the change leaves as recorded` : ''}${r.counts.notAsked ? `, ${r.counts.notAsked} not asked` : ''} · no tool ran`));
+  lines.push(p.dim(`  ${stepsAsked(r)}: ${ranks.length ? `${ranks.join(', ')}, ` : ''}${noise ? `${noise} ${WITHIN_VARIATION}, ` : ''}${r.counts.same} the same${r.counts.untouched ? `, ${r.counts.untouched} the change leaves as recorded` : ''}${r.counts.notAsked ? `, ${r.counts.notAsked} not asked` : ''} · no tool ran`));
   for (const run of r.runs) {
     lines.push('');
     const name = run.golden ? `${safeLine(run.golden)} ${p.dim(run.runId.slice(0, 10))}` : run.runId.slice(0, 10);
-    const summary = run.rank !== null ? `${run.decisions.filter((s) => s.rank !== null).length} changed, most: rank ${run.rank} (${RANK_LABELS[run.rank]})` : run.asked ? 'the same decisions' : run.counts.untouched === run.steps && run.steps ? 'the change leaves its requests as recorded' : 'nothing asked';
+    const summary = runSummary(run);
     if (run.refused) {
       // A refusal of several lines (an unrecorded write's, with what to do) keeps its line breaks, each line under the run's.
       const [first = '', ...more] = safeText(run.refused).split('\n');
@@ -1075,13 +1121,12 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
     for (const s of run.decisions) {
       // A change the request as recorded got no answer to tell from the model's own variation: not ranked, not settled.
       if (controlOpen(s)) {
-        const asRecorded = s.control!.answered ? `${s.control!.answered} of ${s.control!.asked} answered as recorded` : 'as recorded, no answer';
-        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.yellow('not settled')}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled!])}${p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples; ${asRecorded}${s.control!.error ? ` (${safeLine(s.control!.error)})` : ''}: too few to tell from the model's own variation`)}`);
+        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.yellow('not settled')}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled!])}${p.dim(` · ${unsettledWords(s, safeLine)}`)}`);
         continue;
       }
       // A change no more frequent than the control's: listed with both arms' counts, not ranked.
       if (s.rank === null && s.control && s.sampled) {
-        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.dim('within the model\'s own variation')}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled])}${p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples, ${s.control.changed} of ${s.control.answered} as recorded`)}`);
+        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.dim(WITHIN_VARIATION)}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled])}${p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples, ${s.control.changed} of ${s.control.answered} as recorded`)}`);
         continue;
       }
       if (s.rank === null && !s.error) continue;

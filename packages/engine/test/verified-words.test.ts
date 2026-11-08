@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decisionStepState, emptyCounts, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, judgeWords, samplesWords, stepsAsked, type DecisionJudge, type DecisionStep } from '../src/decisions.js';
+import { decisionStepState, emptyCounts, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, judgeWords, minorityChange, minorityNotes, samplesWords, stepsAsked, unchangedRunWords, unsettledWords, WITHIN_VARIATION, type DecisionJudge, type DecisionStep } from '../src/decisions.js';
 import { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords } from '../src/verified-words.js';
 
 type Step = Pick<DecisionStep, 'rank' | 'majority' | 'control' | 'sampled' | 'samples' | 'error'>;
@@ -22,6 +22,18 @@ describe('a step as a report counts it and a page draws it', () => {
     expect(samplesWords(minority)).toBe('in 1 of 3 samples, 0 of 3 as recorded, fewer than half: not flagged, 2 of them not judged');
     expect(samplesWords(minority, { short: true })).toBe('in 1 of 3, 0 of 3 as recorded, not flagged');
     expect(samplesWords(step({ rank: 3, majority: 3, samples: { asked: 2, answered: 2, changed: 2, ranks: [3, 3] } }))).toBe('in 2 of 2 samples');
+  });
+
+  it('words a step its control couldn’t settle, a run that changed nothing, and a change within the model’s own variation, as the CLI and Preview both say them', () => {
+    const unsettled = step({ sampled: 1, control: { asked: 3, answered: 1, changed: 0, ranks: [0] }, samples: { asked: 3, answered: 3, changed: 2, ranks: [1, 1, 0] } });
+    expect(unsettledWords(unsettled)).toBe("in 2 of 3 samples; 1 of 3 answered as recorded: too few to tell from the model's own variation");
+    expect(unsettledWords({ ...unsettled, control: { asked: 3, answered: 0, changed: 0, ranks: [], error: 'the model\nanswered 529' } }, (t) => t.replace(/\n/g, ' '))).toBe("in 2 of 3 samples; as recorded, no answer (the model answered 529): too few to tell from the model's own variation");
+    expect(WITHIN_VARIATION).toBe("within the model's own variation");
+    const run = { asked: 0, steps: 2, counts: { ...emptyCounts(), untouched: 2 } };
+    expect([unchangedRunWords({ ...run, asked: 2 }), unchangedRunWords(run), unchangedRunWords({ ...run, counts: { ...emptyCounts(), untouched: 1, notAsked: 1 } })]).toEqual(['the same decisions', 'the change leaves its requests as recorded', 'nothing asked']);
+    // A write or stop change most samples don't show is listed, not flagged.
+    expect([minorityChange({ rank: 1, majority: null }), minorityChange({ rank: 2, majority: 5 }), minorityChange({ rank: 1, majority: 1 }), minorityChange({ rank: 3, majority: null })]).toEqual([true, true, false, false]);
+    expect([minorityNotes([{ rank: 1, majority: null }, { rank: 3, majority: 3 }]), minorityNotes([{ rank: 1, majority: 1 }])]).toEqual([["1 step had a write, stop or judged change in fewer than half its samples: listed, not flagged, as a model's own variation."], []]);
   });
 
   it('says what a preview asked, and the later steps in a few words beside the whole sentence', () => {

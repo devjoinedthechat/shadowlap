@@ -42,6 +42,7 @@ import {
   requestShape,
   GATEWAY_UNCHANGED,
   isGatewayRequest,
+  minorityNotes,
   resolveAuthor,
   retiredFields,
   retirementsOf,
@@ -1197,8 +1198,7 @@ function stepNotes(said: Said, o: { allSteps: readonly DecisionStep[]; planned: 
     notes.push(`The ${left.length} model call${left.length === 1 ? '' : 's'} made with ${others.join(', ')} stay${left.length === 1 ? 's' : ''} as recorded: the change is at the calls made with ${from.join(', ')}${whose}.`);
   }
   for (const m of s.from ?? []) if (!use.some((u) => sameModel(u.model, m))) warnings.push(`--from ${m}: no model call of the runs was made with it (they use ${use.map((u) => u.model).join(', ') || 'no named model'})`);
-  const minority = allSteps.filter((x) => x.rank !== null && x.rank <= 2 && !(x.majority !== null && x.majority <= 2)).length;
-  if (minority) notes.push(`${minority} step${minority === 1 ? '' : 's'} had a write, stop or judged change in fewer than half ${minority === 1 ? 'its' : 'their'} samples: listed, not flagged, as a model's own variation.`);
+  notes.push(...minorityNotes(allSteps));
 }
 
 /**

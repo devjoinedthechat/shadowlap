@@ -266,7 +266,7 @@
       "walkValue": 41
     },
     "packages/engine/src/decisions.ts": {
-      "formatDecisions": 67
+      "formatDecisions": 61
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 65
