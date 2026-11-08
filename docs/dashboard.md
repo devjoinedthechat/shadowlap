@@ -1762,7 +1762,7 @@ A job only names goldens the project has on disk.
 
 - **The commit**: its subject, then who made it where names show, and when.
 - **Untested**, in amber, for the commits just before it that couldn't be tested: the first bad commit may be among them.
-- **Then**: *`refund-flow` is tested*, by the golden's name.
+- **Then**: *`refund-flow` is tested*, by the golden's name. A golden that runs live adds the rows **Run tests** asks with: **Runs live** for one marked `fork`, **Asks** for its judges and their model, and **Plants** for an injection gate.
 - **The change reversed**, where the answer kept it, and the command it runs. A warning says how many of the commit's files are outside the project, as git reverts those too.
 - **Its Cost line**: *Free · replays offline*, or what the test bills where the golden runs live, as Re-run test is priced.
 

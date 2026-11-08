@@ -15,7 +15,7 @@ import type { FoundCommit, NextStep } from '../ui/types.js';
 const HUNK = '@@ -10,3 +10,4 @@ def refund(order):\n     total = order["amount"]\n-    log(total)\n+    log(order["total"])\n+    audit(total)\n     return total\n';
 const CHANGE = { file: 'agent/refund.py', files: ['agent/refund.py'], hunk: HUNK, line: 12, cut: false, merge: false, path: 'refund.py', outside: 0 };
 const FOUND: FoundCommit = { rev: 'ccccccc', subject: 'Log the total', author: '', date: '2026-10-30T10:00:00Z', why: 'the agent exited 1', untested: [], replays: 3, tokens: 0, at: 1, change: CHANGE };
-const STEP = { key: 'revert', label: 'Revert', golden: 'goldens/refund', rev: 'ccccccc', merge: false, live: false, blame: null, title: 'Revert ccccccc', sub: 'Log the total: undone in your working tree, then goldens/refund replayed offline', command: 'git revert --no-commit ccccccc && shadowlap test goldens/refund' } as unknown as NextStep;
+const STEP = { key: 'revert', label: 'Revert', golden: 'goldens/refund', rev: 'ccccccc', merge: false, live: [], blame: null, title: 'Revert ccccccc', sub: 'Log the total: undone in your working tree, then refund replayed offline', command: 'git revert --no-commit ccccccc && shadowlap test goldens/refund' } as unknown as NextStep;
 
 describe('the first bad commit’s change', () => {
   it('marks what the commit added and removed, and the dialog shows it undone', () => {

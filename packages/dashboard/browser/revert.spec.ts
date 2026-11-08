@@ -36,10 +36,10 @@ const step = (runId: string) =>
     golden: GOLDEN,
     rev: REV,
     merge: false,
-    live: false,
+    live: [],
     blame: { offer: { from: 'exit', expect: null, failed: [] }, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${runId.slice(0, 10)}`, estimate: FREE },
     title: `Revert ${REV}`,
-    sub: `${FOUND.subject}: undone in your working tree, then ${GOLDEN} replayed offline`,
+    sub: `${FOUND.subject}: undone in your working tree, then refund-flow replayed offline`,
     command: `git revert --no-commit ${REV} && shadowlap test ${GOLDEN}`,
     estimate: FREE,
   }) as unknown as NextStep;

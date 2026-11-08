@@ -35,7 +35,7 @@ const CHANGE = { file: 'agent/refund.py', files: ['agent/refund.py', '../shared/
 const FOUND: FoundCommit = { rev: 'ccccccc', subject: 'Log the total', author: '', date: '2026-10-30T10:00:00Z', why: 'the agent exited 1', untested: ['bbbbbbb'], replays: 3, tokens: 0, at: 1, change: CHANGE };
 const FREE: Estimate = { kind: 'tests', usd: 0, ceiling: false, parts: ['replays offline'] };
 const BLAME = { offer: { from: 'exit', expect: null, failed: [] }, sub: 'Whether an answer of the model’s lost the run', command: `shadowlap blame ${REC.slice(0, 10)}` };
-const STEP = { key: 'revert', label: 'Revert', golden: GOLDEN, rev: 'ccccccc', merge: false, live: false, blame: null, title: 'Revert ccccccc', sub: 'Log the total: undone in your working tree, then goldens/refund replayed offline', command: `git revert --no-commit ccccccc && shadowlap test ${GOLDEN}`, estimate: FREE } as unknown as Extract<NextStep, { key: 'revert' }>;
+const STEP = { key: 'revert', label: 'Revert', golden: GOLDEN, rev: 'ccccccc', merge: false, live: [], blame: null, title: 'Revert ccccccc', sub: 'Log the total: undone in your working tree, then refund replayed offline', command: `git revert --no-commit ccccccc && shadowlap test ${GOLDEN}`, estimate: FREE } as unknown as Extract<NextStep, { key: 'revert' }>;
 const OFFERS = { blame: BLAME.offer, test: null, bisect: null, commit: FOUND } as unknown as RunOffers;
 const PARTS: ServedParts = { RevertDialog, ChangeBox };
 
@@ -158,9 +158,11 @@ describe('Revert', () => {
     expect(facts[1].value).toContain('bbbbbbb');
     expect(facts[1].value).toContain(UNTESTED_WORDS.row);
     expect(facts[2].value).toBe('refund is tested');
-    // The change undone: what the commit added taken out, what it removed put back.
-    expect(page.all('pre.fxcode.fxpatch span.add').map((s) => s.textContent.trim())).toEqual(['+    log(total)']);
-    expect(page.all('pre.fxcode.fxpatch span.del').map((s) => s.textContent.trim())).toEqual(['-    log(order["total"])']);
+    // The change undone, in a code box: what the commit added taken out, what it removed put back.
+    expect(page.all('pre.codebox.fxpatch span.add').map((s) => s.textContent.trim())).toEqual(['+    log(total)']);
+    expect(page.all('pre.codebox.fxpatch span.del').map((s) => s.textContent.trim())).toEqual(['-    log(order["total"])']);
+    // Read, not pasted: the change has no Copy of its own.
+    expect(page.all('.dialog .boxwrap .fxpatch')).toHaveLength(0);
     expect(page.one('.db').textContent).toContain(`git revert --no-commit ccccccc && shadowlap test ${GOLDEN}`);
     expect(page.one('.dcost').textContent).toContain('Free');
     expect(page.one('.dcost').textContent).toContain('replays offline');
@@ -169,13 +171,22 @@ describe('Revert', () => {
     expect(started).toEqual([['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, estimate: { usd: 0, ceiling: false } }]]);
   });
 
-  it('says a golden whose test runs live is billed by the provider, and answers the server’s question with the yes it asked', async () => {
+  it('says why a golden’s test runs live, as the server’s question does, that the provider bills it, and answers that question with the yes it asked', async () => {
     const started: Array<[string, Record<string, unknown>]> = [];
     const startJob = (kind: string, fields: Record<string, unknown>) => {
       started.push([kind, fields]);
-      return started.length === 1 ? Promise.reject(new ApiError(409, 'goldens/refund may fork: its test runs live', 'yes-1')) : Promise.resolve({ id: 'j2' });
+      return started.length === 1 ? Promise.reject(new ApiError(409, 'goldens/refund is marked fork, so it runs live from where it forks, writes blocked', 'yes-1')) : Promise.resolve({ id: 'j2' });
     };
-    page = await render(dialog(app({}, { startJob: startJob as never }).a, { ...STEP, live: true }, { kind: 'tests', usd: null, ceiling: false, parts: ['runs live from where it forks'] }));
+    const live = [{ kind: 'fork' }, { kind: 'judges', models: ['claude-haiku-4-5'] }, { kind: 'injection' }];
+    page = await render(dialog(app({}, { startJob: startJob as never }).a, { ...STEP, live } as typeof STEP, { kind: 'tests', usd: null, ceiling: false, parts: ['live from there, writes blocked'] }));
+    // The rows Run tests asks with, under the test: what runs live, its judges' model, and what it plants.
+    const facts = page.all('.dfacts > div').map((d) => [d.querySelector('dt')!.textContent, d.querySelector('dd')!.textContent]);
+    expect(facts.slice(2)).toEqual([
+      ['Then', 'refund is tested'],
+      ['Runs live', '1 golden marked forkfrom where it forks, writes blocked'],
+      ['Asks', 'its judges liveclaude-haiku-4-5'],
+      ['Plants', 'the payloads of 1 injection gate'],
+    ]);
     expect(page.one('.dcost').textContent).toContain('Billed by your provider');
     await page.click(page.byText('.dialog button', 'Revert'));
     await page.until('the yes', () => started.length === 2);

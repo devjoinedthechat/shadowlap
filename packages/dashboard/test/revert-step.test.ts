@@ -47,24 +47,34 @@ describe('Revert, once a crash’s commit is named', () => {
     named(T0 + 2 * MIN);
     expect(step(crash, work([source(rec)]))).toMatchObject({
       key: 'revert',
-      live: false,
+      live: [],
       label: 'Revert',
       golden: GOLDEN,
       rev: 'ccccccc',
       merge: false,
       title: 'Revert ccccccc',
-      sub: `Log the total: undone in your working tree, then ${GOLDEN} replayed offline`,
+      // The golden by its name in the sentence, by its path in the command.
+      sub: 'Log the total: undone in your working tree, then refund-in-limit replayed offline',
       command: `git revert --no-commit ccccccc && shadowlap test ${GOLDEN}`,
       blame: { offer: { from: 'exit' }, sub: 'Whether an answer of the model’s lost the run' },
     });
   });
 
-  it('reverts a merge against its first parent, and says a golden that runs live is tested', () => {
+  it('reverts a merge against its first parent, and says how a golden that runs live is tested, as its estimate does, with why for its question', () => {
     const rec = addRun(store, { startedAt: T0, calls: 'lll' });
     tested(rec, T0 + MIN, { ok: true });
     const crash = tested(rec, T0 + 2 * MIN, { ok: false });
     named(T0 + 2 * MIN, { file: 'agent.py', files: ['agent.py'], hunk: '@@ -1 +1 @@\n-a\n+b', line: 1, cut: false, merge: true });
-    expect(step(crash, work([source(rec, { mode: 'fork' })]))).toMatchObject({ key: 'revert', merge: true, live: true, command: `git revert --no-commit -m 1 ccccccc && shadowlap test ${GOLDEN}`, sub: `Log the total: undone in your working tree, then ${GOLDEN} tested` });
+    const then = (o: Partial<GoldenSource>) => step(crash, work([source(rec, o)]));
+    expect(then({ mode: 'fork', judges: ['claude-haiku-4-5'] })).toMatchObject({
+      key: 'revert',
+      merge: true,
+      live: [{ kind: 'fork' }, { kind: 'judges', models: ['claude-haiku-4-5'] }],
+      command: `git revert --no-commit -m 1 ccccccc && shadowlap test ${GOLDEN}`,
+      sub: 'Log the total: undone in your working tree, then refund-in-limit tested: live from there, writes blocked',
+    });
+    expect(then({ injection: true })).toMatchObject({ live: [{ kind: 'injection' }], sub: 'Log the total: undone in your working tree, then refund-in-limit tested: live from each read, writes stubbed' });
+    expect(then({ mode: 'fork', injection: true }).sub).toBe('Log the total: undone in your working tree, then refund-in-limit tested: live from there, writes blocked; live from each read, writes stubbed');
   });
 
   it('is priced as Re-run test, free where nothing runs live, with the Run blame beside it priced', async () => {

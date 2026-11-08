@@ -7,7 +7,9 @@ import {
   checkStatus,
   confirmWords,
   GATE_REPEAT,
+  goldenLiveParts,
   goldenRerunEstimate,
+  goldenWords,
   hasRecordedCommand,
   injectionAgainEstimate,
   injectionEstimate,
@@ -55,7 +57,7 @@ import { runJudged, type OutcomeWork, type RunJudged } from './run-outcome.js';
 import { callTotals, priced as pricedTotals } from './run-stats.js';
 import { fixedBy } from './runs-filter.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
-import { liveReasons } from './tests-live.js';
+import { liveReasons, type LiveReason } from './tests-live.js';
 import { bisectChoices, gateResultView, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectChoices, type GoldenSource } from './tests.js';
 import { bisectAnswers, standingAnswer, type BisectAnswer, type FoundCommit } from './tests-bisect.js';
 
@@ -156,8 +158,8 @@ export type NextStep = StepWords &
     | { key: 'rerun-test' | 'gate-again'; golden: string }
     | { key: 'more-attempts'; golden: string }
     | { key: 'bisect'; golden: string; starts: boolean; blame: BlameBeside | null }
-    /** `merge`: the commit is a merge, reverted against its first parent (`-m 1`); `live`: its golden's test runs something live (`liveReasons`), asked through liveAsk. */
-    | { key: 'revert'; golden: string; rev: string; merge: boolean; live: boolean; blame: BlameBeside | null }
+    /** `merge`: the commit is a merge, reverted against its first parent (`-m 1`); `live`: why its golden's test runs live (`liveReasons`), as the question it asks through liveAsk lists it; none where it replays offline. */
+    | { key: 'revert'; golden: string; rev: string; merge: boolean; live: LiveReason[]; blame: BlameBeside | null }
     | { key: 'rule' }
     | { key: 'injection-test'; runId: string }
     | { key: 'injection-again'; runId: string; job: InjectionAgain }
@@ -521,18 +523,20 @@ function crashStep(f: Facts): Decided | null {
 
 /**
  * Revert, once Find breaking commit named a crash's commit: the commit undone in the working tree,
- * uncommitted, then its golden tested, priced as Re-run test, with Run blame plain beside it. None
- * where the answer names no commit, or where the golden's newest result, newer than the answer, was
- * tested with changes on top of a commit (reverted already, or other work in the tree): fix or blame
- * then decide, as they did before the search.
+ * uncommitted, then its golden tested, priced as Re-run test, with Run blame plain beside it. Its
+ * sentence names the golden and says how its test runs, in its estimate's parts where it runs live,
+ * since its card shows only the amount. None where the answer names no commit, or where the golden's
+ * newest result, newer than the answer, was tested with changes on top of a commit (reverted already,
+ * or other work in the tree): fix or blame then decide, as they did before the search.
  */
 function revertStep(f: Facts, t: TestedGolden, found: FoundCommit, beside: Pick<Decided & { key: 'revert' }, 'blame' | 'beside'>): Decided | null {
   const rev = commitName(found.rev);
   const newest = f.reads.results(t.golden)[0];
   if (!rev || (newest && newest.at > found.at && newest.revision?.endsWith('+dirty'))) return null;
   const merge = found.change?.merge === true;
-  const live = liveReasons(t.source).length > 0;
-  const then = `then ${t.golden} ${live ? 'tested' : 'replayed offline'}`;
+  const live = liveReasons(t.source);
+  const parts = goldenLiveParts({ fork: live.some((w) => w.kind === 'fork'), injection: live.some((w) => w.kind === 'injection') });
+  const then = `then ${goldenWords(t.golden)} ${parts.length ? `tested: ${parts.join('; ')}` : 'replayed offline'}`;
   return {
     key: 'revert',
     label: ACTIONS.revert.label,

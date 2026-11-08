@@ -13,7 +13,9 @@ import { tipCard, tipText } from './HoverCard.js';
  * never the `$`: a box of several commands copies one a line, a shortened one its whole text
  * (`full`). A box that shows a change has no Copy (`change`): it is read, not pasted. A file's
  * change is its lines, each marked as added or removed (`lines`, as `patchLines` reads a hunk), with
- * what acts on the file at its header's right as one group (`actions`: Open in editor, Copy git revert).
+ * what acts on the file at its header's right as one group (`actions`: Open in editor, Copy git revert);
+ * without a file, the lines alone (Revert's dialog, which names the commit above them). Every box of
+ * marked lines is this one.
  */
 export interface CodeBoxProps {
   /** A command, or several, one a line, each shown as `Command` sets it. */
@@ -28,7 +30,7 @@ export interface CodeBoxProps {
   what?: string;
   /** A box that shows a change: read, not pasted, so it has no Copy. */
   change?: boolean;
-  /** A file's change, in place of `code`: each line marked as added or removed, the box's own Copy none. */
+  /** A change, in place of `code`: each line marked as added or removed, the box's own Copy none; a file's under its name. */
   lines?: ReadonlyArray<{ text: string; tone: 'add' | 'del' | null }>;
   /** At the right of a file's header, as one group that takes a row of its own where the header can't hold it beside the name. */
   actions?: ReactNode;
@@ -135,12 +137,14 @@ export function CodeBox(props: CodeBoxProps) {
       </div>
     );
   }
+  // A change, or its marked lines, is read, not pasted: it has no Copy.
+  const read = change || !!lines;
   const pre = (
-    <pre className={`codebox${change && className ? ` ${className}` : ''}`} tabIndex={0}>
-      {code}
+    <pre className={`codebox${lines ? ' fxpatch' : ''}${read && className ? ` ${className}` : ''}`} tabIndex={0}>
+      {lines ? <MarkedLines lines={lines} /> : code}
     </pre>
   );
-  return change ? (
+  return read ? (
     pre
   ) : (
     <div className={`boxwrap${className ? ` ${className}` : ''}`}>

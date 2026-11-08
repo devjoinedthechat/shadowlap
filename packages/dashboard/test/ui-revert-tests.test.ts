@@ -32,7 +32,7 @@ const REC = '01M5JEQWA2QMJ3NYD1C687WP08';
 const GOLDEN = 'goldens/refund';
 const HUNK = '@@ -10,3 +10,3 @@ def refund(order):\n     total = order["amount"]\n-    log(total)\n+    log(order["total"])\n     return total\n';
 const FOUND: FoundCommit = { rev: 'ccccccc', subject: 'Log the total', author: '', date: '2026-10-30T10:00:00Z', why: 'the agent exited 1', untested: [], replays: 3, tokens: 0, at: T0 + 2, change: { file: 'agent/refund.py', files: ['agent/refund.py'], hunk: HUNK, line: 11, cut: false, merge: false, path: 'refund.py', outside: 0 } };
-const REVERT = { key: 'revert', label: 'Revert', golden: GOLDEN, rev: 'ccccccc', merge: false, live: false, blame: null, title: 'Revert ccccccc', sub: 'Log the total: undone in your working tree, then goldens/refund replayed offline', command: `git revert --no-commit ccccccc && shadowlap test ${GOLDEN}` } as unknown as NextStep;
+const REVERT = { key: 'revert', label: 'Revert', golden: GOLDEN, rev: 'ccccccc', merge: false, live: [], blame: null, title: 'Revert ccccccc', sub: 'Log the total: undone in your working tree, then refund replayed offline', command: `git revert --no-commit ccccccc && shadowlap test ${GOLDEN}` } as unknown as NextStep;
 const SEARCH = { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN, starts: false, blame: null, command: `shadowlap bisect ${GOLDEN} --good <commit>` } as unknown as NextStep;
 const NAMED_HINT = 'The agent stopped part way at the commit above: revert it or fix the code, then run the tests.';
 
