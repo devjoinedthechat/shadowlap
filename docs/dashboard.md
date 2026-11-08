@@ -2547,7 +2547,8 @@ A second dashboard, started in the demo's triage-bot, checks [a link into anothe
 - **Attempts**: which runs are attempts is one rule, `packages/engine/src/run-roles.ts`.
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
 - **Shared parts**: a page's header and facts, its sections, statuses, verdict lines, switches, pickers, code boxes, run ids and attempts, and its empty, loading and error states are components in `packages/dashboard/ui/components/`, listed in its `README.md`, with their styles in `ui/css/components.css`. `Term` reads its definitions from `ui/glossary.ts`.
-- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`: Compare, and everything under `ui/changes/` but its head, `Head.tsx`.
+- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`: Compare, everything under `ui/changes/` but its head, `Head.tsx`, and the check builder, everything under `ui/checks/`.
+- **The check builder's script** is handed to a run's page by the served dashboard (`ui/App.tsx`). An exported copy never offers Add check…, so its one script holds none of it.
 
 ## Troubleshooting
 

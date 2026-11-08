@@ -14,6 +14,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { refusedOffline } from './calls.js';
 import { EditAndFork } from './EditAndFork.js';
+import { AddCheckLink, type CheckEntry } from './check-entry.js';
 import { viaWords } from './notes.js';
 import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
 import { ActionButton } from '../components/ActionButton.js';
@@ -58,9 +59,11 @@ export interface InspectorProps {
   flag?: string | null;
   /** Selects another call: a tool call's Conversation tab leads to the model call of its own conversation. */
   onSelect?: (n: number) => void;
+  /** Add check… on the summary line, where the selected call takes it (run/check-entry.tsx). */
+  check?: CheckEntry | undefined;
 }
 
-export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect }: InspectorProps) {
+export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect, check }: InspectorProps) {
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;
@@ -96,6 +99,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
             summary
           )}
         </span>
+        {check ? <AddCheckLink check={check} /> : null}
         {/* The fork menu's override with the result edited here, a tool's or what a person answered: on every tab. */}
         {c && detail ? (
           <span className="iedit">

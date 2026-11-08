@@ -19,6 +19,7 @@ import { pendingRunOf, useDeleteRun } from './delete-run.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
+import type { CheckEntry } from './check-entry.js';
 import { failureText, fixCheckText } from './banner.js';
 import { nextStepOf } from './next-step.js';
 import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton } from './NextStepButton.js';
@@ -45,7 +46,7 @@ const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.Del
  * the eyebrow. The next step is the server's (src/next-step.ts); every other action stays, plain. No
  * chip says how the run stands: its first fact does.
  */
-export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged }: {
+export function RunHeader({ run, call, selected, rescued, offers, forkMenu, check, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged }: {
   run: RunDetail;
   call: CallDetail | null;
   selected: number | null;
@@ -53,6 +54,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   rescued: boolean;
   offers: RunOffers | null;
   forkMenu: ReturnType<typeof useMenu>;
+  /** Add check… for the selected call, first in its row's menu (run/check-entry.tsx). */
+  check?: CheckEntry | undefined;
   onAction: (p: PendingAction) => void;
   onFindCommit: () => void;
   preset?: PresetAttempt | null;
@@ -196,7 +199,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
         )}
       </div>
       {share.open && share.anchor ? <ShareMenu anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
-      {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
+      {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} check={check} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
     </section>
   );
 }

@@ -40,10 +40,11 @@ function detail(next: NextStep | null, o: { actions?: unknown[]; replay?: NextSt
 }
 
 /** What This run lists for a run's page, as the page's hook hands it to the palette. */
-async function thisRun(run: RunDetail, app: Partial<AppState> = {}, offers: RunOffers | null = null): Promise<PaletteCommand[]> {
+async function thisRun(run: RunDetail, app: Partial<AppState> = {}, offers: RunOffers | null = null, more: { addCheck?: () => void } = {}): Promise<PaletteCommand[]> {
+  await r?.unmount();
   let items: PaletteCommand[] = [];
   const Page = () => {
-    useRunCommands({ run, selected: 3, canFork: true, canMark: false, labels: [], mark: () => undefined, offers, judged: run.judged ?? null, actions: { run: () => undefined, findCommit: () => undefined }, forkMenu: { openAt: () => undefined }, setView: () => undefined });
+    useRunCommands({ run, selected: 3, canFork: true, canMark: false, labels: [], mark: () => undefined, offers, judged: run.judged ?? null, actions: { run: () => undefined, findCommit: () => undefined }, forkMenu: { openAt: () => undefined }, setView: () => undefined, ...more });
     return null;
   };
   const value = { client: { jobs: () => Promise.resolve([]) }, feeds: {}, jobs: [], meta: null, exported: false, actionsOff: null, hasKind: () => true, toast: () => undefined, setRunCommands: (x: PaletteCommand[]) => (x.length ? (items = x) : undefined), ...app } as unknown as AppState;
@@ -92,6 +93,11 @@ describe('This run', () => {
     expect(items.map((x) => x.label).slice(0, 3)).toEqual(['Run blame', 'Replay', 'Fork at #3…']);
     expect(items[0]).toMatchObject({ group: 'This run', hint: `shadowlap blame ${RUN.slice(0, 10)}`, job: true });
     expect(matchPalette(items, '')[0]?.label).toBe('Run blame');
+    // Where the selected call takes a check, Add check at #3… comes between Replay and Fork at #3….
+    const checked = await thisRun(detail(blame, { replay: { key: 'replay', label: 'Replay', runId: RUN, command: `shadowlap replay ${RUN.slice(0, 10)}` } }), {}, null, { addCheck: () => undefined });
+    expect(checked.map((x) => x.label).slice(0, 4)).toEqual(['Run blame', 'Replay', 'Add check at #3…', 'Fork at #3…']);
+    expect(checked[2]).toMatchObject({ group: 'This run', hint: 'never, must, only after, at most, when, a judge', job: true });
+    expect(checked[2]).not.toHaveProperty('key');
   });
 
   it('says Replay once where it is the step, and the recording’s where a replay came from one', async () => {

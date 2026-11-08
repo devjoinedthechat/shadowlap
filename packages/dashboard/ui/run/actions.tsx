@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
 import { consentAsked, forkMenu, forkMenuTitle, forkRowLine, menuLabel } from '../actions.js';
@@ -15,6 +15,7 @@ import { bisectQuery, useBisectEstimate } from '../runspage/bisect-estimate.js';
 import { sentEstimate } from '../spending.js';
 import { isFork, rowPriced, useRunEstimates, type RowPrice } from './estimates.js';
 import { onShow } from '../components/OnShow.js';
+import type { CheckEntry } from './check-entry.js';
 
 /** The dialog an action asks in, a part of its own: it loads the first time an action asks something first (OnShow.tsx). */
 const ActionDialog = onShow(() => import('./ActionDialog.js').then((m) => m.ActionDialog));
@@ -119,12 +120,17 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
  * The fork menu at a call: what applies to that call, each with its flag on the right, then what
  * applies to the whole run. A capture has no command, so it says so and offers its replay.
  */
-export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onClose }: { anchor: HTMLElement; run: RunDetail; call: CallDetail | null; offers: RunOffers | null; onPick: (p: PendingAction) => void; onFindCommit: () => void; onClose: () => void }) {
+export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommit, onClose }: { anchor: HTMLElement; run: RunDetail; call: CallDetail | null; offers: RunOffers | null; check?: CheckEntry | undefined; onPick: (p: PendingAction) => void; onFindCommit: () => void; onClose: () => void }) {
   const { hasKind } = useApp();
   // What each row bills at this call, asked as the menu opens on it: its answer redraws the menu in place.
   const estimates = useRunEstimates(run.run.runId, call ? call.call.callNo : undefined);
   // Find breaking commit's, from the commit its offer starts at, asked as the menu opens.
   const bisectPrice = useBisectEstimate(bisectQuery(run.run.runId, offers?.bisect));
+  // Add check… first at a tool call's own row, never at the head's Fork button: given only where the call takes it.
+  const checkHere = !!check && !!call && anchor.id !== 'forkBtn';
+  useEffect(() => {
+    if (checkHere) check?.preload();
+  }, [checkHere, check]);
   // Opened from a row that isn't the selected call, the menu waits for the call. Once it arrives the
   // menu opens afresh (its key), so its first item takes the focus as it does on a call already loaded.
   if (!call) {
@@ -169,6 +175,17 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
         </>
       ) : (
         <>
+          {checkHere ? (
+            <ActionButton
+              role="menuitem"
+              onClick={() => {
+                onClose();
+                check?.open(anchor);
+              }}
+            >
+              <b>Add check…</b>
+            </ActionButton>
+          ) : null}
           {menu.call.map((m) => (
             <ActionButton key={m.action.key} role="menuitem" {...item(m)} onClick={() => pick(m.action, c.callNo)}>
               <b>{m.label}</b>

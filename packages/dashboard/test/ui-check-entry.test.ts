@@ -1,0 +1,46 @@
+import { describe, expect, it } from 'vitest';
+import type { CallDetail, RunDetail } from '../ui/api.js';
+import { addsCheck, argsOf, checkMenuItems, numberValue } from '../ui/run/check-entry.js';
+
+const run = (o: { status?: string; source?: string | null } = {}) => ({ run: { runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', status: o.status ?? 'completed' }, source: o.source ?? null }) as unknown as RunDetail;
+const can = { exported: false, actionsOff: null };
+const tool = { kind: 'tool' as const, scope: null };
+
+describe('Add check… on a run’s page', () => {
+  it('is offered at a tool call of a finished recording alone, and never in an exported copy or on a read-only dashboard', () => {
+    expect(addsCheck(run(), tool, can)).toBe(true);
+    expect(addsCheck(run(), { kind: 'api', scope: null }, can)).toBe(false);
+    expect(addsCheck(run(), { ...tool, input: true }, can)).toBe(false);
+    expect(addsCheck(run(), { ...tool, scope: 'shadowlap:judge' }, can)).toBe(false);
+    expect(addsCheck(run({ status: 'running' }), tool, can)).toBe(false);
+    expect(addsCheck(run({ source: 'otel' }), tool, can)).toBe(false);
+    expect(addsCheck(run(), tool, { exported: true, actionsOff: null })).toBe(false);
+    expect(addsCheck(run(), tool, { exported: false, actionsOff: 'This dashboard is read-only' })).toBe(false);
+    expect(addsCheck(run(), null, can)).toBe(false);
+  });
+
+  it('lists the rules a call offers, each with the key it writes, from its arguments', () => {
+    expect(checkMenuItems('issue_refund', { order_id: 'A-1042', amount: 240 }).map((i) => [i.label, i.keys])).toEqual([
+      ['Never call issue_refund', 'tools'],
+      ['Never with these arguments', 'tools · args'],
+      ['Must call with order_id = …', 'tools · args'],
+      ['Only after…', 'calls · after'],
+      ['Amount at most…', 'calls · args'],
+      ['When… then…', 'when'],
+    ]);
+    expect(checkMenuItems('escalate', {}).map((i) => [i.label, i.keys])).toEqual([
+      ['Never call escalate', 'tools'],
+      ['Must call escalate', 'tools'],
+      ['Only after…', 'calls · after'],
+      ['When… then…', 'when'],
+    ]);
+    expect(checkMenuItems('issue_refund', { order_id: 'A-1042', refund_total: '12.5' }).map((i) => i.label)).toContain('Refund total at most…');
+  });
+
+  it('reads a number argument as a number or a string that reads as one, and the arguments from the call’s request', () => {
+    expect([numberValue(3), numberValue(' -1.5e2 '), numberValue('12a'), numberValue(Infinity), numberValue(null)]).toEqual([3, -150, null, null, null]);
+    expect(argsOf({ request: { args: { amount: 1 } } } as unknown as CallDetail)).toEqual({ amount: 1 });
+    expect(argsOf({ request: { amount: 1 } } as unknown as CallDetail)).toEqual({ amount: 1 });
+    expect(argsOf({ request: null } as unknown as CallDetail)).toEqual({});
+  });
+});
