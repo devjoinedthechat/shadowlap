@@ -168,6 +168,12 @@ describe('the Blame step', () => {
     expect(text(r!.one('.verdict p'))).toBe(`#1 · model call 1 of 4 · in ${none.run.slice(0, 10)} · confidence high`);
     expect(text(r!.all('section.panel.sec > header .sub')[0])).toBe('no probe rescued the run');
     await r!.unmount();
+    // That run's agent exited with an error, which its run page leads with: Open run opens it whole. One
+    // whose agent exited cleanly opens at the first probe's call.
+    const ended = blamed({ report: (run) => blameReport(run, 'unrescuable'), run: makeRun(engineStore(), { labels: ['clean-exit'], status: 'completed', calls: [...CALLS] }) });
+    await open(ended.fixId, 'blame');
+    expect(r!.all('.verdict .actions a').map((a) => [text(a), a.getAttribute('href')])).toEqual([['Open run', `#/run/${ended.run}/1`]]);
+    await r!.unmount();
     const unsure = blamed({ report: (run) => Object.assign(blameReport(run, 'unrescuable'), { probes: blameReport(run, 'unrescuable').probes.map((p) => ({ ...p, decision: 'inconclusive' as const })) }), label: 'triage' });
     await open(unsure.fixId, 'blame');
     expect([text(r!.one('.verdict .vw')), r!.all('.verdict .actions a').map((a) => [text(a), a.getAttribute('href')])]).toEqual(['inconclusive', [['Open run at #1', `#/run/${unsure.run}/1`]]]);

@@ -1,4 +1,4 @@
-import { agentCallsOf, type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, blameStateWord, blameSteps, probedInScope, describeBlocks, describeRescue, expectArgs, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeInterval, probeTally, probeWord, type PulledFrom, rescueRule, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
+import { agentCallsOf, type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, blameStateWord, blameSteps, probedInScope, describeBlocks, describeRescue, expectArgs, failureReason, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeInterval, probeTally, probeWord, type PulledFrom, rescueRule, type RunRecord, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, gateMarks, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate, type StepLine } from './fix-shared.js';
@@ -9,6 +9,11 @@ export interface BlameStep {
   blameId: string;
   runId: string;
   runExists: boolean;
+  /**
+   * Its agent exited with an error, the first reason the run failed by the engine's rule
+   * (`failureReason`), as its run page says: Open run opens it whole, where that shows, not at a call.
+   */
+  exited: boolean;
   at: number;
   outcome: StoredBlame['outcome'];
   title: string;
@@ -190,6 +195,9 @@ function callRowOf(store: StoreOf<'recording'>, b: StoredBlame): BlameStep['call
   });
 }
 
+/** Whether a run failed first on its agent's exit, by the engine's rule, before any check of its own. */
+const exitedFirst = (run: RunRecord | null): boolean => run !== null && failureReason({ status: run.status, checks: run.meta?.checks ?? [] })?.kind === 'exit';
+
 /**
  * A blame as the Blame step shows it. `fallback` is the fix's own blame command, which a pulled
  * blame shows when its fields can't be made into one.
@@ -207,6 +215,7 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
     blameId: b.blameId,
     runId: b.runId,
     runExists: run !== null,
+    exited: exitedFirst(run),
     at: b.at,
     outcome: b.outcome,
     title,

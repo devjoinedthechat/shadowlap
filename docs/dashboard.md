@@ -968,7 +968,7 @@ The page opens on its last finished step: Blame, Repair or Verify. While a job o
 
 ### Blame step
 
-The Blame step opens on its verdict line: *blamed* in ink, or *inconclusive*, *stopped* or *not rescued* in amber. Beside the word are the probes' tallies, as *2 of 4 rescued from #5, 0 of 4 from #7*. Under it are the call, the run and the confidence, with why on hover. Then comes what blame found, in one sentence.
+The Blame step opens on its verdict line: *blamed* in ink, or *inconclusive*, *stopped* or *not rescued* in amber. Beside the word are the probes' tallies, as *2 of 4 rescued from #5, 0 of 4 from #7*. Under it are the call, the run and the confidence, with why on hover. **Open run** opens the run at the call blamed, where a stopped search got to, or at the first probe's call, and whole where its agent exited with an error. Then comes what blame found, in one sentence.
 
 Its sections:
 

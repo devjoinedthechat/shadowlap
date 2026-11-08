@@ -88,10 +88,14 @@ function BlameFacts({ b }: { b: BlameStep }) {
   );
 }
 
-/** The step's links: the run at the call it blamed, or where a stopped search got to, or at the first probe's call where that couldn't tell; the rescued fork. */
+/**
+ * The step's links: the run at the call it blamed, or where a stopped search got to, or at the first
+ * probe's call where that couldn't tell; Open run at the first probe's call where no call rescued
+ * the run, unless its agent exited with an error, which the run page leads with; the rescued fork.
+ */
 function BlameLinks({ b }: { b: BlameStep }) {
   const first = b.probes[0];
-  const run = !b.runExists ? null : b.hrefs.lostAt && b.lostAt !== null ? { to: b.hrefs.lostAt, label: `Open run at #${b.lostAt}` } : b.line.word === 'inconclusive' && first ? { to: first.href, label: `Open run at #${first.callNo}` } : { to: b.hrefs.run, label: 'Open run' };
+  const run = !b.runExists ? null : b.hrefs.lostAt && b.lostAt !== null ? { to: b.hrefs.lostAt, label: `Open run at #${b.lostAt}` } : b.line.word === 'inconclusive' && first ? { to: first.href, label: `Open run at #${first.callNo}` } : { to: first && !b.exited ? first.href : b.hrefs.run, label: 'Open run' };
   if (!run && !b.hrefs.rescued) return null;
   return (
     <>
