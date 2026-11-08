@@ -72,7 +72,6 @@ export type HintKey =
   | { key: 'injection' }
   /** Why it showed too little to say: a model call that got no answer, nothing marked untrusted to plant in, attempts cut short, or nothing shown. */
   | { key: 'injection-inconclusive'; why: 'unanswered' | 'no-reads' | 'stopped' | 'nothing' }
-  | { key: 'checks-changed' }
   | { key: 'error' };
 
 export interface GoldenReport {
@@ -399,9 +398,9 @@ export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput): Go
   const built = partsOf(r, row, listed, i, recording);
   const gone = checksGone(r, row);
   if (gone.length) {
+    // Its hint stays its last test's until Run tests leads such a golden, whose hint says so (port/checks-on-tests).
     built.parts.unshift({ kind: 'checks-changed', gone });
     built.sub = ['its last test, before its checks changed'];
-    built.hint = { key: 'checks-changed' };
   }
   const answered = listed.kind === 'inconclusive' ? null : listed.view;
   if (answered?.found) built.parts.push({ kind: 'commit', found: answered.found });

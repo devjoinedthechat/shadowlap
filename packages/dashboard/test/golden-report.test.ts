@@ -76,7 +76,7 @@ describe('a check', () => {
     const { report } = world('refund', () => ({ ok: false, failure: 'check', reason: 'check failed: issue_refund called 0 times, but called 1 time', data: { mode: 'replay', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, checks: [check('issue_refund called 0 times', 'failed', 'called 1 time')] } }), { checks: ['output includes "refund"'] });
     expect(report.parts[0]).toEqual({ kind: 'checks-changed', gone: [{ label: 'issue_refund called 0 times', status: 'failed' }] });
     expect(report.sub).toEqual(['its last test, before its checks changed']);
-    expect(report.hint).toEqual({ key: 'checks-changed' });
+    expect(report.hint).toEqual({ key: 'check' });
   });
 
   it('says a judge check wasn’t judged on a clean replay, with its calls', () => {
