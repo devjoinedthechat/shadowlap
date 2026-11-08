@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_PRICES, NO_COMMAND, Store, checkLabels, packRun, parseExpect, type RunMeta } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import type { CheckContext, CheckPreview } from '../src/check-preview.js';
 import type { ChecksConfig } from '../src/config-tests.js';
+import { folderGoneText } from '../src/folder-gone.js';
 import type { GoldenSource } from '../src/tests.js';
 
 /**
@@ -280,5 +281,30 @@ describe('a draft judged on the agent’s recordings', () => {
     expect(await error(bad)).toMatch(/^expect\.calls\[0\] checks nothing/);
     const capture = store.createRun({ mode: 'record', command: { argv: [NO_COMMAND], cwd: project } });
     expect((await send('POST', 'checks/preview', { expect: { tools: { issue_refund: 0 } }, run: capture.runId })).status).toBe(409);
+  });
+});
+
+describe('a read-only dashboard, and a project folder gone', () => {
+  const entry = { expect: { tools: { send_email: 0 } } };
+  it('refuses a write with 403 on a read-only dashboard, and still judges a draft there, which changes nothing', async () => {
+    await dash.close();
+    dash = await startDashboard({ store, dbPath: join(project, '.shadowlap', 'shadowlap.db'), readOnly: true, project: { path: project }, goldens: () => goldens });
+    const made = recording(AGENT, [{ name: 'issue_refund', args: { amount: 120 } }]);
+    goldens = [golden('goldens/refund', made)];
+    expect((await send('PUT', 'checks/tests', { golden: 'goldens/refund', version: 'absent', entry })).status).toBe(403);
+    expect(existsSync(join(project, 'shadowlap.config.json'))).toBe(false);
+    expect((await send('POST', 'checks/preview', { expect: { tools: { issue_refund: 0 } }, run: made })).status).toBe(200);
+  });
+
+  it('refuses a write into a project folder that is gone, in the folder-gone words', async () => {
+    // A project folder apart from the store's, so the store stays.
+    const away = realpathSync(mkdtempSync(join(tmpdir(), 'sl-config-tests-away-')));
+    await dash.close();
+    dash = await startDashboard({ store, dbPath: join(project, '.shadowlap', 'shadowlap.db'), readOnly: false, project: { path: away }, goldens: () => goldens });
+    goldens = [golden('goldens/refund', recording(AGENT, [{ name: 'issue_refund', args: { amount: 120 } }]))];
+    rmSync(away, { recursive: true, force: true });
+    const res = await send('PUT', 'checks/tests', { golden: 'goldens/refund', version: 'absent', entry });
+    expect(res.status).toBe(409);
+    expect(await error(res)).toBe(folderGoneText(basename(away)));
   });
 });
