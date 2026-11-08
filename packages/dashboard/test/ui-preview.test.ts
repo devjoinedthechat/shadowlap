@@ -244,6 +244,20 @@ describe('the Preview page', () => {
     expect(p.all('.dmr')[0].querySelectorAll('button.dc')[1].getAttribute('aria-current')).toBe('true');
   });
 
+  it('marks the message a forked run’s cell changed against its parent’s call, with Jump to change', async () => {
+    const turns = (third: string) => Array.from({ length: 4 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', blocks: [{ type: 'text', text: i === 2 ? third : `message ${i + 1}` }] }));
+    const at = (third: string) => ({ call: { callNo: 3, kind: 'api', outcome: 'ok' }, conversation: { turns: turns(third), fromCallNo: 3, n: null } });
+    const forked: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], parent: 'r-parent', forkAt: 2 }, flagged.matrix[1]] };
+    const asked: string[] = [];
+    const call = (run: string) => (asked.push(run), Promise.resolve(at(run === 'r-parent' ? 'message 3' : 'the edited prompt')));
+    const p = await render(createElement(AppContext.Provider, { value: app({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.resolve(forked), call } as unknown as Partial<Client>) }, createElement(PreviewTab, { id: ID, run: a, call: 3 })));
+    page = p;
+    await p.until('the change', () => !!p.one('.dconv .msg.changed'));
+    expect(asked).toEqual([a, 'r-parent']);
+    expect([p.all('.dconv .msg').indexOf(p.one('.dconv .msg.changed')), shown(p.one('.dconv .msg.changed .chg'))]).toEqual([2, 'changed in this fork · first sent at #2']);
+    expect(shown(p.one('.dconv .ibar .linkbtn'))).toBe('Jump to change');
+  });
+
   it('says a preview it doesn’t hold, with the way back to the newest', async () => {
     const { ApiError } = await import('../ui/api.js');
     const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')) }, 'dc-01M5NOTKEPT0000000000000');
