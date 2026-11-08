@@ -7,8 +7,8 @@ import { Store, type RunMeta } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
 import { asksRead, cachesRead, runsRead, warmRunStats } from '../src/run-stats.js';
 import { loadRunIndex } from '../src/run-index.js';
-import { listRunsPage, recentRuns, runsByDay } from '../src/runs-list.js';
-import { toolsCalled } from '../src/runs-filter.js';
+import { listRunsPage, recentRuns, ROW_CALLS_BUDGET, runsByDay } from '../src/runs-list.js';
+import { type JudgeRun, STATUS_JUDGED_RUNS, toolsCalled } from '../src/runs-filter.js';
 import { recordedRuns } from '../src/search-hits.js';
 
 /**
@@ -264,6 +264,27 @@ describe('read models at scale', () => {
       // A row per run: about a tenth of what a plain read of every call takes on Node 22, and about a
       // fifth on Node 24. Under one plain read: less than reading every call's row again.
       expect(t.cpu, `${name} took ${ms(t)}, ${(t.cpu / plain).toFixed(2)} times a plain read of every call`).toBeLessThan(plain);
+    }
+  }, TIMEOUT);
+
+  it('judges what Failed counts by a family’s checks within a read’s budget, the newest runs first', () => {
+    const asked: string[] = [];
+    // Nothing judged yet (`quick` finds none), and a run judged in full fails its family's checks.
+    const judge: JudgeRun = (runId, quick) => (quick ? undefined : (asked.push(runId), { by: 'family', verdict: 'failed' }));
+    const callsOf = (ids: readonly string[]) => ids.reduce((n, id) => n + lengths.get(id)!, 0);
+    const s = Store.open(path);
+    try {
+      const page = listRunsPage(s, { types: ['failed'], known: true, judge });
+      expect(asked.length).toBeGreaterThan(0);
+      expect(asked.length).toBeLessThanOrEqual(STATUS_JUDGED_RUNS);
+      expect(callsOf(asked)).toBeLessThanOrEqual(ROW_CALLS_BUDGET);
+      expect(page.warming?.what).toBe('verdicts');
+      asked.length = 0;
+      runsByDay(s, { tz: 'Europe/Berlin', now: NOW, types: ['failed'], known: true, judge });
+      expect(asked.length).toBeLessThanOrEqual(STATUS_JUDGED_RUNS);
+      expect(callsOf(asked)).toBeLessThanOrEqual(ROW_CALLS_BUDGET);
+    } finally {
+      s.close();
     }
   }, TIMEOUT);
 
