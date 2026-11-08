@@ -88,7 +88,8 @@ async function stepRun(runId: string, d: 1 | -1, runs: readonly RunLike[] | null
 }
 
 /**
- * Esc on a run: the diff in the inspector's place closes first, the finding's toggle taking the focus
+ * Esc on a run: the panel in the inspector's place (a diff or a change, `showDiff` for either) closes
+ * first, the finding's toggle taking the focus
  * if the focus was inside it (InspectorPanel.tsx). The panel is open once its frame shows, whether the
  * diff in it has come, is on its way or failed to come (it loads the first time it opens).
  */

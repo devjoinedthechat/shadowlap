@@ -279,7 +279,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     setTabState(t);
   };
   // A finding's diff in the inspector's place, until it is hidden or a call is picked (InspectorPanel.tsx).
-  const { kind: panel, showDiff, setShowDiff, onToggleDiff, close: closePanel } = useFindingPanel(runId);
+  const { kind: panel, showDiff, setShowDiff, onToggleDiff, showChange, onToggleChange, close: closePanel } = useFindingPanel(runId);
   const filterRef = useRef<HTMLInputElement>(null);
   // `/` filters the calls: from another view it opens Calls first, and the field takes focus once it is there.
   const [filterWanted, setFilterWanted] = useState(false);
@@ -342,7 +342,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   );
 
   // The run's keys, while this page is open.
-  useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), tree, folded, listed, fold, showDiff, setShowDiff, runs: app.runs, toast: app.toast });
+  useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), tree, folded, listed, fold, showDiff: panel !== null, setShowDiff, runs: app.runs, toast: app.toast });
 
   // This run, in the palette.
   useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView });
@@ -360,7 +360,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   return (
     <div className="rv">
       <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} />} judged={judged} />
-      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
       <StripBar strip={{ calls: stripCalls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: inScopeFn, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
@@ -387,7 +387,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
             {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
           </div>
         </section>
-        <InspectorPlace kind={panel} run={run} test={offers?.test ?? null} onClose={closePanel}>
+        <InspectorPlace kind={panel} run={run} test={offers?.test ?? null} offers={offers} onClose={closePanel}>
           <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
         </InspectorPlace>
       </div>
