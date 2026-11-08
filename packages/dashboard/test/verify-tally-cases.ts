@@ -37,7 +37,7 @@ export interface TallyCase {
   line: string;
 }
 
-/** A gated run, one with an attempt the provider cut short, one the provider stopped unavailable, one kept against its baseline, and one an attempt it couldn't judge stopped after one the provider cut short. */
+/** A gated run, one with an attempt the provider cut short, one the provider stopped unavailable, one kept against its baseline, one kept against it with an attempt the provider cut short, and one an attempt it couldn't judge stopped after one the provider cut short. */
 export function tallyCases(store: FixtureStore): TallyCase[] {
   const twelve = passing(12);
   const gated = gateResult(GATE, twelve.map((a) => a.passed));
@@ -60,6 +60,14 @@ export function tallyCases(store: FixtureStore): TallyCase[] {
       word: 'kept',
       parts: { tally: '38 of 38 passed, baseline 38 of 38', undecided: null, cutShort: null, bound: 'drop <= 0.10 (95%)' },
       line: '38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)',
+    },
+    // The attempt the provider cut short is said apart, before the bound on the drop.
+    {
+      kind: 'baseline, cut short',
+      run: verifiedRun(store, 'good', [...passing(38), attempt({ passed: false, verdict: 'inconclusive', cutShort: true })], { decision: 'pass', baseline: { passes: 38, attempts: 38, source: 'paired', revision: '35034be' }, margin: 0.1, drop: { lo: -0.06, hi: 0.1, confidence: 0.95, method: 'betting' }, cutShort: 1 }),
+      word: 'kept',
+      parts: { tally: '38 of 39 passed, baseline 38 of 38', undecided: null, cutShort: CUT, bound: 'drop <= 0.10 (95%)' },
+      line: `38 of 39 passed, baseline 38 of 38 (${CUT}) · drop <= 0.10 (95%)`,
     },
     // The attempt the provider cut short counts, against either verdict: 2 of 3, never 2 of 2.
     {
