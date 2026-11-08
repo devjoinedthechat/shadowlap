@@ -113,7 +113,7 @@ export function YourWorkflow({ view, changed, onWritten, reload }: { view: CiWor
               },
               (r): EditUndo | null => {
                 const was = r.was;
-                return was ? { edit: () => client.settings.undoWorkflow(was, r.version), ok: view.exists ? `Put ${r.path} back as it was` : `Removed ${r.path}, which Write file made` } : null;
+                return was ? { edit: () => client.settings.undoWorkflow(was), ok: view.exists ? `Put ${r.path} back as it was` : `Removed ${r.path}, which Write file made` } : null;
               },
             );
           }}

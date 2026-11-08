@@ -67,7 +67,7 @@ describe('Write file', () => {
     expect(after.fixOnFailure.on).toBe(true);
     expect(after.workflow.same).toBe(true);
     expect(store.listEvents({ kinds: ['ci.workflow'] })[0]).toMatchObject({ ref: '.github/workflows/agent.yml', actor: 'dana@example.com', data: { added: before.workflow.added, removed: 0, created: true } });
-    const undo = await send('POST', 'ci/workflow/undo', { was: wrote.was, expect: wrote.version });
+    const undo = await send('POST', 'ci/workflow/undo', { was: wrote.was });
     expect(undo.status, await undo.clone().text()).toBe(200);
     expect(await undo.json()).toMatchObject({ removed: true, version: 'absent' });
     expect(existsSync(file())).toBe(false);
@@ -77,7 +77,32 @@ describe('Write file', () => {
       ['.github/workflows/agent.yml', { added: before.workflow.added, removed: 0, created: true }],
     ]);
     // Once used, it is gone.
-    expect((await send('POST', 'ci/workflow/undo', { was: wrote.was, expect: 'absent' })).status).toBe(409);
+    expect((await send('POST', 'ci/workflow/undo', { was: wrote.was })).status).toBe(409);
+  });
+
+  it('puts the file back only against the version the write left, whatever version the page sends', async () => {
+    const first = await view();
+    expect((await send('PUT', 'ci/workflow', { options: {}, expect: first.version, shown: first.workflow.shown })).status).toBe(200);
+    const mine = readFileSync(file(), 'utf8');
+    const fix = await view('?fix=on');
+    const res = await send('PUT', 'ci/workflow', { options: { fix: true }, expect: fix.version, shown: fix.workflow.shown });
+    expect(res.status, await res.clone().text()).toBe(200);
+    const wrote = (await res.json()) as { version: string; was: string };
+    const written = readFileSync(file(), 'utf8');
+    // A hand edit after the write, and a page that read the file again, so it names the edit's version.
+    writeFileSync(file(), `${written}# ours\n`);
+    const now = await view();
+    expect(now.version).not.toBe(wrote.version);
+    const undo = await send('POST', 'ci/workflow/undo', { was: wrote.was, expect: now.version });
+    expect(undo.status).toBe(409);
+    expect(((await undo.json()) as { error: string }).error).toBe('.github/workflows/agent.yml changed since it was read');
+    expect(readFileSync(file(), 'utf8')).toBe(`${written}# ours\n`);
+    expect(store.listEvents({ kinds: ['ci.workflow'] })).toHaveLength(2);
+    // The edit taken out again, the same Undo goes through, though the page names a version that is gone.
+    writeFileSync(file(), written);
+    const back = await send('POST', 'ci/workflow/undo', { was: wrote.was, expect: now.version });
+    expect(back.status, await back.clone().text()).toBe(200);
+    expect(readFileSync(file(), 'utf8')).toBe(mine);
   });
 
   it('refuses a file changed since it was read, a file the page never saw, and a project that isn’t its repository’s root', async () => {

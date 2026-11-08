@@ -2316,7 +2316,7 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
 | `GET /api/ci/workflows?comment=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
 | `PUT /api/ci/workflow { options, expect, shown }` | Write file: the workflow those options build, written over the version read |
-| `POST /api/ci/workflow/undo { was, expect }` | Write file's Undo: the file put back as it was, or removed |
+| `POST /api/ci/workflow/undo { was }` | Write file's Undo: the file put back as it was, or removed |
 
 **The Tests screen** (`/api/tests`) holds:
 
@@ -2383,7 +2383,9 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
 
-**Write file** (`PUT /api/ci/workflow`) takes the `options` the page changed, the `version` it read as `expect`, and the workflow it showed as `shown`. It answers the `path`, the `version` written, whether it `changed`, and `was`, the id its Undo sends with that `version`. A file changed since, or a workflow other than the one shown, is a 409. A file it can't write, or a view with a `problem`, is a 422. **Its Undo** (`/api/ci/workflow/undo`) is a 409 once the file changed since, or once the dashboard no longer holds it.
+**Write file** (`PUT /api/ci/workflow`) takes the `options` the page changed, the `version` it read as `expect`, and the workflow it showed as `shown`. It answers the `path`, the `version` written, whether it `changed`, and `was`, the id its Undo sends. A file changed since, or a workflow other than the one shown, is a 409. A file it can't write, or a view with a `problem`, is a 422.
+
+**Its Undo** (`/api/ci/workflow/undo`) puts the file back only while it is the version the write left, which the dashboard keeps with `was`. It is a 409 once the file changed since, even after the page read it again, or once the dashboard no longer holds it.
 
 ### Settings
 

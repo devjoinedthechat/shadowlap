@@ -47,9 +47,9 @@ function served(o: Partial<CiWorkflowOptions>, text: string | null, over: Partia
 /** The file Write file writes for the defaults: a repository whose workflow the switches start from as they are. */
 const DEFAULTS_FILE = served({}, null).workflow.text;
 
-/** A dashboard server holding the repository's workflow: Write file writes it, against the version read, and its Undo puts it back. */
+/** A dashboard server holding the repository's workflow: Write file writes it, against the version read, and its Undo puts it back, against the version the write left. */
 function fakeServer(start: string | null, over: Partial<CiContext> = {}) {
-  const was = new Map<string, string | null>();
+  const was = new Map<string, { text: string | null; version: string }>();
   const s = {
     text: start,
     ciWorkflows: vi.fn(async (o: Partial<CiWorkflowOptions> = {}) => served(o, s.text, over)),
@@ -57,13 +57,15 @@ function fakeServer(start: string | null, over: Partial<CiContext> = {}) {
       const view = served(o, s.text, over);
       if (expect !== view.version) throw new ApiError(409, `${FILE} changed since it was read`);
       const id = `w${was.size + 1}`;
-      was.set(id, s.text);
+      const before = s.text;
       s.text = view.workflow.text;
+      was.set(id, { text: before, version: workflowVersion(s.text) });
       return { path: FILE, version: workflowVersion(s.text), changed: true, was: id };
     }),
-    undoWorkflow: vi.fn(async (id: string, expect: string) => {
-      if (!was.has(id) || expect !== workflowVersion(s.text)) throw new ApiError(409, `${FILE} changed since it was read`);
-      s.text = was.get(id) ?? null;
+    undoWorkflow: vi.fn(async (id: string) => {
+      const kept = was.get(id);
+      if (!kept || kept.version !== workflowVersion(s.text)) throw new ApiError(409, `${FILE} changed since it was read`);
+      s.text = kept.text;
       return { path: FILE, version: workflowVersion(s.text), removed: s.text === null };
     }),
     // The preview as `GET /api/tests/gate` answers it, a figure the config refuses a 400 in parseGate's words.
@@ -224,7 +226,7 @@ describe('Settings → CI', () => {
     // Its Undo removes the file Write file made, against the version it wrote.
     (wrote![2] as { run: () => void }).run();
     await r!.until('the file taken away', () => plain(r!.one('#workflow .wfstate')).startsWith('Not in your repository yet'));
-    expect(s.undoWorkflow).toHaveBeenCalledWith('w1', workflowVersion(view.workflow.text));
+    expect(s.undoWorkflow).toHaveBeenCalledWith('w1');
     expect(s.text).toBeNull();
     expect(toast.mock.calls.map((c) => c[0])).toContain(`Removed ${FILE}, which Write file made`);
   });

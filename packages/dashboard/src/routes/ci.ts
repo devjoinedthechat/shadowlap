@@ -19,26 +19,29 @@ import { GOLDENS_FOLDER } from './tests.js';
  *   GET  /api/ci/workflows?comment=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=
  *        every panel for the options the page changed, the rest as the repository's workflow sets them
  *   PUT  /api/ci/workflow       { options, expect, shown }: Write file; answers { path, version, was }
- *   POST /api/ci/workflow/undo  { was, expect }: its Undo, which puts the file back as it was, or
- *                               removes the one the write made
+ *   POST /api/ci/workflow/undo  { was }: its Undo, which puts the file back as it was, or removes
+ *                               the one the write made
  *
  * Write file writes only text the server builds itself, from the options and the repository's file
  * read again, never text from the page, and only while the file is the version the page read
  * (`expect`, the view's `version`) and the file it would write is the one the page showed (`shown`,
  * the view's `workflow.shown`): either changed is a 409, so it never writes a file nobody saw. A
  * file it can't write, or a view with a `problem`, is a 422. Its Undo is held here, never sent to
- * the page, and goes back only against the version the write left. Each lands in the activity feed
- * as `ci.workflow`.
+ * the page, with the version the write left, and goes back only against that version, whatever the
+ * page sends: a file changed since, even one the page read again, is a 409 and keeps its edit. Each
+ * lands in the activity feed as `ci.workflow`.
  */
 
 /** How many Write file Undos are kept: a toast's Undo is pressed within seconds of the write. */
 const UNDOS_KEPT = 20;
 
-/** What a write replaced, for its Undo: the project and file, and the text as it was (null: there was none). */
+/** What a write replaced, for its Undo: the project and file, the text as it was (null: there was none), and the version the write left. */
 interface Kept {
   project: string;
   path: string;
   text: string | null;
+  /** The file's version once written: the Undo puts the text back only while the file is still this one. */
+  version: string;
 }
 
 /** A session's tally as every tally on a page counts it, inconclusive goldens apart: `2 of 7 goldens passed · 3 failed, 2 inconclusive`. */
@@ -155,22 +158,22 @@ export function register(router: Router, ctx: RouteContext): void {
       return writeError(ctx, err, cwd);
     }
     const was = randomBytes(16).toString('hex');
-    undos.set(was, { project: cwd, path: view.file, text: before ? before.text : null });
+    undos.set(was, { project: cwd, path: view.file, text: before ? before.text : null, version: written.version });
     for (const key of undos.keys()) if (undos.size > UNDOS_KEPT) undos.delete(key);
     recordEvent(ctx.store, { kind: 'ci.workflow', actor: resolveAuthor({ cwd }), ref: view.file, data: { added: view.workflow.added, removed: view.workflow.removed, created: !view.exists } });
     r.json({ path: view.file, version: written.version, changed: true, was });
   });
 
-  // Write file's Undo: the file as the write found it, back against the version the write left.
+  // Write file's Undo: the file as the write found it, back only against the version the write left,
+  // never one the page names: a page that read the file again after a hand edit would name the edit's.
   router.post('/ci/workflow/undo', async (r) => {
     const body = await r.body();
-    const expect = versionOf(body.expect, 'expect');
     const kept = typeof body.was === 'string' ? undos.get(body.was) : undefined;
     const cwd = editFolder(ctx);
     if (!kept || kept.project !== cwd) throw new HttpError(409, 'That Undo is no longer in the dashboard: change the file in your repository by hand, or with Write file.');
     let written: { version: string };
     try {
-      written = writeWorkflow(cwd, kept.path, kept.text, { expect });
+      written = writeWorkflow(cwd, kept.path, kept.text, { expect: kept.version });
     } catch (err) {
       return writeError(ctx, err, cwd);
     }

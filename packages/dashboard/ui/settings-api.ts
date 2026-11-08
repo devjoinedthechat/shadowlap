@@ -72,8 +72,8 @@ export interface SettingsApi {
    * version read (`expect`) and the text the ask showed (`shown`, its hash). `was` names its Undo.
    */
   writeWorkflow(options: Partial<CiWorkflowOptions>, expect: string, shown: string): Promise<{ path: string; version: string; changed: boolean; was: string | null }>;
-  /** Write file's Undo: the file as the write found it, or none, against the version the write left. */
-  undoWorkflow(was: string, expect: string): Promise<{ path: string; version: string; removed: boolean }>;
+  /** Write file's Undo: the file as the write found it, or none, against the version the write left, which the server holds with `was`. */
+  undoWorkflow(was: string): Promise<{ path: string; version: string; removed: boolean }>;
   /** What a gate's figures would do, as Gates previews them: the query `GET /api/tests/gate` takes. */
   gate(query: string, signal?: AbortSignal): Promise<GatePreview>;
 }
@@ -100,7 +100,7 @@ export function settingsApi(request: Request): SettingsApi {
     setCiPush: (on, expect) => send('PUT', 'settings/store/ci-push', { on, expect }),
     writeCalibration: (jobId) => send('POST', 'settings/calibrate/write', { jobId }),
     writeWorkflow: (options, expect, shown) => send('PUT', 'ci/workflow', { options, expect, shown }),
-    undoWorkflow: (was, expect) => send('POST', 'ci/workflow/undo', { was, expect }),
+    undoWorkflow: (was) => send('POST', 'ci/workflow/undo', { was }),
     gate: (query, signal) => request(`tests/gate?${query}`, signal ? { signal } : {}),
   };
 }
