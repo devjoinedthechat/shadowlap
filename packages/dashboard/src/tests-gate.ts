@@ -1,4 +1,4 @@
-import { attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, decide, describeGate, explainGate, gateOdds, gateOddsAt, gateResult, parseGate, parseTestSettings, passesPerFailure, planSuite, readConfigFile, runsRed, SPRT_DEFAULTS, SUITE_RISK, verdictLine, type Gate, type GateDecision, type GateHistory, type Tally } from '@shadowlap/engine';
+import { attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, decide, describeGate, explainGate, gateOdds, gateOddsAt, gateResult, parseGate, parseTestSettings, passesPerFailure, planSuite, readConfigFile, riskPercent, runsRed, SPRT_DEFAULTS, SUITE_RISK, verdictLine, type Gate, type GateDecision, type GateHistory, type Tally } from '@shadowlap/engine';
 import type { GoldenSource } from './tests.js';
 
 /**
@@ -40,7 +40,7 @@ export interface GatePreview {
    * nothing, under `--inconclusive fail` and `warn`: the session as `shadowlap test` plans it, the
    * suite's risk (`risk`, the query's `suiteRisk`, 5% unless the config says) split across them.
    */
-  ci: { goldens: number; rate: number; risk: number; red: number; redWarn: number };
+  ci: { goldens: number; rate: number; risk: number; red: number; redWarn: number; /** Each as the engine words a risk, rounded up: `0.0018%`. */ redText: string; redWarnText: string };
   /** What `{}` and `{ "baseline": "history" }` stand for in a golden's gate, and blame's own figures. */
   defaults: { sprt: Omit<Gate & { kind: 'sprt' }, 'kind'>; baseline: Omit<Gate & { kind: 'baseline' }, 'kind'>; blame: Omit<Gate & { kind: 'sprt' }, 'kind'> };
 }
@@ -159,6 +159,7 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
   const pooled = gate.kind === 'baseline' && history ? { ...history, sessions: gate.window } : null;
   const up = always(gate, true, pooled);
   const sprt = gate.kind === 'sprt';
+  const ci = sessionRed(gate, risk);
   return {
     gate,
     description: describeGate(gate),
@@ -169,7 +170,7 @@ export function gatePreview(query: { get(name: string): string | null }): GatePr
     extremes: { pass: up.line, fail: sprt ? always(gate, false, null).line : null },
     odds: odds.map((o) => ({ rate: o.rate, pass: o.pass, fail: o.fail, inconclusive: o.inconclusive, attempts: o.attempts })),
     history,
-    ci: { goldens: CI_GOLDENS, rate: 0.95, risk, ...sessionRed(gate, risk) },
+    ci: { goldens: CI_GOLDENS, rate: 0.95, risk, ...ci, redText: riskPercent(ci.red), redWarnText: riskPercent(ci.redWarn) },
     defaults: { sprt: { ...SPRT_DEFAULTS }, baseline: { ...BASELINE_DEFAULTS }, blame: { ...BLAME_DEFAULTS } },
   };
 }

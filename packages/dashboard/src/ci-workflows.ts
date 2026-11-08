@@ -45,7 +45,7 @@ export interface CiListRow {
   label: string;
   value: string;
   /** Its dot: red for what fails a golden, amber for what can’t be decided or read (none for a plain row). */
-  tone?: 'err' | 'warn';
+  tone?: 'err' | 'warn' | 'ok';
 }
 
 /** The pull request a fix opens, as GitHub shows it: from the newest verified fix in this store, or an example. */

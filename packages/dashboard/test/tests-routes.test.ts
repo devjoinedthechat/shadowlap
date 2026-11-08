@@ -164,7 +164,7 @@ describe('GET /api/tests/gate', () => {
     expect(preview).toMatchObject({ extremes: { pass: 'passed · 12 of 12 · rate >= 0.73 (95%)', fail: 'failed · 0 of 3 · rate <= 0.71 (95%)' }, sentence: 'Tells an agent that passes 90% of the time or more from one that passes 70% or less, each verdict wrong at most 5% of the time at those two rates, and gives up after 20 attempts.' });
     // CI's figure is the session `shadowlap test` plans: the suite's 5% split across 100 goldens, about once in 55,000 runs (docs/gating.md).
     const plain = await getJson<{ ci: { goldens: number; risk: number; red: number; redWarn: number } }>(dash, 'tests/gate');
-    expect(plain.ci).toMatchObject({ goldens: 100, risk: 0.05, red: expect.closeTo(0.000018, 6), redWarn: expect.closeTo(0.0000558, 6) });
+    expect(plain.ci).toMatchObject({ goldens: 100, risk: 0.05, red: expect.closeTo(0.000018, 6), redWarn: expect.closeTo(0.0000558, 6), redText: '0.0018%', redWarnText: '0.0056%' });
     // A suite's risk of its own, as the config's tests.suiteRisk gives it, splits as the session would.
     expect((await getJson<{ ci: { risk: number; red: number } }>(dash, 'tests/gate?suiteRisk=0.2')).ci).toMatchObject({ risk: 0.2, red: expect.any(Number) });
     expect((await getJson<{ ci: { red: number } }>(dash, 'tests/gate?suiteRisk=0.2')).ci.red).toBeGreaterThan(plain.ci.red);
