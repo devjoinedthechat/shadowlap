@@ -1,5 +1,5 @@
 import type { Palette } from '@shadowlap/engine';
-import { plain, safeLine } from '@shadowlap/engine';
+import { plain } from '@shadowlap/engine';
 
 const enabled = process.stdout.isTTY === true && !process.env.NO_COLOR && process.env.TERM !== 'dumb';
 const wrap = (open: number, close: number) => (s: string) => (enabled ? `\x1b[${open}m${s}\x1b[${close}m` : s);
@@ -62,38 +62,8 @@ export function clauses(head: string, parts: readonly string[], width = 80): str
   return lines.join('\n');
 }
 
-/** A recorded string's characters escaped for a terminal line: its controls (safeLine), and each `##[`, which a CI runner reads as a workflow command anywhere in a line it logs, written `#\x23[`. */
-function escapedInLine(s: string): string {
-  return safeLine(s).replace(/##\[/g, '#\\x23[');
-}
-
-/**
- * A `::` that starts a line, white space before it or not, ahead of a command's name: a GitHub runner
- * reads that line as a workflow command (`::add-mask::`, `::stop-commands::`). IPv6's `::1` is none.
- */
-const LEADING_COMMAND = /^(\s*)::(?=[A-Za-z])/;
-
-/**
- * A recorded string for one terminal line: its control characters and each `##[` escaped
- * (escapedInLine), and a leading `::` before a command's name written `:\x3a`, as it may start the
- * line it is printed in.
- */
-export function safe(s: string): string {
-  return escapedInLine(s).replace(LEADING_COMMAND, '$1:\\x3a');
-}
-
-/**
- * Recorded text of several lines for a terminal and a CI log alike: each of its lines (a bare CR ends
- * one too) after `prefix`, escaped as a recorded string is, and the `::` of a line that would start
- * a workflow command written `:\x3a`. Behind a prefix that already keeps a line from starting one
- * (the bar what an agent printed is shown behind), its text is left as it was printed.
- */
-export function safeLines(text: string, prefix: string): string {
-  return `${text
-    .split(/\r\n|\r|\n/)
-    .map((l) => (prefix + escapedInLine(l)).replace(LEADING_COMMAND, '$1:\\x3a'))
-    .join('\n')}\n`;
-}
+/** A recorded string for one terminal line, and recorded text of several: the engine's, so the CLI and the dashboard's printed reports escape alike. */
+export { safe, safeLines } from '@shadowlap/engine';
 
 /** A command line as a shell would need it typed: the engine's, so the CLI and the dashboard quote alike. */
 export { quoteArgv } from '@shadowlap/engine';
