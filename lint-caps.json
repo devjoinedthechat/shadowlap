@@ -20,9 +20,6 @@
     "packages/cli/src/baseline-branch.ts": {
       "sessionSource": 39
     },
-    "packages/cli/src/bisect.ts": {
-      "runBisect": 59
-    },
     "packages/cli/src/blame.ts": {
       "runBlame": 54
     },
@@ -78,8 +75,7 @@
       "formatFixDetail": 64
     },
     "packages/cli/src/golden-test.ts": {
-      "packResult": 39,
-      "testGolden": 33
+      "packResult": 39
     },
     "packages/cli/src/import-trace.ts": {
       "outputOf": 38,
@@ -382,9 +378,6 @@
     }
   },
   "max-lines-per-function": {
-    "packages/cli/src/bisect.ts": {
-      "runBisect": 193
-    },
     "packages/cli/src/blame.ts": {
       "runBlame": 250
     },

@@ -2579,7 +2579,7 @@ one.
 | `--allow-unrecorded <names>` | As for [`replay`](#replay) | — |
 | `-y, --yes` | At each commit, run without asking the recorded command of a run from a pack or the team store, or of an untracked golden (below) | — |
 | `-- <command>` | The agent's command to run at each commit instead of the recorded one | — |
-| `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took | — |
+| `--json` | Print the result as JSON: each replay, the first bad commit and its change, and the replays, tokens and upstream requests it took | — |
 
 **`--fork`** is for a run that failed a check, whose recording no older commit would replay. The live
 part costs tokens, and the result says how many. A replay that forks asks its
@@ -2618,6 +2618,10 @@ there is none between the two commits (it already fails at `--good`, it passes a
 them can't be tested). It is kept with the golden's newest test result as the search started, the
 failure it answers.
 
+The first bad commit keeps its change against its first parent: the file it opens, the files it
+changed, that file's hunk and the line it added. The dashboard shows it with the answer, without a
+checkout.
+
 The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then:
 not once it passed, and never over a later failure. An answer given while the golden passed answers
 none. A search stopped with Ctrl-C keeps nothing.
@@ -2633,11 +2637,23 @@ none. A search stopped with Ctrl-C keeps nothing.
 | `good`, `bad` | The `good` and `bad` commits |
 | `commits` | How many commits come after the good one, up to and including the bad one |
 | `steps` | Each replay: `rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds` |
-| `first` | The first bad commit, with `why` it fails there |
+| `first` | The first bad commit, with `why` it fails there and its `change` (below) |
 | `untested` | The untested commits just before it |
 | `replays`, `tokens`, `upstreamRequests`, `spent`, `seconds` | What it took: replays, tokens, upstream requests, USD spent and seconds |
 
 A commit is `{ rev, short, subject, author, date }`.
+
+`first.change` is what the first bad commit changed against its first parent, with paths relative to
+the repository, or null when git couldn't say:
+
+| Field | Meaning |
+| --- | --- |
+| `file` | The file it opens: the first changed under `--cwd` that isn't in a golden's folder or `shadowlap.config.json`, else the first |
+| `files` | Every file it changed, up to 50 |
+| `hunk` | That file's diff from its first `@@`, up to about 60 lines and 4 KB, or null for a binary or deleted file |
+| `line` | The new file's line of its first added line, or null without a hunk |
+| `cut` | The hunk was cut to its bounds |
+| `merge` | It is a merge, reverted with `-m 1` |
 
 ## pack, unpack
 
