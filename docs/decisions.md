@@ -181,7 +181,7 @@ AGENT_SYSTEM_SUFFIX="Keep the final answer short." shadowlap decisions goldens/r
 
 goldens/research 01M58W8A0Z  11 of 11 model calls asked · 1 changed, most: rank 2 (it stops, hands over or is judged differently)
   #30   step 11  rank 2  judge "fences" fails what it says now, which passed as recorded · in 3 of 3 samples, 0 of 3 as recorded
-         recorded answers and stops: "Done. Summary: recorded runs replay deterministically; forks fence writ…"
+         recorded answers and stops: "Done. Summary: recorded runs replay deterministically; forks fence…"
          now      answers and stops: "Done. Recorded runs replay deterministically."  −8 tokens · −<$0.001
          judge "fences" passed → failed · It no longer says that forks fence writes. (judged live, <$0.001)
 ```

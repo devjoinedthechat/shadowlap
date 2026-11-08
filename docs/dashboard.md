@@ -205,7 +205,7 @@ Every run of the week is a row of calls colored by origin. The rows are grouped 
 | Inconclusive tests, with an amber mark, and presets left inconclusive | **Run more**, **Run again** or **Update**, all to Tests, else **Open** |
 | Failures with no fix yet: open fixes | **Fix it**, or **Open** and where to look |
 | Failures with no fix yet: failed runs never blamed | **Run blame**, or **Open** where its page leads with another step |
-| A [preview of a change](./decisions.md) whose flagged runs no session of that change has settled since (amber) | Opens the first at the call whose decision changed |
+| A [preview of a change](./decisions.md) whose flagged runs no session of that change has settled since (amber) | Opens the first run at the call whose decision changed: a preview's cell on [Preview](#preview), a migration's run |
 | Verified fixes waiting to be applied | **Mark applied** for one that has no patch, as its page has it |
 | How many behaviours seen in production no golden [covers](./coverage.md) | Opens a run of the newest |
 | With a [team store](./team.md), how many runs are only on this machine | **Push** opens Runs with **Local** picked |
@@ -254,7 +254,7 @@ The rest is what commands record as they change the project or write something:
 - Goldens packed (a pack in a goldens folder or named in the config's `tests`), and other packs.
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
 
-An entry no page shows, such as a [preview of a change](./decisions.md), is a plain line that opens nothing. A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
+An entry no page shows, such as a migration's, is a plain line that opens nothing. A [preview of a change](./decisions.md) opens on [Preview](#preview). A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
 
 Who did it is the run's author, worked out when the run was made: `SHADOWLAP_AUTHOR` if set, `ci` in CI, else git's `user.email`, else the OS user. The author stays on this machine: packs and HTML files (`export html`, or **Share → HTML report** on a run) leave it out.
 
@@ -669,7 +669,7 @@ The line beside the chips gives the `shadowlap blame --scope` command for the sc
 
 ### Views of the run
 
-Beside the inspector, six views show the run, and `v` goes through them all:
+Beside the inspector, seven views show the run, and `v` goes through them all:
 
 | View                           | Shows                                                                 |
 | ------------------------------ | --------------------------------------------------------------------- |
@@ -679,6 +679,7 @@ Beside the inspector, six views show the run, and `v` goes through them all:
 | [Timeline](#timeline-view)     | Every call on a clock, scope by scope                                 |
 | [Forks](#forks-view)           | The run's family: its recording, and every replay and fork of it      |
 | [Provenance](#provenance-view) | The run's record, its lineage, and what a copy would mask             |
+| [Decisions](#decisions-view)   | What a previewed change decides differently at each model call        |
 
 How they sit depends on the window's width:
 
@@ -793,6 +794,20 @@ What a copy would mask is counted as Settings → Redaction's preview counts it 
 - **A slow rule**: when a rule takes too long on the run's text, it says the values weren't counted, with why on hover.
 - **Busy previews**: while Settings → Redaction's previews hold every thread it uses, it says they are being counted, and asks again until they are.
 
+### Decisions view
+
+Decisions shows what a [previewed change](./decisions.md) decides differently at each of the run's model calls. Each was asked again with only the change swapped in, and no tool ran. Where several previews or migrations asked the run, a chip each picks the one shown, newest first. The page keeps the pick for each run while it stays open.
+
+It shows:
+
+- **The preview**: its name, when it ran and its samples a step, with **Preview in Changes →** to its cell on [Preview](#preview), or **Migration in Changes →**.
+- **The run's cells**, a cell per model call in the colours of [Preview's matrix](#the-matrix). A cell selects its call, so the inspector shows that call's conversation.
+- **What verify found** of the run, with the rule that decided it.
+- **Its steps**: the ranked ones, most consequential first, then those within the model's own variation. Each gives its rank and change, how often its samples changed, both decisions a line each, its cost either way and its arguments field by field. A step selects its call.
+- **Later steps are judged in the recorded run's state.** Its card says what that means.
+
+A quoted answer longer than its line is cut where a sentence ends, else after a whole word. A run whose steps all decided as recorded says so (*The same decision at every step asked.*), and a run the preview couldn't ask says why. A run nobody previewed says what a preview does, with `shadowlap decisions <run> --model <model>` to copy. An exported copy holds no previews, and says so.
+
 ### The inspector
 
 The inspector shows the selected call, in four tabs:
@@ -897,30 +912,30 @@ A run imported from someone else's pack carries what they recorded about it. Any
 
 ## Changes
 
-Changes shows what a change does to your agent, on its own recorded runs. It has two tabs, each one word with the command it matches on hover: **Verdicts** lists every change checked, and **Compare** puts two runs side by side.
+Changes shows what a change does to your agent, on its own recorded runs. It has three tabs, each one word with the command it matches on hover: **Verdicts** lists every change checked, **Compare** puts two runs side by side, and **Preview** shows what a change decides differently before it ships.
 
-The sidebar, `g` then `c` and [Search or jump to](#search-or-jump-to) reopen the tab last shown in the project, Compare on the pair it showed. The first time, and after a reload, they open Verdicts. The crumb *Changes* always opens Verdicts.
+The sidebar, `g` then `c` and [Search or jump to](#search-or-jump-to) reopen the tab last shown in the project, Compare on the pair it showed and Preview on the preview it showed. The first time, and after a reload, they open Verdicts. The crumb *Changes* always opens Verdicts.
 
 ### Verdicts
 
 Verdicts lists every change checked, newest first, one row each. A change is one of three kinds:
 
 - **A test session** that ran every golden at a revision. Its row opens [the revision's page](#a-revisions-page).
-- **A preview or a migration**: what a change of model, prompt or tools decides differently.
+- **A preview or a migration**: what a change of model, prompt or tools decides differently. A preview's row opens it on [Preview](#preview).
 - **A verify a fix keeps.** Its row opens the fix's Verify step at that verify.
 
 Each row gives the change and how it was checked (*test session · d2e8a1f*), what it was checked on (*7 goldens*), what moved and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
 
 The newest revision a test session ran every golden at leads the page: its verdict, its tally and **Open the change**, in lime while it failed or couldn't decide. The chips (*All*, *Test sessions*, *Previews*, *Verifies*) each count their rows. **Show more** reads 50 more at a time, up to 200, and says when older changes aren't listed.
 
-The page keeps its chip, and how far it read, while it stays open, so the way back from a revision's page lands on its row. Who made a change shows only with a [team store](#the-team-stores-setup). Without one, Verdicts lists this machine's test sessions only, and says so, with a link to the store's settings.
+The page keeps its chip, and how far it read, for each project while it stays open, so the way back from a revision's page lands on its row. Who made a change shows only with a [team store](#the-team-stores-setup). Without one, Verdicts lists this machine's test sessions only, and says so, with a link to the store's settings.
 
 ### A revision's page
 
 A test session's row opens its revision's page (`#/changes/verdicts/<revision>`). It gives that session's verdict and tally, the change, who made it and when, with **Open Tests**. On the newest revision, Open Tests is lime while it failed or couldn't decide. Under them:
 
 - **Goldens**, worst first, as that session judged them, each with its note (*4/4 replayed*). A golden opens the replay that judged it while the store holds it, else Tests.
-- **Decisions**: the previews and migrations asked at that revision.
+- **Decisions**: the previews and migrations asked at that revision, a preview opening on [Preview](#preview).
 - **The command** that gave the verdict.
 
 A revision no session ran every golden at says *No change d2e8a1f.*, with **Open Verdicts**.
@@ -980,6 +995,60 @@ When a side can't be compared, Compare says so:
 #### Compare in an exported copy
 
 An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It opens on the first against the newest other, and the pickers offer only those. There Compare is a page of its own, under its own head, with no tabs.
+
+### Preview
+
+Preview shows what a change of model, prompt or tools decides differently at each model call of your recorded runs, before it ships (`shadowlap decisions`, see [the decision diff](./decisions.md)). Each recorded model call is asked again with only the change swapped in, and its decision compared with the recorded one. No tool runs, so nothing reaches the world.
+
+It opens the newest preview (`#/changes/decisions/<id>`). The picker names the one shown by its change (*Model switch to claude-haiku-4-5*), then its goldens or runs, its samples a step and when. It lists up to 200, newest first, with a filter.
+
+#### The verdict and the next step
+
+The verdict is in Verdicts' words, with the lines that explain it:
+
+- **The runs it flags**, before verify: in red where a write changed, in amber where a stop, a hand-over or a judged answer did (*1 of 2 runs decides a write or when to stop differently*).
+- **What it asked**: *56 steps asked, 3 samples each · no tool ran · later steps judged in the recorded run's state*, its card saying what that means.
+- **Runs a change shows in that doesn't flag them**, on a line of their own, such as a change within the model's own variation.
+- **Verify's verdict**, once verify ran, with its warnings and how many runs it verified end to end (*2 of 7 runs verified end to end*).
+
+One lime button gives the next step. **Verify 2 runs** verifies the runs left to verify, priced first, and asks before it starts above your threshold. It waits, saying why, while a run it would verify is gone from the store. **Migrate to claude-haiku-4-5** comes where Verdicts calls the preview accepted, or finds nothing to verify.
+
+#### The matrix
+
+The matrix has a row per run, named by its id and its about line, and a cell per model call, in order. Its key leads with the ranked counts (*1 write changed*), then the quieter ones (*3 the same*):
+
+| Cell | Its model call |
+| --- | --- |
+| Red | A write changed: a write tool is called, dropped or called otherwise |
+| Amber | It stops, hands over or is judged differently |
+| The read colour | A read added, removed or asked differently |
+| Muted | The same decision, text only, or a change within the model's own variation |
+| Hollow | Left as recorded |
+| Dashed | Not asked, or waiting on its control |
+| Ringed in amber | Waits on a judge: a sample's words could not be judged |
+
+A cell whose samples decided differently is split, a band a sample, the most consequential first. Past 60 model calls a cell stands for a range, drawn as its most consequential call. Each row is one Tab stop: ← → Home End move along its cells. A row ends on what flags it, else its biggest change, and on what verify found. A run gone from the store keeps its row, its id unlinked, and says *not in the store*.
+
+Under the last row, what couldn't be asked or judged is listed once each. The receipt at the foot gives the cost per run before and after (*per run ≈$0.028 → ≈$0.014 (−50%)*), what the preview spent and its requests to the model. The command that made the preview is under it, to copy.
+
+`j` and `k` move through the rows, and Enter opens a run's most telling step.
+
+#### An opened cell
+
+A cell opens under the matrix (`#/changes/decisions/<id>/<run>/<call>`), named *#3 · step 3 of* its run, with **Open run** to the run's [Decisions view](#decisions-view) at that call. It gives:
+
+- its rank and change, and how often its samples changed, or why nothing was compared;
+- both decisions side by side, each tool marked as called the same, called otherwise, dropped or added, with how each side's turn ended;
+- each changed argument, field by field;
+- each judge check that read its words, its verdicts in their colours;
+- its cost either way, compared after the project's normalizers;
+- the conversation up to the call, as the inspector draws it: the first two and the last six messages, the rest folded. In a fork, the message the fork changed is marked, with **Jump to change**.
+
+**Close** or Esc closes it, and Esc puts the focus back on its cell.
+
+#### No preview
+
+With none kept, Preview says what a preview does, with `shadowlap decisions goldens/* --model <model>` to copy. With no goldens it waits for one: *No goldens yet: pack a run as a golden, or preview a change on one run from its Decisions view.*, with **Open Runs**. A preview the store doesn't hold says *No preview <id>.*, with **Open Preview**.
 
 ## Fixes
 
@@ -2375,13 +2444,13 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 **The decision diff:**
 
-- `/api/decisions`: the sessions kept, newest first, with the models the goldens use that retire. Each session's `href` opens Changes (`#/changes/decisions/<id>`, `#/changes/migrate/<id>`).
-- `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix`.
+- `/api/decisions`: the sessions kept, newest first, `limit` of them (50 unless given, at most 200), the project's `goldens` count, and the models the goldens use that retire. Each session gives its `name`, its `runs` and how many were `goldens` (its `unit`, `golden` or `run`), its `samples` a step and how many runs it `flagged`. Its `href` opens Changes: a preview on Preview (`#/changes/decisions/<id>`), a migration on Verdicts (`#/changes/migrate/<id>`).
+- `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix` and its `view`, read on a thread of its own. The `view` holds Preview's words, worked out on the server: the verdict as Verdicts gives it, what was asked, verify's verdict and what it verified end to end, the next step's facts, the key, the warnings and the receipt.
 - `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or the one `runId` names, is priced in the role its checks give it as recorded, at what it costs under the change. `verify` is `null` when there is nothing to verify.
-- `/api/runs/:id/decisions`: a run's decisions under each session that asked it again.
+- `/api/runs/:id/decisions`: a run's decisions under each session that asked it again, newest first. Each gives its name and samples, its row, what verify found of the run, and the `steps` its Decisions view lists, worded. Its `href` opens the view at the run's most consequential call, and `changes` its cell on Preview. `later` is the line about later steps, and its card.
 - `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
 
-The `matrix` has a row per run and a cell per model call. Each cell holds:
+The `matrix` has a row per run and a cell per model call. A row is named by its run's short id (`title`) with its `about` line. It says whether the store still holds the run (`inStore`), whether the session left it to verify, what verify found, and what the row ends on (`ending`). Each cell holds:
 
 - its rank: the most consequential change any sample showed, 0 for the same, and `null` for not asked;
 - its `majority`, the rank most samples show;
@@ -2391,6 +2460,9 @@ The `matrix` has a row per run and a cell per model call. Each cell holds:
   - else `changed` when one came out otherwise for the changed words (the cell ranks 2);
   - `unchanged` when every one came out as recorded;
   - `null` when none read it.
+- its `state`: `ranked`; `noise`, within the model's own variation; `same`; `not-asked`; `unsettled`, waiting on its control; or `left` as recorded;
+- each sample's rank (`ranks`), for a cell drawn a band a sample, and its `words` and `detail`, for its card;
+- `open`, what an opened cell shows besides the two decisions: how each side's turn ended, each changed argument, the judges' verdicts and its cost either way. It is null where no answer came.
 
 **Verdicts:**
 
