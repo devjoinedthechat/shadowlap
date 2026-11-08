@@ -57,6 +57,9 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  * - `skill.installed`: ref where it installed (`claude-code`, `agents` or `kiro`); data { path,
  *   version, outcome ('installed' or 'updated'), previous (the version replaced, or null) }:
  *   `shadowlap skill install` put the plugin, or the skills alone, into the project
+ * - `checks.changed`: ref the golden; data { key, added, removed }: the dashboard's check builder
+ *   changed the checks of the golden's tests entry in shadowlap.config.json (`key`, the entry it
+ *   wrote), `added` and `removed` the checks' labels
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

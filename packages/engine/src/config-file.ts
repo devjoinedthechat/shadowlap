@@ -312,7 +312,7 @@ export interface EditOptions {
  * that belongs.
  */
 export interface ConfigEvent {
-  kind: 'normalizer.added' | 'normalizer.removed' | 'redaction.added' | 'redaction.removed' | 'clock.set';
+  kind: 'normalizer.added' | 'normalizer.removed' | 'redaction.added' | 'redaction.removed' | 'clock.set' | 'checks.changed';
   ref: string | null;
   data: Record<string, unknown>;
 }
@@ -393,6 +393,23 @@ export async function editWhenFree<T>(edit: (options: { wait: 0 }) => T, waitMs 
 function serialize(data: Record<string, unknown>, format: ConfigFile['format']): string {
   // JSON.stringify escapes newlines inside strings, so every newline here is the layout's own.
   return JSON.stringify(data, null, format.indent).replace(/\n/g, format.eol) + format.eol;
+}
+
+/**
+ * Whether an edit of the project's config lays out anew lines it doesn't change: editConfigFile
+ * writes the whole file as `serialize` lays it out, with the file's own indent, so a file written
+ * otherwise (an object on one line, a key without its space, no newline at the end) comes back laid
+ * out that way. False with no file, or one that can't be read: an edit of it writes nothing else.
+ */
+export function editRelaysConfig(cwd: string): boolean {
+  const path = configFilePath(cwd);
+  try {
+    const bytes = readFileSync(path);
+    const file = parseConfig(path, bytes);
+    return serialize(file.data, file.format) !== bytes.toString('utf8');
+  } catch {
+    return false;
+  }
 }
 
 /**

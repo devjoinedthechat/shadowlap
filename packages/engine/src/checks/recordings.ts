@@ -132,8 +132,8 @@ export function checkRecording(r: RecordingToCheck & { spec: TestSpec }, o: { pr
   };
 }
 
-/** Judges each recording by its checks, from the recording alone. */
-export function checkRecordings(recordings: readonly RecordingToCheck[], o: { expect: unknown; prices?: Record<string, Price>; options?: EvaluateOptions }): CheckReport {
+/** Judges each recording by its checks, from the recording alone. `read` is handed each recording's calls as they are read. */
+export function checkRecordings(recordings: readonly RecordingToCheck[], o: { expect: unknown; prices?: Record<string, Price>; options?: EvaluateOptions; read?: (r: RecordingToCheck, calls: CallRecord[]) => void }): CheckReport {
   const out: CheckedRecording[] = [];
   const unchecked: string[] = [];
   // The calls judged by each spec, for the values its checks read that none of them has.
@@ -144,6 +144,7 @@ export function checkRecordings(recordings: readonly RecordingToCheck[], o: { ex
       continue;
     }
     const calls = r.store.getCalls(r.run.runId);
+    o.read?.(r, calls);
     const judgedBy = bySpec.get(r.spec) ?? [];
     judgedBy.push({ calls, input: storedCalls(r.store) });
     bySpec.set(r.spec, judgedBy);
