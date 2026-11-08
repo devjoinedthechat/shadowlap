@@ -383,7 +383,9 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const tableQuery: RunsQuery = { types, q, sort, from: times?.from ?? null, to: times?.to ?? null };
   const key = rowsKey(f, q, times);
   const table = useShownTable(useRunsTable(client, tableQuery, key, `${tick}:${feeds.team ?? 0}`, limit), { chip, q, times });
-  useKeptScroll(shownKey, table.loaded && table.key === key);
+  // Given back once the twelve weeks above the rows are in too: their sentence can take a second line,
+  // and a place given back before it would leave the list that much higher than it was.
+  useKeptScroll(shownKey, table.loaded && table.key === key && !cal.loading);
   // The good/bad key: a row shows the labels a press gave it until the table's own say otherwise.
   const [marks, setMarks] = useState<ReadonlyMap<string, { base: string; labels: string[] }>>(() => new Map());
   const byId = useLatest(new Map(table.rows.map((r) => [r.runId, r])));

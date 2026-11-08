@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 import { demoId, openPage, seriousViolations } from './dashboard.js';
 
 /**
@@ -255,6 +255,33 @@ test('Esc closes a run’s diff first, its toggle taking the focus from inside i
   await expect.poll(() => hash(page)).not.toBe(at);
 });
 
+test('Esc closes a run’s diff first while its script is on its way and once it failed to come, the run staying open', async ({ page }) => {
+  // The diff is a script of its own, asked for the first time it opens: held back, then failed.
+  const held: Route[] = [];
+  await page.route(/\/assets\/chunks\/DiffPanel-\w+\.js$/, (route) => void held.push(route));
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  const at = await hash(page);
+  const toggle = page.locator('#view [data-act="diff"]');
+  const panel = page.locator('#insp.fpanel');
+  await toggle.click();
+  await expect(panel).toBeVisible();
+  await expect.poll(() => held.length).toBe(1);
+  await expect(panel.locator('.diffpanel')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+  expect(await hash(page)).toBe(at);
+  await held[0]!.abort();
+  await toggle.click();
+  await expect(panel).toContainText('This diff’s code didn’t come from the dashboard server.');
+  // From inside it, on its Retry: the toggle takes the focus.
+  await panel.getByRole('button', { name: 'Retry' }).focus();
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+  expect(await hash(page)).toBe(at);
+});
+
 test('This run’s keys in the palette come back with the switch, with no other call selected', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
   const replayRow = page.locator('.palit', { has: page.locator('.pl', { hasText: /^Replay$/ }) });
@@ -372,7 +399,7 @@ test('a job’s end hands the focus to what took its control’s place, however 
   const run = demoId('digestFailed');
   const fix = { role: 'failing', fix: { fixId: 'fx-0000000000000000000000000A', href: '#/fixes/fx-0000000000000000000000000A', title: 'The agent exited with code 1', status: 'open', label: 'digest', check: 'the agent exits 0' }, blame: null, probe: null, verify: null };
   // What the server leads with once the blame opened that fix.
-  const opens = { key: 'fix', label: 'Open fix', fixId: fix.fix.fixId, status: 'open', href: fix.fix.href, title: `“${fix.fix.title}”` };
+  const opens = { key: 'fix', label: 'Open fix', fixId: fix.fix.fixId, status: 'open', check: fix.fix.check, href: fix.fix.href, title: `“${fix.fix.title}”` };
   const job = (done: boolean) => ({ id: 'stubjob', kind: 'blame', title: 'Blaming', args: ['blame', run], worktree: { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: '/x' }, runId: run, opensRun: false, startedAt: Date.now() - 1000, endedAt: done ? Date.now() : null, done, stopped: false, code: done ? 3 : null, newRunId: null, runs: [], links: [], files: [], total: 0, lines: [], project: { id: 'support-agent', name: 'support-agent' } });
   let polls = 0;
   let ended = false;

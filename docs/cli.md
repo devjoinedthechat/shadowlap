@@ -672,7 +672,7 @@ HTTP. It runs until stopped.
 shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open] [--read-only]
 ```
 
-A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any
+A local web UI over the store: runs and forks, a strip of calls by kind or origin, the conversation at any
 call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork
 actions. See [Dashboard](./dashboard.md).
 
@@ -1253,7 +1253,8 @@ With `--json`, each subcommand prints:
 Lists fixes, the most recently opened first. Each fix takes up to three lines:
 
 1. Its status (`open`, `verified`, `applied`), id, title, label, failing runs, and how far each step
-   got (*lost at #5 · prompt change · 3 fixed · 1 kept*).
+   got (*lost at #5 · prompt change · 3 fixed · 1 kept*). Repair says *by hand* for a change you made
+   yourself that verify checked.
 2. What its failing runs did and the check they must meet
    (*failed: send_email called twice, not once · must: send_email called once*), where the fix came
    from (*from CI · PR #138*) and when it was opened.
@@ -1290,8 +1291,9 @@ three steps.
    repairer did (*not fixed · the repairer could not be asked: claude was not found*), and the repair's
    warnings.
 3. **Verify**: every verdict, named by what changed (a repair's candidate, the request fields it set,
-   or the code version) and headed by the runs it checked, with each run's role and outcome. One that
-   doesn't count for the fix says why in its heading.
+   or the code version) and headed by the runs it checked, with each run's role, outcome and tally as
+   `shadowlap verify` prints it (*12 of 12 passed · rate >= 0.73 (95%)*). One that doesn't count for
+   the fix says why in its heading.
 
 It ends with what to do next. It says when the repair it suggests would end *No fix to try* without
 running the agent, and why (the blames it would reuse rescued no failing run), or couldn't ask its
@@ -1312,9 +1314,12 @@ repairer from here (`claude` isn't on the PATH).
 | `defaultStep`, `defaultVerify` | The step the dashboard opens at, and the verdict it shows first: the newest that counts |
 | `attempts`, `spent`, `upstreamRequests` | What everything behind the fix took: the attempts that ran live, and what they and the repairer cost |
 | `actions` | What can be done next (below) |
+| `lead` | The step it leads with, as its dashboard page and row do: `key`, `label` and `command`, or `null` for none |
 | `commands` | The `blame`, `repair` and `verify` commands to run it again |
 | `repairer` | The repairer the config names (below) |
 | `applied` | Once applied, how: `patch`, `repairId`, the `goldens` copied, `tests`, `by`, `via` |
+| `rung` | Where it stands: `open`, `blamed` once a blame finds the call, `verified`, `applied`, or `merged` once its pull request is |
+| `pr` | Its pull request, with `number`, `url` and `state` (`open`, `closed`, `merged`, or null when unknown); null for none |
 
 The fix's own fields:
 
@@ -1324,27 +1329,34 @@ The fix's own fields:
   the exit code alone).
 - `source` says where it came from, such as `from CI · PR #138`.
 
-`steps` holds blame, repair and verify, each with `state` (`done`, `todo`, or `no` for a verify that
-only rejected), a `title`, a `meta` line and a `short` form. Only verdicts that count move the verify
-step.
+`steps` holds blame, repair and verify, each with `state` (`done`, `todo`, `no` for a verify that
+only rejected, or `warn` for a step that ran and needs a look), a `title`, a `meta` line and a `short`
+form. Only verdicts that count move the verify step. Repair is `done` with the change repair made,
+or `by hand` for one you made that a verdict checked.
 
 `blame` has:
 
+- its verdict `line`: the `word`, its `tone`, the `head` in parts (a probe's tally each) and the
+  `finding`;
 - the call where the run was lost (`lostAt`, model call `step` of `steps`), `confidence`, the
   `boundary` sentence and both `answers`;
-- `probes` with their verdicts, and the attempts per probe (`bundles`);
-- every call of the run, with whether it is in the blame's scope (`callRow`);
-- `cost` and `command`.
+- `probes` with their verdicts, each with its `tally`, `bound` and `interval`, the gate's `marks`,
+  and the attempts per probe (`bundles`);
+- the agent's calls of the run, with whether each is in the blame's scope and probed, and a probed
+  call's `tally` (`callRow`);
+- `cost`, with what the judge's checks cost apart (`judge`), and `command`.
 
 `repair` has:
 
+- its verdict `line`, as `blame`'s, and `again` when the accepted change was verified twice;
 - the `change`, with the text it `added`; the result per role (`roles`); and whether its verification
   `counts`;
+- the gate's `rule`, from the first candidate it verified when none was accepted;
 - who proposed it (`repairer`), or why no repairer did (`noRepairer`: its `text`, and the `warning`
   that says what to do);
 - where each run was `lost`, and the `diagnosis`;
 - every candidate, with its `verdict` (`accepted`, `rejected`, `set aside`, `not tried`,
-  `build failed`, `unsettled`) and `why`;
+  `build failed`, `unsettled`) and `why`, and the runs those whys name by their short ids (`named`);
 - the `files` handed over, and the pull request body (`prBody`);
 - what each stage `cost`, and how many `attempts` it ran: the probes of the blames it ran, and every
   candidate's verification;
@@ -1360,21 +1372,29 @@ step.
 - `oracle`;
 - each run's `role`, `attempts`, `outcome` and where it went (`note`), and the token and cost changes
   per run;
-- what it took to find out;
+- each run's `tally`, `cutShort` and `bound` in the words `shadowlap verify` prints, its `interval` against the gate's `marks`, and its attempts (`tries`);
+- the failing runs an accepted verdict left out, that no other has checked (`left`);
+- what it took to find out, with the judge's checks apart (`judge`);
+- what answered the change's tool calls after the fork, and the baselines' apart, in `afterFork`, as
+  the report's line says it, or `null` when no attempt made a tool call after its fork;
 - its `reasons`, with those that say a run is inconclusive or not settled, rather than that the change
   failed it, in `unsettled`.
 
 `actions` says what can be done next:
 
 - **`repair`**, for an open fix: `noFix` says why it would end *No fix to try* without running the
-  agent, or is `null`.
+  agent, or is `null`. `spent` is true when its last repair tried candidates and accepted none, with
+  no blame or check change since, so running it again would try the same.
 - **`apply`**, for a verified or applied one: `kind` is `patch`, or `mark` when there is no patch
   (below).
 - **`applied`**, once it is applied.
+- **`verifyLeft`**, for a verified or applied fix whose change is in the working tree: the failing
+  `runs` no accepted verdict checked, and the `command` that verifies the working tree's code on
+  them. It is `null` when every failing run was verified.
 
 `apply` has:
 
-- `kind`, and the `gitApply` command;
+- `kind`, the `command` that applies it, and the `gitApply` command;
 - `pending`, saying what applying left undone;
 - every file the patch changes in `files`, the patch itself in `diff`, and where it is kept in
   `patchFile`;
@@ -3864,10 +3884,15 @@ instrumentations): LLM spans with `llm.input_messages`, `llm.output_messages`, `
 `output.value` where its OpenAI and Anthropic instrumentations log the request and response themselves.
 When a framework's span wraps the client library's span for the same call, the inner one is kept.
 
+**Agents.** A model call keeps the agents whose spans it ran inside, outermost first
+(`supervisor/researcher`), which the dashboard [shows](./dashboard.md#agents). An agent span names
+`gen_ai.agent.name` or runs `invoke_agent`, or is an OpenInference AGENT span, OpenLLMetry's agent span
+or Pydantic AI's `agent run`. It is for reading only: a replay never matches by it.
+
 **`langfuse`** reads the trace's observations from the Observations API v2
 (`GET /api/public/v2/observations`, a page of 1,000 at a time), or `GET /api/public/traces/<id>` from a
 self-hosted Langfuse without it. Generations are model calls. TOOL observations, and spans named after a
-tool a generation asked for, are tool calls.
+tool a generation asked for, are tool calls. AGENT observations name the agent of the calls under them.
 
 The run keeps the trace's page in Langfuse, its `htmlPath` on the host the API answered from, for the
 dashboard's **Open in Langfuse ↗**. Read from the v2 API, the trace is asked for once more, after the

@@ -19,6 +19,9 @@ afterEach(forgetPickedCalls);
  */
 
 const RUN = '01M5GRX8K406H4KHQ7DEKYWTSZ';
+/** Another recording with the same calls, and one with no model call. */
+const OTHER = '01M6B2C3D4E5F6G7H8J9KAMBNC';
+const NO_MODEL = '01M7Q2R3S4T5V6W7X8Y9Z0A1B2';
 const T = 1_760_000_000_000;
 
 /** A clock read, then a model call that asks for a tool, the tool, and the model's answer. */
@@ -28,15 +31,16 @@ function call(callNo: number): CallRow {
   return { callNo, kind, name: api ? 'POST /v1/messages' : kind === 'tool' ? 'lookup_order' : 'now', origin: 'live', effect: kind === 'tool' ? 'read' : null, outcome: 'ok', status: api ? 200 : null, latencyMs: 900, model: api ? 'claude-opus-5' : null, stopReason: api ? (callNo === 2 ? 'tool_use' : 'end_turn') : null, usage: api ? { input: 800, output: 40, cacheRead: 0, cacheWrite: 0 } : null, cost: null, bytes: null, detail: '', attempts: 0, replayedFrom: null, error: null, startedAt: T + callNo * 1000, endedAt: T + callNo * 1000 + 900, ttftMs: null, scope: null, resultShort: kind === 'tool' ? 'delivered' : null, conversation: 1, conversationStart: callNo === 2, requestedBy: kind === 'tool' ? 2 : null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: api ? (callNo === 2 ? ['lookup_order'] : []) : null } as unknown as CallRow;
 }
 
-function answer(): RunDetail {
+function answer(runId = RUN): RunDetail {
+  const calls = (runId === NO_MODEL ? [1, 3] : [1, 2, 3, 4]).map(call);
   return {
-    run: { runId: RUN, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'agent.mjs', 'A-1042'], cwd: '/work' }, codeVersion: null, startedAt: T, endedAt: T + 5000, meta: { labels: [] } },
+    run: { runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'agent.mjs', 'A-1042'], cwd: '/work' }, codeVersion: null, startedAt: T, endedAt: T + 5000, meta: { labels: [] } },
     label: 'recording',
     about: { text: 'Refund order A-1042', from: 'user' },
     source: null,
-    summary: { runId: RUN, mode: 'record', status: 'completed', total: 4, byOrigin: { live: 4 }, byKind: { api: 2, tool: 1, clock: 1, random: 0 }, upstreamRequests: 2, injected: 0, refused: 0, imported: false, tokensNotRespent: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }, cost: { spent: 0.02, saved: 0, captured: 0, unknownModels: [] }, durationMs: 5000, notReached: [] },
-    calls: [1, 2, 3, 4].map(call),
-    callsTotal: 4,
+    summary: { runId, mode: 'record', status: 'completed', total: calls.length, byOrigin: { live: calls.length }, byKind: { api: 2, tool: 1, clock: 1, random: 0 }, upstreamRequests: 2, injected: 0, refused: 0, imported: false, tokensNotRespent: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }, cost: { spent: 0.02, saved: 0, captured: 0, unknownModels: [] }, durationMs: 5000, notReached: [] },
+    calls,
+    callsTotal: calls.length,
     callsNext: null,
     parent: null,
     children: [],
@@ -50,7 +54,7 @@ function answer(): RunDetail {
 
 const client = {
   exported: false,
-  run: () => Promise.resolve(answer()),
+  run: (runId: string) => Promise.resolve(answer(runId)),
   call: () => new Promise(() => undefined),
   offers: () => Promise.resolve(null),
   runChaos: () => Promise.resolve(null),
@@ -88,9 +92,12 @@ function app(o: { paused?: string[] } = {}): AppState {
 }
 
 let r: Rendered | null = null;
+/** Forgets the kind or origin picked in the strip's key, kept from run to run in the modules the page was opened from. */
+let forgetPick: () => void = () => undefined;
 afterEach(async () => {
   await r?.unmount();
   r = null;
+  forgetPick();
   vi.unstubAllGlobals();
   vi.doUnmock('../ui/run/TimelineView.js');
 });
@@ -98,7 +105,8 @@ afterEach(async () => {
 /** The run page's modules loaded anew, none of the views' scripts asked for yet. */
 async function fresh() {
   vi.resetModules();
-  const [{ RunPage, VIEW_PARTS }, { useRoute }, { AppContext }] = await Promise.all([import('../ui/pages/Run.js'), import('../ui/router.js'), import('../ui/state.js')]);
+  const [{ RunPage, VIEW_PARTS }, { useRoute }, { AppContext }, { resetCallFilter }] = await Promise.all([import('../ui/pages/Run.js'), import('../ui/router.js'), import('../ui/state.js'), import('../ui/run/call-filter.js')]);
+  forgetPick = resetCallFilter;
   return { RunPage, VIEW_PARTS, useRoute, AppContext };
 }
 
@@ -202,5 +210,61 @@ describe('a run’s views but Calls', () => {
     expect(bar.reload).toHaveBeenCalledTimes(1);
     await r!.click(viewTabs()[0]);
     expect(r!.one('.vbody').childNodes.length, 'turns draws').toBeGreaterThan(0);
+  });
+});
+
+describe('the strip’s key and Filter calls, from another view', () => {
+  const callsShown = () => tablist().querySelectorAll('[role="tab"]')[0].getAttribute('aria-selected') === 'true';
+  const rows = () => r!.all('table.calls tbody tr[data-wi]').map((tr) => Number(tr.querySelector('td.n')!.childNodes.at(-1)!.textContent));
+
+  it('show Calls, where the calls they keep are listed: a kind picked in the key, or a word typed', async () => {
+    const m = await fresh();
+    const bar = await open(m);
+    const timeline = async () => {
+      await r!.click(viewTabs()[VIEWS.indexOf('timeline') - 1]);
+      expect(bar.hash).toBe(`#/run/${RUN}/2/timeline`);
+      expect(callsShown()).toBe(false);
+    };
+    await timeline();
+    // all keeps the view: it filters nothing.
+    await r!.click(r!.byText('.lfilter button', 'all 4'));
+    expect(bar.hash).toBe(`#/run/${RUN}/2/timeline`);
+    const model = r!.one('.lfilter button[data-of="k-model"]');
+    expect(model.textContent).toBe('model calls 2');
+    await r!.click(model);
+    expect(bar.hash).toBe(`#/run/${RUN}/2`);
+    expect(callsShown()).toBe(true);
+    expect(model.getAttribute('aria-pressed')).toBe('true');
+    await r!.until('the model calls alone', () => rows().join() === '2,4');
+    await r!.click(r!.byText('.lfilter button', 'all 4'));
+    await timeline();
+    const field = r!.one('.strip .filter-in input[type="search"]');
+    await r!.type(field, 'lookup');
+    expect(callsShown()).toBe(true);
+    expect(field.value).toBe('lookup');
+    await r!.until('the calls that name it', () => rows().includes(3) && !rows().includes(1));
+  });
+
+  it('keep a kind picked in the key from run to run, all where the next run has none of it', async () => {
+    const m = await fresh();
+    const bar = await open(m);
+    const pressed = () => r!.all('.lfilter button[aria-pressed="true"]').map((b) => b.getAttribute('data-of'));
+    await r!.click(r!.one('.lfilter button[data-of="k-model"]'));
+    await r!.until('the model calls alone', () => rows().join() === '2,4');
+    // Another run, as a link or [ and ] open it: the page starts empty there, then draws it.
+    const go = async (runId: string) => {
+      bar.hash = `#/run/${runId}`;
+      await act(async () => void window.dispatchEvent(new Event('hashchange')));
+      await r!.until(`${runId}’s calls`, () => r!.all(`.rnm[data-run="${runId}"]`).length === 1 && rows().length > 0);
+    };
+    await go(OTHER);
+    expect(pressed()).toEqual(['k-model']);
+    expect(rows().join()).toBe('2,4');
+    await go(NO_MODEL);
+    expect(pressed()).toEqual(['all']);
+    expect(rows().join()).toBe('1,3');
+    await go(RUN);
+    expect(pressed()).toEqual(['k-model']);
+    expect(rows().join()).toBe('2,4');
   });
 });

@@ -1,5 +1,6 @@
 import type { CallRow, CallsPage, RunDetail } from '../api.js';
 import type { Origin7 } from '../origins.js';
+import type { Kind } from './kinds.js';
 
 /**
  * A run's calls a page at a time (contract 8). A run's page comes with the first page of its calls,
@@ -16,11 +17,13 @@ export const PAGE = 500;
 /** A page read for a call asked for starts this many calls before it, so the rows around it come with it. */
 const BEFORE = 100;
 
-/** A call not read yet: its number, and its origin when the run's page said it. */
+/** A call not read yet: its number, and its origin and what it was when the run's page said them. */
 export interface PendingCall {
   callNo: number;
   pending: true;
   origin: Origin7 | null;
+  /** What it was (kinds.ts), as the strip draws it; not its `kind`, which a read call names `api` or `tool`. */
+  kindKey?: Kind | null;
 }
 
 export type ListedCall = CallRow | PendingCall;
@@ -86,15 +89,15 @@ export function nextRead(read: Read, wanted: number | null): { from: number; lim
   return { from, limit: Math.max(1, Math.min(PAGE, hi - from + 1)) };
 }
 
-/** Every call of the run in order: those read, and a placeholder for each of the rest, with its origin when known. */
-export function listedCalls(have: readonly CallRow[], total: number, origins: readonly Origin7[] | null): ListedCall[] {
+/** Every call of the run in order: those read, and a placeholder for each of the rest, with its origin and kind when known. */
+export function listedCalls(have: readonly CallRow[], total: number, origins: readonly Origin7[] | null, kinds: readonly Kind[] | null = null): ListedCall[] {
   if (have.length >= total) return have as CallRow[];
   const out: ListedCall[] = [];
   let i = 0;
   for (let n = 1; n <= total; n++) {
     while (i < have.length && have[i]!.callNo < n) out.push(have[i++]!);
     if (i < have.length && have[i]!.callNo === n) out.push(have[i++]!);
-    else out.push({ callNo: n, pending: true, origin: origins?.[n - 1] ?? null });
+    else out.push({ callNo: n, pending: true, origin: origins?.[n - 1] ?? null, kindKey: kinds?.[n - 1] ?? null });
   }
   while (i < have.length) out.push(have[i++]!);
   return out;
@@ -116,7 +119,8 @@ export async function followPages(client: { calls(id: string, from: number, limi
     // A page that moves on no further ends it, whatever it says.
     next = page.callsNext !== null && page.callsNext > next ? page.callsNext : null;
   }
-  const { origins: _origins, ...rest } = d;
+  const { origins: _origins, kinds: _kinds, ...rest } = d;
   void _origins;
+  void _kinds;
   return { ...rest, calls, callsTotal: Math.max(total, calls.length), callsNext: null };
 }

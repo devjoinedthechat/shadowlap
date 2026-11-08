@@ -6,13 +6,14 @@ import { ActionButton } from '../components/ActionButton.js';
 import { ConfirmDialog, ConsentDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JobButton, type StepHooks, useBilledPress } from '../components/JobButton.js';
-import { pressBilled } from '../spending.js';
-import { fixAction, treeBusy } from '../fixes/model.js';
+import { LEAD_KIND, LEAD_VERB, leadCard } from '../fixes/lead.js';
+import { treeBusy } from '../fixes/model.js';
+import { RowStep } from '../fixes/RowStep.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { useServerJobs } from '../fixes/tree.js';
 import { goldenName } from '../format.js';
 import { testsBusy } from '../goldens.js';
-import { ACTIONS, PUSH_LOCAL } from '../labels.js';
+import { PUSH_LOCAL } from '../labels.js';
 import { moreCard } from '../pages/tests-cards.js';
 import { stepCard, stepJob } from '../run/next-step.js';
 import { blameTitle, unknownBisect } from '../run/offers.js';
@@ -29,8 +30,9 @@ import { updatePlan } from '../update-plan.js';
  * leads with it, and running or asking from here as it would there (mock:MISSING.md:149). A list
  * carries no estimate, so a step asks for its own when the pointer or the focus reaches it, and a
  * press before it came waits for it; its card then says its sentence, its cost and its command. The
- * section reads the server's jobs once, for every row (`useLookWaits`). The dialogs a step asks in
- * load as it first asks: the Overview's script holds none of a fix's page.
+ * section reads the server's jobs once, for every row (`useLookWaits`). A fix's row has the step its
+ * row on Fixes has (fixes/RowStep.tsx). The dialogs a step asks in load as it first asks: the
+ * Overview's script holds none of a fix's page.
  */
 
 /** Migrate to <model>'s card, until the Migrate dialog of Changes words it. */
@@ -58,14 +60,6 @@ export function useLookWaits(): LookWait {
   return useMemo(() => (job) => (job ? ((job.tests ? testsBusy(jobs, job.verb, id) : null) ?? treeBusy(jobs, job.use ?? 'reads', job.verb, path)) : null), [jobs, path, id]);
 }
 
-const FIX_JOBS: Record<Extract<LookStep, { of: 'fix' }>['lead']['key'], { kind: string; job: Job; ok: string }> = {
-  repair: { kind: JOB_KINDS.repair, job: { verb: 'repair', tests: false, use: 'writes' }, ok: ACTIONS.runRepair.label },
-  'blame-again': { kind: JOB_KINDS.blame, job: { verb: 'blame again', tests: false }, ok: 'Run command' },
-  'blame-stronger': { kind: JOB_KINDS.blame, job: { verb: 'blame it', tests: false }, ok: 'Run command' },
-  apply: { kind: JOB_KINDS.applyFix, job: { verb: 'apply the patch', tests: false, use: 'writes' }, ok: 'Run command' },
-  mark: { kind: JOB_KINDS.applyFix, job: { verb: 'apply the patch', tests: false, use: 'writes' }, ok: 'Run command' },
-};
-
 /** The run steps a row runs from here; any other (a rule, a pack, an injection test, Replay, Compare) opens its page. */
 const RUN_KINDS: Partial<Record<NextStep['key'], string>> = { blame: JOB_KINDS.blame, normalizer: JOB_KINDS.normalizeAndTest, 'update-golden': JOB_KINDS.testUpdate, 'rerun-test': JOB_KINDS.tests, 'gate-again': JOB_KINDS.tests, bisect: JOB_KINDS.bisect };
 
@@ -76,7 +70,8 @@ export function stepRun(s: LookStep | null): { kind: string; job: Job | null } |
     case 'link':
       return null;
     case 'fix':
-      return FIX_JOBS[s.lead.key];
+      // As Fixes' row waits (lead.ts `leadWait`): the job its lead starts, and how it uses the working tree.
+      return { kind: LEAD_KIND[s.lead.key], job: { verb: LEAD_VERB[s.lead.key], tests: false, use: s.lead.use } };
     case 'run': {
       const kind = RUN_KINDS[s.step.key];
       return kind ? { kind, job: stepJob(s.step) } : null;
@@ -108,7 +103,7 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
       return { sub: c.sub, command: c.cmd };
     }
     case 'fix':
-      return { sub: s.lead.sub, command: s.lead.command ? `$ ${s.lead.command}` : null };
+      return { sub: leadCard(s.lead), command: `$ ${s.lead.command}` };
     case 'more':
       return { sub: moreCard(s.more).sub ?? null, command: `$ ${moreCard(s.more).command ?? ''}` };
     case 'update':
@@ -173,7 +168,7 @@ function useAsking(): [ReactNode, (build: (close: () => void) => Promise<ReactNo
  * A row's step: a link as itself; a job's button where this dashboard runs jobs, else `Open →`, as a
  * step that opens its page has (a read-only dashboard's rows each open what they are about).
  */
-export function LookStepButton({ row, wait }: { row: NeedsLookRow; wait: LookWait | null }) {
+export function LookStepButton({ row, wait, version }: { row: NeedsLookRow; wait: LookWait | null; version: string }) {
   const app = useApp();
   const s = row.step;
   if (s?.of === 'link') {
@@ -188,7 +183,8 @@ export function LookStepButton({ row, wait }: { row: NeedsLookRow; wait: LookWai
   const why = (app.hasKind(run.kind) ? null : 'This dashboard doesn’t run it: run the command in a terminal.') ?? wait(run.job);
   switch (s.of) {
     case 'fix':
-      return <FixStep s={s} why={why} />;
+      // A fix's lead, as its row on Fixes draws and presses it; `version`, the list's answer its prices last as long as.
+      return <RowStep fixId={s.fixId} lead={s.lead} why={why} version={version} />;
     case 'run':
       return <RunStep s={s} why={why} />;
     case 'push':
@@ -197,57 +193,6 @@ export function LookStepButton({ row, wait }: { row: NeedsLookRow; wait: LookWai
     default:
       return <GoldenStep s={s} why={why} />;
   }
-}
-
-/** A fix's lead: Run repair, Run blame again, Run blame with stronger model…, Apply fix or Mark applied, each asking in the fix page's own dialog where it asks. */
-function FixStep({ s, why }: { s: Extract<LookStep, { of: 'fix' }>; why: string | null }) {
-  const app = useApp();
-  const { fixId, lead } = s;
-  const job = FIX_JOBS[lead.key];
-  const applies = lead.key === 'apply' || lead.key === 'mark';
-  const priced = usePriced(applies ? null : () => app.client.estimates.fixEstimates(fixId).then((e) => (lead.key === 'repair' ? e.repair : lead.key === 'blame-again' ? e.blameAgain : e.blameStronger)));
-  const [post, consent] = usePost(job.kind, job.ok);
-  const [asking, show] = useAsking();
-  const fields = lead.key === 'blame-again' ? { fixId, again: true } : { fixId };
-  const open = (e: Price) =>
-    show(async (close) => {
-      const fix = await app.client.fix(fixId);
-      // As the fix's page leads (fixAction): a patch `fix apply` refuses is applied from nowhere, its page saying why.
-      const act = applies ? fixAction(fix) : null;
-      if (act?.kind === 'none') throw new Error(act.why);
-      if (lead.key === 'repair' || applies) {
-        const m = await import('../fixes/FixPage.js');
-        return lead.key === 'repair' ? (
-          <m.RepairDialog fix={fix} onClose={close} onRun={(repairer, sent) => app.guard(() => post({ fixId, repairer, ...sent }))} />
-        ) : (
-          <m.ApplyDialog fix={fix} label={act?.kind === 'apply' ? act.label : lead.label} onClose={close} onRun={(names) => app.guard(() => post({ fixId, ...(names ? { names } : {}) }))} />
-        );
-      }
-      const m = await import('../fixes/BlameAgain.js');
-      return m.blameNextAsk(fix, lead.key === 'blame-again' ? 'again' : 'stronger', e)((more) => app.guard(() => post({ ...fields, ...sentEstimate(e), ...more })), close);
-    });
-  // Run blame again starts by Spending once its estimate has come; the rest ask in their dialog, priced or not.
-  const ask = lead.key === 'blame-again' ? priced.when((e) => void pressBilled({ estimate: e, start: (sent) => post({ ...fields, ...sent }), ask: () => open(e) })) : applies ? () => open(null) : priced.when(open);
-  const words = stepWords(s);
-  return (
-    <>
-      <JobButton
-        className="btn sm"
-        why={why}
-        tip={lead.label}
-        sub={words.sub}
-        {...(words.command ? { command: words.command } : {})}
-        {...(applies ? { bills: false } : { estimate: priced.estimate, form: lead.key !== 'blame-again' })}
-        {...priced.on}
-        start={applies ? ask : (sent) => post({ ...fields, ...sent })}
-        ask={ask}
-      >
-        {lead.label}
-      </JobButton>
-      {asking}
-      {consent}
-    </>
-  );
 }
 
 /** Update golden's dialog, for a golden on Tests' own plan: what it re-records, or the judge it asks once. */

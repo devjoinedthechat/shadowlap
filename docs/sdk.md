@@ -436,8 +436,9 @@ Every call made inside a scope carries it: model calls, wrapped tools and
 - **Matching.** Repeats are counted per scope. Two sub-agents that send the same first request at the
   same time each get their own recorded answer on replay, whatever order the requests arrive in.
   Without scopes they can get each other's, and the replay forks when they continue differently.
-- **The dashboard.** Turns and the timeline are grouped by scope, so branches that interleave read as
-  separate lines of work.
+- **The dashboard.** Each scope is an agent there, under the name you gave it. The dashboard finds a
+  run's agents without scopes too ([Agents](./dashboard.md#agents)), so a scope keeps concurrent
+  branches' answers apart rather than being needed to show them.
 
 ### Branches in separate processes
 

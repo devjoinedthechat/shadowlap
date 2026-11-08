@@ -23,7 +23,7 @@ import { type AboutOf, DotPieces, Pieces, useAbouts } from './words.js';
 
 const HEADS = new Map<string, string>(LOOK_GROUPS);
 
-const LookRow = memo(function LookRow({ x, wait, aboutOf, focused }: { x: NeedsLookRow; wait: LookWait | null; aboutOf: AboutOf; focused: boolean }) {
+const LookRow = memo(function LookRow({ x, wait, version, aboutOf, focused }: { x: NeedsLookRow; wait: LookWait | null; version: string; aboutOf: AboutOf; focused: boolean }) {
   const own = x.runId && x.about?.text ? { id: shortId(x.runId), about: x.about.text } : null;
   const about: AboutOf = (id) => (own?.id === id ? own.about : aboutOf(id));
   return (
@@ -41,7 +41,7 @@ const LookRow = memo(function LookRow({ x, wait, aboutOf, focused }: { x: NeedsL
         ) : null}
       </a>
       <span className="ast">
-        <LookStepButton row={x} wait={wait} />
+        <LookStepButton row={x} wait={wait} version={version} />
       </span>
       <span className="adx" />
     </div>
@@ -75,7 +75,7 @@ function lookScope(x: NeedsLookRow, box: RefObject<HTMLElement | null>): RowScop
 }
 
 /** The rows, under their groups' heads; j and k walk them, Enter opens one, ⌘K offers its step. */
-function Rows({ items, wait }: { items: readonly NeedsLookRow[]; wait: LookWait | null }) {
+function Rows({ items, wait, version }: { items: readonly NeedsLookRow[]; wait: LookWait | null; version: string }) {
   const box = useRef<HTMLDivElement>(null);
   const aboutOf = useAbouts();
   const inFocus = useListKeys({ rows: items, keyOf: (x) => x.key, root: box, open: (x) => navigate(x.href), actions: (x) => lookScope(x, box) });
@@ -92,7 +92,7 @@ function Rows({ items, wait }: { items: readonly NeedsLookRow[]; wait: LookWait 
               <span>{num(counts.get(x.group) ?? 0)}</span>
             </h3>
           ) : null}
-          <LookRow x={x} wait={wait} aboutOf={aboutOf} focused={inFocus === x.key} />
+          <LookRow x={x} wait={wait} version={version} aboutOf={aboutOf} focused={inFocus === x.key} />
         </Fragment>
       ))}
     </div>
@@ -100,18 +100,22 @@ function Rows({ items, wait }: { items: readonly NeedsLookRow[]; wait: LookWait 
 }
 
 /** The rows with the server's jobs read once for all of them, for a list where a row's step runs one. */
-function WaitingRows({ items }: { items: readonly NeedsLookRow[] }) {
+function WaitingRows({ items, version }: { items: readonly NeedsLookRow[]; version: string }) {
   const wait = useLookWaits();
-  return <Rows items={items} wait={wait} />;
+  return <Rows items={items} wait={wait} version={version} />;
 }
 
-/** Needs a look: every item, with its count. A dashboard that runs nothing reads no jobs: every step there opens its page. */
-export function NeedsLook({ items, total }: { items: readonly NeedsLookRow[]; total: number }) {
+/**
+ * Needs a look: every item, with its count. A dashboard that runs nothing reads no jobs: every step
+ * there opens its page. `version` names the summary's answer, which a fix step's price lasts as long
+ * as (RowStep.tsx); left out, as long as the page.
+ */
+export function NeedsLook({ items, total, version = '' }: { items: readonly NeedsLookRow[]; total: number; version?: string }) {
   const { actionsOff, exported } = useApp();
   const runs = !actionsOff && !exported && items.some((x) => stepRun(x.step));
   return (
     <Section title="Needs a look" sub={num(total)} className="ovattn">
-      {!items.length ? <EmptyLine>Nothing needs a look.</EmptyLine> : runs ? <WaitingRows items={items} /> : <Rows items={items} wait={null} />}
+      {!items.length ? <EmptyLine>Nothing needs a look.</EmptyLine> : runs ? <WaitingRows items={items} version={version} /> : <Rows items={items} wait={null} version={version} />}
     </Section>
   );
 }

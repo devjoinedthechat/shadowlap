@@ -195,8 +195,8 @@ The header says the week in four facts, the first three each a link: *4 failures
 | Failing | A golden that failed, as its gate says it | What its run's page leads with, such as **Find breaking commit**, **Add normalizer** or **Update golden** |
 | Failing | [Error-path presets](./error-paths.md) that failed | **Open →**, to the attempt that shows it |
 | Failing | This week's failed runs nobody has blamed, as one row | **Run blame** on the newest |
-| Failing | An open fix, with each golden it holds | A held crash's **Find breaking commit**, else its lead: **Run repair**, **Run blame again** or **Run blame with stronger model…** |
-| Ready to ship | A verified fix not applied yet | **Apply fix**, or **Mark applied** for one with no patch |
+| Failing | An open fix, with each golden it holds | A held crash's **Find breaking commit**, else its next step on Fixes, such as **Run repair**, **Run blame again** or **Run more attempts** |
+| Ready to ship | A verified fix not applied yet, but not one whose pull request merged | Its next step on Fixes: **Verify this run**, **Apply fix**, or **Mark applied** for one with no patch |
 | Tests | An inconclusive golden, and presets left inconclusive | **Run more attempts**, **Update golden** or **Re-run test** |
 | Tests | How many behaviours seen in production no golden [covers](./coverage.md) | **Open →**, to a run of the newest |
 | Tests | A [preview of a change](./decisions.md) whose flagged runs nothing has settled since | **Open →**, to the first at the call whose decision changed |
@@ -394,7 +394,7 @@ The job runs [`shadowlap import`](./cli.md#import) under the name of the file yo
 
 ## A run's page
 
-A run's page shows one run: its header and findings, a strip of its calls, views of the run beside an inspector for the selected call, and its labels and notes. What you can do from it is under [Actions](#actions).
+A run's page shows one run: its header and findings, a strip of its calls whose key filters them, views of the run beside an inspector for the selected call, and its labels and notes. What you can do from it is under [Actions](#actions).
 
 ### The header
 
@@ -540,7 +540,9 @@ An id that may be a real change leads with neither: only you can tell, so **Find
 
 Sometimes the rule alone can't make the replay match: the request carries a field the recording never had, as a per-run id added since. The button then reads **Add normalizer and update**, and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule. Once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes.
 
-**Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its finding names as made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the finding offers one.
+**Show diff** opens in the inspector's place, beside the calls, so the list keeps its place. Under *Diff at #n* it shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its finding names as made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the finding offers one.
+
+**Hide diff**, a call picked, a key from `1` to `4` or Esc gives the inspector back.
 
 ### How a run stands
 
@@ -627,9 +629,18 @@ What Shadowlap did not record is a finding in the bar, under **N findings** when
 
 ### The origin strip
 
-The origin strip has one cell per call, colored by what happened to it. The legend lists those present. The fork is flagged in ink, and the call blame named in red.
+The strip has one cell per call. A recording's cells say what each call was, every other run's where its answer came from. The fork is flagged *fork* in ink, and the call blame named *lost* in red.
 
-Each origin has a color of its own:
+A recording's or a capture's cells are drawn by kind, after a word that says every call ran live:
+
+| Kind | Drawn as |
+| --- | --- |
+| Model call | Off-white, as live |
+| Read | Off-white at 40%: a read tool, a clock or random value, a person's input |
+| Write | Teal |
+| Error | Red: a model call answered with an error, or a tool that threw |
+
+A call the fence answered after a fork is named by what it would have done, never by its error. Every other run's cells are drawn by origin, each in a color of its own:
 
 | Origin | Drawn as |
 | --- | --- |
@@ -643,15 +654,29 @@ Each origin has a color of its own:
 
 Each color means one thing across the dashboard. Lime is the primary action and what passed, amber what needs a look or is inconclusive, and red what failed. Where you are, a link and a fork are drawn in ink.
 
-- **Click a cell** to open that call.
-- **From the keyboard**, the strip is one stop for Tab: ← and → (Home and End) move between its cells, and Enter opens the call.
-- **In a run of more than 360 calls**, each cell covers a range of calls and takes the color of its rarest origin, so a single blocked write still shows. Hovering it counts the range.
+- **Click a cell** to open that call. Its name says the call, its kind and its origin: *#18 issue_refund · write · live*.
+- **From the keyboard**, the strip is one stop for Tab, a list whose ← and → open the call before or after at once, Home and End the first and the last. Where the strip groups its calls, the keys go a range at a time, each to the range's most notable call.
+- **Where a cell would be narrower than 6 px** (24 px on a touch screen), each cell covers a range of calls, in the color of most of them. Hovering a range counts it.
+- **A notch** marks a range's rarer notable call: an error, a write, or what a fork changed or fenced. So 13 errors in 1,200 calls read as 13 marks.
 
-### Scopes
+The strip's key is the call filter: *all*, then each kind or origin the run has, its swatch and its count (*all 30*, *model calls 14*, *writes 3*, *replayed 16*). Picking one shows only those calls in Calls, switching to it from another view, and dims the other cells. The pick is kept from run to run where the next run has it.
 
-A run made with `scope()` gets a chip per scope, nested ones included, with counts. Picking one dims the strip outside it and narrows every view to it.
+**Filter calls** (`/`) at the strip's end filters by text, and typing shows Calls too. Esc leaves the field with its words kept.
 
-The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*).
+### Agents
+
+A run of several agents gets a chip per agent, nested ones included, with counts. Picking one dims the strip outside it and narrows every view to it. A run of one agent and no scope shows no chips.
+
+The dashboard names the agents itself, so a run needs no `scope()` to show them. Each conversation is one agent's, named by the first of these that applies:
+
+- **Its scope**, in a run made with [`scope()`](./sdk.md#scopes): `researcher`.
+- **An imported trace's agent span**, as [an import keeps it](./cli.md#traces): `supervisor/researcher`.
+- **The tool that started it**: a model call asked for a tool, such as Claude Code's `Task` or an agent called as a tool, whose words open the conversation's first request. It is a sub-agent, named for what the tool started (`claude-code/Explore`).
+- **Its system prompt**: the conversations sent one system prompt, its numbers aside, are one agent's. It is named for who the prompt says it is (*You are a research assistant* is `research-assistant`), else `agent-2`.
+
+A handoff (`transfer_to_billing`) keeps the conversation and changes its agent: the calls after it are `billing`'s. The names are for reading only: replay matches calls by scope, never by them.
+
+The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line.
 
 ### Views of the run
 
@@ -662,9 +687,20 @@ Beside the inspector, six views show the run, and `v` goes through them all:
 | [Calls](#calls-view)           | Every call with its kind, name, origin, tokens and time               |
 | [Turns](#turns-view)           | Each model call, what it said, and the tool calls that followed it    |
 | [Context](#context-view)       | Tokens per model call, split by the cache, and where the cache missed |
-| [Timeline](#timeline-view)     | Every call on a clock, scope by scope                                 |
+| [Timeline](#timeline-view)     | Every call on a clock, agent by agent                                 |
 | [Forks](#forks-view)           | The run's family: its recording, and every replay and fork of it      |
 | [Provenance](#provenance-view) | The run's record, its lineage, and what a copy would mask             |
+
+How they sit depends on the window's width:
+
+| Width | Calls and the inspector |
+| --- | --- |
+| From 1,281 px | Side by side, the strip on one row |
+| 1,160 to 1,280 px | Side by side, the inspector at least 360 px, the key and the filter under the cells |
+| 1,001 to 1,159 px | The inspector under the calls, the list fitted so its head shows |
+| Up to 1,000 px | One column: the window scrolls, the cells stay at its top |
+
+From 1,160 px the views keep at least 420 px, or 240 px from 1,281 px while a job's log is open. The page scrolls under its strip when the window is shorter. From 1,001 to 1,159 px the list is fitted so the inspector's head shows under it, between 240 px and half the window, and the page scrolls to the inspector. A call picked in the list below 1,160 px brings the inspector into view under the strip.
 
 Every mark selects its call. The lists draw only the rows in view. So a run of 50,000 calls scrolls, steps with `j` and `k` and switches views as quickly as a short one. A run opened at a call (`#/run/<id>/600`) keeps that call in view while the rows above it are drawn and the rest of its calls come, until you scroll. While a long run is on its way, the page says *Loading the run…*.
 
@@ -682,18 +718,18 @@ Calls lists every call with its kind, name, origin, tokens and time. Each kind o
 
 A replayed call's time is its recorded duration, in grey, because the replay did not wait for it. A clock or random read records none, so its time is blank.
 
-Filter by origin or text: *Fenced* holds the writes blocked or stubbed after a fork. A filter lists what it matches flat. Each row has a fork button.
+The strip's key and **Filter calls** filter the list. A filter lists what it matches flat. Each row has a fork button.
 
 A call's origin shows in the strip's colors, with an injected or a failed call's swatch drawn as a ring. A tool call's effect shows beside its name: a write in teal.
 
 Each call sits under the call it belongs to, the list still in the run's order:
 
 - **A tool call** sits under the model call that asked for it.
-- **Any other call** sits under the latest model call of its own scope and conversation.
-- **A sub-agent's calls** (a scope inside another, as `agent/policy-checker` in `agent`) sit under the model call whose tool started it.
-- **In a batch**, a run that works through several conversations one after another in one scope, each conversation sits under its first call, named beside it (*conversation 3 of 40*).
+- **Any other call** sits under the latest model call of its own agent and conversation.
+- **A sub-agent's calls** sit under the model call whose tool started it: a subagent of Claude Code's `Task` tool, or a scope inside another, as `agent/policy-checker` in `agent`.
+- **In a batch**, a run that works through several conversations of one agent, each conversation sits under its first call, named beside it (*conversation 3 of 40*). A sub-agent's conversations are never a batch's.
 
-A call with calls under it has a fold mark that hides them and shows them again; folded, it says how many it holds. **Fold all** folds every group, and once one is folded, **Unfold all** opens them again.
+A call with calls under it has a fold mark that hides them and shows them again; folded, it says how many it holds.
 
 - **←** folds the selected call's group, or goes to the call it sits under.
 - **→** opens it, or goes to its first call.
@@ -703,7 +739,7 @@ The groups the selected call sits in never stay folded, so a link, the strip or 
 
 ### Turns view
 
-Turns shows each model call with its tokens and stop reason, what it said, and the tool calls that followed it, grouped by scope.
+Turns shows each model call with its tokens and stop reason, what it said, and the tool calls that followed it, grouped by agent.
 
 ### Context view
 
@@ -719,7 +755,7 @@ What the misses tell you:
 
 ### Timeline view
 
-Timeline shows every call on a clock, colored by origin, scope by scope, with the first token of streamed responses marked. It shows how long model calls and tools took, the longest call, and what ran at once.
+Timeline shows every call on a clock, agent by agent, colored by origin, or on a recording by what each call was, in the strip's key, with the first token of streamed responses marked. It shows how long model calls and tools took, the longest call, and what ran at once.
 
 ### Forks view
 
@@ -743,7 +779,7 @@ Attempts are bundled:
 - **A verified run** has an icon saying how it came out. A verdict that doesn't count for the fix says so, *doesn't count*, with a plain icon.
 - **Under a run several fixes share**, such as a good run every repair kept, each bundle names its fix.
 
-Each bundle says its verdict as a gate's is said: the word, the tally and the bound (*rescued · 2 of 2 · rate >= 0.15 (95%)*). A good run verify kept against its own baseline shows both tallies and the bound on its drop (*kept · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)*, under the baseline's rule). Then comes what its attempts spent. A verify's bundle then names the change it checked and how that came out (*fixed · 12 of 12 · rate >= 0.73 (95%) · ≈$0.046 · repair candidate 3 · accepted*).
+Each bundle says its verdict as a gate's is said: the word, the tally and the bound (*rescued · 2 of 2 · rate >= 0.15 (95%)*). A good run verify kept against its own baseline shows both tallies and the bound on its drop (*kept · 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)*, under the baseline's rule). Then comes what its attempts spent. A verify's bundle then names the change it checked and how that came out (*fixed · 12 of 12 passed · rate >= 0.73 (95%) · ≈$0.046 · repair candidate 3 · accepted*).
 
 Each rule they were decided by is stated once in the family. Each bundle opens its fix at that step, a verify at its verdict.
 
@@ -788,7 +824,7 @@ The inspector shows the selected call, in four tabs:
 
 **Response**: **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded.
 
-**Details** lists origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes.
+**Details** lists origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes. It names the call's scope and agent too, and for a sub-agent's call, the call that started it.
 
 On a failed model call, the input tokens are what its request held, `in the request; nothing was sent` where Shadowlap answered it or the replay refused it, and then its cost is `$0`. Its latency says who answered: `answered by Shadowlap`, `refused by the replay` or `answered by the provider`.
 
@@ -962,34 +998,47 @@ Fixes follows each failure from where it was lost to a fix that held.
 
 ### The list of fixes
 
-One row per fix shows:
+Fixes is a to-do list. The failing runs nobody has blamed come first, as one row with **Run blame** for the newest of them. Then each fix: open ones, then those ready to apply, then those applied. Among the open ones, a fix not blamed, or whose blame couldn't settle, comes before one blamed, and that before one changed.
 
-- **Its status**: open, verified or applied.
-- **Its title and label.**
-- **Where a fix from CI came from**, and how its pull request stands (*from CI · PR #138 merged*).
-- **How many runs failed**, what they did, and the check they must meet (*Failed: send_email called twice, not once · Must: send_email called once*).
-- **How far blame, repair and verify got.** A step that ran and needs a look is amber: a blame no call rescued (*not rescued*), one whose first probe couldn't tell (*inconclusive*) or that stopped part way (*stopped*), or a verify left *inconclusive*. Repair's result is a change (*prompt change*, *tool change*), or *no change yet*.
+Each fix's row shows:
 
-All, Open and Verified filter them.
+- **Its status**, one word on the ladder: *open*, *blamed*, *verified*, *applied* or *merged · PR #138*. An applied fix that doesn't hold says *broken*, and why.
+- **Its title and label**, and *from CI* for a fix CI opened, its card saying how its pull request stands.
+- **How many runs failed**, a link to Runs under Failed, and the day it was opened.
+- **What they did and the check they must meet**, on two lines (*Failed: send_email called twice, not once*, then *Must: send_email called once*).
+- **How far blame, repair and verify got**, a column each. A step that ran and needs a look is amber: a blame no call rescued (*not rescued*), one whose first probe couldn't tell (*inconclusive*) or that stopped part way (*stopped*), or a verify left *inconclusive*.
+- **What repair and verify came to.** Repair's result is a change (*prompt change*, *tool change*), *by hand* when verify checked a change no repair made, or *no change yet*. A verdict that passed is lime (*2 fixed · 1 kept*), one rejected red.
+- **Its next step**, the button its page leads with, which runs or asks from the row as it does there. A fix with none reads *Open →*.
+
+While a job of the fix runs, its step says so (*blaming…*, *repairing…*, *verifying…*), and a step that needs the working tree waits, saying why. The failing-runs count is the fix's own.
+
+All, Open, Ready to apply and Applied filter them. A merged fix is under Applied. A fix whose patch is in your working tree already is under Ready to apply, with Mark applied, though the Overview's figure leaves it out.
 
 - **The pull request** is read from GitHub with `gh pr view` in the background while the page is open, when `gh` is installed and signed in, as [`fix pr`](./cli.md#fix) does. It is read only for pull requests on github.com, the host `GH_HOST` names or the host of the project's `origin` remote, since a fix pulled from the team store can name any address. A read-only dashboard asks no one.
 - **What they did** is the title blame gave the fix when it opened it, so the row names it only once someone renames the fix.
 
 ### A fix's page
 
-A fix's page names what failed and its check as the list does, its failing and good runs, and when it was opened and verified. It opens on its last finished step: Blame, Repair or Verify. What you can do from it is under [Actions on a fix](#actions-on-a-fix).
+A fix's page heads with its name over its title. Its about line says where it stands as its Fixes row does (*blamed*, *verified*, *merged · PR #138*), then its failing runs, a link to Runs › Failed, its good runs, and when it was opened, verified and applied. Under it: what failed and its check, as the list says them.
+
+Its buttons follow where it stands, with its next step the one lime button: the step its Fixes row leads with. Where they would crowd the title, they go under it, the lime one first. What each does is under [Actions on a fix](#actions-on-a-fix).
+
+The page opens on its last finished step: Blame, Repair or Verify. While a job of the fix runs a step, the stepper says so, its dot pulsing: *Repairing…*, or *Verifying…* for every verify.
 
 ### Blame step
 
-The Blame step shows:
+The Blame step opens on its verdict line: *blamed* in ink, or *inconclusive*, *stopped* or *not rescued* in amber. Beside the word are the probes' tallies, as *2 of 4 rescued from #5, 0 of 4 from #7*. Under it are the call, the run and the confidence, with why on hover. **Open run** opens the run at the call blamed, where a stopped search got to, or at the first probe's call, and whole where its agent exited with an error. Then comes what blame found, in one sentence.
 
-- **Where the run was lost**, on its row of calls, with each probe marked.
-- **The recorded answer** at that call next to the rescued fork's, and the training pairs they make.
-- **The probes**, each row opening the run at its call.
-- **Every attempt**, bundled per probe and grouped by what each did: the tool calls it made from the probed call on, and how it came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
-- **What finding out cost**, with the command.
+Its sections:
+
+- **Where the run was lost**, on its row of calls. Each probe's tally sits over its call, and every model call says on hover what blame made of it, a tool call its tool's name. The key names only what the row shows.
+- **The recorded answer** at that call next to the rescued fork's, and the training pairs they make. A blame that found no call shows the check instead.
+- **The probes**, each row opening the run at its call. One cell holds the tally, its bound and a bar of the interval against the gate's two marks. The verdict is a dot and a word.
+- **Every attempt** of a probe, under its row on request, grouped by what each did. A group shows the tool calls its attempts made from the probed call on and how they came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
 
 Each group of attempts shows how many took that path, why the first of a failing group failed, and one of them to open.
+
+Under the probes, one grey line says what finding out cost, with the judge's checks apart. The fix's other blames follow, newest first, then the command.
 
 Where blame's report says more than its probes, so does the step:
 
@@ -999,23 +1048,28 @@ Where blame's report says more than its probes, so does the step:
 - the two it was lost gradually around, when the check of the call the probes pinned found no drop there (*lost gradually around #5 and #6*);
 - the error bound its confidence comes from, as `shadowlap blame` prints it (*<= 3% risk that the call is wrong: 3 probes decided, at <= 1% risk each*), and not for a blame whose passing attempts answered the call as the recording did.
 
-Needs a look and the activity feed say *lost gradually around #5 and #6* the same way, and the Fixes list says *lost gradually, #5–#6*, never that #5 lost it.
+Needs a look, the activity feed and the Fixes list say *lost gradually around #5 and #6* the same way, never that #5 lost it.
 
 A blame that rescued the run from no call shows the check and how the recording failed it, instead of the answers. It says why when it knows no answer of the model's lost the run: every attempt met the error a write got when it was recorded, or the attempts that passed answered as the recording did ([blame](./blame.md#the-rescue)).
 
 ### Repair step
 
-The Repair step shows:
+The Repair step opens on its verdict line:
 
-- **The change**: its file, the part of the prompt or tool description it rewrites, the text it adds, and how each role held under it.
-- **Why the failing runs were lost**, and the repairer's diagnosis.
-- **Every candidate tried**, with why each was dropped.
-- **The files handed over**: `fix.patch`, `report.md`, `report.json`, `goldens/`.
-- **The pull request body.**
+- **accepted**, in lime, headed as the Verify step heads the same verdict (*Fixes 1 of 1 target run, keeps 1 of 1 good*). Under it: when it was repaired and who proposed the candidates, then the gate's rule and *verified twice, the second time with fresh attempts*.
+- **rejected**, in red, where the gate turned down every candidate it tried, headed by why (*The gate accepted none of the 2 candidates tried*). *not fixed* reads red too; *no fix to try* and *stopped* read amber.
 
-A repair that accepted nothing leaves the fix open, with the candidates it tried and why.
+A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the prompt yourself and verify it.
 
-Its header says when it ran (*Accepted*, or *Ran* for one that accepted nothing) and who proposed the candidates. When no repairer did, it says why, with what to do (*the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path*). The stepper says it in a few words; *no repairer needed* is only for a fix that needed no model.
+Its sections:
+
+- **The change**: the file and the part of the prompt or tool description it rewrites, once, as the text reads with the change. What it took out is struck through and what it added is marked. How each role held under it is a dot and a word (*target 1 of 1*).
+- **Why**: where the failing runs were lost, and the repairer's diagnosis.
+- **Candidates**: every candidate tried, smallest first, each with its verdict as a dot and a word and why it was dropped. A run a why names links to the run, with its about line on hover. For a repair that accepted nothing, the header states the gate's rule once.
+- **report.md**: the pull request body as the repair wrote it, boxed. Its *What failed* and *Candidates* sections open on request, each summed up beside its heading (*1 run · lost at model call #5*), since the sections around it show both.
+- **Handed over**: `fix.patch`, `report.md`, `report.json`, `goldens/`.
+
+When no repairer proposed the candidates, the line under the verdict says why, with what to do (*the repairer could not be asked: claude was not found: install Claude Code, or set SHADOWLAP_CLAUDE to its path*). The stepper says it in a few words; *no repairer needed* is only for a fix that needed no model.
 
 A grey line above its command gives how many attempts it ran and what every stage cost: blame, the repairer and the verification of every candidate it tried. The cost reads as the CLI prints it (*87 attempts · cost: blame ≈$0.054 · repairer ≈$0.0085 · verify ≈$0.239*).
 
@@ -1036,7 +1090,7 @@ It opens on the newest verdict that counts for the fix. A verdict is headed by t
 
 One that doesn't count for the fix is drawn plain and headed with why (*Doesn't count for this fix: its check leaves out send_email called 1 time*). It is marked so in the switch.
 
-**A verdict that didn't settle every run** reads *inconclusive*, in amber, as it does on every page; verify's own word for it, *incomplete*, stays in its report. It leads with what settles it, the fix's header plain meanwhile:
+**A verdict that didn't settle every run** reads *inconclusive*, in amber, as it does on every page; verify's own word for it, *incomplete*, stays in its report. The fix's header leads with what settles it, as its lime button, rightmost, its other buttons plain:
 
 - **Run more attempts**, for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled.
 - **Verify again**, for one stopped by an attempt that couldn't be judged.
@@ -1050,14 +1104,23 @@ Both are built from the verdict's report and the flags kept beside it, never fro
 
 A line under the verdict says which run is open and why, and what settling it takes (*about 12 attempts, ≈$0.045*), at the run's pass rate so far and the verdict's spend per attempt.
 
+The verdict line says what it checked and its oracle under the headline. Its command is the box at the foot, with its own Copy.
+
 Then come:
 
-- **Its oracle.**
-- **Each run's role, attempts, outcome and where it went**, and, when the verdict says them, the run's baseline (paired at the base revision or from history) and the bound on its drop from it. The bound reads as the CLI says it, *drop <= 0.10 (95%)*, the margin on hover.
+- **Each run**: its role, its id, its outcome as a dot and a word, and its tally and bound in one Attempts cell, in verify's words, with the interval against the gate's two marks. A run an attempt that couldn't be judged stopped reads amber, with no bar. Its attempts, and what they did grouped as on the Blame step, open under its row; `j` and `k` walk the runs.
+- **A run kept against its baseline** shows both tallies and the bound on its drop in its cell, as the CLI says it (*drop <= 0.10 (95%)*). Where it went says where the baseline came from (paired at the base revision, or from history), the margin on hover.
+- **Each run's attempts the provider cut short**, in brackets after its tally, as `shadowlap verify` prints them.
 - **Each run's attempts the provider left unavailable**, and the method behind its bound on hover.
-- **Each run's attempts grouped by what each did**, as on the Blame step.
-- **What the change does to input tokens and cost per run**, in one quiet line as verify prints it.
-- **What finding out cost**; for an inconclusive verdict, only what it spent.
+- **The failing runs an accepted verdict left out**: *01M3RXQ4VB wasn't in this verify*, each with its about line on hover. While the header leads with Verify this run, the line says what it does; otherwise a small Verify this run sits beside it.
+
+Under them, in the order verify prints them:
+
+- its warnings;
+- **what answered the tool calls after the fork**, the change's and the baselines' apart (*after the fork, the change's 9 attempts made 41 tool calls: 35 answered as recorded, 6 stubbed*), only when an attempt made a tool call after its fork;
+- **what the change does to input tokens and cost per run**, in one quiet line;
+- **what finding out cost**, the judge's checks apart (*judge checks: 3 upstream requests, ≈$0.0020*); for an inconclusive verdict, only what it spent;
+- the command.
 
 The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1 kept*). A fix verified with a change of request fields has no patch: **Mark applied** says which fields, for you to set in your agent, and so does `fix apply`'s drawer.
 
@@ -1065,9 +1128,15 @@ The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1
 
 Tests lists every [golden](./ci.md) on disk, the packs in `goldens/` and those the config's `tests` name, and how each did. What its buttons run is under [Actions on Tests](#actions-on-tests).
 
+Its header names the project's goldens, with **Open CI settings** and **Run tests**. **Update goldens** joins them when more than one golden diverged, as each failure has its own **Update golden**.
+
+With no golden yet, it offers to pack the newest run whose step is **Pack as golden…**: a lime button naming the run opens the run page's dialog, with the command under it. With no run at all it offers no command, as recording one comes first.
+
 ### The verdict
 
-A verdict leads: how many goldens fail by their last results, the first one named. With none failing, it says how many are inconclusive, in amber: a [gate](./gating.md) that ran out of attempts between its bounds.
+A verdict leads, in one line: its word in its colour, *passed*, *failed* or *inconclusive*, then the tally of goldens that passed and the first failure named, as *2 of 3 goldens passed · refund-in-limit diverged at call 1*. With none failing, it is *inconclusive*, in amber, when a [gate](./gating.md) ran out of attempts between its bounds or a check couldn't decide.
+
+The first failure's step is lime beside it: the button its run's page leads with, such as **Add normalizer and re-run** or **Run more attempts**. **Run tests** and each failure's buttons are plain while it leads.
 
 With it comes the line of the newest session that ran them all (CI's, or **Run tests**): its command, revision, time, its own passed and failed counts, and upstream requests. That session reads:
 
@@ -1076,6 +1145,10 @@ With it comes the line of the newest session that ran them all (CI's, or **Run t
 - *did not finish* when its process was killed.
 
 Goldens run again on their own since (by **Add normalizer and re-run**, say) follow it, as *since: refund-in-limit passed*, each with its result on hover.
+
+**Following a session.** While a session runs every golden, the verdict reads *running 3 of 7 goldens*, with no step, and its line gives its counts *so far*. Each row says where it has got: the result it kept, *running* for the golden it records and one between its turns (*in progress*), or *queued*. A session that runs some goldens moves only their rows.
+
+**Older than your working tree**, in amber, follows the session's time when the tree changed since it ran: a tracked file changed, by a normalizer added or a fix applied, say, or a later commit. A session that tested changes on top, or one still running, never says so.
 
 ### A row per golden
 
@@ -1104,9 +1177,13 @@ Then comes a row per golden. A row opens the golden's latest run.
 - **✗** on a golden run more than once also says how many attempts passed it, unless some were carried over from an earlier session.
 - **No mark** shows before the golden's first result, when its last test couldn't run it, or when the check was added to the config since.
 
-**By revision** shows why a golden failed on hover, and a ring where it was updated. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
+**By revision** draws each result in its colour: a dot for one attempt, or a bar filled to the share that passed for several. An ink ring marks where the golden was updated, and a red one a drop against its own history. Each cell is named by its card's words, which say on hover why it failed. A key under the table says what each shape means.
+
+Each revision's header gives its commit's subject on hover, and its author where names show. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
 
 **Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided.
+
+**A gated golden's evidence.** Its interval bar opens a row under it: why the gate stopped, the score line between its bounds, each attempt, and what a pass and a failure each weigh. A gate that ran out of attempts offers **Run more attempts** there. **Esc** closes the row and puts the focus back on the bar.
 
 Under the last result comes how the golden's [error-path presets](./error-paths.md) came out, opening the attempt that failed. A golden whose presets ran but whose replay hasn't yet says so, never *not run yet*.
 
@@ -1116,7 +1193,7 @@ The table fits its panel at every width. With less room the oldest revisions giv
 
 Each failure follows as the CLI prints it. A divergence offers:
 
-- **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run** once the rule is in the config.
+- **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run test** once the rule is in the config.
 - **Update golden.**
 - **Find breaking commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started.
 
@@ -1153,9 +1230,11 @@ For a verdict given on other material, it says first that a value that changes e
 
 - **A replay golden** runs offline, needing no key.
 - **A golden marked `fork`** runs live from where it forks, needing the providers' keys, as an [injection test](./injection.md) does from each payload it plants, when a golden has one.
-- **What fails a golden**: a divergence, a non-zero exit, no calls, or a check or gate that fails or can't decide. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.
+- **What fails a golden**: a divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can't decide. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.
 
-It shows the one command, `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, with **Copy**. When a golden has a gate against history, it says that CI has to keep the store between runs.
+It shows the one command, `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, in its box with **Copy**, and how many goldens run live. When a golden has a gate against history, it says that CI has to keep the store between runs. On GitHub, **Settings → CI** builds the whole workflow.
+
+**Add a golden**, beside it, gives the pack command in its box. A golden whose checks say what the agent must do is also a task a model can be scored on, under **Training tasks**.
 
 Recordings that pytest and Vitest keep in `__recordings__/` run under their own test runner and are not listed.
 
@@ -1433,7 +1512,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 
 **4. Keep it as a test.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
 
-- **Pack as a golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
+- **Pack as golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
 - **A golden its tests entry runs live** (marked `fork`, or with an injection gate) asks first before its test runs, whatever [Spending](#spending) says, as nothing prices it here.
 - **A golden whose test failed** keeps the step open, with why and **Run the test again**. Fix what changed (or record again), then run it.
 
@@ -1619,9 +1698,13 @@ Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
 
+**After a repair that accepted nothing.** When the last repair's gate rejected every candidate, and nothing has changed since (the check, or a blame after it), Run repair waits: it would try the same. Its hover says *Repair rejected every candidate*. The fix leads with what that repair's verdict left to settle, Run more attempts or Verify again, if anything.
+
+**Verify this run**, on a verified fix whose change is in your working tree, merged with its pull request or not, verifies your working tree as it is on the failing runs no accepted verdict checked. It reads *Verify these runs* for several, and runs one verify under the fix's check, by the accepted verdict's gate. It leads until no such run is left, with Mark applied plain before it until the fix is merged, and goes by [Spending](#spending), asking with *Verify change on* the run.
+
 **Copy git apply**, on a verified fix, copies the command that applies its patch by hand, `git -c core.autocrlf=false apply <patch>`. The flag keeps Git for Windows' `core.autocrlf` from writing a file with LF back with CRLF on every line. A teammate's patch with LF, for a checkout where the file has CRLF, applies only through that conversion, with plain `git apply`.
 
-**Apply fix** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. The button then reads *Patch applied*, and **Show patch** takes the place of Copy git apply.
+**Apply fix** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. Once it is applied the status says so, and **Show patch** takes the place of Copy git apply and Apply fix. A fix merged with its pull request has nothing to apply, and offers Show patch too.
 
 - **A fix with no patch** (verified on the working tree, or with a change of request fields) reads *Marked applied* once applying marks it. Its hover names the change its agent makes, or says it was verified on the working tree, and the activity feed says *Marked applied* too.
 - **A patch already in your working tree** (a pull request merged it, or you applied it by hand), which `git apply --reverse --check` recognises as `fix apply` does, needs no applying. The button reads **Mark applied**, which copies the goldens it is missing, runs them and marks the fix applied; Copy git apply is gone, and the Overview no longer counts the fix as ready to apply.
@@ -1639,10 +1722,15 @@ Under the patch, the dialog asks a name for each golden it copies: *The golden f
 
 For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too. A prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call.
 
-- The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`.
+- The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`. Where the last replay of one diverged on a value that changes every run, its dialog leads with **Add normalizer and update**, as Tests' does, with **Update anyway** beside it.
+- When none does, the drawer ends on **Open goldens in Tests**, where the goldens it copied are.
 - An applied fix whose goldens failed its test holds again once a test session passes every one of them.
 
 Applied is this machine's own: a fix a teammate applied is verified here until its patch is in this working tree.
+
+**Where a job ends.** A blame, a repair or a verify of the fix, started on its page, takes the page to what it wrote once it ends: the Blame step, the Repair step, or the verdict it gave. Its drawer stays open, and ends on the fix's next step, plain beside the header's lime: Run repair after Run blame again, Apply fix after an accepted repair. A verify the gate accepted ends on nothing more, as the header leads. On any other page, the drawer ends on **Open fix**, or a repair's on **Open change** or **Open candidates**.
+
+**A blame that moved on.** Run blame again or Run blame with stronger model, pressed after the fix's blame moved on (blamed again in another tab or a terminal), is refused with the server's reason. Its toast offers **Open Blame**, unless the page shows that step.
 
 **Rename** gives a fix a title of your own, as `shadowlap fix title` does.
 
@@ -1650,12 +1738,13 @@ Applied is this machine's own: a fix a teammate applied is verified here until i
 
 Tests runs its goldens as jobs too:
 
-| Button                        | Runs                                                                  |
-| ----------------------------- | --------------------------------------------------------------------- |
-| **Run tests**                 | `shadowlap test goldens/*`, plus each pack the config names elsewhere |
-| **Update golden**             | `shadowlap test <golden> --update`, once you confirm                  |
-| **Add normalizer and re-run** | `shadowlap normalize add …`, then `shadowlap test <golden>`           |
-| **Find breaking commit**      | `shadowlap bisect`, from the newest revision where the golden passed  |
+| Button                        | Runs                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------- |
+| **Run tests**                 | `shadowlap test goldens/*`, plus each pack the config names elsewhere               |
+| **Update golden**             | `shadowlap test <golden> --update`, once you confirm                                |
+| **Add normalizer and re-run** | `shadowlap normalize add …`, then `shadowlap test <golden>`                         |
+| **Add normalizer and update** | `shadowlap normalize add …` for each rule, then `shadowlap test <goldens> --update` |
+| **Find breaking commit**      | `shadowlap bisect`, from the newest revision where the golden passed                |
 
 These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find breaking commit** wait, saying what is running:
 
@@ -1665,24 +1754,28 @@ These jobs run one at a time in a project. While any of the following runs, **Ru
 
 The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer and re-run** (or **Add normalizer and update**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
 
-**Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, which isn't drawn on Tests itself, with the first three goldens that failed linked by name beside it, each opening its replay. A run of one golden ends on its replay.
+**Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, with the first three goldens that failed linked by name beside it, each opening its replay. Over Tests itself, it ends on the step the page leads with once the page has read what the job did. A run of one golden ends on its replay.
 
-**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
+**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run test** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
 
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
 
 The dialog says how many goldens go live and why, and shows the commands. Its Cost line says the session's estimate. It opens on its button, the only way to start the session. A session that only replays starts at once.
 
-Setup's **Pack as a golden** and a run's **Pack as golden…** ask every time their test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills.
+Setup's **Pack as golden** and a run's **Pack as golden…** ask every time their test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills.
 
 **Update golden** (or **Update goldens** for every one that diverged) asks first, in a dialog that says what happens. It says when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update, and offers that as its way on, beside **Update anyway**. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
+
+For several goldens that diverged on values that change every run, **Update goldens** offers **Add normalizer and update** as its way on: one job that adds each rule the server names for them, once, then re-records them all. Its line and **Update anyway**'s say it bills the same either way.
 
 **Add normalizer and re-run** is two commands in one job: `shadowlap normalize add …` for each value that changes every run, then `shadowlap test <golden>`, the second only when the first succeeded. The drawer links to the replay that passed. When the rule alone can't make the replay match, it asks first, and updates the golden after it.
 
 **Find breaking commit** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
 
-- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork`, whose replays run live. Its Cost line is the search's estimate from the commit it opens on. It lists the commits the golden was tested at, each with its subject and how it did there, and takes any other.
+- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork`, whose replays run live. Otherwise it starts at once. Its Cost line is the search's estimate from the commit it opens on.
+- **Its choices** are the commits the golden was tested at, each with its subject and how it did there: *passed*, *failed*, *inconclusive* or *passed under other checks*, with its tally where it ran several attempts. The commit a search already failed at says *tried: it already fails there*.
+- **A golden that never passed** offers the few commits before its failure as *not tested there*, and when it was tested at none, the field says *none tested yet*.
 - **Another commit** is a field under the list, for any other: what it holds is searched from, and picking from the list again clears it.
 - **Only commits this checkout has**, as on Runs and a run's page. A golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD.
 
@@ -1820,13 +1913,13 @@ These keys work on any page:
 | ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label, a delete)           |
 | Esc               | Close what is open, then go up a level                                  |
 
-These keys work in a list: Runs, and the sidebar's runs while one has the focus.
+These keys work in a list: Runs, Changes' verdicts and a revision's goldens, Fixes, Tests' goldens, and the sidebar's runs while one has the focus. On Fixes, ⌘K on a fix's row offers Open fix and each of its steps, as it does on a verify's row in Changes › Verdicts, and Esc back from a fix lands on its row.
 
 | Key          | What it does                                             |
 | ------------ | -------------------------------------------------------- |
 | `j` / `k`    | Next or previous row: from no row, the first or the last |
 | `↓` / `↑`    | The same, on a row in focus                              |
-| Enter        | Open the row                                             |
+| Enter        | Open the row; where it opens nothing, its actions        |
 | ⌘K or Ctrl K | The row's actions                                        |
 | `x`          | Select the row, on Runs                                  |
 | `+` / `-`    | Label it good or bad, on Runs                            |
@@ -1917,7 +2010,7 @@ One that can't start leaves the dialog open, with what you typed.
 - **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. Hiding a running job from inside its drawer hands the focus to the status bar's chip, and pressing the chip hands it back.
 - **The sidebar on a phone** takes the focus to its first item as it opens. Closing it from inside it, or with a click beside it, hands the focus to its button. A tap on the page or the status bar only closes it: what it lands on doesn't act. The top bar stays in reach, so its Search or jump to opens as the drawer closes.
 - **A link in a menu or a dialog** hands the focus to the page it opened, and so does Back with one open. A run picked in Compare leaves it on the picker.
-- **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
+- **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls and may hold no control (Calls, the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
 - **What has a hover card and no action of its own** takes the focus where it stands on its own (a run's outcome, a fact), so what a hover shows is never only a hover's. In a row or a chart it doesn't, and a mark with no words of its own is named by its card.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
 - **A field's edge** reaches 3:1 on whatever it sits on, as WCAG 1.4.11 asks of a control.
@@ -1940,7 +2033,7 @@ The dashboard's limits, in one place:
 | Runs in one dataset                           | 500; past that, `shadowlap export dataset --label`                |
 | Runs packed in one job                        | 100                                                               |
 | A page of Runs, or of a run's calls           | 500 rows, or 500 calls                                            |
-| The origin strip                              | Past 360 calls, a cell covers a range                             |
+| The origin strip                              | Where a cell would be narrower than 6 px, a cell covers a range   |
 | The Context view                              | Past 360 model calls, a bar stands for a range                    |
 | A cache miss                                  | A cache read short by 1,024 tokens or more                        |
 | A fork's writes, one by one                   | Three, then grouped; **Show each** lists a hundred at most        |
@@ -2078,6 +2171,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
+- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's check, Find breaking commit… and Delete run. Each loads the first time it opens.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
@@ -2156,7 +2250,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs/:id/offers` | What the run's page offers |
 | `GET /api/search?q=`, `GET /api/compare?a=&b=[&part=head]` | Search recorded content; compare two runs |
 
-**A run** (`/api/runs/:id`) comes with the first page of its calls (500 at most), `callsTotal`, `callsNext` (where the next page starts, or `null`) and, while more are to come, `origins`: every call's origin, one character per call, as the run list encodes them.
+**A run** (`/api/runs/:id`) comes with the first page of its calls (500 at most), `callsTotal`, `callsNext` (where the next page starts, or `null`) and, while more are to come, `origins`: every call's origin, one character per call, as the run list encodes them. Beside it, `kinds` says what every call was, for a recording's strip: `m` a model call, `r` a read, `w` a write, `e` an error.
 
 - **A long run**: one that ended with 1,000 calls or more is answered from its first 200, and says `warming: { done, total }` while the whole run is analysed. Asked again, it says the same of the same calls.
 - **Its about line**: each run, in the list, on its own and in its family, carries its `about` line. That is its `text`, where it comes from (`from`: `user`, `agent`, `input`, `golden`, `change`, `nothing`, `source` or `command`), and for a replay or a fork its `change` (the flag, the call it changed and where it forked).
@@ -2226,13 +2320,14 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /api/fixes?status=`, `/api/fixes/:id`; `PUT /api/fixes/:id/title` | The fixes (all, open, verified or applied) with their counts; one fix, by its id or a prefix, with its three steps; its title |
+| `GET /api/fixes?status=` | The fixes (all, open, verified or applied) in to-do order, with each chip's count, the page's totals and the failing runs nobody has blamed |
+| `GET /api/fixes/:id`; `PUT /api/fixes/:id/title` | One fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
-| `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, and each Verify step's more attempts bill |
+| `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, Verify this run, and each Verify step's more attempts bill |
 | `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run |
 
 - **Groups**: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure), and an `example` attempt to open.
-- **Its estimates**: `repair`, `blameAgain`, `blameStronger`, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
+- **Its estimates**: `repair`, `blameAgain`, `blameStronger`, `verifyLeft` for Verify this run, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
 - **A run's family**: each bundle with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone`, and the `rule` it was decided by.
 
 ### Tests and CI
@@ -2242,7 +2337,8 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do |
 | `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
-| `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens… for the goldens `update` names |
+| `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens for the goldens `update` names |
+| `GET /api/tests/evidence?golden=` | A gated golden's attempts, each judged from its run, those carried over first |
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
 | `GET /api/ci/workflows?fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
 
@@ -2251,14 +2347,20 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 - the goldens on disk;
 - the verdict of their last results, with the line of the newest session that ran them all (`session`, with `live` while its process runs), and what ran since on its own (`since`);
 - inconclusive goldens counted apart (`inconclusive`);
-- each golden's history by revision: each cell's `verdict`, its pass `rate` as passes of attempts, and `dropped` where a [gate](./gating.md) against history found a drop;
+- each golden's history by revision: each cell's `verdict`, its pass `rate` as passes of attempts, the `bound` its gate put on that rate, and `dropped` where a [gate](./gating.md) against history found a drop, with what it compared (`drop`);
+- each revision's commit as git has it (`revisionFacts`): its `subject`, and its author (`by`) only where names show;
+- `older` when the session the verdict names tested a clean commit and the working tree changed since;
+- each golden that didn't pass, by its path, with the step its replay's page leads with (`steps`);
 - whether a golden has an injection test, which runs live (`injection`);
 - each golden's checks as its last result came out on each (`checkResults`, below);
 - each golden's `gate`, and what it decided last (`last.gate`, below);
 - each golden's error-path `presets` as their last session left them: `null` when none ran, else their verdict, how many ran, passed, failed and were inconclusive, a `line`, and the attempt to open;
-- the divergences and other failures as the CLI printed them, each with Find breaking commit's range, what it last said about this failure (`found`, or `missed` with why and its `outcome`), and the commits its dialog offers (`revisions`, with subjects);
+- the divergences and other failures as the CLI printed them, each with Find breaking commit's range, and what it last said about this failure (`found`, or `missed` with why and its `outcome`);
+- the commits Find breaking commit's dialog offers (`revisions`), each with its subject and its tally there (`rate`: `passes` of `attempts`), and for a golden that never passed, the commits before its failure that no session tested (`untested`, each a `rev` and `subject`);
+- for a divergence on values that change every run, the `normalize add` arguments of each rule the config lacks (`newRules`);
 - the inconclusive goldens apart from them, with `judge` (below);
 - a test session in progress wherever it was started (`running`), with the session's counts `passed`, `failed` and `inconclusive`, by each result's verdict;
+- where that session has got (`following`): `whole` when it runs every golden, the `total` it runs, how many it has `reached`, and each golden as `passed`, `failed`, `inconclusive`, `running`, `between` its turns or `queued`;
 - error-path presets on goldens in progress wherever they were started, a terminal, another dashboard or a job (`chaosRunning`: the session's `id`, `command` and `startedAt`);
 - and the commands.
 
@@ -2284,6 +2386,10 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 - what its pack `held`: `none`; `older`, a verdict given to an older form of the judge's request; or `material`, one given on other material, with where it `changed`;
 - what settles it: `update` for a golden that replays offline, or the `keys` its provider reads for one that forks.
 
+**A golden's evidence** (`/api/tests/evidence?golden=`): asked when the row under a gated golden opens, never with the page. It answers `attempts` (each with `runId`, `outcome` and a `note` from its failed check), `carried` (how many came from the sessions Run more attempts continued) and `gone` (runs no longer in the store, left out).
+
+An attempt the provider cut short is `inconclusive`, never the agent's failure; one it was unavailable for, retried and never counted, is left out. A golden not on disk is a 400, and one no gate decided a 404. Each gated result in `/api/tests` carries the evidence's words in `gate.words`.
+
 **Gate figures** (`/api/tests/gate`):
 
 - the rule its verdicts state (`description`, `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`);
@@ -2299,7 +2405,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 **Their estimates** are the engine's for each job as it runs, worked out beside the server:
 
 - `/api/tests/estimates` answers `run` for Run tests, and each golden's `rerun`, `update`, `more` and `normalize` by its path. A golden that runs live in any way is never Free: one marked fork, or with an injection gate, has no estimate until it has run once. Run tests is what each golden it runs live spent the last time it ran.
-- `update`, given once for each golden, adds `update` to the answer: what Update goldens… bills for those goldens together. A path that isn't a golden on disk is left out.
+- `update`, given once for each golden, adds `update` to the answer: what Update goldens bills for those goldens together. A path that isn't a golden on disk is left out.
 - `/api/estimates/bisect` counts the commits with git, as the job would search them. It has no estimate until `good` names a commit. A search the job would refuse has none, with why.
 
 **Your workflow** (`/api/ci/workflows`) takes its options: `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. It answers with one job that runs the goldens once (`workflow`), what it needs, and for each part its own step and a preview of what lands. Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
@@ -2443,15 +2549,16 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `store-set { url, provider }` | `store set --check` |
 | `task-update { golden, yes? }` | Update golden, from Training |
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
-| `test-update { goldens }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
+| `test-update { goldens, normalize? }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
+| `verify { fixId, left: true, yes? }` | Verify this run: the failing runs no accepted verdict checked |
 
 What some of them do:
 
 - **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` verifies its runs again from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
 - **`test`** and **`normalize-and-test`** that would run a golden live, one marked `fork` or with an injection gate, start only with `yes`, the `confirm` of the 409 that named those goldens and why, and lists them in `live`; one that only replays needs none. That yes covers only the job's command lines and those goldens, so another session asks again, and so does this one once what goes live changes.
-- **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead.
+- **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead. With `normalize: true`, it is Add normalizer and update for several goldens: it adds each rule in their divergences' `newRules` once, then updates them all. When none of them diverged on a value that changes every run, it is refused (400).
 - **Tests' jobs** (`test`, `test-update`, `bisect`, `normalize-and-test`) run one at a time in a project, and none while a test session or error-path presets on goldens run, wherever they were started: a terminal, another dashboard or a job (409).
 - **`chaos` on a golden** is refused with a 409 while a test session, an update or a pack runs, as they are while it runs, or while presets run on goldens, wherever they were started: a terminal, another dashboard or a job.
 - **`chaos` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only `confirmed`. That is the `confirm` of the 409 that named both its command and the presets' own line, so a yes to one preset runs no other, and none an injection test.

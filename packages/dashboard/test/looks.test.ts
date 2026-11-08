@@ -231,6 +231,6 @@ describe('a golden’s presets on Tests', () => {
     expect(f.presets).toEqual({ verdict: 'failed', ran: 3, passed: 2, failed: 1, inconclusive: 0, line: '1 of 3 presets failed: tool timeout #2', runId: attempts.timeout, at: expect.any(Number) });
     expect(i.presets).toMatchObject({ verdict: 'passed', ran: 1, line: '1 of 1 preset passed' });
     // Its replay not tested yet: said so, and not as a golden nothing ran on.
-    expect(view.verdict!.title).toBe('1 of 2 goldens pass, 1 tested only by its error-path presets');
+    expect(view.verdict!.title).toBe('1 of 2 goldens passed · 1 golden tested only by its error-path presets');
   });
 });

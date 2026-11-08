@@ -1,29 +1,46 @@
 /**
- * Scopes name the branch of an agent a call was made in (`scope()` in the SDKs): `agent`,
- * `agent/policy-checker`, `customer`. Picking one narrows every view to it and the scopes nested in
- * it. No DOM here: the tests import it.
+ * The agents of a run, as the views group and narrow its calls: each call's agent as the server
+ * names it (the engine's agents.ts: the scope its author gave, a trace's agent, a sub-agent a tool
+ * started, an agent told by its system prompt), else its scope: `agent`, `agent/policy-checker`,
+ * `customer`. Picking one narrows every view to it and the agents nested in it. Blame is scoped by
+ * scope (`scope()` in the SDKs), so its hint reads scopes alone. No DOM here: the tests import it.
  */
 
 export interface ScopedCall {
   callNo: number;
   scope?: string | null;
+  agent?: string | null;
 }
 
+/** The agent a call is grouped by: the one the server names, else its scope. */
+export const agentOf = (c: ScopedCall): string | null => c.agent ?? c.scope ?? null;
+/** A call's scope alone, which blame is scoped by. */
+export const scopeOnly = (c: ScopedCall): string | null => c.scope ?? null;
+
 /** Every scope in the order it first appears. */
-export function scopesOf(calls: readonly ScopedCall[]): string[] {
+export function scopesOf(calls: readonly ScopedCall[], by = agentOf): string[] {
   const out: string[] = [];
-  for (const c of calls) if (c.scope && !out.includes(c.scope)) out.push(c.scope);
+  for (const c of calls) {
+    const s = by(c);
+    if (s && !out.includes(s)) out.push(s);
+  }
   return out;
 }
+
+/** The chips of the scopes the run's author gave, alone: what blame can be scoped by. */
+export const realScopes = (calls: readonly ScopedCall[]): string[] => scopeChips(calls, scopeOnly);
+
+/** Whether the views show a run's agents: a scope its author gave, or two agents or more. */
+export const agentsShown = (calls: readonly ScopedCall[]): boolean => calls.some(scopeOnly) || scopesOf(calls).length > 1;
 
 /**
  * The scope chips, as a tree: every scope, each nested one right after the scope it sits in, which
  * gets a chip of its own even when no call was made in it directly (`writer/review` brings `writer`).
  * Siblings keep the order they first appear in.
  */
-export function scopeChips(calls: readonly ScopedCall[]): string[] {
+export function scopeChips(calls: readonly ScopedCall[], by = agentOf): string[] {
   const first = new Map<string, number>();
-  scopesOf(calls).forEach((s, i) => {
+  scopesOf(calls, by).forEach((s, i) => {
     const parts = s.split('/');
     for (let k = 1; k <= parts.length; k++) {
       const p = parts.slice(0, k).join('/');
@@ -46,9 +63,9 @@ export function scopeChips(calls: readonly ScopedCall[]): string[] {
 }
 
 /** Whether a call is in a scope or one nested in it; `all` takes every call. */
-export function inScope(c: ScopedCall, scope: string): boolean {
+export function inScope(c: ScopedCall, scope: string, by = agentOf): boolean {
   if (scope === 'all') return true;
-  const s = c.scope ?? '';
+  const s = by(c) ?? '';
   return s === scope || s.startsWith(`${scope}/`);
 }
 
@@ -77,7 +94,7 @@ export function blameScope(calls: ReadonlyArray<ScopedCall & { kind?: string }>,
   if (!top.length) return chips[0] ?? null;
   const nests = top.filter((s) => chips.some((c) => c.startsWith(`${s}/`)));
   const pool = nests.length ? nests : top;
-  const tools = (s: string) => calls.filter((c) => c.kind === 'tool' && inScope(c, s)).length;
+  const tools = (s: string) => calls.filter((c) => c.kind === 'tool' && inScope(c, s, scopeOnly)).length;
   return pool.reduce((best, s) => (tools(s) > tools(best) ? s : best), pool[0]!);
 }
 
@@ -88,10 +105,10 @@ export function blameScope(calls: ReadonlyArray<ScopedCall & { kind?: string }>,
  * that one: "Blame only the agent, not the customer it answers", as the design says.
  */
 export function scopeHint(calls: ReadonlyArray<ScopedCall & { kind?: string }>, chips: readonly string[], picked: string): { lead: string; scope: string } | null {
-  if (picked !== 'all') return { lead: 'Blame within this scope', scope: picked };
+  if (chips.includes(picked)) return { lead: 'Blame within this scope', scope: picked };
   const scope = blameScope(calls, chips);
   if (!scope) return null;
   const others = chips.filter((s) => scopeDepth(s) === 0 && s !== scope);
-  const user = others.length === 1 && !calls.some((c) => c.kind === 'tool' && inScope(c, others[0]!)) ? others[0]! : null;
+  const user = others.length === 1 && !calls.some((c) => c.kind === 'tool' && inScope(c, others[0]!, scopeOnly)) ? others[0]! : null;
   return { lead: user ? `Blame only the ${scopeLeaf(scope)}, not the ${scopeLeaf(user)} it answers` : 'Blame within one scope', scope };
 }

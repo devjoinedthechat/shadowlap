@@ -26,7 +26,7 @@ export function overrideAction(detail: Pick<CallDetail, 'actions'>): ActionItem 
   return detail.actions.find((a) => a.key === 'o' || a.key === 'u') ?? null;
 }
 
-/** Edit and fork's dialog, which a run's page rarely opens: a part of its own (OnShow.tsx). */
+/** Its dialog, which a run's page rarely opens: a part of its own, as Find breaking commit's and Delete run's are (OnShow.tsx). */
 const EditDialog = onShow(() => import('./EditDialog.js').then((m) => m.EditDialog));
 
 export function EditAndFork({ runId, detail, live }: { runId: string; detail: CallDetail; live: boolean }) {

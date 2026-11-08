@@ -127,8 +127,8 @@ function longestRequest(calls: readonly PricedCall[]): number {
   return most;
 }
 
-/** A run as a verify of a candidate prices it: every attempt live from its first model call, so at most what the whole recording cost. */
-function wholeRun(role: VerifyRunCost['role'], calls: readonly PricedCall[]): VerifyRunCost {
+/** A run as a verify of a candidate, or of the code as it is now (Verify this run), prices it: every attempt live from its first model call, so at most what the whole recording cost. */
+export function wholeRun(role: VerifyRunCost['role'], calls: readonly PricedCall[]): VerifyRunCost {
   const cost = liveFrom(calls, 0);
   return { role, usd: cost.usd, ...(cost.usd === null ? { none: noPriceWords(cost) } : {}) };
 }

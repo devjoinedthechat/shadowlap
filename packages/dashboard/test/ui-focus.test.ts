@@ -76,7 +76,7 @@ describe('a focus ring in a pane that scrolls', () => {
   const scrolling = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => /overflow(?:-[xy])?\s*:\s*(?:auto|scroll)/.test(m[2])).flatMap((m) => m[1].split(',').map((x) => x.trim()));
   const inset = /:is\(([^)]*)\)\s*:focus-visible\s*\{\s*outline-offset:\s*-2px;?\s*\}/.exec(css)?.[1]?.split(',').map((x) => x.trim()) ?? [];
   /** Panes that keep a padding clear of every ring, so a ring drawn outside a control shows whole. */
-  const PADDED: Record<string, string> = { '.page': 'every page pads its content', body: 'the page itself, on a phone' };
+  const PADDED: Record<string, string> = { '.page': 'every page pads its content', body: 'the page itself, on a phone', '.rv': 'a run’s page pads its header, findings and strip, and its views ring inside panes of their own' };
 
   it('is drawn inside the control in every pane the stylesheet scrolls', () => {
     expect(scrolling.length).toBeGreaterThan(15);

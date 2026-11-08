@@ -46,6 +46,8 @@
     "packages/dashboard/test/ui-run-width.test.ts",
     "packages/dashboard/test/ui-run-scale.test.ts",
     "packages/dashboard/test/ui-timeline-notch.test.ts",
+    "packages/dashboard/test/ui-timeline-kinds.test.ts",
+    "packages/dashboard/test/ui-inspector-panel.test.ts",
     "packages/dashboard/test/ui-context-axis.test.ts",
     "packages/dashboard/test/ui-check-words.test.ts",
     "packages/dashboard/test/ui-inspector-notes.test.ts",
@@ -72,8 +74,11 @@
     "packages/dashboard/test/ui-overview-page.test.ts",
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
     "packages/dashboard/test/ui-runs-status.test.ts",
-    // This renders a fix's page.
+    // These render a fix's page, and the list of fixes.
     "packages/dashboard/test/ui-fix-page.test.ts",
+    "packages/dashboard/test/ui-fix-head.test.ts",
+    "packages/dashboard/test/ui-fix-steps.test.ts",
+    "packages/dashboard/test/ui-fixes-list.test.ts",
     // This drives the fork menu's actions, with their confirmation of someone else's command.
     "packages/dashboard/test/ui-action-consent.test.ts",
     // This renders a page that loads what it shows, and loads it again.

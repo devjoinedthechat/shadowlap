@@ -1,34 +1,42 @@
+import { Fragment, useRef, useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS } from '../api.js';
 import { AskNote } from '../components/AskNote.js';
-import { Badge, CmdLine, EmptyState, Pips } from '../components/bits.js';
+import { type Attempt, AttemptList, AttemptsCell } from '../components/AttemptsCell.js';
+import { EmptyState } from '../components/bits.js';
+import { CodeBox } from '../components/CodeBox.js';
 import { ConfirmDialog } from '../components/Dialog.js';
+import { DotParts } from '../components/DotParts.js';
+import { Id } from '../components/Id.js';
+import { Status } from '../components/Status.js';
 import { rowOpen } from '../components/Table.js';
-import { copyText } from '../dom.js';
+import { VerdictLine } from '../components/VerdictLine.js';
+import type { FixEstimates } from '../estimates-api.js';
 import { approx, GLUED_SEPARATOR, glued, num, shortId, wholeCounts } from '../format.js';
+import { useListKeys } from '../list-keys.js';
 import { navigate } from '../router.js';
-import { useApp } from '../state.js';
-import type { FixDetail, VerifyStep } from '../types.js';
+import type { FixDetail, VerifyRow, VerifyStep } from '../types.js';
 import type { VerifiedRunGroups } from '../../src/attempt-groups.js';
 import { runOutcomeWord, verdictWord } from '../../../engine/src/verdict-words.js';
 import { ACTIONS } from '../labels.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
-import { useFixEstimates, verifyPrice } from './estimates.js';
+import { useFixEstimates } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
 import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
+import { verifyLeftCard } from './lead.js';
 
 /**
  * The Verify step: one change verified at a time (a switch between them, each with its own URL and
- * named by what changed), its verdict and oracle, each run's role and outcome, what the change does
- * to tokens and cost per run, and what finding out took. It opens on the newest verdict that counts
- * for the fix; one that doesn't is drawn plain, headed with why, and marked so in the switch. A
- * verdict left incomplete is amber, as inconclusive is everywhere, and leads with what settles it:
- * Run more attempts, or Verify again, the line under it saying what that takes.
+ * named by what changed), its verdict line and oracle, each run's role, outcome and attempts, the
+ * failing runs an accepted verdict left out, what answered the tool calls after the fork, what the
+ * change does to tokens and cost per run, and what finding out took. It opens on the newest verdict
+ * that counts for the fix; one that doesn't is drawn muted, headed with why, and marked so in the
+ * switch. A verdict left incomplete is amber, as inconclusive is everywhere, and the page leads with
+ * what settles it (Run more attempts, or Verify again: the header's lime button), the line under
+ * the verdict saying what that takes.
  */
 export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | null }) {
   const groups = useAttemptGroups(fix.fixId);
-  // What Run more attempts or Verify again would cost: the fix's estimates, one read with its header's.
-  const prices = useFixEstimates(fix);
   const v = verifyFor(fix, sub);
   if (!v)
     return (
@@ -50,7 +58,7 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
           ))}
         </div>
       ) : null}
-      <Verdict v={v} fixId={fix.fixId} estimate={verifyPrice(prices, v.verifyId)} />
+      <Verdict v={v} />
       {/* What the lead step will do, in one line; the run's row and the drawer say the rest. */}
       {lead(v) ? (
         <p className="fxreceipt vmore">
@@ -70,78 +78,9 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
           ))}
         </ul>
       ) : null}
-      <section className="panel tscroll">
-        <table className="t">
-          <thead>
-            <tr>
-              <th>Role</th>
-              <th>Run</th>
-              <th>Attempts</th>
-              <th>Outcome</th>
-              <th>Where it went</th>
-            </tr>
-          </thead>
-          <tbody>
-            {v.rows.map((x) => (
-              <tr key={`${x.role}:${x.runId}`} {...rowOpen(() => navigate(x.href))}>
-                <td>
-                  <b className="fxrole">{x.role}</b>
-                </td>
-                <td>
-                  <a className="rowa" href={x.href}>
-                    <code>{shortId(x.runId)}</code>
-                  </a>
-                </td>
-                <td>
-                  <Pips ok={x.passes} unsure={x.inconclusive} no={x.attempts - x.passes - x.inconclusive} />{' '}
-                  <span className="fxof">
-                    {x.passes} of {x.attempts - x.inconclusive}
-                    {x.inconclusive ? <span className="fxdim"> · {x.inconclusive} not judged</span> : null}
-                    {x.rate?.bound ? (
-                      <span className="fxdim" title={x.evidence?.method ? `the bound: ${x.evidence.method}` : undefined}>
-                        {' '}
-                        · {x.rate.bound}
-                      </span>
-                    ) : null}
-                    {x.evidence?.unavailable ? <span className="fxdim"> · {x.evidence.unavailable} unavailable</span> : null}
-                  </span>
-                </td>
-                <td>
-                  <Badge tone={outcomeTone(x.outcome)}>{runOutcomeWord(x.outcome)}</Badge>
-                </td>
-                <td className="fxwhere">
-                  {x.note}
-                  {/* Kept against the run's own baseline, with the bound on its drop as the CLI says it, when verify's JSON says so. */}
-                  {x.evidence?.baseline ? (
-                    <span className="fxbase" title={x.evidence.margin !== null ? `Kept unless its pass rate drops ${Math.round(x.evidence.margin * 100)} points or more below its baseline’s` : undefined}>
-                      baseline {x.evidence.baseline.passes} of {x.evidence.baseline.attempts}
-                      {x.evidence.baseline.source === 'paired' ? `, paired${x.evidence.baseline.revision ? ` at ${x.evidence.baseline.revision}` : ''}` : ', from history'}
-                      {x.evidence.drop ? ` · ${x.evidence.drop}` : x.evidence.margin !== null ? ` · margin ${x.evidence.margin}` : ''}
-                    </span>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-      <VerifyGroups runs={groups?.verify.find((g) => g.verifyId === v.verifyId)?.runs ?? null} />
-      <Deltas v={v} />
-      {/* An incomplete verdict found nothing out, so its receipt says what it spent and no more. */}
-      <p className="fxreceipt">
-        {num(v.attempts)} attempt{v.attempts === 1 ? '' : 's'} · {num(v.upstreamRequests)} upstream request{v.upstreamRequests === 1 ? '' : 's'} · {approx(v.spent)} spent{v.verdict === 'incomplete' ? '' : ' to find out before it shipped'}. A run whose replay doesn’t fork settles in one free attempt.
-        {v.unknownModels.length ? ` No price for ${v.unknownModels.join(', ')}.` : ''}
-      </p>
-      {/* A teammate's verdict: its command line stays theirs; the one here is made from its report. */}
-      {v.pulled ? <p className="fxnote">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</p> : null}
-      <CmdLine>{v.command}</CmdLine>
-      {v.warnings.length ? (
-        <ul className="fxwarn">
-          {v.warnings.map((w) => (
-            <li key={w}>{w}</li>
-          ))}
-        </ul>
-      ) : null}
+      <Runs v={v} groups={groups?.verify.find((g) => g.verifyId === v.verifyId)?.runs ?? null} />
+      <LeftOut fix={fix} v={v} />
+      <Receipts v={v} />
     </>
   );
 }
@@ -149,58 +88,241 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
 /** Whether a verdict leads with what settles it: one that counts for the fix, left incomplete, that the page can settle. */
 const lead = (v: VerifyStep): boolean => v.counts && v.verdict === 'incomplete' && !!v.more;
 
-function Verdict({ v, fixId, estimate }: { v: VerifyStep; fixId: string; estimate: Estimate | null | undefined }) {
-  const { toast } = useApp();
-  // One that doesn't count for the fix is no verdict on it: plain, whatever it said of its own check.
-  const tone = v.counts ? verdictTone(v.verdict) : 'n';
-  const more = lead(v) ? v.more! : null;
+/**
+ * The verdict line: its word in its colour (accepted lime, rejected red, inconclusive amber; muted
+ * for one that doesn't count for the fix), its headline, and what it checked under them, with a
+ * note when it was rejected after the fix was applied. What settles one left incomplete is the
+ * header's lime button (FixPage.tsx `FixActions`); its command is the box at the foot.
+ */
+function Verdict({ v }: { v: VerifyStep }) {
   return (
-    <div className={`verdict ${tone}`}>
-      <Badge tone={tone === 'warn' ? 'y' : tone}>{verdictWord(v.verdict)}</Badge>
-      <div>
-        <h2>{v.headline}</h2>
-        <p>
+    <VerdictLine
+      word={verdictWord(v.verdict)}
+      tone={v.counts ? verdictTone(v.verdict) : 'mu'}
+      className="sv"
+      facts={
+        <>
           {glued(keepAt(v.code))}
           {GLUED_SEPARATOR}
           {v.oracle}
-        </p>
-        {/* Only a verdict that counts carries a note: rejected after the fix was applied. */}
-        {v.note ? <p className="fxbad">{v.note}</p> : null}
-      </div>
-      <div className="actions">
-        {more ? (
-          <FixJobButton
-            kind={JOB_KINDS.verify}
-            fields={{ fixId, verifyId: v.verifyId }}
-            label={more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label}
-            verb={more.kind === 'more' ? 'run more attempts' : 'verify again'}
-            lead
-            className="btn sm"
-            tip={verifyTip(more)}
-            command={more.command}
-            estimate={estimate}
-            ask={(start, close) => <VerifyAsk more={more} attempts={v.attempts} estimate={estimate} onRun={() => start({})} onClose={close} />}
-          />
-        ) : null}
-        <button className="btn sm" type="button" onClick={() => void copyText(v.command).then((ok) => toast(ok ? 'Copied the command' : 'Copying was refused by the browser'))}>
-          Copy command
-        </button>
-      </div>
-    </div>
+          {/* Only a verdict that counts carries a note: rejected after the fix was applied. */}
+          {v.note ? <span className="pline fxbad">{v.note}</span> : null}
+        </>
+      }
+    >
+      {v.headline}
+    </VerdictLine>
   );
 }
 
-/** What Run more attempts or Verify again does, on its card and as its ask's lead. */
-const verifyTip = (more: NonNullable<VerifyStep['more']>): string => (more.kind === 'more' ? `Verifies the change again from the start, up to ${more.max} attempts a run` : 'Verifies the same runs again from the start, once the check can be judged');
+/**
+ * Each run: its role, its id, its outcome a status, its tally and bound in one Attempts cell with
+ * its interval against the gate's marks (an attempt not judged in amber, with no bar), and where it
+ * went. Its attempts, and what they did, show under it on request; j and k walk the runs.
+ */
+function Runs({ v, groups }: { v: VerifyStep; groups: readonly VerifiedRunGroups[] | null }) {
+  const box = useRef<HTMLElement>(null);
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const keyOf = (x: VerifyRow) => `${x.role}:${x.runId}`;
+  const inFocus = useListKeys({ rows: v.rows, keyOf, root: box, open: (x) => navigate(x.href) });
+  const toggle = (key: string, on: boolean) =>
+    setOpen((was) => {
+      const next = new Set(was);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  return (
+    <section className="panel sec tscroll vtable" ref={box}>
+      <table className="t vruns">
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Run</th>
+              <th>Outcome</th>
+              <th>Attempts</th>
+              <th>Where it went</th>
+            </tr>
+          </thead>
+          <tbody>
+            {v.rows.map((x) => (
+              <RunRow
+                key={keyOf(x)}
+                v={v}
+                x={x}
+                focus={inFocus === keyOf(x)}
+                open={open.has(keyOf(x))}
+                onToggle={(on) => toggle(keyOf(x), on)}
+                groups={groups?.find((g) => g.role === x.role && g.runId === x.runId) ?? null}
+              />
+            ))}
+          </tbody>
+      </table>
+    </section>
+  );
+}
+
+function RunRow({ v, x, focus, open, onToggle, groups }: { v: VerifyStep; x: VerifyRow; focus: boolean; open: boolean; onToggle: (open: boolean) => void; groups: VerifiedRunGroups | null }) {
+  const listId = `vrun-${v.verifyId}-${x.role}-${x.runId}`;
+  const attempts: Attempt[] = x.tries;
+  const tone = outcomeTone(x.outcome);
+  return (
+    <>
+      <tr className={[open ? 'open' : '', focus ? 'krow' : ''].filter(Boolean).join(' ') || undefined} data-rowkey={`${x.role}:${x.runId}`} {...rowOpen(() => navigate(x.href))}>
+        <td className="vr">
+          <b className="fxrole">{x.role}</b>
+        </td>
+        <td className="vid">
+          <Id id={shortId(x.runId)} href={x.href} className="rowa" />
+        </td>
+        <td className="vo">
+          <Status tone={tone}>{runOutcomeWord(x.outcome)}</Status>
+        </td>
+        <td className="va">
+          <AttemptsCell tally={x.tally} note={x.cutShort} bound={x.bound} boundTitle={x.evidence?.method && !x.evidence.baseline ? `the bound: ${x.evidence.method}` : undefined} interval={x.interval} marks={v.marks ?? []} tone={tone} attempts={attempts} open={open} onToggle={onToggle} listId={listId} />
+          {x.evidence?.unavailable ? <span className="fxdim"> · {x.evidence.unavailable} unavailable</span> : null}
+        </td>
+        <td className="vnote fxwhere">
+          {x.note}
+          {/* Kept against the run's own baseline, when verify's JSON says so: where the baseline came from, its margin on hover. Its tally and the bound on the drop are the Attempts cell's; a report kept before that bound was gives its margin, as it said it. */}
+          {x.evidence?.baseline ? (
+            <span className="fxbase" title={x.evidence.margin !== null ? `Kept unless its pass rate drops ${Math.round(x.evidence.margin * 100)} points or more below its baseline’s` : undefined}>
+              baseline {x.evidence.baseline.source === 'paired' ? `paired${x.evidence.baseline.revision ? ` at ${x.evidence.baseline.revision}` : ''}` : 'from history'}
+              {!x.evidence.drop && x.evidence.margin !== null ? ` · margin ${x.evidence.margin}` : ''}
+            </span>
+          ) : null}
+        </td>
+      </tr>
+      {open && attempts.length ? (
+        <tr className="sub">
+          <td colSpan={5}>
+            <div id={listId}>
+              {groups && groups.groups.length > 1 ? <AttemptGroups groups={groups.groups} attempts={groups.attempts} label={`${x.role} run ${shortId(x.runId)}`} /> : null}
+              <AttemptList attempts={attempts} />
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+/** Verify this run, or Verify these runs for more than one: the button's name wherever the page names it. */
+const leftLabel = (runs: readonly string[]) => (runs.length === 1 ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label;
+
+/**
+ * The failing runs of the fix an accepted verdict left out (`left`), each with its about line on
+ * hover: `01M3RXQ4VB wasn’t in this verify`. While the change is in the working tree, either what
+ * the header's Verify this run (or Verify these runs) does, when it leads, by the name the header
+ * gives it, or a small one of the step's own.
+ */
+function LeftOut({ fix, v }: { fix: FixDetail; v: VerifyStep }) {
+  const prices = useFixEstimates(fix);
+  if (!v.left.length) return null;
+  const left = fix.actions.verifyLeft;
+  const can = !!left;
+  const inHead = can && fix.lead?.key === 'verify-left';
+  return (
+    <p className="vleft">
+      <span>
+        {v.left.map((x, i) => (
+          <Fragment key={x.runId}>
+            {i ? ', ' : ''}
+            <Id id={shortId(x.runId)} href={x.href} about={x.about} />
+          </Fragment>
+        ))}{' '}
+        wasn’t in this verify
+        {left && inHead ? `: ${leftLabel(left.runs)} checks the code as it is now on ${v.left.length > 1 ? 'them' : 'it'}.` : can ? ' ·' : null}
+      </span>
+      {can && !inHead ? <VerifyLeftButton fix={fix} prices={prices} lead={false} small /> : null}
+    </p>
+  );
+}
+
+/**
+ * Verify this run, on the header (`lead`, lime when it is the fix's next step) or small on the Verify
+ * step: the failing runs no accepted verdict checked, verified on the code as it is now, priced on
+ * the fix's estimates and asking by Spending's rule (`VerifyLeftAsk`).
+ */
+export function VerifyLeftButton({ fix, prices, lead, small = false }: { fix: FixDetail; prices: FixEstimates | null | undefined; lead: boolean; small?: boolean }) {
+  const left = fix.actions.verifyLeft;
+  if (!left) return null;
+  const estimate = prices === undefined ? undefined : (prices?.verifyLeft ?? null);
+  return (
+    <FixJobButton
+      kind={JOB_KINDS.verify}
+      fields={{ fixId: fix.fixId, left: true }}
+      label={leftLabel(left.runs)}
+      verb="verify it"
+      lead={lead}
+      // On the step, beside the ids it names: its card says what it does, with no ids again.
+      tip={small ? `Verifies the code as it is now on the run${left.runs.length === 1 ? '' : 's'} this change wasn’t verified on` : verifyLeftCard(left.runs)}
+      command={left.command}
+      className={small ? 'btn sm' : 'btn'}
+      estimate={estimate}
+      ask={(begin, close) => <VerifyLeftAsk left={left} estimate={estimate} onRun={() => begin({})} onClose={close} />}
+    />
+  );
+}
+
+/**
+ * What verify printed under its runs, in its order: its warnings, what answered the tool calls after
+ * the fork, tokens and cost per run, then what finding out took, the judge's checks apart, and the
+ * command. An incomplete verdict found nothing out, so its line says what it spent and no more.
+ */
+function Receipts({ v }: { v: VerifyStep }) {
+  const parts = [`${num(v.attempts)} attempt${v.attempts === 1 ? '' : 's'}`, `${num(v.upstreamRequests)} upstream request${v.upstreamRequests === 1 ? '' : 's'}`, `${approx(v.spent)} spent${v.verdict === 'incomplete' ? '' : ' to find out before it shipped'}`];
+  if (v.judge) parts.push(`judge checks: ${num(v.judge.upstreamRequests)} upstream request${v.judge.upstreamRequests === 1 ? '' : 's'}, ${approx(v.judge.spent)}`);
+  return (
+    <>
+      {v.warnings.length ? (
+        <ul className="fxwarn">
+          {v.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      ) : null}
+      {/* What answered the tool calls after the fork, in the CLI report's words; none when no attempt made one. */}
+      {v.afterFork ? <p className="fxreceipt fxafter">{v.afterFork}</p> : null}
+      <Deltas v={v} />
+      <p className="fxreceipt">
+        <DotParts parts={parts} />. A run whose replay doesn’t fork settles in one free attempt.
+        {v.unknownModels.length ? ` No price for ${v.unknownModels.join(', ')}.` : ''}
+      </p>
+      {/* A teammate's verdict: its command line stays theirs; the one here is made from its report. */}
+      {v.pulled ? <p className="fxnote">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</p> : null}
+      <CodeBox command={v.command} />
+    </>
+  );
+}
 
 /** Run more attempts' lead: verify has no --continue, so the attempts so far start over. */
 const moreLead = (attempts: number): string => `Verifies the change again from the first attempt: the ${attempts.toLocaleString('en-US')} so far ${attempts === 1 ? 'doesn’t' : 'don’t'} carry over.`;
 
 /** Run more attempts' or Verify again's ask, above the threshold or with no estimate: what it runs, and its Cost line the estimate. */
-function VerifyAsk({ more, attempts, estimate, onRun, onClose }: { more: NonNullable<VerifyStep['more']>; attempts: number; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
+export function VerifyAsk({ more, attempts, estimate, onRun, onClose }: { more: Pick<NonNullable<VerifyStep['more']>, 'kind' | 'command'>; attempts: number; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
   const label = more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label;
   const lead = more.kind === 'more' ? moreLead(attempts) : 'Verifies the same runs again from the first attempt, once the judge answers.';
   return <ConfirmDialog title={label} lead={lead} doc="verify" command={more.command} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={onRun} onClose={onClose} />;
+}
+
+/**
+ * Verify this run's ask, above the threshold or with no estimate (`Verify change on <run>`): the
+ * failing runs no accepted verify checked, verified on the code as it is now, its Cost line the
+ * estimate, and its way on the first focus.
+ */
+export function VerifyLeftAsk({ left, estimate, onRun, onClose }: { left: { runs: readonly string[]; command: string }; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
+  const one = left.runs.length === 1;
+  const title = one ? (
+    <>
+      Verify change on <code>{shortId(left.runs[0]!)}</code>
+    </>
+  ) : (
+    `Verify change on ${left.runs.length} runs`
+  );
+  const label = leftLabel(left.runs);
+  const lead = one ? 'Verifies the code as it is now on the failing run the change wasn’t verified on.' : 'Verifies the code as it is now on the failing runs the change wasn’t verified on.';
+  return <ConfirmDialog title={title} lead={lead} doc="verify" command={left.command} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={onRun} onClose={onClose} />;
 }
 
 /**
@@ -217,29 +339,5 @@ function Deltas({ v }: { v: VerifyStep }) {
       {GLUED_SEPARATOR}
       <span className="nw">{v.cost ? `${approx(v.cost.before)} → ${approx(v.cost.after)} (${v.cost.change})` : 'no price for the model'}</span>
     </p>
-  );
-}
-
-/** Each run's attempts grouped by what each did, for a run that made more than one. */
-function VerifyGroups({ runs }: { runs: readonly VerifiedRunGroups[] | null }) {
-  const shown = (runs ?? []).filter((r) => r.groups.length > 1);
-  if (!shown.length) return null;
-  return (
-    <section className="panel fxgap" aria-label="What the attempts did">
-      <header>
-        <h2>What the attempts did</h2>
-        <span className="sub">grouped by the tool calls each made from where it left its run, and how it came out</span>
-      </header>
-      <div className="pbody">
-        {shown.map((r) => (
-          <div key={`${r.role}:${r.runId}`} className="fxbundle">
-            <span className="k">
-              {r.role} <code>{shortId(r.runId)}</code>
-            </span>
-            <AttemptGroups groups={r.groups} attempts={r.attempts} label={`${r.role} run ${shortId(r.runId)}`} />
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }

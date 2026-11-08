@@ -301,7 +301,7 @@ describe('docs/gating.md, figure by figure', () => {
 
   it('verify and blame: the default gate on a failing run, a good run against its baseline, and blame’s gate spread over its probes', () => {
     // A failing run that forks: the default gate, its line, and what the limit does.
-    says(`\`fixed · 12 of 12 · ${rateBound(gateResult(sprt(), Array(12).fill(true)))}\``);
+    says(`\`fixed · 12 of 12 passed · ${rateBound(gateResult(sprt(), Array(12).fill(true)))}\``);
     says(`A run that passes 90% of the time ends inconclusive ${pct(gateOdds(sprt(), 0.9).inconclusive)} of the time at 80 attempts, where 40 left it so ${whole(gateOdds(sprt({ max: 40 }), 0.9).inconclusive)}.`);
 
     // A good run that forks, against its baseline at the gate's risk: the margin, the pairs, its line.

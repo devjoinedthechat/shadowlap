@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
 import { contrast, dash, demoId, focusedLabel, openPage, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
+import { routeTestsFixture } from './tests-fixture.js';
 
 /**
  * The dashboard in Chromium over the demo store, as a person with a keyboard or a screen reader
@@ -76,14 +77,22 @@ test('a fork’s writes and a kept run’s baseline wrap: a phone shows the fork
   expect(await table.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(0);
 });
 
-test('the fix’s steps group their attempts by what each did, with no serious or critical axe violation', async ({ page }) => {
-  await openPage(page, `/fixes/${demoId('refundFix')}/verify`, 'fix');
-  await page.waitForSelector('main#view table.t tbody tr');
-  expect(await seriousViolations(page)).toEqual([]);
-  await openPage(page, `/fixes/${demoId('refundFix')}/blame`, 'fix');
-  await page.waitForSelector('main#view table.probes tbody tr');
-  expect(await seriousViolations(page)).toEqual([]);
-});
+for (const width of [1440, 390])
+  test(`the fix’s steps show a row’s attempts under it on request, grouped by what each did, with no serious or critical axe violation, at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    // A verified run's attempts, then the blamed probe's: each row's Attempts cell opens them under it.
+    for (const [step, table] of [['verify', 'table.vruns'], ['blame', 'table.probes']] as const) {
+      await openPage(page, `/fixes/${demoId('refundFix')}/${step}`, 'fix');
+      const toggle = page.locator(`main#view ${table} tbody tr:not(.sub) button.xbtn`).first();
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const under = page.locator(`main#view ${table} tr.sub`).first();
+      await expect(under.locator('.alist > .al').first()).toBeVisible();
+      await expect(under.locator('.agroups li').first()).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+      expect(await seriousViolations(page)).toEqual([]);
+    }
+  });
 
 /** Text tokens, and the surfaces text is drawn on, as the browser computed them on the page. */
 const TEXT = ['--ink', '--dim', '--faint', '--err', '--warn', '--accent', '--o-rep', '--o-over', '--o-stub', '--o-block', '--k-write', '--c-write', '--del', '--add'];
@@ -361,8 +370,10 @@ test('a run’s calls sit under the call they belong to, each fold mark announce
   await expect(fold).toHaveAttribute('aria-expanded', 'false');
   expect(await page.locator('main#view table.calls tbody tr[data-wi]').count()).toBeLessThan(rows);
   expect(await seriousViolations(page)).toEqual([]);
-  await page.locator('main#view .toolbar button', { hasText: 'Unfold all' }).click();
+  // Opened again with its own fold mark: there is no Fold all or Unfold all.
+  await fold.click();
   await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  expect(await page.locator('main#view').getByRole('button', { name: /^(Un)?[Ff]old all$/ }).count()).toBe(0);
 });
 
 test('what a run did that Shadowlap did not record is among its findings, with no serious axe violation', async ({ page }) => {
@@ -411,15 +422,22 @@ test('the Request tab’s fold marks are 24 px tall at least, as WCAG 2.5.8 asks
 test('on a phone no label is under 11px, an avatar’s initials aside, and the floor that raises them lowers nothing', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const small: string[] = [];
-  const pages: Array<[string, string]> = [
+  // Tests with a gated golden (tests-fixture.ts), its evidence opened under its row: its line's values and axis.
+  await routeTestsFixture(page);
+  const evidence = async () => {
+    await page.locator('main#view button.gev').first().click();
+    await page.waitForSelector('main#view tr.gevrow .alist', { state: 'visible' });
+  };
+  const pages: Array<[string, string, (() => Promise<void>)?]> = [
     ['/', 'main#view .ovg'],
     ['/runs', 'main#view table.runst tbody tr'],
     [`/run/${demoId('override')}`, 'run'],
     [`/fixes/${demoId('refundFix')}/blame`, 'fix'],
-    ['/tests', 'main#view table.gt'],
+    ['/tests', 'main#view table.gt', evidence],
   ];
-  for (const [path, drawn] of pages) {
+  for (const [path, drawn, then] of pages) {
     await openPage(page, path, drawn);
+    await then?.();
     const found = await page.evaluate((where) => {
       const out: string[] = [];
       for (const el of document.querySelectorAll<HTMLElement>('body *')) {

@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import { liveFromPart } from '../../../engine/src/cost-words.js';
-import { messageOf } from '../../../engine/src/message-of.js';
 import type { ActionItem, CallDetail } from '../api.js';
 import { Seg } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
+import { messageOf } from '../../../engine/src/message-of.js';
 import { useApp } from '../state.js';
 import { sentEstimate } from '../spending.js';
 import { rowPriced, useRunEstimates } from './estimates.js';
 
 /**
- * Edit and fork's dialog (EditAndFork.tsx), in a script of its own that loads the first time it
- * shows: the result, or what a person answered, edited as JSON or text, uploaded, then forked with.
+ * Edit and fork's dialog (EditAndFork.tsx): the result edited, as JSON or as text, or what a person
+ * answered, checked here as it is written, then uploaded and forked with. A part of its own, which
+ * loads the first time it shows (OnShow.tsx).
  */
 
 /** The largest result the server takes (`OVERRIDE_LIMIT` in src/routes/forks.ts). */

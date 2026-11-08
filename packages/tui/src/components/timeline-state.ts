@@ -14,8 +14,9 @@ import type { Tone } from './Row.js';
 
 /** What a run's timeline holds while it is open: which calls it shows, how the run stands, and what is said. */
 
-export type Filter = 'all' | 'live' | 'replayed' | 'fenced';
-export const FILTERS: Filter[] = ['all', 'live', 'replayed', 'fenced'];
+/** The origin filter, `f` cycling it: a call the fence answered is blocked or stubbed, each a word of its own, as the dashboard's key says. */
+export type Filter = 'all' | 'live' | 'replayed' | 'blocked' | 'stubbed';
+export const FILTERS: Filter[] = ['all', 'live', 'replayed', 'blocked', 'stubbed'];
 
 export type Mode =
   | { kind: 'timeline' }
@@ -41,7 +42,6 @@ export type Mode =
 
 function matches(c: CallRecord, f: Filter): boolean {
   if (f === 'all') return true;
-  if (f === 'fenced') return c.origin === 'blocked' || c.origin === 'stubbed';
   // "live" means it reached the provider; an injected failure did not.
   if (f === 'live') return displayOrigin(c) === 'live';
   return c.origin === f;

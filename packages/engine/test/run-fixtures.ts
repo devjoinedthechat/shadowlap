@@ -54,6 +54,8 @@ export interface ModelCallOptions {
   status?: number;
   injected?: boolean;
   model?: string;
+  /** More of the start row's meta: an imported trace's `agent`. */
+  meta?: CallMeta;
 }
 
 export interface ToolCallOptions {
@@ -92,7 +94,7 @@ export class RunBuilder {
     const name = o.name ?? 'POST /v1/messages';
     const identity = { kind: 'api' as const, name, fingerprint: `fp-${callNo}`, occurrence: 1 };
     const started = (this.at += 10);
-    this.store.appendCallStart({ runId: this.runId, callNo, ...identity, origin: o.origin ?? 'live', effect: null, requestRef: storeApiRequest(this.store, body), meta: { provider: o.provider ?? 'anthropic', ...(o.scope ? { scope: o.scope } : {}) }, at: started });
+    this.store.appendCallStart({ runId: this.runId, callNo, ...identity, origin: o.origin ?? 'live', effect: null, requestRef: storeApiRequest(this.store, body), meta: { provider: o.provider ?? 'anthropic', ...(o.scope ? { scope: o.scope } : {}), ...(o.meta ?? {}) }, at: started });
     const ok = content !== null || o.raw !== undefined;
     const bytes = o.raw ? o.raw.body : content ? JSON.stringify(message(content)) : JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } });
     const latency = o.latencyMs ?? 1000;
@@ -203,4 +205,48 @@ export function closingBatch(store: Store, tickets: number): { runId: string; by
   }
   b.end();
   return { runId: b.runId, byTicket };
+}
+
+const SUBAGENT_CALLER = "You are Claude Code, Anthropic's official CLI for Claude.";
+const SUBAGENT_SYSTEM = 'You are a file search specialist for Claude Code. Find files fast.';
+const SUBAGENT_TASK = 'Find where refunds are issued in this repo and list the files that do it.';
+
+/**
+ * Claude Code's main session hands a search to its Explore subagent with the Task tool, then reads
+ * what it found.
+ */
+export function subagentRun(store: Store) {
+  const b = RunBuilder.start(store);
+  const q = [user('Why do refunds over $100 fail?')];
+  const ask = [text('Let me look.'), toolUse('Task', { subagent_type: 'Explore', description: 'Find the refund code', prompt: SUBAGENT_TASK }, 'toolu_task')];
+  const main1 = b.model({ system: SUBAGENT_CALLER, messages: q }, ask);
+  const subQ = [user(SUBAGENT_TASK)];
+  const subA = [toolUse('Grep', { pattern: 'issue_refund' }, 'toolu_grep')];
+  const sub1 = b.model({ system: SUBAGENT_SYSTEM, messages: subQ }, subA);
+  const grep = b.tool('Grep', { pattern: 'issue_refund' }, 'src/refunds.py');
+  const sub2 = b.model({ system: SUBAGENT_SYSTEM, messages: [...subQ, assistant(subA), user([toolResult('toolu_grep', 'src/refunds.py')])] }, [text('src/refunds.py issues them.')]);
+  const task = b.tool('Task', { subagent_type: 'Explore', description: 'Find the refund code', prompt: SUBAGENT_TASK }, 'src/refunds.py issues them.');
+  const main2 = b.model({ system: SUBAGENT_CALLER, messages: [...q, assistant(ask), user([toolResult('toolu_task', 'src/refunds.py issues them.')])] }, [text('The $100 cap is in src/refunds.py.')]);
+  b.end();
+  return { runId: b.runId, main1, sub1, grep, sub2, task, main2 };
+}
+
+/** The calls of subagentRun one at a time, the run still recording until the last: for a page that follows it. */
+export function* subagentRunLive(store: Store): Generator<string, void, void> {
+  const b = RunBuilder.start(store);
+  const q = [user('Why do refunds over $100 fail?')];
+  const ask = [text('Let me look.'), toolUse('Task', { subagent_type: 'Explore', description: 'Find the refund code', prompt: SUBAGENT_TASK }, 'toolu_task')];
+  b.model({ system: SUBAGENT_CALLER, messages: q }, ask);
+  yield b.runId;
+  const subQ = [user(SUBAGENT_TASK)];
+  const subA = [toolUse('Grep', { pattern: 'issue_refund' }, 'toolu_grep')];
+  b.model({ system: SUBAGENT_SYSTEM, messages: subQ }, subA);
+  yield b.runId;
+  b.tool('Grep', { pattern: 'issue_refund' }, 'src/refunds.py');
+  b.model({ system: SUBAGENT_SYSTEM, messages: [...subQ, assistant(subA), user([toolResult('toolu_grep', 'src/refunds.py')])] }, [text('src/refunds.py issues them.')]);
+  yield b.runId;
+  b.tool('Task', { subagent_type: 'Explore', description: 'Find the refund code', prompt: SUBAGENT_TASK }, 'src/refunds.py issues them.');
+  b.model({ system: SUBAGENT_CALLER, messages: [...q, assistant(ask), user([toolResult('toolu_task', 'src/refunds.py issues them.')])] }, [text('The $100 cap is in src/refunds.py.')]);
+  b.end();
+  yield b.runId;
 }

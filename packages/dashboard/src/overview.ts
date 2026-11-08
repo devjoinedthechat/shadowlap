@@ -2,7 +2,7 @@ import { emptyOriginCounts, importedRecording, sumCacheUse, type OriginCounts, t
 import { fixesSummary, type PatchCheck, type RewriteCheck } from './fixes.js';
 import { lookWork, type NeedsLook, needsLook } from './needs-look/index.js';
 import type { NextStepWork } from './next-step.js';
-import { aboutsOf, aboutsWithin } from './run-about.js';
+import { aboutsUpTo } from './run-about.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { addSpendNoRunHolds } from './overview-spend.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
@@ -344,9 +344,6 @@ function weekCache(store: Store, index: RunIndex, since: number, budget?: number
   };
 }
 
-/** About lines, worked out whole, or within a request's budget (`aboutsWithin`). */
-const aboutsUpTo = (store: Store, index: RunIndex, runs: readonly IndexedRun[], budget: number | undefined): Map<string, RunAbout> =>
-  budget === undefined ? aboutsOf(store, index, runs) : aboutsWithin(store, index, runs, { budget });
 
 /** Options for `overviewSummary` from a request's query string: tz. */
 export function overviewOptions(params: URLSearchParams): Pick<OverviewOptions, 'tz'> | { error: string } {

@@ -63,9 +63,9 @@ describe('a failed call’s note', () => {
 
 describe('a tool call’s response, as the fork changed it', () => {
   const tool = { ...LIVE, kind: 'tool', name: 'refund', status: null, error: null } as Call;
-  it('says what a blocked write and a fenced read got instead, in one sentence each', () => {
+  it('says what a blocked write and a blocked read got instead, in one sentence each', () => {
     expect(tab({ ...tool, origin: 'blocked', effect: 'write' }, 'response')).toContain('Blocked: a write tool after the fork, so the agent got this instead of the real result:');
-    expect(tab({ ...tool, origin: 'blocked', effect: 'read' }, 'response')).toContain('Fenced: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:');
+    expect(tab({ ...tool, origin: 'blocked', effect: 'read' }, 'response')).toContain('Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:');
     expect(tab({ ...tool, origin: 'stubbed', effect: 'write' }, 'response')).toContain('Stubbed: a write tool after the fork answered with a stand-in:');
   });
 

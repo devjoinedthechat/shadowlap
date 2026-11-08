@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { gateResult, Store } from '@shadowlap/engine';
 import { readKinds, runJob, type ReadJob } from '../src/read-jobs.js';
 import { LocalReads, ReadPool } from '../src/read-pool.js';
 import { answer, failed, readRegistry } from '../src/read-registry.js';
@@ -49,8 +49,11 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'store-facts': { kind: 'store-facts', stores: [{ id: 'here', dbPath: null, keep: null }] },
   training: { kind: 'training', tasks: [], tasksError: null, normalizers: [], redactRules: 0, filter: 'all' },
   fix: { kind: 'fix', fixId: FIX, repairer: null },
+  fixes: { kind: 'fixes', status: 'all', project: null, repairer: null, next: null },
   outcome: { kind: 'outcome', runId: FORK, work: null },
   next: { kind: 'next', runId: FORK, outcome: null, next: null },
+  'tests-steps': { kind: 'tests-steps', goldens: ['goldens/refund'], next: null },
+  'tests-evidence': { kind: 'tests-evidence', golden: 'goldens/refund' },
   'runs-failures': { kind: 'runs-failures', options: { from: 0, to: NOW + 1, q: 'refund_agent' }, outcome: null },
   'run-estimates': { kind: 'run-estimates', runId: FORK, at: 1, model: null },
   'fix-estimates': { kind: 'fix-estimates', fixId: FIX, repairer: null, rule: { keptMax: null, baseline: 'paired' }, model: null },
@@ -87,6 +90,9 @@ beforeAll(() => {
     store.putDecisionSession({ sessionId: SESSION, kind: 'decisions', at: NOW - HOUR, change: 'the model claude-haiku-4-5', actor: null, revision: null, data: { change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' }, flagged: [REC], toVerify: [REC], verify: null }, runs: [{ runId: REC, golden: null, rank: 1, changed: 1, data: decided }] });
     // Its event, worded by the feed on whichever thread reads it.
     store.addEvent({ eventId: '01K8RG00000000000000000005', kind: 'decisions.done', ref: SESSION, data: { change: 'the model claude-haiku-4-5', runs: 1, flagged: 1, spent: 0.001 }, at: NOW - HOUR });
+    // A gated golden's last result, for its evidence: one session, its attempt the fork.
+    const tested = store.startTestSession({ sessionId: 'ts-registry', command: ['shadowlap', 'test', 'goldens/refund'], startedAt: NOW - HOUR }).sessionId;
+    store.addTestResult({ sessionId: tested, golden: 'goldens/refund', ok: true, runId: FORK, goldenRunId: REC, revision: null, at: NOW - HOUR, data: { attempts: { total: 1, passed: 1, required: null, runs: [FORK] }, gate: gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, Array<boolean>(12).fill(true)) } });
   }
   pool = new ReadPool({ dbPath, keep: { stats: (rows) => void file.saveRunStats(rows), asks: (rows) => void file.saveRunAsks(rows) } });
   local = new LocalReads(() => memory);

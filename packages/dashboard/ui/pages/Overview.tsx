@@ -33,7 +33,8 @@ export function OverviewPage() {
   const { client, meta, runs, live, tick, exported } = useApp();
   const tz = useMemo(viewerTimeZone, []);
   const [nudge, setNudge] = useState(0);
-  const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, `${tick}:${nudge}`);
+  const version = `${tick}:${nudge}`;
+  const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, version);
   const activity = useLoad(() => (exported ? null : client.activity(5)), 'activity:5', tick);
   const store = useTeamStore();
   const name = projectOf(meta)?.name ?? 'this project';
@@ -96,7 +97,7 @@ export function OverviewPage() {
         actions={recording ? <WatchLive runId={recording.runId} about={recording.about?.text ?? recording.command} calls={liveCalls} /> : null}
       />
       <div className="ovg">
-        <NeedsLook items={s.needsLook.items} total={s.needsLook.total} />
+        <NeedsLook items={s.needsLook.items} total={s.needsLook.total} version={version} />
         <div className="ovside">
           <RecentRuns runs={runs} now={s.now} />
           <ActivityCard items={activity.data?.items ?? null} error={activity.error} retry={activity.reload} now={s.now} byPerson={!!store} live={live} />

@@ -18,12 +18,14 @@ import { useStrongerEstimate } from './estimates.js';
 /** How a rescue rate reads on the Gate row. */
 const rate = (p: number): string => `${Math.round(p * 100)}%`;
 
+/** What Run blame again's ask says, from the fix's actions or its Fixes row's lead alike. */
+export type BlameAgainAsk = Pick<NonNullable<FixDetail['actions']['blameAgain']>, 'kind' | 'gate' | 'soFar' | 'lastGood' | 'command'>;
+
 /**
  * Run blame again: the same blame with more attempts and a lower bar, the last blame's beside it, or
  * from the first model call where the last stopped part way, at the furthest call it had rescued.
  */
-export function BlameAgainDialog({ fix, estimate, onRun, onClose }: { fix: FixDetail; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
-  const again = fix.actions.blameAgain;
+export function BlameAgainDialog({ again, estimate, onRun, onClose }: { again: BlameAgainAsk | null; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
   const stopped = again?.kind === 'stopped';
   const gate = !stopped && again?.gate ? again.gate : null;
   const soFar = again?.soFar ?? null;
@@ -76,5 +78,5 @@ export function StrongerDialog({ fix, onRun, onClose }: { fix: FixDetail; onRun:
 /** The ask a fix's next blame opens, starting it with what its dialog adds. */
 export function blameNextAsk(fix: FixDetail, kind: 'again' | 'stronger', estimate: Estimate | null | undefined): (start: (more: Record<string, unknown>) => boolean, close: () => void) => ReactNode {
   if (kind === 'stronger') return (start, close) => <StrongerDialog fix={fix} onRun={(model, sent) => start({ model, ...sent })} onClose={close} />;
-  return (start, close) => <BlameAgainDialog fix={fix} estimate={estimate} onRun={() => start({})} onClose={close} />;
+  return (start, close) => <BlameAgainDialog again={fix.actions.blameAgain} estimate={estimate} onRun={() => start({})} onClose={close} />;
 }

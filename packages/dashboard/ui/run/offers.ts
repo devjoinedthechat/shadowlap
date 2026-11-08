@@ -1,7 +1,7 @@
 import type { CostWords, FactWords } from '../actions.js';
 import { goldenName, num, shortId } from '../format.js';
 import { commandText } from '../goldens.js';
-import { divergedWhere, insteadOf, recordingCost, replacedIf, updateSteps, type UpdatePlan } from '../update-plan.js';
+import { divergedWhere, insteadOf, recordingCost, replacedIf, updateSteps, type UpdatePlan } from '../update-words.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { bisectBadFact, bisectCost, FLAKY_NOTE, revisionTally, type GoodChoice } from '../runspage/find-commit.js';
 import type { BisectOffer, BlameOffer, TestBannerOffer } from '../types.js';
