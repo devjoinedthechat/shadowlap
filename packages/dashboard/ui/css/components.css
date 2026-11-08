@@ -189,6 +189,13 @@ tr.krow > td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
 .boxcopy:hover { color: var(--ink); background: var(--hover); }
 .boxcopy svg { width: 13px; height: 13px; }
 .cmdline > .boxcopy { float: right; margin: -6px -8px -4px 8px; }
+/* A file's change (.codebox.fxpatch): a line added in --add ink, one removed in --del red. What acts on the file ends its
+   header as one group, which takes a second row whole, still at the right, where the header can't hold it beside the name. */
+.codehead.acts { flex-wrap: wrap; row-gap: 2px; }
+.codehead .cdacts { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
+.codehead .cdacts .linkbtn { margin-left: 0; }
+.codebox.fxpatch .add { color: var(--add); }
+.codebox.fxpatch .del { color: var(--del); }
 .boxwrap { position: relative; }
 .boxwrap > .boxcopy { position: absolute; top: 5px; right: 5px; }
 .boxwrap > pre.codebox { padding-right: 40px; }
