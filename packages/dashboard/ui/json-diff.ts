@@ -48,7 +48,8 @@ export const CUT = 72;
 const FOLDED = '[ … ]';
 /** Past this many token pairs, two values' words aren't matched: every word is marked. */
 const MATCH_LIMIT = 160_000;
-const TOKEN = /[A-Za-z0-9_]+|\s+|[^A-Za-z0-9_\s]/g;
+/** A word, a run of spaces, or one other character: what two texts are matched by, and where Compare's rows break arguments. */
+export const TOKEN = /[A-Za-z0-9_]+|\s+|[^A-Za-z0-9_\s]/g;
 /** A lone mark between two changed words, marked with them, so a changed id reads as one change. */
 const JOINER = /^[-_.:/]$/;
 

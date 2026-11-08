@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { answersSub, changedAnswers, changeCards, codeNote, compareFacts, comparingLive, diffTexts, madeBy, pickable, prefixCells, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
 import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
+import { argPieces, cutPart, type ArgPiece } from '../ui/compare/args.js';
+import { wordMarks } from '../ui/json-diff.js';
 import type { CallRow, CompareView } from '../ui/types.js';
 
 // Compare's logic without a browser: what the four change cards say, which rows after the fork the
@@ -16,6 +18,44 @@ const changes = (o: Partial<CompareView['changes']> = {}): CompareView['changes'
 });
 
 const card = (c: Pick<CompareView, 'changes' | 'code'>, key: string) => changeCards(c).find((x) => x.key === key)!;
+
+describe("a row's arguments, as pieces a line breaks between", () => {
+  const plain = (json: string) => argPieces([{ text: json, marked: false }]);
+  const said = (p: ArgPiece) => (p.kind === 'value' ? [(p.key ?? []).map((r) => r.text).join(''), p.value.map((r) => r.text).join('')] : p.parts.map((x) => x.runs.map((r) => r.text).join('')));
+
+  it('breaks only after a comma or a brace outside a string, a key apart from its value', () => {
+    const pieces = plain('{"to":"customer@example.com","body":"Refunded"}');
+    expect(pieces.map(said)).toEqual([
+      ['', '{'],
+      ['"to":', '"customer@example.com",'],
+      ['"body":', '"Refunded"}'],
+    ]);
+    // A wide value breaks after an @ or a dot in it, never inside a word.
+    const to = pieces[1];
+    expect(to.kind === 'value' && to.value.filter((r) => r.wbr).map((r) => r.text)).toEqual(['"customer@', 'example.']);
+  });
+
+  it('breaks a long address after its slashes, and a string with spaces at its spaces, a short one kept whole', () => {
+    const url = plain('{"url":"https://example.com/a/b/c"}')[1];
+    expect(url.kind === 'value' && url.value.filter((r) => r.wbr).map((r) => r.text)).toEqual(['"https:', '/', '/', 'example.', 'com/', 'a/', 'b/']);
+    const note = plain('{"note":"Refund approved by Dana"}')[1];
+    expect(note.kind === 'words' && note.parts.map((x) => [x.runs.map((r) => r.text).join(''), x.whole])).toEqual([
+      ['"note"', true],
+      [':', false],
+      ['"Refund approved by Dana"', false],
+      ['}', false],
+    ]);
+  });
+
+  it('keeps the marks of the words that differ from the other side, and cuts a long part', () => {
+    const [, now] = wordMarks('{"amount":240}', '{"amount":250}');
+    const value = argPieces(now)[1];
+    expect(value.kind === 'value' && value.value.filter((r) => r.marked).map((r) => r.text)).toEqual(['250']);
+    expect(cutPart('x'.repeat(130))).toHaveLength(120);
+    expect(cutPart('x'.repeat(130)).endsWith('…')).toBe(true);
+    expect(cutPart('short')).toBe('short');
+  });
+});
 
 describe('what changed, a line a fact', () => {
   it("words each changed card its own way, and what didn't change in one line with a row a fact", () => {
