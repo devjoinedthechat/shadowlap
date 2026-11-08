@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ancestorsOf, callTree, caretWords, foldLabel, groupName, heads, itemWords, pathOf, traceOf, traceRows, unfolded, type GroupCall, type TraceCall, type TraceGroup, type TraceOptions } from '../ui/run/groups.js';
 import { times, timesOf } from '../../engine/test/timing.js';
+import { forgetFolds, isOpen, setFolds } from '../ui/run/folds.js';
 
 /**
  * Light grouping in Calls: each call under the call it belongs to, the list itself as it was. A tool
@@ -272,5 +273,19 @@ describe('the trace at scale', () => {
     expect(traceRows(tr, () => false, null).rows).toHaveLength(25_000);
     const took = timesOf({ tree: () => traceRows(traceOf(big, { loud }), allOpen, 49_999), index: () => new Map(big.map((c, i) => [c.callNo, i])) });
     expect(took.tree, `the pass took ${times(took.tree, took.index)} indexing the calls`).toBeLessThan(30 * took.index);
+  });
+});
+
+describe('the folds, kept for the session', () => {
+  it('opens every group but a batch’s items past the third, until folded or opened, per run', () => {
+    const forty = Array.from({ length: 5 }, (_, i) => [m(2 * i + 1, { conversation: i + 1, asks: ['x'] }), t(2 * i + 2, 2 * i + 1, { conversation: i + 1 })]).flat();
+    const items = traceRows(traceOf(forty), allOpen, null).rows.filter((x) => !x.call).map((x) => x.group);
+    expect(items.map((g) => isOpen('a', g))).toEqual([true, true, true, false, false]);
+    setFolds('a', ['i1', 'i5'], false);
+    setFolds('a', ['i5'], true);
+    expect(items.map((g) => isOpen('a', g))).toEqual([false, true, true, false, true]);
+    expect(items.map((g) => isOpen('b', g))).toEqual([true, true, true, false, false]);
+    forgetFolds();
+    expect(isOpen('a', items[0])).toBe(true);
   });
 });
