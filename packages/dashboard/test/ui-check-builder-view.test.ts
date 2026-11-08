@@ -79,7 +79,7 @@ function stub(o: { cfg?: ChecksConfig; save?: ChecksApi['save'] } = {}) {
 }
 
 async function open(s: ReturnType<typeof stub>, props: Partial<BuilderProps> = { run, call, kind: 'never' }): Promise<Rendered> {
-  r = await render(shell({ client: { checks: s.checks } as never, toast: s.toast, refresh: s.refresh }, createElement(Builder, { ...props, onClose: s.onClose } as BuilderProps)));
+  r = await render(shell({ client: { checks: s.checks } as never, toast: s.toast, refresh: s.refresh, guard: (fn: () => void) => (fn(), true) }, createElement(Builder, { ...props, onClose: s.onClose } as BuilderProps)));
   await r.until('the golden’s checks', () => r!.all('.cb-units li').length > 0);
   return r;
 }
@@ -149,6 +149,27 @@ describe('the check builder from a call', () => {
     await r!.click(r!.one('.dlg-ok'));
     await r!.until('the save', () => s.onClose.mock.calls.length > 0);
     expect(s.checks.save).toHaveBeenLastCalledWith({ golden: 'goldens/refund-flow', version: now.version, read: now.read, entry: { expect: { tools: { send_email: 0, escalate: 1, issue_refund: 0 } } } });
+  });
+
+  it('says a failed read of the file again under The change, with Retry, Save off pointing there until it reads', async () => {
+    const conflict = 'shadowlap.config.json changed on disk since this page read it: "prices" added. It shows your change against the file as it is now; nothing was changed.';
+    const s = stub({ save: () => Promise.reject(new ApiError(409, conflict)) });
+    s.checks.goldens.mockImplementationOnce(async () => config()).mockImplementationOnce(async () => Promise.reject(new Error('the dashboard isn’t answering')));
+    await open(s);
+    await r!.click(r!.one('.dlg-ok'));
+    await r!.until('the failed read', () => r!.all('.loaderr').length > 0);
+    // Under The change's heading, where Save's why points.
+    const heading = r!.all('.cb-k').find((k) => said(k) === 'The change')!;
+    const around = heading.parentNode!.children;
+    expect(around[around.indexOf(heading) + 1]?.matches('.loaderr')).toBe(true);
+    expect(said(r!.one('.loaderr'))).toContain('the dashboard isn’t answering');
+    expect(r!.one('.dlg-ok').getAttribute('aria-disabled')).toBe('true');
+    expect(r!.one('.dlg-ok').getAttribute('data-why')).toBe('shadowlap.config.json couldn’t be read again: Retry it under The change');
+    await r!.click(r!.one('.loaderr button'));
+    await r!.until('the file read', () => r!.all('.loaderr').length === 0);
+    expect(s.checks.goldens).toHaveBeenCalledTimes(3);
+    expect(r!.one('.dlg-ok').getAttribute('aria-disabled')).toBeNull();
+    expect(text('.dlg-ok')).toBe('Save again');
   });
 
   it('says a 400 in the dialog’s amber line and stays open', async () => {
