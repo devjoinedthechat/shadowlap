@@ -315,7 +315,7 @@ AGENT_SYSTEM_SUFFIX="Do not email the summary." shadowlap decisions 01M58VT1J5 -
 01M58VT1J5  11 of 11 model calls asked · 1 changed, most: rank 1 (a write changed)
   #28   step 10  rank 1  send_email is no longer called · in 3 of 3 samples, 0 of 3 as recorded
          recorded send_email({"to":"team@example.com","subject":"Research summary","body":"Replay wo…)
-         now      answers and stops: "Summary: recorded runs replay deterministically, and forks fence writes…"  −8 tokens · −<$0.001
+         now      answers and stops: "Summary: recorded runs replay deterministically, and forks fence…"  −8 tokens · −<$0.001
   the steps asked, as recorded and now: 12,260 → 12,260 input tokens · ≈$0.043 → ≈$0.043 (about the same)
 ```
 
