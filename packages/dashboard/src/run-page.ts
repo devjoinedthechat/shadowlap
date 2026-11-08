@@ -1,11 +1,11 @@
 import {
+  blameSteps,
   CHECK_STATUSES,
   cacheMisses,
   canonicalModel,
   isObject,
   Lru,
   hasRecordedCommand,
-  isJudgeCall,
   LiveConversations,
   normalizeResponse,
   ownAgent,
@@ -536,8 +536,6 @@ export interface RunPageFacts {
   websockets: WebSocketView[] | null;
 }
 
-const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
-
 // A run can come from someone else's pack: what its metadata says is checked before it is shown.
 const int = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);
@@ -555,9 +553,8 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[], step?: { k: numbe
   const scope = str(b.scope);
   let modelCall = step;
   if (modelCall === undefined) {
-    // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
-    // The agent's model calls: a judge check's are none of blame's steps.
-    const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope) && !isJudgeCall(c)).map((c) => c.callNo);
+    // The model calls blame probed, as the CLI's blame counts them: those with an answer, in its scope.
+    const steps = blameSteps(calls, scope).map((c) => c.callNo);
     const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
     modelCall = k > 0 ? { k, m: steps.length } : null;
   }

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { packRun, previewRedaction, showJson, Store, type BlameRecord, type RunIntervention, type RunMeta } from '@shadowlap/engine';
+import { blameSteps, packRun, previewRedaction, showJson, Store, type BlameRecord, type RunIntervention, type RunMeta } from '@shadowlap/engine';
 // The record a replay keeps of its flags is written by the sidecar when the replay starts.
 import { describeInterventions } from '@shadowlap/sidecar';
 import { callDetail, countMasked, exportHtml, provenance, runDetail, showRunJson, startDashboard, type RunDetail } from '../src/index.js';
@@ -266,6 +266,8 @@ describe('the run page: header and banners', () => {
     b.tool('lookup_order', {}, { amount: 240 }, { scope: 'agent' });
     b.model({ messages: [user('Refund please.'), assistant([toolUse('lookup_order', {}, 't1')]), user([toolResult('t1', 'x')])] }, [toolUse('issue_refund', {}, 't2')], { scope: 'agent' });
     b.model({ messages: [user('Start.'), assistant([text('Refund please.')]), user('Done.')] }, [text('Thanks.')], { scope: 'customer' });
+    // A call of Shadowlap's own: none of blame's steps.
+    b.model({ messages: [user('Probe.')] }, [text('Probed.')], { scope: 'shadowlap:probe' });
     b.end();
     const rescued = RunBuilder.start(store, { parent: b.runId });
     rescued.model({ messages: [user('Start.')] }, [text('Refund please.')], { scope: 'customer', origin: 'replayed', replayedFrom: 1 });
@@ -278,9 +280,10 @@ describe('the run page: header and banners', () => {
     // No one call lost it: the two it was lost gradually around, for the banner to say so.
     store.updateRunMeta(b.runId, { blame: { ...blame, callNo: 2, range: { from: 2, to: 4, fromStep: 1, toStep: 2, gradual: true } } });
     expect(runDetail(store, b.runId)!.blame).toMatchObject({ callNo: 2, range: { from: 2, to: 4, gradual: true }, modelCall: { k: 1, m: 2 } });
-    // Without a scope, every model call counts.
+    // Without a scope, every model call of the agent's counts, as the CLI's blame header counts them.
     store.updateRunMeta(b.runId, { blame: { ...blame, scope: undefined as never } });
     expect(runDetail(store, b.runId)!.blame!.modelCall).toEqual({ k: 3, m: 4 });
+    expect(blameSteps(store.getCalls(b.runId), undefined)).toHaveLength(4);
     // One that placed the failure on no call because its first probe couldn't tell says so.
     store.updateRunMeta(b.runId, { blame: { ...blame, outcome: 'unrescuable', callNo: null, rescuedRunId: null, unsettled: true } });
     expect(runDetail(store, b.runId)!.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, callNo: null });
