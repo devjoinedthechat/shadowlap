@@ -1768,16 +1768,16 @@ A job only names goldens the project has on disk.
 
 git runs first, with no shell, on the commit the store holds for the golden's answer, never one the request names. A merge is reverted against its first parent (`-m 1`). A test that runs live asks as **Run tests** does, and the dialog's **Revert** answers for it.
 
-Its drawer reads *Reverting 9a3c5e0*. It shows `$ git revert --no-commit 9a3c5e0`, git's lines as git printed them, *reverted 9a3c5e0 in your working tree · not committed*, then the test's command and lines. It ends on one of these:
+Its drawer reads *Reverting 9a3c5e0*. It shows `$ git revert --no-commit 9a3c5e0`, git's lines as git printed them, *reverted 9a3c5e0 in your working tree · not committed*, then the test's command and lines. It ends on one of these, as its toast does when the drawer is hidden:
 
-| End | Means |
+| The drawer ends | Means |
 | --- | --- |
-| *passed · exit 0* | Reverted, and the golden passed: *Reverted 9a3c5e0* |
-| *reverted · test failed · exit 1* | The revert stays in your tree, and the golden still fails |
-| *not reverted · exit 128* | git refused, with changes to the commit's files in your tree; the test didn't run |
-| *conflicts left in your working tree · exit 1* | git left conflicts for you to resolve; the test didn't run |
+| *Reverted 9a3c5e0 · passed · exit 0* | git reverted it, and the golden passed |
+| *Reverted 9a3c5e0 · test failed · exit 1* | The revert stays in your tree, and the golden still fails |
+| *Tried reverting 9a3c5e0 · not reverted · exit 128* | git refused, with changes to the commit's files in your tree; the test didn't run |
+| *Tried reverting 9a3c5e0 · conflicts left in your working tree · exit 1* | git left conflicts for you to resolve; the test didn't run |
 
-Where git didn't revert, the toast reads *Tried reverting 9a3c5e0*. Nothing is kept of the revert itself, as git shows the change. Its test keeps a session as any test does, so the crashed replay reads *fixed by* the run that passed, and **Open passing run** opens it.
+Nothing is kept of the revert itself, as git shows the change. Its test keeps a session as any test does, so the crashed replay reads *fixed by* the run that passed, and **Open passing run** opens it.
 
 ### Actions in Settings
 
