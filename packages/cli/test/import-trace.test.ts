@@ -674,7 +674,7 @@ describe('import: the agents a trace names', () => {
 
   it('keeps on each model call the agent spans it ran inside, outermost first, for reading only', () => {
     const doc = JSON.parse(fixture('otel-genai.json')) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: OtlpSpan[] }> }> };
-    const spans = doc.resourceSpans[0]!.scopeSpans[0]!.spans;
+    const spans = doc.resourceSpans[0].scopeSpans[0].spans;
     const support = spans.find((s) => s.spanId === '00f067aa0ba902b7')!;
     const agent = (spanId: string, parentSpanId: string, name: string): OtlpSpan => ({
       ...support,
@@ -691,7 +691,7 @@ describe('import: the agents a trace names', () => {
     spans.push(agent('b0b0b0b0b0b00001', '', 'supervisor'), agent('b0b0b0b0b0b00002', 'b0b0b0b0b0b00001', 'billing'));
     spans.find((s) => s.spanId === 'a1b2c3d4e5f60004')!.parentSpanId = 'b0b0b0b0b0b00002';
     const store = open();
-    const { result } = importTrace(store, readOtel(parseOtlpFile(JSON.stringify(doc))).traces[0]!, { source: '/tmp/agents.json', labels: [] });
+    const { result } = importTrace(store, readOtel(parseOtlpFile(JSON.stringify(doc))).traces[0], { source: '/tmp/agents.json', labels: [] });
     const calls = store.getCalls(result.run.runId);
     expect(calls.map((c) => [c.kind, c.meta.agent])).toEqual([
       ['api', 'supervisor/support'],

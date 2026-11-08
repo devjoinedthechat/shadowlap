@@ -3,14 +3,14 @@ import type { CallRow } from '../api.js';
 import { tipCard } from '../components/HoverCard.js';
 import { callName, dur } from '../format.js';
 import { ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
-import { scopeDepth, scopeLeaf, scopesOf } from '../scopes.js';
+import { agentOf, scopeDepth, scopeLeaf, scopesOf } from '../scopes.js';
 import { callKind, KIND_COLOR, kindLabel } from './kinds.js';
 import { originOf, ticksFor, timelineOf, type TimelineRow } from './model.js';
 import { useWindow } from './window-hook.js';
 
 /**
  * Timeline: every call on one clock, coloured by origin, or on a recording by what each call was in
- * the strip's key (`byKind`), with a notch where a streamed answer's first token arrived. With scopes, each scope gets a header showing the span it was busy. The summary
+ * the strip's key (`byKind`), with a notch where a streamed answer's first token arrived. With agents, each agent gets a header showing the span it was busy. The summary
  * line says where the time went and what ran at once. Only the rows in view and a screenful either
  * side are drawn (window-hook.ts).
  */
@@ -33,7 +33,7 @@ export function TimelineView({ calls, selected, scoped, byKind = false, onSelect
     const byNo = new Map(rows.map((r) => [r.call.callNo, r]));
     const out: ClockLine[] = [];
     for (const sc of scopesOf(calls)) {
-      const rs = calls.filter((c) => c.scope === sc).map((c) => byNo.get(c.callNo)).filter((r): r is TimelineRow<CallRow> => !!r);
+      const rs = calls.filter((c) => agentOf(c) === sc).map((c) => byNo.get(c.callNo)).filter((r): r is TimelineRow<CallRow> => !!r);
       if (!rs.length) continue;
       let a = Infinity;
       let b = -Infinity;
@@ -45,7 +45,7 @@ export function TimelineView({ calls, selected, scoped, byKind = false, onSelect
       for (const row of rs) out.push({ kind: 'row', row });
     }
     for (const c of calls) {
-      const r = c.scope ? undefined : byNo.get(c.callNo);
+      const r = agentOf(c) ? undefined : byNo.get(c.callNo);
       if (r) out.push({ kind: 'row', row: r });
     }
     return out;

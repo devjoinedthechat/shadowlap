@@ -4,7 +4,7 @@ import { normalizeRunDetail, normalizeState } from '../ui/normalize.js';
 import { failedWord, familyLine, familyLineParts, isFailed, isInterrupted, repeatBundle, runGlyph, runOutcome, runTag, sideLine, type RunLike } from '../ui/runs.js';
 import { lineageRunLike, runLikeOf } from '../ui/run/model.js';
 import { datasetTooMany, DATASET_MAX_RUNS } from '../ui/run/share.js';
-import { blameScope, scopeChips, scopeHint } from '../ui/scopes.js';
+import { agentsShown, blameScope, inScope, realScopes, scopeChips, scopeHint } from '../ui/scopes.js';
 import type { LineageNode, RunDetail, RunListItem } from '../ui/types.js';
 import { MAX_DATASET_RUNS } from '../src/run-exports.js';
 
@@ -203,6 +203,25 @@ describe('the scope the page suggests blaming within', () => {
     const both = [...calls, { callNo: 5, scope: 'customer', kind: 'tool' }];
     expect(scopeHint(both, scopeChips(both), 'all')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
     expect(scopeHint([], [], 'all')).toBeNull();
+  });
+
+  it('shows agents the server names, and hints blame by the scopes the author gave alone', () => {
+    const one = [
+      { callNo: 1, agent: 'support-agent', kind: 'api' },
+      { callNo: 2, agent: 'support-agent', kind: 'tool' },
+    ];
+    // One agent and no scope: nothing to show.
+    expect(agentsShown(one)).toBe(false);
+    const two = [...one, { callNo: 3, agent: 'support-agent/Explore', kind: 'api' }];
+    expect(agentsShown(two)).toBe(true);
+    expect(scopeChips(two)).toEqual(['support-agent', 'support-agent/Explore']);
+    expect(two.filter((c) => inScope(c, 'support-agent/Explore')).map((c) => c.callNo)).toEqual([3]);
+    // No scope to blame by.
+    expect(realScopes(two)).toEqual([]);
+    // A scope, alone, shows; a picked agent that is no scope hints the scope that acts.
+    const scoped = [{ callNo: 1, scope: 'agent', agent: 'agent', kind: 'tool' }, { callNo: 2, scope: 'agent', agent: 'agent/summarizer', kind: 'api' }];
+    expect(agentsShown(scoped.slice(0, 1))).toBe(true);
+    expect(scopeHint(scoped, realScopes(scoped), 'agent/summarizer')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
   });
 });
 

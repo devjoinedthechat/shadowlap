@@ -8,11 +8,15 @@ import { num } from '../format.js';
  * - A tool call goes under the model call that asked for it (`requestedBy`, the server's), and any
  *   other call (a clock read, a person's answer, a tool no model asked for) under the latest model
  *   call of its own scope and conversation.
- * - A sub-agent, a scope inside another (`agent/policy-checker` in `agent`), goes under the latest
- *   model call of the scope that called it: the call whose tool started it.
- * - In a batch, a run that works through several conversations one after another in one scope (an
- *   overnight batch of tickets), each conversation is an item: its first call heads it, and every
- *   other call of it goes under that.
+ * - A sub-agent goes under the model call whose tool started it (`spawnedBy`, the server's: Claude
+ *   Code's Task tool, an agent called as a tool). One nested in another by name, a scope or trace
+ *   agent inside another (`agent/policy-checker` in `agent`), goes under the latest model call of
+ *   the agent that called it.
+ * - In a batch, a run that works through several conversations of one agent (an overnight batch of
+ *   tickets), each conversation is an item: its first call heads it, and every other call of it goes
+ *   under that. A sub-agent's conversations are never a batch's items.
+ *
+ * A call is grouped by its agent (`agent`, the server's), else its scope.
  *
  * A call can only go under a call still open above it: one that comes after a later group has
  * started (agents running at once) goes under the nearest of its own that is, or at the top. No DOM
@@ -24,6 +28,8 @@ export interface GroupCall {
   callNo: number;
   kind?: string;
   scope?: string | null;
+  agent?: string | null;
+  spawnedBy?: number | null;
   requestedBy?: number | null;
   conversation?: number | null;
   pending?: true;
@@ -44,19 +50,19 @@ export interface CallTree {
   grouped: boolean;
 }
 
-const scopeOf = (c: GroupCall) => c.scope ?? '';
+const scopeOf = (c: GroupCall) => c.agent ?? c.scope ?? '';
 const parentScope = (s: string) => {
   const at = s.lastIndexOf('/');
   return at < 0 ? null : s.slice(0, at);
 };
 const convKey = (scope: string, conversation: number | null | undefined) => `${scope}\n${conversation ?? ''}`;
 
-/** The batches' items: in each top scope with several conversations, the first call of each, with its place among them. */
+/** The batches' items: of each top agent with several conversations none of them a sub-agent's, the first call of each, with its place among them. */
 function batchItems(calls: readonly GroupCall[]): Map<number, { n: number; of: number; scope: string; conversation: number }> {
   // The conversations each top scope's model calls take part in, in the order they start.
   const convs = new Map<string, number[]>();
   for (const c of calls) {
-    if (c.pending || c.kind !== 'api' || typeof c.conversation !== 'number') continue;
+    if (c.pending || c.kind !== 'api' || typeof c.conversation !== 'number' || typeof c.spawnedBy === 'number') continue;
     const s = scopeOf(c);
     if (s.includes('/')) continue;
     const list = convs.get(s) ?? [];
@@ -92,6 +98,8 @@ export function callTree(calls: readonly GroupCall[]): CallTree {
   // The latest model call of each scope, and of each scope and conversation.
   const lastInScope = new Map<string, number>();
   const lastInConv = new Map<string, number>();
+  // By scope alone: a call no agent is named for goes under its scope's latest model call.
+  const lastInRaw = new Map<string, number>();
   // The calls still open above the one placed: each the one under the one before it.
   const stack: number[] = [];
   const open = new Set<number>();
@@ -109,6 +117,17 @@ export function callTree(calls: readonly GroupCall[]): CallTree {
     return null;
   };
 
+  /** The call `c` (grouped as `s`, in batch item `item`) belongs under, before what is still open is looked at. */
+  const wantOf = (c: GroupCall, s: string, item: number | null): number | null => {
+    if (heads.has(c.callNo)) return null;
+    if (c.kind === 'tool' && typeof c.requestedBy === 'number') return c.requestedBy;
+    if (c.kind === 'api') return typeof c.spawnedBy === 'number' ? c.spawnedBy : s.includes('/') ? callerOf(s) : item;
+    // Its conversation's latest model call; in a batch never another conversation's, so before its
+    // own first model call it goes under its item; else its agent's latest, its scope's, or its caller's.
+    const own = typeof c.conversation === 'number' ? lastInConv.get(convKey(s, c.conversation)) : undefined;
+    return own ?? (item !== null ? item : (lastInScope.get(s) ?? lastInRaw.get(c.scope ?? '') ?? (s.includes('/') ? callerOf(s) : null)));
+  };
+
   for (let i = 0; i < n; i++) {
     const c = calls[i]!;
     index.set(c.callNo, i);
@@ -120,16 +139,7 @@ export function callTree(calls: readonly GroupCall[]): CallTree {
     }
     const s = scopeOf(c);
     const item = itemOf.get(convKey(s, c.conversation)) ?? null;
-    let want: number | null;
-    if (heads.has(c.callNo)) want = null;
-    else if (c.kind === 'tool' && typeof c.requestedBy === 'number') want = c.requestedBy;
-    else if (c.kind === 'api') want = s.includes('/') ? callerOf(s) : item;
-    else {
-      // Its conversation's latest model call; in a batch never another conversation's, so before its
-      // own first model call it goes under its item; else its scope's latest, or its caller's.
-      const own = typeof c.conversation === 'number' ? lastInConv.get(convKey(s, c.conversation)) : undefined;
-      want = own ?? (item !== null ? item : (lastInScope.get(s) ?? (s.includes('/') ? callerOf(s) : null)));
-    }
+    const want = wantOf(c, s, item);
     // Under the call it belongs to, or the nearest call of that call's own still open, else at the top.
     let at: number | null = want;
     while (at !== null && !open.has(at)) at = parent.get(at) ?? null;
@@ -146,6 +156,7 @@ export function callTree(calls: readonly GroupCall[]): CallTree {
     if (c.kind === 'api') {
       lastInScope.set(s, c.callNo);
       lastInConv.set(convKey(s, c.conversation), c.callNo);
+      lastInRaw.set(c.scope ?? '', c.callNo);
     }
   }
   // How many rows follow each one under it, by the depths: a row's group ends at the next row no deeper.
