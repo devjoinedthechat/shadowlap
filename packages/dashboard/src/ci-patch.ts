@@ -8,8 +8,11 @@ import { blockEnd, entriesUnder, parseWorkflow, readWorkflow, scalarValue, split
  * taken out when only `base` has it); every other line, the person's build step, their own steps,
  * inputs, env and jobs, and filled-in role ARNs among them, stays byte for byte. What they own:
  * - on:'s `workflow_dispatch:` (taken out only bare, as the switches write it);
- * - under the job's `permissions:`, else the file's, the keys the switches write, and their comments
- *   (a file with neither gets the job's own, so its other jobs keep the token they had);
+ * - under the action's job's `permissions:`, the keys the switches write, and their comments. A job
+ *   with none runs with the file's, patched in place while it is the file's only job; else the job
+ *   gets a whole copy of it, since a job's block takes the file's place, so the other jobs keep the
+ *   token they had, and the copy goes once it says just what the file's does. A file with neither
+ *   gets the switches' block in the job;
  * - the checkout's `ref:`;
  * - the step that installs Claude Code;
  * - the bucket's two sign-in steps (`shadowlap store ci`'s, by their `if:`), added with their
@@ -66,6 +69,13 @@ function withValue(line: WorkflowLine, value: string): string {
   const head = line.raw.slice(0, line.raw.length - line.value.length);
   const rest = line.value.slice(splitComment(line.value).scalar.length);
   return `${head}${value}${rest.startsWith('#') ? ` ${rest}` : rest}`;
+}
+
+/** Lines `from` to `to` (exclusive) with the patch's edits made, and the lines it puts before `to`. */
+function linesOf(doc: WorkflowDoc, p: Patch, from: number, to: number): string[] {
+  const out: string[] = [];
+  for (let i = from; i < to; i++) out.push(...(p.before.get(i) ?? []), ...(p.swap.get(i) ?? [lineAt(doc, i).raw]));
+  return [...out, ...(p.before.get(to) ?? [])];
 }
 
 function insert(p: Patch, at: number, lines: readonly string[]): void {
@@ -145,21 +155,86 @@ function patchDispatch(p: Patch, u: Pieces, a: Pieces, b: Pieces): string | null
 /** The permissions the action's job runs with: its own block, else the file's. */
 const permissionsOf = (g: Pieces) => childOf(g.doc, g.job, 'permissions') ?? topKey(g.doc, 'permissions');
 
-function patchPermissions(p: Patch, u: Pieces, a: Pieces, b: Pieces): string | null {
+/**
+ * The block the switches' permissions are patched in: the action's job's own, else the file's while
+ * that job is the file's only one, or while the file's is on one line (`write-all` needs nothing, any
+ * other can't be added to); undefined when the job gets a block of its own (jobPermissions).
+ */
+function ownedPermissions(u: Pieces): number | undefined {
+  const own = childOf(u.doc, u.job, 'permissions');
+  if (own !== undefined) return own;
+  const file = topKey(u.doc, 'permissions');
+  if (file === undefined) return undefined;
+  const jobs = entriesUnder(u.doc, lineAt(u.doc, u.job).parent).length;
+  return jobs === 1 || splitComment(lineAt(u.doc, file).value).scalar !== '' ? file : undefined;
+}
+
+/** The keys under a permissions block made what `b`'s has, for those `a`'s or `b`'s names. */
+function patchScopes(p: Patch, doc: WorkflowDoc, block: number, a: Pieces, b: Pieces): void {
+  patchKeys(p, doc, block, valuesOf(a.doc, permissionsOf(a)), valuesOf(b.doc, permissionsOf(b)));
+}
+
+/** The comments the switches write under a permissions block made `b`'s. */
+function patchScopeComments(p: Patch, doc: WorkflowDoc, block: number, a: Pieces, b: Pieces): void {
   const ga = permissionsOf(a)!;
   const gb = permissionsOf(b)!;
-  const block = permissionsOf(u);
+  const end = blockEnd(doc, block);
+  patchComments(p, doc, [block + 1, end], commentsIn(a.doc, ga + 1, blockEnd(a.doc, ga)), commentsIn(b.doc, gb + 1, blockEnd(b.doc, gb)), end, childIndent(doc, block));
+}
+
+/** Lines moved left by `from` columns, each as far as its own indent goes, so the indents under the first are kept; blank ones left out. */
+const outdent = (lines: readonly string[], from: number) => lines.filter((t) => t.trim()).map((t) => t.slice(Math.min(from, t.length - t.trimStart().length)));
+
+/**
+ * A block of the action's job's own, first under it: set for the whole file, the switches' keys would
+ * change what every other job's token may do. GitHub takes a job's block in place of the file's, not
+ * added to it, and a scope the block doesn't name drops to none, so with a block for the file the
+ * job's starts as a copy of it, every key, value and comment, with the switches' keys patched in, and
+ * the file's stays as it is. One that already gives the job what they need gets no copy. Without one,
+ * the job's is the switches' own.
+ */
+function jobPermissions(p: Patch, u: Pieces, a: Pieces, b: Pieces): void {
+  const file = topKey(u.doc, 'permissions');
+  let lines: string[];
+  if (file === undefined) {
+    const gb = permissionsOf(b)!;
+    lines = b.doc.lines.slice(gb, blockEnd(b.doc, gb)).map((l) => l.raw);
+  } else {
+    const copy: Patch = { before: new Map(), swap: new Map() };
+    patchScopes(copy, u.doc, file, a, b);
+    if (!copy.before.size && !copy.swap.size) return;
+    patchScopeComments(copy, u.doc, file, a, b);
+    lines = linesOf(u.doc, copy, file, blockEnd(u.doc, file));
+  }
+  const indent = pad(childIndent(u.doc, u.job));
+  insert(p, u.job + 1, outdent(lines, file === undefined ? 0 : lineAt(u.doc, file).indent).map((t) => indent + t));
+}
+
+/** Whether a job's permissions block, with the edits `q` makes to it, has the file's block's lines, each as indented under its key. */
+function saysFiles(doc: WorkflowDoc, q: Patch, block: number, file: number): boolean {
+  const lines = (n: number, edits: Patch) => outdent(linesOf(doc, edits, n, blockEnd(doc, n)), lineAt(doc, n).indent).join('\n');
+  return lines(block, q) === lines(file, { before: new Map(), swap: new Map() });
+}
+
+function patchPermissions(p: Patch, u: Pieces, a: Pieces, b: Pieces): string | null {
+  const block = ownedPermissions(u);
   if (block === undefined) {
-    // Under the action's job, first: set for the whole file, it would change what every other job's token may do.
-    const indent = pad(childIndent(u.doc, u.job));
-    insert(p, u.job + 1, b.doc.lines.slice(gb, blockEnd(b.doc, gb)).flatMap((l) => (l.raw.trim() ? [indent + l.raw] : [])));
+    jobPermissions(p, u, a, b);
     return null;
   }
   const scalar = splitComment(lineAt(u.doc, block).value).scalar;
   if (scalar !== '') return scalar === 'write-all' ? null : 'sets its permissions on one line, so the ones the switches need can’t be added';
-  patchKeys(p, u.doc, block, valuesOf(a.doc, ga), valuesOf(b.doc, gb));
-  const end = blockEnd(u.doc, block);
-  patchComments(p, u.doc, [block + 1, end], commentsIn(a.doc, ga + 1, blockEnd(a.doc, ga)), commentsIn(b.doc, gb + 1, blockEnd(b.doc, gb)), end, childIndent(u.doc, block));
+  const q: Patch = { before: new Map(), swap: new Map() };
+  patchScopes(q, u.doc, block, a, b);
+  patchScopeComments(q, u.doc, block, a, b);
+  // A job's own block the change leaves saying just what the file's says goes: the copy jobPermissions made, turned back.
+  const file = topKey(u.doc, 'permissions');
+  if (file !== undefined && file !== block && (q.before.size || q.swap.size) && saysFiles(u.doc, q, block, file)) {
+    remove(p, block, blockEnd(u.doc, block));
+    return null;
+  }
+  for (const [at, lines] of q.before) insert(p, at, lines);
+  for (const [at, lines] of q.swap) p.swap.set(at, lines);
   return null;
 }
 
@@ -297,7 +372,8 @@ function ownedRanges(u: Pieces): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   const on = topKey(u.doc, 'on');
   if (on !== undefined) ranges.push([on, blockEnd(u.doc, on)]);
-  const permissions = permissionsOf(u);
+  // A block of the job's own goes first under it; the file's, shared with other jobs, is never the switches'.
+  const permissions = ownedPermissions(u);
   if (permissions !== undefined) ranges.push([permissions, blockEnd(u.doc, permissions)]);
   else ranges.push([u.job + 1, u.job + 1]);
   for (const s of u.before) if (s === checkoutOf(u) || isClaudeCode(u, s) || isSignIn(u, s)) ranges.push([s.start, s.end]);
@@ -329,8 +405,5 @@ export function patchWorkflow(file: string, base: string, want: string): { text:
   const problem = patchDispatch(p, u, a, b) ?? patchPermissions(p, u, a, b) ?? patchCheckout(p, u, a, b) ?? patchSetup(p, u, a, b) ?? patchAction(p, u, a, b) ?? patchAlerts(p, u, a, b);
   if (problem) return { problem };
   if (!guarded(u, p)) return { problem: 'would change lines outside what the switches own' };
-  const out: string[] = [];
-  doc.lines.forEach((l, i) => out.push(...(p.before.get(i) ?? []), ...(p.swap.get(i) ?? [l.raw])));
-  out.push(...(p.before.get(doc.lines.length) ?? []));
-  return { text: out.join(doc.eol) + doc.eol };
+  return { text: linesOf(doc, p, 0, doc.lines.length).join(doc.eol) + doc.eol };
 }

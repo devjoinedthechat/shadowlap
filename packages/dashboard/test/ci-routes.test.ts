@@ -158,6 +158,34 @@ describe('Write file', () => {
     expect(readFileSync(file(), 'utf8')).toContain('    timeout-minutes: 30 # ours\n');
     expect((await view()).comment.on).toBe(false);
   });
+
+  it('asks to give the action’s job a copy of the file’s permissions, and writes it with the file’s block and its other job as they were', async () => {
+    const first = await view('?comment=off');
+    expect((await send('PUT', 'ci/workflow', { options: { comment: false }, expect: first.version, shown: first.workflow.shown })).status).toBe(200);
+    // Permissions set for every job, with a scope the switches don't write (id-token), and a second job.
+    const block = 'permissions:\n  contents: read\n  id-token: write # the cloud login\n';
+    const release = '  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm publish\n';
+    const theirs = readFileSync(file(), 'utf8').replace(/^permissions:\n( {2}.*\n)+/m, block) + release;
+    expect(theirs).toContain(`\n${block}\njobs:\n  goldens:\n`);
+    writeFileSync(file(), theirs);
+    // What the ask lists: the job's own block, a copy of the file's with pull-requests: write in it, and nothing else of theirs.
+    const on = await view('?comment=on');
+    expect(on.problem).toBeNull();
+    expect(on.workflow.lines.filter((l) => l.op !== ' ')).toEqual([
+      { op: '+', text: '    permissions:' },
+      { op: '+', text: '      contents: read' },
+      { op: '+', text: '      pull-requests: write' },
+      { op: '+', text: '      id-token: write # the cloud login' },
+      { op: '-', text: '          comment: false' },
+    ]);
+    expect((await send('PUT', 'ci/workflow', { options: { comment: true }, expect: on.version, shown: on.workflow.shown })).status).toBe(200);
+    const written = readFileSync(file(), 'utf8');
+    expect(written).toContain(`\n${block}\njobs:\n  goldens:\n    permissions:\n      contents: read\n      pull-requests: write\n      id-token: write # the cloud login\n    runs-on: ubuntu-latest\n`);
+    expect(written.endsWith(release)).toBe(true);
+    const after = await view();
+    expect(after.comment.on).toBe(true);
+    expect(after.workflow.same).toBe(true);
+  });
 });
 
 describe('Gates in the CI view', () => {

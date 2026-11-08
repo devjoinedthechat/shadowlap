@@ -100,6 +100,47 @@ describe('patchWorkflow', () => {
     expect(back.endsWith(release)).toBe(true);
   });
 
+  describe('with permissions set for the whole file and a second job', () => {
+    const block = 'permissions: # least privilege\n  contents: read\n  # for the cloud login\n  id-token: write\n';
+    const release = '  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm publish\n';
+    const file = (permissions: string) =>
+      ['name: ci', 'on:', '  pull_request:', ''].join('\n') + permissions + ['jobs:', '  test:', '    runs-on: ubuntu-latest', '    steps:', '      - uses: actions/checkout@v7', `      - uses: devjoinedthechat/shadowlap@v${VERSION}`, '        id: goldens', '        with:', `          version: ${VERSION}`, '          recordings: goldens/*', '          comment: false', ''].join('\n') + release;
+    const off: WorkflowFileSettings = { fix: null, alerts: null, comment: false };
+    const on: WorkflowFileSettings = { fix: null, alerts: null };
+
+    it('gives the action’s job a copy of the file’s block, every key, value and comment, with the switches’ keys in, and leaves the file’s and the other job as they were', () => {
+      const out = patched(file(block), off, on);
+      // A job's block takes the file's place for it: both of the file's scopes, with the comment's pull-requests: write.
+      expect(out).toContain('  test:\n    permissions: # least privilege\n      contents: read\n      pull-requests: write\n      # for the cloud login\n      id-token: write\n    runs-on: ubuntu-latest\n');
+      expect(out).toContain(`\n${block}jobs:\n`);
+      expect(out.endsWith(release)).toBe(true);
+      expect(out).not.toContain('comment: false');
+      // Fix on failure's keys go in the job's block, now its own: patched in place, the file's still as it was.
+      const fix = patched(out, on, { ...on, fix: { budget: '2.00', repairer: 'anthropic' } });
+      expect(fix).toContain('  test:\n    permissions: # least privilege\n      contents: write\n      pull-requests: write\n      actions: write\n      # for the cloud login\n      id-token: write\n    runs-on: ubuntu-latest\n');
+      expect(fix).toContain(`\n${block}jobs:\n`);
+      expect(fix.endsWith(release)).toBe(true);
+      // Turned back, the job's block says just what the file's does, so it goes: the file is as it was.
+      expect(patched(out, on, off)).toBe(file(block));
+    });
+
+    it('gives the job no block while the file’s already holds what the switches need', () => {
+      const enough = block.replace('  contents: read\n', '  contents: read\n  pull-requests: write\n');
+      const theirs = file(enough).replace('          comment: false\n', '');
+      expect(patched(file(enough), off, on)).toBe(theirs);
+      // So it reads as the workflow the switches build.
+      expect(patched(theirs, on, on)).toBe(theirs);
+    });
+
+    it.each(['read-all', '{}'])('offers Copy for a file whose permissions are %s on one line', (value) => {
+      expect(patchWorkflow(file(`permissions: ${value}\n`), workflowFile(off), workflowFile(on))).toEqual({ problem: 'sets its permissions on one line, so the ones the switches need can’t be added' });
+    });
+
+    it('needs nothing under a file’s permissions: write-all', () => {
+      expect(patched(file('permissions: write-all\n'), off, on)).toBe(file('permissions: write-all\n').replace('          comment: false\n', ''));
+    });
+  });
+
   it('keeps a checkout ref of the person’s own and a workflow_dispatch with inputs', () => {
     const text = workflowFile({ fix: null, alerts: null }).replace('          persist-credentials: false', '          ref: release\n          persist-credentials: false').replace('  pull_request:\n', '  pull_request:\n  workflow_dispatch:\n    inputs:\n      why:\n        type: string\n');
     const fix: WorkflowFileSettings = { fix: { budget: '2.00', repairer: 'anthropic' }, alerts: null };
