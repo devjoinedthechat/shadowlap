@@ -76,7 +76,40 @@ function answer(runId = RUN, calls: CallRow[] = [1, 2, 3, 4, 5, 6, 7, 8].map(cal
 }
 
 const subAgent = (id: string) => answer(id, SUB_CALLS.map(([kind, extra], i) => row(i + 1, kind, extra)), id === FORK ? { forkAt: 3 } : {});
-const RUNS: Record<string, () => RunDetail> = { [RUN]: () => answer(), [SUB]: () => subAgent(SUB), [FORK]: () => subAgent(FORK) };
+
+/** A recording's batch whose first ticket wrote and then failed at its model call, and a fork of a batch whose first ticket's model call was overridden and its write blocked. */
+const WRITES = '01M5GRX8K406H4KHQ7DEKYWTT2';
+const FORKED = '01M5GRX8K406H4KHQ7DEKYWTT3';
+const WRITE_CALLS: Array<[string, Record<string, unknown>]> = [
+  ['clock', { conversation: 1 }],
+  ['api', { conversation: 1, conversationStart: true, stopReason: 'tool_use', asks: ['lookup_order', 'issue_refund'], conversationInput: 'New ticket T-9101 (request 42)' }],
+  ['tool', { conversation: 1, requestedBy: 2 }],
+  ['tool', { conversation: 1, requestedBy: 2, name: 'issue_refund', effect: 'write' }],
+  ['clock', { conversation: 1 }],
+  ['api', { conversation: 1, outcome: 'error', status: 529 }],
+  ['clock', { conversation: 2 }],
+  ['api', { conversation: 2, conversationStart: true, stopReason: 'end_turn', resultShort: 'Closed as a duplicate' }],
+];
+const FORKED_CALLS: Array<[string, Record<string, unknown>]> = [
+  ['clock', { conversation: 1, origin: 'replayed' }],
+  ['api', { conversation: 1, conversationStart: true, stopReason: 'tool_use', asks: ['issue_refund'], origin: 'overridden', conversationInput: 'New ticket T-9101 (request 42)' }],
+  ['tool', { conversation: 1, requestedBy: 2, name: 'issue_refund', effect: 'write', origin: 'blocked', outcome: 'error' }],
+  ['api', { conversation: 1, stopReason: 'end_turn', resultShort: 'Refund held for review' }],
+  ['clock', { conversation: 2, origin: 'replayed' }],
+  ['api', { conversation: 2, conversationStart: true, stopReason: 'end_turn', origin: 'replayed', resultShort: 'Closed as a duplicate' }],
+];
+function forked(): RunDetail {
+  const d = answer(FORKED, FORKED_CALLS.map(([kind, extra], i) => row(i + 1, kind, extra)), { forkAt: 2 });
+  return { ...d, run: { ...d.run, mode: 'replay', parentRunId: WRITES }, label: 'fork', state: { ...d.state, kind: 'fork', label: 'fork' } } as unknown as RunDetail;
+}
+
+const RUNS: Record<string, () => RunDetail> = {
+  [RUN]: () => answer(),
+  [SUB]: () => subAgent(SUB),
+  [FORK]: () => subAgent(FORK),
+  [WRITES]: () => answer(WRITES, WRITE_CALLS.map(([kind, extra], i) => row(i + 1, kind, extra))),
+  [FORKED]: forked,
+};
 
 const client = { exported: false, run: (id: string) => Promise.resolve(RUNS[id]()), call: () => new Promise(() => undefined), offers: () => Promise.resolve(null), runChaos: () => Promise.resolve(null), forkDifferences: () => Promise.resolve(null), unrecorded: () => Promise.resolve(null), lineage: () => Promise.resolve([]), jobs: () => Promise.resolve([]) } as unknown as Client;
 const state = () => ({ client, exported: false, meta: null, runs: [], live: [], tick: 0, runsTick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => false, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined, setRunCommands: () => undefined, setPalette: () => undefined, runKeys: { current: null } }) as unknown as AppState;
@@ -121,7 +154,9 @@ async function open(at = 2, id = RUN) {
     await act(async () => void (took = keys()({ key: k })));
     return took;
   };
-  return { bar, key };
+  /** The run's keys hear what reaches the window, as the shell's Keyboard hands them on (ui/shell/Keyboard.tsx). */
+  const hearKeys = () => window.addEventListener('keydown', (e) => void (app.runKeys as { current: ((e: KeyboardEvent) => boolean) | null }).current?.(e));
+  return { bar, key, hearKeys };
 }
 
 describe('Calls, grouped', () => {
@@ -314,8 +349,9 @@ describe('Calls, grouped', () => {
     expect(caretOf(2)!.getAttribute('aria-expanded')).toBe('true');
   });
 
-  it('makes the fold buttons one Tab stop, moved with ↑ ↓ Home End, ← folding and → opening, each press once', async () => {
-    await open(2);
+  it('makes the fold buttons one Tab stop, moved with ↑ ↓ Home End, ← folding and → opening, each press the button’s alone', async () => {
+    const { bar, hearKeys } = await open(2);
+    hearKeys();
     const stops = () => r!.all('table.calls [data-fold][tabindex="0"]');
     expect(stops()).toHaveLength(1);
     expect(stops()[0]).toBe(caretOf(2));
@@ -327,6 +363,21 @@ describe('Calls, grouped', () => {
     expect(r!.focused()).toBe(caretOf(6));
     await r!.press('Home');
     expect(r!.focused()).toBe(item(1).querySelector('button.tgsum'));
+    // The run's own ↓ ↑ never heard them: the selection stays.
+    expect(bar.hash).toBe(`#/run/${RUN}/2`);
+    // ← and → on the second item's row fold and open it alone: the selected model call's own ← and → never hear them.
+    await r!.focus(item(2).querySelector('button.tgsum')!);
+    await r!.press('ArrowLeft');
+    expect(rows()).toEqual([1, 2, 3, 4]);
+    expect(caretOf(2)!.getAttribute('aria-expanded')).toBe('true');
+    await r!.press('ArrowLeft');
+    expect(rows()).toEqual([1, 2, 3, 4]);
+    expect(caretOf(2)!.getAttribute('aria-expanded')).toBe('true');
+    await r!.press('ArrowRight');
+    expect(rows()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(bar.hash).toBe(`#/run/${RUN}/2`);
+    // On the first item's row, which holds the selection, ← folds it once.
+    await r!.focus(item(1).querySelector('button.tgsum')!);
     await r!.press('ArrowLeft');
     expect(rows()).toEqual([5, 6, 7, 8]);
     await r!.press('ArrowLeft');
@@ -348,6 +399,22 @@ describe('Calls, grouped', () => {
     // A call with no caret over it: its item's row.
     await r!.click(r!.one('table.calls tbody tr[data-call="4"]'));
     expect(stops()).toEqual([item(1).querySelector('button.tgsum')]);
+  });
+
+  it('says on an item’s row what its calls were, in the key’s words after its swatches: a recording’s writes and errors, a fork’s overridden and blocked calls', async () => {
+    await open(2, WRITES);
+    const facts = () => item(1).querySelector('.tgfacts')!;
+    const swatches = () => facts().children.filter((s) => s.children[0]?.className.startsWith('lg ')).map((s) => `${s.children[0].className}:${s.textContent}`);
+    expect(item(1).querySelector('button.tgsum')!.getAttribute('aria-label')).toBe('New ticket T-9101 (request 42), 6 calls, 1 write, 1 error');
+    expect(facts().textContent).toBe('6 calls1 write1 error');
+    expect(swatches()).toEqual(['lg k-write:1 write', 'lg k-err:1 error']);
+    expect(item(1).querySelector('.tgout.err')!.textContent).toBe('→ HTTP 529 at #6');
+    expect(item(2).querySelector('.tgfacts')!.textContent).toBe('2 calls');
+    await act(async () => navigate(href.run(FORKED, 2), true));
+    await r!.until('the fork', () => r!.all('table.calls tbody tr.tgr .tgfacts i.lg.over').length === 1);
+    expect(item(1).querySelector('button.tgsum')!.getAttribute('aria-label')).toBe('New ticket T-9101 (request 42), 4 calls, 1 overridden, 1 blocked');
+    expect(swatches()).toEqual(['lg over:1 overridden', 'lg block:1 blocked']);
+    expect(item(2).querySelector('.tgfacts')!.textContent).toBe('2 calls');
   });
 
   it('lists a filter’s matches flat, a folded group’s too, and groups them again with their folds once it is cleared', async () => {
