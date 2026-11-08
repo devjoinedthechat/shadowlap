@@ -258,6 +258,9 @@ describe('lime', () => {
     '.recline .ic': 'a setup step’s run that came back',
     '.glyph.fixok': 'a fix that was accepted',
     '.plist.checks li.met::before': 'a requirement met',
+    '.dsv.ok b': 'a preview’s run that verify kept passing or fixed: its word',
+    '.dlead .dlv.ok b': 'an opened cell’s run that verify kept passing or fixed: its word',
+    '.djudge b.ok': 'a judge check that passed',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
@@ -362,6 +365,20 @@ describe('amber', () => {
     '.rmx-c.warn i': 'a results matrix’s cell that was inconclusive or influenced: its bar',
     '.rmx-c.warn b': 'a results matrix’s cell that was inconclusive or influenced: its word',
     '.mxsw.warn': 'a matrix’s key: what was inconclusive or influenced',
+    'i.dg.s': 'a preview key’s swatch for a change of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
+    'i.dg.jw': 'a preview key’s swatch for a step that waits on a judge: its ring',
+    '.dc.s': 'a decision cell of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
+    '.dc.jw': 'a decision cell that waits on a judge: its ring',
+    '.dc.split i.s': 'a split decision cell’s samples of rank 2: a look',
+    '.dsd.q2': 'a preview row’s most telling change, of rank 2: a look',
+    '.dsy': 'what a preview couldn’t ask or judge: a run it refused, a step that waits on a judge, a warning',
+    '.dsv.y b': 'a preview’s run that verify found inconclusive: its word',
+    '.dnotes': 'the warnings under a preview’s matrix: what couldn’t be asked or judged',
+    '.dlead .dlv.y b': 'an opened cell’s run that verify found inconclusive: its word',
+    '.drk.q2': 'a change of rank 2’s label: a look',
+    '.dside.q2': 'an opened cell’s decision now, of rank 2: its edge, a look',
+    '.dstop.diff': 'a decision whose stop changed, rank 2: a look',
+    '.djudge b.y': 'a judge check that couldn’t decide',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
