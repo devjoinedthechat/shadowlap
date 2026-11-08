@@ -151,12 +151,12 @@ export function toolsToCheck(calls: readonly { kind: string; input?: boolean }[]
  * it. `pending`: a long run whose first answer came before its analysis judged it, which says nothing
  * yet. An interrupted run says so muted, by a grey dot, as every status that is no verdict.
  */
-export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean } & FactVerdicts): OutcomeFact {
+export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean; offered?: boolean } & FactVerdicts): OutcomeFact {
   const verdict = verdictFact(o);
   if (verdict) return { ...verdict, callNo: null, today: false };
   if (o.pending) return { tone: 'mu', words: '…', callNo: null, today: false, tip: { title: 'Judging it by its checks', sub: 'Read from all its calls, beside the server.', rows: [], said: 'judging it by its checks' } };
   const out = outcomeOf(r);
-  const tip = outcomeTip(r, out, o.tools);
+  const tip = outcomeTip(r, out, o.tools, !!o.offered);
   // A failed attempt whose checks say nothing still failed.
   if ((out.of === 'none' || out.of === 'fork') && o.attempt?.tone === 'no') return { tone: 'err', words: 'failed', callNo: null, today: false, tip: card('Failed', null) };
   if (out.of === 'none' || out.of === 'fork') return { tone: 'mu', words: 'no checks', callNo: null, today: false, tip };

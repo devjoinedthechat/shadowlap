@@ -28,8 +28,11 @@ export interface CheckEntry {
  * of a recording that has finished and is no capture, on a dashboard that can act.
  */
 export function addsCheck(run: RunDetail, call: Pick<CallRow, 'kind' | 'scope' | 'input'> | null, o: { exported: boolean; actionsOff: string | null }): boolean {
-  return !!call && call.kind === 'tool' && !call.input && call.scope !== JUDGE_SCOPE && run.run.status !== 'running' && !run.source && !o.exported && !o.actionsOff;
+  return !!call && call.kind === 'tool' && !call.input && call.scope !== JUDGE_SCOPE && takesChecks(run, o);
 }
+
+/** Whether a run's tool calls take Add check…: a recording that has finished and is no capture, on a dashboard that can act. */
+const takesChecks = (run: RunDetail, o: { exported: boolean; actionsOff: string | null }): boolean => run.run.status !== 'running' && !run.source && !o.exported && !o.actionsOff;
 
 /** A tool call's arguments, as the inspector reads them from its request. */
 export function argsOf(detail: CallDetail): Record<string, unknown> {
@@ -111,7 +114,7 @@ function NoBuilder({ onClose }: { onClose: () => void }) {
  * through, undefined where the call takes none (`addsCheck`) or where nothing hands the page the
  * builder (an exported copy); and what to draw, the check menu and the builder once a rule is picked.
  */
-export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: CallDetail | null }): { check: CheckEntry | undefined; fromPalette: (() => void) | undefined; node: ReactNode } {
+export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: CallDetail | null }): { check: CheckEntry | undefined; fromPalette: (() => void) | undefined; offered: boolean; node: ReactNode } {
   const app = useApp();
   const Builder = useContext(CheckBuilderPart);
   const menu = useMenu();
@@ -165,5 +168,6 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
       ) : null}
     </>
   );
-  return { check: can ? entry : undefined, fromPalette: can ? fromPalette : undefined, node };
+  // Whether the run's tool calls take Add check… here, as no checks' hover tells it.
+  return { check: can ? entry : undefined, fromPalette: can ? fromPalette : undefined, offered: !!Builder && takesChecks(o.run, app), node };
 }

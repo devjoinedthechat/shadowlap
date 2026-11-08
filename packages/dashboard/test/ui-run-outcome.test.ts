@@ -87,7 +87,7 @@ describe('Status, judged by checks', () => {
 });
 
 describe('the card on hover', () => {
-  const tip = (r: RunLike, tools: number | null = 3) => outcomeTip(r, outcomeOf(r), tools);
+  const tip = (r: RunLike, tools: number | null = 3, offered = true) => outcomeTip(r, outcomeOf(r), tools, offered);
 
   it('says what judged a run, by its goldens’ names, each check with its verdict and what decided it', () => {
     expect(tip({ ...BASE, judged: judged({ checks: CHECKS }) })).toEqual({
@@ -127,6 +127,9 @@ describe('the card on hover', () => {
     // A capture offers no Add check…: it is told where a golden's checks go.
     expect(tip({ ...BASE, source: 'otel', judged: null }).sub).toBe('Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.');
     expect(tip({ ...BASE, source: 'otel', judged: null }, 0).sub).toBe('It made no tool call, and a check on calls reads them.');
+    // Nor does an exported copy or a read-only dashboard: the same words there.
+    expect(tip({ ...BASE, judged: null }, 3, false).sub).toBe('Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.');
+    expect(tip({ ...BASE, judged: null }, 0, false).sub).toBe('It made no tool call, and a check on calls reads them.');
     expect(tip({ ...BASE, status: 'running', outcome: { kind: 'running' } })).toMatchObject({ title: 'Still recording', sub: 'It is judged once it finishes.' });
   });
 
