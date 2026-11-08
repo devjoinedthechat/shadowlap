@@ -9,7 +9,7 @@ import { render, type Rendered } from './ui-render.js';
 /**
  * The store's setup, step 3, as the design has it on GitHub Actions: Turn on Push from CI or Skip
  * for now, each recorded with the setup and written to the config (`ciPush`), then a line saying
- * where the workflow is written; GitLab CI keeps its step to paste and I added it.
+ * where the workflow is written; GitLab CI keeps its step to paste and I added it, written the same way.
  */
 
 const steps = [
@@ -56,15 +56,17 @@ describe('the store’s setup, step 3', () => {
     expect(r.one('p').textContent).toBe('Skipped. Turn on Push from CI any time on Settings → Store.');
   });
 
-  it('keeps GitLab CI’s step to paste, with Copy, I added it and Skip for now', async () => {
+  it('keeps GitLab CI’s step to paste, with Copy, I added it and Skip for now, each written to the config as Push from CI', async () => {
     const save = vi.fn();
     r = await show(viewOf(null), 'cur', 'gitlab', save);
     expect(r.one('pre.codebox').textContent).toBe(steps[1].text);
     expect(r.all('.actions button').map((b) => b.textContent)).toEqual(['Copy', 'I added it', 'Skip for now']);
     await r.click(r.byText('.actions button', 'I added it'));
-    expect(save).toHaveBeenLastCalledWith({ ci: 'added', ciProvider: 'gitlab' }, 'Push from CI added');
+    expect(save).toHaveBeenLastCalledWith({ ci: 'added', ciProvider: 'gitlab', ciPush: true }, 'Push from CI added');
+    await r.click(r.byText('.actions button', 'Skip for now'));
+    expect(save).toHaveBeenLastCalledWith({ ci: 'skipped', ciProvider: 'gitlab', ciPush: false }, 'Skipped for now · Push from CI is off');
     await r.unmount();
     r = await show(viewOf('skipped', 'gitlab'), 'done', 'gitlab');
-    expect(r.one('p').textContent).toBe('Skipped. Add it any time; the step is in Settings → Store.');
+    expect(r.one('p').textContent).toBe('Skipped. Turn on Push from CI any time on Settings → Store, where its step is too.');
   });
 });
