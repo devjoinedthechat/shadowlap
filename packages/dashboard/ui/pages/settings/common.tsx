@@ -119,7 +119,8 @@ export function rulesUnreadable(configError: string | null | undefined, gone: st
  */
 export interface EditUndo {
   edit: () => Promise<{ version?: string }>;
-  ok: string;
+  /** Its toast's words, or what gives them once the Undo has answered. */
+  ok: string | (() => string);
   /** The control the change was made with, or what took its place: the focus goes back there once the toast is done. */
   returnTo?: HTMLElement | null | undefined;
   then?: (() => void) | undefined;
@@ -199,7 +200,7 @@ export function useEditor(
         sent = true;
         void (async () => {
           for (let waited = 0; live.current.mounted && (live.current.sending || live.current.waiting) && waited < LAND_MS + 1000; waited += 50) await new Promise((done) => setTimeout(done, 50));
-          const ok = () => u.ok;
+          const ok = () => (typeof u.ok === 'string' ? u.ok : u.ok());
           const back = live.current.mounted ? await run(u.edit, ok) : await runEdit(live.current.app, u.edit, { ok, reload: settingsChanged });
           if (back) u.then?.();
         })();

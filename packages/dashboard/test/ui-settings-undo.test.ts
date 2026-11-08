@@ -39,9 +39,9 @@ interface Toasted {
   action: ToastAction | undefined;
 }
 
-function app(settings: Record<string, unknown>, toasts: Toasted[]): AppState {
+function app(settings: Record<string, unknown>, toasts: Toasted[], client: Record<string, unknown> = {}): AppState {
   return {
-    client: { settings, startJob: async () => ({}), storeSetup: { view: async () => null }, teamStore: async () => null, jobs: async () => [] },
+    client: { settings, startJob: async () => ({}), storeSetup: { view: async () => null }, teamStore: async () => null, jobs: async () => [], ...client },
     meta: { version: '0.1.0', project: { id: 'research-agent', name: 'research-agent', path: '/work/research-agent' } },
     runs: [],
     feeds: {},
@@ -265,7 +265,9 @@ describe('Undo on Store’s Push from CI', () => {
     let [ciPush, version] = [true, 'v1'];
     // The file said nothing (on): off writes false, and its Undo takes the key out again.
     const setCiPush = vi.fn(async (on: boolean | null) => (on === false ? { ciPush: false, previous: true, was: null, changed: true, version: 'v2' } : { ciPush: true, previous: false, was: false, changed: true, version: 'v1' }));
-    r = await render(createElement(AppContext.Provider, { value: app({ store: async () => storeView(ciPush, version), setCiPush }, toasts) }, createElement(SettingsPage, { tab: 'store' })));
+    // The repository's workflow pushes: Your workflow equals it while Push from CI is on, as Settings → CI's switches have it.
+    const ciWorkflows = vi.fn(async () => ({ workflow: { same: ciPush } }));
+    r = await render(createElement(AppContext.Provider, { value: app({ store: async () => storeView(ciPush, version), setCiPush }, toasts, { ciWorkflows }) }, createElement(SettingsPage, { tab: 'store' })));
     await r.until('the switch', () => r!.all('.settab [role="switch"]').length === 1);
     const on = r.one('.settab [role="switch"]');
     expect([on.getAttribute('aria-labelledby'), on.getAttribute('aria-describedby'), on.getAttribute('aria-checked')]).toEqual(['ciPush-name', 'ciPush-help', 'true']);
@@ -287,8 +289,27 @@ describe('Undo on Store’s Push from CI', () => {
       [false, 'v1'],
       [null, 'v2'],
     ]);
-    expect([toasts[1].text, toasts[1].action]).toEqual(['Push from CI is on · Your workflow changes with it', undefined]);
+    // Put back, the file the switches build is the repository's again, and the toast says so.
+    expect([toasts[1].text, toasts[1].action]).toEqual(['Push from CI is on · Your workflow is your repository’s again', undefined]);
+    // Asked after each write, with the CI tab's switches as this project has them: none changed.
+    expect(ciWorkflows.mock.calls).toEqual([[{}], [{}]]);
     await r.until('the switch on', () => r!.one('.settab [role="switch"]').getAttribute('aria-checked') === 'true');
+  });
+
+  it('words its toast as the design does for GitLab CI too, whose step Copy CI step copies in Your workflow’s place', async () => {
+    const toasts: Toasted[] = [];
+    const setCiPush = vi.fn(async () => ({ ciPush: false, previous: true, was: null, changed: true, version: 'v2' }));
+    const gitlab = { ci: 'gitlab', name: 'GitLab CI', file: '.gitlab-ci.yml', text: 'goldens:\n  script: npx shadowlap test --push\n', oidc: false };
+    const view = { active: false, next: null, ci: [gitlab], setup: { ciProvider: 'gitlab' } };
+    // The repository has no GitHub workflow: the one Settings → CI builds differs from it, and changes with Push from CI.
+    const ciWorkflows = async () => ({ workflow: { same: false } });
+    r = await render(createElement(AppContext.Provider, { value: app({ store: async () => storeView(true, 'v1'), setCiPush }, toasts, { storeSetup: { view: async () => view }, ciWorkflows }) }, createElement(SettingsPage, { tab: 'store' })));
+    await r.until('Copy CI step', () => r!.all('.settab .setrow button.wflink').length === 1);
+    expect(r.one('.settab .setrow button.wflink').textContent).toBe('Copy CI step');
+    expect(r.all('.settab .setrow a.wflink')).toHaveLength(0);
+    await r.click(r.one('.settab [role="switch"]'));
+    await r.until('the toast', () => toasts.length === 1);
+    expect([toasts[0].text, toasts[0].action?.label]).toEqual(['Push from CI is off · Your workflow changes with it', 'Undo']);
   });
 
   it('offers no Undo for a write that changed nothing', async () => {

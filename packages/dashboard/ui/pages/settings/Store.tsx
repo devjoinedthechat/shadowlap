@@ -8,6 +8,7 @@ import { href } from '../../route.js';
 import type { StoreSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import type { StoreSetupView } from '../../store-api.js';
+import { AGAIN, CHANGES, keptFor } from './ci-kept.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { stepWords } from '../../../src/store-steps.js';
 import { shareLinksLine, syncText } from './logic.js';
@@ -196,6 +197,18 @@ function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; ver
   const app = useApp();
   const { client } = app;
   const off = app.actionsOff ?? gone ?? (editor.busy ? SAVING : null);
+  // Whether Your workflow, as Settings → CI's switches build it, equals the repository's file now: its toast says so.
+  const same = async () => {
+    try {
+      return (await client.ciWorkflows(keptFor(app.meta?.project?.id))).workflow.same;
+    } catch {
+      return false;
+    }
+  };
+  const write = async (on: boolean | null, at: string) => {
+    const r = await client.settings.setCiPush(on, at);
+    return { ...r, same: await same() };
+  };
   return (
     <div className="setrow">
       <div>
@@ -220,10 +233,21 @@ function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; ver
         title={commandText(['store', 'push-from-ci', ciPush ? 'off' : 'on'])}
         onChange={(on) =>
           void editor.run(
-            () => client.settings.setCiPush(on, version),
-            (r) => ciPushText(r.ciPush, !ci),
+            () => write(on, version),
+            (r) => ciPushText(r.ciPush, r.same),
             // Back to what the file said, or to saying nothing, which is on.
-            (r) => (r.changed ? { edit: () => client.settings.setCiPush(r.was, r.version), ok: ciPushText(r.was !== false, !ci) } : null),
+            (r) => {
+              if (!r.changed) return null;
+              let back: { ciPush: boolean; same: boolean; version?: string } = { ciPush: r.was !== false, same: false };
+              return {
+                edit: async () => {
+                  back = await write(r.was, r.version);
+                  return back;
+                },
+                // Worded once it has answered: whether the file is the repository's again.
+                ok: () => ciPushText(back.ciPush, back.same),
+              };
+            },
           )
         }
       />
@@ -232,10 +256,10 @@ function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; ver
 }
 
 /**
- * A Push from CI write's toast, for the value now in force: on GitHub, Your workflow's step follows
- * it (Settings → CI); for another CI, the config is what its job reads.
+ * A Push from CI write's toast, for the value now in force, as Settings → CI's switches word theirs:
+ * Your workflow's step follows it, and `same` once the file the switches build equals the repository's.
  */
-const ciPushText = (on: boolean, github: boolean) => (github ? `Push from CI is ${on ? 'on' : 'off'} · Your workflow changes with it` : `Push from CI ${on ? 'on' : 'off'} · written to ${CONFIG_FILE}; commit it for CI to see it`);
+const ciPushText = (on: boolean, same: boolean) => `Push from CI is ${on ? 'on' : 'off'} · ${same ? AGAIN : CHANGES}`;
 
 /** Why a store job's button can't run here, or null: actions off, or a dashboard that doesn't run it yet. */
 function jobButton(app: ReturnType<typeof useApp>, kind: string, command: string): string | null {
