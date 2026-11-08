@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { ConfigBusyError, ConfigConflictError, agentOfRun, cleanLabel, editWhenFree, isObject, readConfigFile, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { ConfigBusyError, ConfigConflictError, agentOfArgv, agentOfRun, cleanLabel, editWhenFree, isObject, readConfigFile, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import type { CheckPreviewJob } from '../check-preview.js';
 import { ENTRY_KEYS, agentGoldens, changedWords, checksConfig, goldenAgent, printsOf, writeTestsEntry, type EntryEdit } from '../config-tests.js';
@@ -9,7 +9,7 @@ import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { goldensOf } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
-import { runAffinity } from '../run-index.js';
+import { loadRunIndex, runAffinity } from '../run-index.js';
 import type { GoldenSource } from '../tests.js';
 import { VERSION, editError, editFolder, failed, log } from './settings.js';
 
@@ -132,6 +132,19 @@ function callNumber(raw: string | null): number {
   return n;
 }
 
+/**
+ * The calls a preview reads, as the run index counts them, so a long read is given longer: the
+ * agent's newest finished recordings, as many as it judges, then its goldens' and the run it is made
+ * from where they are others. A golden only its pack holds isn't counted.
+ */
+function previewCalls(ctx: RouteContext, agent: string, runIds: ReadonlyArray<string | null>): number {
+  const { runs, byId } = loadRunIndex(ctx.store);
+  const mine = runs.filter((r) => r.mode === 'record' && r.status !== 'running' && agentOfArgv(r.argv) === agent).slice(0, PREVIEW_RECORDINGS);
+  const seen = new Set(mine.map((r) => r.runId));
+  const others = [...new Set(runIds)].filter((id): id is string => !!id && !seen.has(id));
+  return mine.reduce((n, r) => n + r.calls, 0) + others.reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
+}
+
 /** A golden's entry as a write sets it: only the keys it may set, `expect` an expect object or null to take its checks out. */
 function entryOf(raw: unknown): EntryEdit {
   if (!isObject(raw)) throw new HttpError(400, 'entry is what changes in the golden’s tests entry, such as { "expect": { "tools": { "send_email": 0 } } }');
@@ -192,7 +205,7 @@ export function register(router: Router, ctx: RouteContext): void {
       if (agent === null) throw new HttpError(409, `${run ? 'This run' : 'This golden’s recording'} has no command of its own, so there are no recordings of its agent to judge the check on`);
       const goldens = agentGoldens(ctx.store, goldensOf(ctx), dir, agent, golden?.path ?? null).map((g) => ({ path: g.path, runId: g.runId, pack: g.runId && ctx.store.getRun(g.runId) ? null : resolve(dir, g.path) }));
       const job: CheckPreviewJob = { kind: 'check-preview', expect: asked.expect, agent, madeFrom: run?.runId ?? null, goldens, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), limit: PREVIEW_RECORDINGS };
-      sendAnswer(r, await ctx.reads.run(job));
+      sendAnswer(r, await ctx.reads.run(job, { calls: previewCalls(ctx, agent, [...goldens.map((g) => g.runId), job.madeFrom]) }));
     },
     { write: false },
   );
