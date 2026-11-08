@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseExpect } from '../../engine/src/checks/parse.js';
 import type { CheckContext, GoldenEntry, PreviewGolden, PreviewRow } from '../ui/checks-api.js';
 import {
   EMPTY_JSON,
@@ -6,6 +7,7 @@ import {
   blankUnit,
   editAt,
   entryOf,
+  fieldRef,
   goldenLead,
   judgeAdded,
   judgesIn,
@@ -295,6 +297,27 @@ describe('the change', () => {
     ]);
   });
 
+  it('lays the lines out with the file’s own indent, four spaces as two', () => {
+    const before = { expect: { tools: { a: 0, b: 1, c: 2, d: 3, e: 4 } } };
+    const after = { expect: { tools: { a: 0, b: 1, c: 2, d: 3, e: 5 } } };
+    const lines = changeLines({ key: 'goldens/x', before, after, indent: '    ', order: ['goldens/w', 'goldens/x', 'goldens/y'], exists: true, hasTests: true });
+    const sp = (n: number) => ' '.repeat(n);
+    expect(lines.map((l) => `${l.tone ?? '.'} ${l.text}`)).toEqual([
+      `. ${sp(6)}"tests": {`,
+      `. ${sp(10)}…`,
+      `. ${sp(10)}"goldens/x": {`,
+      `. ${sp(10)}…`,
+      `. ${sp(22)}"c": 2,`,
+      `. ${sp(22)}"d": 3,`,
+      `del - ${sp(20)}"e": 4`,
+      `add + ${sp(20)}"e": 5`,
+      `. ${sp(18)}}`,
+      `. ${sp(14)}}`,
+      `. ${sp(10)}},`,
+      `. ${sp(10)}…`,
+    ]);
+  });
+
   it('shows an entry with no tests as it comes in whole, the file’s braces too with no file', () => {
     const after = { expect: { tools: { a: 0 } } };
     const lines = changeLines({ key: 'goldens/x', before: undefined, after, indent: '  ', order: [], exists: false, hasTests: false });
@@ -329,6 +352,16 @@ describe('against your recordings', () => {
     expect(c.full).toBe(`shadowlap check ${ids.join(' ')} --expect '{"tools":{"a":0}}'`);
     expect(c.view).toMatch(/^shadowlap check \S+ \S+ \S+ … --expect /);
     expect(c.more).toBe('and 1 more recordings by id, all in its copy');
+  });
+});
+
+describe('a reference to a result field', () => {
+  it('writes a field by the engine’s path rule, a key with a dot or a space in brackets, and the engine reads it as that one key', () => {
+    expect(['total', 'a.b', 'unit price'].map((field) => fieldRef({ tool: 'lookup_order', field }))).toEqual(['@lookup_order.result.total', '@lookup_order.result["a.b"]', '@lookup_order.result["unit price"]']);
+    for (const field of ['total', 'a.b', 'unit price']) {
+      const spec = parseExpect({ calls: [{ tool: 'issue_refund', args: { amount: { '<=': fieldRef({ tool: 'lookup_order', field }) } } }] }, 'expect');
+      expect(JSON.stringify(spec.calls)).toContain(JSON.stringify({ path: [{ type: 'key', key: field }] }).slice(1, -1));
+    }
   });
 });
 

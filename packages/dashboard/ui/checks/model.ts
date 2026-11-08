@@ -1,6 +1,6 @@
 import { EXPECT_KEYS, asNumber } from '../../../engine/src/checks/grammar.js';
 import { checkLabels } from '../../../engine/src/checks/labels.js';
-import { isReference, parseExpect } from '../../../engine/src/checks/parse.js';
+import { isReference, parseExpect, referenceTo } from '../../../engine/src/checks/parse.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { quoteArgv } from '../../../engine/src/text.js';
@@ -117,6 +117,9 @@ export function argList(args: unknown, on: 'none' | 'first' | 'all'): ArgPick[] 
 }
 
 /** The arguments of a call that hold a number. */
+/** A result field's reference as a rule reads it, by the engine's path rule: `@lookup_order.result.total`, `@lookup_order.result["unit price"]`. */
+export const fieldRef = (f: { tool: string; field: string }): string => referenceTo(f.tool, 'result', f.field);
+
 export const numberArgs = (args: unknown): string[] => Object.keys(isObject(args) ? args : {}).filter((k) => asNumber((args as Fragment)[k]) !== null);
 
 /** What the editor reads of the run: the call it is made from, the run's calls, the tools it offers, the model a judge starts on. */
@@ -545,7 +548,8 @@ export function changeLines(o: ChangeOf): BoxLine[] {
     const whole = [`${o.indent}"tests": {`, ...entryLines(o.key, o.after, o.indent, false), `${o.indent}}`];
     return (o.exists ? whole : ['{', ...whole, '}']).map((text) => mark(['+', text]));
   }
-  const gap: BoxLine = { text: `${o.indent.repeat(3)}…`, tone: null };
+  // Under the entries' keys: the mark's two columns, then two of the file's indents.
+  const gap: BoxLine = { text: `  ${o.indent.repeat(2)}…`, tone: null };
   const near = (k: number) => lines.slice(Math.max(0, k - 2), k + 3).some((y) => y[0] !== ' ');
   const out: BoxLine[] = [{ text: `  ${o.indent}"tests": {`, tone: null }, ...(at > 0 || (at < 0 && o.order.length) ? [gap] : [])];
   lines.forEach((x, k) => {
