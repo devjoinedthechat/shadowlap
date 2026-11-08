@@ -41,8 +41,8 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
 const PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RevisionPage', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
-/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. */
-const COPY_PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
+/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset… it opens. */
+const COPY_PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
 
 /**
  * The parts heavy enough that they must wait for a script of their own (`onShow`), by their modules:
@@ -174,6 +174,9 @@ describe('the dashboard’s scripts', () => {
     // Not the dashboard's page list, which would bring every page with it.
     expect(held.has('ui/pages/lazy.tsx')).toBe(false);
     expect(held.has('ui/main.tsx')).toBe(false);
+    // Nor what only the served dashboard draws, which it hands in (ui/served-parts.ts): a copy draws no Share.
+    expect(held.has('ui/pages/served.tsx')).toBe(false);
+    expect(held.has('ui/run/ShareMenu.tsx')).toBe(false);
     // The parts its pages show are in its one script: a file has no server to load them from.
     const shown = dynamicImports(metafile).filter((d) => held.has(d.by));
     for (const part of COPY_PARTS) expect(PARTS).toContain(part);
