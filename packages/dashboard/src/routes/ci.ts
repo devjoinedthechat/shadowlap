@@ -1,4 +1,5 @@
 import { goldensPassed, recordEvent, resolveAuthor, WorkflowConflictError, WorkflowFileError, writeWorkflow, type StoreOf } from '@shadowlap/engine';
+import { lastCiSession, parseStoreUrl, storeKey, type CiSessionSeen } from '@shadowlap/remote';
 import { randomBytes } from 'node:crypto';
 import { repositoryWorkflow, type RepositoryWorkflow } from '../ci-file.js';
 import { ciWorkflows, fileOptions, fixPreview, gitFacts, goldenProviders, parseCiOptions, type CiSession, type CiWorkflowsView } from '../ci-workflows.js';
@@ -40,12 +41,32 @@ interface Kept {
   text: string | null;
 }
 
-/** The test session the line under Your workflow names: its tally as every tally on a page counts it, inconclusive goldens apart. */
-function ciSession(store: StoreOf<'tests'>, goldens: readonly GoldenSource[]): CiSession | null {
+/** A session's tally as every tally on a page counts it, inconclusive goldens apart: `2 of 7 goldens passed · 3 failed, 2 inconclusive`. */
+function tally(passed: number, failed: number, inconclusive: number): string {
+  const notPassed = [failed ? `${failed} failed` : '', inconclusive ? `${inconclusive} inconclusive` : ''].filter(Boolean).join(', ');
+  return `${goldensPassed(passed, passed + failed + inconclusive)}${notPassed ? ` · ${notPassed}` : ''}`;
+}
+
+/**
+ * The test session the line under Your workflow names: the newest one CI pushed to the project's
+ * team store, as a pull keeps it (*Last seen in CI*), else the last one here that ran every golden.
+ */
+function ciSession(store: StoreOf<'tests' | 'team'>, goldens: readonly GoldenSource[], storeUrl: string | null): CiSession | null {
+  const ci = seenInCi(store, storeUrl);
+  if (ci) return { ci: true, revision: ci.revision, at: ci.at, text: tally(ci.passed, ci.failed, ci.inconclusive) };
   const s = lastFullSession(store, goldens);
-  if (!s) return null;
-  const notPassed = [s.failed ? `${s.failed} failed` : '', s.inconclusive ? `${s.inconclusive} inconclusive` : ''].filter(Boolean).join(', ');
-  return { ci: false, revision: s.revision, at: s.endedAt ?? s.startedAt, text: `${goldensPassed(s.passed, s.passed + s.failed + s.inconclusive)}${notPassed ? ` · ${notPassed}` : ''}` };
+  return s ? { ci: false, revision: s.revision, at: s.endedAt ?? s.startedAt, text: tally(s.passed, s.failed, s.inconclusive) } : null;
+}
+
+/** The newest session CI pushed to the store `shadowlap.config.json` names, as a pull kept it; null without a store, or before one. */
+function seenInCi(store: StoreOf<'team'>, storeUrl: string | null): CiSessionSeen | null {
+  if (!storeUrl) return null;
+  try {
+    return lastCiSession(store, storeKey(parseStoreUrl(storeUrl)));
+  } catch {
+    // A store URL the config can't use: Settings → Store says why.
+    return null;
+  }
 }
 
 /** The page's options, as the PUT carries them, in the query string's form parseCiOptions reads. */
@@ -87,6 +108,7 @@ export function register(router: Router, ctx: RouteContext): void {
     if ('error' in options) throw new HttpError(400, options.error);
     const list = goldens();
     const summary = testsSummary(ctx.store, { goldens: list });
+    const teamStore = project ? readTeamStoreInput({ cwd: project }) : null;
     const view = ciWorkflows(options, {
       preview: fixPreview(ctx.store, options.budget),
       failing: summary.failing,
@@ -96,14 +118,14 @@ export function register(router: Router, ctx: RouteContext): void {
       defaultBranch: git.defaultBranch,
       recordings: list.length ? testPatterns(list, GOLDENS_FOLDER).join(' ') : `${GOLDENS_FOLDER}/*`,
       // Push from CI, read as Settings → Store reads it: the step pushes when it is on.
-      teamStore: project ? readTeamStoreInput({ cwd: project }) : null,
+      teamStore,
       // Which goldens run live in CI, and the providers' keys each step's env needs.
       goldens: project ? goldenProviders(project, list) : null,
       // A config that can't be read hides both: the steps say what they leave out, and Write file waits.
       configError: project ? configFileError(project) : null,
       repo,
       root: git.root,
-      session: ciSession(ctx.store, list),
+      session: ciSession(ctx.store, list, teamStore?.store ?? null),
       gates: ciGates(project, list, GOLDENS_FOLDER),
     });
     return { view, repo };

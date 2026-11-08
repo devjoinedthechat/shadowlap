@@ -6,6 +6,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { BASELINE_DEFAULTS, SPRT_DEFAULTS, Store } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type CiWorkflowsView, type Dashboard, type GoldenSource } from '../src/index.js';
 import { ciGates } from '../src/tests-gate.js';
+import { parseStoreUrl, pullCiSession, storeKey } from '@shadowlap/remote';
+import { MemoryStore } from '../../remote/test/fakes/memory.js';
 
 /** Settings → CI's Write file and its Undo, against a project folder that is its repository's root. */
 
@@ -112,6 +114,20 @@ describe('Write file', () => {
 
 describe('Gates in the CI view', () => {
   const golden = (path: string, gate: Exclude<GoldenSource['gate'], undefined>, error: string | null = null): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, gate, checks: [], error });
+
+  it('names the newest session CI pushed to the team store under Your workflow, once a pull kept it', async () => {
+    expect((await view()).workflow.session).toBeNull();
+    const url = 's3://agent-runs/team';
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: url }));
+    const remote = new MemoryStore(parseStoreUrl(url));
+    const report = { session: 'S1', revision: 'd2e8a1f', results: ['passed', 'passed', 'failed', 'inconclusive'].map((verdict) => ({ verdict })) };
+    await remote.put('tests/01JABCDEFGHJKMNPQRSTVWXY01.json', Buffer.from(JSON.stringify({ format: 'shadowlap-store-tests', version: 1, at: 1_700_000_000_000, by: 'ci', ci: 'github', report })));
+    await pullCiSession(store, remote, storeKey(parseStoreUrl(url)));
+    expect((await view()).workflow.session).toEqual({ ci: true, revision: 'd2e8a1f', at: 1_700_000_000_000, text: '2 of 4 goldens passed · 1 failed, 1 inconclusive' });
+    // Another store in the config: what a pull kept of the first is not this one's.
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 's3://agent-runs/other' }));
+    expect((await view()).workflow.session).toBeNull();
+  });
 
   it('sends the config’s suite risk with the figures, and names the goldens each kind’s defaults stand for', async () => {
     expect((await view()).gates).toEqual({ suiteRisk: 0.05, uses: { sprt: [], baseline: [] } });
