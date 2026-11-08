@@ -1,4 +1,4 @@
-import { argsDelta, decisionLine, decisionStepState, judgedOutcome, judgeOpen, judgeWords, JUDGED_IN_RECORDED_STATE, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type DecisionView, type Palette } from '@shadowlap/engine';
+import { argsDelta, decisionLine, decisionStepState, judgedOutcome, judgeOpen, judgeWords, JUDGED_IN_RECORDED_STATE, minorityChange, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, unchangedRunWords, unsettledWords, WITHIN_VARIATION, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type DecisionView, type Palette } from '@shadowlap/engine';
 
 /**
  * A preview's matrix as Changes and a run's Decisions view draw it: a row per run, a cell per model
@@ -43,6 +43,10 @@ export interface DecisionCell {
   detail: string | null;
   /** What it decided, for its card and its label: `send_email is no longer called · in 1 of 3 samples, 0 of 3 as recorded`. */
   words: string;
+  /** A ranked cell's rank in words, for its card (RANK_LABELS): `a write changed`. */
+  rankWords?: string;
+  /** The scope its call was made in, where it was one: its card's title names it. */
+  scope?: string;
   /** What it says opened, besides the two decisions the report keeps; null where no answer came. */
   open: CellOpen | null;
 }
@@ -159,13 +163,10 @@ function stepWords(s: DecisionStep, state: DecisionStepState, o: { refused: stri
       return `left as recorded: ${o.fromCode ? 'the working tree sends its prompt unchanged' : `made with ${s.model.recorded ?? 'its recorded model'}`}`;
     case 'not-asked':
       return `not asked: ${s.error ?? 'no answer came'}`;
-    case 'unsettled': {
-      const c = s.control!;
-      const asRecorded = c.answered ? `${c.answered} of ${c.asked} answered as recorded` : 'as recorded, no answer';
-      return `${detail} · inconclusive: in ${s.samples.changed} of ${s.samples.answered} samples; ${asRecorded}${c.error ? ` (${c.error})` : ''}: too few to tell from the model's own variation`;
-    }
+    case 'unsettled':
+      return `${detail} · inconclusive: ${unsettledWords(s)}`;
     case 'noise':
-      return `${detail} · within the model's own variation: ${samplesWords(s)}`;
+      return `${detail} · ${WITHIN_VARIATION}: ${samplesWords(s)}`;
     case 'same':
       return `the same${several ? ' in every sample' : ''}: ${decisionLine(s.recorded, 44)}`;
     default:
@@ -191,6 +192,8 @@ export function decisionCell(s: DecisionStep, o: { refused: string | null; fromC
     control: s.control ? { changed: s.control.changed, answered: s.control.answered } : null,
     detail: state === 'same' || state === 'left' || state === 'not-asked' ? null : detailOf(s),
     words: stepWords(s, state, o),
+    ...(state === 'ranked' && s.rank ? { rankWords: RANK_LABELS[s.rank] } : {}),
+    ...(s.scope ? { scope: s.scope } : {}),
     open: o.refused ? null : cellOpen(s),
   };
 }
@@ -212,21 +215,18 @@ function topStep(run: DecisionRun, flagged: boolean): DecisionStep | null {
 export function rowEnding(run: DecisionRun): RowEnding {
   const end = (text: string, more: Partial<RowEnding> = {}): RowEnding => ({ text, then: '', tone: null, callNo: null, waits: 0, why: null, ...more });
   if (run.refused) return end(`not asked: ${firstLine(run.refused)}`, { tone: 'y', why: run.refused });
-  if (!run.asked) {
-    const err = run.decisions.find((s) => s.error);
-    return err ? end('nothing asked', { why: err.error }) : end('the change leaves its requests as recorded');
-  }
+  if (!run.asked) return end(unchangedRunWords(run), { why: run.decisions.find((s) => s.error)?.error ?? null });
   const flagged = run.majority !== null && run.majority <= 2;
   const waits = run.decisions.filter((s) => judgeOpen(s)).length;
   const top = topStep(run, flagged);
   if (!top || sampledOf(top) === 5) {
     const words = run.decisions.filter((s) => s.rank === 5);
     const judged = words.some((s) => s.judge?.length && !judgeOpen(s));
-    return end(`the same decisions${words.length ? `, other words at ${words.length} step${words.length === 1 ? '' : 's'}${judged && !waits ? ', judged as recorded' : ''}` : ''}`, { waits });
+    return end(`${unchangedRunWords(run)}${words.length ? `, other words at ${words.length} step${words.length === 1 ? '' : 's'}${judged && !waits ? ', judged as recorded' : ''}` : ''}`, { waits });
   }
   const text = `#${top.callNo} ${detailOf(top) ?? ''}`;
-  if (decisionStepState(top) === 'noise') return end(text, { then: "· within the model's own variation", callNo: top.callNo, waits });
-  const minority = !flagged && top.samples.asked > 1 && top.rank !== null && top.rank <= 2;
+  if (decisionStepState(top) === 'noise') return end(text, { then: `· ${WITHIN_VARIATION}`, callNo: top.callNo, waits });
+  const minority = !flagged && minorityChange(top);
   return end(text, { then: minority ? `· ${samplesWords(top, { short: true })}` : '', tone: flagged ? (top.majority === 1 ? 'w' : 's') : null, callNo: top.callNo, waits });
 }
 
@@ -243,8 +243,9 @@ export function decisionRow(run: DecisionRun, o: { fromCode?: boolean } = {}): D
  */
 export interface ViewStep {
   callNo: number;
-  /** Its rank, 1 to 5; null for a change within the model's own variation. */
+  /** Its rank, 1 to 5; null for a change within the model's own variation, which `within` then says in the engine's words. */
   rank: number | null;
+  within: string | null;
   /** The change in a few words: `send_email is no longer called`. */
   detail: string;
   /** How often its samples changed, for a narrow column: `in 1 of 3, 0 of 3 as recorded, not flagged`; null asked once. */
@@ -280,6 +281,7 @@ export function viewSteps(run: DecisionRun): ViewStep[] {
     .map((s) => ({
       callNo: s.callNo,
       rank: s.rank,
+      within: s.rank === null ? WITHIN_VARIATION : null,
       detail: detailOf(s) ?? '',
       short: s.samples.asked > 1 ? samplesWords(s, { short: true }) : null,
       waits: judgeOpen(s),

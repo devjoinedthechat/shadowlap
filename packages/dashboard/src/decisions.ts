@@ -299,23 +299,28 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
 /** A session's report: a decisions session's own, a migration's decisions. */
 export const sessionReport = (session: NonNullable<ReturnType<typeof decisionSession>>) => (session.kind === 'migrate' ? session.decisions : session) as { flagged?: unknown; toVerify?: unknown; runs?: DecisionRun[]; change?: { fromCode?: unknown } };
 
+/** The run of `among` that `w` names, by its id or a prefix of 6 or more. */
+const namedRun = (among: readonly string[], w: unknown): string | undefined => among.find((id) => id === w || (typeof w === 'string' && w.length >= 6 && id.startsWith(w)));
+
 /**
  * The runs a session's Verify takes, as `decisions --verify <session> [run…]` picks them: those it
  * could not clear (`toVerify`; a session kept before it said which, the ones it flagged), or those
- * `named` names among them (a run id, or a list of them), each by its id or a prefix of 6 or more.
- * Why there are none, when none.
+ * `named` names among them (a run id, or a list of them; an empty list names none), each by its id or
+ * a prefix of 6 or more. Why there are none, when none, naming each run named that it cleared or never asked.
  */
 export function runsToVerify(session: NonNullable<ReturnType<typeof decisionSession>>, named?: unknown): string[] | { error: string; status: number } {
   const report = sessionReport(session);
   const listed = Array.isArray(report.toVerify) ? report.toVerify : report.flagged;
   const ids = (Array.isArray(listed) ? listed : []).filter((id): id is string => typeof id === 'string');
-  if (named !== undefined) {
-    const wanted = Array.isArray(named) ? named : [named];
-    const picked = wanted.map((w) => ids.find((id) => id === w || (typeof w === 'string' && w.length >= 6 && id.startsWith(w))));
-    if (!wanted.length || picked.some((id) => !id)) return { error: `this session cleared ${wanted.length === 1 ? 'that run' : 'a run named'}: there is nothing to verify`, status: 404 };
-    return [...new Set(picked as string[])];
-  }
-  return ids.length ? ids : { error: 'this session cleared every run: there is nothing to verify', status: 409 };
+  const wanted: unknown[] = named === undefined ? [] : Array.isArray(named) ? named : [named];
+  if (!wanted.length) return ids.length ? ids : { error: 'this session cleared every run: there is nothing to verify', status: 409 };
+  const missing = wanted.filter((w) => !namedRun(ids, w));
+  const asked = session.matrix.map((row) => row.runId);
+  const shown = (ws: unknown[]) => ws.map((w) => String(w).slice(0, 40)).join(', ');
+  const strangers = missing.filter((w) => !namedRun(asked, w));
+  if (strangers.length) return { error: `this session asked no run ${shown(strangers)}`, status: 404 };
+  if (missing.length) return { error: `this session cleared ${shown(missing)}: ${missing.length === 1 ? 'it has' : 'they have'} nothing to verify`, status: 409 };
+  return [...new Set(wanted.map((w) => namedRun(ids, w)!))];
 }
 
 /**
@@ -330,7 +335,8 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
   if (req.runIds !== undefined && (!Array.isArray(req.runIds) || req.runIds.length > 500)) return { error: 'runIds is a list of the runs to verify' };
-  const named = req.runIds ?? req.runId;
+  // A list naming none names none, as the estimate takes it: every run left to verify.
+  const named = Array.isArray(req.runIds) && req.runIds.length ? req.runIds : req.runId;
   const flagged = runsToVerify(session, named);
   if (!Array.isArray(flagged)) return flagged;
   const runs = flagged.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null);

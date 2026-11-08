@@ -106,6 +106,18 @@ describe('a preview worded for Changes', () => {
     expect(s.view.next).toMatchObject({ verify: null, more: [] });
   });
 
+  it('leaves the runs no verify took to verify, by name, once verify took some of them', () => {
+    const v = verified('accepted', [{ runId: a, role: 'good', outcome: 'kept', passes: 4, attempts: 4, bound: null, rule: '4 of 4 attempts must pass' }]);
+    const id = keep('dc-01M5000000000000000000000I', [runOf(a, null, [step(3, 1)]), runOf(b, null, [step(3, 1)])], { flagged: [a, b], toVerify: [a, b], verify: v, counts: counts({ 1: 2 }) });
+    const s = previewSession(store, id)!;
+    // Verify offers and prices the one left, and its job names it (ui/decisions.ts nextStep, test/decisions-routes.test.ts).
+    expect(s.view.next).toEqual({ verify: { runs: [b], every: false, gone: 0 }, more: [], migrate: null });
+    expect(s.matrix.map((r) => [r.toVerify, r.verified?.outcome ?? null, r.cleared])).toEqual([
+      [true, 'kept', false],
+      [true, null, false],
+    ]);
+  });
+
   it('is rejected where verify broke a run, and counts what verify left open for Run more attempts', () => {
     const v = verified('rejected', [{ runId: a, role: 'good', outcome: 'broken', passes: 1, attempts: 4 }, { runId: b, role: 'good', outcome: 'inconclusive', passes: 2, attempts: 4 }]);
     const id = keep('dc-01M5000000000000000000000E', [runOf(a, null, [step(3, 1)]), runOf(b, null, [step(3, 1)])], { flagged: [a, b], toVerify: [a, b], verify: v, counts: counts({ 1: 2 }) });
@@ -129,6 +141,51 @@ describe('a preview worded for Changes', () => {
     expect(s.matrix.map((r) => [r.runId, r.inStore, r.toVerify, r.about === null])).toEqual([[a, true, true, false], [GONE, false, true, true]]);
     expect(s.view.next.verify).toEqual({ runs: [a, GONE], every: true, gone: 1 });
     expect(previewSession(store, 'dc-01M5NOTKEPT0000000000000')).toBeNull();
+  });
+});
+
+describe('the key and the receipt, worded on the server', () => {
+  const samples = (ranks: number[], unjudged = 0) => ({ asked: ranks.length, answered: ranks.length, changed: ranks.filter((r) => r).length, ranks, unjudged });
+  const entry = (s: NonNullable<ReturnType<typeof previewSession>>, words: string) => [...s.view.key.main, ...s.view.key.quiet].find((e) => e.words === words)!;
+
+  it('rings only words a judge couldn’t read, and says on each card the rule it stands on: the judge’s own reasons, a run it couldn’t ask, a split’s rule from the notes', () => {
+    // Words only, its samples unjudged: it waits on a judge. A read change whose samples' words went unjudged keeps its colour, and its rank's count.
+    const words = step(4, 5, { samples: samples([5, 5], 2), majority: 5 });
+    const read = step(5, 3, { samples: samples([3, 3], 1), majority: 3 });
+    const refused = { ...runOf(b, null, [step(1, null, { now: null, samples: samples([]) })]), asked: 0, refused: 'its first request differs in more than its prompt and tools' };
+    const tokens = { before: { ...NO_TOKENS, input: 4000 }, after: { ...NO_TOKENS, input: 5000, cacheRead: 1000 } };
+    const id = keep('dc-01M5000000000000000000000J', [{ ...runOf(a, null, [words, read]), tokens }, refused], {
+      counts: counts({ 3: 1, 5: 1, notAsked: 1 }),
+      notes: ["1 step had a write, stop or judged change in fewer than half its samples: listed, not flagged, as a model's own variation."],
+      warnings: ['2 text-only steps a judge check reads could not be judged: no key for the judge’s provider: HTTP 401: unauthorized'],
+    });
+    const s = previewSession(store, id)!;
+    expect([entry(s, 'waits on a judge').n, s.view.counts.waits, entry(s, 'the same').n]).toEqual([1, 1, 0]);
+    expect(entry(s, 'waits on a judge').card.text).toBe('No key for the judge’s provider (HTTP 401): its run waits, unless another change flags it.');
+    expect(entry(s, 'not asked')).toMatchObject({ n: 1, card: { text: 'A run the change can’t ask is asked nothing: the notes under the matrix say why.' } });
+    expect(entry(s, 'split').card.text).toBe("Its 2 samples decided differently, a band each. 1 step had a write, stop or judged change in fewer than half its samples: listed, not flagged, as a model's own variation.");
+    expect(s.view.key.main[1].card.text).toBe('When the agent stops or hands over differently, or a judge check reads its new words otherwise; verify settles it end to end.');
+    // The receipt's tokens: a run's input tokens either way, the mean over the runs asked.
+    expect(s.view.receipt.tokens).toEqual({ before: 4000, after: 6000 });
+    // The project's clock, for an opened cell's cost line: auto unless the config says exact.
+    expect([s.view.clock, previewSession(store, id, { clock: 'exact' })!.view.clock, previewSession(store, id, { clock: null })!.view.clock]).toEqual(['auto', 'exact', null]);
+  });
+
+  it('says a run --from-code can’t ask, a split’s rule with the control, a judge with no reason kept, and no tokens where a session kept none', () => {
+    const control = 'Each step was asked 3 times under the change and 3 times as recorded: a change is ranked only when its decisions run more consequential than the recorded request’s own, by an exact permutation test at 5% a step.';
+    const noise = "1 step decided otherwise no more often than it did as recorded: listed with both counts, not ranked, as the model's own variation.";
+    const refused = { ...runOf(b, null, [step(1, null, { now: null, samples: samples([]) })]), asked: 0, refused: 'its first request differs in more than its prompt and tools' };
+    const id = keep('dc-01M5000000000000000000000K', [runOf(a, null, [step(4, 5, { samples: samples([5, 5, 5], 1), majority: 5 })]), refused], {
+      samples: 3,
+      change: { ...change, model: null, fromCode: { calls: 1, instructions: null, tools: { added: [], removed: [], changed: [] }, codeVersion: null } },
+      counts: counts({ 5: 1, notAsked: 1 }),
+      notes: [control, noise],
+    });
+    const s = previewSession(store, id)!;
+    expect(entry(s, 'not asked').card.text).toBe('A run --from-code can’t ask is asked nothing: the notes under the matrix say why.');
+    expect(entry(s, 'split').card.text).toBe(`Its 3 samples decided differently, a band each. ${control} ${noise}`);
+    expect(entry(s, 'waits on a judge').card.text).toBe('Its judge couldn’t answer: its run waits, unless another change flags it.');
+    expect(s.view.receipt.tokens).toBeNull();
   });
 });
 

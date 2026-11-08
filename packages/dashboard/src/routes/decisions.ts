@@ -1,13 +1,13 @@
 import { DECISIONS_ID } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
-import { decisionSessions, decisionsJob, migrateJob, retirementsView, runDecisions, verifyFlaggedJob } from '../decisions.js';
+import { decisionSessions, decisionsJob, migrateJob, retirementsView, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
 import { links } from '../links.js';
 import { outcomeWork } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
-import { loadRunIndex } from '../run-index.js';
+import { loadRunIndex, runAffinity } from '../run-index.js';
 import type { GoldenSource } from '../tests.js';
 import { verifyRule } from './estimates.js';
 
@@ -16,8 +16,8 @@ import { verifyRule } from './estimates.js';
  *
  *   GET /api/decisions[?kind=decisions|migrate][&limit=]   the sessions kept, newest first (50, at most 200), the project's goldens, and their models that retire
  *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, its matrix, and its `view` (decision-view.ts), beside the server
- *   GET /api/decisions/:id/estimates[?runId=…]   what its Verify bills (estimates.ts), on every run it could not clear or those named
- *   GET /api/runs/:id/decisions                  a run's decisions under each session that asked it again
+ *   GET /api/decisions/:id/estimates[?runId=…]   what its Verify bills (estimates.ts), on every run it could not clear or those the runIds name
+ *   GET /api/runs/:id/decisions                  a run's decisions under each session that asked it again, beside the server
  *   GET /api/retirements                         the models the goldens use that retire, by the table that ships
  *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }
  *   POST /api/jobs { kind: "migrate", to, goldens?, runs?, from?, scope?, set?, yes? }   every golden when none are named
@@ -27,6 +27,20 @@ import { verifyRule } from './estimates.js';
  */
 
 const KINDS = new Set(['decisions', 'migrate']);
+
+/**
+ * How the project compares a step's two decisions, for an opened cell's cost line: whether it redacts,
+ * and its clock (`exact`, or dates near the run's start masked). A config that can't be read doesn't
+ * stop Preview: the line then leaves out what it would have said of it.
+ */
+function comparedBy(ctx: RouteContext): { redacted: boolean; clock: 'auto' | 'exact' | null } {
+  try {
+    const config = ctx.config();
+    return { redacted: config.redact.length > 0, clock: config.clock === 'exact' ? 'exact' : 'auto' };
+  } catch {
+    return { redacted: false, clock: null };
+  }
+}
 
 // How the activity feed words a session: a preview opens on its tab under Changes (a migration's tab comes with port/migrate).
 describeEvent('decisions.done', (e, d) => ({
@@ -53,7 +67,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/decisions/:id', async (r) => {
     const { byId } = loadRunIndex(ctx.store);
     const calls = ctx.store.decisionRunIds(r.params.id!).reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
-    sendAnswer(r, await ctx.reads.run({ kind: 'decision-session', sessionId: r.params.id!, redacted: ctx.config().redact.length > 0 }, { calls }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'decision-session', sessionId: r.params.id!, ...comparedBy(ctx) }, { calls }));
   });
 
   // What Verify would bill on a kept session, or on the one run `runId` names, beside the server: it
@@ -66,9 +80,11 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, await ctx.reads.run(job, { calls }));
   });
 
-  router.get('/runs/:id/decisions', (r) => {
-    if (!ctx.store.getRun(r.params.id!)) throw new HttpError(404, `no run ${r.params.id!.slice(0, 40)}`);
-    r.tagged(runDecisions(ctx.store, r.params.id!));
+  // Each session that asked the run again words its row and its steps from every decision it kept: beside the server, by the run's calls.
+  router.get('/runs/:id/decisions', async (r) => {
+    const run = ctx.store.getRun(r.params.id!);
+    if (!run) throw new HttpError(404, `no run ${r.params.id!.slice(0, 40)}`);
+    sendAnswer(r, await ctx.reads.run({ kind: 'run-decisions', runId: run.runId }, runAffinity(ctx.store, run.runId)));
   });
 
   router.get('/retirements', (r) => r.tagged(retirementsView(ctx.store, goldens())));
