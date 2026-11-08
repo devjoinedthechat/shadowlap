@@ -44,7 +44,7 @@ In the dashboard each step shows its command:
 - **Connect your bucket** picks Amazon S3, Google Cloud, Azure Blob or Cloudflare R2. The access to ask your cloud admin for is what `store policy` prints, with Copy, and **Check access and connect** runs `store set --check`.
 - **Push from CI on GitHub Actions.** The job that runs your goldens is [your workflow](./ci.md#one-job-for-all-of-it) on Settings → CI, whose step pushes while Push from CI is on. Its **Write file** adds the steps that give it the bucket's credentials (for R2, you add the keys as secrets). So the setup asks **Turn on Push from CI** or `Skip for now`, with no second job that runs the goldens again.
 - **What to copy.** On GitLab CI or any other CI, the step to paste, with **Copy**. On GitHub Actions there is none: `store ci --provider github` prints the sign-in steps in a job of its own, and Write file takes only the two. For R2 there are none.
-- **After the CI step**, pick **I added it**, or `Skip for now`. Settings → Store's **Copy CI step** keeps it, for the CI you picked.
+- **After the CI step** on GitLab CI or any other CI, pick **I added it**, or `Skip for now`. Settings → Store's **Copy CI step** keeps it, for the CI you picked.
 - **What the step writes.** Each choice writes Push from CI to `shadowlap.config.json`, as Settings → Store's switch does: **Turn on Push from CI** and **I added it** turn it on, and `Skip for now` turns it off.
 
 Until **Finish**, the store works already, and the dashboard leads back to the setup:
