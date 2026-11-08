@@ -147,8 +147,8 @@ describe('what each colour may mean', () => {
   });
 
   it('dims what Compare shows the same in the faint ink, which keeps AA’s contrast, never by fading it', () => {
-    expect(value('.pcall.same', 'color')).toBe('var(--faint)');
-    expect(value('.pcall.same', 'opacity')).toBeNull();
+    expect(value('.pside.same', 'color')).toBe('var(--faint)');
+    expect(value('.pside.same', 'opacity')).toBeNull();
   });
 
   it('dims what doesn’t apply in the faint ink, never by fading it, and keeps the bar’s words above AA on its amber', () => {
@@ -304,6 +304,7 @@ describe('amber', () => {
     '.st.warn': 'a status that needs a look',
     '.st.warn i': 'a status that needs a look',
     '.vw.warn': 'a verdict line’s word: inconclusive',
+    '.dstop.diff': 'a decision’s stop that differs from the other side’s, which needs a look',
     '.alist > .al > i.inc': 'an attempt that couldn’t be judged',
     '.astrip .ac.inc': 'an attempt that couldn’t be judged',
     '.tag.inc': 'an inconclusive status chip',
@@ -362,7 +363,6 @@ describe('amber', () => {
   const UNTIL: Record<string, string> = {
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
     '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
-    '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
   };
 
   it('means needs a look or inconclusive, and nothing else: never a fork, stubbed or blame', () => {
@@ -420,7 +420,6 @@ describe('grounds, tints and lines', () => {
     '.dp': 'port/overview: the delta pills go with the KPI tiles',
     '.dp.good': 'port/overview: the delta pills go with the KPI tiles',
     '.fstep .fb': 'port/overview: a fix step’s share goes with the Overview’s Fixes card',
-    '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
   };
 
   it('draws every ground, tint and line from the tokens, the tints that remain each with its reason', () => {

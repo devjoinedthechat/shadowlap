@@ -486,7 +486,7 @@ code.rnm { white-space: nowrap; }
     .eyebrow, .k, .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
     .tchip em, .bmk, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
     .fxtable th, .msg .role small, .callrow .pl, .diffpanel:not(.jdp) h4,
-    .paths h4, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd
+    .dstop, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd
   ) { font-size: var(--fs-label); }
   /* a pseudo-element can't sit in :is(): report.md's labels over its values on a narrow panel */
   :is(#root, body) .fxtable td::before { font-size: var(--fs-label); }

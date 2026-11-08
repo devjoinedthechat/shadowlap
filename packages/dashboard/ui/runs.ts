@@ -203,32 +203,6 @@ export function runGlyph(r: RunLike): { kind: GlyphKind; label: string } {
   return { kind: 'fail', label: o.tone === 'err' && (o.of === 'judged' || o.of === 'check') ? 'Recording, check failed' : 'Recording, failed' };
 }
 
-/**
- * The chip beside a run's id on its page, its status: an interrupted recording, replay or test says
- * so, in grey; a run that failed says FAILED, a fork as any other (its eyebrow names the fork).
- * Compare's path headers name each side by its kind instead (`kindTag`).
- */
-export function runTag(r: RunLike): { cls: string; text: string } {
-  if (isLive(r)) return { cls: 'live', text: 'recording' };
-  const t = runType(r);
-  if (isInterrupted(r) && (t === 'recording' || t === 'replay' || t === 'test')) return { cls: '', text: 'interrupted' };
-  if (t === 'recording') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'recording' };
-  if (t === 'clean') return { cls: 'clean', text: 'clean' };
-  if (t === 'fork') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: 'fork', text: forkAt(r.divergence!) };
-  if (t === 'capture') return { cls: 'cap', text: 'capture' };
-  if (t === 'test') return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: 'test', text: 'test' };
-  return isFailed(r) ? { cls: 'fail', text: 'failed' } : { cls: '', text: 'replay' };
-}
-
-/**
- * The tag Compare's path headers give each side, as the design's `typeTag` does: what kind of run it
- * is, a fork by where it forked (`fork @7`) whether or not it failed, since the paths under it show
- * what it did; a recording or a test that failed says FAILED, as on its page.
- */
-export function kindTag(r: RunLike): { cls: string; text: string } {
-  return runType(r) === 'fork' && !isLive(r) ? { cls: 'fork', text: forkAt(r.divergence!) } : runTag(r);
-}
-
 /** What kind of run it is, in a word or two: recording, clean replay, replay, fork @17, capture, test. */
 export function kindWord(r: RunLike): string {
   const t = runType(r);

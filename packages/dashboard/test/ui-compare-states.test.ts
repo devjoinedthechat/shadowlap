@@ -93,12 +93,12 @@ describe('one run named', () => {
   it('says there is nothing to compare yet, with the command that makes something', async () => {
     addressBar(`#/compare/${ALONE}`);
     page = await render(createElement(AppContext.Provider, { value: app({ run: () => Promise.resolve(detail(ALONE)) }) }, createElement(ComparePage, { a: ALONE, b: null })));
-    await page.until('the run to load', () => page!.all('.stepempty h3').length > 0);
-    expect(page.one('.stepempty h3').textContent).toBe('Nothing to compare yet');
+    await page.until('the run to load', () => page!.all('.stepempty h2').length > 0);
+    expect(page.one('.stepempty h2').textContent).toBe('Nothing to compare yet');
     expect(page.one('.stepempty p').textContent).toBe('01M5GRYHR0 has no replay or fork, and no parent. Replay it, or fork it at a call, and the two compare call by call.');
     expect(page.one('.stepempty .cmdline').textContent).toContain('shadowlap replay 01M5GRYHR0');
     expect(page.all('.stepempty .actions a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
-      ['Open the run', `#/run/${ALONE}`],
+      ['Open run', `#/run/${ALONE}`],
       ['Compare other runs', '#/compare'],
     ]);
   });
@@ -129,15 +129,15 @@ describe('two runs named', () => {
     // The server takes a unique prefix of an id for the run.
     const client = { run: (id: string) => Promise.resolve(detail(REC.startsWith(id.toUpperCase()) ? REC : id)), compare: () => (compared++, Promise.resolve({} as CompareView)) };
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: REC })));
-    await page.until('the panel', () => page!.all('.stepempty h3').length > 0);
-    expect(page.one('.stepempty h3').textContent).toBe('The same run on both sides');
+    await page.until('the panel', () => page!.all('.stepempty h2').length > 0);
+    expect(page.one('.stepempty h2').textContent).toBe('The same run on both sides');
     expect(page.one('.stepempty p').textContent).toBe('01M5GRVTKS against itself is identical. Pick another run for A or B.');
     expect(compared).toBe(0);
     // A whole id and a prefix of it name one run too.
     await page.unmount();
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: REC.slice(0, 10).toLowerCase() })));
-    await page.until('the panel', () => page!.all('.stepempty h3').length > 0);
-    expect(page.one('.stepempty h3').textContent).toBe('The same run on both sides');
+    await page.until('the panel', () => page!.all('.stepempty h2').length > 0);
+    expect(page.one('.stepempty h2').textContent).toBe('The same run on both sides');
     expect(compared).toBe(0);
   });
 
@@ -149,11 +149,14 @@ describe('two runs named', () => {
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the head', () => page!.all('.prefix').length > 0);
     expect(page.one('.prefix').textContent).toBe('#1–#19,976 identical. The first request that differs is #19977.');
-    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['#19977 in 01M5GRVTKS', '#19977 in 01M5GRXFM1']);
+    // Each head's sign is drawn for the eye alone, as the structural diff's are.
+    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['−#19977 in 01M5GRVTKS', '+#19977 in 01M5GRXFM1']);
+    expect(page.all('.diffpanel h4 .js').every((s) => s.getAttribute('aria-hidden') === 'true')).toBe(true);
     expect(page.one('.cmpwait[role="status"]').textContent).toBe('Comparing the rest: what changed between the two runs and where each went from #19977…');
     // The whole comparison takes its place once it comes.
     whole({ ...head, prefix: [], responseDifferences: [], after: null, changes: { systemPrompt: true, systems: { a: ['x'], b: ['y'] }, tools: { added: [], removed: [], redefined: false }, models: { a: [], b: [] }, code: { a: null, b: null } }, intervention: null, code: null });
-    await page.until('the whole comparison', () => page!.all('.cmpwait').length === 0 && page!.all('.changes').length > 0);
+    await page.until('the whole comparison', () => page!.all('.cmpwait').length === 0 && page!.all('.cmpfacts').length > 0);
+    expect(page.all('.cmpfacts p').map((p) => p.textContent)).toEqual(['System prompt changed', 'Code, tools and model unchanged']);
   });
 
   it('keeps the head when the rest can’t be worked out in the time a request has, and says how to work it out', async () => {
@@ -163,7 +166,7 @@ describe('two runs named', () => {
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the answer', () => page!.all('.cmpwait').some((w) => w.textContent.includes('could not')));
     expect(page.one('.prefix').textContent).toBe('#1–#99,976 identical. The first request that differs is #99977.');
-    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['#99977 in 01M5GRVTKS', '#99977 in 01M5GRXFM1']);
+    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['−#99977 in 01M5GRVTKS', '+#99977 in 01M5GRXFM1']);
     expect(page.one('.cmpwait[role="status"] p').textContent).toBe(
       'The rest, what changed between the two runs and where each went from #99977, could not be worked out here: a compare job took more than 2 minutes, so it was stopped. What shows above is whole. A terminal compares the two runs with no time limit:',
     );
@@ -242,5 +245,106 @@ describe('picking another run', () => {
     expect(hash).toBe(`#/compare/${ALONE}/${FORK}`);
     // The button picked with keeps the focus, where the next Tab or Enter goes on from.
     expect(page.focused()).toBe(pickerA());
+  });
+});
+
+describe('the whole comparison', () => {
+  // The --fail-at 19=529 fork of the recording: the recording refunded and answered; the fork got HTTP 529 at #19 and stopped.
+  const failAt = { run: 'b' as const, kind: 'fail' as const, flag: '--fail-at 19=529', callNo: 19, name: 'POST /v1/messages', before: 'an answer', after: 'HTTP 529', words: '#19 got HTTP 529 instead of an answer' };
+  const call = (callNo: number, o: Record<string, unknown> = {}) => ({ callNo, kind: 'api', name: 'POST /v1/messages', effect: null, origin: 'replayed', input: false, failure: null, decision: null, args: null, ...o });
+  const refund = { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'issue_refund', args: { order: 'A-1', amount: 240 }, effect: 'write' }], text: '', stops: 'calls tools' };
+  const pair = {
+    from: { a: 19, b: 19 },
+    verdict: { words: 'Different endings', where: 'after #18', tone: 'warn' },
+    endings: {
+      a: { failures: null, writes: [{ fate: null, tools: [{ tool: 'issue_refund', count: 1 }] }], end: { kind: 'answered', callNo: 21 }, quit: false },
+      b: { failures: null, writes: [], end: { kind: 'stopped', callNo: 19, status: 529 }, quit: true },
+    },
+    rows: [
+      { callNo: 19, a: call(19, { decision: refund }), b: call(19, { origin: 'injected', failure: { status: 529, by: 'injected' } }), alike: false, similar: false },
+      { callNo: 20, a: call(20, { kind: 'tool', name: 'issue_refund', effect: 'write', args: '{"order":"A-1","amount":240}' }), b: null, alike: false, similar: false },
+    ],
+    more: 0,
+  };
+  const view = { a: { runId: REC, calls: 21 }, b: { runId: FORK, calls: 19 }, identicalPrefix: 18, firstRequestDifference: null, onlyInA: 2, onlyInB: 0, prefix: [], after: null, code: null, intervention: failAt, responseDifferences: [{ callNo: 19, kind: 'api', name: 'POST /v1/messages', detail: 'got HTTP 529 instead of an answer', by: '--fail-at 19=529' }], changes: { systemPrompt: false, systems: { a: ['x'], b: ['x'] }, tools: { added: [], removed: [], redefined: false }, models: { a: ['claude-sonnet-5'], b: ['claude-sonnet-5'] }, code: { a: 'a7b3c2e', b: 'a7b3c2e' } }, pair } as unknown as CompareView;
+  const run = (id: string, parent: string | null) => ({ ...detail(id, { parent }), summary: { total: 21, byKind: { api: 11, tool: 10 }, cost: { spent: 0.051, captured: 0, unknownModels: [] } }, callsTotal: id === REC ? 21 : 19, checks: [] }) as unknown as RunDetail;
+  const detailOf = (id: string, n: number) => ({ call: { callNo: n, kind: n === 20 ? 'tool' : 'api', name: 'x', origin: id === FORK ? 'injected' : 'replayed', outcome: id === FORK ? 'error' : 'ok', status: id === FORK ? 529 : null, attempts: 2, latencyMs: 1200, usage: null, cost: null, error: null }, request: { args: { order: 'A-1', amount: 240 } }, result: { result: { refunded: true } } });
+  const client = { run: (id: string) => Promise.resolve(run(id, id === FORK ? REC : null)), compare: () => Promise.resolve(view), call: (id: string, n: number) => Promise.resolve(detailOf(id, n)) };
+  function Routed() {
+    const route = useRoute();
+    return createElement('main', { id: 'view', tabIndex: -1 }, route.page === 'compare' ? createElement(ComparePage, { a: route.a, b: route.b, call: route.call }) : null);
+  }
+
+  it('leads with the verdict and a line a run, then both paths in one list, a row a call', async () => {
+    addressBar(`#/compare/${REC}/${FORK}`);
+    page = await render(createElement(AppContext.Provider, { value: app(client, [listed(REC), listed(FORK)]) }, createElement(Routed)));
+    await page.until('the comparison', () => page!.all('.cprow').length > 0);
+    // Its word is in the heading for a screen reader, drawn apart in its colour.
+    // Its words glued, so `#18` never starts a line of its own.
+    expect(page.one('.verdict.cmpv h2').textContent.replace(/\s/g, ' ')).toBe('Different endings after #18');
+    expect(page.one('.verdict.cmpv .vw.warn').textContent).toBe('Different endings');
+    const line = (i: number) => page!.all('.cmpends > span')[i].textContent;
+    expect(page.all('.cmpends > code').map((c) => c.textContent)).toEqual(['01M5GRVTKS', '01M5GRXFM1']);
+    expect(line(0)).toBe('issue_refund · answered at #21 · ≈$0.051 spent');
+    expect(line(1)).toBe('no write · stopped at #19 on HTTP 529 · ≈$0.051 spent');
+    expect(page.all('.cmpfacts p').map((p) => p.textContent)).toEqual(['Code, system prompt, tools and model unchanged']);
+    // What made the fork carries its card.
+    expect(page.one('.prefix .lead').textContent).toBe('#19 got HTTP 529 instead of an answer');
+    expect(page.one('.prefix .lead').getAttribute('data-tip')).toContain('--fail-at 19=529');
+    expect(page.one('.paths2').getAttribute('role')).toBe('group');
+    expect(page.one('.paths2').getAttribute('aria-label')).toBe('Both runs after the identical prefix, a row a call');
+    expect(page.all('.cph .pk').map((p) => p.textContent)).toEqual(['recording · 3 calls after #18', 'replay · 1 call after #18']);
+    const rows = page.all('button.cprow');
+    expect(rows.map((r) => r.getAttribute('aria-expanded'))).toEqual(['false', 'false']);
+    // Each side says whose call it is, and the heard space between a call, its effect and its origin.
+    expect(rows[0].textContent).toBe('#19 01M5GRVTKS: →\u00a0issue_refund {"order":"A-1","amount":240} replayed 01M5GRXFM1: HTTP 529 injected');
+    expect(rows[1].textContent).toBe('#20 01M5GRVTKS: issue_refund write replayed 01M5GRXFM1: no call');
+    expect(page.all('.pside.none')).toHaveLength(1);
+  });
+
+  it('opens both calls under a row as its address says, and closes them from the row or its ×', async () => {
+    const bar = addressBar(`#/compare/${REC}/${FORK}`);
+    page = await render(createElement(AppContext.Provider, { value: app(client, [listed(REC), listed(FORK)]) }, createElement(Routed)));
+    await page.until('the comparison', () => page!.all('button.cprow').length > 0);
+    const row = () => page!.all('button.cprow')[0];
+    await page.click(row());
+    expect(bar.hash).toBe(`#/compare/${REC}/${FORK}/19`);
+    await page.until('the row opened', () => page!.all('#cmpd').length > 0 && page!.all('.cmpnote').length > 0);
+    expect(row().getAttribute('aria-expanded')).toBe('true');
+    expect(row().getAttribute('aria-controls')).toBe('cmpd');
+    // The row keeps the focus.
+    expect(page.focused()).toBe(row());
+    expect(page.one('#cmpd').getAttribute('aria-label')).toBe('#19 in both runs');
+    expect(page.one('#cmpd .cmpx').getAttribute('aria-label')).toBe('Close #19');
+    expect(page.one('#cmpd .dtool b').textContent).toBe('issue_refund');
+    expect(page.one('#cmpd .dstop').textContent).toBe('calls tools');
+    expect(page.one('#cmpd .cmpnote').textContent).toBe('Never sent. Shadowlap answered with HTTP 529 (--fail-at 19=529), 3 attempts.');
+    expect(page.all('#cmpd a.more').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['Open run at #19, 01M5GRVTKS', `#/run/${REC}/19`],
+      ['Open run at #19, 01M5GRXFM1', `#/run/${FORK}/19`],
+    ]);
+    // Pressed again, it closes; so does its ×, the focus back on the row.
+    await page.click(row());
+    expect(bar.hash).toBe(`#/compare/${REC}/${FORK}`);
+    await page.until('the row closed', () => page!.all('#cmpd').length === 0);
+    await page.click(page.all('button.cprow')[1]);
+    await page.until('the second row opened', () => page!.all('#cmpd').length > 0);
+    expect(page.one('#cmpd .cmpnone').textContent).toBe('No call: the run had ended.');
+    await page.click(page.one('#cmpd .cmpx'));
+    expect(bar.hash).toBe(`#/compare/${REC}/${FORK}`);
+    await page.until('the row closed', () => page!.all('#cmpd').length === 0);
+    expect(page.focused()).toBe(page.all('button.cprow')[1]);
+  });
+
+  it('opens the row its address names when the page loads, and none for a call past the rows', async () => {
+    addressBar(`#/compare/${REC}/${FORK}/20`);
+    page = await render(createElement(AppContext.Provider, { value: app(client, [listed(REC), listed(FORK)]) }, createElement(Routed)));
+    await page.until('the row opened', () => page!.all('#cmpd').length > 0);
+    expect(page.one('#cmpd').getAttribute('aria-label')).toBe('#20 in both runs');
+    await page.unmount();
+    addressBar(`#/compare/${REC}/${FORK}/4`);
+    page = await render(createElement(AppContext.Provider, { value: app(client, [listed(REC), listed(FORK)]) }, createElement(Routed)));
+    await page.until('the comparison', () => page!.all('button.cprow').length > 0);
+    expect(page.all('#cmpd')).toHaveLength(0);
   });
 });

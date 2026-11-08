@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { answersSub, changedAnswers, changeCards, codeNote, compareFacts, comparingLive, diffTexts, endingParts, endWords, madeBy, pickable, prefixCells, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
+import { answersSub, changedAnswers, changeCards, codeNote, compareFacts, comparingLive, diffTexts, endingParts, endWords, madeBy, madeCard, pickable, prefixCells, prefixLine, requestLines, shortSha } from '../ui/compare/model.js';
+import { callWords, openRow, rowParts, sideClass, type PathCall } from '../ui/compare/paths.js';
 import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
 import { argPieces, cutPart, type ArgPiece } from '../ui/compare/args.js';
 import { wordMarks } from '../ui/json-diff.js';
 import { spentWords } from '../ui/run/metrics.js';
-import type { CallRow, CompareView } from '../ui/types.js';
+import type { CompareView } from '../ui/types.js';
 
-// Compare's logic without a browser: what the four change cards say, which rows after the fork the
-// other run made too, the prefix line, and which runs the pickers offer.
+// Compare's logic without a browser: what changed, the prefix line and the card on what made the
+// fork, the changed request's lines, what each row's sides say, and which runs the pickers offer.
 
 const changes = (o: Partial<CompareView['changes']> = {}): CompareView['changes'] => ({
   systemPrompt: false,
@@ -180,7 +181,7 @@ describe('the change cards', () => {
 describe('the prefix line', () => {
   const base = { identicalPrefix: 16, firstRequestDifference: { callNo: 17, kind: 'api' as const, name: 'POST /v1/messages' }, responseDifferences: [], onlyInA: 0, onlyInB: 0 };
   it('names the first request that differs, and the answers that changed before it', () => {
-    expect(prefixLine(base)).toEqual({ lead: '#1–#16 identical.', rest: 'The first request that differs is #17.' });
+    expect(prefixLine(base)).toEqual({ lead: '#1–#16 identical.', made: null, rest: 'The first request that differs is #17.' });
     expect(prefixLine({ ...base, identicalPrefix: 15, responseDifferences: [{ callNo: 16, kind: 'tool', name: 'lookup_policy', detail: '1 difference' }] }).rest).toBe('The first request that differs is #17; before it, 1 call got a different answer to the same request.');
     expect(prefixLine({ ...base, identicalPrefix: 0 }).lead).toBe('No identical prefix.');
     expect(prefixLine({ ...base, firstRequestDifference: null }).rest).toBe('Every call matches.');
@@ -212,22 +213,63 @@ describe('the prefix line', () => {
   });
 });
 
-describe('the paths after the fork', () => {
-  const call = (callNo: number, kind: CallRow['kind'], name: string, detail = ''): Pick<CallRow, 'callNo' | 'kind' | 'name' | 'detail'> => ({ callNo, kind, name, detail });
-  // The recording refunded at #18; the fork asked the tier-2 queue instead, then both looked the locale up and answered.
-  const a = [call(17, 'api', 'POST /v1/messages'), call(18, 'tool', 'issue_refund', '{"amount":240}'), call(19, 'api', 'POST /v1/messages'), call(20, 'tool', 'lookup_locale', '{"customer":"C-1"}'), call(21, 'api', 'POST /v1/messages')];
-  const b = [call(17, 'api', 'POST /v1/messages'), call(18, 'tool', 'queue_status', '{"team":"t2"}'), call(19, 'api', 'POST /v1/messages'), call(20, 'tool', 'lookup_locale', '{"customer":"C-1"}'), call(21, 'api', 'POST /v1/messages')];
+describe('both paths in one list, a row a call', () => {
+  const model = (o: Partial<PathCall> = {}): PathCall => ({ callNo: 19, kind: 'api', name: 'POST /v1/messages', effect: null, origin: 'replayed', input: false, failure: null, decision: null, args: null, ...o });
+  const decided = (tools: Array<{ name: string; args: unknown }>, text = '') => ({ stop: 'tools' as const, stopReason: 'tool_use', tools: tools.map((t) => ({ ...t, effect: 'read' as const })), text, stops: 'calls tools' });
 
-  it('dims a model call only when it asked for the same tools, and a tool only with the same arguments', () => {
-    expect(samePlaces(a, b, 17)).toEqual([false, false, true, true, true]);
-    // A model call that asked for other tools is not the same place, whatever its name.
-    const c = [...b.slice(0, 3), call(20, 'tool', 'escalate', '{}'), call(21, 'api', 'POST /v1/messages')];
-    expect(samePlaces(a, c, 17)).toEqual([false, false, false, false, true]);
-    // The call where the requests first differ never is.
-    expect(samePlaces(a, a, 17)[0]).toBe(false);
-    expect(samePlaces(a, a, null)).toEqual([true, true, true, true, true]);
-    // A run that went on past the other's end.
-    expect(samePlaces([...a, call(22, 'tool', 'send_email', '{}')], a, 17).at(-1)).toBe(false);
+  it('reads a model call by what it decided, a failure by its status and who refused it, a tool by its name', () => {
+    expect(callWords(model({ decision: decided([{ name: 'get_sla', args: { tier: 2 } }]) }))).toEqual([
+      { kind: 'pdo', text: '→\u00a0get_sla' },
+      { kind: 'pargs', text: '{"tier":2}' },
+    ]);
+    expect(callWords(model({ decision: { ...decided([]), text: 'Your refund\n is on its way.' } }))).toEqual([
+      { kind: 'pdo', text: 'answered' },
+      { kind: 'pargs', text: '“Your refund is on its way.”' },
+    ]);
+    // An injected failure says its status alone, its origin tag says the rest.
+    expect(callWords(model({ origin: 'injected', failure: { status: 529, by: 'injected' } }))).toEqual([{ kind: 'perr', text: 'HTTP 529' }, { kind: 'pargs', text: '' }]);
+    expect(callWords(model({ failure: { status: 503, by: 'offline' } }))[1]).toEqual({ kind: 'pargs', text: 'refused offline' });
+    expect(callWords(model({ failure: { status: 503, by: 'provider' } }))[1]).toEqual({ kind: 'pargs', text: 'refused by the provider' });
+    expect(callWords(model({ kind: 'tool', name: 'lookup_policy', effect: 'read' }))).toEqual([{ kind: 'pdo', text: 'lookup_policy' }]);
+  });
+
+  it('marks only the words that differ where the two are alike enough, breaking arguments between their pieces', () => {
+    const a = model({ decision: decided([{ name: 'send_email', args: { to: 'a@example.com' } }]) });
+    const b = model({ decision: decided([{ name: 'send_email', args: { to: 'b@example.com' } }]) });
+    const parts = rowParts(b, a, true);
+    expect(parts[0]).toEqual({ kind: 'pdo', marked: [{ text: '→\u00a0send_email', marked: false }] });
+    const args = parts[1];
+    expect('pieces' in args && args.pieces.flatMap((p) => (p.kind === 'value' ? p.value : [])).filter((r) => r.marked).map((r) => r.text)).toEqual(['b']);
+    // Calls not alike enough read plain, their empty parts left out.
+    expect(rowParts(b, a, false)).toEqual(callWords(b));
+    expect(rowParts(model({ origin: 'injected', failure: { status: 529, by: 'injected' } }), null, false)).toEqual([{ kind: 'perr', text: 'HTTP 529' }]);
+  });
+
+  it('dims a row both made alike, sets each side apart by its run, and opens only a row it draws', () => {
+    const row = { a: model(), b: model(), alike: true };
+    expect(sideClass(row, 'a')).toBe('pside del same');
+    expect(sideClass({ ...row, alike: false }, 'b')).toBe('pside add diff');
+    expect(sideClass({ ...row, alike: false, a: null }, 'b')).toBe('pside add');
+    expect(openRow([{ callNo: 19 }, { callNo: 20 }], 20)).toBe(20);
+    expect(openRow([{ callNo: 19 }], 4)).toBeNull();
+    expect(openRow([{ callNo: 19 }], null)).toBeNull();
+  });
+});
+
+describe('the changed request', () => {
+  it('names each differing field, its path on hover, and walks its two values a level under it', () => {
+    const lines = requestLines([{ op: 'changed', path: '$.messages[3].content[0].content', what: 'tool_result lookup_policy', before: '{"refund_limit":50}', after: '{"refund_limit":100}' }]);
+    expect(lines[0]).toMatchObject({ sign: ' ', depth: 0, key: 'tool_result lookup_policy', tip: '$.messages[3].content[0].content' });
+    expect(lines.slice(1).every((l) => l.depth >= 1)).toBe(true);
+    expect(lines.filter((l) => l.sign === '+').map((l) => `${l.key}: ${l.value.map((p) => p.text).join('')}`)).toEqual(['refund_limit: 100']);
+    // A field one side lacks is all added, or all removed; one named by its path has no hover.
+    const added = requestLines([{ op: 'added', path: '$.temperature', after: 0.2 }]);
+    expect(added[0]).toMatchObject({ key: '$.temperature' });
+    expect(added[0].tip).toBeUndefined();
+    expect(added.slice(1).every((l) => l.sign === '+')).toBe(true);
+    // At most twelve fields.
+    const many = Array.from({ length: 14 }, (_, i) => ({ op: 'changed' as const, path: `$.f${i}`, before: i, after: i + 1 }));
+    expect(requestLines(many).filter((l) => l.depth === 0)).toHaveLength(12);
   });
 });
 
@@ -315,7 +357,10 @@ describe('what made a fork, in the line beside the identical prefix', () => {
   const c = { a: { runId: REC, calls: 32 }, identicalPrefix: 18, firstRequestDifference: { callNo: 20, kind: 'tool' as const, name: 'add_note' }, responseDifferences: [{ callNo: 19, kind: 'api' as const, name: 'POST /v1/messages', detail: 'got HTTP 529 instead of an answer', by: '--fail-at 19=529' }], onlyInA: 0, onlyInB: 0, intervention: failAt };
 
   it('leads with it, as the design does, and counts the answers it didn’t make apart', () => {
-    expect(prefixLine(c)).toEqual({ lead: '#1–#18 identical.', rest: '#19 got HTTP 529 instead of an answer; the first request that differs is #20.' });
+    expect(prefixLine(c)).toEqual({ lead: '#1–#18 identical.', made: '#19 got HTTP 529 instead of an answer', rest: '#19 got HTTP 529 instead of an answer; the first request that differs is #20.' });
+    // Its card: what the flag did to that call, and the flag.
+    expect(madeCard(failAt)).toEqual({ title: 'Same request, different response', line: '#19, answered with HTTP 529 by the fork. The paths differ from there.', command: '--fail-at 19=529' });
+    expect(madeCard({ ...failAt, kind: 'override', flag: '--override 16=@policy.json', callNo: 16 }).line).toBe('#16, overridden by the fork. The paths differ from there.');
     const another = { ...c, responseDifferences: [{ callNo: 4, kind: 'tool' as const, name: 'lookup_order', detail: '1 difference' }, ...c.responseDifferences] };
     expect(prefixLine(another).rest).toBe('#19 got HTTP 529 instead of an answer; the first request that differs is #20; before it, 1 call got a different answer to the same request.');
     // With no request that differs after it, it says so of the rest.

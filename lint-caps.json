@@ -218,9 +218,6 @@
     "packages/dashboard/ui/normalize.ts": {
       "normalizeRunDetail": 36
     },
-    "packages/dashboard/ui/pages/Compare.tsx": {
-      "Comparison": 51
-    },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 36
     },
@@ -240,7 +237,7 @@
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 64
+      "RunHeader": 59
     },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31

@@ -1,11 +1,12 @@
 import { clip, jsonText, num, plural, shortId } from '../format.js';
 import { exitWords } from '../runs.js';
-import type { CallRow, CodeChange, CompareView, LiveRun } from '../types.js';
+import { jsonDiff, jsonInString, type JsonLine, type Sign } from '../json-diff.js';
+import type { CodeChange, CompareView, LiveRun } from '../types.js';
 
 /**
- * Compare's logic (`pages/Compare.tsx`), without the DOM so the tests import it: what the four
- * change cards say, which calls after the fork the other run made too, the prefix line, which runs
- * the pickers offer, and when the comparison is read again.
+ * Compare's logic (`pages/Compare.tsx`), without the DOM so the tests import it: what changed and
+ * what didn't, the prefix line and the card on what made the fork, the changed request's lines, each
+ * run's line, which runs the pickers offer, and when the comparison is read again.
  */
 
 export interface ChangeCard {
@@ -146,14 +147,36 @@ export function madeBy(c: { a?: Pick<CompareView['a'], 'runId'>; intervention?: 
   return iv ? `${iv.words}${iv.run === 'a' && c.a ? ` in ${shortId(c.a.runId)}` : ''}` : null;
 }
 
+/** How the flag that made the fork acted on its call, as the card on what made it says it. */
+const ACTED: Record<NonNullable<CompareView['intervention']>['kind'], string> = { fail: 'answered with', override: 'overridden', answer: 'answered otherwise', plant: 'planted', resample: 'asked again' };
+
+/**
+ * The card on what made the fork: `Same request, different response`, then `#19, answered with
+ * HTTP 529 by the fork. The paths differ from there.`, and the flag as its command.
+ */
+export function madeCard(iv: NonNullable<CompareView['intervention']>): { title: string; line: string; command: string } {
+  const acted = iv.kind === 'fail' ? `${ACTED.fail} ${iv.after ?? 'an HTTP failure'}` : ACTED[iv.kind];
+  return { title: 'Same request, different response', line: `#${num(iv.callNo)}, ${acted} by the fork. The paths differ from there.`, command: iv.flag };
+}
+
 /** The identical prefix's strip draws at most this many cells, one a call, so a long shared start (906 calls) still draws. */
 export const PREFIX_CELLS = 60;
 
 /** The strip's cells for `n` identical calls: one a call, at most PREFIX_CELLS. */
 export const prefixCells = (n: number): number => Math.max(1, Math.min(n, PREFIX_CELLS));
 
-/** The line beside the identical prefix: how far the runs agree, what made the fork when no request shows it, and where they part. */
-export function prefixLine(c: Pick<CompareView, 'identicalPrefix' | 'firstRequestDifference' | 'responseDifferences' | 'onlyInA' | 'onlyInB'> & { a?: Pick<CompareView['a'], 'runId'>; intervention?: CompareView['intervention'] }): { lead: string; rest: string } {
+/**
+ * The line beside the identical prefix: how far the runs agree (`lead`), then what made the fork when
+ * no request shows it and where they part (`rest`). `made`, the words `rest` starts with that say what
+ * made the fork, which carry its card; null with none.
+ */
+export function prefixLine(c: Pick<CompareView, 'identicalPrefix' | 'firstRequestDifference' | 'responseDifferences' | 'onlyInA' | 'onlyInB'> & { a?: Pick<CompareView['a'], 'runId'>; intervention?: CompareView['intervention'] }): { lead: string; made: string | null; rest: string } {
+  const line = prefixWords(c);
+  const made = madeBy(c);
+  return { lead: line.lead, made: made && line.rest.startsWith(made) ? made : null, rest: line.rest };
+}
+
+function prefixWords(c: Parameters<typeof prefixLine>[0]): { lead: string; rest: string } {
   const n = c.identicalPrefix;
   const first = c.firstRequestDifference?.callNo ?? null;
   const lead = n ? `#1–#${num(n)} identical.` : 'No identical prefix.';
@@ -181,30 +204,6 @@ export function answersSub(c: Pick<CompareView, 'firstRequestDifference' | 'resp
   return c.firstRequestDifference ? `${n}, before the first request that differs` : n;
 }
 
-type PathCall = Pick<CallRow, 'callNo' | 'kind' | 'name' | 'detail'>;
-
-/** What a model call asked for: the tool calls that follow it until the next model call, with their arguments. */
-function askedFor(calls: readonly PathCall[], i: number): string {
-  const out: string[] = [];
-  for (let j = i + 1; j < calls.length && calls[j]!.kind !== 'api'; j++) if (calls[j]!.kind === 'tool') out.push(`${calls[j]!.name}(${calls[j]!.detail})`);
-  return out.join('\n');
-}
-
-/**
- * Which calls of a run's path after the fork the other run made too, at the same place: a tool
- * with the same arguments, or a model call that asked for the same tools (two final answers are
- * the same place). The mock dims those rows, so what differs stands out. The call where the
- * requests first differ (`first`) is never the same, whatever its name.
- */
-export function samePlaces(calls: readonly PathCall[], other: readonly PathCall[], first: number | null): boolean[] {
-  return calls.map((c, i) => {
-    const o = other[i];
-    if (!o || c.callNo === first || o.kind !== c.kind || o.name !== c.name) return false;
-    if (c.kind === 'api') return askedFor(calls, i) === askedFor(other, i);
-    return o.detail === c.detail;
-  });
-}
-
 /** Two values that share a start longer than this open shortly before where they part. */
 const SHARED_START = 60;
 
@@ -229,6 +228,33 @@ export function diffTexts(e: { op: 'changed' | 'added' | 'removed'; before?: unk
   }
   const show = (s: string | null) => (s === null ? '(absent)' : from ? `…${clip(s.slice(from), max)}` : clip(s, max));
   return { before: show(a), after: show(b) };
+}
+
+type DiffEntry = NonNullable<NonNullable<CompareView['firstRequestDifference']>['diff']>[number];
+
+/** How many of the first differing request's fields the changed request shows. */
+export const DIFF_SHOWN = 12;
+
+/** A plain string longer than this, on either side, shows as diffTexts' window of it rather than whole. */
+const WHOLE_STRING = 600;
+
+const signed = (lines: readonly JsonLine[], sign: Sign): JsonLine[] => lines.map((l) => ({ ...l, sign }));
+
+/**
+ * The first request that differs as one structural diff: each differing field, at most DIFF_SHOWN,
+ * a line naming it (`tool_result lookup_policy`, its path on hover), then its two values walked a
+ * level under it, a tool's result as the JSON in its string. A plain string past WHOLE_STRING on
+ * either side shows as diffTexts' window of it, where the two part.
+ */
+export function requestLines(diff: readonly DiffEntry[]): JsonLine[] {
+  return diff.slice(0, DIFF_SHOWN).flatMap((e) => {
+    const long = [e.before, e.after].some((v) => typeof v === 'string' && v.length > WHOLE_STRING && !jsonInString(v));
+    const cut = long ? diffTexts(e) : null;
+    const [was, now] = cut ? [cut.before, cut.after] : [e.before, e.after];
+    const walked = e.op === 'added' ? signed(jsonDiff(now, now), '+') : e.op === 'removed' ? signed(jsonDiff(was, was), '-') : jsonDiff(was, now);
+    const head: JsonLine = { sign: ' ', depth: 0, key: e.what ?? e.path, value: [], whole: false, json: false, fold: false, path: e.path, ...(e.what ? { tip: e.path } : {}) };
+    return [head, ...walked.map((l) => ({ ...l, depth: l.depth + 1 }))];
+  });
 }
 
 /** Whether either run is recording now: the comparison is read again as its calls arrive. */

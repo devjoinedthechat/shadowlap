@@ -590,7 +590,7 @@ describe('Compare under Changes', () => {
     page = await render(createElement(AppContext.Provider, { value: app({}, { runs: [] }) }, createElement(ComparePage, { a: null, b: null })));
     expect(page.one('.ph h1').textContent).toBe('Changes');
     expect(page.one('nav.stabs a[aria-current="page"]').textContent).toBe('Compare');
-    expect(page.one('.stepempty h3').textContent).toBe('Compare needs two runs');
+    expect(page.one('.stepempty h2').textContent).toBe('Compare needs two runs');
     expect(changesHref()).toBe('#/compare');
   });
 
