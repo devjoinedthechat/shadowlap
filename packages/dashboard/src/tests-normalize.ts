@@ -1,4 +1,4 @@
-import { sameRule, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type TestResult, type VolatileValues } from '@shadowlap/engine';
+import { maskedChange, sameRule, volatileValues, type CallKind, type DivergenceReport, type Normalizer, type TestResult, type VolatileValues } from '@shadowlap/engine';
 
 /**
  * A golden's stored divergence and the values in it made anew on every run, which a normalizer
@@ -39,4 +39,15 @@ export function rulesToAdd(volatile: VolatileValues, there: readonly Normalizer[
   const out: Normalizer[] = [];
   for (const v of volatile.values) if (v.certain && ![...there, ...out].some((r) => sameRule(r, v.normalizer))) out.push(v.normalizer);
   return out;
+}
+
+/**
+ * The change that made a stored divergence diverge: the first one the normalizers in force did not
+ * mask, as the CLI kept it (`cause`); for a result kept before it did, the first one `normalizers`
+ * (the config's now) leave unmasked. The report lists the masked changes too.
+ */
+export function causeOf(r: TestResult, d: DivergenceReport, normalizers: readonly Normalizer[]): string | null {
+  const kept = r.data?.divergence?.cause;
+  if (kept !== undefined) return kept;
+  return (d.diff ?? []).find((e) => !maskedChange(e, normalizers, d))?.path ?? null;
 }
