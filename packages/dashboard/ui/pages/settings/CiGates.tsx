@@ -126,7 +126,7 @@ export function Gates({ view, o, set }: { view: CiWorkflowsView; o: CiWorkflowOp
   // A link's kind scrolls Gates into view once its preview is drawn.
   useEffect(() => {
     if (scroll && answer.preview) {
-      document.getElementById('gates')?.scrollIntoView({ block: 'start' });
+      document.querySelector('#gates')?.scrollIntoView({ block: 'start' });
       setScroll(false);
     }
   }, [scroll, answer.preview]);

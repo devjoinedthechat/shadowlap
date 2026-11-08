@@ -111,7 +111,7 @@ describe('Write file', () => {
 });
 
 describe('Gates in the CI view', () => {
-  const golden = (path: string, gate: GoldenSource['gate'], error: string | null = null): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, gate, checks: [], error });
+  const golden = (path: string, gate: Exclude<GoldenSource['gate'], undefined>, error: string | null = null): GoldenSource => ({ path, runId: null, packedAt: null, mode: 'fork', repeat: 1, passes: 1, gate, checks: [], error });
 
   it('sends the config’s suite risk with the figures, and names the goldens each kind’s defaults stand for', async () => {
     expect((await view()).gates).toEqual({ suiteRisk: 0.05, uses: { sprt: [], baseline: [] } });
