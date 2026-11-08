@@ -36,17 +36,33 @@ function repairOffer(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, sco
 }
 
 /**
+ * Why a fix offers no Verify this run, the first that holds: it is open; no accepted verdict counts
+ * for it; no failing run it lists is left unverified in the store; its change isn't in the working
+ * tree; or the accepted verdict's fields, flags or check can't be made into a verify.
+ */
+export type NoVerifyLeft = 'open' | 'no-verdict' | 'none-left' | 'not-in-tree' | 'not-made';
+
+/**
  * Verify this run, on a verified or applied fix whose change is in the working tree (`inTree`: its
  * patch there, as git says; or applied, or verified on the tree as it is, with no repair behind it),
  * for its failing runs still in the store that no accepted verdict that counts checked. The CLI's
- * verify checks the code as it is now, so a change not in the tree yet is applied first.
+ * verify checks the code as it is now, so a change not in the tree yet is applied first. Else why not.
  */
-export function verifyLeftOffer(store: StoreOf<'recording'>, rec: FixRecords, inTree: boolean): FixActions['verifyLeft'] {
+export function verifyLeftOr(store: StoreOf<'recording'>, rec: FixRecords, inTree: boolean): { offer: NonNullable<FixActions['verifyLeft']> } | { none: NoVerifyLeft } {
+  if (rec.fix.status === 'open') return { none: 'open' };
   const v = acceptedVerdict(rec);
-  if (!v || rec.fix.status === 'open' || !(inTree || rec.fix.status === 'applied' || unrepairedVerdict(rec))) return null;
+  if (!v) return { none: 'no-verdict' };
   const runs = notVerified(rec).filter((id) => store.getRun(id) !== null);
-  const made = runs.length ? verifyLeftArgs(rec, v, runs) : null;
-  return made ? { runs, argv: made.argv, command: commandLine(made.argv), pulled: made.pulled, left: made.left } : null;
+  if (!runs.length) return { none: 'none-left' };
+  if (!(inTree || rec.fix.status === 'applied' || unrepairedVerdict(rec))) return { none: 'not-in-tree' };
+  const made = verifyLeftArgs(rec, v, runs);
+  return made ? { offer: { runs, argv: made.argv, command: commandLine(made.argv), pulled: made.pulled, left: made.left } } : { none: 'not-made' };
+}
+
+/** Verify this run as the fix's actions offer it (`verifyLeftOr`), or null. */
+export function verifyLeftOffer(store: StoreOf<'recording'>, rec: FixRecords, inTree: boolean): FixActions['verifyLeft'] {
+  const got = verifyLeftOr(store, rec, inTree);
+  return 'offer' in got ? got.offer : null;
 }
 
 /**

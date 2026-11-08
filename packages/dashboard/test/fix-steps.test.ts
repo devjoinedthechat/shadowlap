@@ -198,12 +198,16 @@ describe('the Verify this run job', () => {
   const api = (path: string, init: RequestInit = {}) => fetch(`${dash!.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': dash!.token, ...(typeof init.body === 'string' ? { 'content-type': 'application/json' } : {}) } });
   const job = (body: Record<string, unknown>) => api('jobs', { method: 'POST', body: JSON.stringify(body) });
 
-  it('runs what the page offers, built from the fix’s records, and refuses a fix with nothing left to verify or a change not in the working tree', async () => {
+  it('runs what the page offers, built from the fix’s records, and refuses a fix with nothing left to verify, a change not in the working tree, or a verdict it can’t be made from, each by its own cause', async () => {
     const f = oneLeft({ flags: ['--budget', '0.012'] });
     const all = blamed('all-verified');
     acceptedByHand([all.run]);
     const patched = repaired();
     const open = blamed('lookup');
+    // A verdict whose command kept a flag verify doesn't take: its settings make no verify.
+    const odd = blamed('odd-flags');
+    blamed('odd-flags');
+    acceptedByHand([odd.run], { flags: ['--not-a-flag'] });
     await start();
     const res = await job({ kind: 'verify', fixId: f.fixId, left: true });
     expect(res.status, await res.clone().text()).toBe(202);
@@ -218,6 +222,8 @@ describe('the Verify this run job', () => {
     expect(await refusal(all.fixId)).toBe(`${all.fixId.slice(0, 13)}'s failing runs are all verified: there is nothing left to verify`);
     expect(await refusal(patched.fixId)).toBe(`${patched.fixId.slice(0, 13)}'s change isn't in the working tree: apply it, then verify the code as it is now`);
     expect(await refusal(open.fixId)).toBe(`${open.fixId.slice(0, 13)} is open: no change has been accepted for it yet, so there is nothing to verify`);
+    expect(detail(odd.fixId).actions.verifyLeft).toBeNull();
+    expect(await refusal(odd.fixId)).toBe(`${odd.fixId.slice(0, 13)}'s accepted verdict's settings can't be made into a verify: verify the runs left with shadowlap verify`);
   });
 
   it('is priced on the fix’s estimates: each run left from its recording, and what the gate is expected to take', async () => {

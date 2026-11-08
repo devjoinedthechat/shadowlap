@@ -1,8 +1,8 @@
 import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { verifyLeftOffer } from '../fix-actions.js';
-import { notVerified, patchMerged, patchToCheck } from '../fix-shared.js';
+import { type NoVerifyLeft, verifyLeftOr } from '../fix-actions.js';
+import { patchMerged, patchToCheck } from '../fix-shared.js';
 import { APPLY_GOLDENS, fixBundles, fixDetail, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
@@ -169,6 +169,15 @@ function verifyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   return { args: [...v.more.argv, ...consent.yes], fixId: fix.fixId, title: v.more.kind === 'more' ? ACTIONS.runMoreAttempts.doing : ACTIONS.verifyAgain.doing };
 }
 
+/** Why Verify this run is refused, in the order `verifyLeftOr` finds it. */
+const VERIFY_LEFT_REFUSED: Record<NoVerifyLeft, (id: string) => string> = {
+  open: (id) => `${id} is open: no change has been accepted for it yet, so there is nothing to verify`,
+  'no-verdict': (id) => `${id} has no accepted verdict that counts under its check as it is: verify a change first`,
+  'none-left': (id) => `${id}'s failing runs are all verified: there is nothing left to verify`,
+  'not-in-tree': (id) => `${id}'s change isn't in the working tree: apply it, then verify the code as it is now`,
+  'not-made': (id) => `${id}'s accepted verdict's settings can't be made into a verify: verify the runs left with shadowlap verify`,
+};
+
 /**
  * Verify this run, for a verified or applied fix (`actions.verifyLeft`): its failing runs no accepted
  * verdict checked, verified on the code as it is now. Built from the fix's records alone, never its
@@ -180,12 +189,9 @@ async function verifyLeftJob(req: JobRequest, store: StoreOf<'recording' | 'fixe
   const id = short(fix.fixId);
   const patch = project ? patchToCheck(rec) : null;
   const check = project && patch ? await patchesInTree(project, [patch]) : undefined;
-  const left = verifyLeftOffer(store, rec, patchMerged(rec, check));
-  if (!left) {
-    if (fix.status === 'open') return { error: `${id} is open: no change has been accepted for it yet, so there is nothing to verify`, status: 409 };
-    if (!notVerified(rec).some((r) => store.getRun(r) !== null)) return { error: `${id}'s failing runs are all verified: there is nothing left to verify`, status: 409 };
-    return { error: `${id}'s change isn't in the working tree: apply it, then verify the code as it is now`, status: 409 };
-  }
+  const got = verifyLeftOr(store, rec, patchMerged(rec, check));
+  if ('none' in got) return { error: VERIFY_LEFT_REFUSED[got.none](id), status: 409 };
+  const left = got.offer;
   const runs = left.runs.map((r) => store.getRun(r)).filter((r): r is RunRecord => r !== null);
   const consent = needsConsent({ runs, yes: req.yes, args: left.argv, pulled: left.pulled ? { what: `${id}'s accepted verdict`, left: left.left } : null });
   if ('ask' in consent) return consent.ask;
