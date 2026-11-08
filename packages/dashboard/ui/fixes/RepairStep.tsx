@@ -140,6 +140,7 @@ function Change({ r, change }: { r: RepairStep; change: NonNullable<RepairStep['
         <p className="now">
           {parts.head}
           {parts.removed ? <del>{parts.removed}</del> : null}
+          {parts.lead}
           {parts.added ? <mark>{parts.added}</mark> : null}
           {parts.tail}
         </p>

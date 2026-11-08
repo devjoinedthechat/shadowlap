@@ -428,18 +428,20 @@ export function roleStatuses(roles: RepairStep['roles']): Array<{ text: string; 
 
 /**
  * The change a repair made, once, as the text reads now: the text before it, what it took out
- * (struck), what it added (marked) and the text after it. The added text's leading spaces and
- * punctuation stay outside the mark, so a mark never starts on a lone colon. A long prompt keeps
- * `context` characters on each side of the change, with an ellipsis where it was cut.
+ * (struck), the added text's leading spaces and punctuation (`lead`), what it added (marked) and the
+ * text after it. The lead stays outside the mark, so a mark never starts on a lone colon, and after
+ * what was struck, where the text has it. A long prompt keeps `context` characters on each side of
+ * the change, with an ellipsis where it was cut.
  */
-export function changeParts(change: NonNullable<RepairStep['change']>, context = 240): { head: string; removed: string; added: string; tail: string } {
+export function changeParts(change: NonNullable<RepairStep['change']>, context = 240): { head: string; removed: string; lead: string; added: string; tail: string } {
   const at = change.added?.at ?? commonPrefix(change.before, change.after);
   const text = change.added?.text ?? '';
   const lead = /^[\s:;,.—-]*/.exec(text)?.[0] ?? '';
   const end = at + text.length;
   return {
-    head: `${at > context ? `…${change.after.slice(at - context, at)}` : change.after.slice(0, at)}${lead}`,
+    head: at > context ? `…${change.after.slice(at - context, at)}` : change.after.slice(0, at),
     removed: change.removed,
+    lead,
     added: text.slice(lead.length),
     tail: change.after.length - end > context ? `${change.after.slice(end, end + context)}…` : change.after.slice(end),
   };

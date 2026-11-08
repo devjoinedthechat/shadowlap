@@ -303,11 +303,14 @@ describe('the Repair step’s candidates', () => {
 
   it('marks the text a change added, its leading punctuation and space outside the mark, and strikes what it took out in place', () => {
     const parts = changeParts({ file: 'agent.mjs', anchor: 'system prompt', before: BEFORE, after: AFTER, added: { at: BEFORE.length - 1, text: ': escalate every refund above the limit it sets' }, removed: '' });
-    expect(parts).toEqual({ head: 'You are a support agent. Follow the refund policy: ', removed: '', added: 'escalate every refund above the limit it sets', tail: '.' });
+    expect(parts).toEqual({ head: 'You are a support agent. Follow the refund policy', removed: '', lead: ': ', added: 'escalate every refund above the limit it sets', tail: '.' });
     const days = changeParts({ file: 'a', anchor: 'system prompt', before: 'Refund within 30 days.', after: 'Refund within 14 days.', added: { at: 14, text: '14' }, removed: '30' });
-    expect(days).toEqual({ head: 'Refund within ', removed: '30', added: '14', tail: ' days.' });
+    expect(days).toEqual({ head: 'Refund within ', removed: '30', lead: '', added: '14', tail: ' days.' });
+    // Text taken out and an addition that starts on punctuation: the punctuation comes after what was struck, outside the mark.
+    const both = changeParts({ file: 'a', anchor: 'system prompt', before: 'Refund within 30 days.', after: 'Refund within: 14 days.', added: { at: 13, text: ': 14' }, removed: ' 30' });
+    expect(both).toEqual({ head: 'Refund within', removed: ' 30', lead: ': ', added: '14', tail: ' days.' });
     // Text only taken out: struck where it was, nothing marked.
-    expect(changeParts({ file: 'a', anchor: 'system prompt', before: 'Refund once. Be kind.', after: 'Refund once.', added: null, removed: ' Be kind.' })).toEqual({ head: 'Refund once.', removed: ' Be kind.', added: '', tail: '' });
+    expect(changeParts({ file: 'a', anchor: 'system prompt', before: 'Refund once. Be kind.', after: 'Refund once.', added: null, removed: ' Be kind.' })).toEqual({ head: 'Refund once.', removed: ' Be kind.', lead: '', added: '', tail: '' });
   });
 
   it('cuts a long prompt to the change and some text on each side', () => {
@@ -315,9 +318,9 @@ describe('the Repair step’s candidates', () => {
     const after = long.replace('Follow the policy.', 'Follow the policy. Refund each order once.');
     const at = long.indexOf('Follow the policy.') + 'Follow the policy.'.length;
     const parts = changeParts({ file: 'a', anchor: 'system prompt', before: long, after, added: { at, text: ' Refund each order once.' }, removed: '' }, 50);
-    expect(parts.added).toBe('Refund each order once.');
-    expect(parts.head.startsWith('…') && parts.head.endsWith('policy. ')).toBe(true);
-    expect(parts.head.length).toBe(52);
+    expect([parts.lead, parts.added]).toEqual([' ', 'Refund each order once.']);
+    expect(parts.head.startsWith('…') && parts.head.endsWith('policy.')).toBe(true);
+    expect(parts.head.length).toBe(51);
     expect(parts.tail.endsWith('…')).toBe(true);
     expect(parts.removed).toBe('');
   });
