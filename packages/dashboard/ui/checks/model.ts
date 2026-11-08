@@ -630,3 +630,96 @@ export function checkCommand(ids: readonly string[], expect: Fragment): { view: 
   const view = `${quoteArgv(['shadowlap', 'check', ...ids.slice(0, 3).map(shortRunId)])}${cut ? ' …' : ''} ${tail}`;
   return { view, full, more: cut ? `and ${ids.length - 3} more recordings by id, all in its copy` : null };
 }
+
+// ---- The builder's head and the list's actions --------------------------------------------------
+
+/** The builder's title: from a call, `Add check`; on a golden, adding to it or changing its check. */
+export function titleOf(golden: string | null, o: { edit: boolean; fromCall: boolean }): string {
+  if (golden && o.edit) return `Edit check of ${goldenName(golden)}`;
+  return golden && !o.fromCall ? `Add check to ${goldenName(golden)}` : 'Add check';
+}
+
+/** The lead under it, where the check isn't made from a call (that lead names the call in code). */
+export function goldenLead(golden: string | null, edit: boolean): string {
+  if (!golden) return 'Makes a check, judged on your recordings as you build it.';
+  return `${edit ? `Changes ${goldenName(golden)}’s check` : `Adds a check to ${goldenName(golden)}`}, judged on your recordings as you build it.`;
+}
+
+/** The golden's checks being built: its units, and the one in the editor. */
+export interface Units {
+  units: Unit[];
+  active: number;
+}
+
+const openAt = (units: Unit[], active: number): Units => ({ units: units.map((u, j) => (j === active ? opened(u) : u)), active });
+
+/** Edit: the unit goes to the editor, its rule read from what it writes. */
+export const editAt = (s: Units, i: number): Units => openAt(s.units, i);
+
+/** Remove: a rule of this session goes; one the file holds is crossed out, with Keep, and the editor moves to the first left. */
+export function removeAt(s: Units, i: number): Units {
+  const x = s.units[i];
+  if (!x) return s;
+  if (!x.orig) {
+    const units = s.units.filter((_, j) => j !== i);
+    return openAt(units, Math.max(0, Math.min(s.active > i ? s.active - 1 : s.active, units.length - 1)));
+  }
+  const units = s.units.map((u, j) => (j === i ? { ...u, gone: true } : u));
+  if (i !== s.active) return { units, active: s.active };
+  const next = units.findIndex((u) => !u.gone);
+  return openAt(units, next < 0 ? i : next);
+}
+
+export const keepAt = (s: Units, i: number): Units => ({ units: s.units.map((u, j) => (j === i ? { ...u, gone: false } : u)), active: s.active });
+
+/** Add rule: a blank rule in the editor, unless one is blank already. */
+export const addBlank = (s: Units): Units => (s.units.some((u) => !u.orig && !u.f && !u.rule) ? s : { units: [...s.units, blankUnit()], active: s.units.length });
+
+/** Another golden's checks in place of the last one's, keeping the rules being built. */
+export function withGolden(s: Units, base: unknown): Units {
+  const keep = s.units.filter((u) => !u.orig);
+  const cur = s.units[s.active];
+  const units = [...unitsOf(base).map(fileUnit), ...keep];
+  const at = cur ? units.indexOf(cur) : -1;
+  return { units, active: Math.max(0, at >= 0 ? at : units.length - 1) };
+}
+
+/**
+ * What a change is told by, against the same when the builder opened: the golden picked, and each
+ * unit that differs from the file, so neither the golden a check follows nor a rule only opened is one.
+ */
+export const snapOf = (picked: string | null, s: Units): string => JSON.stringify([picked, s.units.filter((u) => !u.orig || u.gone || !same(u.f, u.orig)).map((u) => [u.orig, u.f, u.gone])]);
+
+/** The checks a golden has now: its entry's `expect`, a pattern's for a pattern key. */
+export const baseOf = (g: GoldenEntry | null): Fragment | null => (g && isObject(g.entry) && isObject(g.entry.expect) ? g.entry.expect : null);
+
+/** Where a save writes: the golden's exact key with its entry, else a key of its own, a pattern's other keys copied (Q8). */
+export function entryOf(g: GoldenEntry): { key: string; before: unknown; from: unknown } {
+  if (g.key && !g.pattern) return { key: g.key, before: g.entry, from: g.entry };
+  return { key: g.path, before: null, from: g.pattern ? g.entry : null };
+}
+
+/** How many judges a draft asks: under `judge`, and as a condition's `then`. */
+export function judgesIn(draft: Fragment | null): number {
+  if (!draft) return 0;
+  const own = Array.isArray(draft.judge) ? draft.judge.length : 0;
+  const then = Array.isArray(draft.when) ? draft.when.filter((w) => isObject(w) && isObject(w.then) && w.then.judge !== undefined).length : 0;
+  return own + then;
+}
+
+/** Beside other rules, a judge isn't counted: a recording holds no verdict for a judge it never asked. When its verdicts get recorded (Q24). */
+export function judgesNote(n: number, fork: boolean): PreviewNote | null {
+  if (!n) return null;
+  const who = n === 1 ? 'Its judge isn’t counted' : `Its ${n} judges aren’t counted`;
+  return { text: `${who}: ${fork ? 'its verdicts are recorded in the golden’s next test’s attempts' : 'a recording holds no verdict for a new judge until the golden is packed or updated'}`, tone: 'grey' };
+}
+
+/** Against your recordings' notes in their order: the server's (amber, as the CLI's `! ` notes), the run it is made from, the golden's own recording, then the judges'. */
+export function previewNotes(p: CheckPreview, o: { golden: string | null; failedItsCheck: boolean; judges: number; fork: boolean }): PreviewNote[] {
+  const g = o.golden ? (p.goldens.find((x) => x.path === o.golden) ?? null) : null;
+  const notes: Array<PreviewNote | null> = [...p.notes.map((text) => ({ text, tone: 'amber' as const })), madeFromNote(p.madeFrom, o.failedItsCheck), goldenNote(g), judgesNote(o.judges, o.fork)];
+  return notes.filter((n): n is PreviewNote => !!n);
+}
+
+/** A judge added or changed in this session: a replay golden's next offline test reads it inconclusive until Update golden asks it. */
+export const judgeAdded = (units: readonly Unit[]): boolean => units.some((u) => !!u.f && 'judge' in u.f && !same(u.f, u.orig));

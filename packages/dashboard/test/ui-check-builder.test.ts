@@ -2,7 +2,20 @@ import { describe, expect, it } from 'vitest';
 import type { CheckContext, GoldenEntry, PreviewGolden, PreviewRow } from '../ui/checks-api.js';
 import {
   EMPTY_JSON,
+  addBlank,
   blankUnit,
+  editAt,
+  entryOf,
+  goldenLead,
+  judgeAdded,
+  judgesIn,
+  judgesNote,
+  keepAt,
+  previewNotes,
+  removeAt,
+  snapOf,
+  titleOf,
+  withGolden,
   changeLines,
   checkCommand,
   fileUnit,
@@ -26,6 +39,7 @@ import {
   type Rule,
   type RuleContext,
   type Unit,
+  type Units,
 } from '../ui/checks/model.js';
 
 /**
@@ -315,5 +329,88 @@ describe('against your recordings', () => {
     expect(c.full).toBe(`shadowlap check ${ids.join(' ')} --expect '{"tools":{"a":0}}'`);
     expect(c.view).toMatch(/^shadowlap check \S+ \S+ \S+ … --expect /);
     expect(c.more).toBe('and 1 more recordings by id, all in its copy');
+  });
+});
+
+describe('the builder’s head', () => {
+  it('names the golden it adds to or changes, and only a check from a call names the call (Q18)', () => {
+    expect(titleOf(null, { edit: false, fromCall: true })).toBe('Add check');
+    expect(titleOf('goldens/refund-flow', { edit: false, fromCall: true })).toBe('Add check');
+    expect(titleOf('goldens/refund-flow', { edit: false, fromCall: false })).toBe('Add check to refund-flow');
+    expect(titleOf('goldens/refund-flow', { edit: true, fromCall: false })).toBe('Edit check of refund-flow');
+    expect(goldenLead('goldens/refund-flow', false)).toBe('Adds a check to refund-flow, judged on your recordings as you build it.');
+    expect(goldenLead('goldens/refund-flow', true)).toBe('Changes refund-flow’s check, judged on your recordings as you build it.');
+    expect(goldenLead(null, false)).toBe('Makes a check, judged on your recordings as you build it.');
+  });
+});
+
+describe('the list’s actions', () => {
+  const file = (n: number): Unit[] => Array.from({ length: n }, (_, i) => fileUnit({ tools: { [`t${i}`]: 0 } }));
+  const fresh = withRule(blankUnit(), { kind: 'never', tool: 'issue_refund', args: [] });
+
+  it('opens a check in the editor, crosses out one the file holds with Keep, and drops one of this session', () => {
+    const s: Units = { units: [...file(2), fresh], active: 2 };
+    const edited = editAt(s, 0);
+    expect(edited.active).toBe(0);
+    expect(edited.units[0].rule).toEqual({ kind: 'never', tool: 't0', args: [] });
+    const gone = removeAt(edited, 0);
+    expect(gone.units[0].gone).toBe(true);
+    expect(gone.active).toBe(1);
+    expect(keepAt(gone, 0).units[0].gone).toBe(false);
+    const dropped = removeAt({ units: [...file(1), fresh, ...file(1)], active: 2 }, 1);
+    expect(dropped.units).toHaveLength(2);
+    expect(dropped.active).toBe(1);
+  });
+
+  it('adds one blank rule at a time, and keeps the rules being built when the golden changes', () => {
+    const s = addBlank({ units: file(1), active: 0 });
+    expect(s).toEqual({ units: [...file(1), blankUnit()], active: 1 });
+    expect(addBlank(s)).toBe(s);
+    const moved = withGolden({ units: [...file(2), fresh], active: 2 }, { tools: { send_email: 0 } });
+    expect(moved.units.map((u) => u.f)).toEqual([{ tools: { send_email: 0 } }, fresh.f]);
+    expect(moved.active).toBe(1);
+  });
+
+  it('tells a change by the golden picked and the units that differ from the file, never by a rule only opened', () => {
+    const s: Units = { units: [...file(2), fresh], active: 2 };
+    expect(snapOf(null, editAt(s, 0))).toBe(snapOf(null, s));
+    expect(snapOf(null, withGolden(s, { tools: { other: 1 } }))).toBe(snapOf(null, s));
+    expect(snapOf('goldens/a', s)).not.toBe(snapOf(null, s));
+    expect(snapOf(null, removeAt(s, 0))).not.toBe(snapOf(null, s));
+  });
+});
+
+describe('where a save writes', () => {
+  const g = (o: Partial<GoldenEntry>): GoldenEntry => ({ path: 'goldens/refund-flow', key: null, pattern: false, mode: { label: 'replay', hint: '' }, runId: null, inStore: false, entry: null, error: null, ...o });
+
+  it('keeps the exact key as spelled, and gives a golden a pattern holds an entry of its own with the pattern’s keys (Q8)', () => {
+    expect(entryOf(g({ key: './goldens/refund-flow', entry: { expect: {} } }))).toEqual({ key: './goldens/refund-flow', before: { expect: {} }, from: { expect: {} } });
+    expect(entryOf(g({ key: 'goldens/refund-*', pattern: true, entry: { runs: 3 } }))).toEqual({ key: 'goldens/refund-flow', before: null, from: { runs: 3 } });
+    expect(entryOf(g({}))).toEqual({ key: 'goldens/refund-flow', before: null, from: null });
+  });
+});
+
+describe('a judge beside other rules', () => {
+  const judge = { name: 'explains', question: 'Does it explain?' };
+
+  it('counts the judges a draft asks, which no recording holds a verdict of (Q24)', () => {
+    expect(judgesIn({ tools: { a: 0 }, judge: [judge], when: [{ if: { tool: 'x' }, then: { judge: [judge] } }, { if: { tool: 'y' }, then: { tools: { b: 0 } } }] })).toBe(2);
+    expect(judgesIn(null)).toBe(0);
+    expect(judgesNote(0, false)).toBeNull();
+    expect(judgesNote(1, false)).toEqual({ text: 'Its judge isn’t counted: a recording holds no verdict for a new judge until the golden is packed or updated', tone: 'grey' });
+    expect(judgesNote(2, true)?.text).toBe('Its 2 judges aren’t counted: its verdicts are recorded in the golden’s next test’s attempts');
+    expect(judgeAdded([fileUnit({ judge: [judge] })])).toBe(false);
+    expect(judgeAdded([withRule(blankUnit(), { kind: 'judge', name: 'explains', question: 'Does it explain?', of: 'answer', model: 'claude-haiku-4-5', pass: 'yes' })])).toBe(true);
+  });
+
+  it('orders the notes: the server’s in amber, then the run it is made from, the golden’s own recording and the judges', () => {
+    const row = (outcome: PreviewRow['outcome'], runId: string): PreviewRow => ({ runId, labels: [], outcome, na: false, why: ['why'], checks: [] });
+    const golden: PreviewGolden = { path: 'goldens/refund-flow', runId: 'gold-0123456789', row: row('failed', 'gold-0123456789'), tools: [], error: null };
+    const notes = previewNotes(
+      { total: 1, judged: [], counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, notes: ['Fails 1 recording labelled good: run-a'], tools: [], goldens: [golden], madeFrom: row('passed', 'run-0123456789') },
+      { golden: 'goldens/refund-flow', failedItsCheck: true, judges: 1, fork: false },
+    );
+    expect(notes.map((n) => n.tone)).toEqual(['amber', 'amber', 'amber', 'grey']);
+    expect(notes.map((n) => n.text.split(':')[0])).toEqual(['Fails 1 recording labelled good', 'Passes run-012345, the run it is made from, which failed its check', 'Fails refund-flow’s own recording, gold-01234', 'Its judge isn’t counted']);
   });
 });
