@@ -78,16 +78,18 @@ export function useMedia(query: string): boolean {
 
 /**
  * A pane that scrolls and holds no control of its own takes the focus, so the keyboard can scroll it
- * too (a dialog's body, the shortcuts on a phone), and only while it scrolls: one that fits is no
- * stop. Measured after every render and as the window or the pane changes size.
+ * too (a dialog's body, the shortcuts on a phone, a results matrix's band, which scrolls sideways:
+ * `axis` 'x'), and only while it scrolls: one that fits is no stop. Measured after every render and
+ * as the window or the pane changes size.
  */
-export function useScrollStop(ref: RefObject<HTMLElement | null>): void {
+export function useScrollStop(ref: RefObject<HTMLElement | null>, axis: 'x' | 'y' = 'y'): void {
   const set = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    if (el.scrollHeight > el.clientHeight + 1 && !tabbables(el).length) el.tabIndex = 0;
+    const scrolls = axis === 'x' ? el.scrollWidth > el.clientWidth + 1 : el.scrollHeight > el.clientHeight + 1;
+    if (scrolls && !tabbables(el).length) el.tabIndex = 0;
     else if (el.getAttribute('tabindex') === '0') el.removeAttribute('tabindex');
-  }, [ref]);
+  }, [ref, axis]);
   useLayoutEffect(set);
   useEffect(() => {
     if (!ref.current || typeof ResizeObserver !== 'function') return;
