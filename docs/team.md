@@ -328,6 +328,8 @@ Applied is each machine's own. A fix is applied in a working tree: one applied o
 shadowlap test goldens/* --push
 ```
 
+The report names the CI the session ran in. `shadowlap pull` keeps the newest one a CI job pushed, which the dashboard's Settings → CI names under Your workflow (*Last seen in CI*). A person's own `--push`, and a pull request's job, are left out of it.
+
 ### CI's credentials
 
 CI needs its own access to the bucket. `shadowlap store ci --provider github|gitlab|other` prints a step that uses short-lived credentials (OIDC) wherever the CI and the cloud allow it: an AWS role, Google workload identity federation or an Azure federated credential. So no key is stored in CI.

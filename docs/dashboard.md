@@ -1245,7 +1245,8 @@ Each part has its switch in its panel's header: **Pull request comment**, **Fix 
 **Your workflow** is the repository's file with only the lines the switches own changed, or the switches' own file when there is none. The panel shows:
 
 - how it stands: *The same as your repository's* file, *Not in your repository yet.*, or *8 lines added and 1 line taken out against your repository's file.*;
-- the last test session, as *The last test session, d2e8a1f at 10:02: 2 of 7 goldens passed · 3 failed, 2 inconclusive.*;
+- the test session last seen: the newest one CI pushed to the [team store](./team.md#push-from-ci), once a pull brings it, else the last one here that ran every golden;
+- that session's line, as *Last seen in CI, d2e8a1f at 10:02: 2 of 7 goldens passed · 3 failed, 2 inconclusive*, or for one here *The last test session, …*;
 - **Show workflow**, the whole file with each line it adds (`+`) or takes out (`−`) marked, and **Copy workflow**;
 - its Team store row, which says how Push from CI stands and leads to Settings → Store.
 
@@ -2375,7 +2376,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 **Your workflow** (`/api/ci/workflows`) takes its options: `comment`, `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. An option left out is what the repository's workflow sets. It answers with:
 
 - the repository's workflow (`file`), whether it `exists`, the `version` read, and why Write file waits (`problem`);
-- one job that runs the goldens once (`workflow`): the whole file (`text`), its `lines` marked against the repository's, how many are `added` and `removed`, whether it is the `same`, its hash (`shown`), and the last test `session`;
+- one job that runs the goldens once (`workflow`): the whole file (`text`), its `lines` marked against the repository's, how many are `added` and `removed`, whether it is the `same`, its hash (`shown`), and the test `session` last seen, with `ci` when CI pushed it;
 - for each part, what it needs and a preview of what lands;
 - what Gates sends (`gates`): the config's `suiteRisk`, and the goldens on each kind's defaults (`uses`).
 
