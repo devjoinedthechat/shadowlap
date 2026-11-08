@@ -1,6 +1,7 @@
-import { checkWords, failedCheckLabels, fixCost, type FixRecords, fixRecords, type FixStatus, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
+import { checkWords, failedCheckLabels, fixCost, type FixRecords, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
 import { fixActions } from './fix-actions.js';
 import { fixLead, type FixLead } from './fix-lead.js';
+import { keptFixRecords } from './fix-records.js';
 import { type FixRow, openingTitles, rowOf } from './fix-list.js';
 import { type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, short, unblamedRuns } from './fix-shared.js';
 import { pulledPatchOf } from './fixes.js';
@@ -74,22 +75,6 @@ export interface FixesViewOptions {
   rewriteHere?: RewriteCheck | undefined;
   /** The most calls the about line reads, as the Overview's request reads them (`SUMMARY_CALLS_BUDGET`); every call when absent. */
   budget?: number | undefined;
-}
-
-/**
- * Every fix's records, read once for each change to fixes: the store's `fixes` counter moves whenever
- * a fix, a blame, a repair, a verdict or a pull request's state is written, so a page polled while
- * runs record parses no report again.
- */
-const recordsRead = new WeakMap<object, { n: number; records: FixRecords[] }>();
-
-function keptFixRecords(store: StoreOf<'activity' | 'fixes'>): FixRecords[] {
-  const n = store.changeCounts().fixes;
-  const kept = recordsRead.get(store);
-  if (kept && n !== undefined && kept.n === n) return kept.records;
-  const records = store.listFixes().map((f) => fixRecords(store, f));
-  if (n !== undefined) recordsRead.set(store, { n, records });
-  return records;
 }
 
 const bucketOf = (rung: FixRung, status: FixStatus): FixBucket => (status === 'open' ? 'open' : status === 'applied' || rung === 'merged' ? 'applied' : 'ready');
