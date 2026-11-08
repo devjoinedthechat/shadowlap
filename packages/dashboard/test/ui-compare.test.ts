@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answersSub, changedAnswers, changeCards, codeNote, compareFacts, comparingLive, diffTexts, madeBy, pickable, prefixCells, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
+import { answersSub, changedAnswers, changeCards, codeNote, compareFacts, comparingLive, diffTexts, endingParts, endWords, madeBy, pickable, prefixCells, prefixLine, samePlaces, shortSha } from '../ui/compare/model.js';
 import { compareTarget, defaultComparePair, type RunLike } from '../ui/runs.js';
 import { argPieces, cutPart, type ArgPiece } from '../ui/compare/args.js';
 import { wordMarks } from '../ui/json-diff.js';
@@ -55,6 +55,30 @@ describe("a row's arguments, as pieces a line breaks between", () => {
     expect(cutPart('x'.repeat(130))).toHaveLength(120);
     expect(cutPart('x'.repeat(130)).endsWith('…')).toBe(true);
     expect(cutPart('short')).toBe('short');
+  });
+});
+
+describe('the line a run', () => {
+  it('says its failures, its writes by what became of them, and how its turn ended, each part whole', () => {
+    const parts = endingParts({ failures: { status: 529, from: 19, to: 21 }, writes: [{ fate: null, tools: [{ tool: 'issue_refund', count: 2 }, { tool: 'add_note', count: 1 }] }, { fate: 'blocked', tools: [{ tool: 'send_email', count: 3 }] }], end: { kind: 'answered', callNo: 22 }, quit: false });
+    expect(parts).toEqual([
+      { kind: 'failures', words: 'HTTP 529 at #19–#21' },
+      { kind: 'writes', fate: null, tools: [{ tool: 'issue_refund', times: 'twice' }, { tool: 'add_note', times: null }] },
+      { kind: 'writes', fate: 'blocked', tools: [{ tool: 'send_email', times: '3 times' }] },
+      { kind: 'words', words: 'answered at #22' },
+    ]);
+    expect(endingParts({ failures: null, writes: [], end: { kind: 'none', callNo: null }, quit: false })).toEqual([
+      { kind: 'words', words: 'no write' },
+      { kind: 'words', words: 'no call' },
+    ]);
+  });
+
+  it('words each way a turn ends, an exit by its code where a test result kept it', () => {
+    expect(endWords({ kind: 'exited', callNo: 22, code: 1 })).toBe('exited 1 at #22');
+    expect(endWords({ kind: 'exited', callNo: 22, code: null })).toBe('exited with an error at #22');
+    expect(endWords({ kind: 'stopped', callNo: 19_976, status: 529 })).toBe('stopped at #19,976 on HTTP 529');
+    expect(endWords({ kind: 'ended', callNo: 4 })).toBe('ended at #4');
+    expect(endWords({ kind: 'running', callNo: 4 })).toBe('still running');
   });
 });
 
