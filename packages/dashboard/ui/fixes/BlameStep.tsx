@@ -239,7 +239,10 @@ function ProbeRow({ b, p, focus, open, onToggle, groups }: { b: BlameStep; p: Pr
           <Status tone={tone}>{word}</Status>
           {blamed ? (
             <>
-              {' '}
+              {/* a space a screen reader says, so the status and the mark are two words; the mark's margin shows it */}
+              <span className="srsp">
+                <span className="sr"> </span>
+              </span>
               <b className="bmk">blamed</b>
             </>
           ) : null}
