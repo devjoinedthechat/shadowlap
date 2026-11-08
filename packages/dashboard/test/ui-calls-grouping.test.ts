@@ -304,6 +304,21 @@ describe('Calls, grouped', () => {
     expect(rows()).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
+  it('gives the Tab stop back to the selection’s group once the selection moves on after a fold elsewhere', async () => {
+    await open(2);
+    const stops = () => r!.all('table.calls [data-fold][tabindex="0"]');
+    await r!.focus(item(2).querySelector('button.tgsum')!);
+    await r!.press('ArrowLeft');
+    expect(rows()).toEqual([1, 2, 3, 4]);
+    expect(stops()).toEqual([item(2).querySelector('button.tgsum')]);
+    // A tool call picked: the caret of the model call it sits under.
+    await r!.click(r!.one('table.calls tbody tr[data-call="3"]'));
+    expect(stops()).toEqual([caretOf(2)]);
+    // A call with no caret over it: its item's row.
+    await r!.click(r!.one('table.calls tbody tr[data-call="4"]'));
+    expect(stops()).toEqual([item(1).querySelector('button.tgsum')]);
+  });
+
   it('lists a filter’s matches flat, a folded group’s too, and groups them again with their folds once it is cleared', async () => {
     await open();
     await r!.click(item(2).querySelector('button.tgsum')!);

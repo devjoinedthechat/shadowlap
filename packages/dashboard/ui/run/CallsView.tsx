@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { claimCallFocus } from '../focus-manager.js';
 import type { CallRow } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
@@ -140,7 +140,7 @@ export function CallsTable({
           </th>
         </tr>
       </thead>
-      <tbody ref={win.listRef}>
+      <tbody ref={win.listRef} onFocus={rove.onFocus} onBlur={rove.onBlur}>
         {win.before ? <Spacer height={win.before} cols={cols} /> : null}
         {lines.slice(win.start, win.end).map((r, j) => {
           const at = win.start + j;
@@ -212,39 +212,55 @@ function firstDrawn(f: FoldIndex, lines: readonly Line[], start: number, end: nu
   return i !== undefined && i < end ? (foldOf(lines[i]!)?.key ?? null) : null;
 }
 
+/** The fold an element is the button of; null for anything else. */
+const foldButtonKey = (el: EventTarget | null): string | null => (el instanceof HTMLElement && el.matches('button[data-fold]') ? el.getAttribute('data-fold') : null);
+
 /**
  * The fold buttons, every group's row and every model call's caret, as one Tab stop between them:
- * the one last pressed or moved to, else the held row's, else the selected row's caret, else the
- * nearest group around the selection, else the first; the first drawn when that one's row isn't. On a
- * fold button, ↑ and ↓ move to the previous or next, Home and End to the first and the last, ← folds
- * and → opens, and the run's keys never see them. A fold lets go of the row the window was keeping in
- * view, so the list keeps its scroll and the caret stays under the pointer.
+ * the one with the focus (or moved to with a key), while the selection is the one it had then; else
+ * the held row's, else the selected row's caret, else the nearest group around the selection, else
+ * the first; the first drawn when that one's row isn't. So a fold elsewhere leaves the stop to the
+ * selection's group once the selection or the focus moves on. On a fold button, ↑ and ↓ move to the
+ * next or previous, Home and End to the first and the last, ← folds and → opens, and the run's keys
+ * never see them. A fold lets go of the row the window was keeping in view, so the list keeps its
+ * scroll and the caret stays under the pointer.
  */
 function useFoldStop(
   lines: readonly Line[],
   win: Windowed,
   o: { held: TraceGroup | null; selected: number | null; trace: Trace<ListedCall> | null; shown: (g: TraceGroup) => boolean; onFold: ((g: TraceGroup) => void) | null; head: RefObject<HTMLTableSectionElement | null>; table: RefObject<HTMLTableElement | null> },
 ) {
-  const [moved, setMoved] = useState<string | null>(null);
+  const [moved, setMoved] = useState<{ key: string; selected: number | null } | null>(null);
   const want = useRef<string | null>(null);
   const folds = useMemo(() => foldIndex(lines), [lines]);
   const { held, selected, trace } = o;
   const near = selected !== null && trace ? (trace.within.get(selected) ?? null) : null;
-  let stop = [moved, held?.key, selected !== null ? trace?.heads.get(selected)?.key : undefined].find((k) => !!k && folds.at.has(k)) ?? null;
+  const kept = moved?.selected === selected ? moved.key : null;
+  let stop = [kept, held?.key, selected !== null ? trace?.heads.get(selected)?.key : undefined].find((k) => !!k && folds.at.has(k)) ?? null;
   for (let g = near; !stop && g; g = g.parent) if (folds.at.has(g.key)) stop = g.key;
   const i = stop === null ? -1 : folds.at.get(stop)!;
   if (i < win.start || i >= win.end) stop = firstDrawn(folds, lines, win.start, win.end);
-  const now = useLatest({ lines, folds, shown: o.shown, onFold: o.onFold, show: win.show, release: win.release, head: o.head });
+  const now = useLatest({ lines, folds, selected, shown: o.shown, onFold: o.onFold, show: win.show, release: win.release, head: o.head });
   const toggle = useCallback(
     (g: TraceGroup) => {
       const n = now.current;
       if (!n.onFold) return;
       n.release();
-      setMoved(g.key);
       n.onFold(g);
     },
     [now],
   );
+  // The fold button that takes the focus is the stop; once the focus leaves the fold buttons, none is.
+  const onFocus = useCallback(
+    (e: FocusEvent<HTMLElement>) => {
+      const key = foldButtonKey(e.target);
+      if (key) setMoved({ key, selected: now.current.selected });
+    },
+    [now],
+  );
+  const onBlur = useCallback((e: FocusEvent<HTMLElement>) => {
+    if (!foldButtonKey(e.relatedTarget)) setMoved(null);
+  }, []);
   const onKey = useCallback(
     (e: KeyboardEvent<HTMLElement>, g: TraceGroup) => {
       if (e.metaKey || e.ctrlKey || e.altKey || !ROVE_KEYS.has(e.key)) return;
@@ -260,7 +276,7 @@ function useFoldStop(
       const to = order[e.key === 'Home' ? 0 : e.key === 'End' ? order.length - 1 : here + (e.key === 'ArrowDown' ? 1 : -1)];
       const next = to === undefined ? null : foldOf(n.lines[to]!);
       if (to === undefined || !next) return;
-      setMoved(next.key);
+      setMoved({ key: next.key, selected: n.selected });
       want.current = next.key;
       n.show(to, { head: n.head.current?.offsetHeight ?? 34 });
     },
@@ -274,7 +290,7 @@ function useFoldStop(
     b.focus({ preventScroll: true });
     want.current = null;
   });
-  return { stop, toggle, onKey };
+  return { stop, toggle, onKey, onFocus, onBlur };
 }
 
 /** The height of the rows not drawn, above or below those that are. */
