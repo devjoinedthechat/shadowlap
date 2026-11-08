@@ -49,11 +49,13 @@ function WorkflowState({ view }: { view: CiWorkflowsView }) {
   );
 }
 
-/** `The last test session, d2e8a1f at 10:02: 2 of 7 goldens passed · 3 failed, 2 inconclusive.`; with CI's own, `Last seen in CI, …`. */
+/**
+ * `The last test session, d2e8a1f at 10:02: 2 of 7 goldens passed · 3 failed, 2 inconclusive.`; with
+ * CI's own, `Last seen in CI, …`; a session with no revision says so, as Tests' line does: `no revision, just now`.
+ */
 export function sessionLine(s: CiSession, now = Date.now()): string {
-  const rev = s.revision ? (/^[0-9a-f]{8,}$/i.test(s.revision) ? s.revision.slice(0, 7) : s.revision) : null;
-  const justNow = now - s.at < 60_000;
-  const when = rev ? (justNow ? `${rev}, just now` : `${rev} at ${dayClock(s.at)}`) : justNow ? 'just now' : `at ${dayClock(s.at)}`;
+  const rev = s.revision ? (/^[0-9a-f]{8,}$/i.test(s.revision) ? s.revision.slice(0, 7) : s.revision) : 'no revision';
+  const when = now - s.at < 60_000 ? `${rev}, just now` : `${rev} at ${dayClock(s.at)}`;
   return `${s.ci ? 'Last seen in CI' : 'The last test session'}, ${when}: ${s.text}.`;
 }
 

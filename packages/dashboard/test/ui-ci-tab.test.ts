@@ -229,7 +229,9 @@ describe('Settings → CI', () => {
   it('words the last test session as it was seen, and CI’s own as Last seen in CI', () => {
     const now = Date.UTC(2026, 10, 8, 10, 2);
     expect(sessionLine({ ci: false, revision: 'd2e8a1f0c4b7', at: now - 20_000, text: '2 of 7 goldens passed' }, now)).toBe('The last test session, d2e8a1f, just now: 2 of 7 goldens passed.');
-    expect(sessionLine({ ci: true, revision: null, at: now - 5_000, text: '7 of 7 goldens passed' }, now)).toBe('Last seen in CI, just now: 7 of 7 goldens passed.');
+    // No revision says so, as Tests' session line does.
+    expect(sessionLine({ ci: true, revision: null, at: now - 5_000, text: '7 of 7 goldens passed' }, now)).toBe('Last seen in CI, no revision, just now: 7 of 7 goldens passed.');
+    expect(sessionLine({ ci: false, revision: null, at: now - 3_600_000, text: 'x' }, now)).toMatch(/^The last test session, no revision at .+: x\.$/);
     expect(sessionLine({ ci: false, revision: 'release-1', at: now - 3_600_000, text: 'x' }, now)).toMatch(/^The last test session, release-1 at .+: x\.$/);
   });
 
