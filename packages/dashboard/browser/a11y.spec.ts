@@ -373,6 +373,64 @@ test('a batch’s tickets are rows of their own, each named by what it was asked
   expect(await seriousViolations(page)).toEqual([]);
 });
 
+/** Until every page of a long run is read: the line that says how many are read is gone. */
+async function everyPageRead(page: Page): Promise<void> {
+  await expect(page.locator('main#view .toolbar[role="status"]')).toHaveCount(0, { timeout: 60_000 });
+}
+
+test.describe('on a tall window', () => {
+  // A ticket's thirty calls and the row after them drawn at once.
+  test.use({ viewport: { width: 1280, height: 2000 } });
+
+  test('j from a ticket’s last call opens the next ticket, and Home and End on a fold button reach the first ticket and the last', async ({ page }) => {
+    await openPage(page, `/run/${demoId('batch')}`, 'run');
+    await everyPageRead(page);
+    const items = page.locator('main#view table.calls tr.tgr button.tgsum');
+    // The first two folded, the third's last call sits right above the fourth's row.
+    for (const n of [0, 1]) {
+      await items.nth(n).click();
+      await expect(items.nth(n)).toHaveAttribute('aria-expanded', 'false');
+    }
+    const next = page.locator('main#view table.calls tbody tr[data-call] + tr.tgr');
+    await expect(next).toHaveCount(1);
+    const fourth = page.locator(`main#view table.calls tbody tr.tgr[data-fold="${(await next.getAttribute('data-fold')) ?? ''}"] button.tgsum`);
+    await expect(fourth).toHaveAttribute('aria-expanded', 'false');
+    const last = next.locator('xpath=preceding-sibling::tr[1]');
+    const n = Number(await last.getAttribute('data-call'));
+    expect(n).toBeGreaterThan(0);
+    await last.click();
+    await page.keyboard.press('j');
+    await expect(page.locator('main#view table.calls tbody tr[aria-selected="true"]')).toHaveAttribute('data-call', String(n + 1));
+    await expect(fourth).toHaveAttribute('aria-expanded', 'true');
+    await fourth.focus();
+    await page.keyboard.press('End');
+    await expect.poll(() => focusedLabel(page)).toMatch(/^button\.tgsum “New ticket T-9139 /);
+    await page.keyboard.press('Home');
+    await expect.poll(() => focusedLabel(page)).toMatch(/^button\.tgsum “New ticket T-9100 /);
+    expect(await page.locator('main#view table.calls [data-fold][tabindex="0"]').count()).toBe(1);
+  });
+});
+
+test('a batch fork’s ticket folded around the fork holds the selection, with the fork’s mark in its # cell', async ({ page }) => {
+  await openPage(page, `/run/${demoId('batchFork')}/906`, 'run');
+  await everyPageRead(page);
+  const fork = page.locator('main#view table.calls tbody tr[data-call="906"]');
+  await expect(fork).toHaveAttribute('aria-selected', 'true');
+  // Ticket 31's row, the nearest group row above the fork.
+  const key = await fork.locator('xpath=preceding-sibling::tr[contains(concat(" ", @class, " "), " tgr ")][1]').getAttribute('data-fold');
+  const ticket = page.locator(`main#view table.calls tbody tr.tgr[data-fold="${key ?? ''}"]`);
+  await expect(ticket.locator('button.tgsum')).toHaveAttribute('aria-label', /^New ticket T-9130 /);
+  await expect(ticket.locator('td.n .fk')).toHaveCount(0);
+  await ticket.locator('button.tgsum').click();
+  await expect(ticket.locator('button.tgsum')).toHaveAttribute('aria-expanded', 'false');
+  await expect(ticket).toHaveClass('tgr held');
+  await expect(ticket.locator('td.n .fk')).toHaveText('fork');
+  // The selection stays on the fork: the address names it, and no call row is selected in its place.
+  expect(new URL(page.url()).hash).toMatch(/\/906$/);
+  await expect(page.locator('main#view table.calls tbody tr[aria-selected="true"]')).toHaveCount(0);
+  expect(await seriousViolations(page)).toEqual([]);
+});
+
 test('what a run did that Shadowlap did not record is among its findings, with no serious axe violation', async ({ page }) => {
   // The eval's agent hands the policy check to a function it never wrapped: the model called it, and nothing recorded it.
   await openPage(page, `/run/${demoId('eval')}`, 'run');
