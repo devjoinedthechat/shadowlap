@@ -315,7 +315,8 @@ function endOf<C extends TraceCall>(t: Tally<C>, live: boolean, newest: number):
   const { last, model } = t;
   const ended = !!model && model === last && model.outcome === 'ok' && !model.asks?.length;
   if (live && last?.callNo === newest && !ended) return { text: 'in progress', progress: true };
-  if (model?.outcome === 'error') return { text: `${typeof model.status === 'number' && model.status >= 400 ? `HTTP ${model.status}` : (model.error ?? 'failed')} at #${model.callNo}`, err: true };
+  // A model call that failed, in its row's words (calls.ts callDetail): its HTTP status, else its error.
+  if (model?.outcome === 'error') return { text: `${model.status ? `HTTP ${model.status}` : (model.error ?? 'error')} at #${model.callNo}`, err: true };
   return t.said?.resultShort ? { text: t.said.resultShort } : null;
 }
 

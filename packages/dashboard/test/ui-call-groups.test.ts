@@ -106,11 +106,14 @@ describe('the trace: a batch’s items', () => {
   });
 
   it('says how each ended: its answer, the model call that failed, or in progress while the run records it', () => {
-    const calls = [...ticket(1, 1, { end: { outcome: 'error', status: 529, resultShort: null } }), ...ticket(2, 5, { end: { outcome: 'error', status: null, error: 'Error: socket hang up', resultShort: null } }), ...ticket(3, 9).slice(0, 3)];
+    const failed = (k: number, at: number, end: Partial<T>) => ticket(k, at, { end: { outcome: 'error', resultShort: null, ...end } });
+    const calls = [...failed(1, 1, { status: 529 }), ...failed(2, 5, { status: null, error: 'Error: socket hang up' }), ...failed(3, 9, { status: null, error: null }), ...ticket(4, 13).slice(0, 3)];
     const tr = traceOf(calls, { live: true });
-    expect([1, 5, 9].map((n) => pathOf(tr, n)[0].end)).toEqual([
+    // A failed model call in its row's words: its HTTP status, else its error, else `error`.
+    expect([1, 5, 9, 13].map((n) => pathOf(tr, n)[0].end)).toEqual([
       { text: 'HTTP 529 at #4', err: true },
       { text: 'Error: socket hang up at #8', err: true },
+      { text: 'error at #12', err: true },
       { text: 'in progress', progress: true },
     ]);
   });
