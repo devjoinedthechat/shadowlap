@@ -335,5 +335,8 @@ describe('the trace’s rules', () => {
     expect(decl('table.calls .tcaret::before', 'inset', 'pointer: coarse')).toBe('-3px -5px');
     expect(decl('table.calls tbody tr.held td', 'background')).toBe('var(--sel)');
     expect(decl('table.calls tbody tr.held td:first-child', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
+    // Folded, a fold button's caret turns; a row's fork button, aria-expanded for its menu, keeps its icon upright.
+    const turned = rules.filter((x) => x.decls.some(([p, v]) => p === 'transform' && v.startsWith('rotate'))).flatMap((x) => x.selectors.filter((s) => s.startsWith('table.calls')));
+    expect(turned).toEqual(['table.calls :is(.tcaret, .tgsum)[aria-expanded="false"] > svg']);
   });
 });

@@ -225,7 +225,6 @@ table.calls .res { display: block; margin: 1px 0 0 37px; font: 11px var(--mono);
 table.calls .res.err { color: var(--err); }
 /* a blocked write's result in the blocked grey, as its origin is: the fence is Shadowlap working, never the red of what failed */
 table.calls .res.blk { color: var(--o-block); }
-/* light grouping: a call under the call it belongs to, its fold mark in the room before its kind */
 /* The trace, lightly grouped: a call a step in under the model call that asked for it, a sub-agent's and a batch item's calls
    under a row that names them. A group folds at its caret, which hangs in the step before the kind, so a level's kinds stand
    in one column; folded, the caret turns to point at the row. A step is 16px and the caret's slot 16px. */
@@ -233,7 +232,8 @@ table.calls.grouped td.name, table.calls td.tgc { padding-left: calc(26px + var(
 table.calls .tcaret { display: inline-grid; place-items: center; width: 16px; height: 18px; margin: 0 0 0 -16px; padding: 0; vertical-align: -4px; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; }
 table.calls .tcaret:hover, table.calls tr.tgr:hover .tcr { color: var(--ink); }
 table.calls .tcaret svg { width: 10px; height: 10px; transition: transform .15s; }
-table.calls [aria-expanded="false"] > svg { transform: rotate(-90deg); }
+/* only a fold button's caret turns: a row's fork button is aria-expanded too, for its menu */
+table.calls :is(.tcaret, .tgsum)[aria-expanded="false"] > svg { transform: rotate(-90deg); }
 /* A group's row: its caret and its name, then what its calls were in the key's words; how it ended under them, as a result
    reads under its call. Neither line takes width of its own, so a long input never widens the table: each is fitted. */
 table.calls .tgsum { contain: inline-size; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; width: calc(100% + 16px); margin: 0 0 0 -16px; padding: 0; overflow: hidden; border: 0; background: none; font: 500 13.5px var(--body); color: var(--ink); text-align: left; cursor: pointer; }
