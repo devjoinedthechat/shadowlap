@@ -89,7 +89,7 @@ describe('the colour tokens', () => {
 
 describe('where a call’s answer came from', () => {
   /** Every cell, bar and swatch an origin is drawn in. */
-  const MARKS = ['.cells button', '.ms i', '.gs i', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org'];
+  const MARKS = ['.cells button', '.ms i', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org'];
   const mark = (m: string, o: string) => (m === '.org' ? '.org.' + o + ' i' : `${m}.${o}`);
 
   it('draws a recording’s calls by kind in the kind’s own token, in the strip, its key and the Timeline alike', () => {
@@ -124,7 +124,7 @@ describe('where a call’s answer came from', () => {
 
   it('draws a prompt’s cache reads in the quiet neutral, in the Context chart and the Overview’s cache bar alike', () => {
     expect(value(':root', '--c-read')).toBe('color-mix(in srgb, var(--ink) 40%, var(--panel))');
-    expect(value('.ovc .segbar i.rep', 'background')).toBe('var(--c-read)');
+    expect(value('.segbar i.cread', 'background')).toBe('var(--c-read)');
   });
 });
 
@@ -308,6 +308,7 @@ describe('amber', () => {
     '.evl .ed.y': 'an attempt the provider cut short, counted against either verdict, never the agent’s failure',
     '.evl .ed.end.y': 'the last point of a gate’s evidence line that ran out between its bounds',
     '.glyph.fixinc': 'a fix whose verify couldn’t decide',
+    '.glyph.retire': 'a model the goldens use that retires',
     '.glyph.amb': 'an event that couldn’t decide, stopped or needs a look, whatever its shape',
     '.pips i.unsure': 'an attempt that couldn’t decide',
     '.pips i.part': 'an attempt that partly passed: inconclusive',
@@ -323,6 +324,7 @@ describe('amber', () => {
     '.tag.inc': 'an inconclusive status chip',
     '.wib.y .iv': 'a gate’s bound that can’t yet say pass or fail',
     '.run .r2 em.inc': 'a run that came out inconclusive',
+    '.rrow .rr2 em.inc': 'a recent run that came out inconclusive',
     'table.runst .rline em.inc': 'a run that came out inconclusive',
     '.banner.inc': 'a run that came out inconclusive',
     '.banner.inc .bk': 'a run that came out inconclusive',
@@ -435,9 +437,6 @@ describe('grounds, tints and lines', () => {
   };
   /** Tints the design drops with the part they draw, each with the slice that does. */
   const UNTIL: Record<string, string> = {
-    '.dp': 'port/overview: the delta pills go with the KPI tiles',
-    '.dp.good': 'port/overview: the delta pills go with the KPI tiles',
-    '.fstep .fb': 'port/overview: a fix step’s share goes with the Overview’s Fixes card',
     '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
   };
 
@@ -465,7 +464,7 @@ describe('forced colours', () => {
   }
 
   it('keeps the colour of every mark that says something by its colour alone, edged so it shows on any ground', () => {
-    const marks = ['.cells button', '.ms', '.gs', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw'];
+    const marks = ['.cells button', '.ms', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw'];
     for (const s of marks) expect(forced.get(s)?.get('forced-color-adjust'), s).toBe('none');
   });
 

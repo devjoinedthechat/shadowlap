@@ -61,6 +61,8 @@ export interface RunListExtras {
   /** The run an attempt is bundled under, and what made it one (`repeat`, `probe`, `verify`). */
   attemptOf?: string | null;
   attemptKind?: string | null;
+  /** The fork blame rescued a run with: the run it rescued. A run of its own, though blame made it as a probe. */
+  rescues?: string | null;
   /** Where blame found the run lost: `range`, the two calls it was lost around or between, when no one call is pinned. */
   blame?: { callNo: number | null; range?: { from: number; to: number; gradual?: true } | null } | null;
   /** Where blame found the run was lost, as the Runs table's rows say it. */
@@ -470,7 +472,7 @@ export interface StaticPayload {
 // ---- overview-runs: the Overview, the Runs page, imports and the team store -------------------
 // The server's own shapes, as its read models answer: nothing other parts of the API reshape.
 
-export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, RunGrid, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
+export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, LookStep, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
 export type { BulkSkip, ChipCounts, DayCount, DeleteResult, RunRow, RunsByDay, RunsPage, RunSort as ServerRunSort, RunType as ServerRunType } from '../src/runs-list.js';
 export type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
 export type { TraceSourceView } from '../src/routes/imports.js';

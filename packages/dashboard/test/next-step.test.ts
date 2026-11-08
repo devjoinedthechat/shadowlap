@@ -849,16 +849,17 @@ describe('a record a step can’t be read from', () => {
     expect(by.get(passed)?.key).toBe('pack');
   });
 
-  it('leaves its line in Needs a look as it was, where a run blame can’t take reads Open', () => {
+  it('leaves its row in Needs a look, with no step where blame can’t take the run or its record can’t be read', () => {
     const NOW = Date.now();
-    const noCall = recording(NOW - 2000, { status: 'failed', calls: 'b' });
-    const failed = recording(NOW - 1000, { status: 'failed' });
-    const action = (next: NextStepWork) => {
-      const items = overviewSummary(store, { tz: 'UTC', now: NOW, next }).needsLook.items;
-      return [noCall, failed].map((id) => items.find((i) => i.runId === id)?.action);
+    recording(NOW - 2000, { status: 'failed' });
+    const noCall = recording(NOW - 1000, { status: 'failed', calls: 'b' });
+    // One row stands for both, naming the newest, with Run blame only where its page leads with it: never on a record no step can be read from.
+    const step = (next: NextStepWork) => {
+      const row = overviewSummary(store, { tz: 'UTC', now: NOW, next }).needsLook.items.find((i) => i.kind === 'unblamed');
+      return [row?.runId, row?.step?.of === 'run' ? row.step.step.label : (row?.step ?? null)];
     };
-    expect(action(work([]))).toEqual(['Open', 'Run blame']);
-    expect(action(unreadable)).toEqual(['Run blame', 'Run blame']);
+    expect(step(work([]))).toEqual([noCall, null]);
+    expect(step(unreadable)).toEqual([noCall, null]);
   });
 
   it('leaves its page with no step, and the Replay beside it', async () => {

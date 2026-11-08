@@ -145,6 +145,27 @@ describe('the failed runs nobody has blamed', () => {
   });
 });
 
+describe('a capture its import judged failed', () => {
+  const judged = (verdict: 'failed' | 'passed') => ({ rules: 'r', at: 1, verdict, why: null, checks: verdict === 'failed' ? [{ status: 'failed', ok: false, label: 'every issue_refund call: amount <= 100', detail: 'amount was 240' }] : [] });
+  const capture = (verdict: 'failed' | 'passed', startedAt: number) => makeRun(store, { status: 'completed', startedAt, meta: { imported: { at: 1, from: '/work/cap.jsonl' }, covers: ['api'], judged: judged(verdict) }, calls: ['api'] });
+
+  it('is a failure nobody has blamed, as Runs counts it: what its import judged it failed, and Run blame on its page', () => {
+    const failed = capture('failed', 2_000);
+    capture('passed', 3_000);
+    const row = fixesView(store).unblamed!;
+    expect(row).toMatchObject({ count: 1, runId: failed, failed: 'every issue_refund call: amount <= 100, but amount was 240' });
+    // Its page leads with Run blame, which asks for your command first: the row opens it.
+    expect(row.next).toMatchObject({ key: 'blame', capture: true });
+    expect(needsLookFixes(store).filter((x) => x.kind === 'unblamed').map((x) => x.runId)).toEqual([failed]);
+  });
+
+  it('is none once blamed', () => {
+    const failed = capture('failed', 2_000);
+    recordBlame(store, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'every issue_refund call: amount <= 100', at: (at += DAY) });
+    expect(fixesView(store).unblamed).toBeNull();
+  });
+});
+
 describe('the step a fix leads with', () => {
   const actions = (o: Partial<FixActions> = {}): FixActions => ({ repair: null, apply: null, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null, ...o });
   const repair = { argv: ['repair'], command: 'shadowlap repair --fixes label:send_email', noFix: null, noFixWhy: null, candidates: 3, spent: false };

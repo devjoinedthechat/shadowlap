@@ -7,6 +7,7 @@ import { ACTIONS } from '../labels.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { lostWords } from '../../../engine/src/run-verdicts.js';
 import { pluralS as s, shortFixId, twoDigits as pad } from '../../../engine/src/words.js';
+import { FINISH_APPLYING, MARK_APPLIED } from '../../src/fix-lead-words.js';
 
 /**
  * How the Fixes pages read a fix: which rows a filter keeps, which step and verdict a URL opens, the
@@ -157,7 +158,7 @@ export function moreLine(m: Pick<VerifyMore, 'kind' | 'run' | 'max' | 'expected'
 }
 
 /** What the page's main button does, if anything: repair an open fix, apply a verified one, finish an apply, or nothing. */
-export type FixAction = { kind: 'repair' } | { kind: 'apply'; label: typeof ACTIONS.applyFix.label | 'Mark applied' | 'Finish applying' } | { kind: 'applied' } | { kind: 'none'; label: typeof ACTIONS.runRepair.label | typeof ACTIONS.applyFix.label; why: string };
+export type FixAction = { kind: 'repair' } | { kind: 'apply'; label: typeof ACTIONS.applyFix.label | typeof MARK_APPLIED | typeof FINISH_APPLYING } | { kind: 'applied' } | { kind: 'none'; label: typeof ACTIONS.runRepair.label | typeof ACTIONS.applyFix.label; why: string };
 
 export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
   if (f.status === 'open') return f.actions.repair ? { kind: 'repair' } : { kind: 'none', label: ACTIONS.runRepair.label, why: 'None of its failing runs is left in the store, so there is nothing to repair from here.' };
@@ -166,9 +167,9 @@ export function fixAction(f: Pick<FixDetail, 'status' | 'actions'>): FixAction {
   if (f.actions.applied && !apply.pending) return { kind: 'applied' };
   // More than the one rewrite its repair verified: fix apply won't put it in, so neither does the button.
   if (apply.refused) return { kind: 'none', label: ACTIONS.applyFix.label, why: `This patch is not the change its repair verified: ${apply.refused}. Nothing applies it from here.` };
-  if (f.actions.applied) return { kind: 'apply', label: 'Finish applying' };
+  if (f.actions.applied) return { kind: 'apply', label: FINISH_APPLYING };
   // Its patch is in the working tree already (merged, or applied by hand): applying only marks it applied.
-  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? 'Mark applied' : ACTIONS.applyFix.label };
+  return { kind: 'apply', label: apply.kind === 'mark' || apply.inTree ? MARK_APPLIED : ACTIONS.applyFix.label };
 }
 
 /**

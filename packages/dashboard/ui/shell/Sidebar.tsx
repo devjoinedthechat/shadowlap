@@ -210,7 +210,7 @@ export const RecentRuns = memo(function RecentRuns({ runs, current, loading, row
  * to its word, its `.sgw` part going ("check failed" keeps "failed", "lost at #9" keeps "lost"),
  * then altogether, the row's icon still saying it.
  */
-function SideStatus({ st }: { st: { text: string; tone: 'err' | 'warn' | null } }) {
+export function SideStatus({ st }: { st: { text: string; tone: 'err' | 'warn' | null } }) {
   const p = statusGivesWay(st.text);
   const words = p ? (
     <>
