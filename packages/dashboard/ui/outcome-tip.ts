@@ -65,11 +65,13 @@ function divergedWhy(r: Pick<RunLike, 'divergence'>): string | null {
 }
 
 /**
- * How one comes to judge a run no check judges. A check is added from a tool call: until Add check…
- * is on the page, by packing the run as a golden with checks, or giving a golden of its family some.
+ * How one comes to judge a run no check judges. A check is added from a tool call, with Add check… in
+ * the inspector, or comes with the run packed as a golden. A capture offers no Add check…, so it is
+ * told where a golden's checks go.
  */
-function howToCheck(tools: number): string {
-  return tools ? 'Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.' : 'It made no tool call, and a check on calls reads them.';
+function howToCheck(tools: number, capture: boolean): string {
+  if (capture) return tools ? 'Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.' : 'It made no tool call, and a check on calls reads them.';
+  return tools ? 'Pick a tool call and use Add check… in the inspector, or pack the run as a golden with its checks.' : 'It made no tool call, and a check is added from one.';
 }
 
 /** How a run that failed by its agent's exit says so: with its code where it was one, on Runs and Fixes alike. */
@@ -101,6 +103,6 @@ export function outcomeTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf },
     case 'interrupted':
       return plain('Stopped before it ended', 'Ctrl-C, a kill or a crash: it stopped, and did not fail.');
     default:
-      return { title: 'No check applies to this run', sub: tools === null ? null : howToCheck(tools), rows: [], said: null };
+      return { title: 'No check applies to this run', sub: tools === null ? null : howToCheck(tools, !!r.source), rows: [], said: null };
   }
 }
