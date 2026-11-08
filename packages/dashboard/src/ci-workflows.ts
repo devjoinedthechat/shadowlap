@@ -1,22 +1,26 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import { judgeTarget, lostRange, lostWords, type StoreOf } from '@shadowlap/engine';
+import { judgeTarget, lostRange, lostWords, type DiffLine, type StoreOf } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
-import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, workflowNeeds, workflowYaml, type BucketCredentials, type LiveGoldens } from './ci-yaml.js';
+import { workflowState, type FileSwitches, type RepositoryWorkflow } from './ci-file.js';
+import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, COMMENT_NEED, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, REPAIRER, REPAIRERS, VERSION, WORKFLOW_FILE, workflowFile, type BucketCredentials, type LiveGoldens, type WorkflowFileSettings } from './ci-yaml.js';
 import { fixDetail, fixList, type FixDetail } from './fixes.js';
 import type { TeamStoreInput } from './team-store.js';
 import { liveReasons } from './tests-live.js';
 
 /**
  * The read model behind Settings → CI (`GET /api/ci/workflows`): your workflow, one job in which the
- * action runs the goldens once and the parts turned on follow it (a fix pull request, Slack), what
- * it needs, and for each part a preview of what lands, for the options the panels are set to. The
- * YAML comes from ci-yaml.ts, as docs/ci.md shows it; nothing here is stored, since the steps go
- * into the repository's own workflow file. Whether the step pushes is none of its options: it
- * follows Push from CI, read from shadowlap.config.json as Settings → Store reads it.
+ * action runs the goldens once and the parts turned on follow it (the pull request comment, a fix
+ * pull request, Slack), against the repository's own file, and for each part what it needs and a
+ * preview of what lands, for the options the panels are set to. The switches start from the
+ * repository's workflow (ci-file.ts), and Write file patches it (ci-patch.ts); the YAML comes from
+ * ci-yaml.ts, as docs/ci.md shows it. Whether the step pushes is none of its options: it follows
+ * Push from CI, read from shadowlap.config.json as Settings → Store reads it.
  */
 
 export interface CiWorkflowOptions {
+  /** The action's comment on each pull request is on; off, the step says `comment: false` and the verdict stays in the job summary. */
+  comment: boolean;
   /** Fix on failure is on: when it is off, the panel dims its settings and a failed check just fails the build. */
   fix: boolean;
   /** Alerts are on: the workflow tells Slack, then fails the job; off, its panel dims and the test step fails the job itself. */
@@ -33,7 +37,7 @@ export interface CiWorkflowOptions {
   inconclusive?: 'fail' | 'warn';
 }
 
-export const CI_DEFAULTS: CiWorkflowOptions = { fix: false, alerts: true, budget: '2.00', repairer: 'claude-code', onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
+export const CI_DEFAULTS: CiWorkflowOptions = { comment: true, fix: false, alerts: true, budget: '2.00', repairer: 'claude-code', onlyMain: true, secret: 'SLACK_WEBHOOK_URL' };
 
 /** A row of an "it needs" or "it never" list, or a failure with its tag: what it is, and the value on the right. */
 export interface CiListRow {
@@ -85,32 +89,68 @@ export interface CiTeamStore {
   lands: CiListRow[];
 }
 
+/** The newest test session the line under Your workflow names: CI's, with a team store, else this machine's newest full one. */
+export interface CiSession {
+  /** Seen in CI (the team store's newest report from CI), or this machine's own. */
+  ci: boolean;
+  revision: string | null;
+  at: number;
+  /** Its tally: `2 of 7 goldens passed · 3 failed, 2 inconclusive`, or `7 of 7 goldens passed`. */
+  text: string;
+}
+
 export interface CiWorkflowsView {
-  /** Where the steps go: `.github/workflows/agent.yml`. */
+  /** The repository's workflow: `.github/workflows/agent.yml`, or the other file there whose step uses the action. */
   file: string;
+  /** It is in the repository, read or not. */
+  exists: boolean;
+  /** `absent`, or the SHA-256 of its bytes as read: Write file names it (`expect`), and is refused once it changed. */
+  version: string;
+  /**
+   * Why Write file waits, as the tab says it: the project folder isn't its repository's root, the
+   * file can't be read or patched line by line, or the config can't be read. Null when it can
+   * write. Copy workflow has the whole file whichever.
+   */
+  problem: string | null;
   action: string;
   /**
    * Your workflow: one job, the action once (`id: goldens`), then the parts turned on (`fix`,
-   * `alerts`), pushing to the team store when Push from CI is on; what it needs for what is on, and
-   * what fails a golden in it.
+   * `alerts`), pushing to the team store when Push from CI is on, as the whole file Write file
+   * leaves, marked against the repository's.
    */
   workflow: {
+    comment: boolean;
     fix: boolean;
     alerts: boolean;
-    yaml: string;
+    /** The whole file: the repository's with only what the switches own changed, or the switches' own when there is none or it can't be patched. */
+    text: string;
+    /** `text` against the repository's file, a line each: kept, added (`+`) or taken out (`-`). */
+    lines: DiffLine[];
+    added: number;
+    removed: number;
+    /** No line differs from the repository's file: nothing to write. */
+    same: boolean;
+    /** The SHA-256 of `text`: Write file sends it back (`shown`), so it never writes a file other than the one the ask showed. */
+    shown: string;
+    /** The test session the line under the state names; null before the first. */
+    session: CiSession | null;
+  };
+  /** The action's comment on each pull request. */
+  comment: {
+    on: boolean;
+    /** What the panel says while it is off. */
+    offNote: string;
     needs: CiListRow[];
-    failures: CiListRow[];
   };
   fixOnFailure: {
     on: boolean;
     budget: string;
     repairer: string;
+    /** The budgets and repairers the selects offer, a value the repository's file sets among them. */
     budgets: Array<{ value: string; label: string }>;
     repairers: Array<{ value: string; label: string }>;
     /** What the panel says while it is off. */
     offNote: string;
-    /** Its step as a job of its own, as docs/ci.md shows it, and what that needs. */
-    yaml: string;
     needs: CiListRow[];
     never: CiListRow[];
     preview: PullRequestPreview;
@@ -126,8 +166,7 @@ export interface CiWorkflowsView {
     branch: string;
     /** The secret's name as GitHub allows it (letters, digits and `_`). */
     secret: string;
-    /** Its steps as a job of their own, as docs/ci.md shows them, and what they need. */
-    yaml: string;
+    /** What its steps need; the comment's row is the Pull request comment panel's. */
     needs: CiListRow[];
     /** What counts as a failure, each with its tag, and its tone. */
     failures: CiListRow[];
@@ -149,13 +188,35 @@ export interface CiWorkflowsView {
 }
 
 const BOOL: Record<string, boolean> = { on: true, off: false, true: true, false: false, '1': true, '0': false, yes: true, no: false };
-/** A repairer as `repair --repairer` takes it: a name, then `:<model>` if you like. */
-export const REPAIRER = /^(claude-code|anthropic|openai)(:[A-Za-z0-9._\-/]{1,80})?$/;
+export { REPAIRER };
 
-/** The panels' options from the query string; anything left out takes its default. */
-export function parseCiOptions(q: URLSearchParams): CiWorkflowOptions | { error: string } {
-  const out: CiWorkflowOptions = { ...CI_DEFAULTS };
-  for (const [key, name] of [['fix', 'fix'], ['alerts', 'alerts'], ['onlyMain', 'onlyMain']] as const) {
+/**
+ * The panels' options as the repository's workflow sets them, over the defaults: where the page's
+ * own changes start from. Push from CI is none of them (Q2), and a Slack branch is Only for the
+ * main branch.
+ */
+export function fileOptions(s: FileSwitches | null): CiWorkflowOptions {
+  if (!s) return { ...CI_DEFAULTS };
+  return {
+    ...CI_DEFAULTS,
+    comment: s.comment,
+    fix: s.fix,
+    ...(s.budget ? { budget: s.budget } : {}),
+    ...(s.repairer ? { repairer: s.repairer } : {}),
+    alerts: s.alerts,
+    onlyMain: s.onlyMain,
+    ...(s.secret ? { secret: s.secret } : {}),
+    inconclusive: s.inconclusive,
+  };
+}
+
+/**
+ * The panels' options from the query string; anything left out takes its value in `base`: the
+ * repository's workflow's (fileOptions), else the defaults.
+ */
+export function parseCiOptions(q: URLSearchParams, base: CiWorkflowOptions = CI_DEFAULTS): CiWorkflowOptions | { error: string } {
+  const out: CiWorkflowOptions = { ...base };
+  for (const [key, name] of [['comment', 'comment'], ['fix', 'fix'], ['alerts', 'alerts'], ['onlyMain', 'onlyMain']] as const) {
     const raw = q.get(key);
     if (raw === null || raw === '') continue;
     const v = BOOL[raw.toLowerCase()];
@@ -285,12 +346,7 @@ export function fixPreview(store: StoreOf<'recording' | 'readModels' | 'activity
 export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | null, unreadable = false): CiTeamStore {
   // The config names the store: while it can't be read, there is no telling whether the step pushes.
   if (unreadable) return { push: false, name: null, credentials: null, note: 'shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.', lands: [] };
-  let loc: StoreLocation | null;
-  try {
-    loc = input?.store ? parseStoreUrl(input.store) : null;
-  } catch {
-    loc = null;
-  }
+  const loc = storeLocation(input);
   if (!loc) return { push: false, name: null, credentials: null, note: 'None yet, so test runs and fixes stay in GitHub. With one, this follows Push from CI.', lands: [] };
   const push = input?.ciPush !== false;
   const credentials: BucketCredentials = ciStep('github', loc, { version: VERSION }).oidc ? 'oidc' : 'keys';
@@ -307,6 +363,21 @@ export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | nu
         ]
       : [],
   };
+}
+
+/** The team store the config names, or null when it names none or its URL can't be used. */
+function storeLocation(input: Pick<TeamStoreInput, 'store'> | null): StoreLocation | null {
+  try {
+    return input?.store ? parseStoreUrl(input.store) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The bucket's two sign-in steps for GitHub, as `shadowlap store ci` gives them (ciStep's `credentials`); null for R2's keys or no store. */
+function signInSteps(input: Pick<TeamStoreInput, 'store'> | null): string | null {
+  const loc = storeLocation(input);
+  return loc ? (ciStep('github', loc, { version: VERSION }).credentials ?? null) : null;
 }
 
 /** Where the project's git metadata is: its `.git` folder, or the one a worktree's `.git` file names. */
@@ -348,12 +419,13 @@ function defaultBranchOf(common: string): string | null {
 /**
  * The project's GitHub repository (`owner/repo`, from the `origin` remote, else the first remote on
  * github.com), the branch checked out, and the repository's default branch, read from its git files
- * without running git. Nulls when one can't be told.
+ * without running git. Nulls when one can't be told. `root`: the project folder has its own `.git`
+ * (a folder, or a worktree's file), so it is its repository's root, where GitHub reads the workflow.
  */
-export function gitFacts(project: string | null): { repository: string | null; branch: string | null; defaultBranch: string | null } {
-  if (!project) return { repository: null, branch: null, defaultBranch: null };
+export function gitFacts(project: string | null): { repository: string | null; branch: string | null; defaultBranch: string | null; root: boolean } {
+  if (!project) return { repository: null, branch: null, defaultBranch: null, root: false };
   const dir = gitDir(project);
-  if (!dir) return { repository: null, branch: null, defaultBranch: null };
+  if (!dir) return { repository: null, branch: null, defaultBranch: null, root: false };
   let branch: string | null = null;
   try {
     branch = /^ref:\s*refs\/heads\/(.+)$/m.exec(readFileSync(join(dir, 'HEAD'), 'utf8'))?.[1]?.trim() ?? null;
@@ -379,7 +451,7 @@ export function gitFacts(project: string | null): { repository: string | null; b
   } catch {
     // no config to read
   }
-  return { repository, branch, defaultBranch: defaultBranchOf(common) };
+  return { repository, branch, defaultBranch: defaultBranchOf(common), root: true };
 }
 
 /**
@@ -484,97 +556,175 @@ export function goldenProviders(project: string, goldens: ReadonlyArray<{ path: 
   });
 }
 
-/**
- * Both panels for the options given. `context` is what the store and the project say: the pull
- * request preview (null: the example), the goldens failing now (the Slack message's count, 1 when
- * none fail), when the tests last ran, the repository, the branch checked out and the default
- * branch (`main` when it can't be told), the goldens the steps replay, and the team store and
- * Push from CI as the config has them (readTeamStoreInput; none when left out).
- */
-export function ciWorkflows(
-  o: CiWorkflowOptions,
-  context: {
-    preview: PullRequestPreview | null;
-    failing: number;
-    at: number | null;
-    repository: string | null;
-    branch: string | null;
-    defaultBranch?: string | null;
-    recordings?: string;
-    teamStore?: Pick<TeamStoreInput, 'store' | 'ciPush'> | null;
-    /** What the goldens call, and which run live in CI (`goldenProviders`); unknown when left out. */
-    goldens?: readonly GoldenProviders[] | null;
-    /** Why shadowlap.config.json can't be read (its goldens' `tests`, its store and Push from CI with it), or null. */
-    configError?: string | null;
-  },
-): CiWorkflowsView {
-  const recordings = context.recordings ?? 'goldens/*';
+/** What the store and the project say, beyond the options: what ciWorkflows reads them from. */
+export interface CiContext {
+  /** The pull request preview: null for the example. */
+  preview: PullRequestPreview | null;
+  /** The goldens failing now: the Slack message's count, 1 when none fail. */
+  failing: number;
+  /** When the tests last ran. */
+  at: number | null;
+  repository: string | null;
+  /** The branch checked out, and the repository's default branch (`main` when it can't be told). */
+  branch: string | null;
+  defaultBranch?: string | null;
+  /** The goldens the steps replay. */
+  recordings?: string;
+  /** The team store and Push from CI as the config has them (readTeamStoreInput); none when left out. */
+  teamStore?: Pick<TeamStoreInput, 'store' | 'ciPush'> | null;
+  /** What the goldens call, and which run live in CI (`goldenProviders`); unknown when left out. */
+  goldens?: readonly GoldenProviders[] | null;
+  /** Why shadowlap.config.json can't be read (its goldens' `tests`, its store and Push from CI with it), or null. */
+  configError?: string | null;
+  /** The repository's workflow as read (repositoryWorkflow); none when left out. */
+  repo?: RepositoryWorkflow | null;
+  /** The project folder is its repository's root (`gitFacts`' `root`), where GitHub reads .github/workflows/ and Write file writes. */
+  root?: boolean;
+  /** The test session the line under Your workflow names. */
+  session?: CiSession | null;
+}
+
+/** What the options come to in this project: the goldens, their keys, the default branch, and Push from CI. */
+interface Settled {
+  recordings: string;
+  configError: string | null;
+  unreadable: boolean;
+  /** Every golden's keys, for blame and verify, and whether one's can't be named. */
+  keys: string[];
+  keysUnknown: boolean;
+  /** The goldens that run live in CI, for the test step itself. */
+  live: LiveGoldens | null;
+  /** The repository's default branch. */
+  main: string;
+  teamStore: CiTeamStore;
+  /** Push from CI's credentials when the step pushes; null when it doesn't. */
+  push: BucketCredentials | null;
+  /** The bucket's sign-in steps, for short-lived credentials. */
+  signIn: string | null;
+}
+
+function settle(context: CiContext): Settled {
   const goldens = context.goldens ?? null;
   const configError = context.configError ?? null;
   const unreadable = configError !== null;
-  // The keys every golden's agent calls with, for blame and verify; those of the goldens that run live, for the test step itself.
-  const keys = goldens ? [...new Set(goldens.flatMap((g) => g.keys))] : [];
-  const keysUnknown = !!goldens?.some((g) => !g.known);
   const live = goldens ? liveGoldens(goldens) : null;
-  const inconclusive = o.inconclusive ?? 'fail';
-  const main = context.defaultBranch || 'main';
-  const branch = o.onlyMain ? main : context.branch && context.branch !== main ? context.branch : 'your-branch';
-  const repo = context.repository ?? 'owner/repo';
-  const message = alertsMessage({ failed: Math.max(1, context.failing), branch, runUrl: `github.com/${repo}/actions/runs/…` });
   // With Push from CI on, the step pushes too and needs the bucket's credentials; off, it is as it was.
   const teamStore = ciTeamStore(context.teamStore ?? null, unreadable);
-  const push = teamStore.push ? teamStore.credentials : null;
-  const fixNeeds = fixOnFailureNeeds(o.repairer, push, keys, unreadable);
-  const alertNeeds = alertsNeeds(o.secret, live, unreadable);
   return {
-    file: WORKFLOW_FILE,
-    action: ACTION,
-    workflow: {
-      fix: o.fix,
-      alerts: o.alerts,
-      yaml: workflowYaml({
-        fix: o.fix ? { budget: o.budget, repairer: o.repairer } : null,
-        alerts: o.alerts ? { onlyMain: o.onlyMain, secret: o.secret, branch: main } : null,
-        push,
-        recordings,
-        ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}),
-        keys,
-        keysUnknown,
-        liveKeys: live?.keys ?? [],
-        liveKeysUnknown: !!live?.unknown,
-        unreadable,
-      }),
-      // What the parts turned on need; the goldens that run live need their keys whichever is on.
-      needs: rows(workflowNeeds({ fix: o.fix ? fixNeeds : null, alerts: o.alerts ? alertNeeds : alertNeeds.filter((r) => /runs? live|which goldens/.test(r[0])), push })),
-      failures: rows(alertFailures(inconclusive)),
-    },
-    fixOnFailure: {
-      on: o.fix,
-      budget: o.budget,
-      repairer: o.repairer,
-      budgets: FIX_BUDGETS.map((b) => ({ value: b, label: `$${Number(b)}` })),
-      repairers: REPAIRERS.map((r) => ({ ...r })),
-      offNote: 'Off: a failed check fails the build, and nobody opens a fix.',
-      yaml: fixOnFailureYaml({ budget: o.budget, repairer: o.repairer, recordings, push, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(keys.length ? { keys } : {}), ...(keysUnknown ? { keysUnknown } : {}), ...(unreadable ? { unreadable } : {}) }),
-      needs: rows(fixNeeds),
-      never: rows(fixOnFailureNever(o.budget)),
-      preview: context.preview ? { ...context.preview, base: main, spent: context.preview.spent.replace(/ of \$[\d.]+$/, ` of $${o.budget}`) } : examplePreview(o.budget, main),
-      teamStore,
-    },
-    alerts: {
-      on: o.alerts,
-      offNote: 'Off: Slack hears nothing, and a failed golden fails the build.',
-      onlyMain: o.onlyMain,
-      branch: main,
-      secret: alertsSecret(o.secret),
-      yaml: alertsYaml({ onlyMain: o.onlyMain, secret: o.secret, recordings, branch: main, ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}), ...(live?.keys.length ? { keys: live.keys } : {}), ...(live?.unknown ? { keysUnknown: true } : {}), ...(unreadable ? { unreadable } : {}) }),
-      needs: rows(alertNeeds),
-      failures: rows(alertFailures(inconclusive)),
-      inconclusive,
-      message: { app: 'GitHub Actions', text: message.text, link: message.link, at: context.at },
-    },
-    recordings,
-    repository: context.repository,
+    recordings: context.recordings ?? 'goldens/*',
     configError,
+    unreadable,
+    keys: goldens ? [...new Set(goldens.flatMap((g) => g.keys))] : [],
+    keysUnknown: !!goldens?.some((g) => !g.known),
+    live,
+    main: context.defaultBranch || 'main',
+    teamStore,
+    push: teamStore.push ? teamStore.credentials : null,
+    signIn: unreadable ? null : signInSteps(context.teamStore ?? null),
+  };
+}
+
+/**
+ * The whole file for these options, pushing with `push` and keeping Slack to `slackBranch`: what
+ * the switches build (Push from CI's credentials, the default branch), or what the repository's
+ * file was built for (its own `push:` and branch), the patch's base.
+ */
+function fileFor(o: CiWorkflowOptions, c: Settled, push: BucketCredentials | null, slackBranch: string): string {
+  const s: WorkflowFileSettings = {
+    fix: o.fix ? { budget: o.budget, repairer: o.repairer } : null,
+    alerts: o.alerts ? { onlyMain: o.onlyMain, secret: o.secret, branch: slackBranch } : null,
+    push,
+    comment: o.comment,
+    recordings: c.recordings,
+    ...(o.inconclusive ? { inconclusive: o.inconclusive } : {}),
+    keys: c.keys,
+    keysUnknown: c.keysUnknown,
+    liveKeys: c.live?.keys ?? [],
+    liveKeysUnknown: !!c.live?.unknown,
+    unreadable: c.unreadable,
+    branch: c.main,
+    credentials: push === 'oidc' ? c.signIn : null,
+  };
+  return workflowFile(s);
+}
+
+/** Write file writes only where GitHub reads the workflow: at the repository's root. */
+const NOT_ROOT = 'Write file writes only at a repository’s root, where GitHub reads .github/workflows/, and this project folder isn’t one.';
+/** Write file waits for the config: `recordings` and Push from CI come from it. */
+const CONFIG_UNREADABLE = 'shadowlap.config.json can’t be read: fix it before writing the workflow';
+
+/** The selects' values, with one the repository's file or the page sets that they don't offer, in order. */
+function offered(list: ReadonlyArray<{ value: string; label: string }>, extra: readonly string[], label: (v: string) => string, byNumber = false): Array<{ value: string; label: string }> {
+  const out = list.map((x) => ({ ...x }));
+  for (const v of extra) if (!out.some((x) => x.value === v)) out.push({ value: v, label: label(v) });
+  return byNumber ? out.sort((a, b) => Number(a.value) - Number(b.value)) : out;
+}
+
+function fixPart(o: CiWorkflowOptions, from: CiWorkflowOptions, c: Settled, context: CiContext): CiWorkflowsView['fixOnFailure'] {
+  return {
+    on: o.fix,
+    budget: o.budget,
+    repairer: o.repairer,
+    budgets: offered(
+      FIX_BUDGETS.map((b) => ({ value: b, label: `$${Number(b)}` })),
+      [from.budget, o.budget],
+      (b) => `$${Number(b)}`,
+      true,
+    ),
+    repairers: offered(REPAIRERS, [from.repairer, o.repairer], (r) => r),
+    offNote: 'Off: a failed check fails the build, and nobody opens a fix.',
+    needs: rows(fixOnFailureNeeds(o.repairer, c.push, c.keys, c.unreadable)),
+    never: rows(fixOnFailureNever(o.budget)),
+    preview: context.preview ? { ...context.preview, base: c.main, spent: context.preview.spent.replace(/ of \$[\d.]+$/, ` of $${o.budget}`) } : examplePreview(o.budget, c.main),
+    teamStore: c.teamStore,
+  };
+}
+
+function alertsPart(o: CiWorkflowOptions, c: Settled, context: CiContext): CiWorkflowsView['alerts'] {
+  const inconclusive = o.inconclusive ?? 'fail';
+  const branch = o.onlyMain ? c.main : context.branch && context.branch !== c.main ? context.branch : 'your-branch';
+  const repo = context.repository ?? 'owner/repo';
+  const message = alertsMessage({ failed: Math.max(1, context.failing), branch, runUrl: `github.com/${repo}/actions/runs/…` });
+  return {
+    on: o.alerts,
+    offNote: 'Off: a failed golden fails the job, and Slack hears nothing.',
+    onlyMain: o.onlyMain,
+    branch: c.main,
+    secret: alertsSecret(o.secret),
+    // The comment's row is the Pull request comment panel's.
+    needs: rows(alertsNeeds(o.secret, c.live, c.unreadable).filter((r) => r !== COMMENT_NEED)),
+    failures: rows(alertFailures(inconclusive)),
+    inconclusive,
+    message: { app: 'GitHub Actions', text: message.text, link: message.link, at: context.at },
+  };
+}
+
+/**
+ * Every panel for the options given (`o`: the page's changes over the repository's file's, as
+ * parseCiOptions reads them), with what the store and the project say (`context`). The file is
+ * patched from what the repository's was built for to what the switches build now, so its own
+ * lines stay; one that can't be patched, or none, gives the switches' own file.
+ */
+export function ciWorkflows(o: CiWorkflowOptions, context: CiContext): CiWorkflowsView {
+  const c = settle(context);
+  const repo = context.repo ?? null;
+  const switches = repo?.switches ?? null;
+  // What the repository's file was built for: its switches, its own push and Slack branch; the rest is the config's now.
+  const from = fileOptions(switches);
+  const state = workflowState(repo, fileFor(from, c, switches?.push ?? null, switches?.branch ?? c.main), fileFor(o, c, c.push, c.main));
+  const problem = !context.root ? NOT_ROOT : (state.problem ?? (c.unreadable ? CONFIG_UNREADABLE : null));
+  return {
+    file: repo?.file.path ?? WORKFLOW_FILE,
+    exists: !!repo?.file.exists,
+    version: repo?.file.version ?? 'absent',
+    problem,
+    action: ACTION,
+    workflow: { comment: o.comment, fix: o.fix, alerts: o.alerts, text: state.text, lines: state.lines, added: state.added, removed: state.removed, same: state.same, shown: state.shown, session: context.session ?? null },
+    comment: { on: o.comment, offNote: 'Off: the verdict stays in the job summary.', needs: rows([COMMENT_NEED]) },
+    fixOnFailure: fixPart(o, from, c, context),
+    alerts: alertsPart(o, c, context),
+    recordings: c.recordings,
+    repository: context.repository,
+    configError: c.configError,
   };
 }

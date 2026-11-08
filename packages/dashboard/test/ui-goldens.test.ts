@@ -628,5 +628,7 @@ describe('the jobs the screen starts', () => {
     expect(ciQuery({ fix: true, budget: '5.00', repairer: 'openai:gpt-5', onlyMain: false, secret: 'TEAM_HOOK' })).toBe('?fix=on&budget=5.00&repairer=openai%3Agpt-5&onlyMain=off&secret=TEAM_HOOK');
     // An inconclusive golden's control, Fails or Warns: the server takes it as it is.
     expect(ciQuery({ inconclusive: 'warn' })).toBe('?inconclusive=warn');
+    expect(ciQuery({ comment: false })).toBe('?comment=off');
+    expect(ciQuery({ comment: true, fix: false })).toBe('?comment=on&fix=off');
   });
 });

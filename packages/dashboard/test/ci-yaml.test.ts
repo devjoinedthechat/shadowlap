@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACTION, alertFailures, BRANCH_REF, DISPATCH_COMMENT, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar, VERSION, workflowNeeds, workflowYaml } from '../src/ci-yaml.js';
+import { ACTION, alertFailures, BRANCH_REF, COMMENT_NEED, DISPATCH_COMMENT, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar, VERSION, workflowYaml } from '../src/ci-yaml.js';
 
 /** The workflow steps behind Settings → CI, checked against the action they use and the docs that show them. */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -149,7 +149,7 @@ describe('the Fix on failure step', () => {
     expect(fixOnFailureYaml({ budget: '5', repairer: 'openai:gpt-5', push: 'keys' })).toContain(`    repairer: openai:gpt-5\n    push: ${writerIf}\n  env:\n    OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}\n`);
     // What it needs names the bucket's credentials, after what the step needs without push.
     const plainNeeds = fixOnFailureNeeds('claude-code');
-    expect(fixOnFailureNeeds('claude-code', 'oidc')).toEqual([...plainNeeds.slice(0, 6), ['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write'], ...plainNeeds.slice(6)]);
+    expect(fixOnFailureNeeds('claude-code', 'oidc')).toEqual([...plainNeeds.slice(0, 6), ['the bucket’s credentials: the two sign-in steps in Your workflow', 'id-token: write'], ...plainNeeds.slice(6)]);
     expect(fixOnFailureNeeds('anthropic', 'keys')).toEqual([...fixOnFailureNeeds('anthropic').slice(0, 6), ['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets'], ...plainNeeds.slice(6)]);
     expect(fixOnFailureNeeds('anthropic', null)).toEqual(fixOnFailureNeeds('anthropic'));
   });
@@ -230,10 +230,7 @@ describe('your workflow', () => {
     expect(plain.split('\n')[0]).toBe('# the job needs: permissions: { contents: read, pull-requests: write }');
     expect(plain).not.toContain('workflow_dispatch');
     expect(alertsYaml(alerts).split('\n')[0]).toBe('# the job needs: permissions: { contents: read, pull-requests: write }');
-    expect(workflowNeeds({ fix: null, alerts: null, push: null })).toEqual([
-      ['permission to keep the action’s comment on a pull request', 'pull-requests: write'],
-      ['Node 22.16 or later on the runner, not 23', 'node-version: 22'],
-    ]);
+    expect(COMMENT_NEED).toEqual(['permission to keep the action’s comment on a pull request', 'pull-requests: write']);
     expect(alertsNeeds('SLACK_WEBHOOK_URL')).toContainEqual(['permission to keep the action’s comment on a pull request', 'pull-requests: write']);
   });
 
@@ -266,22 +263,6 @@ describe('your workflow', () => {
         if (!line.trim() || line.trimStart().startsWith('#')) continue;
         expect(line, line).toMatch(/^(?: {2})*(?:- )?(?:[a-z-]+:(?: .*)?|[A-Z0-9_]+: .*|text: .*|exit 1)$|^ {6}text: /);
       }
-  });
-
-  it('needs what each part turned on needs, once each, then Node', () => {
-    const needs = workflowNeeds({ fix: fixOnFailureNeeds('claude-code', 'oidc', ['ANTHROPIC_API_KEY']), alerts: alertsNeeds('SLACK_WEBHOOK_URL'), push: 'oidc' });
-    expect(needs.filter((r) => r[1] === 'id-token: write')).toHaveLength(1);
-    expect(needs.at(-1)).toEqual(['Node 22.16 or later on the runner, not 23', 'node-version: 22']);
-    expect(needs.filter((r) => r[1] === 'node-version: 22')).toHaveLength(1);
-    expect(needs.map((r) => r[1])).toEqual(expect.arrayContaining(['ANTHROPIC_API_KEY', 'contents: write', 'Slack app', 'id: goldens']));
-    // Neither part on, with Push from CI: the bucket's credentials alone.
-    expect(workflowNeeds({ fix: null, alerts: null, push: 'keys' })).toEqual([
-      ['permission to keep the action’s comment on a pull request', 'pull-requests: write'],
-      ['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets'],
-      ['Node 22.16 or later on the runner, not 23', 'node-version: 22'],
-    ]);
-    // With a fix on, its own rows give pull-requests: write once.
-    expect(needs.filter((r) => r[1] === 'pull-requests: write')).toHaveLength(1);
   });
 });
 

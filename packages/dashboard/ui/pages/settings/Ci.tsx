@@ -201,12 +201,10 @@ function Workflow({ o, view, set, onFix, onAlerts }: { o: CiWorkflowOptions; vie
               ))}
             </div>
           </div>
-          <span className="k cineeds">it needs</span>
-          <CiList rows={w.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">a golden fails when</span>
-          <CiList rows={w.failures} tone="err" />
+          <CiList rows={view.alerts.failures} tone="err" />
           {view.fixOnFailure.teamStore?.lands.length ? (
             <>
               <span className="k">and in the team store</span>
@@ -216,7 +214,7 @@ function Workflow({ o, view, set, onFix, onAlerts }: { o: CiWorkflowOptions; vie
         </div>
       </div>
       <div className="pbody cicode">
-        <CodeBlock file={view.file} code={w.yaml} copyLabel="your workflow’s steps" />
+        <CodeBlock file={view.file} code={w.text} copyLabel="the workflow" />
       </div>
     </Section>
   );

@@ -26,6 +26,9 @@ export const REPAIRERS: ReadonlyArray<{ value: string; label: string }> = [
 /** Budgets per failing golden the panel offers, in dollars. */
 export const FIX_BUDGETS: readonly string[] = ['1.00', '2.00', '5.00'];
 
+/** A repairer as `repair --repairer` takes it: a name, then `:<model>` if you like. */
+export const REPAIRER = /^(claude-code|anthropic|openai)(:[A-Za-z0-9._\-/]{1,80})?$/;
+
 /**
  * The steps before the action that make it work in a job of its own: the repository, Node 22.16 or
  * later and not 23 (node-version: 22, as the action's own check asks for, saying so on a runner
@@ -222,8 +225,8 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   return lines.join('\n');
 }
 
-/** The row a job that opens no fix needs for the action's comment on a pull request. */
-const COMMENT_NEED: NeedRow = ['permission to keep the action’s comment on a pull request', 'pull-requests: write'];
+/** The row the action's comment on a pull request needs: the Pull request comment panel lists it. */
+export const COMMENT_NEED: NeedRow = ['permission to keep the action’s comment on a pull request', 'pull-requests: write'];
 
 /** The row every step that runs the action needs: the Node it runs on. */
 const NODE_NEED: [string, string] = ['Node 22.16 or later on the runner, not 23', 'node-version: 22'];
@@ -248,7 +251,7 @@ export function fixOnFailureNeeds(repairer: string, push: BucketCredentials | nu
     ['permission to start the pull request’s checks', 'actions: write'],
     ['the trigger they start from, under the workflow’s on:', 'workflow_dispatch:'],
   ];
-  if (push === 'oidc') needs.push(['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write']);
+  if (push === 'oidc') needs.push(['the bucket’s credentials: the two sign-in steps in Your workflow', 'id-token: write']);
   if (push === 'keys') needs.push(['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets']);
   // Without the config, whether the step pushes, and its goldens' judges, aren't known.
   if (unreadable) needs.push([`Push from CI and the judges’ keys, from ${CONFIG}`, UNREADABLE, 'warn']);
@@ -498,26 +501,6 @@ export function workflowFile(s: WorkflowFileSettings): string {
 export function generatedComments(): Set<string> {
   const notes = [AGENT_KEYS_COMMENT, FIX_UNREADABLE_COMMENT, ALERTS_UNREADABLE_COMMENT, liveKeysComment(true), liveKeysComment(false)];
   return new Set([...notes, '# env:', ...notes.map((n) => `#   ${n.replace(/^# /, '')}`), BUCKET_COMMENT.oidc, BUCKET_COMMENT.keys]);
-}
-
-/**
- * What your workflow needs, as label and value: each turned-on part's own rows, once each, then Node.
- * Push's credentials are the team store's, whichever parts are on.
- */
-export function workflowNeeds(o: { fix: NeedRow[] | null; alerts: NeedRow[] | null; push: BucketCredentials | null }): NeedRow[] {
-  const rows: NeedRow[] = [];
-  const add = (r: NeedRow) => {
-    if (r[1] === NODE_NEED[1]) return;
-    if (!rows.some((x) => x[0] === r[0] && x[1] === r[1])) rows.push(r);
-  };
-  for (const r of o.fix ?? []) add(r);
-  // A fix's rows give pull-requests: write already, for its pull request and the comment; without one, the comment still needs it.
-  for (const r of o.alerts ?? []) if (!(o.fix && r === COMMENT_NEED)) add(r);
-  if (!o.fix) add(COMMENT_NEED);
-  if (!o.fix && o.push === 'oidc') add(['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write']);
-  if (!o.fix && o.push === 'keys') add(['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets']);
-  rows.push(NODE_NEED);
-  return rows;
 }
 
 /**
