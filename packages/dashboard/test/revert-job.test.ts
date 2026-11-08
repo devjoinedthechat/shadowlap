@@ -10,12 +10,15 @@ import { startDashboard, type Dashboard, type GoldenSource, type JobView, type S
 /**
  * Revert (A19) on a real git repository, with a stand-in CLI for its test: the first bad commit
  * undone in the working tree and left uncommitted, then the golden tested; git's refusal and its
- * conflicts in git's own words, with no test after them; a merge against its first parent; and the
- * working tree held while it runs, so Tests' jobs wait for it.
+ * conflicts in git's own words, with no test after them; a merge against its first parent; a golden
+ * whose test runs live asked about first, as Run tests asks; and the working tree held while it runs,
+ * so Tests' jobs wait for it, as it waits for them.
  */
 const FAKE = fileURLToPath(new URL('./fake-tests-cli.mjs', import.meta.url));
 const GOLDEN = 'goldens/refund-in-limit';
 const BROKEN = 'goldens/broken-flow';
+/** A golden marked fork, with a judge: its test runs live from where it forks. */
+const FORKED = 'goldens/refund-forked';
 
 let repo: string;
 let hold: string;
@@ -36,7 +39,10 @@ const spawnCli: SpawnCli = (args, options) =>
     env: { ...process.env, FAKE_TESTS_HOLD: hold, ...(options?.events ? { SHADOWLAP_EVENTS_FD: '3' } : {}) },
     stdio: options?.events ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
   });
-const goldens: GoldenSource[] = [GOLDEN, BROKEN].map((path) => ({ path, runId: null, packedAt: 0, mode: 'replay', repeat: 1, passes: 1, checks: [] }));
+const goldens: GoldenSource[] = [
+  ...[GOLDEN, BROKEN].map((path): GoldenSource => ({ path, runId: null, packedAt: 0, mode: 'replay', repeat: 1, passes: 1, checks: [] })),
+  { path: FORKED, runId: null, packedAt: 0, mode: 'fork', repeat: 1, passes: 1, checks: [], judges: ['claude-haiku-4-5'] },
+];
 
 /** The golden crashed, and Find breaking commit named `rev` for it. */
 function named(golden: string, rev: string): void {
@@ -134,6 +140,48 @@ describe('Revert', () => {
     expect(job.lines).toContain(`$ git revert --no-commit -m 1 ${at['Merge']}`);
     expect(existsSync(join(repo, 'notes.txt'))).toBe(false);
     git('reset', '-q', '--hard', 'HEAD~1');
+  });
+
+  it('asks first where the golden’s test runs live, as Run tests asks, and starts only with the yes to that question', async () => {
+    named(FORKED, at['Log the order total']);
+    const asked = await start({ kind: 'revert', golden: FORKED, rev: at['Log the order total'] });
+    expect(asked.status).toBe(409);
+    const q = (await asked.json()) as { error: string; confirm: string; live: unknown };
+    expect(q).toEqual({
+      error: `${FORKED} is marked fork, so it runs live from where it forks, writes blocked, and asks its judges live (claude-haiku-4-5). Live calls are billed by your provider. Confirm it to run it`,
+      confirm: expect.stringMatching(/^[0-9a-f]{32}$/),
+      live: [{ path: FORKED, why: [{ kind: 'fork' }, { kind: 'judges', models: ['claude-haiku-4-5'] }] }],
+    });
+    expect(git('status', '--porcelain'), 'nothing reverted before the yes').toBe('');
+    // A yes to another question is none to this one.
+    expect((await start({ kind: 'revert', golden: FORKED, rev: at['Log the order total'], yes: 'f'.repeat(32) })).status).toBe(409);
+    const job = await ended(await start({ kind: 'revert', golden: FORKED, rev: at['Log the order total'], yes: q.confirm }));
+    expect(job).toMatchObject({ code: 0, git: 'done' });
+    expect(job.lines).toEqual(expect.arrayContaining([`$ shadowlap test ${FORKED}`, `argv ["test","${FORKED}"]`]));
+    // A golden that only replays asks nothing.
+    git('reset', '-q', '--hard');
+    named(GOLDEN, at['Log the order total']);
+    expect((await ended(await start({ kind: 'revert', golden: GOLDEN, rev: at['Log the order total'] }))).code).toBe(0);
+  });
+
+  it('waits for a Tests job, and for a test session started in a terminal, naming either', async () => {
+    named(GOLDEN, at['Log the order total']);
+    writeFileSync(hold, '');
+    const tests = await start({ kind: 'test', golden: GOLDEN });
+    expect(tests.status).toBe(202);
+    const refused = await start({ kind: 'revert', golden: GOLDEN, rev: at['Log the order total'] });
+    expect([refused.status, await refused.json()]).toEqual([409, { error: 'A test session is running: revert it once it is done' }]);
+    rmSync(hold);
+    await ended(tests);
+    // A session this very process runs, as one started in a terminal: its process is alive.
+    const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: git('rev-parse', 'HEAD') });
+    try {
+      const held = await start({ kind: 'revert', golden: GOLDEN, rev: at['Log the order total'] });
+      expect([held.status, await held.json()]).toEqual([409, { error: 'shadowlap test goldens/* is running: revert it once it is done' }]);
+    } finally {
+      store.finishTestSession(s.sessionId, { passed: 0, failed: 0, upstreamRequests: 0 });
+    }
+    expect(git('status', '--porcelain'), 'nothing reverted while they ran').toBe('');
   });
 
   it('reverts only the commit the golden’s answer names, never while Tests run, and nothing read-only', async () => {
