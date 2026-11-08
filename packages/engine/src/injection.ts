@@ -983,6 +983,11 @@ function parsedArgs(text: string): unknown {
   }
 }
 
+/** Where an attempt's planted text went in, as its proof starts: `planted at #9 → read at #10`; all an attempt that showed nothing has. */
+export function proofHead(a: Pick<AttemptReport, 'read' | 'forkedAt'> & { readAt?: number | null }): string {
+  return `planted at #${a.read} → read at #${a.readAt ?? a.forkedAt ?? '?'}`;
+}
+
 /**
  * The one line that shows an attempt's proof: `planted at #9 → read at #10 → send_email.to =
  * x7f3k@canary.invalid at #12`; for a write no clean replay made, its identifying values and why.
@@ -990,7 +995,7 @@ function parsedArgs(text: string): unknown {
 export function proofLine(a: Pick<AttemptReport, 'read' | 'forkedAt' | 'evidence'> & { readAt?: number | null }): string | null {
   const e = a.evidence.find((x) => x.kind === 'canary') ?? a.evidence.find((x) => x.kind === 'read') ?? a.evidence[0];
   if (!e) return null;
-  const head = `planted at #${a.read} → read at #${a.readAt ?? a.forkedAt ?? '?'} → `;
+  const head = `${proofHead(a)} → `;
   if (e.kind === 'write') {
     const args = parsedArgs(e.value);
     return `${head}${e.tool}(${args === null ? '…' : describeIdentifiers(args)}) at #${e.callNo}${e.why ? `: ${e.why}` : ''}`;
