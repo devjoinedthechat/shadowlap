@@ -103,12 +103,23 @@ function forked(): RunDetail {
   return { ...d, run: { ...d.run, mode: 'replay', parentRunId: WRITES }, label: 'fork', state: { ...d.state, kind: 'fork', label: 'fork' } } as unknown as RunDetail;
 }
 
+/** Four tickets of a batch, the fourth folded, then a page read before the run's conversations were numbered: a model call, its tool, the answer. */
+const DEEP = '01M5GRX8K406H4KHQ7DEKYWTT4';
+const deep = (): RunDetail =>
+  answer(DEEP, [
+    ...Array.from({ length: 16 }, (_, i) => ({ ...call(i + 1), conversation: Math.floor(i / 4) + 1 })),
+    row(17, 'api', { stopReason: 'tool_use', asks: ['lookup_order'] }),
+    row(18, 'tool', { requestedBy: 17 }),
+    row(19, 'api', { stopReason: 'end_turn' }),
+  ]);
+
 const RUNS: Record<string, () => RunDetail> = {
   [RUN]: () => answer(),
   [SUB]: () => subAgent(SUB),
   [FORK]: () => subAgent(FORK),
   [WRITES]: () => answer(WRITES, WRITE_CALLS.map(([kind, extra], i) => row(i + 1, kind, extra))),
   [FORKED]: forked,
+  [DEEP]: deep,
 };
 
 const client = { exported: false, run: (id: string) => Promise.resolve(RUNS[id]()), call: () => new Promise(() => undefined), offers: () => Promise.resolve(null), runChaos: () => Promise.resolve(null), forkDifferences: () => Promise.resolve(null), unrecorded: () => Promise.resolve(null), lineage: () => Promise.resolve([]), jobs: () => Promise.resolve([]) } as unknown as Client;
@@ -415,6 +426,16 @@ describe('Calls, grouped', () => {
     expect(item(1).querySelector('button.tgsum')!.getAttribute('aria-label')).toBe('New ticket T-9101 (request 42), 4 calls, 1 overridden, 1 blocked');
     expect(swatches()).toEqual(['lg over:1 overridden', 'lg block:1 blocked']);
     expect(item(2).querySelector('.tgfacts')!.textContent).toBe('2 calls');
+  });
+
+  it('draws calls read before their conversation is known at the top, in view under a folded ticket, never in it', async () => {
+    await open(2, DEEP);
+    const shut = item(4).querySelector('button.tgsum')!;
+    expect(shut.getAttribute('aria-expanded')).toBe('false');
+    expect(shut.getAttribute('aria-label')).toBe('conversation 4 of 4, 4 calls');
+    expect(rows()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 17, 18, 19]);
+    // At the run's own level: the model calls no step in, the tool call one under its model call.
+    expect([depth(17), depth(18), depth(19)]).toEqual([undefined, 1, undefined]);
   });
 
   it('lists a filter’s matches flat, a folded group’s too, and groups them again with their folds once it is cleared', async () => {
