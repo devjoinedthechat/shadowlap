@@ -1371,7 +1371,7 @@ or `by hand` for one you made that a verdict checked.
 - `oracle`;
 - each run's `role`, `attempts`, `outcome` and where it went (`note`), and the token and cost changes
   per run;
-- each run's `tally`, `bound` and `interval` against the gate's `marks`, and its attempts (`tries`);
+- each run's `tally`, `cutShort` and `bound` in the words `shadowlap verify` prints, its `interval` against the gate's `marks`, and its attempts (`tries`);
 - the failing runs an accepted verdict left out, that no other has checked (`left`);
 - what it took to find out, with the judge's checks apart (`judge`);
 - what answered the change's tool calls after the fork, and the baselines' apart, in `afterFork`, as
