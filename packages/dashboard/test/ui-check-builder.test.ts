@@ -14,6 +14,7 @@ import {
   judgesNote,
   keepAt,
   previewNotes,
+  rebased,
   removeAt,
   snapOf,
   titleOf,
@@ -406,6 +407,26 @@ describe('the list’s actions', () => {
     const moved = withGolden({ units: [...file(2), fresh], active: 2 }, { tools: { send_email: 0 } });
     expect(moved.units.map((u) => u.f)).toEqual([{ tools: { send_email: 0 } }, fresh.f]);
     expect(moved.active).toBe(1);
+  });
+
+  it('rebases the units on the file read again: a check added meanwhile among them, each edit or removal kept on a check still there, the session’s rules after', () => {
+    const [t0, t1, t2] = file(3);
+    const edited: Unit = { ...t0, f: { tools: { t0: 2 } } };
+    const s: Units = { units: [edited, { ...t1, gone: true }, t2, fresh], active: 3 };
+    // t2 removed from the file meanwhile, and a check added.
+    const now = rebased(s, { tools: { t0: 0, t1: 0, added: 1 } });
+    expect(now.units.map((u) => [u.orig, u.f, u.gone])).toEqual([
+      [{ tools: { t0: 0 } }, { tools: { t0: 2 } }, false],
+      [{ tools: { t1: 0 } }, { tools: { t1: 0 } }, true],
+      [{ tools: { added: 1 } }, { tools: { added: 1 } }, false],
+      [null, fresh.f, false],
+    ]);
+    expect(now.active).toBe(3);
+    // The editor stays on an edit still there; one on a check changed meanwhile takes the file's, the editor on the last.
+    expect(rebased({ ...s, active: 0 }, { tools: { t0: 0 } }).active).toBe(0);
+    const changed = rebased({ ...s, active: 0 }, { tools: { t0: 5 } });
+    expect(changed.units.map((u) => [u.orig, u.f])).toEqual([[{ tools: { t0: 5 } }, { tools: { t0: 5 } }], [null, fresh.f]]);
+    expect(changed.active).toBe(1);
   });
 
   it('tells a change by the golden picked and the units that differ from the file, never by a rule only opened', () => {
