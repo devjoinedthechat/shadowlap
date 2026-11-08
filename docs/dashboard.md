@@ -724,15 +724,21 @@ The list is the run's trace, in call order, grouped lightly:
 
 - **A tool call** sits a step in under the model call that asked for it, while nothing else came between them. Any other call stands at its level.
 - **A sub-agent's calls**, one after another, sit under a row that names it, *sub-agent*, with its calls, what it spent and how it ended. The row sits under the model call whose tool started it: a subagent of Claude Code's `Task` tool, or a scope inside another, as `agent/policy-checker` in `agent`.
-- **In a batch**, a run that works through several conversations of one agent, each conversation has a row. It shows the first sentence of what the conversation was asked, its calls, its writes and errors (on a replay or a fork, what it changed), and how it ended. The first three are open. A sub-agent's conversations and Shadowlap's own calls are never a batch's.
+- **In a batch**, a run that works through several conversations of one agent, each conversation has a row, the first three open. It shows the first sentence of what the conversation was asked, its calls, its writes and errors (on a replay or a fork, what it changed), and how it ended.
+
+A sub-agent's conversations and Shadowlap's own calls are never a batch's. A call whose page or conversation is still being read stands at the top until it is known.
 
 A model call's caret, before its kind, folds its tool calls. A group's row folds at a click anywhere on it. A fold never moves the selection: the folded row that holds the selected call carries its ground, and the inspector and the address stay on the call.
 
-- **←** folds the selected call's group, or goes to the call it sits under.
-- **→** opens what holds it, or goes to its first call.
+- **←** folds the selected call's group, or goes to the call at its head: the model call it sits under, or its sub-agent's first call.
+- **→** opens what holds it, or its calls, or goes to its first call.
 - **`j` and `k`** go through every call in order, and open the groups they reach. So do a link, the strip and `n`.
 
-The fold buttons are one Tab stop, in the selected call's group. On one, **↑** and **↓** move to the previous or the next, **Home** and **End** to the first and the last, **←** folds and **→** opens.
+The fold buttons are one Tab stop, in the selected call's group. On one:
+
+- **↓** and **↑** move to the next or the previous.
+- **Home** and **End** move to the first and the last.
+- **←** folds and **→** opens.
 
 While the key or a search narrows the list, it is flat. Back to all, it is grouped again, its folds as they were. Folds last the session, for each run.
 
@@ -1937,11 +1943,11 @@ These keys work on a run's page:
 | Key             | What it does                                                                                 |
 | --------------- | -------------------------------------------------------------------------------------------- |
 | `j` / `k`       | Next or previous call, from anywhere on the page; the selected call takes the focus          |
-| `↓` / `↑`       | The same, in the view's list; on a fold button in Calls, the previous or next fold button    |
+| `↓` / `↑`       | The same, in the view's list; on a fold button in Calls, the next or previous fold button    |
 | `[` / `]`       | The run before or after this one in the list you came from                                   |
 | `1`–`4`         | Conversation, response, request, details                                                     |
 | `←` / `→`       | In a tab list, the previous or next tab                                                      |
-| `←`             | In Calls, fold the selected call's group, or go to the call it sits under                    |
+| `←`             | In Calls, fold the selected call's group, or go to the call at its head                      |
 | `→`             | In Calls, open what holds the selected call, or its group, or go to its first call           |
 | `v`             | Next view, through all of them                                                               |
 | `n`             | Jump to the call where the run forked, where blame found it lost, or where it first failed   |
