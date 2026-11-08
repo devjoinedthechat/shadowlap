@@ -156,11 +156,11 @@ describe('the check builder from a call', () => {
     // Another kind while the first draft's read is out: its answer comes late, and is dropped.
     await r!.click(r!.all('.cb-kinds button')[1]);
     const late = row('01K5CQ3CCCCCCCCCCCCCCCCCCC', 'failed');
-    asked[0]!({ ...preview, judged: [late, late, late], counts: { passed: 0, failed: 3, inconclusive: 0, notApplicable: 0 } });
+    asked[0]({ ...preview, judged: [late, late, late], counts: { passed: 0, failed: 3, inconclusive: 0, notApplicable: 0 } });
     await r!.until('the newest draft asked', () => asked.length === 2);
     expect(r!.all('.cb-count')).toEqual([]);
     expect(r!.all('.cb-note').some((n) => said(n) === 'Judging it on your recordings…')).toBe(true);
-    asked[1]!(preview);
+    asked[1](preview);
     await r!.until('the newest answer', () => r!.all('.cb-count').length > 0);
     expect(text('.cb-count')).toBe('Passes 2 recordings · fails 1, labelled bug');
     expect(s.checks.preview).toHaveBeenCalledTimes(2);
