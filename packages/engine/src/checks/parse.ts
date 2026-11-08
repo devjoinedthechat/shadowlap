@@ -243,6 +243,9 @@ function referenceIn(value: unknown, where: string): Reference | null {
   return { tool: m[1]!, part: m[2] as Reference['part'], path, text: value.slice(1), at: where };
 }
 
+/** Whether a value written in a rule reads as a reference (`"@lookup_order.result.total"`), as the check builder tells its value chips from a number. */
+export const isReference = (value: unknown): boolean => typeof value === 'string' && !value.startsWith('@@') && REFERENCE.test(value);
+
 /** A value written in a rule as it is compared: `@@…` is text that starts with one `@`. */
 const literal = (value: unknown): unknown => (typeof value === 'string' && value.startsWith('@@') ? value.slice(1) : value);
 

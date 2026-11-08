@@ -1,5 +1,5 @@
-import type { CheckContext, CheckPreview } from '../src/check-preview.js';
-import type { ChecksConfig, ConfigPrints, TestsWritten } from '../src/config-tests.js';
+import type { CheckContext, CheckPreview, ContextCall, PreviewGolden, PreviewRow, ResultField } from '../src/check-preview.js';
+import type { ChecksConfig, ConfigPrints, GoldenEntry, TestsWritten } from '../src/config-tests.js';
 import type { Request } from './settings-api.js';
 
 /**
@@ -11,7 +11,7 @@ import type { Request } from './settings-api.js';
  * modules (src/config-tests.ts, src/check-preview.ts): nothing here needs Node.
  */
 
-export type { CheckContext, CheckPreview, ChecksConfig, ConfigPrints };
+export type { CheckContext, CheckPreview, ChecksConfig, ConfigPrints, ContextCall, GoldenEntry, PreviewGolden, PreviewRow, ResultField };
 
 /** Whose checks: the agent of a run, or one golden (a golden's own Edit checks). */
 export type ChecksOf = { run: string } | { golden: string };
