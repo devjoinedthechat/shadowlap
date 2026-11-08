@@ -1,4 +1,4 @@
-import { BISECT_PARTS, INJECTION_PART, moreAttemptsParts, updatePart } from '../cost-words.js';
+import { BISECT_PARTS, INJECTION_PART, JUDGE_UNASKED, moreAttemptsParts, updatePart } from '../cost-words.js';
 import type { CostReport, PlantReport } from '../injection.js';
 import type { TestResultData } from '../store.js';
 import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, type Estimate, type ExpectedFigure, type PricedCall } from './estimate.js';
@@ -134,9 +134,6 @@ export function moreEstimate(more: MoreFigure, spends: readonly number[]): Estim
     each,
   };
 }
-
-/** Why a judge never asked yet has no price: the check builder's Ask a judge… says it too. */
-export const JUDGE_UNASKED = 'its judge has not been asked yet, so what a call of it costs is unknown';
 
 /**
  * Update golden(s) (`test <goldens> --update`): each golden recorded again live, writes stubbed,

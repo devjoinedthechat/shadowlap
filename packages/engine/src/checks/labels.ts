@@ -11,6 +11,9 @@ import { pathAt, type CallCondition, type CallRule, type CountRange, type Expect
  * here, and nothing here needs Node, so the dashboard's pages can say a check in the same words.
  */
 
+/** What a check on what the agent printed says of a recording, which keeps none: it can't be decided. */
+export const NO_OUTPUT_KEPT = 'a recording keeps no output';
+
 export function formatCount(r: CountRange, noun = 'time'): string {
   const plural = (n: number) => `${n} ${noun}${n === 1 ? '' : 's'}`;
   if (r.min === r.max) return plural(r.min);
