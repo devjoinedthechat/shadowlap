@@ -11,6 +11,9 @@ const open = new Set<string>();
 
 export const reportOpen = (name: string): boolean => open.has(name);
 
+/** The names of the reports open now. */
+export const openReports = (): string[] => [...open];
+
 export function setReportOpen(name: string, on: boolean): void {
   if (on) open.add(name);
   else open.delete(name);

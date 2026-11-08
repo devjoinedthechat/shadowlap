@@ -14,6 +14,7 @@ export type Lead =
   | { kind: 'bisect'; label: string; f: DivergenceView | FailureView }
   | { kind: 'revert'; label: string; step: Extract<NextStep, { key: 'revert' }>; f: FailureView }
   | { kind: 'more'; label: string; v: InconclusiveView; more: MoreAttempts }
+  | { kind: 'rerun'; label: string; golden: string }
   | { kind: 'fix'; label: string; href: string; title: string | null; check: string }
   | { kind: 'blame'; runId: string; step: Extract<NextStep, { key: 'blame' }> };
 
@@ -23,20 +24,29 @@ export function leadingStep(view: Pick<TestsView, 'verdict' | 'steps'>): NextSte
   return (golden && view.steps?.[golden]) || null;
 }
 
+type StepView = Pick<TestsView, 'steps' | 'divergences' | 'failures' | 'inconclusive'>;
+
 /** The lead step as Tests draws it; `whole` while a session that runs every golden is running. */
-export function leadStep(view: Pick<TestsView, 'verdict' | 'steps' | 'divergences' | 'failures' | 'inconclusive'>, has: (kind: string) => boolean, whole = false): Lead | null {
-  const step = whole ? null : leadingStep(view);
+export function leadStep(view: StepView & Pick<TestsView, 'verdict'>, has: (kind: string) => boolean, whole = false): Lead | null {
+  const first = view.verdict?.first;
+  return whole || !first?.golden ? null : stepFor(view, first.golden, has, first.runId ?? null);
+}
+
+/**
+ * Any golden's step, as its report draws it (plain) and the verdict draws the leading one's (lime):
+ * the server's step for that golden mapped onto what Tests presses. `runId`: its last result's run,
+ * which a Run blame step blames.
+ */
+export function stepFor(view: StepView, golden: string, has: (kind: string) => boolean, runId: string | null): Lead | null {
+  const step = view.steps?.[golden];
   if (!step) return null;
   if (step.key === 'fix') return step.href ? { kind: 'fix', label: step.label, href: step.href, title: step.title ?? null, check: step.check } : null;
-  if (step.key === 'blame') {
-    const runId = view.verdict?.first?.runId;
-    return runId && has('blame') ? { kind: 'blame', runId, step } : null;
-  }
+  if (step.key === 'blame') return runId && has('blame') ? { kind: 'blame', runId, step } : null;
   return 'golden' in step ? goldenLead(view, step, has) : null;
 }
 
 /** A step that runs one of the golden's jobs, as its report runs it: none where its report has no such button. */
-function goldenLead(view: Pick<TestsView, 'divergences' | 'failures' | 'inconclusive'>, step: Extract<NextStep, { golden: string }>, has: (kind: string) => boolean): Lead | null {
+function goldenLead(view: StepView, step: Extract<NextStep, { golden: string }>, has: (kind: string) => boolean): Lead | null {
   const { golden, label } = step;
   const d = view.divergences.find((x) => x.golden === golden);
   const v = view.inconclusive.find((x) => x.golden === golden);
@@ -46,6 +56,9 @@ function goldenLead(view: Pick<TestsView, 'divergences' | 'failures' | 'inconclu
       const n = d ? divergenceButtons(d, has).normalize : null;
       return d && n ? { kind: 'normalize', label, d, n } : null;
     }
+    // An injection gate that showed too little to say: its test again, which plants the same payloads.
+    case 'gate-again':
+      return has('test') ? { kind: 'rerun', label, golden } : null;
     case 'update-golden':
       return has('test-update') ? { kind: 'update', label, golden, judge: v?.judge?.update ?? null } : null;
     case 'bisect': {
