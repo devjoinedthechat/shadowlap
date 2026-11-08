@@ -35,6 +35,8 @@ export interface CapturedCall {
   startedAt?: number;
   /** Round-trip duration in milliseconds, when the source recorded it. */
   timeMs?: number;
+  /** The agent a trace's spans name the call's (`meta.agent`): for reading only, never matched by. */
+  agent?: string;
 }
 
 export interface Skip {
@@ -254,7 +256,7 @@ export class ImportWriter {
       effect: null,
       requestRef: storeApiRequest(this.store, c.requestBody),
       // Its query as the sidecar keeps one, credentials left out: empty when it had none.
-      meta: { provider: provider.id, fingerprintHeaders, retryCount: 0, query: credentialFreeQuery(url.search.replace(/^\?/, '')) ?? '' },
+      meta: { provider: provider.id, fingerprintHeaders, retryCount: 0, query: credentialFreeQuery(url.search.replace(/^\?/, '')) ?? '', ...(typeof c.agent === 'string' && c.agent ? { agent: c.agent.slice(0, 200) } : {}) },
       at,
     });
 

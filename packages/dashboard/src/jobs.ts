@@ -134,6 +134,8 @@ export interface JobBuild {
   then?: string[][];
   /** The run the job is about (its full id), if any. */
   runId?: string | null;
+  /** The fix it acts on (its full id), if any: a blame of a fix, its repair, verify or apply. */
+  fixId?: string;
   /** The working directory, relative to the project folder or absolute inside it. Defaults to the project folder. */
   cwd?: string;
   /** The job makes a run to open when it ends. */
@@ -247,6 +249,9 @@ export const STOP_GRACE_MS = 5000;
 /** After the process exits, how long to wait for its pipes to close (a process it left behind may hold them). */
 const DRAIN_MS = 2000;
 
+/** What a job is about, as its builder says: the run, the fix, and whether it makes a run to open. */
+const subjectOf = (built: JobBuild): Pick<Job, 'runId' | 'fixId' | 'opensRun'> => ({ runId: built.runId ?? null, fixId: built.fixId ?? null, opensRun: built.opensRun ?? false });
+
 interface Job {
   id: string;
   kind: string;
@@ -262,6 +267,7 @@ interface Job {
   /** What every command of the job gets besides the dashboard's environment (`JobBuild.env`). */
   env: Record<string, string>;
   runId: string | null;
+  fixId: string | null;
   opensRun: boolean;
   cwd: string | null;
   startedAt: number;
@@ -545,8 +551,7 @@ export class JobManager {
       treeAt,
       rest: (built.then ?? []).map((a) => [...a]),
       env,
-      runId: built.runId ?? null,
-      opensRun: built.opensRun ?? false,
+      ...subjectOf(built),
       cwd,
       startedAt: Date.now(),
       endedAt: null,
@@ -874,6 +879,7 @@ export class JobManager {
       ...(job.estimate ? { estimate: { ...job.estimate } } : {}),
       worktree: job.worktree,
       runId: job.runId,
+      ...(job.fixId ? { fixId: job.fixId } : {}),
       opensRun: job.opensRun,
       startedAt: job.startedAt,
       endedAt: job.endedAt,

@@ -3,7 +3,7 @@ import { fixesSummary, needsLookFixes, type PatchCheck } from './fixes.js';
 import { upgradeLooks } from './looks.js';
 import { links } from './links.js';
 import { listedStep, stepReads, type NextStepWork } from './next-step.js';
-import { aboutsOf, aboutsWithin } from './run-about.js';
+import { aboutsUpTo } from './run-about.js';
 import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
@@ -602,10 +602,6 @@ function weekCache(store: Store, index: RunIndex, since: number, budget?: number
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
-
-/** About lines, worked out whole, or within a request's budget (`aboutsWithin`). */
-const aboutsUpTo = (store: Store, index: RunIndex, runs: readonly IndexedRun[], budget: number | undefined): Map<string, RunAbout> =>
-  budget === undefined ? aboutsOf(store, index, runs) : aboutsWithin(store, index, runs, { budget });
 
 /**
  * Needs a look, most urgent first, in the design's one order: a team store's setup left unfinished,

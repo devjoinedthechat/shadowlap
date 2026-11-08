@@ -14,6 +14,8 @@ import * as fixes from './fixes.js';
 import * as jobs from './jobs.js';
 import * as meta from './meta.js';
 import * as projects from './projects.js';
+// A link into another project: which other project's store holds what it names.
+import * as crossProject from './cross-project.js';
 import * as runs from './runs.js';
 // The run page: what it offers to do with a run, show --json, and the Share menu's exports.
 import * as runPage from './run-page.js';
@@ -73,6 +75,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   codingAgents,
   // Several projects behind one dashboard: the switcher, Add project, the setup, removing one.
   projects,
+  crossProject,
   // Training: pairs, tasks, scores and the models to score (#/training).
   training,
   checks,

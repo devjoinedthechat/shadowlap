@@ -212,6 +212,8 @@ export function readLangfuse(trace: Record<string, unknown>, host?: string): Tra
   });
   const calls = found.sort((a, b) => a.at - b.at).map((f) => f.call);
   const parents = new Map(observations.flatMap((o) => (str(o.id) && str(o.parentObservationId) ? [[String(o.id), String(o.parentObservationId)] as const] : [])));
+  // Langfuse types an agent's observation AGENT, named for the agent.
+  const agents = new Map(observations.flatMap((o) => (o.type === 'AGENT' && str(o.id) && str(o.name) ? [[String(o.id), String(o.name)] as const] : [])));
   const url = host === undefined ? undefined : langfusePage(host, trace.htmlPath);
-  return { id: String(trace.id ?? ''), calls, spans: observations.length, skipped: [], parents, ...(url ? { url } : {}) };
+  return { id: String(trace.id ?? ''), calls, spans: observations.length, skipped: [], parents, ...(agents.size ? { agents } : {}), ...(url ? { url } : {}) };
 }

@@ -1,7 +1,8 @@
-import { describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
+import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome, verifyTallyLine } from '@shadowlap/engine';
 import { verifyEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
-import { changeName, commandLine, countArgs, finite, fixHref, gateArg, PULLED_CAP, pulledGate, ROLE, runHref, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
+import { changeName, commandLine, countArgs, finite, fixHref, gateArg, gateMarks, notVerified, PULLED_CAP, pulledGate, ROLE, runHref, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
+import { verifiedParts } from './verdict.js';
 
 /** A fix's Verify step: every verdict on a change for it, run by run, and how to ask again. */
 
@@ -37,16 +38,28 @@ export interface VerifyStep {
   needed: number;
   attemptsPerRun: number;
   rows: VerifyRow[];
+  /** Its gate's two marks, `[bad, good]`, for the rows' bars; null for a fixed count. */
+  marks: [number, number] | null;
+  /**
+   * The fix's failing runs no accepted verdict that counts has checked, but this one's (`notVerified`),
+   * on an accepted verdict that counts; empty on any other. Each with its about line, read in the
+   * fix's pooled read (`withAbouts`), null where none could be read.
+   */
+  left: Array<{ runId: string; href: string; about: string | null }>;
   tokens: { before: number; after: number; change: string } | null;
   cost: { before: number; after: number; change: string } | null;
   attempts: number;
   upstreamRequests: number;
   spent: number;
+  /** What its judge checks' calls cost apart from `spent` and `upstreamRequests`, as the CLI's report adds it; null when no judge was asked. */
+  judge: { upstreamRequests: number; spent: number } | null;
   unknownModels: string[];
   reasons: string[];
   /** Those of `reasons` that say a run is inconclusive or not settled, not that the change failed it: shown in amber, the rest in red. */
   unsettled: string[];
   warnings: string[];
+  /** What answered the change's tool calls after the fork, and the baselines' apart, in the engine's words (`afterForkSentence`), as the CLI's report prints it under its warnings; null when no attempt made one. */
+  afterFork: string | null;
   /**
    * The command it ran: as it ran, for a verdict given here; for one a pull brought (`pulled`), the
    * same verify made here from its checked fields, so a teammate's command line is never offered to
@@ -104,6 +117,17 @@ function pct(before: number, after: number): string {
   return `${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d) < 10 ? Math.abs(d).toFixed(1) : Math.round(Math.abs(d))}%`;
 }
 
+/** The fix's failing runs an accepted verdict left out, that no other accepted verdict has checked (`VerifyStep['left']`), their about lines not read yet. */
+function leftOf(rec: FixRecords, v: StoredVerdict): VerifyStep['left'] {
+  const checked = new Set(v.report.runs.map((x) => x.runId));
+  return notVerified(rec)
+    .filter((id) => !checked.has(id))
+    .map((runId) => ({ runId, href: runHref(runId), about: null }));
+}
+
+/** A verdict's heading as its Verify step heads it (`headline`), for the Repair step to head the change it accepted alike. */
+export const verdictHeadline = (rec: FixRecords, v: StoredVerdict): string => headline(rec, v, rec.standing.get(v.verifyId) ?? { counts: true, why: null });
+
 /**
  * A verdict's heading, by the runs it checked, in the engine's words (`fixVerifyHead`): "Every failing
  * run fixed, every good run kept" only when it checked every failing run of the fix, else what it did
@@ -111,6 +135,49 @@ function pct(before: number, after: number): string {
  */
 function headline(rec: FixRecords, v: StoredVerdict, standing: VerdictStanding): string {
   return uncountedHead(standing) ?? fixVerifyHead(v.verdict, v.report.runs, rec.failing);
+}
+
+/** A run a verdict checked, as the Verify step's table shows it: its role, tally, bound and interval, its attempts, and where it went. */
+function verifyRow(x: VerifiedRun): VerifyRow {
+  const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : undefined;
+  const forks = [...new Set(x.attempts.map((a) => a.forkedAt).filter((f): f is number => f !== null))];
+  const n = x.attempts.length;
+  const mean = (pick: (a: (typeof x.attempts)[number]) => number | null) => {
+    if (!n) return null;
+    let sum = 0;
+    for (const a of x.attempts) {
+      const value = pick(a);
+      if (value === null) return null;
+      sum += value;
+    }
+    return sum / n;
+  };
+  const now = mean((a) => a.footprint.inputTokens);
+  // A run an attempt it could not judge stopped was decided by no gate: no rate, as verify's JSON has none.
+  const rate = x.undecided ? null : rateOf(x.gate);
+  const parts = verifiedParts(x);
+  return {
+    role: ROLE[x.role],
+    runId: x.runId,
+    href: runHref(x.runId),
+    attempts: n,
+    passes: x.passes,
+    inconclusive: x.attempts.filter((a) => keptAttemptVerdict(a) === 'inconclusive').length,
+    deterministic: x.deterministic,
+    outcome: outcomeOf(x),
+    rate,
+    note: failure ? shortFailure(failure) : x.undecided ? 'an attempt could not be judged' : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
+    tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
+    cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,
+    evidence: verifyEvidence(x),
+    // What it counted and why an attempt stopped it, as verify's line says them, then the rest of its parts.
+    tally: verifyTallyLine({ tally: parts.tally, undecided: parts.undecided }),
+    cutShort: parts.cutShort,
+    bound: parts.bound,
+    // Against its baseline the drop bound says it, with no bar: the row's interval is of its pass rate alone.
+    interval: rate?.bound && !x.baseline ? { lo: rate.lo, hi: rate.hi } : null,
+    tries: x.attempts.map((a) => ({ runId: a.runId, href: runHref(a.runId), outcome: keptAttemptVerdict(a), note: a.passed ? (a.forkedAt === null ? null : `forked at #${a.forkedAt}`) : a.failures[0] ? shortFailure(a.failures[0]) : null })),
+  };
 }
 
 /**
@@ -124,39 +191,7 @@ export function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string):
   const appliedAt = rec.fix.appliedAt;
   const regressed = standing.counts && v.verdict === 'rejected' && rec.fix.status === 'applied' && appliedAt !== null && v.at > appliedAt;
   const code = changeName(v);
-  const rows: VerifyRow[] = r.runs.map((x) => {
-    const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : undefined;
-    const forks = [...new Set(x.attempts.map((a) => a.forkedAt).filter((f): f is number => f !== null))];
-    const n = x.attempts.length;
-    const mean = (pick: (a: (typeof x.attempts)[number]) => number | null) => {
-      if (!n) return null;
-      let sum = 0;
-      for (const a of x.attempts) {
-        const value = pick(a);
-        if (value === null) return null;
-        sum += value;
-      }
-      return sum / n;
-    };
-    const now = mean((a) => a.footprint.inputTokens);
-    // A run an attempt it could not judge stopped was decided by no gate: no rate, as verify's JSON has none.
-    const rate = x.undecided ? null : rateOf(x.gate);
-    return {
-      role: ROLE[x.role],
-      runId: x.runId,
-      href: runHref(x.runId),
-      attempts: n,
-      passes: x.passes,
-      inconclusive: x.attempts.filter((a) => keptAttemptVerdict(a) === 'inconclusive').length,
-      deterministic: x.deterministic,
-      outcome: outcomeOf(x),
-      rate,
-      note: failure ? shortFailure(failure) : x.undecided ? 'an attempt could not be judged' : !n ? 'not started' : x.deterministic ? 'clean replay' : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '',
-      tokens: now === null ? null : { recorded: x.recorded.footprint.inputTokens, now },
-      cost: n ? { recorded: x.recorded.footprint.cost, now: mean((a) => a.footprint.cost) } : null,
-      evidence: verifyEvidence(x),
-    };
-  });
+  const rows = r.runs.map(verifyRow);
   const d = footprintDelta(r.runs);
   return {
     verifyId: v.verifyId,
@@ -173,15 +208,19 @@ export function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string):
     needed: r.needed,
     attemptsPerRun: r.attemptsPerRun,
     rows,
+    marks: gateMarks(sprtGate(r.gate)),
+    left: standing.counts && v.verdict === 'accepted' ? leftOf(rec, v) : [],
     tokens: d ? { before: d.recorded.inputTokens, after: d.now.inputTokens, change: pct(d.recorded.inputTokens, d.now.inputTokens) } : null,
     cost: d && d.recorded.cost !== null && d.now.cost !== null ? { before: d.recorded.cost, after: d.now.cost, change: pct(d.recorded.cost, d.now.cost) } : null,
     attempts: r.attempts,
     upstreamRequests: r.upstreamRequests,
     spent: r.spent,
+    judge: r.judge ? { upstreamRequests: r.judge.upstreamRequests, spent: r.judge.spent } : null,
     unknownModels: r.unknownModels,
     reasons: r.reasons,
     unsettled: r.reasons.filter(unsettledReason),
     warnings: [...r.warnings, ...(r.replayWarnings ?? [])],
+    afterFork: afterForkSentence(r.runs),
     // A teammate's command line is never offered to copy: the same verify, made here from its checked fields.
     command: v.pulled ? sameVerify(v, fallback) : v.command,
     pulled: v.pulled ?? null,
@@ -215,6 +254,52 @@ function verdictArgs(v: StoredVerdict, o: { gate?: SprtGate | null; drop?: Reado
   return { argv: ['verify', ...roles, ...check, ...fields, ...decide, ...rerun.flags, ...(rerun.command ? ['--', ...rerun.command] : [])], rerun };
 }
 
+/** What a verdict decided each run by: its gate, else its fixed count of attempts, each held to a pulled record's cap. */
+export function verdictRule(v: StoredVerdict): { gate: SprtGate | null; attempts: number } {
+  const pulled = !!v.pulled;
+  return { gate: pulledGate(sprtGate(v.report.gate), pulled, PULLED_CAP.verify), attempts: pulled ? Math.min(v.report.attemptsPerRun, PULLED_CAP.count) : v.report.attemptsPerRun };
+}
+
+/**
+ * What Verify this run is expected to take, worked out as `verifyMore` works its own: each of `runs`
+ * runs from the start at the rate the accepted verdict `v`'s failing runs passed at, by its gate,
+ * else its fixed count; and what that costs at what an attempt of `v` cost, null when it spent nothing.
+ */
+export function verifyLeftExpected(v: StoredVerdict, runs: number): { expected: number; cost: number | null } {
+  const r = v.report;
+  const { gate, attempts } = verdictRule(v);
+  const failing = r.runs.filter((x) => x.role !== 'good');
+  const tried = failing.reduce((n, x) => n + x.attempts.length, 0);
+  const rate = tried ? failing.reduce((n, x) => n + x.passes, 0) / tried : 0.5;
+  const expected = Math.round(runs * (gate ? gateOdds(gate, rate).attempts : attempts));
+  const spent = r.spent + (r.judge?.spent ?? 0);
+  return { expected, cost: spent > 0 && r.attempts > 0 ? (spent / r.attempts) * expected : null };
+}
+
+/** What a good run is kept against: Verify this run names no good run, so they have nothing to say. */
+const GOOD_RUN_FLAGS: ReadonlySet<string> = new Set(['--margin', '--baseline', '--base', '--build']);
+
+/**
+ * Verify this run (`FixActions['verifyLeft']`) as `shadowlap verify` arguments: `runs`, failing runs
+ * no accepted verdict checked, verified on the code as it is now under the fix's check as it is, by
+ * what `v`, the accepted verdict, decided: the request fields it set, its gate (held to a pulled
+ * record's cap) or fixed count, and its flags but `--budget` and what only a good run reads. A
+ * repair's verdict kept no flags, so its gate alone, as the CLI runs it. Null when any of them isn't
+ * of its shape.
+ */
+export function verifyLeftArgs(rec: FixRecords, v: StoredVerdict, runs: readonly string[]): { argv: string[]; pulled: PulledFrom | null; left: string[] } | null {
+  const r = v.report;
+  const pulled = !!v.pulled;
+  const rerun = v.rerun ? rerunFlags('verify', v.rerun, { pulled, drop: new Set(['--budget', ...GOOD_RUN_FLAGS]) }) : null;
+  const check = expectArgs(rec.fix.check.expect);
+  const fields = fieldArgs(r.fields);
+  if ((v.rerun && !rerun) || !check || !fields || !runs.length || !runIds(runs)) return null;
+  const { gate } = verdictRule(v);
+  const decide = gate ? gateArg(gate, SPRT_DEFAULTS) : countArgs(r.attemptsPerRun, r.needed, pulled);
+  if (!decide) return null;
+  return { argv: ['verify', '--fixes', ...runs, ...check, ...fields, ...decide, ...(rerun?.flags ?? []), ...(rerun?.command ? ['--', ...rerun.command] : [])], pulled: v.pulled ?? null, left: rerun?.left ?? [] };
+}
+
 /** A pulled verdict's verify as this machine would run it again, from its checked fields; `fallback` when they make none. */
 function sameVerify(v: StoredVerdict, fallback: string): string {
   const made = verdictArgs(v);
@@ -228,7 +313,7 @@ function sameVerify(v: StoredVerdict, fallback: string): string {
  * incomplete, a repair's candidate, a fixed count with nothing stopped, or one whose fields can't
  * be checked (kept before its flags were, or with one of another shape).
  */
-function verifyMore(v: StoredVerdict): VerifyMore | null {
+export function verifyMore(v: StoredVerdict): VerifyMore | null {
   const r = v.report;
   if (v.verdict !== 'incomplete' || v.candidate !== null || v.repairId !== null) return null;
   const open = r.runs.filter((x) => x.verdict === 'open');

@@ -1,4 +1,4 @@
-import { gitAsync } from './patch-in-tree.js';
+import { gitAsync, HEX } from './patch-in-tree.js';
 import { bisectArgs, type BisectChoices, type BisectRange, type BisectRevision } from './tests.js';
 
 /**
@@ -14,8 +14,7 @@ import { bisectArgs, type BisectChoices, type BisectRange, type BisectRevision }
  * requests while it waits.
  */
 
-/** Only a commit's hex name is ever handed to git: a revision comes from a run, which may have come from anyone. */
-export const HEX = /^[0-9a-f]{4,64}$/i;
+export { HEX };
 /** How long git's "no such commit" stands before it is asked again. */
 const MISSING_FOR_MS = 60_000;
 
@@ -31,6 +30,8 @@ interface Answers {
   lacks: Map<string, number>;
   parented: Set<string>;
   parentless: Map<string, { shallow: boolean; at: number }>;
+  /** The few commits before one, along its first parents, by the commit asked about, and when git last had none to say (`commitsBefore`). */
+  before: Map<string, { list: Array<{ rev: string; subject: string }>; at: number }>;
 }
 const answers = new Map<string, Answers>();
 
@@ -39,7 +40,7 @@ function answersIn(cwd: string): Answers {
   if (!a) {
     // A dashboard serves a handful of projects: the answers of the latest few are kept.
     if (answers.size >= 16) answers.delete(answers.keys().next().value!);
-    answers.set(cwd, (a = { has: new Map(), authors: new Map(), lacks: new Map(), parented: new Set(), parentless: new Map() }));
+    answers.set(cwd, (a = { has: new Map(), authors: new Map(), lacks: new Map(), parented: new Set(), parentless: new Map(), before: new Map() }));
   }
   return a;
 }
@@ -203,4 +204,28 @@ export function rangeHere(golden: string, range: BisectRange, here: ReadonlySet<
 /** The commits a golden's Find breaking commit dialog offers, those this checkout has, each with its subject. */
 export function revisionsHere(revisions: readonly BisectRevision[], here: ReadonlySet<string>, subjects: ReadonlyMap<string, string>): BisectRevision[] {
   return revisions.filter((r) => here.has(r.rev)).map((r) => (subjects.has(r.rev) ? { ...r, subject: subjects.get(r.rev)! } : r));
+}
+
+/** How many commits before the one a golden failed at Find breaking commit offers when it was never tested at them. */
+const BEFORE = 3;
+
+/**
+ * Up to three commits before `bad` along its first parents, newest first, each with its subject: Tests
+ * offers them as good commits to a golden that never passed. Kept per commit, as a commit's parents
+ * never change; none (a commit this checkout lacks, a first commit, or no git) is asked again after
+ * a minute, as a fetch may bring it.
+ */
+export async function commitsBefore(cwd: string, bad: string, now = Date.now()): Promise<Array<{ rev: string; subject: string }>> {
+  if (!HEX.test(bad)) return [];
+  const a = answersIn(cwd);
+  const kept = a.before.get(bad);
+  if (kept && (kept.list.length || now - kept.at < MISSING_FOR_MS)) return kept.list;
+  const out = await gitAsync(cwd, ['log', '--first-parent', '--format=%H%x09%s', '-n', String(BEFORE), `${bad}^`, '--']);
+  const list = out.code !== 0 ? [] : out.stdout
+    .split('\n')
+    .map((line) => /^([0-9a-f]{40,64})\t(.*)$/.exec(line))
+    .filter((m): m is RegExpExecArray => !!m)
+    .map((m) => ({ rev: m[1]!, subject: m[2]!.slice(0, 200) }));
+  a.before.set(bad, { list, at: now });
+  return list;
 }

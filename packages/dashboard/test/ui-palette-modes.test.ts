@@ -7,7 +7,7 @@ import { palettePlaceholder } from '../ui/palette.js';
 import { href, type Route } from '../ui/route.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { FixRow } from '../ui/types.js';
+import type { FixesViewRow } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -108,11 +108,12 @@ describe('Search or jump to, as the dashboard stands', () => {
     expect(toast).toHaveBeenCalledWith(why);
   });
 
-  it('offers Apply fix for each verified fix once something is typed, by its label too, and opens its page asking there', async () => {
+  it('offers Apply fix for each fix ready to apply once something is typed, by its label too, and opens its page asking there', async () => {
     const location = { hash: '#/', search: '', pathname: '/' };
     vi.stubGlobal('location', location);
-    const fix = (fixId: string, status: FixRow['status'], title: string) => ({ fixId, status, title, label: 'refund-bug' }) as FixRow;
-    rememberList({ fixes: [fix('fx-open', 'open', 'Refunds sent twice'), fix('fx-ready', 'verified', 'Escalate refunds above the limit'), fix('fx-done', 'applied', 'Refunds in cents')], counts: { all: 3, open: 1, verified: 2 } });
+    const fix = (fixId: string, status: FixesViewRow['status'], title: string, bucket: FixesViewRow['bucket']) => ({ fixId, status, title, label: 'refund-bug', bucket }) as FixesViewRow;
+    // A verified fix merged with its pull request shipped: nothing to apply.
+    rememberList({ fixes: [fix('fx-open', 'open', 'Refunds sent twice', 'open'), fix('fx-ready', 'verified', 'Escalate refunds above the limit', 'ready'), fix('fx-merged', 'verified', 'Refunds above the limit merged', 'applied'), fix('fx-done', 'applied', 'Refunds in cents', 'applied')] });
     try {
       r = await render(createElement(AppContext.Provider, { value: app({ client: { jobs: async () => [] } as unknown as Client, hasKind: (k: string) => k === JOB_KINDS.applyFix }) }, createElement(Palette, { route: OVERVIEW })));
       const applies = () => r!.all('.palit').filter((el) => el.querySelector('.pl')!.textContent === 'Apply fix');
@@ -124,7 +125,7 @@ describe('Search or jump to, as the dashboard stands', () => {
       expect(location.hash).toBe(href.fixes('fx-ready'));
       expect(APPLY_ASK.take('fx-ready')).toBe(true);
     } finally {
-      rememberList({ fixes: [], counts: { all: 0, open: 0, verified: 0 } });
+      rememberList({ fixes: [] });
       vi.unstubAllGlobals();
     }
   });
@@ -155,7 +156,7 @@ describe('Search or jump to, as the dashboard stands', () => {
       const el = row(label)!;
       return [el.querySelector('.ph2')!.textContent, el.getAttribute('aria-disabled') === 'true', el.className.includes('waits')];
     };
-    rememberList({ fixes: [{ fixId: 'fx-ready', status: 'verified', title: 'Escalate refunds above the limit', label: 'refund-bug' } as FixRow], counts: { all: 1, open: 0, verified: 1 } });
+    rememberList({ fixes: [{ fixId: 'fx-ready', status: 'verified', title: 'Escalate refunds above the limit', label: 'refund-bug', bucket: 'ready' } as FixesViewRow] });
     try {
       r = await open();
       await r.type(r.one('.palin input'), 'Calibrate');
@@ -187,7 +188,7 @@ describe('Search or jump to, as the dashboard stands', () => {
       await r.until('Calibrate ready', () => seen('Calibrate')[1] === false);
       expect(seen('Calibrate')).toEqual(['propose normalizers', false, false]);
     } finally {
-      rememberList({ fixes: [], counts: { all: 0, open: 0, verified: 0 } });
+      rememberList({ fixes: [] });
       vi.unstubAllGlobals();
     }
   });

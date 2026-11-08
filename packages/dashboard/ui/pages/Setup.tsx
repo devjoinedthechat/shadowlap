@@ -101,12 +101,12 @@ function SetupStep({ n, state, title, cli, children }: { n: number; state: Inspe
 }
 
 /**
- * Keep it as a test's question, where the golden's tests entry runs it live: Pack as a golden (it
+ * Keep it as a test's question, where the golden's tests entry runs it live: Pack as golden (it
  * packs the run, then tests it) or, once it is packed, Run the test, titled by the step's button.
  * The shell asks it, as it asks a Tests session's; this page's chunk holds its words.
  */
 export function keepAsk(label: string | undefined, golden: string, packs: boolean): TestsAsk {
-  const title = label ?? (packs ? 'Pack as a golden' : 'Run the test');
+  const title = label ?? (packs ? 'Pack as golden' : 'Run the test');
   return { title, lead: packs ? `Packs the run as ${golden}, then runs its test.` : `Runs the test of ${golden}.`, doc: 'goldensThatFork', ok: title, commands: [commandText(['test', golden])], parts: ['only what runs live'] };
 }
 
@@ -232,7 +232,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
       );
     });
   const calibrate = (runId: string, write: boolean) => guard(() => start(client.startJob(JOB_KINDS.calibrate, { runId, write })));
-  // Pack as a golden: the path checked first, so a mistake shows under the field; then one job packs
+  // Pack as golden: the path checked first, so a mistake shows under the field; then one job packs
   // it and runs its test, on the server, so leaving the page doesn't stop halfway. Where its tests
   // entry runs that test live, the server asks first, as for Tests' sessions, and the shell asks it.
   const keep = { client, guard, watchJob: start };

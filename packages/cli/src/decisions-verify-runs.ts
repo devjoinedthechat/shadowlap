@@ -1,4 +1,4 @@
-import { commandIsImported, describeBaselineRule, describeGate, dropBound, footprintDelta, outcomeOf, rateBound, recordedRole, type DecisionsVerify, type Price, type Store, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { commandIsImported, describeBaselineRule, describeGate, footprintDelta, outcomeOf, recordedRole, verifyTally, type DecisionsVerify, type Price, type Store, type VerifiedRun, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type TestSpec } from './checks.js';
 import type { DecisionsSettings, DecisionTarget } from './decisions.js';
 import { recordVerifyFix, verifyCommand } from './fixes.js';
@@ -45,16 +45,16 @@ function planOf(g: ChecksGroup, input: VerifyRunsInput) {
 
 /**
  * A run verified, as the report keeps it, in verify --json's words: fixed, not-fixed, kept, broken,
- * inconclusive, unsettled; with why its last attempt could not be judged, when one stopped it (no bound
- * then, as verify gives none), and the rule that decided it. A good run kept against its baseline reads
- * under the baseline test's rule, its bound the drop's.
+ * inconclusive, unsettled; with why its last attempt could not be judged, when one stopped it, and the
+ * rule that decided it. A good run kept against its baseline reads under the baseline test's rule, its
+ * bound the drop's. Its bound is the one verify's line gives (engine `verifyTally`): none for a run an
+ * attempt stopped or a clean replay, nor where a report's figures give none.
  */
-function entryOf(report: VerifyReport, rule: string): (r: VerifiedRun) => DecisionsVerify['runs'][number] {
+export function entryOf(report: VerifyReport, rule: string): (r: VerifiedRun) => DecisionsVerify['runs'][number] {
   const keptRule = report.kept ? describeBaselineRule({ ...report.kept, revision: report.kept.label ?? report.kept.revision ?? null }) : null;
   return (r) => {
     const against = r.baseline && keptRule;
-    const bound = r.undecided || r.deterministic ? null : against ? (r.drop ? dropBound(r.drop, r.decision) : null) : r.gate ? rateBound(r.gate) : null;
-    return { runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, ...(against ? { baseline: { passes: r.baseline!.passes, attempts: r.baseline!.attempts } } : {}), bound, undecided: r.undecided ?? null, rule: against ? keptRule : rule };
+    return { runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, ...(against ? { baseline: { passes: r.baseline!.passes, attempts: r.baseline!.attempts } } : {}), bound: verifyTally(r).bound, undecided: r.undecided ?? null, rule: against ? keptRule : rule };
   };
 }
 

@@ -7,6 +7,7 @@ import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Unshown } from '../shell/unshown.js';
 import { NotFoundPage } from './NotFound.js';
+import { Elsewhere } from './held-elsewhere.js';
 import { sameRun } from '../format.js';
 import { runRefresh } from '../connection.js';
 import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
@@ -159,7 +160,7 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
             <NotFoundPage header what={`No run ${id} in this copy.`} back={[lastRunsHref(), 'Open Runs']} />
           </>
         );
-      return (
+      const page = (
         <Page>
           {missing ? <Unshown at={`run:${id}`} /> : null}
           <div className="empty tall">
@@ -170,6 +171,8 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
           </div>
         </Page>
       );
+      // Another project may hold it: a link from there, or a page left open across a switch.
+      return missing ? <Elsewhere ask={{ what: 'run', ids: [id] }} error={loaded.error} waiting={<RunLoading />} retry={loaded.reload} fallback={page} /> : page;
     }
     return <RunLoading />;
   }

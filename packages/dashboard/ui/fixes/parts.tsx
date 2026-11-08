@@ -1,4 +1,5 @@
-import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useId, useMemo, useState } from 'react';
+import { Icon } from '../components/Icon.js';
 import type { FixRow } from '../types.js';
 import { breakPoints, cellKeepsWhole, failedMust, flagParts, inlineParts, parseMarkdown, plainCell, wholeParts, type MdBlock } from './model.js';
 
@@ -26,10 +27,10 @@ export function FailedMust({ fix }: { fix: Pick<FixRow, 'title' | 'failed' | 'ch
   );
 }
 
-/** A check or a failure as code, a count kept with its unit and a comparison kept whole where there is room (`wholeParts`). */
-function Whole({ text }: { text: string }) {
+/** A check or a failure, a sentence in the UI face, a count kept with its unit and a comparison kept whole where there is room (`wholeParts`). */
+export function Whole({ text }: { text: string }) {
   return (
-    <code>
+    <span className="fmv">
       {wholeParts(text).map((p, i) =>
         p.whole ? (
           <span key={i} className="kc">
@@ -39,20 +40,7 @@ function Whole({ text }: { text: string }) {
           <Fragment key={i}>{p.text}</Fragment>
         ),
       )}
-    </code>
-  );
-}
-
-/** A step's header: its title, a line or two under it, and its actions on the right (`.sh`). */
-export function StepHead({ title, text, actions }: { title: ReactNode; text?: ReactNode; actions?: ReactNode }) {
-  return (
-    <div className="sh">
-      <div>
-        <h2>{title}</h2>
-        {text ? <p>{text}</p> : null}
-      </div>
-      {actions ? <div className="actions">{actions}</div> : null}
-    </div>
+    </span>
   );
 }
 
@@ -153,40 +141,62 @@ function Block({ b }: { b: MdBlock }) {
   }
 }
 
+/** report.md's blocks, a section the step shows around it already gathered under its heading (`fold`). */
+type MdPart = { fold: null; b: MdBlock } | { fold: string; blocks: MdBlock[] };
+
 /**
- * report.md, the pull request body, as the page draws it: whole when it fits the panel, else its
- * first part with the rest a click away. Drawn from blocks, never as HTML.
+ * report.md's blocks with each section `titles` names (`### What failed`) gathered under its
+ * heading, up to the next heading. The report's last line, what the repair cost, is in no section.
  */
-export function Markdown({ text }: { text: string }) {
-  const box = useRef<HTMLDivElement>(null);
-  const [all, setAll] = useState(false);
-  // Whether the body is taller than the clamped panel. It starts clamped and is measured before it
-  // paints: a body that fits drops the clamp and the button. Another body is measured again.
-  const [long, setLong] = useState(true);
-  const [measured, setMeasured] = useState(text);
-  if (measured !== text) {
-    setMeasured(text);
-    setLong(true);
-    setAll(false);
+export function foldedBlocks(blocks: readonly MdBlock[], titles: readonly string[]): MdPart[] {
+  const out: MdPart[] = [];
+  let into: MdBlock[] | null = null;
+  for (const [i, b] of blocks.entries()) {
+    if (b.kind === 'h') into = null;
+    const foot = i === blocks.length - 1 && b.kind === 'p' && b.text.startsWith('Cost:');
+    if (into && !foot) into.push(b);
+    else if (b.kind === 'h' && titles.includes(b.text)) {
+      into = [];
+      out.push({ fold: b.text, blocks: into });
+    } else out.push({ fold: null, b });
   }
+  return out;
+}
+
+/**
+ * report.md as the repair writes it, the pull request's body, boxed as a preview of it (`.prbody.md`)
+ * and drawn from blocks, never as HTML. Its sections the step shows around it already (`folds`,
+ * by heading: What failed and Candidates) start closed: the heading, a summary of the section
+ * (`1 run · lost at model call #5`) and a caret that opens it.
+ */
+export function Markdown({ text, folds = {} }: { text: string; folds?: Readonly<Record<string, string>> }) {
   const blocks = useMemo(() => parseMarkdown(text), [text]);
-  const clamp = long && !all;
-  useLayoutEffect(() => {
-    const el = box.current;
-    if (el && clamp) setLong(el.scrollHeight > el.clientHeight + 1);
-  }, [text, clamp]);
+  return (
+    <div className="prbody md">
+      {foldedBlocks(blocks, Object.keys(folds)).map((p, i) => (p.fold === null ? <Block key={i} b={p.b} /> : <Fold key={p.fold} title={p.fold} summary={folds[p.fold] ?? ''} blocks={p.blocks} />))}
+    </div>
+  );
+}
+
+/** A section of report.md that opens on request: `Show what failed`. */
+function Fold({ title, summary, blocks }: { title: string; summary: string; blocks: readonly MdBlock[] }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const name = `${title.charAt(0).toLowerCase()}${title.slice(1)}`;
   return (
     <>
-      <div ref={box} className={`prbody${clamp ? ' clamp' : ''}`}>
-        {blocks.map((b, i) => (
-          <Block key={i} b={b} />
-        ))}
-      </div>
-      {long ? (
-        <div className="fxmore">
-          <button className="linkbtn" type="button" aria-expanded={all} onClick={() => setAll(!all)}>
-            {all ? 'Show less' : 'Show all of report.md'}
-          </button>
+      <h4 className="mdh">
+        <span>{title}</span>
+        <span className="mds">{summary}</span>
+        <button type="button" className="xbtn" aria-expanded={open} aria-controls={open ? id : undefined} aria-label={`${open ? 'Hide' : 'Show'} ${name}`} onClick={() => setOpen(!open)}>
+          <Icon name="caret" />
+        </button>
+      </h4>
+      {open ? (
+        <div id={id}>
+          {blocks.map((b, i) => (
+            <Block key={i} b={b} />
+          ))}
         </div>
       ) : null}
     </>

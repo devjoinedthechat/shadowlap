@@ -8,7 +8,7 @@ import { describeInterventions } from '@shadowlap/sidecar';
 import { callDetail, countMasked, exportHtml, provenance, runDetail, showRunJson, startDashboard, type RunDetail } from '../src/index.js';
 
 type RunDetailShape = Pick<RunDetail, 'intervention' | 'interventions' | 'notRecorded'>;
-import { assistant, batchRun, closingBatch, RunBuilder, SYSTEM, text, toolResult, toolUse, TOOLS, usage, user } from '../../engine/test/run-fixtures.js';
+import { assistant, batchRun, closingBatch, RunBuilder, subagentRun, subagentRunLive, SYSTEM, text, toolResult, toolUse, TOOLS, usage, user } from '../../engine/test/run-fixtures.js';
 
 describe('the run page: conversations', () => {
   it('numbers the conversations of a batch and shows a tool call its own ticket', () => {
@@ -90,6 +90,41 @@ describe('the run page: conversations', () => {
     expect(callDetail(store, b.runId, lo)!.conversation).toMatchObject({ fromCallNo: a1, n: 2 });
     expect(callDetail(store, b.runId, lp)!.conversation).toMatchObject({ fromCallNo: p1, n: 3 });
     expect(d.calls.find((c) => c.callNo === a2)!.conversation).toBe(2);
+    // Each call's agent is its scope; the tool call is its model call's.
+    expect(d.calls.map((c) => [c.callNo, c.agent])).toEqual([
+      [c1, 'customer'],
+      [a1, 'agent'],
+      [p1, 'agent/policy-checker'],
+      [lo, 'agent'],
+      [lp, 'agent/policy-checker'],
+      [a2, 'agent'],
+    ]);
+    store.close();
+  });
+
+  it('names the agents of a run without scopes, and the call that started each sub-agent', () => {
+    const store = Store.open(':memory:');
+    const r = subagentRun(store);
+    const d = runDetail(store, r.runId)!;
+    expect(d.calls.map((c) => [c.callNo, c.agent, c.spawnedBy])).toEqual([
+      [r.main1, 'claude-code', null],
+      [r.sub1, 'claude-code/Explore', r.main1],
+      [r.grep, 'claude-code/Explore', r.main1],
+      [r.sub2, 'claude-code/Explore', r.main1],
+      [r.task, 'claude-code', null],
+      [r.main2, 'claude-code', null],
+    ]);
+    store.close();
+  });
+
+  it('gives a recording’s calls the agents the finished run gives them', () => {
+    const store = Store.open(':memory:');
+    const first = new Map<number, [string | null, number | null]>();
+    let runId = '';
+    for (runId of subagentRunLive(store)) for (const c of runDetail(store, runId)!.calls) if (!first.has(c.callNo)) first.set(c.callNo, [c.agent, c.spawnedBy]);
+    const whole = runDetail(store, runId)!;
+    expect(whole.run.status).not.toBe('running');
+    expect(whole.calls.map((c) => [c.agent, c.spawnedBy])).toEqual(whole.calls.map((c) => first.get(c.callNo)));
     store.close();
   });
 
