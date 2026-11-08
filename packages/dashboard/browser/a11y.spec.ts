@@ -275,16 +275,19 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   }
 });
 
-test('a preview’s and a migration’s link opens Changes on Verdicts, and neither Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
+test('a preview’s link opens Preview and a migration’s Changes on Verdicts, and neither Preview, Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
   const { origin, token } = dash();
   const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
   const { sessions } = (await get('decisions')) as { sessions: Array<{ kind: 'decisions' | 'migrate'; href: string }> };
-  for (const kind of ['decisions', 'migrate'] as const) {
-    const link = sessions.find((s) => s.kind === kind)?.href;
-    expect(link, `the demo's ${kind} session`).toMatch(new RegExp(`^#/changes/${kind}/`));
-    await openPage(page, link!.slice(1), 'main#view table.vdt tbody tr');
-    await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/changes');
-  }
+  const preview = sessions.find((s) => s.kind === 'decisions')?.href;
+  expect(preview, 'the demo’s preview').toMatch(/^#\/changes\/decisions\//);
+  await openPage(page, preview!.slice(1), 'main#view .dmx button.dc');
+  expect(await page.evaluate(() => location.hash)).toBe(preview);
+  await expect(page.locator('main#view a[aria-current="page"]', { hasText: 'Preview' })).toHaveCount(1);
+  const migration = sessions.find((s) => s.kind === 'migrate')?.href;
+  expect(migration, 'the demo’s migration').toMatch(/^#\/changes\/migrate\//);
+  await openPage(page, migration!.slice(1), 'main#view table.vdt tbody tr');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/changes');
   const { lead } = (await get('verdicts')) as { lead: { key: string } | null };
   expect(lead, 'the demo’s newest revision a session ran every golden at').not.toBeNull();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -295,6 +298,9 @@ test('a preview’s and a migration’s link opens Changes on Verdicts, and neit
     location.hash = `#/changes/verdicts/${encodeURIComponent(key)}`;
   }, lead!.key);
   await page.waitForSelector('main#view table.vdg tbody tr', { state: 'visible' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  // Preview's matrix scrolls a row's cells in their own box, never the page.
+  await openPage(page, preview!.slice(1), 'main#view .dmx button.dc');
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 });
 
