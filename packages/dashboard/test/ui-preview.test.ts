@@ -8,6 +8,7 @@ import type { Client } from '../ui/api.js';
 import { PreviewTab } from '../ui/changes/Preview.js';
 import { argParts, cellCost, cellLead, cellLook, cellWeight, chipWhen, drawnCells, nextStep, noneLine, outcomeTone, pricePair, receiptWords, sessionHint, toolMarks, verdictState, verifyLabel } from '../ui/decisions.js';
 import { forgetConversationPrefs } from '../ui/components/Conversation.js';
+import { estimatesApi } from '../ui/estimates-api.js';
 import { DecisionsView, forgetDecisionsPick } from '../ui/run/DecisionsView.js';
 import { minuteStamp } from '../ui/format.js';
 import { pageUp } from '../ui/focus-manager.js';
@@ -350,6 +351,12 @@ describe('the Preview page', () => {
     await p.click(p.byText('.dialog button', 'Verify 1 run'));
     await p.until('the job', () => started.length === 1);
     expect(started[0]).toEqual(['decisions-verify', expect.objectContaining({ sessionId: ID, runIds: [b] })]);
+    // The estimate's address names each run apart, and none for every run left.
+    const asked: string[] = [];
+    const api = estimatesApi(((path: string) => (asked.push(path), Promise.resolve({ verify: null }))) as unknown as Parameters<typeof estimatesApi>[0]);
+    await api.decisionEstimates(ID, [a, b]);
+    await api.decisionEstimates(ID, []);
+    expect(asked).toEqual([`decisions/${ID}/estimates?runId=${a}&runId=${b}`, `decisions/${ID}/estimates`]);
   });
 
   it('marks the message a forked run’s cell changed against its parent’s call, with Jump to change', async () => {
