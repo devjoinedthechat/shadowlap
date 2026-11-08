@@ -35,7 +35,9 @@ const config = (o: Partial<ChecksConfig> = {}): ChecksConfig => ({
   exists: true,
   indent: '  ',
   order: ['goldens/refund-flow'],
-  read: { keys: { tests: 'k1' }, tests: { 'goldens/refund-flow': 't1' } },
+  // As the server reads a file whose `tests` is an object: its entries printed apart, not as a key.
+  read: { keys: { redact: 'k1' }, tests: { 'goldens/refund-flow': 't1' } },
+  hasTests: true,
   relaid: false,
   agent: 'node agent.mjs',
   goldens: [golden()],
@@ -138,6 +140,11 @@ describe('the check builder from a call', () => {
     await r!.until('the refusal', () => r!.all('.dwarn').length > 0);
     expect(text('.dwarn')).toBe(said);
     expect(s.onClose).not.toHaveBeenCalled();
+    // Save stays off on the server's words until something changes.
+    expect(r!.one('.dlg-ok').getAttribute('aria-disabled')).toBe('true');
+    await r!.click(r!.all('.cb-kinds button')[1]);
+    await r!.until('Save on again', () => r!.one('.dlg-ok').getAttribute('aria-disabled') === null);
+    expect(r!.all('.dwarn')).toEqual([]);
   });
 
   it('judges no recording on a judge alone, says when it is asked, and keeps Save off until it is asked something', async () => {

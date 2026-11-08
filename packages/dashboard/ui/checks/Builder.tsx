@@ -161,12 +161,15 @@ function notesOf(props: BuilderProps, d: Drawn, golden: string | null, answer: C
   return previewNotes(answer, { golden, failedItsCheck, judges: d.judges, fork: d.fork });
 }
 
-/** Save's words, which follow the state: off with why until it can save, plain while a note needs a look, lime once none does. */
-function waysOf(d: Drawn, s: State, o: { amber: boolean; conflict: boolean; edit: boolean; cfgError: string | null; redactions: number }) {
+/**
+ * Save's words, which follow the state: off with why until it can save, plain while a note needs a
+ * look, lime once none does. A save the server refused stays off on its words until something changes.
+ */
+function waysOf(d: Drawn, s: State, o: { amber: boolean; conflict: boolean; edit: boolean; cfgError: string | null; warn: string | null; redactions: number }) {
   return {
     ok: o.conflict ? 'Save again' : o.edit ? 'Save change' : 'Save check',
     tone: o.amber ? ('plain' as const) : ('lime' as const),
-    okWhy: o.cfgError ? 'shadowlap.config.json couldn’t be read again: Retry it under The change' : saveWhy(d.settled, s.units, s.active, s.golden),
+    okWhy: o.cfgError ? 'shadowlap.config.json couldn’t be read again: Retry it under The change' : (o.warn ?? saveWhy(d.settled, s.units, s.active, s.golden)),
     okSub: o.amber ? 'Saves it as it is, though something above needs a look' : 'Only if shadowlap.config.json is as this page read it: a change made since is never overwritten',
     startFocus: d.rule ? '.cb-kinds [aria-pressed="true"]' : '.cb-kinds button',
     cost: d.rule?.kind === 'judge' ? judgeCost(d.rule, d.fork, o.redactions) : null,
@@ -221,7 +224,7 @@ function Body(props: BuilderProps & BodyProps) {
   const judging = usePreview(of, d.judged);
   if (judging.answer !== preview) setPreview(judging.answer);
   const notes = notesOf(props, d, s.golden, judging.answer);
-  const ways = waysOf(d, s, { amber: notes.some((n) => n.tone === 'amber'), conflict: !!conflict, edit: !fromCall && props.edit !== null, cfgError: props.cfgError, redactions: cfg.redactions });
+  const ways = waysOf(d, s, { amber: notes.some((n) => n.tone === 'amber'), conflict: !!conflict, edit: !fromCall && props.edit !== null, cfgError: props.cfgError, warn, redactions: cfg.redactions });
   const save = useSave(cfg, d.golden, d.settled.merged, { reread: props.reread, onConflict: setConflict, onWarn: setWarn });
   const change = (next: (x: State) => Units) => {
     setWarn(null);
