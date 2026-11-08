@@ -322,6 +322,11 @@ describe('export html', () => {
       const six = embedded(exportHtml({ store: own, runIds: ids.slice(0, 6), uiDir }).html);
       expect(six.responses['meta']).toMatchObject({ compareWith: null });
       expect(Object.keys(six.responses).filter((k) => k.startsWith('compare?'))).toHaveLength(30);
+      // Each pair holds what its second run decided differently from its first after the calls they
+      // share, as the dashboard answers it: the verdict, both endings and the rows, at most 200.
+      const answers = Object.entries(six.responses).filter(([k]) => k.startsWith('compare?')).map(([, v]) => v as { pair?: { verdict: unknown; rows: unknown[]; more: number } | null });
+      expect(answers.every((c) => !!c.pair && c.pair.rows.length <= 200)).toBe(true);
+      expect(answers.filter((c) => c.pair?.verdict).length).toBeGreaterThan(0);
     } finally {
       own.close();
     }

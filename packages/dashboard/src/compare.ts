@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
-import { compareRuns, type RunComparison, type RunRecord, type StoreOf } from '@shadowlap/engine';
-import { compare, lookupRun } from './api.js';
+import { compareRuns, type Normalizer, type RunComparison, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { lookupRun } from './api.js';
+import { pairDifferences, type PairDifferences } from './fork-differences.js';
 
 /**
  * Compare's read model (`GET /api/compare?a=&b=`): the engine's comparison of two runs, call by call,
@@ -26,10 +27,27 @@ export interface CodeChange {
   same?: true;
 }
 
-export type CompareView = RunComparison & {
+/** Two runs compared call by call, with what B decided differently from A after the calls they share (`pair`; null when a run isn't in the run index). */
+export type ComparedPair = RunComparison & { pair: PairDifferences | null };
+
+export type CompareView = ComparedPair & {
   /** What the code card says; null when the revisions are the same, unknown, or not in this checkout. */
   code: CodeChange | null;
 };
+
+/**
+ * Two runs compared call by call (the engine's compareRuns) and as decisions after the calls they
+ * share (pairDifferences), each run's calls read once for both; null when one of them is not in the
+ * store. Arguments and words are compared after `normalizers`, the project's matching rules.
+ */
+export function comparePairOf(store: StoreOf<'recording' | 'readModels' | 'tests'>, a: string, b: string, normalizers: readonly Normalizer[] = []): ComparedPair | null {
+  const ra = lookupRun(store, a);
+  const rb = lookupRun(store, b);
+  if (!ra || !rb) return null;
+  const calls = { a: store.getCalls(ra.runId), b: store.getCalls(rb.runId) };
+  const c = compareRuns(store, ra, calls.a, rb, calls.b);
+  return { ...c, pair: pairDifferences(store, ra, rb, c.identicalPrefix, { normalizers, calls }) };
+}
 
 /** How long what git said about two revisions is reused: a fetch can bring them in. */
 const CODE_TTL_MS = 60_000;
@@ -100,8 +118,8 @@ export function codeChangeCache(read: typeof readCodeChange = readCodeChange): (
 }
 
 /** Two runs compared, with what the code card says; null when one of them is not in the store. */
-export async function compareView(store: StoreOf<'recording'>, a: string, b: string, o: { cwd: string | null; code?: (cwd: string | null, a: string | null, b: string | null) => Promise<CodeChange | null> }): Promise<CompareView | null> {
-  const c = compare(store, a, b);
+export async function compareView(store: StoreOf<'recording' | 'readModels' | 'tests'>, a: string, b: string, o: { cwd: string | null; normalizers?: readonly Normalizer[]; code?: (cwd: string | null, a: string | null, b: string | null) => Promise<CodeChange | null> }): Promise<CompareView | null> {
+  const c = comparePairOf(store, a, b, o.normalizers);
   if (!c) return null;
   const code = await (o.code ?? readCodeChange)(o.cwd, c.changes.code.a, c.changes.code.b);
   return { ...c, code };

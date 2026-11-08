@@ -197,6 +197,14 @@ describe('GET /api/compare', () => {
     expect(c.firstRequestDifference?.diff).toEqual([{ path: '$.messages[2].content[0].content', op: 'changed', before: '{"approval":"tier2"}', after: '{"refund_limit":100,"approval":"tier2"}', what: 'tool_result lookup_policy' }]);
   });
 
+  it('carries what the second run decided differently after the calls they share, which the head leaves out', async () => {
+    const c = await get(ids.recorded, ids.forked);
+    expect(c.pair).toMatchObject({ from: { a: 1, b: 1 }, verdict: { words: 'The same decisions', where: 'from #1', tone: 'done' }, more: 0 });
+    expect(c.pair?.rows.map((r) => r.callNo)).toEqual([1]);
+    const head = await fetch(`${dash.url}/api/compare?a=${ids.recorded}&b=${ids.forked}&part=head`, { headers: { 'x-shadowlap-token': dash.token } });
+    expect(await head.json()).not.toHaveProperty('pair');
+  });
+
   it('tells the read models how many calls the two runs have, which a long pair is given the time for', async () => {
     const asked = vi.spyOn(LocalReads.prototype, 'run');
     try {

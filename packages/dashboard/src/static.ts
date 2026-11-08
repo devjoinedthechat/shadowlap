@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type StoreOf, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
-import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { callDetailFrom, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { comparePairOf } from './compare.js';
 import { withExitCodes } from './exit-codes.js';
 import { forkDifferences } from './fork-differences.js';
 import { copyNextStep } from './next-step.js';
@@ -160,7 +161,8 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   const pairs = runIds.length <= COMPARE_ALL_UPTO ? runIds.flatMap((a) => runIds.map((b) => [a, b] as const)) : runIds.flatMap((a) => [[a, runIds[0]!] as const, [runIds[0]!, a] as const]);
   for (const [a, b] of pairs) {
     if (a === b) continue;
-    const c = compare(store, a, b);
+    // Compared after the rules matching applies, as the dashboard compares them.
+    const c = comparePairOf(store, a, b, opts.normalize);
     if (c) responses[`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`] = c;
   }
   return { data: { shadowlap: opts.version ?? null, exportedAt: opts.now, runIds, redacted: opts.rules > 0, responses }, calls };
