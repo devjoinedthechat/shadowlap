@@ -232,25 +232,38 @@ function divergenceParts(r: TestResult, d: DivergenceView, i: ReportInput, recor
   return { head: divergenceHead(r, div, i.normalizers), sub: [recorded ? null : upstream(r)], parts, hint };
 }
 
-/** A golden of several attempts, gated or forked a fixed count of times, whose attempts failed a check or whose gate ran out. */
-function attemptsParts(r: TestResult, row: GoldenRow, i: ReportInput): Built | null {
-  const attempts = r.data?.attempts;
-  const gate = r.data?.gate && r.data.gate.decision !== 'continue' ? r.data.gate : null;
-  const n = gate?.attempts ?? attempts?.total ?? 1;
-  if (n <= 1 || (r.failure !== 'check' && !(gate && gate.decision === 'inconclusive'))) return null;
-  const passed = gate?.passes ?? attempts?.passed ?? 0;
-  const c = failedCheck(r);
-  const inconclusive = gate?.decision === 'inconclusive';
-  const why = !gate ? '' : inconclusive ? ', and its gate ran out before deciding' : gate.kind === 'baseline' ? ', a drop against its own history' : ', too often for its gate';
-  const parts: ReportPart[] = [];
-  if (gate) parts.push({ kind: 'gate', bound: rateBound(gate), passK: inconclusive ? formatPassK(gate) : null });
+/** A result's gate, where it decided (or ran out); null where it went on, which decided nothing. */
+const decidedGate = (r: TestResult) => (r.data?.gate && r.data.gate.decision !== 'continue' ? r.data.gate : null);
+
+/** Why a gate's verdict is what it is, after its attempts' count; nothing for a fixed count of attempts. */
+function gateWhy(gate: ReturnType<typeof decidedGate>): string {
+  if (!gate) return '';
+  if (gate.decision === 'inconclusive') return ', and its gate ran out before deciding';
+  return gate.kind === 'baseline' ? ', a drop against its own history' : ', too often for its gate';
+}
+
+/** The Attempts part's words: the check they failed, the attempts carried over and when that session started, where a fork golden's attempts forked. */
+function attemptsPart(r: TestResult, row: GoldenRow, i: ReportInput, c: StoredCheck | null): ReportPart {
   const carried = r.data?.continued;
   const newest = carried?.sessions.at(-1);
   const since = newest ? i.store.getTestSession(newest) : null;
-  parts.push({ kind: 'attempts', check: c ? { label: c.label, detail: c.detail ?? '' } : null, carried: carried?.attempts ? { count: carried.attempts, at: since?.startedAt ?? null } : null, forked: row.mode === 'fork' ? (r.data?.divergence?.callNo ?? null) : null });
+  const forked = row.mode === 'fork' ? (r.data?.divergence?.callNo ?? null) : null;
+  return { kind: 'attempts', check: c ? { label: c.label, detail: c.detail ?? '' } : null, carried: carried?.attempts ? { count: carried.attempts, at: since?.startedAt ?? null } : null, forked };
+}
+
+/** A golden of several attempts, gated or forked a fixed count of times, whose attempts failed a check or whose gate ran out. */
+function attemptsParts(r: TestResult, row: GoldenRow, i: ReportInput): Built | null {
+  const gate = decidedGate(r);
+  const n = gate?.attempts ?? r.data?.attempts?.total ?? 1;
+  const inconclusive = gate?.decision === 'inconclusive';
+  if (n <= 1 || (r.failure !== 'check' && !inconclusive)) return null;
+  const passed = gate?.passes ?? r.data?.attempts?.passed ?? 0;
+  const c = failedCheck(r);
+  const parts: ReportPart[] = gate ? [{ kind: 'gate', bound: rateBound(gate), passK: inconclusive ? formatPassK(gate) : null }] : [];
+  parts.push(attemptsPart(r, row, i, c));
   const others = row.checks.filter((label) => label !== c?.label);
   if (others.length) parts.push({ kind: 'checks', labels: others });
-  return { head: [`${failWords(c, r)} in ${n - passed} of ${plural(n, 'attempt')}${why}`], sub: [upstream(r)], parts, hint: inconclusive ? { key: 'gate' } : { key: 'check' } };
+  return { head: [`${failWords(c, r)} in ${n - passed} of ${plural(n, 'attempt')}${gateWhy(gate)}`], sub: [upstream(r)], parts, hint: inconclusive ? { key: 'gate' } : { key: 'check' } };
 }
 
 /** An inconclusive check its replay couldn't decide, a judge's most often, with no gate to say more. */
