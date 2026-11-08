@@ -163,8 +163,11 @@ describe('Tests’ Last result', () => {
       await r.until('the goldens to load', () => r!.all('td.glast').length === 3);
       const [escalates, flaky, plain] = r.all('td.glast');
       expect(escalates.querySelector('.st')!.textContent).toBe('passed');
-      expect(escalates.querySelector('.rsub')!.textContent).toBe('12 of 12 · rate >= 0.73 (95%)');
-      expect(escalates.querySelectorAll('.rsub .nw').map((s) => s.textContent)).toEqual(['12 of 12 ·', 'rate >= 0.73 (95%)']);
+      // The first bound on the page is a defined term: its definition is hidden in the line, after it.
+      const shown = (el: { textContent: string }) => el.textContent.split('The tally’s bound')[0];
+      expect(shown(escalates.querySelector('.rsub')!)).toBe('12 of 12 · rate >= 0.73 (95%)');
+      expect(escalates.querySelectorAll('.rsub .nw').map(shown)).toEqual(['12 of 12 ·', 'rate >= 0.73 (95%)']);
+      expect(escalates.querySelectorAll('.rsub .term.on').map((t) => t.getAttribute('data-term'))).toEqual(['bound']);
       expect(flaky.querySelectorAll('.rsub .kc').map((s) => s.textContent)).toEqual(['rate 0.56 to 0.95 (95%)']);
       expect(escalates.querySelector('.gev .wib')!.className).toBe('wib ok');
       expect(escalates.querySelector('.gev small')!.textContent).toBe('against .70 and .90');
@@ -174,7 +177,7 @@ describe('Tests’ Last result', () => {
       // A golden no gate decided: its line as before, and no bar.
       expect(plain.querySelector('.gev')).toBeNull();
       // The rule, once for both goldens it decided, beside their mode; no row repeats it.
-      const rules = r.all('.gfoot p').map((p) => [p.querySelector('.chip')!.textContent, p.children[1].textContent]);
+      const rules = r.all('.gfoot p:not(.hkey)').map((p) => [p.querySelector('.chip')!.textContent, p.children[1].textContent]);
       expect(rules.map(([mode, rule]) => [mode, rule.replace(/\u00a0/g, ' ')])).toEqual([['fork · gate', RULE]]);
       // Each figure keeps its words where the rule wraps.
       expect(rules[0][1]).toContain('tells\u00a090%+\u00a0from\u00a070%- at\u00a0<=\u00a05%\u00a0risk, up\u00a0to\u00a020\u00a0attempts');
@@ -196,7 +199,7 @@ describe('Tests’ Last result', () => {
       flaky.last.gate!.rule = RULE.replace('up to 20 attempts', 'up to 12 attempts');
       r = await render(page(v));
       await r.until('the goldens to load', () => r!.all('td.glast').length === 3);
-      const rules = r.all('.gfoot p').map((p) => [p.querySelector('.chip')!.textContent, p.children[1].textContent.replace(/\u00a0/g, ' ')]);
+      const rules = r.all('.gfoot p:not(.hkey)').map((p) => [p.querySelector('.chip')!.textContent, p.children[1].textContent.replace(/\u00a0/g, ' ')]);
       expect(rules).toEqual([
         ['fork · gate', `escalates: ${RULE}`],
         ['fork · gate', `flaky: ${RULE.replace('up to 20 attempts', 'up to 12 attempts')}`],

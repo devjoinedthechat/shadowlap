@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
 import { contrast, dash, demoId, focusedLabel, openPage, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
+import { routeTestsFixture } from './tests-fixture.js';
 
 /**
  * The dashboard in Chromium over the demo store, as a person with a keyboard or a screen reader
@@ -393,15 +394,22 @@ test('the Request tab’s fold marks are 24 px tall at least, as WCAG 2.5.8 asks
 test('on a phone no label is under 11px, an avatar’s initials aside, and the floor that raises them lowers nothing', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const small: string[] = [];
-  const pages: Array<[string, string]> = [
+  // Tests with a gated golden (tests-fixture.ts), its evidence opened under its row: its line's values and axis.
+  await routeTestsFixture(page);
+  const evidence = async () => {
+    await page.locator('main#view button.gev').first().click();
+    await page.waitForSelector('main#view tr.gevrow .alist', { state: 'visible' });
+  };
+  const pages: Array<[string, string, (() => Promise<void>)?]> = [
     ['/', 'main#view .ovg'],
     ['/runs', 'main#view table.runst tbody tr'],
     [`/run/${demoId('override')}`, 'run'],
     [`/fixes/${demoId('refundFix')}/blame`, 'fix'],
-    ['/tests', 'main#view table.gt'],
+    ['/tests', 'main#view table.gt', evidence],
   ];
-  for (const [path, drawn] of pages) {
+  for (const [path, drawn, then] of pages) {
     await openPage(page, path, drawn);
+    await then?.();
     const found = await page.evaluate((where) => {
       const out: string[] = [];
       for (const el of document.querySelectorAll<HTMLElement>('body *')) {

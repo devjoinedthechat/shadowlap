@@ -327,7 +327,7 @@ export interface TestStep extends StepBase {
   redaction: { rules: number; text: string; href: string } | null;
   /** The golden's path, editable until it is packed. */
   golden: { value: string; enabled: boolean } | null;
-  /** Pack as a golden (then its test runs), or once it is packed, Run the test. */
+  /** Pack as golden (then its test runs), with no ellipsis as its folder is the field above it, or once it is packed, Run the test. */
   button: { label: string; action: 'packgolden' | 'testgolden'; enabled: boolean } | null;
   /** Its test passed: the step is done. */
   result: { text: string; link: { label: string; href: string } } | null;
@@ -611,7 +611,7 @@ function testStep({ input, clean, tested, state, golden, commands, totals, packe
             href: links.settings('redaction'),
           },
     golden: tested || packedOnly ? null : { value: golden, enabled: clean },
-    button: tested ? null : packedOnly ? { label: failed ? 'Run the test again' : 'Run the test', action: 'testgolden', enabled: true } : { label: 'Pack as a golden', action: 'packgolden', enabled: clean },
+    button: tested ? null : packedOnly ? { label: failed ? 'Run the test again' : 'Run the test', action: 'testgolden', enabled: true } : { label: confirmWords(ACTIONS.packAsGolden.label), action: 'packgolden', enabled: clean },
     result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: links.tests() } } : null,
     packed: packedOnly
       ? failed

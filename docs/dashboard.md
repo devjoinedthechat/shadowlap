@@ -1096,9 +1096,15 @@ The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1
 
 Tests lists every [golden](./ci.md) on disk, the packs in `goldens/` and those the config's `tests` name, and how each did. What its buttons run is under [Actions on Tests](#actions-on-tests).
 
+Its header names the project's goldens, with **Open CI settings** and **Run tests**. **Update goldens** joins them when more than one golden diverged, as each failure has its own **Update golden**.
+
+With no golden yet, it offers to pack the newest run whose step is **Pack as golden…**: a lime button naming the run opens the run page's dialog, with the command under it. With no run at all it offers no command, as recording one comes first.
+
 ### The verdict
 
-A verdict leads: how many goldens fail by their last results, the first one named. With none failing, it says how many are inconclusive, in amber: a [gate](./gating.md) that ran out of attempts between its bounds.
+A verdict leads, in one line: its word in its colour, *passed*, *failed* or *inconclusive*, then the tally of goldens that passed and the first failure named, as *2 of 3 goldens passed · refund-in-limit diverged at call 1*. With none failing, it is *inconclusive*, in amber, when a [gate](./gating.md) ran out of attempts between its bounds or a check couldn't decide.
+
+The first failure's step is lime beside it: the button its run's page leads with, such as **Add normalizer and re-run** or **Run more attempts**. **Run tests** and each failure's buttons are plain while it leads.
 
 With it comes the line of the newest session that ran them all (CI's, or **Run tests**): its command, revision, time, its own passed and failed counts, and upstream requests. That session reads:
 
@@ -1107,6 +1113,10 @@ With it comes the line of the newest session that ran them all (CI's, or **Run t
 - *did not finish* when its process was killed.
 
 Goldens run again on their own since (by **Add normalizer and re-run**, say) follow it, as *since: refund-in-limit passed*, each with its result on hover.
+
+**Following a session.** While a session runs every golden, the verdict reads *running 3 of 7 goldens*, with no step, and its line gives its counts *so far*. Each row says where it has got: the result it kept, *running* for the golden it records and one between its turns (*in progress*), or *queued*. A session that runs some goldens moves only their rows.
+
+**Older than your working tree**, in amber, follows the session's time when the tree changed since it ran: a tracked file changed, by a normalizer added or a fix applied, say, or a later commit. A session that tested changes on top, or one still running, never says so.
 
 ### A row per golden
 
@@ -1135,9 +1145,13 @@ Then comes a row per golden. A row opens the golden's latest run.
 - **✗** on a golden run more than once also says how many attempts passed it, unless some were carried over from an earlier session.
 - **No mark** shows before the golden's first result, when its last test couldn't run it, or when the check was added to the config since.
 
-**By revision** shows why a golden failed on hover, and a ring where it was updated. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
+**By revision** draws each result in its colour: a dot for one attempt, or a bar filled to the share that passed for several. An ink ring marks where the golden was updated, and a red one a drop against its own history. Each cell is named by its card's words, which say on hover why it failed. A key under the table says what each shape means.
+
+Each revision's header gives its commit's subject on hover, and its author where names show. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
 
 **Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided.
+
+**A gated golden's evidence.** Its interval bar opens a row under it: why the gate stopped, the score line between its bounds, each attempt, and what a pass and a failure each weigh. A gate that ran out of attempts offers **Run more attempts** there. **Esc** closes the row and puts the focus back on the bar.
 
 Under the last result comes how the golden's [error-path presets](./error-paths.md) came out, opening the attempt that failed. A golden whose presets ran but whose replay hasn't yet says so, never *not run yet*.
 
@@ -1147,7 +1161,7 @@ The table fits its panel at every width. With less room the oldest revisions giv
 
 Each failure follows as the CLI prints it. A divergence offers:
 
-- **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run** once the rule is in the config.
+- **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run test** once the rule is in the config.
 - **Update golden.**
 - **Find breaking commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started.
 
@@ -1184,9 +1198,11 @@ For a verdict given on other material, it says first that a value that changes e
 
 - **A replay golden** runs offline, needing no key.
 - **A golden marked `fork`** runs live from where it forks, needing the providers' keys, as an [injection test](./injection.md) does from each payload it plants, when a golden has one.
-- **What fails a golden**: a divergence, a non-zero exit, no calls, or a check or gate that fails or can't decide. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.
+- **What fails a golden**: a divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can't decide. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.
 
-It shows the one command, `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, with **Copy**. When a golden has a gate against history, it says that CI has to keep the store between runs.
+It shows the one command, `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, in its box with **Copy**, and how many goldens run live. When a golden has a gate against history, it says that CI has to keep the store between runs. On GitHub, **Settings → CI** builds the whole workflow.
+
+**Add a golden**, beside it, gives the pack command in its box. A golden whose checks say what the agent must do is also a task a model can be scored on, under **Training tasks**.
 
 Recordings that pytest and Vitest keep in `__recordings__/` run under their own test runner and are not listed.
 
@@ -1464,7 +1480,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 
 **4. Keep it as a test.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
 
-- **Pack as a golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
+- **Pack as golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
 - **A golden its tests entry runs live** (marked `fork`, or with an injection gate) asks first before its test runs, whatever [Spending](#spending) says, as nothing prices it here.
 - **A golden whose test failed** keeps the step open, with why and **Run the test again**. Fix what changed (or record again), then run it.
 
@@ -1681,12 +1697,13 @@ Applied is this machine's own: a fix a teammate applied is verified here until i
 
 Tests runs its goldens as jobs too:
 
-| Button                        | Runs                                                                  |
-| ----------------------------- | --------------------------------------------------------------------- |
-| **Run tests**                 | `shadowlap test goldens/*`, plus each pack the config names elsewhere |
-| **Update golden**             | `shadowlap test <golden> --update`, once you confirm                  |
-| **Add normalizer and re-run** | `shadowlap normalize add …`, then `shadowlap test <golden>`           |
-| **Find breaking commit**      | `shadowlap bisect`, from the newest revision where the golden passed  |
+| Button                        | Runs                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------- |
+| **Run tests**                 | `shadowlap test goldens/*`, plus each pack the config names elsewhere               |
+| **Update golden**             | `shadowlap test <golden> --update`, once you confirm                                |
+| **Add normalizer and re-run** | `shadowlap normalize add …`, then `shadowlap test <golden>`                         |
+| **Add normalizer and update** | `shadowlap normalize add …` for each rule, then `shadowlap test <goldens> --update` |
+| **Find breaking commit**      | `shadowlap bisect`, from the newest revision where the golden passed                |
 
 These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find breaking commit** wait, saying what is running:
 
@@ -1696,24 +1713,28 @@ These jobs run one at a time in a project. While any of the following runs, **Ru
 
 The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer and re-run** (or **Add normalizer and update**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
 
-**Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, which isn't drawn on Tests itself, with the first three goldens that failed linked by name beside it, each opening its replay. A run of one golden ends on its replay.
+**Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on **Open Tests**, with the first three goldens that failed linked by name beside it, each opening its replay. Over Tests itself, it ends on the step the page leads with once the page has read what the job did. A run of one golden ends on its replay.
 
-**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
+**A session that runs live goes by [Spending](#spending).** Before a session runs a golden live, the server asks. The page answers by Spending for **Run tests**, **Run more attempts**, **Re-run test** and **Add normalizer and re-run**, on Tests, on a test replay's page and from the palette's *Run tests*. At or under it, the session starts with its estimate; otherwise its dialog asks. A test replays offline, except for two things that run live:
 
 - **A golden marked `fork`** runs live from where it forks, writes blocked, and asks its judge checks live.
 - **An [injection gate](./injection.md#gate-ci-on-it)** runs live from each payload it plants, writes stubbed.
 
 The dialog says how many goldens go live and why, and shows the commands. Its Cost line says the session's estimate. It opens on its button, the only way to start the session. A session that only replays starts at once.
 
-Setup's **Pack as a golden** and a run's **Pack as golden…** ask every time their test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills.
+Setup's **Pack as golden** and a run's **Pack as golden…** ask every time their test would run a golden live, as nothing prices it. A task's **Update golden** asks in its own dialog, with what testing the golden again bills.
 
 **Update golden** (or **Update goldens** for every one that diverged) asks first, in a dialog that says what happens. It says when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update, and offers that as its way on, beside **Update anyway**. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
+
+For several goldens that diverged on values that change every run, **Update goldens** offers **Add normalizer and update** as its way on: one job that adds each rule the server names for them, once, then re-records them all. Its line and **Update anyway**'s say it bills the same either way.
 
 **Add normalizer and re-run** is two commands in one job: `shadowlap normalize add …` for each value that changes every run, then `shadowlap test <golden>`, the second only when the first succeeded. The drawer links to the replay that passed. When the rule alone can't make the replay match, it asks first, and updates the golden after it.
 
 **Find breaking commit** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
 
-- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork`, whose replays run live. Its Cost line is the search's estimate from the commit it opens on. It lists the commits the golden was tested at, each with its subject and how it did there, and takes any other.
+- **It asks first**, as **Find breaking commit…**, when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork`, whose replays run live. Otherwise it starts at once. Its Cost line is the search's estimate from the commit it opens on.
+- **Its choices** are the commits the golden was tested at, each with its subject and how it did there: *passed*, *failed*, *inconclusive* or *passed under other checks*, with its tally where it ran several attempts. The commit a search already failed at says *tried: it already fails there*.
+- **A golden that never passed** offers the few commits before its failure as *not tested there*, and when it was tested at none, the field says *none tested yet*.
 - **Another commit** is a field under the list, for any other: what it holds is searched from, and picking from the list again clears it.
 - **Only commits this checkout has**, as on Runs and a run's page. A golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD.
 
@@ -1851,13 +1872,13 @@ These keys work on any page:
 | ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label, a delete)           |
 | Esc               | Close what is open, then go up a level                                  |
 
-These keys work in a list: Runs, Fixes, and the sidebar's runs while one has the focus. On Fixes, ⌘K on a fix's row offers Open fix and each of its steps, as it does on a verify's row in Changes › Verdicts, and Esc back from a fix lands on its row.
+These keys work in a list: Runs, Changes' verdicts and a revision's goldens, Fixes, Tests' goldens, and the sidebar's runs while one has the focus. On Fixes, ⌘K on a fix's row offers Open fix and each of its steps, as it does on a verify's row in Changes › Verdicts, and Esc back from a fix lands on its row.
 
 | Key          | What it does                                             |
 | ------------ | -------------------------------------------------------- |
 | `j` / `k`    | Next or previous row: from no row, the first or the last |
 | `↓` / `↑`    | The same, on a row in focus                              |
-| Enter        | Open the row                                             |
+| Enter        | Open the row; where it opens nothing, its actions        |
 | ⌘K or Ctrl K | The row's actions                                        |
 | `x`          | Select the row, on Runs                                  |
 | `+` / `-`    | Label it good or bad, on Runs                            |
@@ -2276,7 +2297,8 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | `GET /api/tests` | The Tests screen |
 | `GET /api/tests/gate?good=&bad=&risk=&max=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do |
 | `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
-| `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens… for the goldens `update` names |
+| `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens for the goldens `update` names |
+| `GET /api/tests/evidence?golden=` | A gated golden's attempts, each judged from its run, those carried over first |
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
 | `GET /api/ci/workflows?fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
 
@@ -2285,14 +2307,20 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 - the goldens on disk;
 - the verdict of their last results, with the line of the newest session that ran them all (`session`, with `live` while its process runs), and what ran since on its own (`since`);
 - inconclusive goldens counted apart (`inconclusive`);
-- each golden's history by revision: each cell's `verdict`, its pass `rate` as passes of attempts, and `dropped` where a [gate](./gating.md) against history found a drop;
+- each golden's history by revision: each cell's `verdict`, its pass `rate` as passes of attempts, the `bound` its gate put on that rate, and `dropped` where a [gate](./gating.md) against history found a drop, with what it compared (`drop`);
+- each revision's commit as git has it (`revisionFacts`): its `subject`, and its author (`by`) only where names show;
+- `older` when the session the verdict names tested a clean commit and the working tree changed since;
+- each golden that didn't pass, by its path, with the step its replay's page leads with (`steps`);
 - whether a golden has an injection test, which runs live (`injection`);
 - each golden's checks as its last result came out on each (`checkResults`, below);
 - each golden's `gate`, and what it decided last (`last.gate`, below);
 - each golden's error-path `presets` as their last session left them: `null` when none ran, else their verdict, how many ran, passed, failed and were inconclusive, a `line`, and the attempt to open;
-- the divergences and other failures as the CLI printed them, each with Find breaking commit's range, what it last said about this failure (`found`, or `missed` with why and its `outcome`), and the commits its dialog offers (`revisions`, with subjects);
+- the divergences and other failures as the CLI printed them, each with Find breaking commit's range, and what it last said about this failure (`found`, or `missed` with why and its `outcome`);
+- the commits Find breaking commit's dialog offers (`revisions`), each with its subject and its tally there (`rate`: `passes` of `attempts`), and for a golden that never passed, the commits before its failure that no session tested (`untested`, each a `rev` and `subject`);
+- for a divergence on values that change every run, the `normalize add` arguments of each rule the config lacks (`newRules`);
 - the inconclusive goldens apart from them, with `judge` (below);
 - a test session in progress wherever it was started (`running`), with the session's counts `passed`, `failed` and `inconclusive`, by each result's verdict;
+- where that session has got (`following`): `whole` when it runs every golden, the `total` it runs, how many it has `reached`, and each golden as `passed`, `failed`, `inconclusive`, `running`, `between` its turns or `queued`;
 - error-path presets on goldens in progress wherever they were started, a terminal, another dashboard or a job (`chaosRunning`: the session's `id`, `command` and `startedAt`);
 - and the commands.
 
@@ -2318,6 +2346,10 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 - what its pack `held`: `none`; `older`, a verdict given to an older form of the judge's request; or `material`, one given on other material, with where it `changed`;
 - what settles it: `update` for a golden that replays offline, or the `keys` its provider reads for one that forks.
 
+**A golden's evidence** (`/api/tests/evidence?golden=`): asked when the row under a gated golden opens, never with the page. It answers `attempts` (each with `runId`, `outcome` and a `note` from its failed check), `carried` (how many came from the sessions Run more attempts continued) and `gone` (runs no longer in the store, left out).
+
+An attempt the provider cut short is `inconclusive`, never the agent's failure; one it was unavailable for, retried and never counted, is left out. A golden not on disk is a 400, and one no gate decided a 404. Each gated result in `/api/tests` carries the evidence's words in `gate.words`.
+
 **Gate figures** (`/api/tests/gate`):
 
 - the rule its verdicts state (`description`, `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`);
@@ -2333,7 +2365,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 **Their estimates** are the engine's for each job as it runs, worked out beside the server:
 
 - `/api/tests/estimates` answers `run` for Run tests, and each golden's `rerun`, `update`, `more` and `normalize` by its path. A golden that runs live in any way is never Free: one marked fork, or with an injection gate, has no estimate until it has run once. Run tests is what each golden it runs live spent the last time it ran.
-- `update`, given once for each golden, adds `update` to the answer: what Update goldens… bills for those goldens together. A path that isn't a golden on disk is left out.
+- `update`, given once for each golden, adds `update` to the answer: what Update goldens bills for those goldens together. A path that isn't a golden on disk is left out.
 - `/api/estimates/bisect` counts the commits with git, as the job would search them. It has no estimate until `good` names a commit. A search the job would refuse has none, with why.
 
 **Your workflow** (`/api/ci/workflows`) takes its options: `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. It answers with one job that runs the goldens once (`workflow`), what it needs, and for each part its own step and a preview of what lands. Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
@@ -2493,7 +2525,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `store-set { url, provider }` | `store set --check` |
 | `task-update { golden, yes? }` | Update golden, from Training |
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
-| `test-update { goldens }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
+| `test-update { goldens, normalize? }` | Re-recorded live with writes stubbed, each replaced when its checks pass; or `{ golden }` |
 | `verify { fixId, verifyId, yes? }` | Run more attempts, or Verify again, for a verdict left incomplete |
 
 What some of them do:
@@ -2501,7 +2533,7 @@ What some of them do:
 - **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` verifies its runs again from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
 - **`test`** and **`normalize-and-test`** that would run a golden live, one marked `fork` or with an injection gate, start only with `yes`, the `confirm` of the 409 that named those goldens and why, and lists them in `live`; one that only replays needs none. That yes covers only the job's command lines and those goldens, so another session asks again, and so does this one once what goes live changes.
-- **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead.
+- **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead. With `normalize: true`, it is Add normalizer and update for several goldens: it adds each rule in their divergences' `newRules` once, then updates them all. When none of them diverged on a value that changes every run, it is refused (400).
 - **Tests' jobs** (`test`, `test-update`, `bisect`, `normalize-and-test`) run one at a time in a project, and none while a test session or error-path presets on goldens run, wherever they were started: a terminal, another dashboard or a job (409).
 - **`chaos` on a golden** is refused with a 409 while a test session, an update or a pack runs, as they are while it runs, or while presets run on goldens, wherever they were started: a terminal, another dashboard or a job.
 - **`chaos` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only `confirmed`. That is the `confirm` of the 409 that named both its command and the presets' own line, so a yes to one preset runs no other, and none an injection test.

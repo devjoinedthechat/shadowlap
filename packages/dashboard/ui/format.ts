@@ -83,6 +83,9 @@ export function clock(ms: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Within a minute of `now`, a clock a little ahead included: what a strip, a card or a line says `just now` of. */
+export const justNow = (ms: number, now = Date.now()): boolean => now - ms < 60_000 && now >= ms - 60_000;
+
 /** When a run started, in a list: now, 09:58 today, Sep 30 before that. */
 export function whenShort(ms: number, now = Date.now()): string {
   if (now - ms < 60_000 && now >= ms) return 'now';

@@ -9,9 +9,9 @@ import { navigate } from '../router.js';
 import { MARKS, type RunMark } from '../runkey.js';
 import { keyColumn } from '../shortcuts.js';
 import { useApp, type PaletteCommand } from '../state.js';
-import { nextStepOf, PACK_VERB, replayAction, stepEntry } from './next-step.js';
+import { nextStepOf, replayAction, stepEntry } from './next-step.js';
 import { plainPackFolder, useStepWait } from './NextStepButton.js';
-import { packRunCommand } from './share.js';
+import { PACK_VERB, packRunCommand } from './share.js';
 import { bisectLabel } from './offers.js';
 
 /** Presses the header's lime button, or another by its selector, or says why not, where a job started since the palette opened. */
