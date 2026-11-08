@@ -9,6 +9,7 @@ import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type 
 import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
 import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
+import { editorApi, type EditorApi } from './editor-api.js';
 import { changesApi, type ChangesApi } from './changes-api.js';
 import { testsApi, type TestsApi } from './tests-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
@@ -238,6 +239,8 @@ export interface Client extends ChangesApi, TestsApi {
   settings: SettingsApi;
   /** What billed jobs would cost, and Spending, the threshold above which one asks first. */
   estimates: EstimatesApi;
+  /** Open in editor: a project file at a line, in the editor $VISUAL or $EDITOR names (`editor-api.ts`). */
+  editor: EditorApi;
   /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
   storeSetup: StoreSetupApi;
 
@@ -508,8 +511,8 @@ export function createClient(token: string): Client {
 }
 
 /** The parts of the client that are APIs of their own, each written beside its routes. */
-function ownApis(request: Request): Pick<Client, 'settings' | 'storeSetup' | 'projects' | 'estimates'> {
-  return { settings: settingsApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
+function ownApis(request: Request): Pick<Client, 'settings' | 'storeSetup' | 'projects' | 'estimates' | 'editor'> {
+  return { settings: settingsApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request), editor: editorApi(request) };
 }
 
 /** What a long run's first answer leaves to reads of their own, as its analysis has them. */
@@ -602,6 +605,7 @@ export function createExportedClient(data: StaticPayload): Client {
     testEvidence: () => Promise.reject(new ApiError(404, 'this is an exported copy, and a golden’s attempts are not part of it')),
     settings: noSettings(readOnly),
     estimates: noEstimates(readOnly),
+    editor: { open: readOnly },
     storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),

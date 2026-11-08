@@ -47,6 +47,7 @@ describe('Revert, once a crash’s commit is named', () => {
     named(T0 + 2 * MIN);
     expect(step(crash, work([source(rec)]))).toMatchObject({
       key: 'revert',
+      live: false,
       label: 'Revert',
       golden: GOLDEN,
       rev: 'ccccccc',
@@ -63,7 +64,7 @@ describe('Revert, once a crash’s commit is named', () => {
     tested(rec, T0 + MIN, { ok: true });
     const crash = tested(rec, T0 + 2 * MIN, { ok: false });
     named(T0 + 2 * MIN, { file: 'agent.py', files: ['agent.py'], hunk: '@@ -1 +1 @@\n-a\n+b', line: 1, cut: false, merge: true });
-    expect(step(crash, work([source(rec, { mode: 'fork' })]))).toMatchObject({ key: 'revert', merge: true, command: `git revert --no-commit -m 1 ccccccc && shadowlap test ${GOLDEN}`, sub: `Log the total: undone in your working tree, then ${GOLDEN} tested` });
+    expect(step(crash, work([source(rec, { mode: 'fork' })]))).toMatchObject({ key: 'revert', merge: true, live: true, command: `git revert --no-commit -m 1 ccccccc && shadowlap test ${GOLDEN}`, sub: `Log the total: undone in your working tree, then ${GOLDEN} tested` });
   });
 
   it('is priced as Re-run test, free where nothing runs live, with the Run blame beside it priced', async () => {

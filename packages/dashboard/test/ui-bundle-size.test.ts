@@ -38,10 +38,10 @@ const COPY = 900 * KB;
 /** The pages the shell routes to, by their chunk's name: the list grows as pages land. */
 const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', 'Runs', 'Settings', 'Setup', 'StoreSetup', 'Tests', 'Training'];
 /** The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land. */
-const PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RevisionPage', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'Verdicts', 'jobs'];
+const PARTS = ['ActionDialog', 'ChangeBox', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RevertDialog', 'RevisionPage', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
-/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. */
+/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Revert's dialog and the change box. */
 const COPY_PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
 
 /**

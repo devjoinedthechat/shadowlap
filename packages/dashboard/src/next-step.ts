@@ -156,8 +156,8 @@ export type NextStep = StepWords &
     | { key: 'rerun-test' | 'gate-again'; golden: string }
     | { key: 'more-attempts'; golden: string }
     | { key: 'bisect'; golden: string; starts: boolean; blame: BlameBeside | null }
-    /** `merge`: the commit is a merge, reverted against its first parent (`-m 1`). */
-    | { key: 'revert'; golden: string; rev: string; merge: boolean; blame: BlameBeside | null }
+    /** `merge`: the commit is a merge, reverted against its first parent (`-m 1`); `live`: its golden's test runs something live (`liveReasons`), asked through liveAsk. */
+    | { key: 'revert'; golden: string; rev: string; merge: boolean; live: boolean; blame: BlameBeside | null }
     | { key: 'rule' }
     | { key: 'injection-test'; runId: string }
     | { key: 'injection-again'; runId: string; job: InjectionAgain }
@@ -531,13 +531,15 @@ function revertStep(f: Facts, t: TestedGolden, found: FoundCommit, beside: Pick<
   const newest = f.reads.results(t.golden)[0];
   if (!rev || (newest && newest.at > found.at && newest.revision?.endsWith('+dirty'))) return null;
   const merge = found.change?.merge === true;
-  const then = `then ${t.golden} ${liveReasons(t.source).length ? 'tested' : 'replayed offline'}`;
+  const live = liveReasons(t.source).length > 0;
+  const then = `then ${t.golden} ${live ? 'tested' : 'replayed offline'}`;
   return {
     key: 'revert',
     label: ACTIONS.revert.label,
     golden: t.golden,
     rev,
     merge,
+    live,
     ...beside,
     title: `${ACTIONS.revert.label} ${rev}`,
     sub: found.subject ? `${found.subject}: undone in your working tree, ${then}` : `Undone in your working tree, ${then}`,

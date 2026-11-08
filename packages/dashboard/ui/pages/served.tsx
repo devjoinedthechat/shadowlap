@@ -1,0 +1,13 @@
+import { LoadFailed } from '../components/bits.js';
+import { onShow } from '../components/OnShow.js';
+import type { ServedParts } from '../served-parts.js';
+
+/**
+ * The parts only the served dashboard draws (served-parts.ts), each a script of its own that loads the
+ * first time it shows (OnShow.tsx). Only App.tsx imports this module, so an exported copy's script
+ * (main-copy.tsx) holds none of them.
+ */
+export const SERVED_PARTS: ServedParts = {
+  RevertDialog: onShow(() => import('../revert/RevertDialog.js').then((m) => m.RevertDialog)),
+  ChangeBox: onShow(() => import('../revert/ChangeBox.js').then((m) => m.ChangeBox), { failed: <LoadFailed what="change" /> }),
+};
