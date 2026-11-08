@@ -250,21 +250,23 @@ describe('Undo on calibrate’s Add normalizer', () => {
 });
 
 describe('Undo on Store’s Push from CI', () => {
+  /** Settings → Store with a store set up, Push from CI `ciPush` in the file at `version`. */
+  const storeView = (ciPush: boolean, version: string) => ({
+    config: config(version),
+    configured: 's3://northwind-agent-runs/support-agent',
+    error: null,
+    status: { url: 's3://northwind-agent-runs/support-agent', name: 'northwind-agent-runs', region: 'eu-central-1', providerName: 'Amazon S3', access: 'AWS profile northwind-dev', syncedAt: null, inStore: 3, onlyLocal: 0, queued: 0, check: null, ciPush },
+    ciStep: null,
+    policy: { text: '{}', command: 'shadowlap store policy' },
+    redactRules: 2,
+  });
+
   it('turns it off from its Switch, named by its row’s label and line, and puts back what the file said, against the version the edit wrote', async () => {
     const toasts: Toasted[] = [];
     let [ciPush, version] = [true, 'v1'];
-    const store = () => ({
-      config: config(version),
-      configured: 's3://northwind-agent-runs/support-agent',
-      error: null,
-      status: { url: 's3://northwind-agent-runs/support-agent', name: 'northwind-agent-runs', region: 'eu-central-1', providerName: 'Amazon S3', access: 'AWS profile northwind-dev', syncedAt: null, inStore: 3, onlyLocal: 0, queued: 0, check: null, ciPush },
-      ciStep: null,
-      policy: { text: '{}', command: 'shadowlap store policy' },
-      redactRules: 2,
-    });
     // The file said nothing (on): off writes false, and its Undo takes the key out again.
     const setCiPush = vi.fn(async (on: boolean | null) => (on === false ? { ciPush: false, previous: true, was: null, changed: true, version: 'v2' } : { ciPush: true, previous: false, was: false, changed: true, version: 'v1' }));
-    r = await render(createElement(AppContext.Provider, { value: app({ store: async () => store(), setCiPush }, toasts) }, createElement(SettingsPage, { tab: 'store' })));
+    r = await render(createElement(AppContext.Provider, { value: app({ store: async () => storeView(ciPush, version), setCiPush }, toasts) }, createElement(SettingsPage, { tab: 'store' })));
     await r.until('the switch', () => r!.all('.settab [role="switch"]').length === 1);
     const on = r.one('.settab [role="switch"]');
     expect([on.getAttribute('aria-labelledby'), on.getAttribute('aria-describedby'), on.getAttribute('aria-checked')]).toEqual(['ciPush-name', 'ciPush-help', 'true']);
@@ -283,5 +285,17 @@ describe('Undo on Store’s Push from CI', () => {
     ]);
     expect([toasts[1].text, toasts[1].action]).toEqual(['Push from CI on · written to shadowlap.config.json; commit it for CI to see it', undefined]);
     await r.until('the switch on', () => r!.one('.settab [role="switch"]').getAttribute('aria-checked') === 'true');
+  });
+
+  it('offers no Undo for a write that changed nothing', async () => {
+    const toasts: Toasted[] = [];
+    // The route found the file saying off already and wrote nothing (`changed: false`, the version as it was): nothing to put back.
+    const setCiPush = vi.fn(async () => ({ ciPush: false, previous: false, was: false, changed: false, version: 'v1' }));
+    r = await render(createElement(AppContext.Provider, { value: app({ store: async () => storeView(true, 'v1'), setCiPush }, toasts) }, createElement(SettingsPage, { tab: 'store' })));
+    await r.until('the switch', () => r!.all('.settab [role="switch"]').length === 1);
+    await r.click(r.one('.settab [role="switch"]'));
+    await r.until('the toast', () => toasts.length === 1);
+    expect(setCiPush.mock.calls).toEqual([[false, 'v1']]);
+    expect([toasts[0].text, toasts[0].kind, toasts[0].action]).toEqual(['Push from CI off · written to shadowlap.config.json; commit it for CI to see it', 'notice', undefined]);
   });
 });
