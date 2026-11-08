@@ -94,7 +94,7 @@ function clause(m: Extract<Matcher, { op: keyof typeof PHRASE }>, subject: strin
   return `${subject} ${word} ${operandText(m.operand)}`;
 }
 
-const andList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}`);
+export const andList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}`);
 export const orList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items.at(-1)!}`);
 
 /** `every issue_refund call: after lookup_order, amount <= lookup_order.result.total`. */

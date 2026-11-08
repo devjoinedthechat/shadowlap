@@ -3,6 +3,7 @@ import {
   asNumber,
   checkRecording,
   checkRecordings,
+  goldenWords,
   intoText,
   isJudgeCall,
   isObject,
@@ -246,10 +247,10 @@ function checkPreview(store: Store, job: CheckPreviewJob): ReadAnswer {
 const labels = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 // A golden's checks changed in the check builder (routes/checks.ts records it), in the activity feed:
-// what it gained, or lost. Registered here, as the feed is read beside the server too, by threads
+// what it gained, or lost, by the golden's name; its ref stays the path. Registered here, as the feed is read beside the server too, by threads
 // that load this module with the reads but no route module.
 describeEvent('checks.changed', (e, d) => {
-  const [added, removed, golden] = [labels(d.added), labels(d.removed), e.ref ?? 'a golden'];
+  const [added, removed, golden] = [labels(d.added), labels(d.removed), e.ref ? goldenWords(e.ref) : 'a golden'];
   const text = added.length && !removed.length ? `Check added · ${golden}: ${added.join('; ')}` : removed.length && !added.length ? `Check removed · ${golden}: ${removed.join('; ')}` : `Checks changed · ${golden}`;
   return { kind: 'setting', text, href: links.tests() };
 });

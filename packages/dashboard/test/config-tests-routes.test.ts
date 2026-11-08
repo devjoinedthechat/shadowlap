@@ -141,7 +141,7 @@ describe('a golden’s entry written back', () => {
     expect(written.version).not.toBe(version);
     expect(file()).toBe(`${JSON.stringify({ normalize: [], tests: { suiteRisk: 0.05, 'goldens/refund': { expect: check } }, prices: {} }, null, 2)}\n`);
     const feed = (await get<{ items: Array<{ text: string }> }>('activity')).items;
-    expect(feed.find((e) => e.text.startsWith('Check added'))?.text).toBe(`Check added · goldens/refund: ${labelsOf(check).join('; ')}`);
+    expect(feed.find((e) => e.text.startsWith('Check added'))?.text).toBe(`Check added · refund: ${labelsOf(check).join('; ')}`);
   });
 
   it('changes only the checks of an entry, takes them out with null, and writes nothing when nothing changes', async () => {
@@ -161,7 +161,7 @@ describe('a golden’s entry written back', () => {
     expect(await out.json()).toMatchObject({ removed: labelsOf(check), changed: true });
     expect(JSON.parse(file())).toEqual({ tests: { 'goldens/refund': { fork: true, repeat: 3 } } });
     const feed = (await get<{ items: Array<{ text: string }> }>('activity')).items.map((e) => e.text);
-    expect(feed.filter((t) => /^Checks? (added|removed|changed)/.test(t))).toEqual([`Check removed · goldens/refund: ${labelsOf(check).join('; ')}`, 'Checks changed · goldens/refund']);
+    expect(feed.filter((t) => /^Checks? (added|removed|changed)/.test(t))).toEqual([`Check removed · refund: ${labelsOf(check).join('; ')}`, 'Checks changed · refund']);
   });
 
   it('gives a golden that follows a pattern an entry of its own, with the pattern’s other keys, and leaves the pattern', async () => {
@@ -184,7 +184,7 @@ describe('a golden’s entry written back', () => {
     const now = file();
     const res = await send('PUT', 'checks/tests', { golden: 'goldens/refund', version, read: prints, entry: { expect: { tools: { issue_refund: 0 } } } });
     expect(res.status).toBe(409);
-    expect(await error(res)).toBe('shadowlap.config.json changed on disk since this page read it: "prices" added, tests["goldens/other"] changed. It shows your change against the file as it is now; nothing was changed.');
+    expect(await error(res)).toBe('shadowlap.config.json changed on disk since this page read it: "prices" added and tests["goldens/other"] changed. It shows your change against the file as it is now; nothing was changed.');
     expect(file()).toBe(now);
     // Without what it read, the refusal names nothing.
     const bare = await send('PUT', 'checks/tests', { golden: 'goldens/refund', version, entry: { expect: { tools: { issue_refund: 0 } } } });

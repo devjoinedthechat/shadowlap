@@ -8,6 +8,7 @@ import {
   TEST_SETTINGS,
   agentOfArgv,
   agentOfRun,
+  andList,
   checkLabels,
   editConfigFile,
   editRelaysConfig,
@@ -131,7 +132,7 @@ export function printsOf(raw: unknown): ConfigPrints | null {
 /** The refusal of a write to a file that changed since the page read it, naming what changed when the page sent what it read. */
 export function changedWords(read: ConfigPrints | null, file: ConfigFile): string {
   const names = read ? changedSince(read, configPrints(file.data)) : [];
-  return `${CONFIG_FILE} changed on disk since this page read it${names.length ? `: ${names.join(', ')}` : ''}. It shows your change against the file as it is now; nothing was changed.`;
+  return `${CONFIG_FILE} changed on disk since this page read it${names.length ? `: ${andList(names)}` : ''}. It shows your change against the file as it is now; nothing was changed.`;
 }
 
 /** The keys under `tests` that name recordings: every key but the session's own settings. */
