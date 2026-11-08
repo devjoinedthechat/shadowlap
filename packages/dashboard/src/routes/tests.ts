@@ -5,6 +5,7 @@ import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
 import { choicesInCheckout, commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
+import { foundsHere } from '../found-here.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import { links } from '../links.js';
@@ -195,6 +196,12 @@ async function revisionsInCheckout(view: TestsView, root: string | null | undefi
   return { ...withRevisionFacts(view, subjects, authors, shared), older: olderThanTree(session, tree) };
 }
 
+/** Each first bad commit as the dashboard serves one (found-here.ts): its author only where names show, its file's place in the project folder. */
+async function foundInCheckout(view: TestsView, root: string | null | undefined): Promise<TestsView> {
+  const [divergences, failures] = await Promise.all([foundsHere(view.divergences, root), foundsHere(view.failures, root)]);
+  return { ...view, divergences, failures };
+}
+
 // Find breaking commit that named no first bad commit, in the activity feed: why, so the next search
 // starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
 describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
@@ -259,7 +266,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/tests', async (r) => {
     const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
-    r.tagged(await withSteps(await revisionsInCheckout(view, ctx.project?.path)));
+    r.tagged(await withSteps(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path)));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's
