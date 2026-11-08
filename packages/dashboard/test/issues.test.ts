@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { NO_COMMAND, Store } from '@shadowlap/engine';
+import { judgeCapture, NO_COMMAND, parseTests, rulesOnCalls, Store } from '@shadowlap/engine';
 import { fixesView } from '../src/fixes-view.js';
 import { startDashboard } from '../src/index.js';
 import { type Issue, type IssueRunsPage, type IssuesPage, ISSUE_RUNS, ISSUES_READS, issueKeyOf, issueRunsByFix, type RunsIssuesJob } from '../src/issues.js';
 import { issueKey } from '../src/issue-keys.js';
 import { runJob } from '../src/read-jobs.js';
 import { loadRunIndex } from '../src/run-index.js';
+import { judgeFor, runJudged } from '../src/run-outcome.js';
+import { listRunsPage } from '../src/runs-list.js';
 import { FAMILY_ONLY_FAILURES, RUNS_FAILURES_READS } from '../src/runs-failures.js';
 import { addRun, DAY, HOUR } from './read-model-store.js';
 import { refund, T0, work } from './refund-family.js';
@@ -131,6 +133,8 @@ describe('narrowing', () => {
     const eu = read({ options: { q: 'label:eu' } });
     expect(eu.issues.map((x) => [x.key, x.count])).toEqual([[issueKey.fix(FIX_A), 1]]);
     expect(eu.total).toBe(1);
+    // A golden's replays by its name, as Tests' Failed runs → asks for them.
+    expect(read({ options: { q: 'type:test refund-in-limit' } }).issues.map((x) => [x.key, runsOf(x)])).toEqual([[issueKey.golden('goldens/refund-in-limit'), [id.t3]]]);
   });
 
   it("answers an issue's runs after the one its page ended on", () => {
@@ -159,6 +163,77 @@ describe("a run that fails only its family's checks", () => {
       const bisect = RUNS_FAILURES_READS['runs-failures'](s, { kind: 'runs-failures', options: days, outcome }, { whole: true }) as { body: string };
       expect(JSON.parse(bisect.body)).toEqual({ failures: [], familyOnly: true });
       expect(FAMILY_ONLY_FAILURES).toBe('the runs that failed on the days picked failed only their family’s checks: Find breaking commit needs a run that failed on its own');
+    } finally {
+      s.close();
+    }
+  });
+});
+
+describe('paging and resolution', () => {
+  it(`carries an issue's newest ${ISSUE_RUNS} runs and asks for the rest, and a golden's issue goes once its last failed replay is fixed`, () => {
+    const s = Store.open(':memory:');
+    try {
+      const many = Array.from({ length: ISSUE_RUNS + 2 }, (_, i) => addRun(s, { startedAt: NOW - (i + 1) * MIN, status: 'failed', calls: 'll', meta: { checks: [failing('cost at most $0.05', `cost $0.${10 + i}`)] } }));
+      const pack = addRun(s, { startedAt: NOW - 10 * DAY, calls: 'll', meta: { imported: { at: NOW - 10 * DAY, from: 'goldens/refund-in-limit' } } });
+      const replay = (at: number, ok: boolean) => {
+        const runId = addRun(s, { parent: pack, startedAt: at, calls: ok ? 'rr' : 'f', ...(ok ? {} : { status: 'failed' as const, divergence: 1 }), meta: { test: { golden: 'goldens/refund-in-limit', session: `s-${at}` } } });
+        const sessionId = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund-in-limit'], startedAt: at }).sessionId;
+        s.addTestResult({ sessionId, golden: 'goldens/refund-in-limit', ok, runId, at: at + MIN, ...(ok ? {} : { failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)' }) });
+      };
+      replay(NOW - 2 * DAY, false);
+      const job = (o: Partial<RunsIssuesJob> = {}) => JSON.parse((ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome: null, next: null, ...o }, { whole: true }) as { body: string }).body) as IssuesPage & IssueRunsPage;
+      const [cost, golden] = job().issues;
+      expect(cost).toMatchObject({ count: ISSUE_RUNS + 2, more: many[ISSUE_RUNS - 1] });
+      expect(runsOf(cost)).toEqual(many.slice(0, ISSUE_RUNS));
+      expect(job({ issue: cost.key, cursor: cost.more })).toMatchObject({ runs: many.slice(ISSUE_RUNS).map((runId) => expect.objectContaining({ runId })), more: null, count: ISSUE_RUNS + 2 });
+      expect(golden?.key).toBe(issueKey.golden('goldens/refund-in-limit'));
+      // A replay that passes again fixes the one that failed: Failed leaves it out, and its issue goes with it.
+      replay(NOW - DAY, true);
+      expect(job().issues.map((x) => x.key)).toEqual([cost.key]);
+    } finally {
+      s.close();
+    }
+  });
+});
+
+describe('a fork and what it changed', () => {
+  it('joins a fix by what failed with a what-if of your own (--inject), where a run that failed after a planted instruction stays apart', () => {
+    const s = Store.open(':memory:');
+    try {
+      s.insertFix({ fixId: FIX_B, title: 'Sends the confirmation email twice', labels: [], check: { expect: {}, key: 'check:b', oracle: [EMAIL], text: EMAIL }, status: 'open', openedAt: NOW - 9 * HOUR, verifiedAt: null, appliedAt: null, data: {} });
+      const twice = [failing(EMAIL, 'called 2 times')];
+      const rec = addRun(s, { startedAt: NOW - 4 * HOUR, status: 'failed', calls: 'll', meta: { checks: twice } });
+      const own = addRun(s, { parent: rec, startedAt: NOW - 3 * HOUR, calls: 'ro', meta: { interventions: [{ kind: 'inject', at: 2, flag: '--inject 2=@what-if.json' }], checks: twice } });
+      const planted = addRun(s, { parent: rec, startedAt: NOW - 2 * HOUR, calls: 'ro', meta: { interventions: [{ kind: 'plant', at: 2, flag: '--inject-result 2=@payloads/exfil-email.txt' }], checks: twice } });
+      const a = ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome: null, next: null }, { whole: true }) as { body: string };
+      const page = JSON.parse(a.body) as IssuesPage;
+      expect(page.issues.map((i) => [i.key, runsOf(i)])).toEqual([
+        [issueKey.planted(), [planted]],
+        [issueKey.fix(FIX_B), [own, rec]],
+      ]);
+    } finally {
+      s.close();
+    }
+  });
+});
+
+describe("a capture its import judged failed", () => {
+  it("is an issue of its own, counted under Failed, in its issue and in the chip by the verdict it kept, while its page judges it by today's rules", () => {
+    const s = Store.open(':memory:');
+    try {
+      const cap = refund(s, { amount: 300, meta: { covers: ['api', 'tool'], imported: { at: T0, from: 'langfuse:7f3a9c2e' } } });
+      // Imported under rules that failed it; today's, changed since, would pass it.
+      s.updateRunMeta(cap, { judged: judgeCapture(s, s.getCalls(cap), rulesOnCalls(parseTests(work(cap).tests)), T0)! });
+      const today = work(cap, { version: 'v2', tests: { 'goldens/refund': { expect: { calls: [{ tool: 'issue_refund', after: 'lookup_order' }] } } } });
+      expect(runJudged(s, loadRunIndex(s), cap, today)).toMatchObject({ by: 'import', verdict: 'passed', today: true });
+      const failed = listRunsPage(s, { types: ['failed'], judge: judgeFor(s, today) });
+      expect(failed.runs.map((r) => r.runId)).toEqual([cap]);
+      expect(failed.chipCounts.failed).toBe(1);
+      const a = ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome: today, next: null }, { whole: true }) as { body: string };
+      const [issue, ...rest] = (JSON.parse(a.body) as IssuesPage).issues;
+      expect(rest).toEqual([]);
+      expect(issue).toMatchObject({ kind: 'capture', fix: null, count: 1, production: 1, stepRun: cap });
+      expect(issue.key.startsWith('cap:')).toBe(true);
     } finally {
       s.close();
     }
