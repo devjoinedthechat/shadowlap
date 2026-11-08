@@ -5,13 +5,12 @@ import type { OnShow } from '../components/OnShow.js';
 /** What the check menu offers to start from, by the key the builder's kinds take. */
 export type CheckKind = 'never' | 'neverargs' | 'must' | 'after' | 'every' | 'when' | 'judge';
 
-/** The check builder (checks/Builder.tsx), opened from a run's tool call with the kind picked in its check menu. */
-export interface BuilderProps {
-  run: RunDetail;
-  call: CallDetail;
-  kind: CheckKind;
-  onClose: () => void;
-}
+/**
+ * The check builder (checks/Builder.tsx): opened from a run's tool call with the kind picked in its
+ * check menu, or on a golden to add a check to it or change one of its checks (`edit`, the check's
+ * place among the golden's).
+ */
+export type BuilderProps = { onClose: () => void } & ({ run: RunDetail; call: CallDetail; kind: CheckKind } | { golden: string; edit: number | null });
 
 /**
  * The check builder, a part of its own that the served dashboard hands a run's page (App.tsx) and an

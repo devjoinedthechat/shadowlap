@@ -367,6 +367,10 @@ describe('amber', () => {
     '.connbar .cdot': 'the dashboard can’t be reached: a look',
     '.paloff .cdot': 'the palette’s line saying the server can’t be reached: a look',
     '.status .off': 'the dashboard can’t be reached: a look',
+    '.cb-units li.bad .cb-ul code': 'a rule the check builder refuses, in the engine’s words: Save waits until it is fixed',
+    '.cb-notes li.y': 'a note against the agent’s recordings that needs a look before the check is saved',
+    '.cb-row .cm.inc': 'a recording the check being built can’t decide',
+    '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
