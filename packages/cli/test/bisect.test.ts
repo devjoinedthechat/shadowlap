@@ -118,8 +118,9 @@ describe('shadowlap bisect', () => {
     const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
     expect(store.listEvents({ kinds: ['bisect.found'] })[0]).toMatchObject({ ref: 'goldens/summary', data: { commit: rev['Ask for brevity'], subject: 'Ask for brevity', good: rev['Start the ticket agent'], bad: rev['Mark summaries as drafts'], first: { rev: rev['Ask for brevity'], subject: 'Ask for brevity', author: 'Ravi' }, replays: 4, tokens: 0, upstreamRequests: 0 } });
     // Its change is kept with it, against its first parent: the file the answer opens is the first
-    // the commit changed that could have broken the agent, a deleted one too, which has no hunk.
-    expect((store.listEvents({ kinds: ['bisect.found'] })[0].data as { first: { change: unknown } }).first.change).toEqual({ file: 'BROKEN', files: ['BROKEN', 'prompt.txt'], hunk: null, line: null, cut: false, merge: false });
+    // the commit changed that could have broken the agent and is still there, past BROKEN, which it
+    // deleted and has no hunk to show.
+    expect((store.listEvents({ kinds: ['bisect.found'] })[0].data as { first: { change: unknown } }).first.change).toEqual({ file: 'prompt.txt', files: ['BROKEN', 'prompt.txt'], hunk: '@@ -1 +1 @@\n-You summarize support tickets.\n+You summarize support tickets. Be brief.', line: 1, cut: false, merge: false });
     store.close();
   });
 

@@ -2648,7 +2648,7 @@ the repository, or null when git couldn't say:
 
 | Field | Meaning |
 | --- | --- |
-| `file` | The file it opens: the first changed under `--cwd` that isn't in a golden's folder or `shadowlap.config.json`, else the first |
+| `file` | The file it opens: the first changed under `--cwd` that isn't in a golden's folder or `shadowlap.config.json`, one still there before one it deleted, else the first |
 | `files` | Every file it changed, up to 50 |
 | `hunk` | That file's diff from its first `@@`, up to about 60 lines and 4 KB, or null for a binary or deleted file |
 | `line` | The new file's line of its first added line, or null without a hunk |

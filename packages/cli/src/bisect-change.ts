@@ -49,9 +49,10 @@ export interface ChangeScope {
 export function commitChange(root: string, rev: string, scope: ChangeScope): BisectChange | null {
   try {
     const parents = git(root, ['rev-list', '--parents', '-n', '1', rev]).trim().split(/\s+/);
-    const files = git(root, ['diff', '--name-only', '-z', `${rev}^1`, rev]).split('\0').filter(Boolean);
+    const names = (filter: string[]) => git(root, ['diff', '--name-only', '-z', ...filter, `${rev}^1`, rev]).split('\0').filter(Boolean);
+    const files = names([]);
     if (!files.length) return null;
-    const file = pickFile(files, root, scope);
+    const file = pickFile(files, root, scope, new Set(names(['--diff-filter=D'])));
     const diff = git(root, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-U3', `${rev}^1`, rev, '--', file]);
     return { file, files: files.slice(0, MAX_FILES), ...hunkOf(diff), merge: parents.length > 2 };
   } catch {
@@ -62,9 +63,11 @@ export function commitChange(root: string, rev: string, scope: ChangeScope): Bis
 /**
  * The file the answer opens: the first under the recorded command's folder that isn't in a pack
  * folder and isn't the config, since bisect takes the recordings, checks and normalizers from the
- * working tree at every commit, so none of those broke it. The first file when none fits.
+ * working tree at every commit, so none of those broke it. One the commit deleted (`gone`) has no
+ * hunk to show, nor a line to open, so one still there comes first, in the same order. The first
+ * file when none fits.
  */
-export function pickFile(files: readonly string[], root: string, scope: ChangeScope): string {
+export function pickFile(files: readonly string[], root: string, scope: ChangeScope, gone: ReadonlySet<string> = new Set()): string {
   const under = scope.inRepo.split(sep).join('/');
   const packs = scope.golden ? new Set([join(scope.projectDir, scope.golden)]) : new Set<string>();
   const inPack = (file: string): boolean => {
@@ -74,7 +77,7 @@ export function pickFile(files: readonly string[], root: string, scope: ChangeSc
     return false;
   };
   const fits = (file: string) => (!under || file.startsWith(`${under}/`)) && basename(file) !== 'shadowlap.config.json' && !inPack(file);
-  return files.find(fits) ?? files[0]!;
+  return files.find((f) => fits(f) && !gone.has(f)) ?? files.find(fits) ?? files.find((f) => !gone.has(f)) ?? files[0]!;
 }
 
 /**

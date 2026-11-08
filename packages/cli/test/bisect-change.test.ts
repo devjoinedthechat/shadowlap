@@ -55,6 +55,13 @@ describe('the file the answer opens', () => {
   it('is the first file when none fits', () => {
     expect(pickFile(['README.md', 'docs/x.md'], root, scope())).toBe('README.md');
   });
+
+  it('passes over a file the commit deleted for one still there, which has a change to show', () => {
+    expect(pickFile(['agent/old.py', 'agent/new.py'], root, scope(), new Set(['agent/old.py']))).toBe('agent/new.py');
+    // Still before a file that can't have broken it, and before none at all.
+    expect(pickFile(['README.md', 'agent/old.py'], root, scope(), new Set(['agent/old.py']))).toBe('agent/old.py');
+    expect(pickFile(['docs/gone.md', 'README.md'], root, scope(), new Set(['docs/gone.md']))).toBe('README.md');
+  });
 });
 
 describe('a commit read from git', () => {
@@ -103,6 +110,12 @@ describe('a commit read from git', () => {
     expect(commitChange(repo, binary, scope())).toMatchObject({ file: 'logo.png', hunk: null, line: null });
     const gone = step('Drop the prompt', { 'prompt.txt': null });
     expect(commitChange(repo, gone, scope())).toMatchObject({ file: 'prompt.txt', hunk: null, line: null });
+  });
+
+  it('opens a file the commit changed over one it deleted', () => {
+    step('Add the notes', { 'a-notes.txt': 'one\n' });
+    const rev = step('Drop the notes, change the sum', { 'a-notes.txt': null, 'agent.mjs': 'const a = 1;\nexport default a + 4;\n' });
+    expect(commitChange(repo, rev, scope())).toMatchObject({ file: 'agent.mjs', files: ['a-notes.txt', 'agent.mjs'], line: 2 });
   });
 
   it('is null where git has nothing to say, never an error', () => {
