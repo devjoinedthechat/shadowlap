@@ -6,7 +6,7 @@ import { oneRunPair, replayCommand } from '../ui/compare/model.js';
 import { ComparePage } from '../ui/pages/Compare.js';
 import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { CompareView, RunDetail, RunListItem } from '../ui/types.js';
+import type { CallDetail, CompareView, RunDetail, RunListItem } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -268,7 +268,7 @@ describe('the whole comparison', () => {
   };
   const view = { a: { runId: REC, calls: 21 }, b: { runId: FORK, calls: 19 }, identicalPrefix: 18, firstRequestDifference: null, onlyInA: 2, onlyInB: 0, prefix: [], after: null, code: null, intervention: failAt, responseDifferences: [{ callNo: 19, kind: 'api', name: 'POST /v1/messages', detail: 'got HTTP 529 instead of an answer', by: '--fail-at 19=529' }], changes: { systemPrompt: false, systems: { a: ['x'], b: ['x'] }, tools: { added: [], removed: [], redefined: false }, models: { a: ['claude-sonnet-5'], b: ['claude-sonnet-5'] }, code: { a: 'a7b3c2e', b: 'a7b3c2e' } }, pair } as unknown as CompareView;
   const run = (id: string, parent: string | null) => ({ ...detail(id, { parent }), summary: { total: 21, byKind: { api: 11, tool: 10 }, cost: { spent: 0.051, captured: 0, unknownModels: [] } }, callsTotal: id === REC ? 21 : 19, checks: [] }) as unknown as RunDetail;
-  const detailOf = (id: string, n: number) => ({ call: { callNo: n, kind: n === 20 ? 'tool' : 'api', name: 'x', origin: id === FORK ? 'injected' : 'replayed', outcome: id === FORK ? 'error' : 'ok', status: id === FORK ? 529 : null, attempts: 2, latencyMs: 1200, usage: null, cost: null, error: null }, request: { args: { order: 'A-1', amount: 240 } }, result: { result: { refunded: true } } });
+  const detailOf = (id: string, n: number) => ({ call: { callNo: n, kind: n === 20 ? 'tool' : 'api', name: 'x', origin: id === FORK ? 'injected' : 'replayed', outcome: id === FORK ? 'error' : 'ok', status: id === FORK ? 529 : null, attempts: 2, latencyMs: 1200, usage: null, cost: null, error: null }, request: { args: { order: 'A-1', amount: 240 } }, result: { result: { refunded: true } } }) as unknown as CallDetail;
   const client = { run: (id: string) => Promise.resolve(run(id, id === FORK ? REC : null)), compare: () => Promise.resolve(view), call: (id: string, n: number) => Promise.resolve(detailOf(id, n)) };
   function Routed() {
     const route = useRoute();
