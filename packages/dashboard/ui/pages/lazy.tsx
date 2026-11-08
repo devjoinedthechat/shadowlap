@@ -84,7 +84,7 @@ function PageFor({ route }: { route: Route }) {
     case 'changes':
       return <ChangesPage tab={route.tab} id={route.id} />;
     case 'compare':
-      return <ComparePage a={route.a} b={route.b} />;
+      return <ComparePage a={route.a} b={route.b} call={route.call} />;
     case 'fixes':
       return <FixesPage id={route.id} step={route.step} sub={route.sub} />;
     case 'tests':

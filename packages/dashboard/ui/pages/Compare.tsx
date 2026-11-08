@@ -28,7 +28,7 @@ import { lastRunsHref } from '../runs-view.js';
  * calls arrive. Every state stands under Changes' head, the pickers on a row under its tabs; an
  * exported copy's Compare is a page of its own.
  */
-export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
+export function ComparePage({ a, b }: { a: string | null; b: string | null; /** The row opened, `#/compare/<a>/<b>/<call>`: a call number after the identical prefix, or none. */ call?: number | null }) {
   const { runs, exported, meta } = useApp();
   const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
   // An exported copy of many runs holds only the pairs with its first run: it opens on one of those.
