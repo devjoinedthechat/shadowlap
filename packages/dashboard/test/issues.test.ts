@@ -1,0 +1,167 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { NO_COMMAND, Store } from '@shadowlap/engine';
+import { startDashboard } from '../src/index.js';
+import { type Issue, type IssueRunsPage, type IssuesPage, ISSUE_RUNS, ISSUES_READS, issueKeyOf, issueRunsByFix, type RunsIssuesJob } from '../src/issues.js';
+import { issueKey } from '../src/issue-keys.js';
+import { loadRunIndex } from '../src/run-index.js';
+import { addRun, DAY, HOUR } from './read-model-store.js';
+
+/**
+ * Runs › Failed as issues (issues.ts): the failed runs grouped by the fix whose failing runs list them
+ * or whose check they failed the same way, by golden, the planted runs apart, and the rest by what
+ * failed; each issue's fields; a test replay a later replay fixed leaving its issue; and the days
+ * and the filter's words narrowing what each issue counts.
+ */
+
+const NOW = Date.UTC(2026, 9, 20, 12);
+const MIN = 60_000;
+const FIX_A = 'fx-01K8RG0000000000000000000A';
+const FIX_B = 'fx-01K8RG0000000000000000000B';
+const LIMIT = (n: number) => `issue_refund: amount ${n} > get_policy.result.limit 100`;
+const EMAIL = 'send_email called 1 time';
+const failing = (label: string, detail: string | null = null) => ({ status: 'failed' as const, ok: false, label, detail });
+
+let store: Store;
+const id: Record<string, string> = {};
+
+const read = (job: Partial<RunsIssuesJob> = {}) => {
+  const a = ISSUES_READS['runs-issues'](store, { kind: 'runs-issues', options: {}, outcome: null, next: null, ...job }, { whole: true }) as { body: string };
+  return JSON.parse(a.body) as IssuesPage & IssueRunsPage;
+};
+const issueOf = (page: IssuesPage, key: string): Issue => {
+  const found = page.issues.find((x) => x.key === key);
+  expect(found, `${key} in ${page.issues.map((x) => x.key).join(', ')}`).toBeDefined();
+  return found!;
+};
+const runsOf = (i: Issue) => i.runs.map((r) => r.runId);
+
+beforeAll(() => {
+  store = Store.open(':memory:');
+  const fix = (fixId: string, title: string, check: string, status: 'open' | 'applied') =>
+    store.insertFix({ fixId, title, labels: [], check: { expect: {}, key: `check:${fixId}`, oracle: [check], text: check }, status, openedAt: NOW - 9 * HOUR, verifiedAt: null, appliedAt: status === 'applied' ? NOW - 8 * HOUR : null, data: {} });
+  fix(FIX_A, 'Refunds above the limit issued without approval', LIMIT(240), 'open');
+  fix(FIX_B, 'Sends the confirmation email twice', EMAIL, 'applied');
+  const recording = (at: number, checks: ReturnType<typeof failing>[], meta: Record<string, unknown> = {}) => addRun(store, { startedAt: at, status: 'failed', calls: 'll', meta: { checks, ...meta } });
+  // The fix's own failing run, and two that failed its check with other amounts: a recording, and a capture.
+  id.a1 = recording(NOW - 6 * HOUR, [failing(LIMIT(240))]);
+  store.addFixLink(FIX_A, 'failing', id.a1, NOW - 6 * HOUR);
+  id.a2 = recording(NOW - 2 * HOUR, [failing(LIMIT(180))], { labels: ['eu'] });
+  id.a3 = addRun(store, { startedAt: NOW - 3 * HOUR, argv: [NO_COMMAND], calls: 'll', meta: { imported: { at: NOW - 3 * HOUR, from: '/work/cap.jsonl' }, covers: ['api'], judged: { rules: 'r', at: NOW - 3 * HOUR, verdict: 'failed', why: null, checks: [failing(LIMIT(310))] } } as never });
+  // Failed as the applied fix's check does, by its count; and a fork that failed so after a planted instruction.
+  id.b1 = recording(NOW - 4 * HOUR, [failing(EMAIL, 'called 2 times')]);
+  id.p1 = addRun(store, { parent: id.b1, startedAt: NOW - 5 * HOUR, calls: 'rl', meta: { interventions: [{ kind: 'plant', at: 2, flag: '--inject-result 2=@payloads/exfil-email.txt' }], checks: [failing(EMAIL, 'called 2 times')] } });
+  // A failure no fix holds, twice with other amounts; one that is older than the days picked below.
+  id.f1 = recording(NOW - 90 * MIN, [failing('cost at most $0.05', 'cost $0.07')]);
+  id.f2 = recording(NOW - 3 * DAY, [failing('cost at most $0.05', 'cost $0.09')]);
+  // A golden: a failed replay fixed by a later one that passed, then one that failed again.
+  id.pack = addRun(store, { startedAt: NOW - 10 * DAY, calls: 'll', meta: { imported: { at: NOW - 10 * DAY, from: 'goldens/refund-in-limit' } } });
+  const test = (at: number, failed: boolean) => addRun(store, { parent: id.pack, startedAt: at, calls: failed ? 'f' : 'rr', ...(failed ? { status: 'failed' as const, divergence: 1 } : {}), meta: { test: { golden: 'goldens/refund-in-limit', session: `s-${at}` } } });
+  id.t1 = test(NOW - 8 * HOUR, true);
+  id.t2 = test(NOW - 7 * HOUR, false);
+  id.t3 = test(NOW - 30 * MIN, true);
+  const session = (at: number) => store.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund-in-limit'], startedAt: at }).sessionId;
+  const result = (runId: string, at: number, ok: boolean) => store.addTestResult({ sessionId: session(at), golden: 'goldens/refund-in-limit', ok, runId, at: at + MIN, ...(ok ? {} : { failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)' }) });
+  result(id.t1, NOW - 8 * HOUR, false);
+  result(id.t2, NOW - 7 * HOUR, true);
+  result(id.t3, NOW - 30 * MIN, false);
+});
+afterAll(() => store.close());
+
+describe('the issue a failed run belongs to', () => {
+  it('joins a fix by its failing runs, or by what failed without its amounts or call numbers, its captures counted from production', () => {
+    const a = issueOf(read(), issueKey.fix(FIX_A));
+    expect(a).toMatchObject({ kind: 'fix', title: 'Refunds above the limit issued without approval', count: 3, production: 1, fix: { fixId: FIX_A, rung: 'open', broken: false } });
+    expect(runsOf(a)).toEqual([id.a2, id.a3, id.a1]);
+    expect(a.failed).toBe(LIMIT(180));
+  });
+
+  it('joins an applied fix by the count its check names, never a run that failed so after a planted instruction', () => {
+    const page = read();
+    expect(runsOf(issueOf(page, issueKey.fix(FIX_B)))).toEqual([id.b1]);
+    const planted = issueOf(page, issueKey.planted());
+    expect(planted).toMatchObject({ kind: 'planted', title: 'Failed after a planted instruction', failed: `${EMAIL}, but called 2 times`, planted: { callNo: 2, result: true }, fix: null });
+    expect(runsOf(planted)).toEqual([id.p1]);
+  });
+
+  it('keeps a golden and its failed replays, titled by what its newest did as Tests says it', () => {
+    const t = issueOf(read(), issueKey.golden('goldens/refund-in-limit'));
+    expect(t).toMatchObject({ kind: 'test', title: null, golden: { path: 'goldens/refund-in-limit', name: 'refund-in-limit', did: 'diverged at call 1', passed: false }, fix: null, stepRun: null });
+    // The replay a later one passed is fixed by it: Failed leaves it out, and so does its issue.
+    expect(runsOf(t)).toEqual([id.t3]);
+  });
+
+  it('groups a failure no fix holds by what failed, without its amounts, and says nobody has blamed it', () => {
+    const f = read().issues.find((x) => x.kind === 'failure')!;
+    expect(f).toMatchObject({ title: 'cost at most $0.05, but cost $0.07', count: 2, blame: 'not blamed yet', stepRun: id.f1 });
+    expect(runsOf(f)).toEqual([id.f1, id.f2]);
+    expect(f.key).toBe(issueKey.failure('fail', 'cost at most $N, but cost $N'));
+  });
+
+  it('orders the issues by their newest run, and counts every failed run once', () => {
+    const page = read();
+    expect(page.issues.map((x) => x.newest.runId)).toEqual([id.t3, id.f1, id.a2, id.b1, id.p1]);
+    expect(page.total).toBe(8);
+    expect(page.issues.reduce((n, x) => n + x.count, 0)).toBe(8);
+  });
+});
+
+describe('what an issue leads with', () => {
+  it('leads a fix with Run blame on its newest run nobody has blamed, its card naming it, else Open fix', () => {
+    const a = issueOf(read(), issueKey.fix(FIX_A));
+    // The capture joined by its words too, but the lists' unblamed rule takes failed recordings and forks.
+    expect(a.notBlamed).toBe(1);
+    expect(a).toMatchObject({ step: { key: 'blame', label: 'Run blame' }, stepRun: id.a2 });
+    expect(a.step?.sub).toBe(`Blames ${id.a2.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to`);
+    const b = issueOf(read(), issueKey.fix(FIX_B));
+    expect(b).toMatchObject({ notBlamed: 1, fix: { rung: 'applied' }, step: { key: 'blame' }, stepRun: id.b1 });
+    // On days that keep only the run the fix lists, nothing is left to blame: Open fix.
+    const own = issueOf(read({ options: { from: NOW - 6 * HOUR - MIN, to: NOW - 5 * HOUR } }), issueKey.fix(FIX_A));
+    expect(own).toMatchObject({ notBlamed: 0, step: { key: 'fix', label: 'Open fix', href: `#/fixes/${FIX_A}` }, stepRun: null });
+  });
+});
+
+describe('narrowing', () => {
+  it('counts only the runs the days and the words keep', () => {
+    const days = read({ options: { from: NOW - DAY, to: NOW } });
+    expect(days.issues.find((x) => x.kind === 'failure')).toMatchObject({ count: 1, first: NOW - 90 * MIN, last: NOW - 90 * MIN });
+    const eu = read({ options: { q: 'label:eu' } });
+    expect(eu.issues.map((x) => [x.key, x.count])).toEqual([[issueKey.fix(FIX_A), 1]]);
+    expect(eu.total).toBe(1);
+  });
+
+  it("answers an issue's runs after the one its page ended on", () => {
+    const after = read({ issue: issueKey.fix(FIX_A), cursor: id.a2 });
+    expect(after.runs.map((r) => r.runId)).toEqual([id.a3, id.a1]);
+    expect(after).toMatchObject({ more: null, count: 3 });
+    expect(ISSUE_RUNS).toBe(50);
+  });
+});
+
+describe('lookups for links', () => {
+  it("gives each fix's issue runs on every day, and a run's issue", () => {
+    const index = loadRunIndex(store);
+    expect(issueRunsByFix(store, index).get(FIX_A)).toEqual([id.a2, id.a3, id.a1]);
+    expect(issueKeyOf(store, index, id.a3)).toBe(issueKey.fix(FIX_A));
+    expect(issueKeyOf(store, index, id.t1)).toBeNull();
+  });
+});
+
+describe('GET /api/runs/issues', () => {
+  it('answers behind the session token, the same answer again a 304, and one issue with its runs after a cursor', async () => {
+    const dash = await startDashboard({ store, dbPath: ':memory:' });
+    try {
+      const url = `${dash.url}/api/runs/issues`;
+      expect((await fetch(url)).status).toBeGreaterThanOrEqual(400);
+      const res = await fetch(`${url}?q=label:eu`, { headers: { 'x-shadowlap-token': dash.token } });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as IssuesPage).issues.map((x) => x.key)).toEqual([issueKey.fix(FIX_A)]);
+      const etag = res.headers.get('etag');
+      expect(etag).toBeTruthy();
+      expect((await fetch(`${url}?q=label:eu`, { headers: { 'x-shadowlap-token': dash.token, 'if-none-match': etag! } })).status).toBe(304);
+      const more = await fetch(`${url}?issue=${encodeURIComponent(issueKey.fix(FIX_A))}&cursor=${id.a3}`, { headers: { 'x-shadowlap-token': dash.token } });
+      expect(((await more.json()) as IssueRunsPage).runs.map((r) => r.runId)).toEqual([id.a1]);
+    } finally {
+      await dash.close();
+    }
+  });
+});

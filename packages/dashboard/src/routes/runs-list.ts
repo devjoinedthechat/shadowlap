@@ -87,6 +87,18 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, a);
   });
 
+  // Runs › Failed as issues (issues.ts): the failed runs the same filter and days keep, grouped beside
+  // the server; with `issue`, that issue's runs after `cursor`, the run its last page ended on.
+  router.get('/runs/issues', async (r) => {
+    const o = runsPageOptions(r.query);
+    if ('error' in o) throw new HttpError(400, o.error);
+    const options = { ...(o.from != null ? { from: o.from } : {}), ...(o.to != null ? { to: o.to } : {}), ...(o.q ? { q: o.q } : {}) };
+    const job = { kind: 'runs-issues' as const, options, issue: r.query.get('issue')?.slice(0, 500) ?? null, cursor: o.cursor ?? null, ...projectWork(ctx) };
+    const a = await withRecorded(ctx, o.q, () => ctx.reads.run(job));
+    if (a.warming) ctx.reads.warm();
+    sendAnswer(r, a);
+  });
+
   // Find breaking commit, from the calendar: with Failed picked and days chosen, the first failure in
   // those days is where it started failing; bisect looks between a commit where it still worked
   // before the first day picked and that failure's own commit. A failure at the first commit has

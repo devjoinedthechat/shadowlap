@@ -21,7 +21,8 @@ import { FIXES_READS } from './fixes-view.js';
 import { CROSS_PROJECT_READS } from './cross-project.js';
 import { withExitCodes } from './exit-codes.js';
 import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
-import { judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
+import { ISSUES_READS } from './issues.js';
+import { judgeAfter, judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
 import { RUNS_FAILURES_READS } from './runs-failures.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
@@ -145,8 +146,6 @@ function eitherMissing(store: Store, a: string, b: string): ReadAnswer | null {
 /** For a long run answered from a part of its calls: its whole analysis (and its outcome by checks), beside the server once this is answered, for the page to ask again. */
 const analyseAfter = (runId: string, outcome?: OutcomeWork | null): Pick<ReadAnswer, 'then'> => ({ then: { kind: 'analyse', runId, ...(outcome ? { outcome } : {}) } });
 
-/** For a run whose verdict a list's `status:` waits for and whose calls are more than a read judges: judged beside the server once this is answered, kept on this thread for the page's next ask. */
-const judgeAfter = (runId: string | undefined, outcome: OutcomeWork | null): Pick<ReadAnswer, 'then'> => (runId ? { then: { kind: 'outcome', runId, work: outcome } } : {});
 
 /** What git said about the code between two revisions, kept for a minute per pair: one per thread. */
 const code = codeChangeCache();
@@ -339,7 +338,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ISSUES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;
