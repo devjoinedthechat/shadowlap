@@ -825,7 +825,7 @@ describe('Find the commit from a run', () => {
     const cut = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: 'e3f9b20', meta: { test: { golden: 'goldens/refund-in-limit', session: stopped.sessionId } } });
     store.endRun(cut.runId, 'crashed');
     store.finishTestSession(stopped.sessionId, { passed: 0, failed: 0, upstreamRequests: 0, interrupted: true });
-    expect(bisectChoices(store, cut.runId, { goldens })).toMatchObject({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the breaking commit from the golden on Tests', args: null });
+    expect(bisectChoices(store, cut.runId, { goldens })).toMatchObject({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the breaking commit from the golden on Tests', onTests: true, args: null });
     expect(bisectJob(store, goldens, { runId: cut.runId, good: 'c91d0f4' })).toEqual({ error: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the breaking commit from the golden on Tests' });
     store.close();
   });
@@ -861,7 +861,7 @@ describe('Find the commit from a run', () => {
     ]);
     // The inconclusive replay itself neither passed nor failed: there is no breaking commit to find.
     const from = bisectChoices(store, unsure, { goldens: [x] })!;
-    expect(from).toMatchObject({ failed: false, args: null, unavailable: "goldens/x came out inconclusive in this replay's session, neither passed nor failed, so there is no breaking commit to find: Tests says what settles it" });
+    expect(from).toMatchObject({ failed: false, args: null, onTests: true, unavailable: "goldens/x came out inconclusive in this replay's session, neither passed nor failed, so there is no breaking commit to find: Tests says what settles it" });
     expect(bisectJob(store, [x], { runId: unsure, good: 'aaa1111' })).toEqual({ error: from.unavailable });
     store.close();
   });

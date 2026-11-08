@@ -1,4 +1,4 @@
-import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
@@ -7,7 +7,7 @@ import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-no
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
-import { bisectAnswers, committed, standingAnswer, type BisectMiss, type FoundCommit } from './tests-bisect.js';
+import { bisectAnswers, bisectBlock, committed, standingAnswer, type BisectMiss, type FoundCommit } from './tests-bisect.js';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -1478,6 +1478,8 @@ export interface BisectChoices {
   live: boolean;
   /** Why Find breaking commit can't start from this run, for the disabled action's hover; null when it can. */
   unavailable: string | null;
+  /** `unavailable` sends you to Tests, which finds the commit from the golden or says what settles it: the toast offers Open Tests. */
+  onTests?: true;
   /**
    * It failed at a commit with no parent in the project's checkout (its first, or the oldest a
    * shallow clone has): there is nothing before it to search, as `unavailable` says. Set by
@@ -1543,18 +1545,8 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   // blame's check leaves the good one to be chosen: how other runs exited says nothing about it.
   const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? goodOfGolden : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
   const bad = failed && clean(run.codeVersion) ? run.codeVersion : null;
-  let unavailable: string | null = null;
-  if (run.status === 'running') unavailable = 'this run is still recording';
-  // A test replay a signal cut short has no result: it says nothing about its golden either way.
-  else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden!}: find the breaking commit from the golden on Tests`;
-  else if (unsure) unavailable = `${golden!} came out inconclusive in this replay's session, neither passed nor failed, so there is no breaking commit to find: Tests says what settles it`;
-  else if (undecided) unavailable = `this run is inconclusive, neither passed nor failed: a check could not be decided (${undecided.label}), so there is no breaking commit to find`;
-  else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run ${withoutCommand(run)}, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
-  // Someone else chose its command, and bisect would run it at every commit: the CLI asks first, which a job can't.
-  else if (!ofGolden && commandIsImported(run)) unavailable = `this run came from ${importedCommandSource(run)}: bisect would run its command at every commit. Replay it with your own command first (shadowlap replay ${run.runId} -- <command>), and find the commit from that run`;
-  // Replayed with --fork, only the exit status and the checks decide; the CLI takes the checks of the
-  // golden it was a replay of from the config, and has none otherwise.
-  else if (fork && !exitFailed(run) && !source?.checks.length && !expect) unavailable = `this run failed a check that bisect can't know: give it on the command line, shadowlap bisect ${run.runId} --good <commit> --expect '<checks>' --fork`;
+  const block = bisectBlock(run, { golden: ofGolden ? golden : null, cut: ofGolden && run.status === 'crashed' && !result, unsure, undecided: undecided?.label ?? null, unjudged: fork && !exitFailed(run) && !source?.checks.length && !expect });
+  const unavailable = block?.reason ?? null;
   const ref = target.kind === 'golden' ? target.golden : target.runId;
   return {
     target,
@@ -1566,6 +1558,7 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
     fork,
     live: fork || (ofGolden && source.mode === 'fork'),
     unavailable,
+    ...(block?.onTests ? { onTests: true as const } : {}),
     args: good && !unavailable ? bisectArgs(ref, good, bad, fork, expect) : null,
   };
 }

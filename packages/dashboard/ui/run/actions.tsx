@@ -6,6 +6,8 @@ import { ConsentDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { confirmWords } from '../labels.js';
+import { href } from '../route.js';
+import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import { bisectBlocked, bisectCardCommand, bisectLabel } from './offers.js';
 import { ActionButton } from '../components/ActionButton.js';
@@ -187,6 +189,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
           <ActionButton
             role="menuitem"
             why={blocked}
+            whyAct={offers?.bisect?.onTests ? { label: 'Open Tests', run: () => navigate(href.tests()) } : undefined}
             tip={confirmWords(bisect.label)}
             sub={bisect.hint}
             command={bisectCardCommand(offers?.bisect ?? UNKNOWN_BISECT(runId))}

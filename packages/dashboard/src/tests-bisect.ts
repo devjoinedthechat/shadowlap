@@ -1,4 +1,4 @@
-import { isObject, type StoreOf, type TestResult } from '@shadowlap/engine';
+import { commandIsImported, hasRecordedCommand, importedCommandSource, isObject, withoutCommand, type RunRecord, type StoreOf, type TestResult } from '@shadowlap/engine';
 import { GOLDEN_HISTORY } from './bisect-start.js';
 
 /**
@@ -170,4 +170,38 @@ export function standingAnswer(answers: readonly AnswerEvent[] | undefined, hist
 export function standingFound(store: StoreOf<'tests' | 'activity'>, path: string): FoundCommit | null {
   const history = store.listTestResults({ golden: path, limit: GOLDEN_HISTORY });
   return history[0] ? (standingAnswer(bisectAnswers(store).get(path), history, history[0])?.found ?? null) : null;
+}
+
+/** What holds Find breaking commit on a run, as `bisectChoices` works it out (src/tests.ts). */
+interface BisectHold {
+  /** The golden a test replay is bisected as, or null for a run bisected as it is. */
+  golden: string | null;
+  /** A signal cut the replay short: it has no result. */
+  cut: boolean;
+  /** Its golden came out inconclusive in the replay's session. */
+  unsure: boolean;
+  /** The label of a check of the run's own that could not be decided, for a run that failed nothing. */
+  undecided: string | null;
+  /** Forked, it failed a check bisect can't know: none on the command line, from the config or from blame. */
+  unjudged: boolean;
+}
+
+/**
+ * Why Find breaking commit can't start from a run, the first reason that applies, and whether it sends
+ * you to Tests (`onTests`: the golden of a replay cut short, or one that came out inconclusive), whose
+ * toast then offers Open Tests; null when it can.
+ */
+export function bisectBlock(run: RunRecord, h: BisectHold): { reason: string; onTests?: true } | null {
+  if (run.status === 'running') return { reason: 'this run is still recording' };
+  // A test replay a signal cut short has no result: it says nothing about its golden either way.
+  if (h.golden !== null && h.cut) return { reason: `this replay was cut short, so it says nothing about ${h.golden}: find the breaking commit from the golden on Tests`, onTests: true };
+  if (h.golden !== null && h.unsure) return { reason: `${h.golden} came out inconclusive in this replay's session, neither passed nor failed, so there is no breaking commit to find: Tests says what settles it`, onTests: true };
+  if (h.undecided !== null) return { reason: `this run is inconclusive, neither passed nor failed: a check could not be decided (${h.undecided}), so there is no breaking commit to find` };
+  if (h.golden === null && !hasRecordedCommand(run)) return { reason: `this run ${withoutCommand(run)}, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run` };
+  // Someone else chose its command, and bisect would run it at every commit: the CLI asks first, which a job can't.
+  if (h.golden === null && commandIsImported(run)) return { reason: `this run came from ${importedCommandSource(run)}: bisect would run its command at every commit. Replay it with your own command first (shadowlap replay ${run.runId} -- <command>), and find the commit from that run` };
+  // Replayed with --fork, only the exit status and the checks decide; the CLI takes the checks of the
+  // golden it was a replay of from the config, and has none otherwise.
+  if (h.unjudged) return { reason: `this run failed a check that bisect can't know: give it on the command line, shadowlap bisect ${run.runId} --good <commit> --expect '<checks>' --fork` };
+  return null;
 }
