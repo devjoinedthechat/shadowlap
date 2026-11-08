@@ -89,6 +89,11 @@ export interface FixOnFailureSettings {
   unreadable?: boolean;
 }
 
+/** The step that installs Claude Code, for the claude-code repairer, which runs it in print mode. */
+export const CLAUDE_CODE_STEP = '- run: npm install -g @anthropic-ai/claude-code';
+
+const claudeCode = (repairer: string) => repairer === 'claude-code' || repairer.startsWith('claude-code:');
+
 /** The action's `inconclusive` line, only when it lets inconclusive goldens through. */
 const inconclusiveLine = (mode: 'fail' | 'warn' | undefined): string[] => (mode === 'warn' ? ['    inconclusive: warn'] : []);
 
@@ -137,12 +142,15 @@ const ALERTS_UNREADABLE_COMMENT = `# ${CONFIG} can't be read: the keys of the go
  * the pull request and keeps the action's comment on one (`pull-requests: write`), and starts the
  * workflow on the fix's branch so the pull request gets its checks (`actions: write`), since GitHub
  * starts nothing for a push made with the job's own token. Without it, the job reads the repository
- * (`contents: read`, which an explicit `permissions:` otherwise takes away) and keeps the comment.
- * Short-lived bucket credentials add `id-token: write`.
+ * (`contents: read`, which an explicit `permissions:` otherwise takes away) and keeps the comment,
+ * unless the comment is off. Short-lived bucket credentials add `id-token: write`.
  */
-function permissionsLine(fix: boolean, push: BucketCredentials | null): string {
-  const names = [...(fix ? ['contents: write', 'pull-requests: write', 'actions: write'] : ['contents: read', 'pull-requests: write']), ...(push === 'oidc' ? ['id-token: write'] : [])];
-  return `# the job needs: permissions: { ${names.join(', ')} }`;
+function permissionNames(fix: boolean, push: BucketCredentials | null, comment = true): string[] {
+  return [...(fix ? ['contents: write', 'pull-requests: write', 'actions: write'] : ['contents: read', ...(comment ? ['pull-requests: write'] : [])]), ...(push === 'oidc' ? ['id-token: write'] : [])];
+}
+
+function permissionsLine(fix: boolean, push: BucketCredentials | null, comment = true): string {
+  return `# the job needs: permissions: { ${permissionNames(fix, push, comment).join(', ')} }`;
 }
 
 /**
@@ -191,7 +199,7 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   if (push === 'keys') lines.push(BUCKET_COMMENT.keys);
   lines.push(...CHECKOUT_BRANCH, ...SETUP_NODE, INSTALL);
   // The claude-code repairer runs Claude Code in print mode, so the runner needs it installed.
-  if (repairer === 'claude-code' || repairer.startsWith('claude-code:')) lines.push('- run: npm install -g @anthropic-ai/claude-code');
+  if (claudeCode(repairer)) lines.push(CLAUDE_CODE_STEP);
   if (push === 'oidc') lines.push(BUCKET_COMMENT.oidc);
   lines.push(
     `- uses: ${ACTION}`,
@@ -354,14 +362,17 @@ export function alertsYaml(s: AlertsSettings): string {
  * the permissions it needs); `alerts` tells Slack, so the action counts the failures
  * without failing (`fail-on-divergence: false`), then Slack is told and the job fails; `push`
  * follows Push from CI: the test runs, and each fix, go to the team store, with the bucket's
- * credentials as `shadowlap store ci` gives them. Neither on is the plain test step, which fails the
- * job itself. Its env holds every golden's keys when blame and verify run the agent live (`fix`),
- * else those of the goldens that run live; comments say what it can't name or read.
+ * credentials as `shadowlap store ci` gives them; `comment: false` keeps no comment on a pull
+ * request. Neither on is the plain test step, which fails the job itself. Its env holds every
+ * golden's keys when blame and verify run the agent live (`fix`), else those of the goldens that
+ * run live; comments say what it can't name or read.
  */
 export interface WorkflowSettings {
   fix: Pick<FixOnFailureSettings, 'budget' | 'repairer'> | null;
   alerts: Pick<AlertsSettings, 'onlyMain' | 'secret' | 'branch'> | null;
   push?: BucketCredentials | null;
+  /** The action's pull request comment: on unless false. */
+  comment?: boolean;
   recordings?: string;
   inconclusive?: 'fail' | 'warn';
   /** Every golden's keys (for blame and verify), and whether one's can't be named. */
@@ -373,58 +384,120 @@ export interface WorkflowSettings {
   unreadable?: boolean;
 }
 
-export function workflowYaml(s: WorkflowSettings): string {
-  const fix = s.fix ? { ...s.fix, repairer: s.fix.repairer.trim() || 'anthropic' } : null;
-  const push = s.push ?? null;
-  const lines: string[] = [];
-  lines.push(permissionsLine(!!fix, push), ...(fix ? [DISPATCH_COMMENT] : []));
-  if (push === 'keys') lines.push(BUCKET_COMMENT.keys);
-  lines.push(...(fix ? CHECKOUT_BRANCH : CHECKOUT), ...SETUP_NODE, INSTALL);
-  if (fix && (fix.repairer === 'claude-code' || fix.repairer.startsWith('claude-code:'))) lines.push('- run: npm install -g @anthropic-ai/claude-code');
-  if (push === 'oidc') lines.push(BUCKET_COMMENT.oidc);
-  lines.push(
+type Fix = Pick<FixOnFailureSettings, 'budget' | 'repairer'>;
+
+/** What the parts come to: Fix on failure with its repairer, Push from CI's credentials, and the comment. */
+function partsOf(s: WorkflowSettings): { fix: Fix | null; push: BucketCredentials | null; comment: boolean } {
+  return { fix: s.fix ? { ...s.fix, repairer: s.fix.repairer.trim() || 'anthropic' } : null, push: s.push ?? null, comment: s.comment !== false };
+}
+
+/** The action's `push` line, as Push from CI's credentials allow it. */
+const pushLines = (push: BucketCredentials | null): string[] => (push === 'oidc' ? ['    push: true'] : push === 'keys' ? [`    push: \${{ ${NOT_A_PULL_REQUEST} }}`] : []);
+
+/** The action's step to the end of its inputs, in the order docs/ci.md shows them. */
+function actionLines(s: WorkflowSettings, fix: Fix | null, push: BucketCredentials | null, comment: boolean): string[] {
+  return [
     `- uses: ${ACTION}`,
     '  id: goldens',
     '  with:',
     `    version: ${VERSION}`,
     `    recordings: ${scalar(s.recordings ?? 'goldens/*')}`,
+    ...(comment ? [] : ['    comment: false']),
     ...(s.alerts ? ['    fail-on-divergence: false'] : []),
     ...inconclusiveLine(s.inconclusive),
     ...(fix ? ['    fix-on-failure: true', `    fix-budget: ${dollars(fix.budget)}`, `    repairer: ${scalar(fix.repairer)}`] : []),
-    ...(push === 'oidc' ? ['    push: true'] : push === 'keys' ? [`    push: \${{ ${NOT_A_PULL_REQUEST} }}`] : []),
-  );
-  const r2 = push === 'keys' ? R2_KEYS.map((k) => `${k}: \${{ ${NOT_A_PULL_REQUEST} && secrets.${k} || '' }}`) : [];
+    ...pushLines(push),
+  ];
+}
+
+/** The action's env: with a fix, the repairer's key and every golden's; else those of the goldens that run live. R2's keys either way. */
+function actionEnv(s: WorkflowSettings, fix: Fix | null, push: BucketCredentials | null): string[] {
+  const r2 = push === 'keys' ? R2_KEYS.map((k) => `    ${k}: \${{ ${NOT_A_PULL_REQUEST} && secrets.${k} || '' }}`) : [];
   if (fix) {
     const key = repairerKey(fix.repairer);
     const known = (s.keys ?? []).length > 0 && !s.keysUnknown;
     const agentKeys = (s.keys ?? []).filter((k, i, all) => k !== key && all.indexOf(k) === i);
-    lines.push('  env:', keyLine(key), ...r2.map((l) => `    ${l}`), ...agentKeys.map(keyLine), ...(known ? [] : [`    ${AGENT_KEYS_COMMENT}`]), ...(s.unreadable ? [`    ${FIX_UNREADABLE_COMMENT}`] : []));
-  } else {
-    const keys = [...new Set(s.liveKeys ?? [])];
-    const notes = [...(s.liveKeysUnknown ? [`# ${keys.length ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`] : []), ...(s.unreadable ? [ALERTS_UNREADABLE_COMMENT] : [])];
-    if (r2.length) lines.push('  env:', ...r2.map((l) => `    ${l}`), ...keys.map(keyLine), ...notes.map((n) => `    ${n}`));
-    else lines.push(...envLines(keys, notes));
+    return ['  env:', keyLine(key), ...r2, ...agentKeys.map(keyLine), ...(known ? [] : [`    ${AGENT_KEYS_COMMENT}`]), ...(s.unreadable ? [`    ${FIX_UNREADABLE_COMMENT}`] : [])];
   }
-  if (s.alerts) {
-    const failed = "steps.goldens.outputs.failed != '0'";
-    const cond = failed + (s.alerts.onlyMain ? ` && github.ref == 'refs/heads/${s.alerts.branch ?? 'main'}'` : '');
-    lines.push(
-      '',
-      '- name: Tell Slack',
-      `  if: ${cond}`,
-      '  uses: slackapi/slack-github-action@v4',
-      '  with:',
-      `    webhook: \${{ secrets.${alertsSecret(s.alerts.secret)} }}`,
-      '    webhook-type: incoming-webhook',
-      '    payload: |',
-      `      text: "${ALERT_TEXT}"`,
-      '',
-      '- name: Fail the job',
-      `  if: ${failed}`,
-      '  run: exit 1',
-    );
-  }
-  return lines.join('\n');
+  const keys = [...new Set(s.liveKeys ?? [])];
+  const notes = [...(s.liveKeysUnknown ? [liveKeysComment(keys.length > 0)] : []), ...(s.unreadable ? [ALERTS_UNREADABLE_COMMENT] : [])];
+  return r2.length ? ['  env:', ...r2, ...keys.map(keyLine), ...notes.map((n) => `    ${n}`)] : envLines(keys, notes);
+}
+
+/** Under the env, while a golden that runs live calls a provider whose key isn't named. */
+const liveKeysComment = (named: boolean) => `# ${named ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`;
+
+/** Alerts' two steps after the action: Tell Slack, then Fail the job. */
+function slackLines(alerts: NonNullable<WorkflowSettings['alerts']>): string[] {
+  const failed = "steps.goldens.outputs.failed != '0'";
+  const cond = failed + (alerts.onlyMain ? ` && github.ref == 'refs/heads/${alerts.branch ?? 'main'}'` : '');
+  return [
+    '',
+    '- name: Tell Slack',
+    `  if: ${cond}`,
+    '  uses: slackapi/slack-github-action@v4',
+    '  with:',
+    `    webhook: \${{ secrets.${alertsSecret(alerts.secret)} }}`,
+    '    webhook-type: incoming-webhook',
+    '    payload: |',
+    `      text: "${ALERT_TEXT}"`,
+    '',
+    '- name: Fail the job',
+    `  if: ${failed}`,
+    '  run: exit 1',
+  ];
+}
+
+/**
+ * The job's steps at column 0: the checkout, Node, the agent's build, Claude Code for its repairer,
+ * the bucket's credentials (the two `if:` steps given, else the comment that stands in their place),
+ * the action, then Slack's steps.
+ */
+function stepLines(s: WorkflowSettings, credentials: string | null): string[] {
+  const { fix, push, comment } = partsOf(s);
+  const lines = [...(fix ? CHECKOUT_BRANCH : CHECKOUT), ...SETUP_NODE, INSTALL];
+  if (fix && claudeCode(fix.repairer)) lines.push(CLAUDE_CODE_STEP);
+  if (push === 'oidc') lines.push(...(credentials ? credentials.split('\n') : [BUCKET_COMMENT.oidc]));
+  lines.push(...actionLines(s, fix, push, comment), ...actionEnv(s, fix, push), ...(s.alerts ? slackLines(s.alerts) : []));
+  return lines;
+}
+
+export function workflowYaml(s: WorkflowSettings): string {
+  const { fix, push, comment } = partsOf(s);
+  return [permissionsLine(!!fix, push, comment), ...(fix ? [DISPATCH_COMMENT] : []), ...(push === 'keys' ? [BUCKET_COMMENT.keys] : []), ...stepLines(s, null)].join('\n');
+}
+
+/** The workflow's name, as Settings → CI writes the file. */
+const WORKFLOW_NAME = 'agent';
+
+export interface WorkflowFileSettings extends WorkflowSettings {
+  /** The repository's default branch, which the push trigger names: `main` when left out. */
+  branch?: string;
+  /** Short-lived bucket credentials' two `if:` steps at column 0, as `shadowlap store ci` gives them (ciStep's `credentials`). */
+  credentials?: string | null;
+}
+
+/**
+ * Your workflow as a whole file, as Write file puts it in the repository: its name, the triggers
+ * (pushes to the default branch, pull requests, and `workflow_dispatch:` for a fix's pull request's
+ * checks), the permissions the parts turned on need, then one job of workflowYaml's steps, with
+ * the bucket's sign-in steps in their place when Push from CI is on. It ends with a newline.
+ */
+export function workflowFile(s: WorkflowFileSettings): string {
+  const { fix, push, comment } = partsOf(s);
+  const head = ['name: ' + WORKFLOW_NAME, 'on:', '  push:', `    branches: [${scalar(s.branch ?? 'main')}]`, '  pull_request:', ...(fix ? ['  workflow_dispatch:'] : [])];
+  const permissions = ['permissions:', ...permissionNames(!!fix, push, comment).map((p) => `  ${p}`), ...(push === 'keys' ? [`  ${BUCKET_COMMENT.keys}`] : [])];
+  const job = ['jobs:', '  goldens:', '    runs-on: ubuntu-latest', '    steps:', ...stepLines(s, s.credentials ?? null).map((l) => (l ? `      ${l}` : ''))];
+  return [...head, '', ...permissions, '', ...job].join('\n') + '\n';
+}
+
+/**
+ * Every comment line the steps can carry, trimmed, so a patch of a workflow takes out those the
+ * switches no longer write: under the env, or under its commented-out `# env:`, and Push from CI's.
+ */
+export function generatedComments(): Set<string> {
+  const notes = [AGENT_KEYS_COMMENT, FIX_UNREADABLE_COMMENT, ALERTS_UNREADABLE_COMMENT, liveKeysComment(true), liveKeysComment(false)];
+  return new Set([...notes, '# env:', ...notes.map((n) => `#   ${n.replace(/^# /, '')}`), BUCKET_COMMENT.oidc, BUCKET_COMMENT.keys]);
 }
 
 /**

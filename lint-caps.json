@@ -152,9 +152,6 @@
     "packages/dashboard/src/ci-workflows.ts": {
       "ciWorkflows": 34
     },
-    "packages/dashboard/src/ci-yaml.ts": {
-      "workflowYaml": 31
-    },
     "packages/dashboard/src/fix-blame-step.ts": {
       "blameStep": 40
     },
