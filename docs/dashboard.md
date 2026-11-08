@@ -1720,7 +1720,7 @@ Under the patch, the dialog asks a name for each golden it copies: *The golden f
 
 For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too. A prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call.
 
-- The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`.
+- The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`. Where the last replay of one diverged on a value that changes every run, its dialog leads with **Add normalizer and update**, as Tests' does, with **Update anyway** beside it.
 - When none does, the drawer ends on **Open goldens in Tests**, where the goldens it copied are.
 - An applied fix whose goldens failed its test holds again once a test session passes every one of them.
 
