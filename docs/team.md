@@ -38,13 +38,14 @@ In the dashboard each step shows its command:
 |---|---|
 | **Connect your bucket** | picks the cloud, checks the bucket and folder against its scheme, says whose credentials this machine would use, and shows the access to ask for |
 | **Push your runs** | runs `push --all` |
-| **Push from CI** | shows the step for GitHub Actions, GitLab CI or any other CI, written for your cloud |
+| **Push from CI** | turns Push from CI on for GitHub Actions, or shows the step for GitLab CI or any other CI, written for your cloud |
 | **Bring your team** | shows the line to commit; **Finish** ends the setup |
 
 - **Connect your bucket** picks Amazon S3, Google Cloud, Azure Blob or Cloudflare R2. The access to ask your cloud admin for is what `store policy` prints, with Copy, and **Check access and connect** runs `store set --check`.
-- **Push from CI on GitHub Actions.** The job that runs your goldens is [your workflow](./ci.md#one-job-for-all-of-it) on Settings → CI, whose step pushes while Push from CI is on. So the setup gives only the steps that give it the bucket's credentials (for R2, the keys to add as secrets) and **Open your workflow**, rather than a second job that runs the goldens again.
-- **What to copy.** `store ci --provider github` prints those steps in a job of its own, so the page says to copy only the two. For R2 there are none to copy, and the step shows no command.
+- **Push from CI on GitHub Actions.** The job that runs your goldens is [your workflow](./ci.md#one-job-for-all-of-it) on Settings → CI, whose step pushes while Push from CI is on. Its **Write file** adds the steps that give it the bucket's credentials (for R2, you add the keys as secrets). So the setup asks **Turn on Push from CI** or `Skip for now`, with no second job that runs the goldens again.
+- **What to copy.** On GitLab CI or any other CI, the step to paste, with **Copy**. On GitHub Actions there is none: `store ci --provider github` prints the sign-in steps in a job of its own, and Write file takes only the two. For R2 there are none.
 - **After the CI step**, pick **I added it**, or `Skip for now`. Settings → Store's **Copy CI step** keeps it, for the CI you picked.
+- **What the step writes.** Each choice writes Push from CI to `shadowlap.config.json`, as Settings → Store's switch does: **Turn on Push from CI** and **I added it** turn it on, and `Skip for now` turns it off.
 
 Until **Finish**, the store works already, and the dashboard leads back to the setup:
 
@@ -345,7 +346,7 @@ CI needs its own access to the bucket. `shadowlap store ci --provider github|git
 
 With the GitHub Action, `push: true` does this. It also sends each fix its [fix on failure](./ci.md#fix-on-failure) opens a pull request for, verified, with every run the job made, so a teammate's pull brings it to their Fixes page as *from CI · PR #138*.
 
-- **CI fixes are part of pushing from CI.** While Push from CI is on, the step of [your workflow](./ci.md#one-job-for-all-of-it) the dashboard's Settings → CI writes pushes, with a fix pull request or without. It says the job needs the bucket's credentials: the two credentials steps `store ci` prints, or for R2 its keys, which only your branches' jobs get.
+- **CI fixes are part of pushing from CI.** While Push from CI is on, the step of [your workflow](./ci.md#one-job-for-all-of-it) the dashboard's Settings → CI writes pushes, with a fix pull request or without. It says the job needs the bucket's credentials: the two credentials steps `store ci` prints, which its **Write file** adds, or for R2 its keys, which only your branches' jobs get.
 - **While it is off**, the step doesn't push, and the action keeps the fixes it opens in the job.
 - **A fix that can't go** (no credentials, the store out of reach) is a warning in the job summary and the log, with why. It never keeps the fix's pull request from opening, and the job's result is the tests'.
 - **A pull request's own job** keeps to its folder and sends no fixes, and with R2 it pushes nothing.
