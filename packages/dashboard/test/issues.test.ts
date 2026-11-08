@@ -72,7 +72,7 @@ afterAll(() => store.close());
 describe('the issue a failed run belongs to', () => {
   it('joins a fix by its failing runs, or by what failed without its amounts or call numbers, its captures counted from production', () => {
     const a = issueOf(read(), issueKey.fix(FIX_A));
-    expect(a).toMatchObject({ kind: 'fix', title: 'Refunds above the limit issued without approval', count: 3, production: 1, fix: { fixId: FIX_A, rung: 'open', broken: false } });
+    expect(a).toMatchObject({ kind: 'fix', title: 'Refunds above the limit issued without approval', count: 3, production: 1, fix: { fixId: FIX_A, rung: 'open', broken: null, status: 'open' } });
     expect(runsOf(a)).toEqual([id.a2, id.a3, id.a1]);
     expect(a.failed).toBe(LIMIT(180));
   });

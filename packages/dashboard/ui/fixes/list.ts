@@ -51,12 +51,7 @@ export const unblamedShows = (chip: FixChip): boolean => chip === 'all' || chip 
 
 // ---------------------------------------------------------------------------------------------- a row
 
-/** A fix's place on the ladder, as a dot and a word: open and blamed muted, verified, applied and merged lime, an applied fix that doesn't hold red. */
-export function rungStatus(f: Pick<FixesViewRow, 'rung' | 'pr' | 'broken' | 'status'>): { tone: 'mu' | 'ok' | 'err'; text: string } {
-  if (f.status === 'applied' && f.broken) return { tone: 'err', text: 'broken' };
-  if (f.rung === 'open' || f.rung === 'blamed') return { tone: 'mu', text: f.rung };
-  return { tone: 'ok', text: f.rung === 'merged' && f.pr?.number != null ? `merged · PR #${f.pr.number}` : f.rung };
-}
+export { rungStatus } from './rung-status.js';
 
 /** The `from CI` chip's card: what Fix on failure did in CI, and where its pull request stands. */
 export function ciCard(f: Pick<FixesViewRow, 'pr'>): string {

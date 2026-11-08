@@ -1,8 +1,8 @@
-import { blameStateWord, type FixRecords, goldenWords, isObject, lostWords, shownBlame, type Store, type StoredFix, type TestResult } from '@shadowlap/engine';
+import { blameStateWord, type FixRecords, type FixStatus, goldenWords, isObject, lostWords, shownBlame, type Store, type StoredFix, type TestResult } from '@shadowlap/engine';
 import { withExitCodes } from './exit-codes.js';
 import { blameCard, failedWords, NOT_BLAMED, plantedWords } from './failed-words.js';
 import { keptFixRecords } from './fix-records.js';
-import { brokenOf, type FixRung, isUnblamedFailure, prOf, rungOf } from './fix-shared.js';
+import { brokenOf, type FixPr, type FixRung, isUnblamedFailure, prOf, rungOf } from './fix-shared.js';
 import { issueKey } from './issue-keys.js';
 import { failureKey, fixesByFailure, goldenStep, listedStep, type NextStep, type NextStepWork, openFixStep, stepReads, type StepReads } from './next-step.js';
 import { answer, type ReadAnswer, type ReadTable } from './read-registry.js';
@@ -52,7 +52,8 @@ export interface Issue {
   /** Its newest runs, newest first, `ISSUE_RUNS` at most; `more` asks for the next. */
   runs: IssueRun[];
   more: string | null;
-  fix: { fixId: string; title: string; rung: FixRung; prNumber: number | null; broken: boolean } | null;
+  /** The fix's place on the ladder, as Fixes' row reads it (ui/fixes/list.ts `rungStatus`). */
+  fix: { fixId: string; title: string; rung: FixRung; pr: FixPr | null; broken: string | null; status: FixStatus } | null;
   /** Of its runs that joined it by what failed, those nobody has blamed (fix-shared.ts `isUnblamedFailure`). */
   notBlamed: number;
   /** What it leads with: a run's next step (`stepRun`'s), the golden's, or Open fix; null where the page draws a link (Open run, Open Tests). */
@@ -238,7 +239,7 @@ function restOf(line: string | null, did: string): string | null {
 }
 
 function fixOf(rec: FixRecords): NonNullable<Issue['fix']> {
-  return { fixId: rec.fix.fixId, title: rec.fix.title, rung: rungOf(rec), prNumber: prOf(rec)?.number ?? null, broken: brokenOf(rec) !== null };
+  return { fixId: rec.fix.fixId, title: rec.fix.title, rung: rungOf(rec), pr: prOf(rec), broken: brokenOf(rec), status: rec.fix.status };
 }
 
 function lostOf(rec: FixRecords): string | null {
