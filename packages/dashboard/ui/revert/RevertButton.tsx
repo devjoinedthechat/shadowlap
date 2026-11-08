@@ -12,6 +12,13 @@ import type { Price } from '../tests-estimates.js';
 import type { FoundCommit, NextStep } from '../types.js';
 
 /**
+ * What the page's lead says it reverts, so that Find breaking commit's drawer ends on the lead of its
+ * own answer only (bisect-footer.tsx): the golden, the commit, and when the answer was kept (none
+ * until the page has read it).
+ */
+const leadOf = (step: Extract<NextStep, { key: 'revert' }>, found: FoundCommit | null) => ({ 'data-next': 'revert', 'data-golden': step.golden, 'data-rev': step.rev, ...(found ? { 'data-at': String(found.at) } : {}) });
+
+/**
  * Revert, wherever a crash's named commit leads to it: lime where it leads (`lead`, which a list's ⌘K
  * presses by `data-next`), plain beside another step. It waits while any job uses the working tree,
  * and while a Tests job runs (`useJobWait`, as the palette's entry waits), and always opens its dialog
@@ -28,7 +35,7 @@ export function RevertButton({ step, found, estimate, runId, lead = false }: { s
   const card = stepCard(step);
   return (
     <>
-      <ActionButton className={lead ? 'btn lime' : 'btn'} why={wait} {...(lead ? { 'data-next': 'revert' } : {})} data-tip={tipCard(card.title, card.rows, card.sub, card.cmd, estimate ? tipEst(estimate, true) : card.est)} onClick={() => app.guard(() => setOpen(true))}>
+      <ActionButton className={lead ? 'btn lime' : 'btn'} why={wait} {...(lead ? leadOf(step, found) : {})} data-tip={tipCard(card.title, card.rows, card.sub, card.cmd, estimate ? tipEst(estimate, true) : card.est)} onClick={() => app.guard(() => setOpen(true))}>
         {ACTIONS.revert.label}
       </ActionButton>
       {open ? <RevertDialog step={step} found={found} estimate={estimate} runId={runId} onClose={() => setOpen(false)} /> : null}

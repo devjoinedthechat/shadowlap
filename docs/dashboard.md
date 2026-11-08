@@ -1752,7 +1752,7 @@ For several goldens that diverged on values that change every run, **Update gold
 - **A golden that never passed** offers the few commits before its failure as *not tested there*, and when it was tested at none, the field says *none tested yet*.
 - **Another commit** is a field under the list, for any other: what it holds is searched from, and picking from the list again clears it.
 - **Only commits this checkout has**, as on Runs and a run's page. A golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD.
-- **Its drawer ends on Revert** once it names a crash's commit and the page leads with **Revert**, pressing the page's own. Otherwise it ends on the CLI's link.
+- **Its drawer ends on Revert** once it names a crash's commit and the page leads with that golden's **Revert** of it, pressing the page's own. Otherwise it ends on the CLI's link.
 
 A job only names goldens the project has on disk.
 

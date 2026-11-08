@@ -10,6 +10,7 @@ import { jobFooter } from '../ui/job-actions.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import '../ui/revert/bisect-footer.js';
 import { ChangeBox } from '../ui/revert/ChangeBox.js';
+import { RevertButton } from '../ui/revert/RevertButton.js';
 import { RevertDialog } from '../ui/revert/RevertDialog.js';
 import { useRoute } from '../ui/router.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
@@ -121,33 +122,63 @@ describe('Tests, once a crash’s commit is named', () => {
 
 describe('Find breaking commit’s drawer', () => {
   const Footer = jobFooter(JOB_KINDS.bisect)!;
-  const job = (o: Partial<JobView>): JobView => ({ id: 'j1', args: ['bisect', GOLDEN], runId: null, opensRun: false, startedAt: T0, done: true, code: 0, newRunId: null, lines: [], total: 0, kind: 'bisect', endedAt: T0 + 9, result: { first: { rev: 'ccccccc' } }, ...o });
-  const drawer = (j: JobView, lead: boolean, onLead: () => void = () => undefined, plain = true) =>
-    createElement(
-      'div',
-      null,
-      createElement('main', { id: 'view' }, lead ? createElement('button', { type: 'button', className: 'btn lime', 'data-next': 'revert', id: 'lead', onClick: onLead }, 'Revert') : null),
-      createElement('div', { className: 'drawer' }, createElement('div', { className: 'jfoot' }, createElement('span', { className: 'jkind' }, createElement(Footer, { job: j, plain })), createElement('a', { className: 'btn', href: '#/tests' }, 'Open Tests'))),
+  /** A search's result, as the CLI's `result` event gives it: the golden searched, and the commit named by its short rev. */
+  const answer = (golden: string, short: string | null) => ({ outcome: short ? 'found' : 'passes-at-bad', target: { kind: 'golden', name: golden, runId: REC }, first: short ? { rev: short.padEnd(40, '0'), short } : null });
+  const job = (o: Partial<JobView>): JobView => ({ id: 'j1', args: ['bisect', GOLDEN], runId: null, opensRun: false, startedAt: T0, done: true, code: 0, newRunId: null, lines: [], total: 0, kind: 'bisect', endedAt: T0 + 9, result: answer(GOLDEN, 'ccccccc'), ...o });
+  const OTHER = 'goldens/payout';
+  const step = (golden: string, rev: string) => ({ ...REVERT, golden, rev, title: `Revert ${rev}`, command: `git revert --no-commit ${rev} && shadowlap test ${golden}` }) as Extract<NextStep, { key: 'revert' }>;
+  /** The drawer over a page that leads with Revert, as the page's own button draws it for the answer the page has read, or with nothing. */
+  const drawer = (j: JobView, lead: { step: Extract<NextStep, { key: 'revert' }>; found: FoundCommit | null } | null, plain = true) =>
+    served(
+      base(() => Promise.resolve(crashView(true))),
+      createElement(
+        'div',
+        null,
+        createElement('main', { id: 'view' }, lead ? createElement(RevertButton, { ...lead, estimate: undefined, runId: REC, lead: true }) : null),
+        createElement('div', { className: 'drawer' }, createElement('div', { className: 'jfoot' }, createElement('span', { className: 'jkind' }, createElement(Footer, { job: j, plain })), createElement('a', { className: 'btn', href: '#/tests' }, 'Open Tests'))),
+      ),
     );
 
-  it('ends on Revert, its way on, once the page leads with it, pressing the page’s own', async () => {
-    let pressed = 0;
-    r = await render(drawer(job({}), true, () => void pressed++));
+  it('ends on Revert, its way on, once the page leads with the Revert of the answer it gave, pressing the page’s own', async () => {
+    r = await render(drawer(job({}), { step: step(GOLDEN, 'ccccccc'), found: FOUND }));
     const way = r.one('.jkind button');
     expect([way.textContent, way.className]).toEqual(['Revert', 'btn']);
     expect(wayOnControl(r.document as unknown as ParentNode)).toBe(way);
     await r.click(way);
-    expect(pressed).toBe(1);
+    expect(r.one('.dialog h3').textContent).toBe('Revert ccccccc?');
   });
 
-  it('leaves the CLI’s link the way on where the search named no commit, is still running, or the page leads with something else', async () => {
-    for (const [j, lead] of [[job({ result: { first: null } }), true], [job({ done: false, code: null }), true], [job({}), false]] as const) {
-      r = await render(drawer(j, lead));
+  it('leaves the CLI’s link the way on where the search named no commit, is still running, searched a run, or the page leads with nothing', async () => {
+    const lead = { step: step(GOLDEN, 'ccccccc'), found: FOUND };
+    const run = job({ args: ['bisect', REC], result: { ...answer(GOLDEN, 'ccccccc'), target: { kind: 'run', name: '01M5JEQWA2', runId: REC } } });
+    for (const [j, shown] of [[job({ result: answer(GOLDEN, null) }), lead], [job({ done: false, code: null }), lead], [run, lead], [job({}), null]] as const) {
+      r = await render(drawer(j, shown));
       expect(r.all('.jkind button')).toHaveLength(0);
       expect(wayOnControl(r.document as unknown as ParentNode)?.textContent).toBe('Open Tests');
       await r.unmount();
       r = null;
     }
+  });
+
+  it('never ends on another golden’s Revert, nor on the lead of an answer the page read before the search', async () => {
+    // Another golden's commit leads the page: this search was of goldens/payout.
+    const leads: Array<[JobView, { step: Extract<NextStep, { key: 'revert' }>; found: FoundCommit }]> = [
+      [job({ args: ['bisect', OTHER], result: answer(OTHER, 'ddddddd') }), { step: step(GOLDEN, 'ccccccc'), found: FOUND }],
+      // The page still shows the answer before this one: another commit, then the same commit kept before the search started.
+      [job({ result: answer(GOLDEN, 'eeeeeee') }), { step: step(GOLDEN, 'ccccccc'), found: FOUND }],
+      [job({ startedAt: FOUND.at + 1, endedAt: FOUND.at + 9 }), { step: step(GOLDEN, 'ccccccc'), found: FOUND }],
+    ];
+    for (const [j, lead] of leads) {
+      r = await render(drawer(j, lead));
+      expect(r.all('#view [data-next="revert"]')).toHaveLength(1);
+      expect(r.all('.jkind button')).toHaveLength(0);
+      expect(wayOnControl(r.document as unknown as ParentNode)?.textContent).toBe('Open Tests');
+      await r.unmount();
+      r = null;
+    }
+    // The page's lead before its offers came, which names no answer yet: it waits for them.
+    r = await render(drawer(job({}), { step: step(GOLDEN, 'ccccccc'), found: null }));
+    expect(r.all('.jkind button')).toHaveLength(0);
   });
 });
 
