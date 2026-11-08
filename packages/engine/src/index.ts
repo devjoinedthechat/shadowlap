@@ -121,7 +121,8 @@ export { kindFacts, modelResolver, runLabel, type LabelledRun } from './run-labe
 // What the dashboard and the terminal UI both say of a run: why it failed, how an attempt came out,
 // what a fork did differently from its parent and how each ended, and the good/bad key.
 export { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, keptAttemptVerdict, lostRange, lostWords, type AttemptVerdict, type FailureReason } from './run-verdicts.js';
-export { compareFork, forkEnd, MAX_TOOL_CALLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite } from './fork-changes.js';
+export { compareFork, comparePair, forkEnd, MAX_TOOL_CALLS, PATH_ROWS, pairDecisions, pairEnding, pathRows, ROW_TEXT, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite, type PairChange, type PairComparison, type PairDecisions, type PairEnd, type PairEnding, type PairOptions, type PathCall, type PathDecision, type PathRow } from './fork-changes.js';
+export { pairVerdict, type PairVerdict, type PairVerdictInput, type PairVerdictWords } from './pair-verdict.js';
 export { markChange, markKey, MARKS, markToast, type RunMark } from './run-marks.js';
 // A request's body, read whole or not at all, for every server here; node:sqlite as every store opens it.
 export { BodyTooLarge, MODEL_BODY_LIMIT, readBody, type BodyLimits } from './body.js';
