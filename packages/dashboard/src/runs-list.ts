@@ -229,9 +229,16 @@ function filterWarming(f: ReturnType<typeof filterReads>): RunsPage['warming'] |
 
 /** Every run the filter matches, newest first, as the table lists them. */
 export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
+  return matchedRuns(store, filter).runs;
+}
+
+/** The runs the filter matches, newest first, with what the match waits for, as the table's read says it (`listRunsPage`): what Runs' issues group (issues.ts). */
+export function matchedRuns(store: Store, filter: RunFilter): { runs: IndexedRun[] } & Pick<RunsPage, 'warming' | 'indexing' | 'judgeAfter'> {
   const index = loadRunIndex(store);
   const all = withLiveness(store, index);
-  return all.filter(matcher(filter, filterReads(store, index, all, filter).reads).matches);
+  const f = filterReads(store, index, all, filter);
+  const warming = filterWarming(f);
+  return { runs: all.filter(matcher(filter, f.reads).matches), ...(warming ? { warming } : {}), ...(f.terms.indexing ? { indexing: f.terms.indexing } : {}), ...judgeAfterOf(f) };
 }
 
 /**
@@ -404,8 +411,9 @@ function judgeAfterOf(f: ReturnType<typeof filterReads>): Pick<RunsPage, 'judgeA
  * of 100,000 calls a store had never added up held the sidebar 9.4 s and Runs 10.6 s, and both
  * threads with them. What a recording's user asked is read within the same budget (`aboutsWithin`).
  */
-export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions & { known?: boolean } = {}): RunRow[] {
-  const { totals, later } = options.known ? callTotalsWithin(store, index, [...runs].sort((a, b) => b.startedAt - a.startedAt), { budget: ROW_CALLS_BUDGET }) : { totals: callTotals(store, index, runs), later: [] };
+export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions & { known?: boolean; totals?: false } = {}): RunRow[] {
+  // `totals: false`, for rows that draw no totals (Runs' issues): no call is read for them.
+  const { totals, later } = options.totals === false ? { totals: new Map<string, never>(), later: [] } : options.known ? callTotalsWithin(store, index, [...runs].sort((a, b) => b.startedAt - a.startedAt), { budget: ROW_CALLS_BUDGET }) : { totals: callTotals(store, index, runs), later: [] };
   const waiting = new Set(later.map((r) => r.runId));
   const abouts = options.known ? aboutsWithin(store, index, runs, { budget: ROW_CALLS_BUDGET, quick: waiting }) : aboutsOf(store, index, runs);
   const fixed = fixedByOf(store, index);
