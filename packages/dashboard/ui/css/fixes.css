@@ -59,35 +59,62 @@ table.probes tr.hot td { background: var(--sel); }
   .proposed { flex-direction: column; align-items: flex-start; gap: 4px; }
 }
 
-/* fixes: one row per failure, and each fix's blame, repair and verify steps */
-.pslist a { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 15px 18px; border-top: 1px solid var(--line); text-decoration: none; }
-.pslist a:first-child { border-top: 0; }
-.pslist a:hover { background: var(--hover); }
-.pslist .badge { justify-self: start; }
-.pslist .rt { font-weight: 500; }
-.pslist .rs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
-.pslist .rd { font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
-.psteps { display: flex; align-items: center; gap: 6px; font: 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
-.psteps span { display: inline-flex; align-items: center; gap: 6px; }
-.psteps span + span::before { content: ""; width: 14px; height: 1px; background: var(--line2); margin-right: 2px; }
-.psteps i { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
-.psteps .done { color: var(--dim); }
-/* a finished step is done, not a verdict: a filled grey dot */
-.psteps .done i { background: var(--dim); box-shadow: none; }
-.psteps .no { color: var(--err); }
-.psteps .no i { background: var(--err); box-shadow: none; }
-.psteps .warn { color: var(--cq-amber); }
-.psteps .warn i { background: var(--cq-amber); box-shadow: none; }
+/* Fixes: a row a failure, full width between hairlines (no card); what failed and what must hold in the UI face, then
+   blame, repair and verify each in a column of its own, so how far each fix got reads down the page, then its next step.
+   A row's hover tints it a little past its edges, never moves it. */
+.pslist { border-bottom: 1px solid var(--line); }
+.pslist .psh, .pslist .psrow { display: grid; grid-template-columns: minmax(0, 1fr) 128px 112px 136px 150px; column-gap: 20px; }
+.pslist .psh > :last-child { text-align: right; }
+.pslist .psh { padding: 0 0 8px; font: 500 var(--fs-caps) var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
+/* what failed and what must hold always on two lines, so every row reads the same way down the page */
+.pslist .fm { flex-direction: column; }
+.pslist .fm .fmu ~ .fmu::before { content: none; }
+/* a row is its title's link, spread over the row; its next step sits above it, at the row's end */
+.pslist .psrow { position: relative; align-items: baseline; padding: 14px 0 15px; border-top: 1px solid var(--line); }
+.pslist .psrow:hover { background: var(--hover); box-shadow: calc(-1 * var(--bleed)) 0 0 var(--hover), var(--bleed) 0 0 var(--hover); }
+/* the row in focus (j, k): picked ground past its edges, an ink edge on its left, under the pointer too */
+.pslist > .psrow.krow, .pslist > .psrow.krow:hover { background: var(--sel); box-shadow: calc(3px - var(--bleed)) 0 0 var(--sel), calc(-1 * var(--bleed)) 0 0 var(--ink), var(--bleed) 0 0 var(--sel); }
+.pslist .rt { font-weight: 500; color: var(--ink); text-decoration: none; }
+.pslist .rt::after { content: ""; position: absolute; inset: 0; }
+.pslist .psn { position: relative; z-index: 1; justify-self: end; margin: -6px 0; pointer-events: none; }
+.pslist .psn > .btn { pointer-events: auto; }
+.pslist .psn .go { font-size: var(--fs-small); color: var(--faint); white-space: nowrap; }
+.pslist .psrow:hover .psn .go { color: var(--ink); }
+.pslist .rs { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; margin-top: 4px; color: var(--faint); font-size: var(--fs-quiet); }
+/* the dot between two parts ends the first, so a wrapped line never starts on it */
+.pslist .rs > .nw:has(+ .nw)::after { content: " ·"; }
+/* a chip with a hover card of its own, a run's id with its about line, and the failing runs' link into Runs' Failed view,
+   sit above the row's link, as the next step does, so a card or an about line shows and a click goes where it says */
+.pslist .rs .chip[data-tip], .pslist .rs code.rnm[title], .pslist .rs a.dlink { position: relative; z-index: 1; }
+.pslist .rs .fxbad { color: var(--cq-red); }
+/* a step: a dot and its word, faint with a hollow dot until it ran; its name said to a screen reader, shown on a phone */
+.psk { font-size: var(--fs-quiet); color: var(--faint); min-width: 0; }
+.psk i { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: var(--r-dot); box-shadow: inset 0 0 0 1.5px var(--line2); vertical-align: 0; }
+.psk .psw { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* each step's outcome in its consequence colour: a step that ran ink with a filled muted dot, verify's passed lime
+   ("2 fixed · 1 kept"), a rejected verdict red, one that couldn't settle amber; a running one pulses */
+.psk.done { color: var(--ink); }
+.psk.done i { background: var(--dim); box-shadow: none; }
+.psk.done.s-verify { color: var(--cq-lime); }
+.psk.done.s-verify i { background: var(--cq-lime); }
+.psk.no { color: var(--cq-red); }
+.psk.no i { background: var(--cq-red); box-shadow: none; }
+.psk.warn { color: var(--cq-amber); }
+.psk.warn i { background: var(--cq-amber); box-shadow: none; }
+.psk.busy i { box-shadow: inset 0 0 0 1.5px var(--ink); animation: pulse 1.6s infinite; }
 
 /* What failed and what it must do, labelled: each label stays with its value, and the dot between
    them shows only while both share a line (the one wrapped to the next line starts past the clip). */
-.fm { display: flex; flex-wrap: wrap; column-gap: 18px; row-gap: 2px; overflow: hidden; color: var(--faint); font-size: 12.5px; }
+.fm { display: flex; flex-wrap: wrap; column-gap: 18px; row-gap: 2px; color: var(--faint); font-size: 12.5px; text-wrap: pretty; }
 .fm .fmu { position: relative; max-width: 100%; }
 .fm .fmu ~ .fmu::before { content: "·"; position: absolute; left: -11px; color: var(--faint); }
 .fm .fmsep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.fm code, .ph p .fm code { white-space: normal; overflow-wrap: anywhere; color: var(--dim); }
+/* the clip stops 4px out, so a control in the line keeps its whole box and the 4px around it that take taps; the dot
+   hangs 7px or more out and stays clipped */
+.fm { overflow: clip; overflow-clip-margin: 4px; }
+/* what failed and what must hold are sentences, in the UI face; only a value in them is data */
+.fm .fmv { white-space: normal; overflow-wrap: anywhere; color: var(--dim); }
 .pslist .fm { margin-top: 4px; }
-.pslist .fm code { font-size: 12px; }
 
 .stepper { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; border-bottom: 1px solid var(--line); }
 .stepper a { position: relative; display: block; padding: 4px 18px 16px 0; text-decoration: none; }
@@ -110,15 +137,32 @@ table.probes tr.hot td { background: var(--sel); }
 .vchips .vn { font: 12px var(--mono); color: var(--faint); }
 .vpick { margin-bottom: 14px; flex-wrap: wrap; max-width: 100%; }
 
+/* with less room than a fifth column needs, the next step goes under the three steps, so what failed keeps its width */
+@media (min-width: 1001px) and (max-width: 1420px) {
+  .pslist .psh, .pslist .psrow { grid-template-columns: minmax(0, 1fr) 128px 112px 136px; }
+  .pslist .psh > :last-child { display: none; }
+  .pslist .psrow { grid-template-rows: auto 1fr; }
+  .pslist .pst { grid-row: 1 / span 2; }
+  .pslist .psn { grid-column: 2 / -1; justify-self: start; align-self: start; margin: 10px 0 0; }
+}
+
 @media (max-width: 1280px) {
-  .pslist a { grid-template-columns: 84px minmax(0, 1fr) auto; row-gap: 10px; }
-  .pslist .psteps { grid-column: 2 / -1; grid-row: 2; }
+  .pslist .psh, .pslist .psrow { grid-template-columns: minmax(0, 1fr) 104px 114px 120px; column-gap: 16px; }
 }
 
 @media (max-width: 1000px) {
-  .pslist a { grid-template-columns: 76px minmax(0, 1fr); }
-  .pslist .psteps { grid-column: 2; flex-wrap: wrap; }
-  .pslist .rd { display: none; }
+  /* the steps go under what failed, three short columns, each named; Repair and Verify take a little more of the row than
+     Blame, so prompt change and 2 fixed · 1 kept keep one line at 360, and Blame keeps the 92px its inconclusive needs */
+  .pslist .psh { display: none; }
+  .pslist .psrow { grid-template-columns: minmax(92px, .9fr) minmax(0, 1.08fr) minmax(0, 1.02fr); column-gap: 12px; row-gap: 10px; }
+  .pslist .psh + .psrow { border-top: 0; }
+  .pslist .pst, .pslist .psn { grid-column: 1 / -1; }
+  .pslist .psn { justify-self: start; margin-top: 2px; }
+  .pslist .psn:has(.go) { display: none; }
+  .psk { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: baseline; }
+  .psk i { grid-row: 1; grid-column: 1; margin: 0; }
+  .psk .psw { position: static; width: auto; height: auto; overflow: visible; clip: auto; display: block; grid-column: 2; font-size: var(--fs-small); color: var(--faint); }
+  .psk > span { grid-column: 2; }
   .stepper { grid-template-columns: minmax(0, 1fr); }
   .stepper a, .stepper a + a { padding: 12px 0 12px 14px; border-left: 0; border-top: 1px solid var(--line); }
   .stepper a:first-child { border-top: 0; }
@@ -217,6 +261,7 @@ table.t td.fxwhere { color: var(--faint); }
   .callrow .hot .cn { box-shadow: 0 0 0 2px Canvas, 0 0 0 3.5px CanvasText; }
   .callrow .cn:focus-visible { outline-color: Highlight; }
   /* a step's dot keeps its colour, edged in the text colour; one not started is the edge alone */
-  .psteps i, .psteps .done i, .psteps .no i, .psteps .warn i, .stepper .k i, .stepper .done .k i, .stepper .no .k i, .stepper .warn .k i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .psk i, .psk.done i, .psk.no i, .psk.warn i, .stepper .k i, .stepper .done .k i, .stepper .no .k i, .stepper .warn .k i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .psk.busy i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText, inset 0 0 0 2.5px Highlight; }
   .stepper a[aria-current="step"]::after { background: CanvasText; }
 }

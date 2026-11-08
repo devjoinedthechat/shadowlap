@@ -228,7 +228,7 @@ function sameVerify(v: StoredVerdict, fallback: string): string {
  * incomplete, a repair's candidate, a fixed count with nothing stopped, or one whose fields can't
  * be checked (kept before its flags were, or with one of another shape).
  */
-function verifyMore(v: StoredVerdict): VerifyMore | null {
+export function verifyMore(v: StoredVerdict): VerifyMore | null {
   const r = v.report;
   if (v.verdict !== 'incomplete' || v.candidate !== null || v.repairId !== null) return null;
   const open = r.runs.filter((x) => x.verdict === 'open');

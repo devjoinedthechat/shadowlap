@@ -1,4 +1,5 @@
 import { isFailure, type Origin7 } from '../origins.js';
+import type { Kind } from './kinds.js';
 
 /**
  * The call a run's page opens on when its link names none, and the one `n` jumps to. No DOM here:
@@ -57,6 +58,8 @@ export interface OpenInput {
   live: boolean;
   calls: readonly OpenCall[];
   origins?: readonly Origin7[] | null;
+  /** While a long run's pages come, every call's kind (kinds.ts), as `origins` has every call's origin. */
+  kinds?: readonly Kind[] | null;
   /**
    * While a long run's pages come, how many calls it has: a recording's newest is its count, not
    * the last call read. Opened at the last read, a recording of 3,000 calls stayed on #500 as it grew.
@@ -72,19 +75,33 @@ function stepAt(calls: readonly OpenCall[], n: number | null | undefined): numbe
 }
 
 /**
+ * A run's first write and its last model call. While a long run's pages come, they are taken from
+ * every call's kind, so a write or a model call past the calls read is found as a failure is.
+ */
+function writeAndModel(calls: readonly OpenCall[], kinds: readonly Kind[] | null | undefined): { write: number | null; model: number | null } {
+  if (kinds && kinds.length > calls.length) {
+    const w = kinds.indexOf('k-write');
+    const m = kinds.lastIndexOf('k-model');
+    return { write: w < 0 ? null : w + 1, model: m < 0 ? null : m + 1 };
+  }
+  const write = calls.find((c) => c.kind === 'tool' && c.effect === 'write')?.callNo ?? null;
+  let model: number | null = null;
+  for (let k = calls.length - 1; k >= 0 && model === null; k--) if (calls[k]!.kind === 'api') model = calls[k]!.callNo;
+  return { write, model };
+}
+
+/**
  * Where a run opens, the most telling call first, as the design picks it: a recording at its newest
  * call; where blame found it lost; where it forked or diverged; the call its outcome names; its first
  * call that failed, whether or not the run failed for it; its first write; its last model call; else
- * its first call. Never a clock or random read, unless the run made only those. A long run's first
- * write and last model call are of the calls read so far: only its failures are known past them.
+ * its first call. Never a clock or random read, unless the run made only those. While a long run's
+ * pages come, its failures, its first write and its last model call are found past the calls read.
  */
 export function openingCall(i: OpenInput): number | null {
   if (i.live) return Math.max(i.total ?? 0, i.calls.at(-1)?.callNo ?? 0) || null;
   const named = stepAt(i.calls, i.lostAt) ?? stepAt(i.calls, i.forkAt) ?? stepAt(i.calls, i.outcomeAt);
   if (named !== null) return named;
-  const write = i.calls.find((c) => c.kind === 'tool' && c.effect === 'write')?.callNo ?? null;
-  let model: number | null = null;
-  for (let k = i.calls.length - 1; k >= 0 && model === null; k--) if (i.calls[k]!.kind === 'api') model = i.calls[k]!.callNo;
+  const { write, model } = writeAndModel(i.calls, i.kinds);
   return firstFailedCall(i.calls, i.origins ?? null) ?? write ?? model ?? firstStep(i.calls);
 }
 

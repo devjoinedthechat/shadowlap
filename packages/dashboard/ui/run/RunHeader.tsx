@@ -15,7 +15,6 @@ import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { isFailed, runType } from '../runs.js';
 import { labelSuggestions } from '../runspage/bulk.js';
-import { DeleteRunDialog } from './RunDialogs.js';
 import { pendingRunOf, useDeleteRun } from './delete-run.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
@@ -30,6 +29,11 @@ import { canPush, pushTitle } from './share.js';
 import { ShareMenu } from './ShareMenu.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
+import { fitWork } from './fit-work.js';
+import { onShow } from '../components/OnShow.js';
+
+/** Delete run's dialog, which a run's page rarely opens: a part of its own, with Find breaking commit's (OnShow.tsx). */
+const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.DeleteRunDialog));
 
 /**
  * The run's header, as every page's: what kind of run it is, muted, over its id (decision 10: the id
@@ -112,7 +116,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const about = run.about ?? null;
   const ownAbout = !!about?.text && about.text.toLowerCase() !== kind.toLowerCase();
   const head = useRef<HTMLElement>(null);
-  useFitAbouts(head, fitHead);
+  // Once it is fitted, the calls list under it keeps to the room it leaves (fit-work.ts).
+  useFitAbouts(head, fitHead, fitWorkUnder);
   useMetaCard(head);
   // Push: a run only on this machine goes to the team store the config names.
   const pushable = canPush({ exported, live, team: offers?.team, hasPush: hasKind(JOB_KINDS.push) });
@@ -261,6 +266,9 @@ function MoreMenu({ run, offers, live }: { run: RunDetail; offers: RunOffers | n
     </>
   );
 }
+
+/** The run page's calls list, fitted to the room the header leaves it. */
+const fitWorkUnder = (head: HTMLElement) => fitWork(head.closest<HTMLElement>('.rv'));
 
 /**
  * A button's card, which says its key; none where it is off with no words for why (`idle`, no call

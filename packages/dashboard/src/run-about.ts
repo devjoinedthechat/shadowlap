@@ -106,6 +106,17 @@ export function aboutsOf(store: Store, index: RunIndex, runs: readonly IndexedRu
 }
 
 /**
+ * The most calls the Overview's request reads to work out what isn't known yet (`overviewKnown`,
+ * `OverviewOptions.budget`): a short run that just ended is added up in it, a long one by the
+ * warm-up. The Fixes page reads its unblamed row's about line within it too.
+ */
+export const SUMMARY_CALLS_BUDGET = 5000;
+
+/** About lines, worked out whole, or within a request's budget (`aboutsWithin`), as the Overview and the Fixes page read them. */
+export const aboutsUpTo = (store: Store, index: RunIndex, runs: readonly IndexedRun[], budget: number | undefined): Map<string, RunAbout> =>
+  budget === undefined ? aboutsOf(store, index, runs) : aboutsWithin(store, index, runs, { budget });
+
+/**
  * The about lines of these runs as far as they are known, reading no request: what a recording's
  * user asked comes with the run index (`run_asks`) or from memory. The run list's filter matches
  * them on every request, so it never works out what thousands of recordings' users asked while a

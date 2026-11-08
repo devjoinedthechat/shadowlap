@@ -81,6 +81,9 @@ export function blameNextPrice(kind: 'again' | 'stronger', e: FixEstimates | nul
   return (kind === 'again' ? e?.blameAgain : e?.blameStronger) ?? null;
 }
 
+/** Run repair's sentence: whom it asks for rewrites, the repairer the config names or, with none, your own Claude Code. */
+export const repairSub = (repairer: string | null): string => `Asks ${repairer ?? 'your own Claude Code'} for rewrites; each is tried in a worktree of its own`;
+
 /**
  * Run repair's card: whom it asks for rewrites, or why it would end with no fix to try (`aside`), its
  * command, and what it bills, asking first on every setting, for what it does. Apply fix bills nothing
@@ -88,9 +91,8 @@ export function blameNextPrice(kind: 'again' | 'stronger', e: FixEstimates | nul
  */
 export function repairCard(f: Pick<FixDetail, 'actions' | 'repairer'>, kind: string, aside: string | null, e: FixEstimates | null | undefined): { tip?: string; sub?: string; command?: string; est?: TipEst | null } {
   if (kind !== 'repair') return {};
-  const who = f.repairer.configured ? f.repairer.name : 'your own Claude Code';
   const command = f.actions.repair?.command;
-  return { tip: ACTIONS.runRepair.label, sub: aside ?? `Asks ${who} for rewrites; each is tried in a worktree of its own`, ...(command ? { command: `$ ${command}` } : {}), est: tipEst(e === undefined ? undefined : (e?.repair ?? null)) };
+  return { tip: ACTIONS.runRepair.label, sub: aside ?? repairSub(f.repairer.configured ? f.repairer.name : null), ...(command ? { command: `$ ${command}` } : {}), est: tipEst(e === undefined ? undefined : (e?.repair ?? null)) };
 }
 
 /** A Verify step's Run more attempts or Verify again, as the fix's estimates price it: none for a step they don't price. */

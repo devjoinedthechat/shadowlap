@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
-import { contrast, dash, demoId, focusedLabel, openPage, seriousViolations, tabUntil } from './dashboard.js';
+import { contrast, dash, demoId, focusedLabel, openPage, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
 import { routeTestsFixture } from './tests-fixture.js';
 
 /**
@@ -255,17 +255,7 @@ test('on a phone, the sidebar hands the focus back to the menu button when Esc c
 });
 
 test('every link the server writes opens a page the dashboard has', async ({ request }) => {
-  const { origin, token } = dash();
-  const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
-  const fix = demoId('refundFix');
-  const answers = await Promise.all(['summary?tz=UTC', 'activity?limit=200', 'fixes', `fixes/${fix}`, `fixes/${fix}/groups`, 'training', 'tests', `runs/${demoId('override')}/differences`, 'setup', 'projects', 'decisions', `runs/${demoId('refundBug')}/decisions`].map(get));
-  const links = new Set<string>();
-  const walk = (v: unknown) => {
-    if (typeof v === 'string' && v.startsWith('#/')) links.add(v);
-    else if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
-  };
-  answers.forEach(walk);
+  const links = await serverLinks(request);
   expect(links.size).toBeGreaterThan(20);
   for (const link of links) {
     const route = parseRoute(link);
@@ -352,8 +342,10 @@ test('a run’s calls sit under the call they belong to, each fold mark announce
   await expect(fold).toHaveAttribute('aria-expanded', 'false');
   expect(await page.locator('main#view table.calls tbody tr[data-wi]').count()).toBeLessThan(rows);
   expect(await seriousViolations(page)).toEqual([]);
-  await page.locator('main#view .toolbar button', { hasText: 'Unfold all' }).click();
+  // Opened again with its own fold mark: there is no Fold all or Unfold all.
+  await fold.click();
   await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  expect(await page.locator('main#view').getByRole('button', { name: /^(Un)?[Ff]old all$/ }).count()).toBe(0);
 });
 
 test('what a run did that Shadowlap did not record is among its findings, with no serious axe violation', async ({ page }) => {

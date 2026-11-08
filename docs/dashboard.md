@@ -206,7 +206,7 @@ Every run of the week is a row of calls colored by origin. The rows are grouped 
 | Failures with no fix yet: open fixes | **Fix it**, or **Open** and where to look |
 | Failures with no fix yet: failed runs never blamed | **Run blame**, or **Open** where its page leads with another step |
 | A [preview of a change](./decisions.md) whose flagged runs no session of that change has settled since (amber) | Opens the first at the call whose decision changed |
-| Verified fixes waiting to be applied | **Mark applied** for one that has no patch, as its page has it |
+| Verified fixes waiting to be applied, but not one whose pull request merged | **Mark applied** for one that has no patch, as its page has it |
 | How many behaviours seen in production no golden [covers](./coverage.md) | Opens a run of the newest |
 | With a [team store](./team.md), how many runs are only on this machine | **Push** opens Runs with **Local** picked |
 
@@ -392,7 +392,7 @@ The job runs [`shadowlap import`](./cli.md#import) under the name of the file yo
 
 ## A run's page
 
-A run's page shows one run: its header and findings, a strip of its calls, views of the run beside an inspector for the selected call, and its labels and notes. What you can do from it is under [Actions](#actions).
+A run's page shows one run: its header and findings, a strip of its calls whose key filters them, views of the run beside an inspector for the selected call, and its labels and notes. What you can do from it is under [Actions](#actions).
 
 ### The header
 
@@ -538,7 +538,9 @@ An id that may be a real change leads with neither: only you can tell, so **Find
 
 Sometimes the rule alone can't make the replay match: the request carries a field the recording never had, as a per-run id added since. The button then reads **Add normalizer and update**, and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule. Once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes.
 
-**Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its finding names as made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the finding offers one.
+**Show diff** opens in the inspector's place, beside the calls, so the list keeps its place. Under *Diff at #n* it shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its finding names as made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the finding offers one.
+
+**Hide diff**, a call picked, a key from `1` to `4` or Esc gives the inspector back.
 
 ### How a run stands
 
@@ -625,9 +627,18 @@ What Shadowlap did not record is a finding in the bar, under **N findings** when
 
 ### The origin strip
 
-The origin strip has one cell per call, colored by what happened to it. The legend lists those present. The fork is flagged in ink, and the call blame named in red.
+The strip has one cell per call. A recording's cells say what each call was, every other run's where its answer came from. The fork is flagged *fork* in ink, and the call blame named *lost* in red.
 
-Each origin has a color of its own:
+A recording's or a capture's cells are drawn by kind, after a word that says every call ran live:
+
+| Kind | Drawn as |
+| --- | --- |
+| Model call | Off-white, as live |
+| Read | Off-white at 40%: a read tool, a clock or random value, a person's input |
+| Write | Teal |
+| Error | Red: a model call answered with an error, or a tool that threw |
+
+A call the fence answered after a fork is named by what it would have done, never by its error. Every other run's cells are drawn by origin, each in a color of its own:
 
 | Origin | Drawn as |
 | --- | --- |
@@ -641,9 +652,14 @@ Each origin has a color of its own:
 
 Each color means one thing across the dashboard. Lime is the primary action and what passed, amber what needs a look or is inconclusive, and red what failed. Where you are, a link and a fork are drawn in ink.
 
-- **Click a cell** to open that call.
-- **From the keyboard**, the strip is one stop for Tab: ← and → (Home and End) move between its cells, and Enter opens the call.
-- **In a run of more than 360 calls**, each cell covers a range of calls and takes the color of its rarest origin, so a single blocked write still shows. Hovering it counts the range.
+- **Click a cell** to open that call. Its name says the call, its kind and its origin: *#18 issue_refund · write · live*.
+- **From the keyboard**, the strip is one stop for Tab, a list whose ← and → open the call before or after at once, Home and End the first and the last. Where the strip groups its calls, the keys go a range at a time, each to the range's most notable call.
+- **Where a cell would be narrower than 6 px** (24 px on a touch screen), each cell covers a range of calls, in the color of most of them. Hovering a range counts it.
+- **A notch** marks a range's rarer notable call: an error, a write, or what a fork changed or fenced. So 13 errors in 1,200 calls read as 13 marks.
+
+The strip's key is the call filter: *all*, then each kind or origin the run has, its swatch and its count (*all 30*, *model calls 14*, *writes 3*, *replayed 16*). Picking one shows only those calls in Calls, switching to it from another view, and dims the other cells. The pick is kept from run to run where the next run has it.
+
+**Filter calls** (`/`) at the strip's end filters by text, and typing shows Calls too. Esc leaves the field with its words kept.
 
 ### Scopes
 
@@ -664,6 +680,17 @@ Beside the inspector, six views show the run, and `v` goes through them all:
 | [Forks](#forks-view)           | The run's family: its recording, and every replay and fork of it      |
 | [Provenance](#provenance-view) | The run's record, its lineage, and what a copy would mask             |
 
+How they sit depends on the window's width:
+
+| Width | Calls and the inspector |
+| --- | --- |
+| From 1,281 px | Side by side, the strip on one row |
+| 1,160 to 1,280 px | Side by side, the inspector at least 360 px, the key and the filter under the cells |
+| 1,001 to 1,159 px | The inspector under the calls, the list fitted so its head shows |
+| Up to 1,000 px | One column: the window scrolls, the cells stay at its top |
+
+From 1,160 px the views keep at least 420 px, or 240 px from 1,281 px while a job's log is open. The page scrolls under its strip when the window is shorter. From 1,001 to 1,159 px the list is fitted so the inspector's head shows under it, between 240 px and half the window, and the page scrolls to the inspector. A call picked in the list below 1,160 px brings the inspector into view under the strip.
+
 Every mark selects its call. The lists draw only the rows in view. So a run of 50,000 calls scrolls, steps with `j` and `k` and switches views as quickly as a short one. A run opened at a call (`#/run/<id>/600`) keeps that call in view while the rows above it are drawn and the rest of its calls come, until you scroll. While a long run is on its way, the page says *Loading the run…*.
 
 ### Calls view
@@ -680,7 +707,7 @@ Calls lists every call with its kind, name, origin, tokens and time. Each kind o
 
 A replayed call's time is its recorded duration, in grey, because the replay did not wait for it. A clock or random read records none, so its time is blank.
 
-Filter by origin or text: *Fenced* holds the writes blocked or stubbed after a fork. A filter lists what it matches flat. Each row has a fork button.
+The strip's key and **Filter calls** filter the list. A filter lists what it matches flat. Each row has a fork button.
 
 A call's origin shows in the strip's colors, with an injected or a failed call's swatch drawn as a ring. A tool call's effect shows beside its name: a write in teal.
 
@@ -691,7 +718,7 @@ Each call sits under the call it belongs to, the list still in the run's order:
 - **A sub-agent's calls** (a scope inside another, as `agent/policy-checker` in `agent`) sit under the model call whose tool started it.
 - **In a batch**, a run that works through several conversations one after another in one scope, each conversation sits under its first call, named beside it (*conversation 3 of 40*).
 
-A call with calls under it has a fold mark that hides them and shows them again; folded, it says how many it holds. **Fold all** folds every group, and once one is folded, **Unfold all** opens them again.
+A call with calls under it has a fold mark that hides them and shows them again; folded, it says how many it holds.
 
 - **←** folds the selected call's group, or goes to the call it sits under.
 - **→** opens it, or goes to its first call.
@@ -717,7 +744,7 @@ What the misses tell you:
 
 ### Timeline view
 
-Timeline shows every call on a clock, colored by origin, scope by scope, with the first token of streamed responses marked. It shows how long model calls and tools took, the longest call, and what ran at once.
+Timeline shows every call on a clock, scope by scope, colored by origin, or on a recording by what each call was, in the strip's key, with the first token of streamed responses marked. It shows how long model calls and tools took, the longest call, and what ran at once.
 
 ### Forks view
 
@@ -960,15 +987,21 @@ Fixes follows each failure from where it was lost to a fix that held.
 
 ### The list of fixes
 
-One row per fix shows:
+Fixes is a to-do list. The failing runs nobody has blamed come first, as one row with **Run blame** for the newest of them. Then each fix: open ones, then those ready to apply, then those applied. Among the open ones, a fix not blamed, or whose blame couldn't settle, comes before one blamed, and that before one changed.
 
-- **Its status**: open, verified or applied.
-- **Its title and label.**
-- **Where a fix from CI came from**, and how its pull request stands (*from CI · PR #138 merged*).
-- **How many runs failed**, what they did, and the check they must meet (*Failed: send_email called twice, not once · Must: send_email called once*).
-- **How far blame, repair and verify got.** A step that ran and needs a look is amber: a blame no call rescued (*not rescued*), one whose first probe couldn't tell (*inconclusive*) or that stopped part way (*stopped*), or a verify left *inconclusive*. Repair's result is a change (*prompt change*, *tool change*), or *no change yet*.
+Each fix's row shows:
 
-All, Open and Verified filter them.
+- **Its status**, one word on the ladder: *open*, *blamed*, *verified*, *applied* or *merged · PR #138*. An applied fix that doesn't hold says *broken*, and why.
+- **Its title and label**, and *from CI* for a fix CI opened, its card saying how its pull request stands.
+- **How many runs failed**, a link to Runs under Failed, and the day it was opened.
+- **What they did and the check they must meet**, on two lines (*Failed: send_email called twice, not once*, then *Must: send_email called once*).
+- **How far blame, repair and verify got**, a column each. A step that ran and needs a look is amber: a blame no call rescued (*not rescued*), one whose first probe couldn't tell (*inconclusive*) or that stopped part way (*stopped*), or a verify left *inconclusive*.
+- **What repair and verify came to.** Repair's result is a change (*prompt change*, *tool change*), *by hand* when verify checked a change no repair made, or *no change yet*. A verdict that passed is lime (*2 fixed · 1 kept*), one rejected red.
+- **Its next step**, the button its page leads with, which runs or asks from the row as it does there. A fix with none reads *Open →*.
+
+While a job of the fix runs, its step says so (*blaming…*, *repairing…*, *verifying…*), and a step that needs the working tree waits, saying why. The failing-runs count is the fix's own.
+
+All, Open, Ready to apply and Applied filter them. A merged fix is under Applied. A fix whose patch is in your working tree already is under Ready to apply, with Mark applied, though the Overview's figure leaves it out.
 
 - **The pull request** is read from GitHub with `gh pr view` in the background while the page is open, when `gh` is installed and signed in, as [`fix pr`](./cli.md#fix) does. It is read only for pull requests on github.com, the host `GH_HOST` names or the host of the project's `origin` remote, since a fix pulled from the team store can name any address. A read-only dashboard asks no one.
 - **What they did** is the title blame gave the fix when it opened it, so the row names it only once someone renames the fix.
@@ -997,7 +1030,7 @@ Where blame's report says more than its probes, so does the step:
 - the two it was lost gradually around, when the check of the call the probes pinned found no drop there (*lost gradually around #5 and #6*);
 - the error bound its confidence comes from, as `shadowlap blame` prints it (*<= 3% risk that the call is wrong: 3 probes decided, at <= 1% risk each*), and not for a blame whose passing attempts answered the call as the recording did.
 
-Needs a look and the activity feed say *lost gradually around #5 and #6* the same way, and the Fixes list says *lost gradually, #5–#6*, never that #5 lost it.
+Needs a look, the activity feed and the Fixes list say *lost gradually around #5 and #6* the same way, never that #5 lost it.
 
 A blame that rescued the run from no call shows the check and how the recording failed it, instead of the answers. It says why when it knows no answer of the model's lost the run: every attempt met the error a write got when it was recorded, or the attempts that passed answered as the recording did ([blame](./blame.md#the-rescue)).
 
@@ -1366,6 +1399,14 @@ Switching is for every tab at once: the dashboard serves one project at a time. 
 - **A dialog that was open** closes, since what it asked about (a folder to record in, a golden to update, runs to delete) is the other project's, and nothing is done in either. One that holds only what you typed (a rule to add, a server's command) stays, and says it adds to the current project instead.
 - **A first run's confirmation** names the project it was asked in, so it is never used up in another.
 
+### A link into another project
+
+A link to a run, a fix or a pair of runs that another project's store holds opens a page that says which: *In support-agent*, and *The run 01M64J32D4 is in support-agent’s store, not triage-bot’s.* **Switch to support-agent** switches to that project and opens the link there, at the same call, view, step or pair. The crumbs name only the section, and the tab's title names the project. A project with no runs shows this page in its setup's place.
+
+- **Read, never changed.** The other projects' stores are read beside the server. Nothing is created, migrated or written in them, no connection stays open, and removing a project waits for the read.
+- **Only the list.** The projects on the list are looked in, in its order. A project you removed, one whose folder is gone, a newer Shadowlap's store and a store in a folder you can't write to aren't, though the switcher lists that last one. The page then says the item isn't here.
+- **One store.** A dashboard that serves one store (`--read-only`, the terminal UI's) and an exported copy say only that it isn't here.
+
 ### The project list
 
 The dashboard keeps the list in `~/.shadowlap/projects.json`. `SHADOWLAP_HOME` moves the folder, with every other file Shadowlap keeps for this machine ([environment](./cli.md#environment)); give it as an absolute path.
@@ -1478,7 +1519,7 @@ The first time a command runs in a folder, the dashboard asks before running it.
 
 **Remove project…** takes the project off the list. Nothing on disk changes: the folder and its code, its store, `shadowlap.config.json` and the goldens stay. The list remembers how far its setup got and the commands you confirmed, so adding the folder again undoes it.
 
-**Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it), once you type the project's name. The dashboard closes every connection it has to the store before deleting it, and opens none again. The list forgets the project: added again, its setup starts afresh.
+**Also delete its recordings** deletes the store as well (`.shadowlap/shadowlap.db` and the files SQLite keeps beside it), once you type the project's name. The dashboard closes every connection it has to the store before deleting it, waiting for any read of it for a link from another project or for the switcher, and opens none again. The list forgets the project: added again, its setup starts afresh.
 
 - **It won't while a run is recording there**: a run whose process is still there, however long ago it started. One a killed process left marked running doesn't hold it up.
 - **It won't when the folder can't be written to.**
@@ -1831,7 +1872,7 @@ These keys work on any page:
 | ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label, a delete)           |
 | Esc               | Close what is open, then go up a level                                  |
 
-These keys work in a list: Runs, Changes' verdicts and a revision's goldens, Tests' goldens, and the sidebar's runs while one has the focus.
+These keys work in a list: Runs, Changes' verdicts and a revision's goldens, Fixes, Tests' goldens, and the sidebar's runs while one has the focus. On Fixes, ⌘K on a fix's row offers Open fix and each of its steps, as it does on a verify's row in Changes › Verdicts, and Esc back from a fix lands on its row.
 
 | Key          | What it does                                             |
 | ------------ | -------------------------------------------------------- |
@@ -1928,7 +1969,7 @@ One that can't start leaves the dialog open, with what you typed.
 - **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. Hiding a running job from inside its drawer hands the focus to the status bar's chip, and pressing the chip hands it back.
 - **The sidebar on a phone** takes the focus to its first item as it opens. Closing it from inside it, or with a click beside it, hands the focus to its button. A tap on the page or the status bar only closes it: what it lands on doesn't act. The top bar stays in reach, so its Search or jump to opens as the drawer closes.
 - **A link in a menu or a dialog** hands the focus to the page it opened, and so does Back with one open. A run picked in Compare leaves it on the picker.
-- **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls with no control in it (the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
+- **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls and may hold no control (Calls, the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
 - **What has a hover card and no action of its own** takes the focus where it stands on its own (a run's outcome, a fact), so what a hover shows is never only a hover's. In a row or a chart it doesn't, and a mark with no words of its own is named by its card.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
 - **A field's edge** reaches 3:1 on whatever it sits on, as WCAG 1.4.11 asks of a control.
@@ -1952,7 +1993,7 @@ The dashboard's limits, in one place:
 | Runs in one dataset                           | 500; past that, `shadowlap export dataset --label`                |
 | Runs packed in one job                        | 100                                                               |
 | A page of Runs, or of a run's calls           | 500 rows, or 500 calls                                            |
-| The origin strip                              | Past 360 calls, a cell covers a range                             |
+| The origin strip                              | Where a cell would be narrower than 6 px, a cell covers a range   |
 | The Context view                              | Past 360 model calls, a bar stands for a range                    |
 | A cache miss                                  | A cache read short by 1,024 tokens or more                        |
 | A fork's writes, one by one                   | Three, then grouped; **Show each** lists a hundred at most        |
@@ -2090,6 +2131,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
+- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's check, Find breaking commit… and Delete run. Each loads the first time it opens.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
@@ -2168,7 +2210,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs/:id/offers` | What the run's page offers |
 | `GET /api/search?q=`, `GET /api/compare?a=&b=[&part=head]` | Search recorded content; compare two runs |
 
-**A run** (`/api/runs/:id`) comes with the first page of its calls (500 at most), `callsTotal`, `callsNext` (where the next page starts, or `null`) and, while more are to come, `origins`: every call's origin, one character per call, as the run list encodes them.
+**A run** (`/api/runs/:id`) comes with the first page of its calls (500 at most), `callsTotal`, `callsNext` (where the next page starts, or `null`) and, while more are to come, `origins`: every call's origin, one character per call, as the run list encodes them. Beside it, `kinds` says what every call was, for a recording's strip: `m` a model call, `r` a read, `w` a write, `e` an error.
 
 - **A long run**: one that ended with 1,000 calls or more is answered from its first 200, and says `warming: { done, total }` while the whole run is analysed. Asked again, it says the same of the same calls.
 - **Its about line**: each run, in the list, on its own and in its family, carries its `about` line. That is its `text`, where it comes from (`from`: `user`, `agent`, `input`, `golden`, `change`, `nothing`, `source` or `command`), and for a replay or a fork its `change` (the flag, the call it changed and where it forked).
@@ -2238,7 +2280,8 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /api/fixes?status=`, `/api/fixes/:id`; `PUT /api/fixes/:id/title` | The fixes (all, open, verified or applied) with their counts; one fix, by its id or a prefix, with its three steps; its title |
+| `GET /api/fixes?status=` | The fixes (all, open, verified or applied) in to-do order, with each chip's count, the page's totals and the failing runs nobody has blamed |
+| `GET /api/fixes/:id`; `PUT /api/fixes/:id/title` | One fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
 | `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, and each Verify step's more attempts bill |
 | `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run |
@@ -2348,6 +2391,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | `GET /api/projects`; `POST /api/projects/:id/select` | The switcher: every project with its path, runs and setup; switch to one |
 | `GET /api/projects/folders?q=&pick=`; `POST /api/projects { path }` | Folder suggestions for a typed path, the picked one checked; add a folder and switch to it |
 | `GET /api/projects/:id/remove`; `POST /api/projects/:id/remove { deleteRecordings?, name? }` | What the Remove dialog shows; remove the project, deleting its store only when `name` matches |
+| `GET /api/projects/holding?what=&id=` | Which other project's store holds a run, fix, preview or migration this one doesn't: read-only, beside the server |
 | `GET /api/setup`; `POST /api/setup/record { command }`, `/golden { golden }`, `/finish` | The current project's setup; what recording a command runs and whether it asks first; where a golden would go; finish the setup |
 
 `/api/setup/record` and `/golden` change nothing.
@@ -2504,9 +2548,12 @@ Outside a dashboard job the variable is unset, and nothing is written.
 - on a toast with Undo, or the bar that says the dashboard can't be reached;
 - on a page, and a run's view, whose code couldn't be loaded;
 - on an exported copy's run, opened from a file;
+- on the page that says another project holds a run or a fix, at a laptop's and a phone's width;
 - on every page, Settings tab and fix step again, with a few runs and Import capture…, at a phone's width (390 px).
 
 It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page. A page whose code couldn't be loaded must draw once **Retry** loads it again. An exported copy, opened from a file, must draw its run's every view, its runs and Compare without loading a thing or logging an error.
+
+A second dashboard, started in the demo's triage-bot, checks [a link into another project](#a-link-into-another-project). Every run, fix and pair the server's links name is found in support-agent from there, and **Switch to support-agent** opens the run at the same call, its heading taking the focus.
 
 **A large store.** `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds a large store and times what a browser asks for on it; see [Large stores and long runs](#large-stores-and-long-runs).
 

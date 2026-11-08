@@ -36,14 +36,16 @@ export function FitHint({ text, short, className, mark }: { text: string; short?
  * Fits the about lines and hints inside `ref` after every render, again whenever its width changes
  * (the window, the sidebar becoming a drawer), and once the web fonts load, which can be wider than
  * the fallback the first fit measured. `before` runs first each time (Runs measures which of its
- * columns keep their room). An element the component draws only later (after loading) is watched
- * from when it is there.
+ * columns keep their room), `after` last (a run's calls list keeps to the room its header leaves).
+ * An element the component draws only later (after loading) is watched from when it is there.
  */
-export function useFitAbouts(ref: RefObject<HTMLElement | null>, before?: (scope: HTMLElement) => void): void {
+export function useFitAbouts(ref: RefObject<HTMLElement | null>, before?: (scope: HTMLElement) => void, after?: (scope: HTMLElement) => void): void {
   const first = useLatest(before);
+  const last = useLatest(after);
   const fit = (el: HTMLElement) => {
     first.current?.(el);
     fitAbouts(el);
+    last.current?.(el);
   };
   useLayoutEffect(() => {
     if (ref.current) fit(ref.current);

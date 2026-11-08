@@ -222,6 +222,14 @@ export function shellWords(line: string): string[] {
   return words;
 }
 
+/** A line kept to `max` characters: its first sentence where that fits, else cut after a whole word, with nothing dangling before the `…`. */
+export function cutClean(line: string, max: number): string {
+  const first = /^(.+?[.!?])(\s|$)/.exec(line)?.[1];
+  const s = first && first.length <= max ? first : line;
+  const cut = s.length > max ? `${s.slice(0, Math.max(1, s.slice(0, max + 1).lastIndexOf(' '))).replace(/[\s,;:·…–—-]+$/, '')}…` : s;
+  return cut.replace(/\.$/, '');
+}
+
 export function clip(s: string, max = 1500): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }

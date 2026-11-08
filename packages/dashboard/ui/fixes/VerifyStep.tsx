@@ -191,13 +191,13 @@ function Verdict({ v, fixId, estimate }: { v: VerifyStep; fixId: string; estimat
 }
 
 /** What Run more attempts or Verify again does, on its card and as its ask's lead. */
-const verifyTip = (more: NonNullable<VerifyStep['more']>): string => (more.kind === 'more' ? `Verifies the change again from the start, up to ${more.max} attempts a run` : 'Verifies the same runs again from the start, once the check can be judged');
+export const verifyTip = (more: Pick<NonNullable<VerifyStep['more']>, 'kind' | 'max'>): string => (more.kind === 'more' ? `Verifies the change again from the start, up to ${more.max} attempts a run` : 'Verifies the same runs again from the start, once the check can be judged');
 
 /** Run more attempts' lead: verify has no --continue, so the attempts so far start over. */
 const moreLead = (attempts: number): string => `Verifies the change again from the first attempt: the ${attempts.toLocaleString('en-US')} so far ${attempts === 1 ? 'doesn’t' : 'don’t'} carry over.`;
 
 /** Run more attempts' or Verify again's ask, above the threshold or with no estimate: what it runs, and its Cost line the estimate. */
-function VerifyAsk({ more, attempts, estimate, onRun, onClose }: { more: NonNullable<VerifyStep['more']>; attempts: number; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
+export function VerifyAsk({ more, attempts, estimate, onRun, onClose }: { more: Pick<NonNullable<VerifyStep['more']>, 'kind' | 'command'>; attempts: number; estimate: Estimate | null | undefined; onRun: () => boolean; onClose: () => void }) {
   const label = more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label;
   const lead = more.kind === 'more' ? moreLead(attempts) : 'Verifies the same runs again from the first attempt, once the judge answers.';
   return <ConfirmDialog title={label} lead={lead} doc="verify" command={more.command} cost={{ price: 'Billed by your provider', estimate }} footNote={<AskNote estimate={estimate} />} ok={label} onOk={onRun} onClose={onClose} />;

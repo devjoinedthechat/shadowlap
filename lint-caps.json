@@ -164,20 +164,14 @@
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
     },
-    "packages/dashboard/src/fix-list.ts": {
-      "stepsOf": 31
-    },
     "packages/dashboard/src/fix-verify-step.ts": {
       "verifyMore": 41
-    },
-    "packages/dashboard/src/fixes.ts": {
-      "fixDetail": 33
     },
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
     },
     "packages/dashboard/src/jobs.ts": {
-      "JobManager.start": 37
+      "JobManager.start": 35
     },
     "packages/dashboard/src/projects.ts": {
       "calibrateStep": 32,
@@ -219,13 +213,13 @@
       "normalizeRunDetail": 36
     },
     "packages/dashboard/ui/pages/Compare.tsx": {
-      "Comparison": 51
+      "Comparison": 46
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 48
+      "Workspace": 45
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
@@ -244,9 +238,6 @@
     },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31
-    },
-    "packages/dashboard/ui/run/parts.tsx": {
-      "DiffPanel": 32
     },
     "packages/engine/src/about.ts": {
       "changeWords": 31

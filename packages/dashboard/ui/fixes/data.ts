@@ -3,7 +3,7 @@ import type { Client } from '../api.js';
 import { addPaletteSource } from '../palette-sources.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
-import type { FixDetail, FixList, FixRow } from '../types.js';
+import type { FixDetail, FixesView, FixesViewRow } from '../types.js';
 import { fixName } from './model.js';
 
 /**
@@ -16,7 +16,7 @@ const names = new Map<string, string>();
 /** Each fix's title, by its id and by the id its URL gave, for the tab's title. */
 const titles = new Map<string, string>();
 const listeners = new Set<() => void>();
-let list: FixList | null = null;
+let list: Pick<FixesView, 'fixes'> | null = null;
 let loading: Promise<void> | null = null;
 
 const changed = () => listeners.forEach((on) => on());
@@ -34,11 +34,11 @@ export function rememberFix(d: Pick<FixDetail, 'fixId' | 'label' | 'title'>, ask
 }
 
 /** The fixes the list last read, for the palette's Apply fix. */
-export function knownFixes(): readonly FixRow[] {
+export function knownFixes(): readonly FixesViewRow[] {
   return list?.fixes ?? [];
 }
 
-export function rememberList(l: FixList): void {
+export function rememberList(l: Pick<FixesView, 'fixes'>): void {
   list = l;
   for (const f of l.fixes) {
     names.set(f.fixId, fixName(f));
@@ -91,10 +91,11 @@ function useFixesKnown(): void {
   }, [client, exported]);
 }
 
-// The palette's Fixes group: each fix by its title, with its label and status. Opening the palette
-// also loads the list again for the next time.
+// The palette's Fixes group: each fix by its title, with its label and status, the most recently
+// opened first (the list's answer is in to-do order: the palette finds a fix, it doesn't say what to
+// do). Opening the palette also loads the list again for the next time.
 addPaletteSource(({ app, go }) => {
   if (app.exported) return [];
   void refreshFixes(app.client);
-  return (list?.fixes ?? []).map((f) => ({ group: 'Fixes' as const, label: f.title, hint: `${fixName(f)} · ${f.status}`, match: 'blame repair verify apply', run: () => go(href.fixes(f.fixId)) }));
+  return [...(list?.fixes ?? [])].sort((a, b) => b.openedAt - a.openedAt).map((f) => ({ group: 'Fixes' as const, label: f.title, hint: `${fixName(f)} · ${f.status}`, match: 'blame repair verify apply', run: () => go(href.fixes(f.fixId)) }));
 });

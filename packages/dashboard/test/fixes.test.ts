@@ -119,7 +119,7 @@ describe('the Fixes list', () => {
     expect(x.steps.map((s) => [s.state, s.short, s.title])).toEqual([
       // A step that ran and needs a look is amber (warn), never the grey of one not run yet.
       ['warn', 'stopped', 'Stopped before the search finished'],
-      ['todo', 'no change yet', 'No change yet'],
+      ['done', 'by hand', 'Changed by hand'],
       ['no', 'rejected', 'Rejected'],
     ]);
     expect(x.steps[0].meta).toBe('the budget of $0.05 is spent');

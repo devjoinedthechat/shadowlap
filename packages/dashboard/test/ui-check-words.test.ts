@@ -2,7 +2,9 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { bannerFor, beforeFork, failedCheckText, failureText, fencedWords, type BannerInput } from '../ui/run/banner.js';
-import { CallsToolbar, originFilters } from '../ui/run/CallsView.js';
+import { keyItems } from '../ui/run/call-filter.js';
+import { CallsTable } from '../ui/run/CallsView.js';
+import { StripKey } from '../ui/run/StripKey.js';
 import { ContextView } from '../ui/run/ContextView.js';
 import { Inspector } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -12,7 +14,9 @@ import { render, type Rendered } from './ui-render.js';
 /**
  * The run page in the CLI's words: a failed check as `test` prints it, its arguments kept and a
  * tool's fenced calls counted exactly; what came before a fork, never counting a call an override
- * answered as replayed; and the filter of blocked and stubbed calls named Fenced, as the design does.
+ * answered as replayed; the strip's key, which names blocked and stubbed calls apart, as the design does;
+ * and Calls' words: a blocked tool's result, and the fork's and the lost call's marks, read apart from
+ * the number they stand before.
  */
 
 let page: Rendered | null = null;
@@ -84,12 +88,51 @@ describe('what came before a fork', () => {
   });
 });
 
-describe('the Calls view', () => {
-  it('names the filter of blocked and stubbed calls Fenced, as the design does', async () => {
-    expect(originFilters({ over: 1, inject: 0, fail: 0 }).map(([, label]) => label)).toEqual(['All', 'Live', 'Replayed', 'Overridden', 'Fenced']);
-    const counts = { all: 32, live: 14, rep: 15, over: 1, inject: 0, fail: 0, block: 2 };
-    page = await render(createElement(CallsToolbar, { counts, filter: 'all', onFilter: () => undefined, text: '', onText: () => undefined, inputRef: { current: null } }));
-    expect(page.all('.ofilter button').map((b) => b.textContent)).toEqual(['All32', 'Live14', 'Replayed15', 'Overridden1', 'Fenced2']);
+describe('the strip’s key, which filters the calls', () => {
+  it('names blocked and stubbed calls apart, each with the swatch of its cells, as the design does', async () => {
+    const items = keyItems({ total: 34, counts: { live: 14, rep: 15, over: 1, block: 2, stub: 2 } }, false);
+    expect(items.map((i) => i.word)).toEqual(['all', 'replayed', 'live', 'overridden', 'blocked', 'stubbed']);
+    page = await render(createElement(StripKey, { items, byKind: false, filter: 'all', onFilter: () => undefined }));
+    expect(page.all('.lfilter button').map((b) => b.textContent)).toEqual(['all 34', 'replayed 15', 'live 14', 'overridden 1', 'blocked 2', 'stubbed 2']);
+    expect(page.all('.lfilter button i.lg').map((i) => i.className)).toEqual(['lg rep', 'lg live', 'lg over', 'lg block', 'lg stub']);
+    expect(page.all('.lfilter .lk')).toHaveLength(0);
+  });
+
+  it('says first that every call of a recording is live, then counts each kind', async () => {
+    const items = keyItems({ total: 21, counts: { 'k-model': 10, 'k-read': 10, 'k-write': 1 } }, true);
+    page = await render(createElement(StripKey, { items, byKind: true, filter: 'k-write', onFilter: () => undefined }));
+    expect(page.one('.lfilter .lk').textContent).toBe('every call live');
+    expect(page.all('.lfilter button').map((b) => b.textContent)).toEqual(['all 21', 'model calls 10', 'reads 10', 'write 1']);
+    expect(page.all('.lfilter button[aria-pressed="true"]').map((b) => b.textContent)).toEqual(['write 1']);
+  });
+});
+
+/** Calls as the run page draws it, in plain markup. */
+function callsMarkup(calls: CallRow[], marks: { forkAt?: number; lostAt?: number } = {}): string {
+  const app = { actionsOff: null, conn: 'ok', toast: () => undefined } as unknown as AppState;
+  const table = createElement(CallsTable, { calls, asked: null, selected: 1, scoped: false, forkAt: marks.forkAt ?? null, lostAt: marks.lostAt ?? null, ancestors: [], live: false, canFork: false, onSelect: () => undefined, onFork: () => undefined });
+  return renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, table));
+}
+
+const tool = { kind: 'tool', name: 'issue_refund', effect: 'write', status: null, latencyMs: 2, model: null, stopReason: null, usage: null, cost: null, bytes: null, detail: '{"order":"A-1042"}', attempts: 0, replayedFrom: null, startedAt: 0, endedAt: 2, ttftMs: null, scope: null, resultShort: null, conversation: 1, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null };
+
+describe('a blocked tool’s result in Calls', () => {
+  it('says blocked in the blocked grey’s class, keeping the failure red for a call that failed', () => {
+    const blocked = { ...tool, callNo: 1, origin: 'blocked', outcome: 'error', error: 'blocked by the fence' } as unknown as CallRow;
+    const failed = { ...tool, callNo: 2, origin: 'live', outcome: 'error', error: 'refund API returned 500' } as unknown as CallRow;
+    const html = callsMarkup([blocked, failed]);
+    expect(html).toContain('<span class="res blk">→ blocked</span>');
+    expect(html).toContain('<span class="res err">→ refund API returned 500</span>');
+  });
+});
+
+describe('the fork’s and the lost call’s marks in Calls', () => {
+  it('are words before the call’s number, with a space a screen reader says between them: fork 1, lost 2', () => {
+    const calls = [1, 2].map((callNo) => ({ ...tool, callNo, origin: 'live', outcome: 'ok', error: null }) as unknown as CallRow);
+    const html = callsMarkup(calls, { forkAt: 1, lostAt: 2 });
+    const space = '<span class="srsp"><span class="sr"> </span></span>';
+    expect(html).toContain(`<td class="n"><span class="fk">fork</span>${space}1</td>`);
+    expect(html).toContain(`<td class="n"><span class="fk bl">lost</span>${space}2</td>`);
   });
 });
 

@@ -195,7 +195,8 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Run blame'));
     await page.type(page.one('.dialog input'), 'python agent.py');
     await page.click(page.one('.dialog .dlg-ok'));
-    await page.wait(0);
+    // Its check is asked in a dialog of its own, a part that loads the first time it opens.
+    await page.until('its check to be asked', () => page!.all('.dialog textarea').length === 1);
     expect(page.one('.dialog').textContent).toContain('What a passing run must do, as an outcome check’s expect object');
     expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --expect '<check>' -- python agent.py`);
   });

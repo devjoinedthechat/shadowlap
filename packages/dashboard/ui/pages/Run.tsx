@@ -1,34 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallDetail, RunDetail } from '../api.js';
-import { Legend, LoadFailed } from '../components/bits.js';
+import { LoadFailed } from '../components/bits.js';
 import { Tabs } from '../components/Tabs.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Unshown } from '../shell/unshown.js';
 import { NotFoundPage } from './NotFound.js';
-import { Strip, stripDetail, type StripCall } from '../components/Strip.js';
-import { callName, sameRun } from '../format.js';
+import { Elsewhere } from './held-elsewhere.js';
+import { sameRun } from '../format.js';
 import { runRefresh } from '../connection.js';
 import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
 import { mergeRun, settledThrough } from '../live.js';
-import { countOrigins, presentOrigins } from '../origins.js';
 import { indexCalls, needsAncestors, notWaited, type CallIndex } from '../recorded.js';
 import { href, nextView, VIEWS, type View } from '../route.js';
 import { setOpenRunAbout } from '../title.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import { useActionRunner } from '../run/actions.js';
-import { CallsTable, CallsToolbar } from '../run/CallsView.js';
+import { CallsTable } from '../run/CallsView.js';
 import { useCallList } from '../run/call-list.js';
 import { onShow } from '../components/OnShow.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
-import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
+import { blameOf, checksOf, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
+import { InspectorPlace, useFindingPanel, usePickInView } from '../run/InspectorPanel.js';
+import { byKind } from '../run/kinds.js';
+import { useStripCalls } from '../run/RunStrip.js';
+import { StripBar } from '../run/StripKey.js';
 import { firstFailedCall } from '../run/open-at.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
-import { DiffPanel, RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
+import { RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
 import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages } from '../run/paging.js';
@@ -88,8 +91,12 @@ function viewTabs(v: View, calls: number, turns: number | undefined) {
   });
 }
 
-/** The views that may hold nothing that takes the focus, which take it themselves, to be scrolled by keyboard. */
-const PANE_VIEWS: readonly View[] = ['timeline', 'turns', 'context'];
+/**
+ * The views that may hold nothing that takes the focus, which take it themselves, to be scrolled by
+ * keyboard. Calls is one: its only stops, the selected call's fork button and the fold marks, go with
+ * a filter that leaves the call out, a run that can't fork, or a scroll that takes its row from the window.
+ */
+const PANE_VIEWS: readonly View[] = ['calls', 'timeline', 'turns', 'context'];
 
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
   const { client, runsTick, live } = useApp();
@@ -153,7 +160,7 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
             <NotFoundPage header what={`No run ${id} in this copy.`} back={[lastRunsHref(), 'Open Runs']} />
           </>
         );
-      return (
+      const page = (
         <Page>
           {missing ? <Unshown at={`run:${id}`} /> : null}
           <div className="empty tall">
@@ -164,6 +171,8 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
           </div>
         </Page>
       );
+      // Another project may hold it: a link from there, or a page left open across a switch.
+      return missing ? <Elsewhere ask={{ what: 'run', ids: [id] }} error={loaded.error} waiting={<RunLoading />} retry={loaded.reload} fallback={page} /> : page;
     }
     return <RunLoading />;
   }
@@ -261,13 +270,16 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const v: View = view ?? 'calls';
   const need = paging?.need ?? null;
   // The calls as Calls lists them: the scope, the filter, the groups and what is folded (call-list.ts).
-  const { scope, setScope, scopeTree, scoped, scopedCalls, filter, setFilter, text, setText, asked, listed, tree, folded, fold, visible, foldAll, filterCounts } = useCallList({ runId, calls, paging, selected });
+  // A recording's or a capture's strip, key and filter go by what each call was; every other run's by origin (kinds.ts).
+  const kinds = useMemo(() => byKind(run), [run]);
+  const { scope, setScope, scopeTree, scoped, scopedCalls, filter, setFilter, text, setText, asked, listed, tree, folded, fold, visible, counts } = useCallList({ runId, calls, paging, selected, byKind: kinds });
   const [tab, setTabState] = useState<InspectorTab>(lastTab);
   const setTab = (t: InspectorTab) => {
     lastTab = t;
     setTabState(t);
   };
-  const [showDiff, setShowDiff] = useState(false);
+  // A finding's diff in the inspector's place, until it is hidden or a call is picked (InspectorPanel.tsx).
+  const { kind: panel, showDiff, setShowDiff, onToggleDiff, close: closePanel } = useFindingPanel(runId);
   const filterRef = useRef<HTMLInputElement>(null);
   // `/` filters the calls: from another view it opens Calls first, and the field takes focus once it is there.
   const [filterWanted, setFilterWanted] = useState(false);
@@ -299,8 +311,12 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);
   const waited = useMemo(() => (typeof run.notWaitedMs === 'number' ? { ms: run.notWaitedMs, unknown: 0 } : notWaited(calls, ancestors)), [run.notWaitedMs, calls, ancestors]);
 
-  const select = useCallback((n: number) => navigate(href.run(runId, n, v), true), [runId, v]);
+  const select = useCallback((n: number) => (closePanel(), navigate(href.run(runId, n, v), true)), [runId, v, closePanel]);
+  // A row picked below 1160px brings the inspector, under the calls, into view.
+  const pickRow = usePickInView(select, selected, detail);
   const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));
+  // A pick in the key, or a word typed in Filter calls, shows Calls from another view.
+  const toCalls = () => (v === 'calls' ? undefined : setView('calls'));
   const listFor = useCallback(() => (v === 'calls' ? visible : scopedCalls), [v, visible, scopedCalls]);
   const step = useCallback(
     (delta: number): number | null => {
@@ -331,23 +347,12 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // This run, in the palette.
   useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView });
 
-  const stripCalls = useMemo<StripCall[]>(() => {
-    const strip = (c: (typeof calls)[number]): StripCall => ({ n: c.callNo, origin: originOf(c), name: callName(c.kind, c.name), detail: stripDetail(c) });
-    const origins = paging?.origins;
-    if (!origins) return calls.map(strip);
-    // Every call from its origin while the pages come; its name once its page is read.
-    const byNo = new Map(calls.map((c) => [c.callNo, c]));
-    return origins.map((origin, i) => {
-      const c = byNo.get(i + 1);
-      return c ? strip(c) : { n: i + 1, origin, name: `#${i + 1}`, detail: 'not read yet' };
-    });
-  }, [calls, paging?.origins]);
+  const stripCalls = useStripCalls(calls, paging?.origins, paging?.kinds);
   const inScopeFn = useMemo(() => {
     if (scope === 'all') return null;
     const ids = new Set(scopedCalls.map((c) => c.callNo));
     return (n: number) => ids.has(n);
   }, [scope, scopedCalls]);
-  const present = useMemo(() => presentOrigins(countOrigins(stripCalls.map((c) => c.origin))), [stripCalls]);
 
   // While the pages come, Calls counts the run's calls and Turns says nothing until they are all read.
   const tabs = viewTabs(v, paging && scope === 'all' ? paging.total : scopedCalls.length, paging ? undefined : scopedCalls.filter((c) => c.kind === 'api').length);
@@ -355,17 +360,12 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   return (
     <div className="rv">
       <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} />} judged={judged} />
-      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
-      {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
-      <section className="strip">
-        {stripCalls.length ? <Strip calls={stripCalls} selected={selected} forkAt={forkMark} lostAt={lostAt} inScope={inScopeFn} live={live} onSelect={select} /> : <div className="cells empty-strip">{live ? 'Waiting for the first call…' : 'No calls.'}</div>}
-        <Legend origins={present} />
-      </section>
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
+      <StripBar strip={{ calls: stripCalls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: inScopeFn, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
         <section className="views" aria-label="Views of the run">
           <Tabs label="Views" idPrefix="vtab" panelId="vbody" items={tabs} value={v} onChange={setView} listRef={useActiveTabInView<HTMLDivElement>(v)} onPointerEnter={warmViews} onFocus={warmViews} />
-          {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} fold={foldAll} /> : null}
           {paging ? (
             <div className="toolbar muted" role="status">
               {paging.gone
@@ -375,19 +375,21 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
                 : `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read so far; the rest are on their way.${text.trim() || scope !== 'all' || v !== 'calls' ? ' What shows is from those read.' : ''}`}
             </div>
           ) : null}
-          {/* Each view starts at its top; Calls centres the selected call. The Timeline, the Turns of a
-              run whose model called no tool and Context hold nothing that takes the focus, so the
-              view takes it itself, to be scrolled by keyboard. */}
+          {/* Each view starts at its top; Calls centres the selected call. Calls, the Timeline, the Turns
+              of a run whose model called no tool and Context may hold nothing that takes the focus, so
+              the view takes it itself, to be scrolled by keyboard. */}
           <div className="vbody" id="vbody" key={v} role="tabpanel" aria-labelledby={`vtab-${v}`} tabIndex={PANE_VIEWS.includes(v) ? 0 : -1}>
-            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
+            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
-            {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
+            {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} byKind={kinds} onSelect={select} /> : null}
             {v === 'forks' ? <ForksView runId={runId} /> : null}
             {v === 'provenance' ? <ProvenanceView run={run} selected={selected} /> : null}
           </div>
         </section>
-        <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
+        <InspectorPlace kind={panel} run={run} test={offers?.test ?? null} onClose={closePanel}>
+          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
+        </InspectorPlace>
       </div>
       {actions.dialog}
     </div>

@@ -3,7 +3,7 @@ import { testsBusy } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import type { JobListItem } from '../types.js';
-import { mergeTreeJobs, treeBusy } from './model.js';
+import { mergeTreeJobs, treeBusy, type TreeJob } from './model.js';
 
 /** A lime button's class while it waits: the page never offers a lime button that can't start. */
 export const plainButton = (className: string): string => className.replace(' lime', '');
@@ -23,12 +23,13 @@ export function useServerJobs(wanted = true): JobListItem[] {
 /**
  * Why an action that uses the project's working tree as `use` can't start now, as the server would
  * refuse it, or null: what Run blame, Run repair, Apply fix and the Tests actions read to
- * disable themselves, with the reason (`treeBusy`). Only jobs in this project's tree count.
+ * disable themselves, with the reason (`treeBusy`). Only jobs in this project's tree count. A list
+ * hands its rows the `jobs` it read once, and they read none of their own.
  */
-export function useTreeBusy(use: 'reads' | 'writes', verb: string): string | null {
+export function useTreeBusy(use: 'reads' | 'writes', verb: string, jobs?: readonly TreeJob[]): string | null {
   const { meta } = useApp();
-  const tree = useServerJobs();
-  return treeBusy(tree, use, verb, meta?.project?.path ?? null);
+  const tree = useServerJobs(!jobs);
+  return treeBusy(jobs ?? tree, use, verb, meta?.project?.path ?? null);
 }
 
 /**

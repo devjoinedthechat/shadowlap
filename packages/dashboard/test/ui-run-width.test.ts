@@ -5,8 +5,8 @@ import type { CallRow } from '../ui/types.js';
 import { glued } from '../ui/format.js';
 import { bannerFor } from '../ui/run/banner.js';
 import { Inspector } from '../ui/run/Inspector.js';
-import { DiffPanel } from '../ui/run/parts.js';
-import { sheet } from './css-sheet.js';
+import { DiffPanel } from '../ui/run/DiffPanel.js';
+import { sheet, styleRules } from './css-sheet.js';
 
 /**
  * A long command line or model id never makes a run's page wider than the window: a 266-character
@@ -157,5 +157,70 @@ describe('what wraps rather than runs past its box', () => {
     expect(topRule('.rnhint')).not.toMatch(/display:\s*flex/);
     // Its code too, the config line to copy among it: a code in a sentence otherwise keeps to one line.
     expect(topRule('.rnhint code')).toMatch(/white-space:\s*normal/);
+  });
+});
+
+describe('a call’s row in Calls', () => {
+  it('draws a replayed call’s recorded duration in grey, the replay having waited for none of it', () => {
+    expect(topRule('table.calls .num.was')).toMatch(/color:\s*var\(--faint\)/);
+  });
+
+  it('sets its number, details and time at 12.5px and the result under it at 11px, as the design does', () => {
+    for (const s of ['table.calls .n', 'table.calls .det', 'table.calls .num']) expect(topRule(s)).toMatch(/font:\s*12\.5px var\(--mono\)/);
+    expect(topRule('table.calls .res')).toMatch(/font:\s*11px var\(--mono\)/);
+  });
+});
+
+/** A declaration of the rule for `selector` under exactly the media `conditions`, the last one set. */
+function under(conditions: string[], selector: string, prop: string): string | null {
+  let found: string | null = null;
+  for (const r of styleRules()) if (r.conditions.join(' ') === conditions.join(' ') && r.selectors.includes(selector)) for (const [p, v] of r.decls) if (p === prop) found = v;
+  return found;
+}
+const FROM_1001 = ['@media (min-width: 1001px)'];
+const MID = ['@media (min-width: 1001px) and (max-width: 1159px)'];
+
+describe('a run page’s views at every width', () => {
+  it('scrolls the page from 1001px when the window is short, the views keeping 420px and the strip at the top', () => {
+    expect(under(FROM_1001, '.rv', 'overflow-y')).toBe('auto');
+    expect(under(FROM_1001, '.work', 'min-height')).toBe('420px');
+    expect(under(FROM_1001, '.strip', 'position')).toBe('sticky');
+    // Under the run id's card (30) and the job's drawer (35).
+    expect(Number(under(FROM_1001, '.strip', 'z-index'))).toBeLessThan(30);
+    // While a job's log shows, from 1281px, where the inspector sits beside the calls.
+    expect(under(['@media (min-width: 1281px)'], 'body.docked:not(.dockfold) .work', 'min-height')).toBe('240px');
+  });
+
+  it('keeps the calls and the inspector side by side down to 1160px, the inspector at least 360px', () => {
+    const side = ['@media (min-width: 1160px) and (max-width: 1280px)'];
+    expect(under(side, '.work', 'grid-template-columns')).toBe('minmax(0, 1fr) minmax(360px, .62fr)');
+    expect(under(side, '.views > .tabs button', 'padding-left')).toBe('8px');
+    expect(under(['@media (max-width: 1159px)'], '.work', 'grid-template-rows')).toBe('minmax(280px, 1fr) minmax(320px, 1fr)');
+  });
+
+  it('keeps the calls list a box of its own height wherever the views take their content’s, so it draws only the rows in view', () => {
+    expect(under(MID, '.work', 'flex')).toBe('none');
+    expect(under(MID, '.vbody', 'max-height')).toBe('max(300px, 50vh)');
+    expect(under(['@media (max-width: 1000px)'], '.vbody', 'max-height')).toBe('70vh');
+    // 1001 to 1159px overrides the rules from 1001px and to 1159px, so it comes after both.
+    const at = (c: string[]) => styleRules().findIndex((r) => r.conditions.join(' ') === c.join(' ') && r.selectors.includes('.work'));
+    expect(at(MID)).toBeGreaterThan(at(FROM_1001));
+    expect(at(MID)).toBeGreaterThan(at(['@media (max-width: 1159px)']));
+  });
+
+  it('keeps the strip’s key on a narrow screen, under cells that stay at the window’s top, its wrapped chips 24px to a finger', () => {
+    const narrow = ['@media (max-width: 1000px)'];
+    expect(under(narrow, '.strip', 'display')).toBe('contents');
+    expect(under(narrow, '.strip .cells', 'position')).toBe('sticky');
+    expect(under(narrow, '.strip .legend.lfilter button', 'min-height')).toBe('24px');
+    expect(styleRules().some((r) => r.selectors.includes('.strip .legend') && r.decls.some(([p, v]) => p === 'display' && v === 'none'))).toBe(false);
+  });
+
+  it('fits a phone: no scope column, an origin’s word hidden inside its cell, the inspector’s tabs scrolling in their row', () => {
+    expect(under(['@media (max-width: 640px)'], 'table.calls .hide-sm', 'display')).toBe('none');
+    expect(under(['@media (max-width: 400px)'], 'table.calls .org .orgw', 'position')).toBe('absolute');
+    expect(under(['@media (max-width: 400px)'], 'table.calls .org', 'position')).toBe('relative');
+    expect(under(['@media (max-width: 359px)'], '.insp .tabs', 'overflow-x')).toBe('auto');
+    expect(topRule('table.calls .scopecell code')).toMatch(/max-width:\s*140px/);
   });
 });

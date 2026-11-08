@@ -49,6 +49,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'store-facts': { kind: 'store-facts', stores: [{ id: 'here', dbPath: null, keep: null }] },
   training: { kind: 'training', tasks: [], tasksError: null, normalizers: [], redactRules: 0, filter: 'all' },
   fix: { kind: 'fix', fixId: FIX, repairer: null },
+  fixes: { kind: 'fixes', status: 'all', project: null, repairer: null, next: null },
   outcome: { kind: 'outcome', runId: FORK, work: null },
   next: { kind: 'next', runId: FORK, outcome: null, next: null },
   'tests-steps': { kind: 'tests-steps', goldens: ['goldens/refund'], next: null },
@@ -59,6 +60,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'tests-estimates': { kind: 'tests-estimates', goldens: [{ path: 'goldens/refund', runId: REC, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: [] }], folder: 'goldens' },
   'bisect-estimate': { kind: 'bisect-estimate', commits: 6, target: { runId: FORK, fork: true } },
   'decision-estimates': { kind: 'decision-estimates', sessionId: SESSION, runId: null, work: null, rule: { keptMax: null, baseline: 'paired' } },
+  'held-by': { kind: 'held-by', what: 'run', ids: [REC], stores: [] },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };

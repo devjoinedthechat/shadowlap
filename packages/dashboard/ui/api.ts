@@ -13,7 +13,7 @@ import { changesApi, type ChangesApi } from './changes-api.js';
 import { testsApi, type TestsApi } from './tests-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
-import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDetail, FixList, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestsView, TrainingView } from './types.js';
+import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
@@ -224,8 +224,8 @@ export interface Client extends ChangesApi, TestsApi {
   activity(limit: number): Promise<ActivityPage>;
 
   // ---- Fixes (`/api/fixes`)
-  /** Every fix, newest first, with the counts the filter chips show. */
-  fixes(): Promise<FixList>;
+  /** Every fix in to-do order, with the counts the chips show, what they took and the failing runs nobody has blamed. */
+  fixes(): Promise<FixesView>;
   /** One fix, by its id or a unique prefix, with its three steps. */
   fix(id: string): Promise<FixDetail>;
   renameFix(id: string, title: string): Promise<FixDetail>;
@@ -485,7 +485,7 @@ export function createClient(token: string): Client {
         throw err;
       }
     },
-    fixes: () => request<FixList>('fixes'),
+    fixes: () => request<FixesView>('fixes'),
     fix: (fixId) => request<FixDetail>(`fixes/${id(fixId)}`),
     renameFix: (fixId, title) => request<FixDetail>(`fixes/${id(fixId)}/title`, { method: 'PUT', body: JSON.stringify({ title }) }),
     // A server that does not bundle them, or one that never heard of the run: the Forks view lists the attempts as runs.

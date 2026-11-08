@@ -8,7 +8,9 @@ export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
 export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-step.js';
 
 // Fixes (`/api/fixes`): the read model's own shapes, as the server sends them.
-export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixRow, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
+export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixPr, FixRow, FixRung, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
+export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fixes-view.js';
+export type { FixLead } from '../src/fix-lead.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
 export type { InjectionRow, ToolTrustRow } from '../src/injection.js';
 export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';
@@ -415,6 +417,8 @@ export interface JobView {
    */
   worktree?: { use: 'reads' | 'writes'; doing: string; folder?: string | null } | null;
   runId: string | null;
+  /** The fix it blames, repairs, verifies or applies (full id); absent for a job about no fix yet. */
+  fixId?: string;
   opensRun: boolean;
   startedAt: number;
   done: boolean;
