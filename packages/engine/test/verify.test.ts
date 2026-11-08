@@ -224,6 +224,20 @@ describe('runs decided by a gate', () => {
     expect(verifyRule({ gate: null, needed: 4, attemptsPerRun: 5, fields: {}, oracle: ['the agent exits 0'] })).toBe('A run passes when 4 of 5 attempts meet the oracle: the agent exits 0.');
   });
 
+  it('says a run by its tally alone where a stored report’s gate gives no bound, never a throw', () => {
+    // A gate kept by another version or another machine: no interval, or one missing its figures.
+    const failed = gated('target', [false, false, false]);
+    const runs = [
+      { ...failed, gate: { ...failed.gate!, interval: undefined } },
+      { ...failed, runId: '01K5HELD'.padEnd(26, '0'), role: 'holdout', gate: { ...failed.gate!, interval: { lo: Number.NaN } } },
+    ] as unknown as VerifiedRun[];
+    const d = decideVerify(runs, null);
+    expect(d.reasons).toEqual(['target run 01K5TARGET not fixed: 0 of 3 passed (issue_refund called 0 times, but called 1 time)', 'held-out run 01K5HELD00 not fixed: 0 of 3 passed (issue_refund called 0 times, but called 1 time)']);
+    const text = formatVerify({ ...d, runs, attemptsPerRun: 40, needed: 12, gate: GATE, oracle: ['the agent exits 0'], fields: {}, codeVersion: null, attempts: 6, spent: 0, upstreamRequests: 12, unknownModels: [], stopReason: null, replayWarnings: [] });
+    expect(text).toMatch(/target +01K5TARGET +not fixed +0 of 3 passed +issue_refund called/);
+    expect(text).toMatch(/held-out +01K5HELD00 +not fixed +0 of 3 passed +issue_refund called/);
+  });
+
   it('wraps its dim lines at whole words to a terminal’s width, each line indented as the first, and leaves each whole for a pipe', () => {
     const runs = [gated('target', Array(12).fill(true)), gated('good', [true], { deterministic: true })];
     const kept = { margin: 0.1, risk: 0.05, max: 200, source: 'paired' as const, revision: '3a4f5e1', label: 'HEAD' };

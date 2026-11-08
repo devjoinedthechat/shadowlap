@@ -147,7 +147,7 @@ export { blameStateWord, describeBlocks, describeRescue, formatBlame, INCONCLUSI
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, PinCheck, ProbeVerdict } from './blame.js';
 // The blame a repair reuses on a failing run rather than search again, as the CLI and Run repair's estimate read it.
 export { reusedBlame, type ReusedBlame } from './blame-reuse.js';
-export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
+export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule, verifyTally, verifyTallyLine } from './verify.js';
 // What answered an attempt's tool calls after its fork: verify's line on it and its warnings.
 export { afterForkLines, afterForkOf, afterForkSentence, afterForkWarnings, type AfterFork } from './after-fork.js';
 // Blame's calibrated search (the risk spent across its probes, the range it reports and its bound),
@@ -181,7 +181,7 @@ export { fileThatRuns, modelSwitch, patchFiles, repairNeverRewrites, repairNever
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).
 export { CHARS_PER_TOKEN, placeholders, rewriteGrowth, templateSyntax } from './repair.js';
 export type { Placeholder, TemplateSyntax } from './repair.js';
-export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole } from './verify.js';
+export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole, VerifyTally } from './verify.js';
 export type { RepeatAttempt, RepeatAttemptInput, RepeatReport } from './repeat.js';
 export { parseSse } from './sse.js';
 export { encodeEventStreamFrame, eventStreamFrames, eventStreamMessages, type EventStreamFrame } from './eventstream.js';
