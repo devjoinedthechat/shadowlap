@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, shortRunId, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
+import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, parseTraceback, shortRunId, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { loadRunIndex, type IndexedRun } from './run-index.js';
@@ -284,12 +284,12 @@ export function crashed(row: Pick<IndexedRun, 'status' | 'outcome'> | null, resu
   return !!row && row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
 }
 
-/** A test replay that crashed (`crashed`, by its golden's result): what the agent printed last, and where it stopped. */
+/** A test replay that crashed (`crashed`, by its golden's result): the exception it died of (the engine's parseTraceback), and where it stopped. */
 export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord): NonNullable<RunOffers['crash']> | null {
   const test = testOf(run);
   const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
   if (!result || !crashed(null, result)) return null;
-  const line = result.data?.output?.split('\n').map((l) => l.trim()).filter(Boolean).at(-1);
+  const line = result.data?.output ? parseTraceback(result.data.output)?.exception : null;
   if (!line) return null;
   const d = run.divergence?.type === 'ended_early' ? run.divergence : null;
   return { line, at: d?.callNo ?? null, of: d?.recorded ?? null };
