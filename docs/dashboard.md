@@ -252,6 +252,7 @@ The rest is what commands record as they change the project or write something:
 
 - Normalizers and redaction rules added, by hand or by `calibrate --write`. A redaction rule is named by what it puts in place, never by its pattern.
 - Goldens packed (a pack in a goldens folder or named in the config's `tests`), and other packs.
+- A golden's checks changed in the [check builder](#making-a-check): *Check added*, *Check removed* or *Checks changed*, with the golden and the checks' labels. It opens Tests.
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
 
 An entry no page shows, such as a [preview of a change](./decisions.md), is a plain line that opens nothing. A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
@@ -1607,6 +1608,8 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 
 **A run imported from a capture** has no command, so its menu shows a note and one action, **Replay with your command…**. That replay records every kind of call, and every fork works on it.
 
+**Add check…** comes first in a tool call's row menu, never in the header's **Fork at #n**. It is also on the inspector's summary line, and in ⌘K as **Add check at #n…**. Its menu starts a rule from the call, each with the key it writes, then **Ask a judge…** about the whole run, and a pick opens the [check builder](#making-a-check). A capture, a recorded user input, a run still recording and an exported copy offer none.
+
 **Share**'s menu is named for the run (*Share 01K5CQ4R1T*). It copies the run, each copy a job, its items named for the copies they make, in the order it lists them:
 
 | Copy                 | What it makes                                                                            |
@@ -1644,6 +1647,24 @@ On the run's page, the run leaves the lists at once and the page goes to Runs, a
 When the run failed a check none of those give, or nothing says what a passing run must do, it asks for the check. The blame opens the run's fix, or joins one, and links to it.
 
 A capture has no command to run again, so **Run blame** asks for yours, which runs as `shadowlap blame <run> -- <command>`. A capture its import judged failed is blamed on the rules on calls it broke.
+
+### Making a check
+
+The check builder makes a check from a tool call and writes it to the golden's entry under `tests` in `shadowlap.config.json`. [Checks](./checks.md#make-a-check-in-the-dashboard) describes the rules it builds; this is the dialog.
+
+- **The golden it goes to** follows the rule as it changes: the first of the agent's goldens whose own recording passes it. Pick one under **Checks of**, which lists the agent's goldens, and it stays.
+- **The golden's checks**: one row a check, labelled as reports label them. The rule being built reads `new`, an edited one `changed`, and a removed one `removed`, with **Keep**. A tool's count the rule takes the place of reads `replaced`.
+- **An injection gate** set in the golden's entry is a row of its own, read only.
+- **Against your recordings**: the counts, with *not applicable* apart, the notes in amber or grey, the recordings on request, and the `shadowlap check` command with **Copy whole command**.
+- **The change**: the golden's entry as the file will hold it, with the file's version. When saving would also lay out other lines of the file anew, it says so first.
+
+**Save check** turns lime once nothing needs a look, and stays off with its reason until the rule can be saved. For an edited check it reads **Save change**. While the dashboard server can't be reached, it waits.
+
+- **A file changed since the page read it** is never overwritten. The page names what changed, reads the file again, shows your change against it, and the button reads **Save again**.
+- **An entry the server refuses**, as `shadowlap test` would refuse it, shows the server's words in the dialog's amber line.
+- **A save** closes the builder, says *Saved to shadowlap.config.json · goldens/…*, and leaves an entry in the [activity feed](#activity). The run's outcome is judged again by its checks.
+
+A press outside the dialog never closes it. Esc closes it while nothing changed, and asks first once a rule did.
 
 ### Actions on a fix
 
@@ -2141,6 +2162,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
 - **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's check, Find breaking commit… and Delete run. Each loads the first time it opens.
+- **The check builder** has a script of its own, asked for as its menu opens, or as the pointer or the focus reaches the inspector's **Add check…**. A builder whose script can't be loaded says so in a small dialog in its place, with **Retry**.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
