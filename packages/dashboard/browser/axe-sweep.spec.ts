@@ -338,6 +338,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...onPage('Add redaction rule', '/settings/redaction', 'Add redaction rule'),
     ...onPage('Add MCP server', '/settings/tools', 'Add MCP server'),
     ...onPage('Remove project', '/settings/project', 'Remove project'),
+    ...onPage('Write file', '/settings/ci', 'Write file'),
     ...onFix('Run repair', 'emailFix', 'Run repair'),
     ...onFix('Mark fix applied', 'refundFix', 'Mark applied'),
     ...opened('Rename fix', at(page, `/fixes/${id('emailFix')}`, 'fix'), button('main#view button.fxrename', 'Rename')),
