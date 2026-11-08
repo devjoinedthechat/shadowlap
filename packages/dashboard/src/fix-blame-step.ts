@@ -64,9 +64,11 @@ export interface BlameStep {
    * shows where it was lost: `inScope` is false for a call outside the blame's scope or in a reserved
    * one (`probedInScope`), and `probed` true for a model call blame's search steps through (`blameSteps`:
    * one that ended, in scope), as many as `steps` and the CLI's blame header count. A probed call's
-   * `tally` is its probe's passes of the attempts judged (`3/4`); null for one no probe re-asked.
+   * `tally` is its probe's passes of the attempts judged (`3/4`); null for one no probe re-asked. A
+   * call that isn't a model call carries its `name` (the tool's) for its hover, in a run short enough
+   * for the row to draw it (`CALL_ROW_NAMED`).
    */
-  callRow: Array<{ callNo: number; kind: string; inScope: boolean; probed: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number; inconclusive: number; tally: string | null }>;
+  callRow: Array<{ callNo: number; kind: string; name?: string; inScope: boolean; probed: boolean; verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null; passes: number; attempts: number; inconclusive: number; tally: string | null }>;
   /** What the blame ran and spent; `judge`, what its judge checks' calls cost apart, as the CLI's report adds it, null when no judge was asked. */
   cost: { attempts: number; upstreamRequests: number; spent: number; unknownModels: string[]; judge: { upstreamRequests: number; spent: number } | null };
   oracle: string[];
@@ -168,15 +170,23 @@ function confidenceWhyOf(r: BlameReport): string {
 /** An attempt that could not be judged is counted apart (probeTally), never as one that failed. */
 const unsure = (x: Parameters<typeof probeTally>[0] | undefined): number => x?.attempts.filter((a) => a.verdict === 'inconclusive').length ?? 0;
 
+/**
+ * The most calls the Blame step's row draws whole, its tool calls among them (ui/fixes/model.ts's
+ * `CALL_ROW_MAX`, which test/fix-steps.test.ts holds equal): a longer run's row shows its model calls
+ * only, so its other calls carry no name, and a run of thousands of calls reads none.
+ */
+export const CALL_ROW_NAMED = 18;
+
 /** The Blame step's row (`BlameStep['callRow']`): the agent's calls of the blamed run, each probed one with its probe's verdict and tally. */
 function callRowOf(store: StoreOf<'recording'>, b: StoredBlame): BlameStep['callRow'] {
   const blamedCall = b.report.blamed?.callNo ?? null;
   const probeOf = new Map(b.report.probes.map((x) => [x.callNo, x]));
   const calls = agentCallsOf(store.getCalls(b.runId));
   const probed = new Set(blameSteps(calls, b.scope).map((c) => c.callNo));
+  const named = calls.length <= CALL_ROW_NAMED;
   return calls.map((c) => {
     const p = probeOf.get(c.callNo);
-    return { callNo: c.callNo, kind: c.kind, inScope: probedInScope(c.meta.scope, b.scope), probed: probed.has(c.callNo), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p), tally: p ? `${p.passes}/${p.attempts.length - unsure(p)}` : null };
+    return { callNo: c.callNo, kind: c.kind, ...(named && c.kind !== 'api' ? { name: c.name } : {}), inScope: probedInScope(c.meta.scope, b.scope), probed: probed.has(c.callNo), verdict: p ? (p.callNo === blamedCall ? ('blamed' as const) : probeWord(p)) : null, passes: p?.passes ?? 0, attempts: p?.attempts.length ?? 0, inconclusive: unsure(p), tally: p ? `${p.passes}/${p.attempts.length - unsure(p)}` : null };
   });
 }
 

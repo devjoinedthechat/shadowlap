@@ -109,10 +109,10 @@ function BlameLinks({ b }: { b: BlameStep }) {
   );
 }
 
-/** What a call says on hover: its probe's verdict and tally, why no probe asked it again, or what kind of call it is. */
+/** What a call says on hover: its probe's verdict and tally, why no probe asked it again, or the tool's name. */
 function callTip(b: BlameStep, c: CallCell, p: Probe | undefined): string {
   if (p) return `#${c.callNo} · ${p.blamed ? 'blamed: the last call that still rescues the run · ' : ''}${probeVerdictWords(p.verdict).word} · ${p.tally}${p.bound ? ` · ${p.bound}` : ''}`;
-  if (c.kind !== 'm') return `#${c.callNo} · tool call`;
+  if (c.kind !== 'm') return `#${c.callNo} · ${c.name ?? 'tool call'}`;
   if (c.dim) return `#${c.callNo} · ${b.scope ? `outside scope ${b.scope}: ` : ''}not probed`;
   const why = !c.probed ? '' : b.outcome === 'stopped' ? ': the search stopped first' : b.outcome === 'blamed' ? ': the search skipped it' : '';
   return `#${c.callNo} · not probed${why}`;

@@ -5,11 +5,13 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { afterForkLines, blameSteps, JUDGE_SCOPE, markFixApplied, plain, probeBound, probeInterval, recordBlame, recordRepair, recordVerdict, Store, type BlameReport, type VerifyReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
+import { CALL_ROW_NAMED } from '../src/fix-blame-step.js';
 import { fixDetail, type FixDetail, withAbouts } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
 import { aboutOfRun } from '../src/run-about.js';
 import { loadRunIndex } from '../src/run-index.js';
 import { startDashboard, type Dashboard, type JobView } from '../src/index.js';
+import { CALL_ROW_MAX } from '../ui/fixes/model.js';
 
 /**
  * A fix's page, step by step: the step its header leads with (the same as its Fixes row's), Verify
@@ -108,6 +110,16 @@ describe('the Blame step’s row of calls', () => {
     ]);
     expect(steps).toBe(3);
     expect(b.callRow.filter((c) => c.probed)).toHaveLength(b.steps);
+    // A tool call carries the tool's name for its hover; a model call none.
+    expect(b.callRow.map((c) => c.name ?? null)).toEqual([null, 'lookup_order', null, null]);
+  });
+
+  it('names the tool calls only of a run short enough for the row to draw them, as many calls as the page’s row holds', () => {
+    expect(CALL_ROW_NAMED).toBe(CALL_ROW_MAX);
+    const long = makeRun(store, { labels: ['long'], calls: Array.from({ length: CALL_ROW_NAMED + 1 }, (_, i) => (i % 2 ? 'tool' : 'api')) });
+    const { fix } = recordBlame(store, { runId: long, report: blameReport(long), expect: SEND_ONCE, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once', at: (at += DAY) });
+    const row = detail(fix.fixId).blame!.callRow;
+    expect([row.length, row.filter((c) => c.kind === 'tool').length, row.filter((c) => c.name !== undefined).length]).toEqual([CALL_ROW_NAMED + 1, 9, 0]);
   });
 });
 

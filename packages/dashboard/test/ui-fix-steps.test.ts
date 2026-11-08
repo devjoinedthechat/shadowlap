@@ -102,11 +102,11 @@ describe('the Blame step', () => {
     expect(cells.map((li) => li.className)).toEqual(['m ok', 't', 'm', 't', 'm hot', 't', 'm lost']);
     expect(r!.all('ol.callrow .cn').map(tip)).toEqual([
       '#1 · rescued · 2 of 3',
-      '#2 · tool call',
+      '#2 · lookup_order',
       '#3 · not probed: the search skipped it',
-      '#4 · tool call',
+      '#4 · lookup_order',
       '#5 · blamed: the last call that still rescues the run · rescued · 2 of 4',
-      '#6 · tool call',
+      '#6 · lookup_order',
       '#7 · lost · 0 of 4',
     ]);
     // A call keeps its name for a screen reader.

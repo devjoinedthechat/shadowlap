@@ -304,6 +304,8 @@ export interface CallCell {
   callNo: number;
   /** A model call (a ring) or another call (a dot); `gap` stands for calls left out. */
   kind: 'm' | 't' | 'gap';
+  /** Another call's name (the tool's), for its hover, where the server sends it. */
+  name?: string;
   /** Where blame looked: rescued, lost, or the call it blamed. */
   verdict: 'rescued' | 'lost' | 'inconclusive' | 'blamed' | null;
   passes: number;
@@ -320,7 +322,7 @@ export interface CallCell {
   skipped?: number;
 }
 
-/** Calls the row shows at most before it leaves some out: past this, each would be too narrow to read. */
+/** Calls the row shows at most before it leaves some out: past this, each would be too narrow to read. The server names the other calls of a run this short (src/fix-blame-step.ts's `CALL_ROW_NAMED`). */
 export const CALL_ROW_MAX = 18;
 
 /**
@@ -329,7 +331,7 @@ export const CALL_ROW_MAX = 18;
  * either side of each, and the first and last, with a gap for each stretch of model calls left out.
  */
 export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { cells: CallCell[]; toolsLeftOut: boolean } {
-  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', verdict: c.verdict, passes: c.passes, attempts: c.attempts, inconclusive: c.inconclusive ?? 0, dim: !c.inScope, probed: c.probed, tally: c.tally });
+  const cell = (c: BlameStep['callRow'][number]): CallCell => ({ callNo: c.callNo, kind: c.kind === 'api' ? 'm' : 't', ...(c.name === undefined ? {} : { name: c.name }), verdict: c.verdict, passes: c.passes, attempts: c.attempts, inconclusive: c.inconclusive ?? 0, dim: !c.inScope, probed: c.probed, tally: c.tally });
   if (row.length <= max) return { cells: row.map(cell), toolsLeftOut: false };
   const models = row.filter((c) => c.kind === 'api' || c.verdict !== null);
   const keep = new Set<number>();

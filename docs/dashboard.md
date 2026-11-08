@@ -972,7 +972,7 @@ The Blame step opens on its verdict line: *blamed* in ink, or *inconclusive*, *s
 
 Its sections:
 
-- **Where the run was lost**, on its row of calls. Each probe's tally sits over its call, and every call says on hover what blame made of it. The key names only what the row shows.
+- **Where the run was lost**, on its row of calls. Each probe's tally sits over its call, and every model call says on hover what blame made of it, a tool call its tool's name. The key names only what the row shows.
 - **The recorded answer** at that call next to the rescued fork's, and the training pairs they make. A blame that found no call shows the check instead.
 - **The probes**, each row opening the run at its call. One cell holds the tally, its bound and a bar of the interval against the gate's two marks. The verdict is a dot and a word.
 - **Every attempt** of a probe, under its row on request, grouped by what each did. A group shows the tool calls its attempts made from the probed call on and how they came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
