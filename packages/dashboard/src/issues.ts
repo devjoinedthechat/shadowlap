@@ -1,6 +1,6 @@
 import { blameStateWord, type FixRecords, goldenWords, isObject, lostWords, shownBlame, type Store, type StoredFix, type TestResult } from '@shadowlap/engine';
 import { withExitCodes } from './exit-codes.js';
-import { blameCard, failedWords, NOT_BLAMED } from './failed-words.js';
+import { blameCard, failedWords, NOT_BLAMED, plantedWords } from './failed-words.js';
 import { keptFixRecords } from './fix-records.js';
 import { brokenOf, type FixRung, isUnblamedFailure, prOf, rungOf } from './fix-shared.js';
 import { issueKey } from './issue-keys.js';
@@ -36,8 +36,8 @@ export interface Issue {
   failed: string;
   /** A golden's: where its replay diverged and what the value looks like, or what it failed on, as Tests says it beside what it did. */
   detail: string | null;
-  /** Where the instruction was planted: the call whose result it went into. */
-  planted: { callNo: number; result: boolean } | null;
+  /** Where the instruction was planted, the call whose result it went into named as the run's page names it (failed-words.ts `plantedWords`). */
+  planted: string | null;
   /** Where the fix's blame found it lost (engine `lostWords`), once it did. */
   lost: string | null;
   /** For a failure no fix holds: `not blamed yet` while none of its runs has a blame, else what the newest blame came to. */
@@ -253,10 +253,11 @@ function blameWords(members: readonly Member[]): string | null {
   return b.outcome === 'unrescuable' || b.outcome === 'stopped' ? blameStateWord(b.outcome, b.unsettled) : null;
 }
 
-function plantedOf(members: readonly Member[]): Issue['planted'] {
+/** Where the newest run that says so planted its instruction, reading the one call it planted in for its tool's name. */
+function plantedOf(store: Store, members: readonly Member[]): Issue['planted'] {
   for (const m of members) {
     const at = (m.r.meta.interventions ?? []).find(planting)?.at;
-    if (typeof at === 'number') return { callNo: at, result: true };
+    if (typeof at === 'number') return plantedWords(at, store.getCalls(m.r.runId, { only: [at] })[0]?.name ?? null);
   }
   return null;
 }
@@ -290,7 +291,7 @@ function issueOf(w: IssueWork, key: string, members: readonly Member[]): Issue {
     golden: golden ? { path: golden.path, name: golden.name, did: golden.did, passed: golden.passed } : null,
     failed: newest.j.failed,
     detail: golden?.detail ?? null,
-    planted: kind === 'planted' ? plantedOf(members) : null,
+    planted: kind === 'planted' ? plantedOf(w.store, members) : null,
     lost: rec ? lostOf(rec) : null,
     blame: kind === 'failure' || kind === 'capture' ? blameWords(members) : null,
     production: members.filter((m) => m.r.kind === 'capture').length,

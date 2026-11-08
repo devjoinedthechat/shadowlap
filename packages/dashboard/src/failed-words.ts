@@ -40,3 +40,6 @@ const checkFailed = (c: StoredCheck): string => checkWords(c, c.detail ? ', but 
  * where the row stands for several, and the fix blame joins it to, by its labels or its check.
  */
 export const blameCard = (runId: string, several: boolean): string => `Blames ${several ? 'the newest, ' : ''}${shortRunId(runId)}: finds the model call that lost it, then joins the fix its failure belongs to`;
+
+/** Where an instruction was planted, naming the call as the run's page does (`#2 lookup_order`): `planted in #2 lookup_order’s result`. */
+export const plantedWords = (callNo: number, tool: string | null): string => `planted in #${callNo}${tool ? ` ${tool}` : ''}’s result`;
