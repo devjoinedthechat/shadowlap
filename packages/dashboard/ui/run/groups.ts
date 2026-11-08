@@ -16,7 +16,9 @@ import { num } from '../format.js';
  * - A batch, a top agent with two or more conversations of its own (none a sub-agent's, none in
  *   one of Shadowlap's own scopes), has a row for each stretch of each conversation, its calls under
  *   it; the calls before its first item, a call not read yet and a call of Shadowlap's own stand at
- *   the top. Items past their agent's third are folded until opened.
+ *   the top. So do calls with no conversation number that no later call of the item follows: a page
+ *   read before the run's conversations were numbered, a recording's call that waits for the model
+ *   call it feeds. Items past their agent's third are folded until opened.
  *
  * A group's row says its calls, its loud ones and, for a sub-agent, what it spent, and how it ended.
  *
@@ -129,6 +131,9 @@ export type TraceRow<C> = { call: C; group: null; depth: number; head: TraceGrou
 export const ITEMS_OPEN = 3;
 
 const agentPath = (c: GroupCall): string => c.agent ?? c.scope ?? '';
+
+/** A call read with no conversation number: not known yet, or a request that is no conversation's turn (an embedding, a token count). */
+const unnumbered = (c: TraceCall): boolean => !c.pending && !c.reserved && typeof c.conversation !== 'number';
 
 /** The sub-agent a call was made in, one part below `base`: `agent/policy-checker` under All or under `agent`; none in `base` itself. */
 function subIn(c: GroupCall, base: string): string {
@@ -257,6 +262,17 @@ class TraceBuilder<C extends TraceCall> {
     };
     for (let i = 0; i < this.calls.length; i++) {
       const c = this.calls[i]!;
+      if (cur !== null && unnumbered(c)) {
+        // Calls with no conversation number stay in the item while a later call of it follows them;
+        // else they stand at the top until they are known, as a call not read yet does.
+        const j = this.numberedFrom(i + 1);
+        if (!this.continues(j, cur, place)) {
+          flush(i);
+          cur = null;
+        }
+        i = j - 1;
+        continue;
+      }
       const conv = !c.pending && !c.reserved && typeof c.conversation === 'number' && place.has(c.conversation) ? c.conversation : null;
       if (conv !== null && conv !== cur) {
         flush(i);
@@ -268,6 +284,20 @@ class TraceBuilder<C extends TraceCall> {
     }
     flush(this.calls.length);
     return out;
+  }
+
+  /** The first call from `i` that has a conversation number, or is not read yet, or is one of Shadowlap's own; the calls' length when none is. */
+  numberedFrom(i: number): number {
+    let j = i;
+    while (j < this.calls.length && unnumbered(this.calls[j]!)) j++;
+    return j;
+  }
+
+  /** Whether the call at `j` goes on with item `cur`: one of its conversation, or of one inside it (a sub-agent's, a nested scope's). */
+  continues(j: number, cur: number, place: ReadonlyMap<number, unknown>): boolean {
+    const c = this.calls[j];
+    if (!c || c.pending || c.reserved || typeof c.conversation !== 'number') return false;
+    return c.conversation === cur || !place.has(c.conversation);
   }
 }
 

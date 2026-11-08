@@ -118,6 +118,21 @@ describe('the trace: a batch’s items', () => {
     ]);
   });
 
+  it('leaves calls with no conversation number at the top until they are known, unless a later call of the item follows them', () => {
+    const two = [...ticket(1, 1), ...ticket(2, 5)];
+    const both = ['g:i1:0', '1:1', '2:1', '3:2', '4:1', 'g:i2:0', '5:1', '6:1', '7:2', '8:1'];
+    // A page read before the run's conversations were numbered, right after the last item read.
+    const deep = [m(9, { conversation: null, asks: ['lookup'] }), t(10, 9, { conversation: null }), m(11, { conversation: null })];
+    expect(rows([...two, ...deep])).toEqual([...both, '9:0', '10:1', '11:0']);
+    expect(pathOf(traceOf([...two, ...deep]), 11)).toEqual([]);
+    // A recording's clock read that waits for the model call it feeds, the next ticket's.
+    const waiting = [...two, r(9, 'clock', { conversation: null }), ...ticket(3, 9).slice(1)];
+    expect(rows(waiting)).toEqual([...both, '9:0', 'g:i3:0', '10:1', '11:2', '12:1']);
+    // Among an item's calls, as a request that is no conversation's turn (an embedding), it stays in the item.
+    const embedded = [...ticket(1, 1).slice(0, 3), m(4, { conversation: null }), m(5, { conversation: 1 }), ...ticket(2, 6)];
+    expect(rows(embedded)).toEqual(['g:i1:0', '1:1', '2:1', '3:2', '4:1', '5:1', 'g:i2:0', '6:1', '7:1', '8:2', '9:1']);
+  });
+
   it('leaves a call of Shadowlap’s own and one not read yet at the top, and a sub-agent’s conversations no item', () => {
     const judge = m(9, { scope: 'shadowlap:judge', conversation: 3, reserved: true });
     expect(rows([...ticket(1, 1), ...ticket(2, 5).slice(0, 2), { callNo: 7, pending: true }, ...ticket(2, 5).slice(3), judge])).toEqual(['g:i1:0', '1:1', '2:1', '3:2', '4:1', 'g:i2:0', '5:1', '6:1', '7:0', 'g:i2@8:0', '8:1', '9:0']);
