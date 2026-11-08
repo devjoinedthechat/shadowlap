@@ -147,6 +147,25 @@ describe('the check builder from a call', () => {
     expect(r!.all('.dwarn')).toEqual([]);
   });
 
+  it('drops an answer to an older draft: only the newest draft’s answer is drawn', async () => {
+    const asked: Array<(p: CheckPreview) => void> = [];
+    const s = stub();
+    s.checks.preview.mockImplementation(() => new Promise<CheckPreview>((done) => asked.push(done)));
+    await open(s);
+    await r!.until('the first draft asked', () => asked.length === 1);
+    // Another kind while the first draft's read is out: its answer comes late, and is dropped.
+    await r!.click(r!.all('.cb-kinds button')[1]);
+    const late = row('01K5CQ3CCCCCCCCCCCCCCCCCCC', 'failed');
+    asked[0]!({ ...preview, judged: [late, late, late], counts: { passed: 0, failed: 3, inconclusive: 0, notApplicable: 0 } });
+    await r!.until('the newest draft asked', () => asked.length === 2);
+    expect(r!.all('.cb-count')).toEqual([]);
+    expect(r!.all('.cb-note').some((n) => said(n) === 'Judging it on your recordings…')).toBe(true);
+    asked[1]!(preview);
+    await r!.until('the newest answer', () => r!.all('.cb-count').length > 0);
+    expect(text('.cb-count')).toBe('Passes 2 recordings · fails 1, labelled bug');
+    expect(s.checks.preview).toHaveBeenCalledTimes(2);
+  });
+
   it('judges no recording on a judge alone, says when it is asked, and keeps Save off until it is asked something', async () => {
     const s = stub();
     await open(s, { run, call, kind: 'judge' });

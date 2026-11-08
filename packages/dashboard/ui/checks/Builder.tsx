@@ -200,12 +200,24 @@ function useSave(cfg: ChecksConfig, golden: GoldenEntry | null, merged: Fragment
   };
 }
 
-/** The tools the agent's recordings call, gathered from each answer, and the golden a check from a call follows until one is picked. */
-function useFollow(props: BuilderProps, cfg: ChecksConfig, s: State, answer: CheckPreview | null, setS: (next: (x: State) => State) => void): readonly string[] {
+/** The preview as the builder last drew it: the answer to the draft as it stands, the last answer of any draft, and whether the newest is being judged. */
+interface Judging {
+  answer: CheckPreview | null;
+  last: CheckPreview | null;
+  pending: boolean;
+}
+
+/**
+ * The tools the agent's recordings call, gathered from each answer, and the golden a check from a call
+ * follows until one is picked. While the newest draft is being judged the golden stays: an answer to
+ * an older draft never moves it.
+ */
+function useFollow(props: BuilderProps, cfg: ChecksConfig, s: State, seen: Judging, setS: (next: (x: State) => State) => void): readonly string[] {
   const [tools, setTools] = useState<readonly string[]>([]);
-  if (answer && answer.tools.some((t) => !tools.includes(t))) setTools([...new Set([...tools, ...answer.tools])]);
+  const last = seen.last;
+  if (last && last.tools.some((t) => !tools.includes(t))) setTools([...new Set([...tools, ...last.tools])]);
   const rule = s.units[s.active]?.rule ?? null;
-  const auto = 'call' in props && !s.picked ? pickGolden(cfg.goldens, answer?.goldens ?? null, rule) : s.golden;
+  const auto = 'call' in props && !s.picked && !seen.pending ? pickGolden(cfg.goldens, seen.answer?.goldens ?? null, rule) : s.golden;
   if (auto !== s.golden) setS((x) => ({ ...withGolden(x, baseOf(goldenAt(cfg, auto))), golden: auto, picked: false }));
   return tools;
 }
@@ -213,16 +225,16 @@ function useFollow(props: BuilderProps, cfg: ChecksConfig, s: State, answer: Che
 function Body(props: BuilderProps & BodyProps) {
   const { cfg, of } = props;
   const fromCall = 'call' in props;
-  const [preview, setPreview] = useState<CheckPreview | null>(null);
+  const [seen, setSeen] = useState<Judging>({ answer: null, last: null, pending: false });
   const [s, setS] = useState<State>(() => startOf(props, cfg, ruleContext(props, cfg, props.context, [])));
-  const agentTools = useFollow(props, cfg, s, preview, setS);
+  const agentTools = useFollow(props, cfg, s, seen, setS);
   const rctx = ruleContext(props, cfg, props.context, agentTools);
   const [opened] = useState(() => snapOf(s.picked ? s.golden : null, s));
   const [conflict, setConflict] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
   const d = drawnOf(cfg, s);
   const judging = usePreview(of, d.judged);
-  if (judging.answer !== preview) setPreview(judging.answer);
+  if (judging.answer !== seen.answer || judging.last !== seen.last || judging.pending !== seen.pending) setSeen({ answer: judging.answer, last: judging.last, pending: judging.pending });
   const notes = notesOf(props, d, s.golden, judging.answer);
   const ways = waysOf(d, s, { amber: notes.some((n) => n.tone === 'amber'), conflict: !!conflict, edit: !fromCall && props.edit !== null, cfgError: props.cfgError, warn, redactions: cfg.redactions });
   const save = useSave(cfg, d.golden, d.settled.merged, { reread: props.reread, onConflict: setConflict, onWarn: setWarn });
@@ -260,15 +272,28 @@ function Body(props: BuilderProps & BodyProps) {
   );
 }
 
+/** How long the builder waits after the last change to a draft before it is judged. */
+const SETTLE_MS = 300;
+
+interface Got {
+  /** The draft the answer is to. */
+  key: string | null;
+  answer: CheckPreview | null;
+  error: string | null;
+}
+
 /**
- * The draft judged on the agent's recordings: at most one read in flight, since the pool can't stop
- * one, and the newest draft sent when the last answers. A failed read says so and keeps the last answer.
+ * The draft judged on the agent's recordings: asked about 300 ms after its last change, at most one
+ * read in flight, since the pool can't stop one, and the newest draft sent when the last answers. An
+ * answer to an older draft is dropped, so what is drawn is always the draft's own: until it comes,
+ * the draft is being judged. A failed read says so and keeps the last answer.
  */
-function usePreview(of: ChecksOf, judged: Fragment | null): { answer: CheckPreview | null; error: string | null; retry: () => void } {
+function usePreview(of: ChecksOf, judged: Fragment | null): Judging & { error: string | null; retry: () => void } {
   const { client } = useApp();
-  const [got, setGot] = useState<{ answer: CheckPreview | null; error: string | null }>({ answer: null, error: null });
+  const [got, setGot] = useState<Got>({ key: null, answer: null, error: null });
   const [tries, setTries] = useState(0);
   const flying = useRef(false);
+  const waiting = useRef(false);
   const want = useRef<string | null>(null);
   const alive = useRef(true);
   useEffect(() => {
@@ -285,18 +310,27 @@ function usePreview(of: ChecksOf, judged: Fragment | null): { answer: CheckPrevi
       const k = want.current;
       if (k === null || flying.current) return;
       flying.current = true;
-      const done = (next: (g: typeof got) => typeof got) => {
+      const done = (next: (g: Got) => Got) => {
         flying.current = false;
         if (!alive.current) return;
-        setGot(next);
-        if (want.current !== k) send();
+        if (want.current === k) setGot(next);
+        else if (!waiting.current) send();
       };
       client.checks.preview(JSON.parse(k) as Fragment, JSON.parse(whose) as ChecksOf).then(
-        (answer) => done(() => ({ answer, error: null })),
-        (err: unknown) => done((g) => ({ answer: g.answer, error: messageOf(err) })),
+        (answer) => done(() => ({ key: k, answer, error: null })),
+        (err: unknown) => done((g) => ({ ...g, error: messageOf(err) })),
       );
     };
-    send();
+    waiting.current = true;
+    const t = setTimeout(() => {
+      waiting.current = false;
+      send();
+    }, SETTLE_MS);
+    return () => {
+      clearTimeout(t);
+      waiting.current = false;
+    };
   }, [client, key, whose, tries]);
-  return { ...got, retry: () => setTries((t) => t + 1) };
+  const own = got.key === key;
+  return { answer: own ? got.answer : null, last: got.answer, pending: key !== null && !own, error: got.error, retry: () => setTries((t) => t + 1) };
 }
