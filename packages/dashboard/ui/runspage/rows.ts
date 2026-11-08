@@ -39,7 +39,7 @@ export function warmingLine(w: { done: number; total: number; what?: 'verdicts' 
  * runs Failed counts by their family's checks, but only Failed's rows, or a `status:` term's, wait on
  * them; under another chip they change no more than Failed's count, and the page says nothing of them.
  */
-export function shownWarming<W extends { what?: 'verdicts' }>(w: W | null, o: { chip: string; q: string }): W | null {
+export function shownWarming<W extends { done: number; total: number; what?: 'verdicts' }>(w: W | null, o: { chip: string; q: string }): W | null {
   return w?.what === 'verdicts' && o.chip !== 'failed' && !filterTerms(o.q).statuses.length ? null : w;
 }
 
