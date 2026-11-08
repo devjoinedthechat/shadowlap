@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect } from 'react';
 import { Conversation, useChange } from '../components/Conversation.js';
 import { Decision } from '../components/Decision.js';
 import { Icon } from '../components/Icon.js';
@@ -6,10 +6,12 @@ import { Id } from '../components/Id.js';
 import { Link } from '../components/Link.js';
 import { glossed } from '../components/Term.js';
 import { cellCost, cellLead, drawnCells, outcomeTone } from '../decisions.js';
+import { focusQuiet, pageUp } from '../focus-manager.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { glueBound } from '../matrix.js';
 import { href } from '../route.js';
+import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { CellOpen, DecisionCell, DecisionRun, DecisionStep, PreviewSession, Toned } from '../types.js';
 
@@ -30,9 +32,31 @@ function stepOf(session: PreviewSession, runId: string, callNo: number): Decisio
   return runs?.find((r) => r.runId === runId)?.decisions.find((s) => s.callNo === callNo) ?? null;
 }
 
+/**
+ * Esc closes an opened cell before the matrix lets go of its row (the shell asks `pageUp` first): it
+ * goes back to its session's page, the focus on the cell's own button where it was in the panel or lost.
+ */
+function useEscCloses(to: string): void {
+  useEffect(() => {
+    const close = (): boolean => {
+      const a = document.activeElement;
+      const lost = !a || a === document.body || !!a.closest('#dcell');
+      const cell = lost ? document.querySelector<HTMLElement>('.dmx button.dc[aria-current="true"]') : null;
+      navigate(to);
+      if (cell) focusQuiet(cell);
+      return true;
+    };
+    pageUp.current = close;
+    return () => {
+      if (pageUp.current === close) pageUp.current = null;
+    };
+  }, [to]);
+}
+
 export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSession; row: Row; callNo: number }) {
   const cell = row.cells.find((c) => c.callNo === callNo) ?? null;
   const close = href.changeSession('decisions', session.sessionId);
+  useEscCloses(close);
   const runLink = href.run(row.runId, callNo, 'decisions');
   const step = cell ? stepOf(session, row.runId, callNo) : null;
   return (

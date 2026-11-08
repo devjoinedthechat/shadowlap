@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { demoId, openPage, seriousViolations } from './dashboard.js';
+import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
 
 /**
  * The keyboard in Chromium over the demo store: the lists' keys on Runs, Esc going back the way you
@@ -436,4 +436,20 @@ test('a menu opened while the page left still owes its focus keeps it: Esc up fr
   await expect(items.first()).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(1)).toBeFocused();
+});
+
+test('Esc closes a preview’s opened cell before anything else, the focus back on its cell where it was in the cell', async ({ page, request }) => {
+  const { origin, token } = dash();
+  const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token } })).json()) as { sessions: Array<{ kind: string; sessionId: string }> };
+  const s = sessions.find((x) => x.kind === 'decisions');
+  expect(s, 'the demo’s preview').toBeTruthy();
+  await openPage(page, `/changes/decisions/${s!.sessionId}`, 'main#view .dmx button.dc');
+  const cell = page.locator('main#view .dmx button.dc').first();
+  await cell.click();
+  await expect(page.locator('#dcell')).toBeVisible();
+  await page.locator('#dcell .dch a').first().focus();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#dcell')).toHaveCount(0);
+  expect(await page.evaluate(() => location.hash)).toBe(`#/changes/decisions/${s!.sessionId}`);
+  await expect(cell).toBeFocused();
 });
