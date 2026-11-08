@@ -2,10 +2,10 @@ import { checkStatus, checkWords, fixLabelInfo, type FixRecords, fixRecords, los
 import { fixActions } from '../fix-actions.js';
 import { fixLead, type FixLead } from '../fix-lead.js';
 import { changeWords } from '../fix-list.js';
-import { fixHref, noAnswerLost, short } from '../fix-shared.js';
+import { checksOf, fixHref, noAnswerLost, short } from '../fix-shared.js';
 import { type NeedsLookItem, repairLeft } from '../fix-summary.js';
 import { links } from '../links.js';
-import { listedStep } from '../next-step.js';
+import { unblamedListedStep } from '../next-step.js';
 import { aboutsUpTo } from '../run-about.js';
 import { unblamedBlameCard, unblamedTitle } from '../unblamed-words.js';
 import { type HeldGolden, type LookSource, type LookStep, type LookWork, type NeedsLookRow, plural } from './row.js';
@@ -42,12 +42,14 @@ export const broken: LookSource = {
 /**
  * What a failed run failed on, as its page says it: where it was lost or diverged (`outcomeLabel`),
  * else its first failed check with what it saw (`send_email called at most 1 time, but called 2
- * times`, `checkWords`), else that it failed.
+ * times`, `checkWords`), a capture's as its import judged it, else that it failed.
  */
 function failedWords(w: LookWork, runId: string): string {
-  const o = w.index.byId.get(runId)?.outcome;
+  const row = w.index.byId.get(runId);
+  const o = row?.outcome;
   if (o?.kind === 'lost' || o?.kind === 'diverged') return outcomeLabel(o);
-  const check = w.store.getRun(runId)?.meta?.checks?.find((c) => checkStatus(c) === 'failed');
+  const run = w.store.getRun(runId);
+  const check = run ? checksOf(run, row).find((c) => checkStatus(c) === 'failed') : undefined;
   return check ? checkWords(check, ', but ') : o?.kind === 'check-failed' && o.check ? o.check : 'failed';
 }
 
@@ -67,9 +69,9 @@ export const unblamed: LookSource = {
     const run = w.index.byId.get(runId);
     const about = run ? aboutsUpTo(w.store, w.index, [run], w.budget).get(runId) : undefined;
     // Run blame only where its page leads with it: blame can't take a run that made no model call, and a failed injection test's proof comes first.
-    const next = listedStep(w.store, runId, w.next, { reads: w.reads });
+    const next = unblamedListedStep(w.store, runId, w.next, { reads: w.reads });
     const n = week.length;
-    // Its card names the run it blames, as Fixes' row says it: the newest, where the row stands for several.
+    // Its card names the run it blames, as Fixes' row says it; a capture's opens its page, where blame asks for your command first.
     const blames = unblamedBlameCard(n, short(runId));
     const step: LookStep | null = next?.key !== 'blame' ? null : next.capture ? { of: 'link', label: next.label, href: links.run(runId), title: blames } : { of: 'run', runId, step: { ...next, sub: blames } };
     const row: NeedsLookRow = {

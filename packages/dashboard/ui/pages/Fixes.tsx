@@ -121,7 +121,8 @@ function Rows({ view, chip, version }: { view: FixesView; chip: FixChip; version
   const folder = meta?.project?.path ?? null;
   const un = view.unblamed && unblamedShows(chip) ? view.unblamed : null;
   const rows = useMemo<ListRow[]>(() => [...(un ? [{ kind: 'unblamed' as const, u: un }] : []), ...view.fixes.filter((f) => chipKeeps(chip, f)).map((f) => ({ kind: 'fix' as const, f }))], [un, view, chip]);
-  const blameWait = un?.next && hasKind('blame') ? treeBusy(jobs, 'reads', 'blame', folder) : null;
+  // A capture's Run blame opens its page, where blame asks for your command first: no job, so no wait.
+  const blameWait = un?.next && !un.next.capture && hasKind('blame') ? treeBusy(jobs, 'reads', 'blame', folder) : null;
   // j and k walk the rows; Enter opens one; ⌘K offers its steps.
   const inFocus = useListKeys({
     rows,
@@ -131,7 +132,7 @@ function Rows({ view, chip, version }: { view: FixesView; chip: FixChip; version
     actions: (r) =>
       r.kind === 'fix'
         ? fixRowScope(r.f)
-        : unblamedScope({ name: unblamedTitle(r.u.count), command: r.u.next ? (r.u.next.command ?? ACTIONS.runBlame.label) : null, wait: blameWait, press: () => box.current?.querySelector<HTMLElement>('[data-rowkey="unblamed"] .psn .btn')?.click() }),
+        : unblamedScope({ name: unblamedTitle(r.u.count), command: r.u.next ? (r.u.next.command ?? ACTIONS.runBlame.label) : null, job: !r.u.next?.capture, wait: blameWait, press: () => box.current?.querySelector<HTMLElement>('[data-rowkey="unblamed"] .psn .btn')?.click() }),
   });
   if (!rows.length) return <EmptyLine>{CHIP_EMPTY[chip]}</EmptyLine>;
   return (
@@ -206,6 +207,7 @@ const FixListRow = memo(function FixListRow({ f, jobs, focused, why, version }: 
 });
 
 function UnblamedListRow({ u, jobs, focused }: { u: UnblamedRow; jobs: readonly JobListItem[]; focused: boolean }) {
+  const card = unblamedBlameCard(u.count, shortId(u.runId));
   return (
     <div className={focused ? 'psrow psun krow' : 'psrow psun'} role="listitem" data-rowkey="unblamed">
       <span className="pst">
@@ -228,16 +230,13 @@ function UnblamedListRow({ u, jobs, focused }: { u: UnblamedRow; jobs: readonly 
         <Step key={c.key} c={c} />
       ))}
       <span className="psn">
-        {u.next ? (
-          <RunBlameButton
-            runId={u.runId}
-            offer={{ failed: u.checks, from: u.from ?? 'ask' }}
-            className="btn sm"
-            title={unblamedBlameCard(u.count, shortId(u.runId))}
-            jobs={jobs}
-            {...(u.next.capture ? { capture: true } : {})}
-            {...(u.next.command ? { line: u.next.command } : {})}
-          />
+        {u.next?.capture ? (
+          // A capture's opens its run page, where blame asks for the command that starts your agent first.
+          <a className="btn sm" href={href.run(u.runId)} data-tip={tipCard(ACTIONS.runBlame.label, [], card)}>
+            {ACTIONS.runBlame.label}
+          </a>
+        ) : u.next ? (
+          <RunBlameButton runId={u.runId} offer={{ failed: u.checks, from: u.from ?? 'ask' }} className="btn sm" title={card} jobs={jobs} {...(u.next.command ? { line: u.next.command } : {})} />
         ) : (
           OPEN
         )}

@@ -93,6 +93,29 @@ describe('Needs a look: the failing runs nobody has blamed', () => {
   });
 });
 
+describe('Needs a look: a capture its import judged failed', () => {
+  it('counts as a failing run nobody has blamed, as Runs counts it: what its import judged, and Run blame on its page', () => {
+    const store = Store.open(':memory:');
+    try {
+      const judged = { rules: 'r', at: NOW - DAY, verdict: 'failed' as const, why: null, checks: [{ status: 'failed' as const, ok: false, label: 'every issue_refund call: amount <= 100', detail: 'amount was 240' }] };
+      const imported = { at: NOW - DAY, from: '/work/cap.jsonl' };
+      const capture = addRun(store, { startedAt: NOW - 3 * HOUR, status: 'completed', meta: { imported, covers: ['api'], judged }, calls: 'l' });
+      // One its import judged passing is no failure.
+      addRun(store, { startedAt: NOW - 2 * HOUR, status: 'completed', meta: { imported, covers: ['api'], judged: { ...judged, verdict: 'passed' as const, checks: [] } }, calls: 'l' });
+      const card = `Blames ${capture.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to`;
+      expect(overviewSummary(store, { tz: 'UTC', now: NOW }).needsLook.items.find((x) => x.kind === 'unblamed')).toMatchObject({
+        title: '1 failing run nobody has blamed',
+        runId: capture,
+        detail: `${capture.slice(0, 10)} · every issue_refund call: amount <= 100, but amount was 240`,
+        // Its page asks for your command first: the step opens it.
+        step: { of: 'link', label: 'Run blame', href: `#/run/${capture}`, title: card },
+      });
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe('Needs a look: a model the goldens use that retires', () => {
   it('names the model, how many goldens use it and when it goes, the soonest first, with Migrate to what replaces it', () => {
     const store = Store.open(':memory:');

@@ -888,6 +888,18 @@ export function listedStep(store: Store, runId: string, work: NextStepWork | nul
   }
 }
 
+/**
+ * The newest run's step on the row of failed runs nobody has blamed (Fixes, Needs a look): its listed
+ * step, a capture's by the verdict its import kept, as the lists count it failed (fix-shared.ts
+ * `capturedFailure`): the fix that holds the same failure, else Run blame, which asks for your
+ * command on the capture's page. No call is read for it.
+ */
+export function unblamedListedStep(store: Store, runId: string, work: NextStepWork | null, o: { reads: StepReads }): NextStep | null | undefined {
+  const capture = o.reads.index.byId.get(runId)?.kind === 'capture';
+  const judged = capture ? runJudged(store, o.reads.index, runId, null, { quick: true }) : undefined;
+  return listedStep(store, runId, work, judged === undefined ? o : { ...o, judged });
+}
+
 /** A run's Replay for a list, as its page keeps it beside its next step: undefined for a record it can't be read from. */
 function listedReplay(store: Store, index: RunIndex, runId: string): NextStepRow | undefined {
   try {
