@@ -12,6 +12,7 @@ import { aboutOfRun } from '../src/run-about.js';
 import { loadRunIndex } from '../src/run-index.js';
 import { startDashboard, type Dashboard, type JobView } from '../src/index.js';
 import { CALL_ROW_MAX } from '../ui/fixes/model.js';
+import { inScope, realScopes, scopeOnly } from '../ui/scopes.js';
 
 /**
  * A fix's page, step by step: the step its header leads with (the same as its Fixes row's), Verify
@@ -120,6 +121,22 @@ describe('the Blame step’s row of calls', () => {
     const { fix } = recordBlame(store, { runId: long, report: blameReport(long), expect: SEND_ONCE, scope: null, command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once', at: (at += DAY) });
     const row = detail(fix.fixId).blame!.callRow;
     expect([row.length, row.filter((c) => c.kind === 'tool').length, row.filter((c) => c.name !== undefined).length]).toEqual([CALL_ROW_NAMED + 1, 9, 0]);
+  });
+
+  it('steps through the model calls of each scope the run page offers blame by: one its author gave, never an agent the server names alone', () => {
+    const run = makeRun(store, { labels: ['scoped'], calls: [{ kind: 'api', scope: 'agent' }, { kind: 'tool', scope: 'agent' }, { kind: 'api', scope: 'agent/planner' }, 'api', { kind: 'api', scope: 'customer' }] });
+    const calls = store.getCalls(run);
+    // The run page's rows as the server sends them: each call's scope, and at #4 a sub-agent it names, with no scope of its own.
+    const rows = calls.map((c) => ({ callNo: c.callNo, kind: c.kind, scope: typeof c.meta.scope === 'string' ? c.meta.scope : null, agent: c.callNo === 4 ? 'agent/Explore' : null }));
+    const chips = realScopes(rows);
+    expect(chips).toEqual(['agent', 'agent/planner', 'customer']);
+    const onPage = (chip: string) => rows.filter((c) => c.kind === 'api' && inScope(c, chip, scopeOnly)).map((c) => c.callNo);
+    for (const chip of chips) expect(blameSteps(calls, chip).map((c) => c.callNo)).toEqual(onPage(chip));
+    // Blamed within the first, the step's row marks those calls, and the agent's tool call in its scope too.
+    const { fix } = recordBlame(store, { runId: run, report: { ...blameReport(run), steps: 2 }, expect: SEND_ONCE, scope: 'agent', command: 'shadowlap blame', title: 'send_email called twice', checkText: 'send_email called once', at: (at += DAY) });
+    const row = detail(fix.fixId).blame!.callRow;
+    expect(row.filter((c) => c.probed).map((c) => c.callNo)).toEqual(onPage('agent'));
+    expect(row.filter((c) => c.inScope).map((c) => c.callNo)).toEqual([1, 2, 3]);
   });
 });
 
