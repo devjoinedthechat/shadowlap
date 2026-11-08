@@ -84,6 +84,17 @@ describe('a check', () => {
   });
 });
 
+describe('a golden of several attempts', () => {
+  it('says what its attempts did and in how many, then the attempts, where they forked, and its other checks', () => {
+    const { report } = world('refund', () => ({ ok: false, failure: 'check', reason: '3 of 5 attempts passed, 5 needed', data: { mode: 'fork', calls: { total: 4, replayed: 2, live: 2, blocked: 0, stubbed: 0 }, upstreamRequests: 10, attempts: { total: 5, passed: 3, required: 5, runs: [] }, checks: [check('send_email called at most 1 time', 'failed', 'called 2 times'), check('output includes "refund"', 'passed')], divergence: { type: 'request_changed', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1, text: '' } } }), { mode: 'fork', checks: ['send_email called at most 1 time', 'output includes "refund"'] });
+    expect(report.head).toEqual(['send_email called twice in 2 of 5 attempts']);
+    expect(report.sub).toEqual(['10 upstream requests']);
+    expect(report.parts).toEqual([{ kind: 'attempts', check: { label: 'send_email called at most 1 time', detail: 'called 2 times' }, carried: null, forked: 2 }, { kind: 'checks', labels: ['output includes "refund"'] }]);
+    expect(report.open?.label).toBe('Open failing attempt');
+    expect(report.hint).toEqual({ key: 'check' });
+  });
+});
+
 describe('the lines as printed', () => {
   const result = (r: Partial<TestResult>): TestResult => ({ resultId: 'r', sessionId: 's', golden: 'goldens/refund', ok: false, failure: 'exit', reason: 'the agent exited with code 1', runId: null, at: 1, revision: null, ...r }) as TestResult;
 
