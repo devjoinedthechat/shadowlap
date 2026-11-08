@@ -426,7 +426,8 @@ export function settle(units: readonly Unit[], base: Fragment | null, active: nu
   const merged = mergeFragments(live().map((i) => fs[i]!));
   const rows = units.map((u, i): UnitRow => {
     const f = fs[i] ?? null;
-    const tag = u.gone ? 'removed' : replaced[i] ? 'replaced' : !u.orig ? 'new' : f && !same(u.orig, f) ? 'changed' : '';
+    // Changed is said of the one in the editor, as the mock has it; Save's change box shows the rest.
+    const tag = u.gone ? 'removed' : replaced[i] ? 'replaced' : !u.orig ? 'new' : i === active && f && !same(u.orig, f) ? 'changed' : '';
     return { f, why: whys[i] ?? null, replaced: replaced[i]!, tag, labels: f ? labelsOf(f) : [u.rule ? (whys[i] ?? '') : 'a new check'] };
   });
   const edits = fs.flatMap((f, i) => (f && !gone[i] && !replaced[i] && !same(f, units[i]!.orig) ? [f] : []));
@@ -468,7 +469,8 @@ export const ruleTool = (rule: Rule | null): string | null => (!rule ? null : 't
  * needs no such call), else the first. A golden whose pack can't be read is left out.
  */
 export function pickGolden(goldens: readonly GoldenEntry[], answers: readonly PreviewGolden[] | null, rule: Rule | null): string | null {
-  const usable = goldens.filter((g) => !g.error);
+  // A golden whose pack the preview couldn't read is left out too.
+  const usable = goldens.filter((g) => !g.error && !answers?.some((a) => a.path === g.path && a.error));
   const first = usable[0] ?? goldens[0];
   if (!first || !answers || !rule || !fragmentOf(rule).f) return first?.path ?? null;
   const tool = ruleTool(rule);

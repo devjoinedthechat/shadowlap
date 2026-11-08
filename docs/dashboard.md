@@ -1653,7 +1653,7 @@ A capture has no command to run again, so **Run blame** asks for yours, which ru
 The check builder makes a check from a tool call and writes it to the golden's entry under `tests` in `shadowlap.config.json`. [Checks](./checks.md#make-a-check-in-the-dashboard) describes the rules it builds; this is the dialog.
 
 - **The golden it goes to** follows the rule as it changes: the first of the agent's goldens whose own recording passes it. Pick one under **Checks of**, which lists the agent's goldens, and it stays.
-- **The golden's checks**: one row a check, labelled as reports label them. The rule being built reads `new`, an edited one `changed`, and a removed one `removed`, with **Keep**. A tool's count the rule takes the place of reads `replaced`.
+- **The golden's checks**: one row a check, labelled as reports label them. The rule being built reads `new`, or `changed` once it edits one of the file's, and a removed one `removed`, with **Keep**. A tool's count the rule takes the place of reads `replaced`.
 - **An injection gate** set in the golden's entry is a row of its own, read only.
 - **Against your recordings**: the counts, with *not applicable* apart, the notes in amber or grey, the recordings on request, and the `shadowlap check` command with **Copy whole command**.
 - **The change**: the golden's entry as the file will hold it, with the file's version. When saving would also lay out other lines of the file anew, it says so first.

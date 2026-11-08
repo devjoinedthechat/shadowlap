@@ -208,6 +208,8 @@ describe('the golden’s checks as they change', () => {
     const s = settle(us, base, 1);
     expect(s.rows.map((r) => r.tag)).toEqual(['removed', 'changed']);
     expect(s.merged).toEqual({ tools: { b: '>= 1' } });
+    // Changed is said of the one in the editor only, as the mock has it.
+    expect(settle([...us, blankUnit()], base, 2).rows.map((r) => r.tag)).toEqual(['removed', '', 'new']);
   });
 
   it('says nothing changed, then why the rule can’t be saved yet, then to finish another rule first', () => {
@@ -272,6 +274,8 @@ describe('the golden it goes to', () => {
     expect(pickGolden(gs, answers, ruleFrom('must', ctx))).toBe('goldens/b');
     expect(pickGolden([golden('goldens/a', { error: 'no pack' }), gs[1]], null, null)).toBe('goldens/b');
     expect(pickGolden(gs, [answer('goldens/a', row('failed'))], ruleFrom('must', ctx))).toBe('goldens/a');
+    // One whose pack the preview couldn't read is no fallback either.
+    expect(pickGolden(gs, [{ ...answer('goldens/a', null), error: 'not a pack' }, answer('goldens/b', row('failed'))], ruleFrom('must', ctx))).toBe('goldens/b');
     expect(pickGolden([], null, null)).toBeNull();
   });
 });
