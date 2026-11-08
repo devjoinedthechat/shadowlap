@@ -8,7 +8,7 @@ import { pluralS as s } from '../../../engine/src/words.js';
 import { repairSub } from './estimates.js';
 import { blameAgainTip, STRONGER_TIP, treeBusy, type FixChip, type TreeJob } from './model.js';
 export { STEP_NAMES } from './row-scope.js';
-import { verifyTip } from './VerifyStep.js';
+import { verifyLeftCard, verifyTip } from './VerifyStep.js';
 
 /**
  * How the Fixes list reads its answer (`GET /api/fixes`): the header's figures, what each chip says
@@ -137,10 +137,6 @@ export const LEAD_VERB: Readonly<Record<FixLead['key'], string>> = {
 export const leadReadsFix = (lead: Pick<FixLead, 'key'>): boolean => lead.key === 'blame-stronger' || lead.key === 'repair' || lead.key === 'apply';
 
 const capital = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
-
-/** Verify this run's card: the failing runs it verifies, by their short ids, on the code as it is now. */
-export const verifyLeftCard = (runs: readonly string[]): string =>
-  `Verifies the code as it is now on ${runs.map(shortId).join(', ')}, the failing run${s(runs.length)} this change wasn’t verified on`;
 
 /** A lead's card sentence, under its label: the words the fix's own page gives the same button. */
 export function leadCard(lead: FixLead): string | null {

@@ -18,11 +18,11 @@ import { navigate } from '../router.js';
 import type { FixDetail, VerifyRow, VerifyStep } from '../types.js';
 import type { VerifiedRunGroups } from '../../src/attempt-groups.js';
 import { runOutcomeWord, verdictWord } from '../../../engine/src/verdict-words.js';
+import { pluralS } from '../../../engine/src/words.js';
 import { ACTIONS } from '../labels.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
 import { useFixEstimates } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
-import { verifyLeftCard } from './list.js';
 import { keepAt, moreLine, outcomeTone, tokens, verdictTone, verifyFor } from './model.js';
 
 /**
@@ -296,8 +296,12 @@ function Receipts({ v }: { v: VerifyStep }) {
   );
 }
 
+/** Verify this run's card: the failing runs it verifies, by their short ids, on the code as it is now. */
+export const verifyLeftCard = (runs: readonly string[]): string =>
+  `Verifies the code as it is now on ${runs.map(shortId).join(', ')}, the failing run${pluralS(runs.length)} this change wasn’t verified on`;
+
 /** What Run more attempts or Verify again does, on its card and as its ask's lead. */
-export const verifyTip = (more: Pick<NonNullable<VerifyStep['more']>, 'kind' | 'max'>): string => (more.kind === 'more' ? `Verifies the change again from the start, up to ${more.max} attempts a run` : 'Verifies the same runs again from the start, once the check can be judged');
+export const verifyTip =(more: Pick<NonNullable<VerifyStep['more']>, 'kind' | 'max'>): string => (more.kind === 'more' ? `Verifies the change again from the start, up to ${more.max} attempts a run` : 'Verifies the same runs again from the start, once the check can be judged');
 
 /** Run more attempts' lead: verify has no --continue, so the attempts so far start over. */
 const moreLead = (attempts: number): string => `Verifies the change again from the first attempt: the ${attempts.toLocaleString('en-US')} so far ${attempts === 1 ? 'doesn’t' : 'don’t'} carry over.`;
