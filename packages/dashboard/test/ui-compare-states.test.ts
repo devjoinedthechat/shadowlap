@@ -348,11 +348,15 @@ describe('the whole comparison', () => {
     expect(page.all('#cmpd')).toHaveLength(0);
   });
 
-  const shown = async (c: Partial<Client>, hash: string, what: () => boolean) => {
+  /** The page at `hash` once `what` holds of it. */
+  const shown = async (c: Partial<Client>, hash: string, what: (r: Rendered) => boolean): Promise<Rendered> => {
     addressBar(hash);
-    page = await render(createElement(AppContext.Provider, { value: app(c, [listed(REC), listed(FORK)]) }, createElement(Routed)));
-    await page.until('the comparison', what);
+    const r = await render(createElement(AppContext.Provider, { value: app(c, [listed(REC), listed(FORK)]) }, createElement(Routed)));
+    page = r;
+    await r.until('the comparison', () => what(r));
+    return r;
   };
+  const compared = (p: unknown) => () => Promise.resolve({ ...view, pair: p } as unknown as CompareView);
 
   it('reads both calls before it draws the opened row, saying it loads, and why with Retry where one can’t be read', async () => {
     let fail = true;
@@ -365,17 +369,17 @@ describe('the whole comparison', () => {
       if (id === FORK && fail) throw new ApiError(500, 'the store could not be read');
       return detailOf(id, n);
     };
-    await shown({ ...client, call }, `#/compare/${REC}/${FORK}/19`, () => page!.all('#cmpd .skel').length > 0);
+    const page = await shown({ ...client, call }, `#/compare/${REC}/${FORK}/19`, (r) => r.all('#cmpd .skel').length > 0);
     expect(page.one('#cmpd .skel [role="status"]').textContent).toBe('Loading #19 in both runs…');
     // Neither side is drawn against nothing meanwhile.
     expect(page.all('#cmpd .cmpdx, #cmpd .cmpk')).toHaveLength(0);
     release();
-    await page.until('the failure said', () => page!.all('#cmpd .loaderr').length > 0);
+    await page.until('the failure said', () => page.all('#cmpd .loaderr').length > 0);
     expect(page.one('#cmpd .loaderr').textContent).toBe('couldn’t loadThe store could not be readRetry');
     expect(page.all('#cmpd .cmpdx, #cmpd .skel')).toHaveLength(0);
     fail = false;
     await page.click(page.one('#cmpd .loaderr button'));
-    await page.until('both calls', () => page!.all('#cmpd .cmpnote').length > 0);
+    await page.until('both calls', () => page.all('#cmpd .cmpnote').length > 0);
     // Only the call that failed is asked for again.
     expect(asked.sort()).toEqual([`${FORK}:19`, `${FORK}:19`, `${REC}:19`].sort());
   });
@@ -392,9 +396,9 @@ describe('the whole comparison', () => {
     const hungUp = (id: string, n: number) => {
       asked.push(`${id}:${n}`);
       const d = detailOf(id, n);
-      return Promise.resolve(id === FORK ? { ...d, call: { ...d.call, origin: 'live', status: null, error: 'socket hang up' } } : d);
+      return Promise.resolve(id === FORK ? ({ ...d, call: { ...d.call, origin: 'live', status: null, error: 'socket hang up' } } as unknown as CallDetail) : d);
     };
-    await shown({ ...client, compare: () => Promise.resolve({ ...view, pair: judged }), call: hungUp }, `#/compare/${REC}/${FORK}/19`, () => page!.all('#cmpd .cmpnote').length > 0);
+    const page = await shown({ ...client, compare: compared(judged), call: hungUp }, `#/compare/${REC}/${FORK}/19`, (r) => r.all('#cmpd .cmpnote').length > 0);
     expect(page.all('button.cprow').map((r) => [r.getAttribute('data-n'), r.querySelector('.cpn')!.textContent])).toEqual([
       ['19', '#19'],
       ['20', '#20'],
@@ -410,7 +414,7 @@ describe('the whole comparison', () => {
   it('draws a row both made alike on one dimmed line, nothing in it marked', async () => {
     const send = { ...refund, tools: [{ name: 'send_email', args: { to: 'customer@example.com', body: 'Your refund of $240 is on its way. '.repeat(6) }, effect: 'write' }] };
     const alike = { ...pair, rows: [{ n: 19, a: call(19, { decision: send }), b: call(19, { decision: send }), alike: true, similar: false }] };
-    await shown({ ...client, compare: () => Promise.resolve({ ...view, pair: alike }) }, `#/compare/${REC}/${FORK}`, () => page!.all('button.cprow').length > 0);
+    const page = await shown({ ...client, compare: compared(alike) }, `#/compare/${REC}/${FORK}`, (r) => r.all('button.cprow').length > 0);
     expect(page.all('.pside.same')).toHaveLength(2);
     expect(page.all('.pdec.wrap, .cprow mark, .cprow wbr')).toHaveLength(0);
   });
@@ -418,10 +422,10 @@ describe('the whole comparison', () => {
   it('names the other run where a decision calls a tool it doesn’t, for a screen reader, and heads a tool’s values with its cost and time', async () => {
     const escalate = { ...refund, tools: [{ name: 'escalate', args: { team: 'billing' }, effect: 'write' }] };
     const decided = { ...pair, rows: [{ n: 19, a: call(19, { decision: refund }), b: call(19, { decision: escalate }), alike: false, similar: false }, pair.rows[1]] };
-    await shown({ ...client, compare: () => Promise.resolve({ ...view, pair: decided }) }, `#/compare/${REC}/${FORK}/19`, () => page!.all('#cmpd .dtool').length === 2);
+    const page = await shown({ ...client, compare: compared(decided) }, `#/compare/${REC}/${FORK}/19`, (r) => r.all('#cmpd .dtool').length === 2);
     expect(page.all('#cmpd .dtool .sr').map((s) => s.textContent)).toEqual([', not called in 01M5GRXFM1', ', not called in 01M5GRVTKS']);
     await page.click(page.all('button.cprow')[1]);
-    await page.until('the tool’s row', () => page!.all('#cmpd .cmptool').length > 0);
+    await page.until('the tool’s row', () => page.all('#cmpd .cmptool').length > 0);
     // Its run, its call, what it cost and took, then its arguments and result, then the way to its run.
     const order = [...page.all('#cmpd .cmpdc')[0].children].filter((e) => e.tagName === 'P' || e.tagName === 'A').map((e) => e.className);
     expect(order).toEqual(['cmpwho', 'cmptool', 'cmpmeta', 'cmpk', 'cmpk', 'more']);
@@ -431,9 +435,9 @@ describe('the whole comparison', () => {
     const recording = { ...pair, verdict: null, endings: { ...pair.endings, b: { failures: null, writes: [], end: { kind: 'running', callNo: 19 }, quit: false } }, more: 3 };
     const live = (id: string) => {
       const r = run(id, id === FORK ? REC : null);
-      return Promise.resolve(id === FORK ? { ...r, run: { ...r.run, status: 'running' } } : r);
+      return Promise.resolve(id === FORK ? { ...r, run: { ...r.run, status: 'running' as const } } : r);
     };
-    await shown({ ...client, run: live, compare: () => Promise.resolve({ ...view, pair: recording }) }, `#/compare/${REC}/${FORK}`, () => page!.all('button.cprow').length > 0);
+    const page = await shown({ ...client, run: live, compare: compared(recording) }, `#/compare/${REC}/${FORK}`, (r) => r.all('button.cprow').length > 0);
     expect(page.all('.verdict')).toHaveLength(0);
     expect(page.all('p.cmpv.cmplive .cmpends > span').map((l) => l.textContent)).toEqual(['issue_refund · answered at #21 · ≈$0.051 spent', 'no write · still running · ≈$0.051 spent']);
     expect(page.all('.cmpmore').map((p) => p.textContent)).toEqual(['… 3 more calls', 'recording · more calls as they arrive']);
