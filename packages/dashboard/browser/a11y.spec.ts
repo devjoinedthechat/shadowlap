@@ -332,20 +332,45 @@ test('the good/bad key labels a run in one press, says so with Undo, and has no 
   expect(await seriousViolations(page)).toEqual([]);
 });
 
-test('a run’s calls sit under the call they belong to, each fold mark announced, with no serious axe violation', async ({ page }) => {
+test('a run’s trace: a model call’s caret, a sub-agent’s row, the fold buttons one Tab stop, with no serious axe violation', async ({ page }) => {
   await openPage(page, `/run/${demoId('eval')}`, 'run');
-  await page.waitForSelector('main#view table.calls.grouped button.tw');
-  const fold = page.locator('main#view table.calls button.tw').first();
-  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  await page.waitForSelector('main#view table.calls.grouped button.tcaret');
+  const caret = page.locator('main#view table.calls button.tcaret').first();
+  await expect(caret).toHaveAttribute('aria-expanded', 'true');
+  await expect(caret).toHaveAttribute('aria-label', /^Hide (tool )?calls? of #\d+$/);
+  // The eval's policy checker runs under the agent: a row of its own names it.
+  await expect(page.locator('main#view table.calls tr.tgr button.tgsum').filter({ hasText: 'policy-checker' }).first()).toHaveAttribute('aria-label', /^policy-checker, sub-agent, \d+ calls?/);
   const rows = await page.locator('main#view table.calls tbody tr[data-wi]').count();
-  await fold.click();
-  await expect(fold).toHaveAttribute('aria-expanded', 'false');
+  await caret.click();
+  await expect(caret).toHaveAttribute('aria-expanded', 'false');
   expect(await page.locator('main#view table.calls tbody tr[data-wi]').count()).toBeLessThan(rows);
+  expect(await page.locator('main#view table.calls [data-fold][tabindex="0"]').count()).toBe(1);
   expect(await seriousViolations(page)).toEqual([]);
-  // Opened again with its own fold mark: there is no Fold all or Unfold all.
-  await fold.click();
-  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  // Opened again at its own caret: there is no Fold all or Unfold all.
+  await caret.click();
+  await expect(caret).toHaveAttribute('aria-expanded', 'true');
   expect(await page.locator('main#view').getByRole('button', { name: /^(Un)?[Ff]old all$/ }).count()).toBe(0);
+});
+
+test('a batch’s tickets are rows of their own, each named by what it was asked, the fourth folded until opened', async ({ page }) => {
+  await openPage(page, `/run/${demoId('batch')}`, 'run');
+  await page.waitForSelector('main#view table.calls tr.tgr button.tgsum');
+  const items = page.locator('main#view table.calls tr.tgr button.tgsum');
+  await expect(items.first()).toHaveAttribute('aria-label', /^New ticket T-9100 /);
+  // The first three are open; folded, each brings the next into view, and the fourth is folded.
+  for (const n of [0, 1, 2]) {
+    await expect(items.nth(n)).toHaveAttribute('aria-expanded', 'true');
+    await items.nth(n).click();
+    await expect(items.nth(n)).toHaveAttribute('aria-expanded', 'false');
+  }
+  await expect(items.nth(3)).toHaveAttribute('aria-expanded', 'false');
+  // ↓ on a focused fold button moves to the next, and → opens a folded one.
+  await items.nth(2).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(items.nth(3)).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(items.nth(3)).toHaveAttribute('aria-expanded', 'true');
+  expect(await seriousViolations(page)).toEqual([]);
 });
 
 test('what a run did that Shadowlap did not record is among its findings, with no serious axe violation', async ({ page }) => {
