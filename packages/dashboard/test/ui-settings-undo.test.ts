@@ -256,7 +256,6 @@ describe('Undo on Store’s Push from CI', () => {
     configured: 's3://northwind-agent-runs/support-agent',
     error: null,
     status: { url: 's3://northwind-agent-runs/support-agent', name: 'northwind-agent-runs', region: 'eu-central-1', providerName: 'Amazon S3', access: 'AWS profile northwind-dev', syncedAt: null, inStore: 3, onlyLocal: 0, queued: 0, check: null, ciPush },
-    ciStep: null,
     policy: { text: '{}', command: 'shadowlap store policy' },
     redactRules: 2,
   });
@@ -271,10 +270,13 @@ describe('Undo on Store’s Push from CI', () => {
     const on = r.one('.settab [role="switch"]');
     expect([on.getAttribute('aria-labelledby'), on.getAttribute('aria-describedby'), on.getAttribute('aria-checked')]).toEqual(['ciPush-name', 'ciPush-help', 'true']);
     expect([r.one('#ciPush-name').textContent, r.one('#ciPush-help').textContent]).toEqual(['Push from CI', 'CI pushes every test run, its report and each fix it opens, so history covers every pull request.']);
+    // GitHub's step is Your workflow's, on Settings → CI, which builds the one workflow.
+    const link = r.byText('.settab .setrow a.wflink', 'Open Your workflow');
+    expect([link.getAttribute('href'), link.getAttribute('title')]).toEqual(['#/settings/ci', 'Settings → CI builds the one workflow, this step with it']);
     [ciPush, version] = [false, 'v2'];
     await r.click(on);
     await r.until('the toast', () => toasts.length === 1);
-    expect([toasts[0].text, toasts[0].kind, toasts[0].action?.label]).toEqual(['Push from CI off · written to shadowlap.config.json; commit it for CI to see it', 'notice', 'Undo']);
+    expect([toasts[0].text, toasts[0].kind, toasts[0].action?.label]).toEqual(['Push from CI is off · Your workflow changes with it', 'notice', 'Undo']);
     await r.until('the switch off', () => r!.one('.settab [role="switch"]').getAttribute('aria-checked') === 'false');
     [ciPush, version] = [true, 'v1'];
     await act(async () => toasts[0].action!.run());
@@ -283,7 +285,7 @@ describe('Undo on Store’s Push from CI', () => {
       [false, 'v1'],
       [null, 'v2'],
     ]);
-    expect([toasts[1].text, toasts[1].action]).toEqual(['Push from CI on · written to shadowlap.config.json; commit it for CI to see it', undefined]);
+    expect([toasts[1].text, toasts[1].action]).toEqual(['Push from CI is on · Your workflow changes with it', undefined]);
     await r.until('the switch on', () => r!.one('.settab [role="switch"]').getAttribute('aria-checked') === 'true');
   });
 
@@ -296,6 +298,6 @@ describe('Undo on Store’s Push from CI', () => {
     await r.click(r.one('.settab [role="switch"]'));
     await r.until('the toast', () => toasts.length === 1);
     expect(setCiPush.mock.calls).toEqual([[false, 'v1']]);
-    expect([toasts[0].text, toasts[0].kind, toasts[0].action]).toEqual(['Push from CI off · written to shadowlap.config.json; commit it for CI to see it', 'notice', undefined]);
+    expect([toasts[0].text, toasts[0].kind, toasts[0].action]).toEqual(['Push from CI is off · Your workflow changes with it', 'notice', undefined]);
   });
 });

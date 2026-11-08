@@ -33,12 +33,12 @@ test('a Settings row puts its label and line over its control on a phone, a Swit
   const row = page.locator('main#view .setrow').first();
   const [words, control] = await Promise.all([row.locator(':scope > div').first().boundingBox(), row.locator(':scope > :not(div:first-child)').first().boundingBox()]);
   expect(control!.y).toBeGreaterThanOrEqual(words!.y + words!.height);
-  // A Switch comes right under what it turns on, and the link beside it (Copy CI step) after it.
+  // A Switch comes right under what it turns on, and the link beside it (Open Your workflow, or another CI's Copy CI step) after it.
   await openPage(page, '/settings/store', 'main#view .setrow:has(#ciPush-name) [role="switch"]');
   const ci = page.locator('main#view .setrow:has(#ciPush-name)');
-  const [line, on, link] = await Promise.all([ci.locator(':scope > div').first().boundingBox(), ci.getByRole('switch', { name: 'Push from CI' }).boundingBox(), ci.getByRole('button', { name: 'Copy CI step' }).boundingBox()]);
+  const [line, on, link] = await Promise.all([ci.locator(':scope > div').first().boundingBox(), ci.getByRole('switch', { name: 'Push from CI' }).boundingBox(), ci.locator('.wflink').boundingBox()]);
   expect(on!.y, 'the Switch under its line').toBeGreaterThanOrEqual(line!.y + line!.height);
-  expect(link!.y, 'Copy CI step under the Switch').toBeGreaterThanOrEqual(on!.y + on!.height);
+  expect(link!.y, 'the link under the Switch').toBeGreaterThanOrEqual(on!.y + on!.height);
   await openPage(page, '/training', 'main#view .ph');
   expect(await page.evaluate(sideways)).toBe(0);
 });
