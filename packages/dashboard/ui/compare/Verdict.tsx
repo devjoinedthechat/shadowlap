@@ -1,10 +1,11 @@
 import { Fragment, type ReactNode } from 'react';
 import type { RunDetail } from '../api.js';
-import { Org } from '../components/bits.js';
 import { Status } from '../components/Status.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
+import { ORIGIN_NAME } from '../origins.js';
+import { rescuedAt } from '../run/model.js';
 import { runFact, runSpentWords, useJudgedAt } from '../run/parts.js';
 import { presetAttempt } from '../run/preset.js';
 import { useApp } from '../state.js';
@@ -18,13 +19,9 @@ export interface PairRun {
   rescued: boolean;
 }
 
-/**
- * Whether blame rescued a run with this fork: the server's `rescuedBy`, or the other side, its
- * parent, naming it as the run its blame rescued (run-extras.ts reads the same from the run's parent).
- */
+/** Whether blame rescued a run with this fork, as its page says it (rescuedAt): the other side's blame counts where it is the run's parent. */
 export function rescuedIn(run: RunDetail, other: RunDetail | null): boolean {
-  if (run.rescuedBy) return true;
-  return !!other && run.parent?.runId === other.run.runId && other.run.meta?.blame?.rescuedRunId === run.run.runId && !!run.run.divergence;
+  return rescuedAt(run, other && run.parent?.runId === other.run.runId ? other : null, null) !== null;
 }
 
 /**
@@ -49,24 +46,46 @@ export function PairVerdict({ pair, a, b }: { pair: Pair; a: PairRun & { run: Ru
   );
 }
 
-/** A writes part: each tool as code, with how many times, those a replay fenced under their origin's word. */
+/**
+ * A writes part: each tool as code with how many times, kept whole, those a replay fenced with their
+ * origin's word in its colour after the last; `and` stays with the last, so a list wider than the
+ * line breaks between its writes.
+ */
 function writesPart(p: Extract<EndingPart, { kind: 'writes' }>): ReactNode {
-  return (
+  const last = p.tools.length - 1;
+  const origin = p.fate === 'blocked' ? 'block' : 'stub';
+  return p.tools.map((t, i) => (
+    <Fragment key={t.tool}>
+      {i ? (i === last ? ' and\u00a0' : ', ') : null}
+      <span className="nw">
+        <code>{t.tool}</code>
+        {t.times ? ` ${t.times}` : null}
+        {p.fate && i === last ? (
+          <>
+            {' '}
+            <span className={`org ${origin}`}>{ORIGIN_NAME[origin]}</span>
+          </>
+        ) : null}
+      </span>
+    </Fragment>
+  ));
+}
+
+/** A part of the line a run as it is drawn: its writes, or its words with the status it names kept on one line. */
+function partOf(p: EndingPart): ReactNode {
+  if (p.kind === 'writes') return writesPart(p);
+  if (p.kind === 'failures')
+    return (
+      <>
+        <span className="nw">{p.http}</span> {p.words}
+      </>
+    );
+  return p.http ? (
     <>
-      {p.tools.map((t, i) => (
-        <Fragment key={t.tool}>
-          {i ? (i === p.tools.length - 1 ? ' and ' : ', ') : null}
-          <code>{t.tool}</code>
-          {t.times ? ` ${t.times}` : null}
-        </Fragment>
-      ))}
-      {p.fate ? (
-        <>
-          {' '}
-          <Org origin={p.fate === 'blocked' ? 'block' : 'stub'} />
-        </>
-      ) : null}
+      {p.words} <span className="nw">{p.http}</span>
     </>
+  ) : (
+    p.words
   );
 }
 
@@ -74,7 +93,7 @@ function writesPart(p: Extract<EndingPart, { kind: 'writes' }>): ReactNode {
 function RunLine({ side, parts }: { side: PairRun & { run: RunDetail }; parts: EndingPart[] }) {
   const checks = useChecks(side.run, side.rescued);
   const spent = runSpentWords(side.run);
-  const drawn: ReactNode[] = [...parts.map((p) => (p.kind === 'writes' ? writesPart(p) : p.words)), ...(checks ? [checks] : []), `${spent.value} ${spent.label}`];
+  const drawn: ReactNode[] = [...parts.map(partOf), ...(checks ? [checks] : []), `${spent.value} ${spent.label}`];
   return (
     <>
       <code className="rnm">{shortId(side.id)}</code>

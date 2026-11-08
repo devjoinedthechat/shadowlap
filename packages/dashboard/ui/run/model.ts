@@ -218,6 +218,16 @@ export function modelLabel(models: Readonly<Record<string, string>> | null | und
   return models?.[model] ?? models?.[shortModel(model)] ?? canonicalModel(model).replace(/-\d{8}$/, '');
 }
 
+/**
+ * Whether blame rescued a run with this fork, and where the fork sets out: by the server's
+ * `rescuedBy` (at its call, else `forkAt`), or by the blame of `parent`, the run's parent where the
+ * page has it, naming it as the run it rescued (at its divergence); null for any other run.
+ */
+export function rescuedAt(run: Pick<RunDetail, 'rescuedBy'> & { run: Pick<RunDetail['run'], 'runId' | 'divergence'> }, parent: { run: Pick<RunDetail['run'], 'meta'> } | null, forkAt: number | null): { callNo: number | null } | null {
+  if (run.rescuedBy) return { callNo: run.rescuedBy.callNo ?? forkAt };
+  return parent?.run.meta?.blame?.rescuedRunId === run.run.runId && run.run.divergence ? { callNo: run.run.divergence.callNo } : null;
+}
+
 /** The run's call rows with each model call's model named as the page names it (`modelLabel`). */
 export function withModelNames(calls: CallRow[], models: Readonly<Record<string, string>> | null | undefined): CallRow[] {
   if (!models || !Object.keys(models).length) return calls;

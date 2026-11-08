@@ -297,30 +297,37 @@ export function replayCommand(d: { run: { runId: string }; source: string | null
 type Ending = NonNullable<CompareView['pair']>['endings']['a'];
 
 /**
- * A part of the line a run, each kept whole: the HTTP failures it got (`HTTP 529 at #19–#21`), a
+ * A part of the line a run, each kept whole: the HTTP failures it got (`HTTP 529` `at #19–#21`), a
  * group of its writes, those a replay fenced under their origin's word, each tool with how many
- * times (`twice`, `3 times`), `no write`, then how its turn ended.
+ * times (`twice`, `3 times`), `no write`, then how its turn ended. `http`, a status the part names,
+ * is kept on one line: before its words in a failures part, after them where a turn stopped on it.
  */
-export type EndingPart = { kind: 'failures'; words: string } | { kind: 'writes'; fate: 'blocked' | 'stubbed' | null; tools: Array<{ tool: string; times: string | null }> } | { kind: 'words'; words: string };
+export type EndingPart = { kind: 'failures'; http: string; words: string } | { kind: 'writes'; fate: 'blocked' | 'stubbed' | null; tools: Array<{ tool: string; times: string | null }> } | { kind: 'words'; words: string; http?: string };
 
 const timesWords = (n: number): string | null => (n === 1 ? null : n === 2 ? 'twice' : `${num(n)} times`);
 const callRange = (from: number, to: number): string => (to > from ? `#${num(from)}–#${num(to)}` : `#${num(from)}`);
 
+/** How a turn ended, the status it stopped on apart: `exited 1 at #22`, `stopped at #22 on` `HTTP 529`, `answered at #22`, `ended at #22`, `still running`, `no call`. */
+function endPart(end: Ending['end']): { words: string; http?: string } {
+  const at = end.callNo !== null ? ` at #${num(end.callNo)}` : '';
+  if (end.kind === 'exited') return { words: `${exitWords(typeof end.code === 'number' ? { exitCode: end.code } : {})}${at}` };
+  if (end.kind === 'stopped') return typeof end.status === 'number' ? { words: `stopped${at} on`, http: `HTTP ${end.status}` } : { words: `stopped${at}` };
+  if (end.kind === 'answered' || end.kind === 'ended') return { words: `${end.kind}${at}` };
+  return { words: end.kind === 'running' ? 'still running' : 'no call' };
+}
+
 /** How a turn ended: `exited 1 at #22`, `stopped at #22 on HTTP 529`, `answered at #22`, `ended at #22`, `still running`, `no call`. */
 export function endWords(end: Ending['end']): string {
-  const at = end.callNo !== null ? ` at #${num(end.callNo)}` : '';
-  if (end.kind === 'exited') return `${exitWords(typeof end.code === 'number' ? { exitCode: end.code } : {})}${at}`;
-  if (end.kind === 'stopped') return `stopped${at} on HTTP ${end.status ?? ''}`.trimEnd();
-  if (end.kind === 'answered' || end.kind === 'ended') return `${end.kind}${at}`;
-  return end.kind === 'running' ? 'still running' : 'no call';
+  const p = endPart(end);
+  return p.http ? `${p.words} ${p.http}` : p.words;
 }
 
 /** The line a run's parts, from how it ended after the calls the two share; its checks and its spend follow them. */
 export function endingParts(e: Ending): EndingPart[] {
   const parts: EndingPart[] = [];
-  if (e.failures) parts.push({ kind: 'failures', words: `HTTP ${e.failures.status} at ${callRange(e.failures.from, e.failures.to)}` });
+  if (e.failures) parts.push({ kind: 'failures', http: `HTTP ${e.failures.status}`, words: `at ${callRange(e.failures.from, e.failures.to)}` });
   for (const g of e.writes) parts.push({ kind: 'writes', fate: g.fate, tools: g.tools.map((t) => ({ tool: t.tool, times: timesWords(t.count) })) });
   if (!e.writes.length) parts.push({ kind: 'words', words: 'no write' });
-  parts.push({ kind: 'words', words: endWords(e.end) });
+  parts.push({ kind: 'words', ...endPart(e.end) });
   return parts;
 }

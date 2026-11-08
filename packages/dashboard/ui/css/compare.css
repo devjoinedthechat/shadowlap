@@ -46,13 +46,13 @@ table.t td.wrapcell { white-space: normal; }
 .verdict.cmpv { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; margin: 2px 0 20px; }
 .verdict.cmpv > div { display: contents; }
 .verdict.cmpv > div > p { grid-column: 1 / -1; }
-.cmpends { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 14px; align-items: baseline; margin-top: 6px; font-size: 13.5px; }
-p.cmplive { margin: 2px 0 20px; }
+.cmpends { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 14px; align-items: baseline; margin-top: 6px; }
+p.cmplive { margin: 2px 0 20px; font-size: var(--fs-quiet); }
 .cmpends code.rnm { font-size: 12.5px; color: var(--ink); }
 .cmpends > span { color: var(--dim); text-wrap: pretty; }
 /* a part is kept whole where it fits the line; a list of writes wider than the line breaks between its writes */
 .cmpends .cmpp { display: inline-block; max-width: 100%; }
-.cmpends > span code { font-size: 12.5px; color: var(--ink); white-space: normal; }
+.cmpends > span code { font-size: 12.5px; color: var(--ink); }
 .cmpends .org { font: inherit; }
 /* What changed in full, a line a fact, and what didn't on one quiet line */
 .cmpfacts { display: grid; gap: 4px; }

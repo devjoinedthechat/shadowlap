@@ -63,7 +63,7 @@ describe('the line a run', () => {
   it('says its failures, its writes by what became of them, and how its turn ended, each part whole', () => {
     const parts = endingParts({ failures: { status: 529, from: 19, to: 21 }, writes: [{ fate: null, tools: [{ tool: 'issue_refund', count: 2 }, { tool: 'add_note', count: 1 }] }, { fate: 'blocked', tools: [{ tool: 'send_email', count: 3 }] }], end: { kind: 'answered', callNo: 22 }, quit: false });
     expect(parts).toEqual([
-      { kind: 'failures', words: 'HTTP 529 at #19–#21' },
+      { kind: 'failures', http: 'HTTP 529', words: 'at #19–#21' },
       { kind: 'writes', fate: null, tools: [{ tool: 'issue_refund', times: 'twice' }, { tool: 'add_note', times: null }] },
       { kind: 'writes', fate: 'blocked', tools: [{ tool: 'send_email', times: '3 times' }] },
       { kind: 'words', words: 'answered at #22' },
@@ -72,6 +72,8 @@ describe('the line a run', () => {
       { kind: 'words', words: 'no write' },
       { kind: 'words', words: 'no call' },
     ]);
+    // The status a turn stopped on is kept apart, to stay on one line.
+    expect(endingParts({ failures: null, writes: [], end: { kind: 'stopped', callNo: 19, status: 529 }, quit: true }).at(-1)).toEqual({ kind: 'words', words: 'stopped at #19 on', http: 'HTTP 529' });
   });
 
   it('words each way a turn ends, an exit by its code where a test result kept it', () => {
