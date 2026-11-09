@@ -12,7 +12,7 @@ import { SkipLink } from '../ui/shell/SkipLink.js';
 import { setSingleKeys } from '../ui/shortcuts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { setAnnouncer } from '../ui/toast.js';
-import { sheet } from './css-sheet.js';
+import { sheet, styleRules } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
@@ -82,6 +82,19 @@ describe('a focus ring in a pane that scrolls', () => {
     expect(scrolling.length).toBeGreaterThan(15);
     const covered = (sel: string) => inset.includes(sel) || inset.some((x) => /^\.[\w-]+$/.test(x) && (sel.split(/\s+/).at(-1)!.split(/(?=[.:[])/).includes(x) || sel.startsWith(`${x}.`)));
     expect(scrolling.filter((sel) => !PADDED[sel] && !covered(sel))).toEqual([]);
+  });
+});
+
+describe('the phone’s drawer', () => {
+  it('shows at once as it opens, so its first item takes the focus however late the slide’s first frame comes, and stays shown while it slides away', () => {
+    // A hidden element can't take the focus: a visibility that waited for the slide's first frame left
+    // the focus on the menu button on a busy machine (browser/keys.spec.ts' drawer test, under load).
+    const phone = styleRules().filter((r) => r.conditions.some((c) => c.includes('max-width: 1000px')));
+    const last = (sel: string, prop: string) => phone.filter((r) => r.selectors.includes(sel)).flatMap((r) => r.decls.filter(([p]) => p === prop).map(([, v]) => v)).at(-1);
+    expect(last('.side', 'visibility')).toBe('hidden');
+    expect(last('.side', 'transition')).toMatch(/\bvisibility \.2s\b/);
+    expect(last('.side.open', 'visibility')).toBe('visible');
+    expect(last('.side.open', 'transition')).toMatch(/\bvisibility 0s\b/);
   });
 });
 
