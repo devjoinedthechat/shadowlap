@@ -136,10 +136,16 @@ describe('the Tests page', () => {
   it('says under the last result of a golden whose checks changed since that they did, with the checks gone on its card', async () => {
     const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, changed: [{ label: 'issue_refund called 0 times', status: 'failed' as const }] } : row)) }));
     const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'passes')!;
-    const st = one(tr, 'td.glast .glastw .ckst');
+    const st = one(tr, 'td.glast .ckst');
     expect(st.textContent).toBe('checks changed since · not tested yet');
     expect(JSON.parse(st.getAttribute('data-tip')!)).toMatchObject({ t: 'checks changed since · not tested yet', s: 'Its last test judged issue_refund called 0 times, no longer in shadowlap.config.json: Run tests judges its checks as they are now' });
     expect(page.all('.ckst')).toHaveLength(1);
+    // After the last result, as the design draws it: a session running the golden hides that result, never this line.
+    await page.unmount();
+    const running = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, changed: [{ label: 'issue_refund called 0 times', status: 'failed' as const }] } : row)), running: { ...v.verdict!.session, endedAt: null, live: true }, following: { whole: false, total: 1, reached: 0, goldens: { 'goldens/passes': 'running' } } }));
+    const now = running.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'passes')!;
+    expect(one(now, 'td.glast .glastw').hasAttribute('hidden')).toBe(true);
+    expect(one(now, 'td.glast .ckst').closest('[hidden]')).toBeNull();
   });
 
   it('says CI runs replay goldens offline and fork goldens live, with the one command docs/gating.md has, to copy', async () => {

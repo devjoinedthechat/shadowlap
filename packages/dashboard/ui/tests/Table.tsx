@@ -117,12 +117,13 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { 
               <LastLine text={last.line} />
             </span>
           ) : null}
-          {stale ? (
-            <span className="ckst" data-tip={tipCard(stale.text, [], stale.why)}>
-              {stale.text}
-            </span>
-          ) : null}
         </span>
+        {/* After the result, as the design draws it, so it stays while a session runs the golden: its checks are still untested until that result lands. */}
+        {stale ? (
+          <span className="ckst" data-tip={tipCard(stale.text, [], stale.why)}>
+            {stale.text}
+          </span>
+        ) : null}
         {gated(last.gate) && last.gate.attempts ? <EvidenceToggle g={last.gate} name={row.name} open={open} onToggle={onToggle} /> : null}
         {row.presets ? <PresetsLine p={row.presets} only={last.result === null && !row.error} /> : null}
       </td>

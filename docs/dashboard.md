@@ -1184,7 +1184,7 @@ Each revision's header gives its commit's subject on hover, and its author where
 
 Under the last result comes how the golden's [error-path presets](./error-paths.md) came out, opening the attempt that failed. A golden whose presets ran but whose replay hasn't yet says so, never *not run yet*.
 
-**Checks changed since.** A last result that failed or couldn't decide checks the config no longer holds reads *checks changed since · not tested yet* under it, with the checks gone on hover. The result stays the golden's last test's, and its step is **Run tests**.
+**Checks changed since.** A last result that failed or couldn't decide checks the config no longer holds reads *checks changed since · not tested yet* under it, with the checks gone on hover, a line that stays while a session runs the golden. The result stays the golden's last test's, and its step is **Run tests**.
 
 The table fits its panel at every width. With less room the oldest revisions give way, then, at 840px or less, the checks move under the golden's name. On a phone the revisions become a strip there too, while the last result keeps its width.
 
