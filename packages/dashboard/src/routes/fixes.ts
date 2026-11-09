@@ -1,12 +1,15 @@
-import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { APPLY_GOLDENS, fixBundles, fixDetail, fixList, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
+import { type NoVerifyLeft, verifyLeftOr } from '../fix-actions.js';
+import { patchMerged, patchToCheck } from '../fix-shared.js';
+import { APPLY_GOLDENS, fixBundles, fixDetail, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree, rewritesHere } from '../patch-in-tree.js';
 import { storePrStates } from '../pr-state.js';
 import { captureExpect } from '../next-step.js';
+import { nextStepWork } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
 import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
@@ -15,13 +18,14 @@ import { loadRunIndex } from '../run-index.js';
 import { MODEL, modelParam, verifyRule } from './estimates.js';
 
 /**
- * Fixes: the list (`GET /api/fixes`), a fix with its three steps (`GET /api/fixes/:id`), what its
+ * Fixes: the list (`GET /api/fixes`: every fix in to-do order, with the counts per chip, what they
+ * took and the failing runs nobody has blamed, fixes-view.ts), a fix with its three steps (`GET /api/fixes/:id`), what its
  * billed buttons would cost (`GET /api/fixes/:id/estimates`), its title (`PUT /api/fixes/:id/title`),
  * and the attempts blame and verify made in a run's family, bundled for the Forks view
  * (`GET /api/fixes/family/:runId`). Four job kinds act on them: `blame` (a
  * failed run, with the check it failed; or an open fix's blame again, or with a stronger model),
  * `repair` (an open fix, from its failing and good runs), `verify` (more attempts for a verdict left
- * incomplete) and `apply` (a verified fix's patch, into the working tree, with the names the page
+ * incomplete, or a verified fix's failing runs no accepted verdict checked) and `apply` (a verified fix's patch, into the working tree, with the names the page
  * gave the goldens it copies). Each builder checks what it is asked and
  * builds the command line; the CLI records what it did, so the pages read it back from the store.
  * A blame needs the check the run failed: the one the request names, else the one it was judged by
@@ -55,7 +59,7 @@ function findFix(store: StoreOf<'fixes'>, id: unknown): StoredFix {
 }
 
 /** The repairer shadowlap.config.json names, or null; a config that can't be read names none. */
-function configuredRepairer(ctx: RouteContext): string | null {
+export function configuredRepairer(ctx: RouteContext): string | null {
   if (!ctx.options.loadConfig) return null;
   try {
     return ctx.config().repair?.repairer ?? null;
@@ -144,7 +148,7 @@ function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' 
   const next = req.again === true ? d.actions.blameAgain! : d.actions.blameStronger!;
   const consent = needsConsent({ runs: [run], yes: req.yes, args, pulled: next.pulled ? { what: `${id}'s blame`, left: next.left } : null });
   if ('ask' in consent) return consent.ask;
-  return { args: [...args, ...consent.yes], runId: run.runId, title: req.again === true ? ACTIONS.runBlameAgain.doing : ACTIONS.runBlameStronger.doing };
+  return { args: [...args, ...consent.yes], runId: run.runId, fixId: fix.fixId, title: req.again === true ? ACTIONS.runBlameAgain.doing : ACTIONS.runBlameStronger.doing };
 }
 
 /**
@@ -162,7 +166,36 @@ function verifyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   const runs = v.rows.map((x) => store.getRun(x.runId)).filter((r): r is RunRecord => r !== null);
   const consent = needsConsent({ runs, yes: req.yes, args: v.more.argv, pulled: v.more.pulled ? { what: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)}`, left: v.more.left } : null });
   if ('ask' in consent) return consent.ask;
-  return { args: [...v.more.argv, ...consent.yes], title: v.more.kind === 'more' ? ACTIONS.runMoreAttempts.doing : ACTIONS.verifyAgain.doing };
+  return { args: [...v.more.argv, ...consent.yes], fixId: fix.fixId, title: v.more.kind === 'more' ? ACTIONS.runMoreAttempts.doing : ACTIONS.verifyAgain.doing };
+}
+
+/** Why Verify this run is refused, in the order `verifyLeftOr` finds it. */
+const VERIFY_LEFT_REFUSED: Record<NoVerifyLeft, (id: string) => string> = {
+  open: (id) => `${id} is open: no change has been accepted for it yet, so there is nothing to verify`,
+  'no-verdict': (id) => `${id} has no accepted verdict that counts under its check as it is: verify a change first`,
+  'none-left': (id) => `${id}'s failing runs are all verified: there is nothing left to verify`,
+  'not-in-tree': (id) => `${id}'s change isn't in the working tree: apply it, then verify the code as it is now`,
+  'not-made': (id) => `${id}'s accepted verdict's settings can't be made into a verify: verify the runs left with shadowlap verify`,
+};
+
+/**
+ * Verify this run, for a verified or applied fix (`actions.verifyLeft`): its failing runs no accepted
+ * verdict checked, verified on the code as it is now. Built from the fix's records alone, never its
+ * page, so starting it reads no calls; whether its patch is in the working tree is asked of git.
+ */
+async function verifyLeftJob(req: JobRequest, store: StoreOf<'recording' | 'fixes' | 'team'>, project: string | null): Promise<JobBuildResult> {
+  const fix = findFix(store, req.fixId);
+  const rec = fixRecords(store, fix);
+  const id = short(fix.fixId);
+  const patch = project ? patchToCheck(rec) : null;
+  const check = project && patch ? await patchesInTree(project, [patch]) : undefined;
+  const got = verifyLeftOr(store, rec, patchMerged(rec, check));
+  if ('none' in got) return { error: VERIFY_LEFT_REFUSED[got.none](id), status: 409 };
+  const left = got.offer;
+  const runs = left.runs.map((r) => store.getRun(r)).filter((r): r is RunRecord => r !== null);
+  const consent = needsConsent({ runs, yes: req.yes, args: left.argv, pulled: left.pulled ? { what: `${id}'s accepted verdict`, left: left.left } : null });
+  if ('ask' in consent) return consent.ask;
+  return { args: [...left.argv, ...consent.yes], fixId: fix.fixId, title: ACTIONS.verifyThisRun.doing };
 }
 
 function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, configDir: string | null): JobBuildResult {
@@ -235,7 +268,7 @@ function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 
   const args = repairJobArgv(d.actions.repair.argv, configured);
   const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes, args);
   if ('ask' in consent) return consent.ask;
-  return { args: [...args, ...consent.yes] };
+  return { args: [...args, ...consent.yes], fixId: fix.fixId };
 }
 
 /**
@@ -271,7 +304,7 @@ function applyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | '
   if (apply.refused) return { error: `${short(fix.fixId)}'s patch is not the change its repair verified: ${apply.refused}. Nothing ran`, status: 409 };
   const named = namesFor(req.names, apply.names);
   if ('error' in named) return named;
-  return { args: [...apply.argv, ...goldenNameArgs(named.names)], title: apply.kind === 'mark' ? 'Marking the fix applied' : d.actions.applied ? 'Finishing the apply' : ACTIONS.applyFix.doing };
+  return { args: [...apply.argv, ...goldenNameArgs(named.names)], fixId: fix.fixId, title: apply.kind === 'mark' ? 'Marking the fix applied' : d.actions.applied ? 'Finishing the apply' : ACTIONS.applyFix.doing };
 }
 
 export function register(router: Router, ctx: RouteContext): void {
@@ -282,11 +315,13 @@ export function register(router: Router, ctx: RouteContext): void {
   // dashboard asks no one, as it changes nothing.
   const prs = ctx.readOnly ? null : storePrStates(() => store, { projectDir: ctx.project?.path ?? null });
 
-  router.get('/fixes', (r) => {
+  // Every fix's reports and every run's row: beside the server's thread (fixes-view.ts). What
+  // GitHub says of each pull request is asked here, where its state is kept, and lands in the store.
+  router.get('/fixes', async (r) => {
     const status = r.query.get('status') ?? 'all';
     if (!STATUSES.has(status)) throw new HttpError(400, `status is one of ${[...STATUSES].join(', ')}`);
     prs?.refresh(store.listFixes());
-    r.tagged(fixList(store, { status: status as FixStatus | 'all' }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'fixes', status: status as FixStatus | 'all', project: ctx.project?.path ?? null, repairer: configuredRepairer(ctx), next: nextStepWork(ctx) }));
   });
 
   // The attempts in a run's family, bundled as the Forks view shows them. Before /fixes/:id would
@@ -314,7 +349,11 @@ export function register(router: Router, ctx: RouteContext): void {
     const runs = new Set(store.fixLinks(fix.fixId).flatMap((l) => (l.kind === 'failing' || l.kind === 'good' ? [l.ref] : [])));
     const { byId } = loadRunIndex(store);
     const calls = [...runs].reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
-    const job = { kind: 'fix-estimates' as const, fixId: fix.fixId, repairer: configuredRepairer(ctx), rule: verifyRule(ctx), model, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+    // Whether its patch is in the working tree, as git says: Verify this run is offered only on a change there.
+    const project = ctx.project?.path;
+    const patches = project ? patchesToCheck(store, [fix]) : [];
+    const check = project && patches.length ? await patchesInTree(project, patches) : null;
+    const job = { kind: 'fix-estimates' as const, fixId: fix.fixId, repairer: configuredRepairer(ctx), rule: verifyRule(ctx), model, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(check ? { inTree: patches.map((p): [string, boolean | null] => [p, check(p)]) } : {}) };
     sendAnswer(r, await ctx.reads.run(job, { calls }));
   });
 
@@ -332,5 +371,6 @@ export function register(router: Router, ctx: RouteContext): void {
   jobs.registerJobKind('blame', { title: () => ACTIONS.runBlame.doing, build: (req, b) => blameJob(req, b.store, b.project?.path ?? null) });
   jobs.registerJobKind('repair', { title: () => ACTIONS.runRepair.doing, build: (req, b) => repairJob(req, b.store, configuredRepairer(ctx)) });
   jobs.registerJobKind('apply', { title: () => ACTIONS.applyFix.doing, build: (req, b) => applyJob(req, b.store) });
-  jobs.registerJobKind('verify', { title: () => ACTIONS.runVerify.doing, build: (req, b) => verifyJob(req, b.store) });
+  // A verdict's more attempts (`verifyId`), or a verified fix's runs left (`left: true`, Verify this run).
+  jobs.registerJobKind('verify', { title: () => ACTIONS.runVerify.doing, build: (req, b) => (req.left === true ? verifyLeftJob(req, b.store, b.project?.path ?? null) : verifyJob(req, b.store)) });
 }

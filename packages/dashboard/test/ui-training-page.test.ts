@@ -101,14 +101,18 @@ afterEach(async () => {
 describe('the Training page', () => {
   it('says where pairs and tasks come from, and what the last export wrote', async () => {
     r = await render(page('pairs'));
-    await r.until('the page to load', () => r!.all('.kstrip').length > 0);
+    await r.until('the page to load', () => r!.all('.pfacts').length > 0);
     expect(r.one('.ph p').textContent).toBe('Answers to prefer, from attempts already in the store, and your goldens as tasks to score.');
     // In two clauses, so with less room than the line needs it breaks between them, not before its last words.
     expect(text(r, '.ph p .ln')).toEqual(['Answers to prefer, from attempts already in the store,', 'and your goldens as tasks to score.']);
     expect(r.document.body.textContent).not.toContain('from failures you fixed');
-    expect(text(r, '.kpi .k')).toContain('Exported');
+    // The facts under the header, the last export last and quieter, its card saying what it wrote: main's words, Exported.
+    const facts = r.all('.pfacts .metric');
+    expect(facts.map((f) => f.textContent)).toEqual(['0pairs', '2of 4 tasks ready', '0exported']);
+    expect(facts[2].querySelector('b')!.className).toBe('q');
+    expect(JSON.parse(facts[2].getAttribute('data-tip')!)).toMatchObject({ t: 'Exported', s: 'nothing exported yet' });
     expect(r.document.body.textContent).not.toContain('Left this machine');
-    expect(r.document.body.textContent).toContain('nothing exported yet');
+    expect(r.one('.ph .eyebrow').textContent).toBe('training data');
   });
 
   it('names the golden whose checks only cap spending as the one weak checks keep from being a task, and labels the training loop sample an example', async () => {
@@ -131,6 +135,8 @@ describe('the Training page', () => {
     const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
     r = await render(page('pairs', started));
     await r.until('the page to load', () => r!.all('button').some((b) => b.textContent.trim() === 'Export pairs…'));
+    // Its card, as Score model…'s: the action's name without the ellipsis, and what it runs.
+    expect(JSON.parse(r.byText('button', 'Export pairs…').getAttribute('data-tip')!)).toEqual({ t: 'Export pairs', s: 'Asks the format and the confidence first', rows: [], cmd: '$ shadowlap export pairs' });
     await r.click(r.byText('button', 'Export pairs…'));
     expect(r.one('.dialog .dfacts').textContent).toBe('Redactsby 3 rulesthe store never changesWrites.shadowlap/exports/pairs.jsonlthe job’s drawer offers it for download');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');

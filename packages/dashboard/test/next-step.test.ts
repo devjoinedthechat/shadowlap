@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { judgeCapture, NO_COMMAND, parseTests, recordBlame, recordEvent, rulesOnCalls, Store, type CleanReport, type DiffEntry, type Normalizer, type PlantReport, type RunMeta } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun } from '../../engine/test/fix-fixtures.js';
-import { copyNextStep, failureKey, fixByFailure, goldenFolder, nextStepOf, nextStepRows, nextStepStamp, pageSteps, pricedNextStep, replayStepOf, stepCalls, stepRow, type NextStepWork } from '../src/next-step.js';
+import { copyNextStep, failureKey, fixByFailure, nextStepOf, nextStepRows, nextStepStamp, pageSteps, pricedNextStep, replayStepOf, stepCalls, stepRow, type NextStepWork } from '../src/next-step.js';
+import { goldenFolder } from '../src/run-offers.js';
 import { listRuns } from '../src/api.js';
 import { overviewSummary } from '../src/overview.js';
 import { judgedRows, runJudged, type OutcomeWork } from '../src/run-outcome.js';
@@ -296,7 +297,7 @@ describe('a run’s next step', () => {
     expect(step(forked)).toMatchObject({ key: 'blame', offer: { from: 'ask', failed: ['send_email called 1 time'] }, command: `shadowlap blame ${forked.slice(0, 10)} --expect '<what it must do>'` });
     const held = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api'] });
     const { fix } = recordBlame(store, { runId: held, report: blameReport(held), expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Refunds above the limit', checkText: 'issue_refund never called', at: T0 });
-    expect(step(held)).toMatchObject({ key: 'fix', label: 'Open fix', fixId: fix.fixId, status: 'open', title: '“Refunds above the limit”', href: expect.stringContaining(fix.fixId) });
+    expect(step(held)).toMatchObject({ key: 'fix', label: 'Open fix', fixId: fix.fixId, status: 'open', check: fix.check.text, title: '“Refunds above the limit”', href: expect.stringContaining(fix.fixId) });
     // Blame needs a model call to ask again, and a run that was only stopped has nothing to blame.
     expect(step(recording(T0 + MIN, { status: 'failed', calls: 'b' })).key).toBe('replay');
   });
@@ -355,7 +356,7 @@ describe('a run’s next step', () => {
     // A fix that holds the same failure, whatever its call numbers and amounts: Open fix.
     const held = makeRun(store, { labels: ['refund-bug'], calls: ['api'] });
     const { fix } = recordBlame(store, { runId: held, report: { ...blameReport(held), oracle: ['every issue_refund call: amount <= 250'] }, expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Refunds above the limit', checkText: 'send_email called once', at: T0 });
-    expect(step(capture, w, { judged: { ...judged!, first: { label: 'every issue_refund call: amount <= 100', detail: null } } })).toMatchObject({ key: 'fix', fixId: fix.fixId });
+    expect(step(capture, w, { judged: { ...judged!, first: { label: 'every issue_refund call: amount <= 100', detail: null } } })).toMatchObject({ key: 'fix', fixId: fix.fixId, check: fix.check.text });
   });
 
   it('shows commands that paste: every word quoted where it needs it, and only what you fill in left as it is', () => {
@@ -761,7 +762,7 @@ describe('a list’s rows', () => {
     const rows = nextStepRows(store, judgedRows(store, listRuns(store), null, Infinity), w);
     const by = new Map(rows.map((r) => [r.runId, r.next]));
     expect(by.get(rec)).toEqual({ key: 'blame', label: 'Run blame', command: `shadowlap blame ${rec.slice(0, 10)}` });
-    expect(by.get(passed)).toEqual({ key: 'pack', label: 'Pack as golden…', title: 'Pack as golden', command: `shadowlap pack ${passed.slice(0, 10)} ${goldenFolder(passed)}` });
+    expect(by.get(passed)).toEqual({ key: 'pack', label: 'Pack as golden…', title: 'Pack as golden', command: `shadowlap pack ${passed.slice(0, 10)} ${goldenFolder(passed)}`, folder: goldenFolder(passed) });
     expect(by.get(fork)).toEqual({ key: 'compare', label: 'Compare with parent', href: `#/compare/${rec}/${fork}`, title: `Against ${rec.slice(0, 10)}`, command: `shadowlap diff ${rec.slice(0, 10)} ${fork.slice(0, 10)}` });
     for (const id of [rec, passed, fork]) expect(by.get(id)).toEqual(stepRow(step(id, w)));
   });
@@ -848,16 +849,17 @@ describe('a record a step can’t be read from', () => {
     expect(by.get(passed)?.key).toBe('pack');
   });
 
-  it('leaves its line in Needs a look as it was, where a run blame can’t take reads Open', () => {
+  it('leaves its row in Needs a look, with no step where blame can’t take the run or its record can’t be read', () => {
     const NOW = Date.now();
-    const noCall = recording(NOW - 2000, { status: 'failed', calls: 'b' });
-    const failed = recording(NOW - 1000, { status: 'failed' });
-    const action = (next: NextStepWork) => {
-      const items = overviewSummary(store, { tz: 'UTC', now: NOW, next }).needsLook.items;
-      return [noCall, failed].map((id) => items.find((i) => i.runId === id)?.action);
+    recording(NOW - 2000, { status: 'failed' });
+    const noCall = recording(NOW - 1000, { status: 'failed', calls: 'b' });
+    // One row stands for both, naming the newest, with Run blame only where its page leads with it: never on a record no step can be read from.
+    const step = (next: NextStepWork) => {
+      const row = overviewSummary(store, { tz: 'UTC', now: NOW, next }).needsLook.items.find((i) => i.kind === 'unblamed');
+      return [row?.runId, row?.step?.of === 'run' ? row.step.step.label : (row?.step ?? null)];
     };
-    expect(action(work([]))).toEqual(['Open', 'Run blame']);
-    expect(action(unreadable)).toEqual(['Run blame', 'Run blame']);
+    expect(step(work([]))).toEqual([noCall, null]);
+    expect(step(unreadable)).toEqual([noCall, null]);
   });
 
   it('leaves its page with no step, and the Replay beside it', async () => {

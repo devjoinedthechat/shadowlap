@@ -113,7 +113,7 @@ addPaletteSource(({ app, go }) => {
 const SETTINGS_FOUND: Record<SettingsTab, { hint: string; match: string }> = {
   matching: { hint: 'normalizers, dates and times, calibrate', match: 'settings' },
   redaction: { hint: 'what leaves your machine', match: 'settings' },
-  alerts: { hint: 'gates, the pull request comment, fix on failure, alerts', match: 'settings alerts' },
+  ci: { hint: 'gates, the pull request comment, fix on failure, alerts', match: 'settings alerts' },
   agents: { hint: 'Claude Code, Cursor, Codex', match: 'settings' },
   tools: { hint: 'what a fork runs again, and what brings outside text in', match: 'settings trusted untrusted security prompt injection mcp' },
   project: { hint: 'spending, its store, its size, clean up old runs', match: 'settings spending ask before spending cost threshold budget' },
@@ -125,12 +125,12 @@ addPaletteSource(({ app, go }) =>
   app.exported ? [] : SETTINGS_TABS.map((t) => ({ group: 'Settings' as const, label: t.label, ...SETTINGS_FOUND[t.key], typed: true, run: () => go(href.settings(t.key)) })),
 );
 
-// Apply fix for each verified fix not yet applied, typed only, found by its label too: its page
-// opens and asks there, as its button does. Like the button, it waits while a job holds the working
-// tree, dimmed, saying why.
+// Apply fix for each fix ready to apply (verified, not applied, and not shipped with its merged pull
+// request), typed only, found by its label too: its page opens and asks there, as its button does.
+// Like the button, it waits while a job holds the working tree, dimmed, saying why.
 addPaletteSource(({ app, go }) => {
   if (app.exported || app.actionsOff || !app.hasKind(JOB_KINDS.applyFix)) return [];
-  const verified = knownFixes().filter((f) => f.status === 'verified');
+  const verified = knownFixes().filter((f) => f.bucket === 'ready');
   const held = verified.length ? treeWait(app, 'writes', 'apply the patch') : null;
   return verified.map((f) => ({
     group: 'Actions' as const,

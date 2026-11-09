@@ -119,6 +119,8 @@ export interface Trace {
   skipped: Skip[];
   /** The span, observation or run each one ran inside, by id, where the source names one. */
   parents?: ReadonlyMap<string, string>;
+  /** The spans, observations or runs that are agents, by id: the agent's name. */
+  agents?: ReadonlyMap<string, string>;
   /** The trace's page in the store it came from, where the source gives one: an http or https address on the store's own host. */
   url?: string;
 }
@@ -931,6 +933,23 @@ export function callsInOrder(trace: Trace): TraceCall[] {
 
 // ---------------------------------------------------------------------------------------------- writing a trace
 
+/**
+ * The agents a call ran inside, outermost first, as the trace's agent spans name them:
+ * `supervisor/researcher`; undefined when none does. A name the same as the one around it (a model
+ * span that names its own agent) counts once. The walk stops at a span already seen.
+ */
+export function agentPathOf(trace: Pick<Trace, 'parents' | 'agents'>, spanId: string | undefined): string | undefined {
+  if (!spanId || !trace.agents?.size) return undefined;
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (let id: string | undefined = spanId; id !== undefined && !seen.has(id); id = trace.parents?.get(id)) {
+    seen.add(id);
+    const name = trace.agents.get(id)?.replace(/\//g, '-').trim();
+    if (name && names.at(-1) !== name) names.push(name);
+  }
+  return names.length ? names.reverse().join('/') : undefined;
+}
+
 const toolKept = (t: TraceToolCall) => argsObject(t.args) !== null && (t.output !== undefined || t.error !== null);
 
 export interface TraceImport {
@@ -989,6 +1008,8 @@ function writeTrace(writer: ImportWriter, trace: Trace, calls: readonly TraceCal
       continue;
     }
     const { call, dialect } = capturedFromTrace(c, ++n);
+    const agent = agentPathOf(trace, c.spanId);
+    if (agent) call.agent = agent;
     if (!writer.api(call)) continue;
     counts.modelCallsImported++;
     dialects[dialect] = (dialects[dialect] ?? 0) + 1;

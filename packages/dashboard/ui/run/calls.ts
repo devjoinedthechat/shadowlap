@@ -1,7 +1,7 @@
 import { callName, dur, ktok } from '../format.js';
 import { displayOrigin, isFailure, type Origin7 } from '../origins.js';
 import { recordedDuration, type CallIndex } from '../recorded.js';
-import { inScope } from '../scopes.js';
+import { agentOf, inScope, scopeOnly } from '../scopes.js';
 
 /**
  * Each call's line in the run page's views: its detail, its result, its time, the turn it belongs
@@ -28,6 +28,8 @@ export interface CallLike {
   endedAt: number | null;
   ttftMs: number | null;
   scope: string | null;
+  /** The agent that made it, as the server names it (agents.ts); absent from an older server's rows. */
+  agent?: string | null;
   recordedMs?: number | null;
   resultShort?: string | null;
   /** A model call: the tools its answer asked for, as the server reads them from the response. */
@@ -40,7 +42,7 @@ export function originOf(c: Pick<CallLike, 'origin' | 'outcome'>): Origin7 {
 
 /** Model calls in a scope (every model call without one), in order. */
 export function modelCalls<C extends Pick<CallLike, 'kind' | 'scope' | 'callNo'>>(calls: readonly C[], scope: string | null | undefined): C[] {
-  return calls.filter((c) => c.kind === 'api' && (!scope || inScope(c, scope)));
+  return calls.filter((c) => c.kind === 'api' && (!scope || inScope(c, scope, scopeOnly)));
 }
 
 /** Which model call a call is among the model calls of its scope: k of m, or null when it is not one. */
@@ -177,9 +179,9 @@ export function turnsOf<C extends CallLike>(calls: readonly C[], scoped: boolean
     if (c.kind === 'api') {
       cur = { model: c, tools: [] };
       turns.push(cur);
-      last.set(c.scope ?? '', cur);
+      last.set(agentOf(c) ?? '', cur);
     } else if (c.kind === 'tool') {
-      const t = scoped ? last.get(c.scope ?? '') : cur;
+      const t = scoped ? last.get(agentOf(c) ?? '') : cur;
       t?.tools.push(c);
     }
   }

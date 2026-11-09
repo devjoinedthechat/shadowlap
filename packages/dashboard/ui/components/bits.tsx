@@ -6,7 +6,6 @@ import { ORIGIN_NAME, type Origin7 } from '../origins.js';
 import { CopyButton } from './CodeBox.js';
 import { CommandPieces } from './Copy.js';
 import { Facts, type Fact } from './Facts.js';
-import { Icon } from './Icon.js';
 import { ErrorState } from './States.js';
 
 /**
@@ -72,12 +71,15 @@ export function Tag({ cls, children }: { cls?: string; children: ReactNode }) {
   return <span className={`tag${cls ? ` ${cls}` : ''}`}>{children}</span>;
 }
 
-/** An origin: its colour and its word (which a phone's Calls hides but for a screen reader). */
-export function Org({ origin }: { origin: Origin7 }) {
+/**
+ * An origin: its colour and its word (which a phone's Calls hides but for a screen reader), which
+ * `children` can draw instead (as a glossary term, say).
+ */
+export function Org({ origin, children }: { origin: Origin7; children?: ReactNode }) {
   return (
     <span className={`org ${origin}`}>
       <i />
-      <span className="orgw">{ORIGIN_NAME[origin]}</span>
+      <span className="orgw">{children ?? ORIGIN_NAME[origin]}</span>
     </span>
   );
 }
@@ -102,27 +104,6 @@ export function Legend({ origins, className = 'legend' }: { origins: readonly Or
         </span>
       ))}
     </div>
-  );
-}
-
-/** One square per attempt: passed, partly, failed. */
-export function Pips({ ok = 0, part = 0, unsure = 0, no = 0 }: { ok?: number; part?: number; unsure?: number; no?: number }) {
-  return (
-    // A tally drawn as dots: an image to assistive technology, its label the tally in words.
-    <span className="pips" role="img" aria-label={`${ok} passed${part ? `, ${part} partly` : ''}${unsure ? `, ${unsure} inconclusive` : ''}${no ? `, ${no} failed` : ''}`}>
-      {Array.from({ length: ok }, (_, i) => (
-        <i key={`o${i}`} />
-      ))}
-      {Array.from({ length: part }, (_, i) => (
-        <i key={`p${i}`} className="part" />
-      ))}
-      {Array.from({ length: unsure }, (_, i) => (
-        <i key={`u${i}`} className="unsure" />
-      ))}
-      {Array.from({ length: no }, (_, i) => (
-        <i key={`n${i}`} className="no" />
-      ))}
-    </span>
   );
 }
 
@@ -152,21 +133,6 @@ export function Chips<K extends string>({ items, value, onChange, hideEmpty = fa
         ),
       )}
     </div>
-  );
-}
-
-/** A change against last week: up or down, green when that is good, red when not. */
-export function DeltaPill({ now, then, format = (n: number) => n.toLocaleString('en-US'), good }: { now: number; then: number | null | undefined; format?: (n: number) => string; good?: 'up' | 'down' }) {
-  if (then === null || then === undefined) return null;
-  const d = Math.round((now - then) * 100) / 100;
-  if (!d) return <span className="dp">no change</span>;
-  const up = d > 0;
-  const tone = good === 'up' ? (up ? 'good' : 'bad') : good === 'down' ? (up ? 'bad' : 'good') : '';
-  return (
-    <span className={`dp${tone ? ` ${tone}` : ''}`} title={`${up ? 'up' : 'down'} ${format(Math.abs(d))} from ${format(then)} last week`}>
-      <Icon name={up ? 'up' : 'down'} />
-      {format(Math.abs(d))}
-    </span>
   );
 }
 

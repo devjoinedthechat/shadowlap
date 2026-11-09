@@ -9,6 +9,7 @@ import { shortId } from '../format.js';
 import type { ShortcutMark } from '../shortcuts.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
+import type { TreeJob } from './model.js';
 import { useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
@@ -16,11 +17,20 @@ import { onShow } from '../components/OnShow.js';
 import { AskNote } from '../components/AskNote.js';
 import { tipCard } from '../components/HoverCard.js';
 import type { CostLineProps } from '../components/CostLine.js';
-import { useBilledPress } from '../components/JobButton.js';
+import { type StepHooks, useBilledPress } from '../components/JobButton.js';
 import { sentEstimate, tipEst } from '../spending.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import type { BlameOffer } from '../types.js';
 import { useRunEstimates } from '../run/estimates.js';
+
+/** No jobs: where a list hands in its reason, the button reads none of its own. */
+const NO_JOBS: readonly TreeJob[] = [];
+
+/** Why Run blame waits: the reason a list handed in, else the working tree's, from a list's jobs or a read of its own. */
+function useBlameWait(busy: string | null | undefined, jobs: readonly TreeJob[] | undefined): string | null {
+  const tree = useTreeBusy('reads', 'blame', busy === undefined ? jobs : NO_JOBS);
+  return busy === undefined ? tree : busy;
+}
 
 /** The check a blame needs, asked for in a dialog the run page rarely opens: a part of its own (CheckDialog.tsx). */
 const CheckDialog = onShow(() => import('./CheckDialog.js').then((m) => m.CheckDialog));
@@ -49,6 +59,10 @@ export function RunBlameButton({
   capture = false,
   line,
   mark,
+  busy,
+  jobs,
+  on,
+  when,
   fold,
   ...priced
 }: {
@@ -71,11 +85,19 @@ export function RunBlameButton({
   line?: string;
   /** Its key, where it is the run's next step. */
   mark?: ShortcutMark;
+  /** Why it waits, where a list works it out from its one read of the jobs (Needs a look): it then reads none of its own. */
+  busy?: string | null;
+  /** Or a list's jobs, read once for its rows, in place of its own read (Fixes). */
+  jobs?: readonly TreeJob[];
+  /** A list row's handlers: its estimate asked for as the pointer or the focus reaches it. */
+  on?: StepHooks;
+  /** A list row's press, which waits for its estimate where it hasn't come yet, then asks or starts with it. */
+  when?: (go: (estimate: Estimate | null | undefined) => void) => () => void;
   /** A run header's plain button, which folds into its … menu by this name. */
   fold?: string;
 }) {
   const app = useApp();
-  const busy = useTreeBusy('reads', 'blame');
+  const waits = useBlameWait(busy, jobs);
   const [asking, setAsking] = useState<null | { kind: 'command' } | { kind: 'ask' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
   const own = useRunEstimates(runId, 'estimate' in priced ? undefined : null);
   const estimate: Estimate | null | undefined = 'estimate' in priced ? priced.estimate : own === undefined ? undefined : (own?.blame ?? null);
@@ -90,8 +112,8 @@ export function RunBlameButton({
    * the check it was given. Anything else closes the dialog: the job, the consent it needs, or its
    * failure in the drawer.
    */
-  const start = (fields: Record<string, unknown>): Promise<string | null> =>
-    app.client.startJob(JOB_KINDS.blame, { runId, ...sentEstimate(estimate), ...fields }).then(
+  const start = (fields: Record<string, unknown>, e = estimate): Promise<string | null> =>
+    app.client.startJob(JOB_KINDS.blame, { runId, ...sentEstimate(e), ...fields }).then(
       (job) => {
         setAsking(null);
         app.watchJob(Promise.resolve(job));
@@ -114,17 +136,19 @@ export function RunBlameButton({
         return null;
       },
     );
+  const go = (e: Estimate | null | undefined) => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate: e, start: () => void start({}, e), ask: () => setAsking({ kind: 'ask' }) }));
   const failedLine = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give` : null;
   return (
     <>
       <ActionButton
         className={className}
-        why={busy}
+        why={waits}
         data-tip={tip ?? tipCard(ACTIONS.runBlame.label, [], title, `$ ${blameLine}`, tipEst(estimate, form))}
         {...(lead ? { 'data-next': 'blame' } : {})}
         {...(fold ? { 'data-fold': fold } : {})}
-        onClick={() => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate, start: () => void start({}), ask: () => setAsking({ kind: 'ask' }) }))}
+        onClick={when ? when(go) : () => go(estimate)}
         {...mark}
+        {...on}
       >
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}

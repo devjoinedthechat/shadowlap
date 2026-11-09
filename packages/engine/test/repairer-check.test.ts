@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { findProgram, repairerProblem } from '../src/fix-jobs.js';
 
 /**
- * Whether a repair from a fix can ask its repairer, as the dashboard's Repair from here and the
+ * Whether a repair from a fix can ask its repairer, as the dashboard's Run repair and the
  * terminal UI ask it (fix-jobs.ts): claude must be found as the repair would start it, on the PATH a
  * job gets. Files are made up here (`isFile`), on either system.
  */

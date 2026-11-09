@@ -59,7 +59,6 @@
 .banner.fork { background: color-mix(in srgb, var(--warn) 5%, transparent); }
 .banner.blame { background: color-mix(in srgb, var(--err) 5%, transparent); }
 .banner.live { background: color-mix(in srgb, var(--o-live) 6%, transparent); }
-.banner .bk { font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; }
 .banner.fork .bk, .banner.fork .bn { color: var(--ink); }
 .banner.blame .bk, .banner.blame .bn { color: var(--err); }
 .banner.live .bk { color: var(--ink); }
@@ -82,7 +81,7 @@
    write the origin colours of the strip. */
 .fdiff { border-top: 1px solid var(--line); padding: 10px 24px 12px; font-size: 13px; }
 .fdiff header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.fdiff h2 { margin: 0; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.fdiff h2 { margin: 0; color: var(--dim); }
 .fdiff header .sub { color: var(--faint); font-size: 12px; }
 .fdiff header .sub a { color: var(--dim); text-underline-offset: 2px; text-decoration-color: var(--line2); }
 .fdiff header .sub a:hover { color: var(--ink); }
@@ -196,9 +195,13 @@ table.calls { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.calls th { position: sticky; top: 0; z-index: 1; background: var(--bg); text-align: left; font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 8px 10px; border-bottom: 1px solid var(--line); }
 table.calls td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.calls tbody tr { cursor: pointer; }
-table.calls tbody tr:hover td { background: var(--hover); }
+/* the selected call keeps the selection's ground under the pointer too: this rule is no more specific than the next */
+table.calls tr:hover td { background: var(--hover); }
 table.calls tr[aria-selected="true"] td { background: var(--sel); }
 table.calls tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
+/* a folded row that holds the selected call carries the selection, under the pointer too */
+table.calls tbody tr.held td { background: var(--sel); }
+table.calls tbody tr.held td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
 table.calls .n { width: 54px; text-align: right; font: 12.5px var(--mono); color: var(--faint); }
 table.calls .n .fk { font: 600 var(--fs-label) var(--body); color: var(--ink); margin-right: 5px; }
 table.calls .n .fk.bl { color: var(--err); }
@@ -211,15 +214,40 @@ table.calls .res { display: block; margin: 1px 0 0 37px; font: 11px var(--mono);
 table.calls .res.err { color: var(--err); }
 /* a blocked write's result in the blocked grey, as its origin is: the fence is Shadowlap working, never the red of what failed */
 table.calls .res.blk { color: var(--o-block); }
-/* light grouping: a call under the call it belongs to, its fold mark in the room before its kind */
-table.calls .lead { display: inline-flex; justify-content: flex-end; align-items: center; height: 16px; vertical-align: -3px; margin-right: 4px; }
-table.calls .tw { width: 16px; height: 16px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--dim); cursor: pointer; }
-table.calls .tw svg { width: 10px; height: 10px; transition: transform .12s ease; }
-table.calls .tw[aria-expanded="false"] svg { transform: rotate(-90deg); }
-table.calls .tw:hover { color: var(--ink); background: var(--hover); }
-table.calls .gitem { font: 11px var(--mono); font-weight: 400; color: var(--dim); margin-left: 10px; }
-table.calls .gfold { font: 11px var(--mono); font-weight: 400; color: var(--dim); margin-left: 10px; padding: 0 5px; border: 1px solid var(--line2); border-radius: 5px; }
-table.calls.grouped .res { margin-left: calc(37px + var(--lead, 0px)); }
+/* The trace, lightly grouped: a call a step in under the model call that asked for it, a sub-agent's and a batch item's calls
+   under a row that names them. A group folds at its caret, which hangs in the step before the kind, so a level's kinds stand
+   in one column; folded, the caret turns to point at the row. A step is 16px and the caret's slot 16px. */
+table.calls.grouped td.name, table.calls td.tgc { padding-left: calc(26px + var(--d, 0) * 16px); }
+table.calls .tcaret { display: inline-grid; place-items: center; width: 16px; height: 18px; margin: 0 0 0 -16px; padding: 0; vertical-align: -4px; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; }
+table.calls .tcaret:hover, table.calls tr.tgr:hover .tcr { color: var(--ink); }
+table.calls .tcaret svg { width: 10px; height: 10px; transition: transform .15s; }
+/* only a fold button's caret turns: a row's fork button is aria-expanded too, for its menu */
+table.calls :is(.tcaret, .tgsum)[aria-expanded="false"] > svg { transform: rotate(-90deg); }
+/* A group's row: its caret and its name, then what its calls were in the key's words; how it ended under them, as a result
+   reads under its call. Neither line takes width of its own, so a long input never widens the table: each is fitted. */
+table.calls .tgsum { contain: inline-size; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; width: calc(100% + 16px); margin: 0 0 0 -16px; padding: 0; overflow: hidden; border: 0; background: none; font: 500 13.5px var(--body); color: var(--ink); text-align: left; cursor: pointer; }
+table.calls .tgsum .tcr { flex: none; align-self: center; width: 16px; height: 10px; margin-right: -10px; color: var(--faint); transition: transform .15s; }
+/* the name takes the line; where it would get less than 9em beside the facts, the facts go under it, at the right */
+table.calls .tgsum .tgin { flex: 1 1 9em; min-width: 0; overflow: hidden; color: inherit; }
+table.calls .tgsum code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 500 12.5px var(--mono); }
+table.calls .tgk { color: var(--faint); font: 12px var(--body); }
+table.calls .tgfacts.legend { flex: none; margin-left: auto; display: inline-flex; flex-wrap: nowrap; gap: 12px; font: 12px var(--body); color: var(--faint); }
+table.calls .tgfacts.legend i { width: 8px; height: 8px; border-radius: 2px; }
+table.calls .tgout { display: flex; contain: inline-size; margin-top: 1px; overflow: hidden; font: 12.5px var(--body); color: var(--dim); }
+table.calls .tgout .tga { flex: none; white-space: pre; }
+table.calls .tgout .rab { flex: 1 1 auto; color: inherit; }
+table.calls .tgout.err { color: var(--err); }
+/* on a touch screen or a phone a caret answers a 24px tap, past its slot, while the step stays; on a phone the step and the slot
+   are smaller, and a call's kind gives its room to the name, the caret and the step telling a model call from its tool calls */
+@media (pointer: coarse), (max-width: 640px) { table.calls .tcaret { position: relative; } table.calls .tcaret::before { content: ""; position: absolute; inset: -3px -5px; } }
+@media (max-width: 640px) {
+  table.calls.grouped td.name, table.calls td.tgc { padding-left: calc(24px + var(--d, 0) * 12px); }
+  table.calls .tcaret { width: 14px; margin-left: -14px; }
+  table.calls .tgsum { width: calc(100% + 14px); margin-left: -14px; }
+  table.calls .tgsum .tcr { width: 14px; }
+  table.calls.grouped .name small { display: none; }
+}
+@media (max-width: 400px) { table.calls.grouped td.name, table.calls td.tgc { padding-left: calc(20px + var(--d, 0) * 8px); } }
 table.calls .num.was { color: var(--faint); }
 table.calls .num { text-align: right; font: 12.5px var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
 table.calls .rowact { width: 36px; padding: 0 8px 0 0; text-align: right; }
@@ -618,7 +646,7 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .rnote + .rnote { border-top: 1px solid var(--line); }
 .rnote.err { background: color-mix(in srgb, var(--err) 5%, transparent); }
 .rnote.warn { background: color-mix(in srgb, var(--warn) 5%, transparent); }
-.rnote .bk { flex: none; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.rnote .bk { flex: none; color: var(--dim); }
 .rnote.err .bk { color: var(--err); }
 .rnote.warn .bk { color: var(--warn); }
 .rnote .rnw { min-width: 0; flex: 1; }
@@ -751,8 +779,8 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
   .legend.lfilter button[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
   /* a range's notch in the text colour, over a cell that keeps its own */
   .cells button .tk { forced-color-adjust: none; background: CanvasText; }
-  /* the open call's and turn's fill and bar are lost: their row is outlined in the highlight colour */
-  table.calls tr[aria-selected="true"], .turn.sel { outline: 2px solid Highlight; outline-offset: -2px; }
+  /* the open call's and turn's fill and bar are lost, and a folded row's that holds the open call: their row is outlined in the highlight colour */
+  table.calls tr[aria-selected="true"], table.calls tr.held, .turn.sel { outline: 2px solid Highlight; outline-offset: -2px; }
   /* a chart's thinnest parts keep their colours inside a halo of the page's own dark; the open call's bar is outlined */
   .cbar > i, .couts i { forced-color-adjust: none; box-shadow: 0 0 0 1px var(--bg); }
   .cbar.sel::before { outline: 2px solid Highlight; }

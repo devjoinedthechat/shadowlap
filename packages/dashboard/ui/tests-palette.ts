@@ -33,7 +33,7 @@ let loading: Promise<void> | null = null;
 const listeners = new Set<() => void>();
 
 /** What the palette shows of an answer: a new one with the same names, results and divergences changes nothing there. */
-const paletteKey = (v: TestsView | null) => (v ? JSON.stringify([v.rows.map((r) => [r.name, r.last.result, !!r.error]), v.diverged]) : '');
+const paletteKey = (v: TestsView | null) => (v ? JSON.stringify([v.rows.map((r) => [r.name, r.last.result, r.last.verdict, !!r.error]), v.diverged]) : '');
 
 export function onTestsChanged(on: () => void): () => void {
   listeners.add(on);

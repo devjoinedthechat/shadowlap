@@ -328,6 +328,18 @@ export abstract class Fixes extends StorePart {
   listRepairs(): StoredRepair[] {
     return this.db.prepare(`SELECT * FROM repairs ORDER BY at ASC, repair_id ASC`).all().map(rowToRepair);
   }
+
+  /**
+   * What the repairer's own model spent, for each repair made in [from, to) (`report.cost.repairer`):
+   * the part of a repair that is no run. Its blame's and verify's attempts are runs, priced with
+   * the rest. Oldest first; a repair with no price for its repairer is left out.
+   */
+  repairerSpend(from: number, to: number): Array<{ at: number; spent: number }> {
+    return this.db
+      .prepare(`SELECT at, json_extract(record, '$.report.cost.repairer') AS spent FROM repairs WHERE at >= ? AND at < ? AND json_type(record, '$.report.cost.repairer') IN ('integer', 'real') ORDER BY at, repair_id`)
+      .all(from, to)
+      .map((r) => ({ at: Number(r.at), spent: Number(r.spent) || 0 }));
+  }
 }
 
 // ---- Fixes (v4): rows to records ----

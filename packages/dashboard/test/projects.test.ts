@@ -277,7 +277,7 @@ describe('setupView', () => {
       state: 'current',
       cli: ['shadowlap pack 01K5CQ7A3M goldens/research-agent', 'shadowlap test goldens/research-agent'],
       golden: { value: 'goldens/research-agent', enabled: true },
-      button: { label: 'Pack as a golden', action: 'packgolden', enabled: true },
+      button: { label: 'Pack as golden', action: 'packgolden', enabled: true },
       redaction: { rules: 0, text: 'There are no redaction rules yet, so the copy holds what was recorded. Add some in Settings before you commit runs with user data.', href: '#/settings/redaction' },
     });
     expect(view(p, facts({ runs: 1, recordings: [run()] }), { redactRules: 2 }).test.redaction!.text).toBe('Your redaction rules apply to the copy.');
@@ -459,7 +459,7 @@ describe('removeDialog', () => {
       { key: 'cfg', label: 'Its settings', path: 'shadowlap.config.json' },
       { key: 'gold', label: 'Its 2 goldens', path: 'goldens/' },
     ]);
-    expect(v.keep).toEqual({ text: 'Takes support-agent off the dashboard; nothing on disk changes.', note: null, button: { label: 'Remove project', style: 'plain' }, crossedOut: null, done: 'Removed support-agent · its folder and recordings are untouched' });
+    expect(v.keep).toEqual({ text: 'Takes support-agent off the dashboard; nothing on disk changes.', note: null, button: { label: 'Remove project', style: 'plain' }, crossedOut: null, done: 'Removed support-agent · nothing on disk changed' });
     expect(v.deleteZone).toEqual({
       label: 'Also delete its recordings',
       detail: '12 runs and their attempts. The goldens are in your repository and stay.',

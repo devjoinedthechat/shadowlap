@@ -89,7 +89,7 @@ describe('the colour tokens', () => {
 
 describe('where a call’s answer came from', () => {
   /** Every cell, bar and swatch an origin is drawn in. */
-  const MARKS = ['.cells button', '.ms i', '.gs i', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org'];
+  const MARKS = ['.cells button', '.ms i', '.segbar i', '.oleg i', '.tl-row .bar', '.legend i.lg', '.org'];
   const mark = (m: string, o: string) => (m === '.org' ? '.org.' + o + ' i' : `${m}.${o}`);
 
   it('draws a recording’s calls by kind in the kind’s own token, in the strip, its key and the Timeline alike', () => {
@@ -113,16 +113,18 @@ describe('where a call’s answer came from', () => {
 
   it('keeps the replayed colour for a replayed call: a verdict is drawn in the consequence colours, a score and a finished step neutral', () => {
     for (const s of ['.pips i', '.st.ok i', '.attempts span i', '.attempts a i', '.alist > .al > i', '.astrip .ac', 'td.hist i.pass::before', '.prl i.ok', '.recline .ic']) expect(value(s, 'background'), s).toBe('var(--cq-lime)');
-    for (const s of ['.pips i.no', '.attempts span i.no', '.attempts a i.no', '.alist > .al > i.no', '.astrip .ac.no', '.fxlegend i.lg.block']) expect(value(s, 'background'), s).toBe('var(--cq-red)');
-    expect(value('.fxlegend i.lg.rep', 'background')).toBe('var(--cq-lime)');
-    for (const s of ['.sbar i', '.stepper .done .k i', '.psteps .done i']) expect(value(s, 'background'), s).toBe('var(--dim)');
+    for (const s of ['.pips i.no', '.attempts span i.no', '.attempts a i.no', '.alist > .al > i.no', '.astrip .ac.no']) expect(value(s, 'background'), s).toBe('var(--cq-red)');
+    // The row of calls' key says each probe's word in its colour.
+    expect(value('.fxleg .lw.ok', 'color')).toBe('var(--cq-lime)');
+    expect(value('.fxleg .lw.lost', 'color')).toBe('var(--cq-red)');
+    for (const s of ['.sbar i', '.stepper .done .k i', '.psk.done i']) expect(value(s, 'background'), s).toBe('var(--dim)');
     const misused = rules().filter((r) => /var\(--o-rep\)/.test(r.body) && !r.selectors.every((s) => /\.rep\b|\.clean\b|\.metric b\.lime|^:root$/.test(s)));
     expect(misused.map((r) => r.selectors.join(', '))).toEqual([]);
   });
 
   it('draws a prompt’s cache reads in the quiet neutral, in the Context chart and the Overview’s cache bar alike', () => {
     expect(value(':root', '--c-read')).toBe('color-mix(in srgb, var(--ink) 40%, var(--panel))');
-    expect(value('.ovc .segbar i.rep', 'background')).toBe('var(--c-read)');
+    expect(value('.segbar i.cread', 'background')).toBe('var(--c-read)');
   });
 });
 
@@ -191,7 +193,7 @@ describe('what each colour may mean', () => {
 
   it('draws a step that ran and needs a look in amber, never the grey of one not run yet', () => {
     expect(value('.stepper .warn .k i', 'background')).toBe('var(--cq-amber)');
-    expect(value('.psteps .warn', 'color')).toBe('var(--cq-amber)');
+    expect(value('.psk.warn', 'color')).toBe('var(--cq-amber)');
   });
 
   it('keeps money a receipt, and an inconclusive CI row amber', () => {
@@ -211,6 +213,10 @@ describe('what each colour may mean', () => {
     expect(value('.navlist a[aria-current="page"] svg', 'color')).toBe('var(--ink)');
     for (const s of ['.run[aria-current="true"]::before', '.tabs [aria-selected="true"]::after', '.stabs a[aria-current="page"]::after', '.stepper a[aria-current="step"]::after']) expect(value(s, 'background'), s).toBe('var(--ink)');
     expect(value('table.calls tr[aria-selected="true"] td:first-child', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
+    // Under the pointer too, as a held row: the hover's ground is no more specific than the selection's, which comes after it.
+    const at = (s: string) => rules().findIndex((r) => r.selectors.includes(s));
+    expect(value('table.calls tr:hover td', 'background')).toBe('var(--hover)');
+    expect(at('table.calls tr:hover td')).toBeLessThan(at('table.calls tr[aria-selected="true"] td'));
     expect(value('.turn.sel', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
     expect(value('ol.setup .cur .sn', 'box-shadow')).toBe('inset 0 0 0 2px var(--ink)');
     expect(value('table.runst tr.picked td', 'background')).toBe('var(--sel)');
@@ -231,17 +237,22 @@ describe('lime', () => {
   /** Passed, wherever it is drawn: a verdict's word, dot, cell, mark or ring. */
   const PASSED: Record<string, string> = {
     '.pips i': 'an attempt that passed',
-    '.fxlegend i.lg.rep': 'the probes’ key: an attempt that passed',
+    '.fxleg .lw.ok': 'the row of calls’ key: a probe that rescued the run',
     '.attempts span i': 'an attempt that passed',
     '.attempts a i': 'an attempt that passed',
     '.st.ok i': 'a run that came out well',
+    '.evl .ed.end.ok': 'the last point of a gate’s evidence line that passed',
     '.st.ok': 'a status that passed: its word, in passed’s colour as its dot is',
     '.vw.ok': 'a verdict line’s word: passed',
     '.metric b.ok': 'a page’s fact that counts what passed (a fix verified)',
+    '.rmx-c.ok i': 'a results matrix’s cell that passed: its bar, its word staying quiet',
+    '.mxsw.ok': 'a matrix’s key: what passed',
     '.alist > .al > i': 'an attempt that passed',
     '.astrip .ac': 'an attempt that passed',
     'td.hist i.pass::before': 'a golden that passed at a revision',
     '.gtw .gstrip i.pass': 'a golden that passed at a revision',
+    'td.hist i.meter.pass b': 'a golden that passed at a revision: the share of its attempts that passed',
+    '.gtw .gstrip i.meter.pass': 'a golden that passed at a revision: the share of its attempts that passed',
     'table.gt .chk .ck.passed .cm': 'a check that passed',
     '.checks': 'a fork’s checks, passed',
     '.callrow .ok .cn': 'a probe that rescued the run',
@@ -253,8 +264,12 @@ describe('lime', () => {
     '.status .jobchip.ok i': 'a hidden job that ended well',
     '.drawer pre .ok': 'a job that ended well',
     '.prl i.ok': 'the pull request comment’s line that passed',
+    '.cilist li i.ok': 'a gate preview’s attempts that pass it',
     '.recline .ic': 'a setup step’s run that came back',
     '.glyph.fixok': 'a fix that was accepted',
+    '.psk.done.s-verify': 'a fix’s Verify step that passed, on its Fixes row',
+    '.psk.done.s-verify i': 'a fix’s Verify step that passed, on its Fixes row',
+    '.stepper .done.s-verify .k i': 'a fix’s Verify step that passed, its dot in the stepper of the fix’s page',
     '.plist.checks li.met::before': 'a requirement met',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
@@ -294,11 +309,16 @@ describe('amber', () => {
   /** Needs a look or inconclusive, wherever it is drawn: a word, dot, cell, mark, line or banner. */
   const LOOK: Record<string, string> = {
     '.glyph.warn': 'a glyph that needs a look',
+    '.verdict.tv p .tstale': 'Tests’ verdict tested a commit your working tree has moved on from: run them again',
+    '.evl .ed.y': 'an attempt the provider cut short, counted against either verdict, never the agent’s failure',
+    '.evl .ed.end.y': 'the last point of a gate’s evidence line that ran out between its bounds',
     '.glyph.fixinc': 'a fix whose verify couldn’t decide',
+    '.glyph.retire': 'a model the goldens use that retires',
     '.glyph.amb': 'an event that couldn’t decide, stopped or needs a look, whatever its shape',
     '.pips i.unsure': 'an attempt that couldn’t decide',
     '.pips i.part': 'an attempt that partly passed: inconclusive',
     '.legend i.lg.unsure': 'the probes’ key: an attempt that couldn’t decide',
+    '.fxleg .lw.unsure': 'the row of calls’ key: a probe that couldn’t decide',
     '.attempts span i.unsure': 'an attempt that couldn’t decide',
     '.attempts a i.unsure': 'an attempt that couldn’t decide',
     '.st.warn': 'a status that needs a look',
@@ -310,6 +330,7 @@ describe('amber', () => {
     '.tag.inc': 'an inconclusive status chip',
     '.wib.y .iv': 'a gate’s bound that can’t yet say pass or fail',
     '.run .r2 em.inc': 'a run that came out inconclusive',
+    '.rrow .rr2 em.inc': 'a recent run that came out inconclusive',
     'table.runst .rline em.inc': 'a run that came out inconclusive',
     '.banner.inc': 'a run that came out inconclusive',
     '.banner.inc .bk': 'a run that came out inconclusive',
@@ -321,13 +342,15 @@ describe('amber', () => {
     '.banner.fork': 'the design keeps a fork banner’s faint tint: the calls after a fork may differ from the recording',
     '.callrow .unsure .cn': 'a probe that couldn’t decide',
     '.callrow .unsure .pl': 'a probe that couldn’t decide',
-    '.psteps .warn': 'a step that ran and needs a look',
-    '.psteps .warn i': 'a step that ran and needs a look',
+    '.psk.warn': 'a step that ran and needs a look',
+    '.psk.warn i': 'a step that ran and needs a look',
     '.stepper .warn .k i': 'a step that ran and needs a look',
     '.fxwarn': 'what a fix asks you to look at',
     '.fxwarn.bad li.unsure': 'what a fix couldn’t decide',
     'td.hist i.inc::before': 'a golden inconclusive at a revision',
     '.gtw .gstrip i.inc': 'a golden inconclusive at a revision',
+    'td.hist i.meter.inc b': 'a golden inconclusive at a revision: the share of its attempts that passed',
+    '.gtw .gstrip i.meter.inc': 'a golden inconclusive at a revision: the share of its attempts that passed',
     'table.gt .chk .ck.inconclusive .cm': 'a check that couldn’t decide',
     'table.gt td.glast .gpre.warn': 'a golden whose last test needs a look',
     'pre.report .y': 'a report’s inconclusive line',
@@ -350,6 +373,7 @@ describe('amber', () => {
     '.agentfiles .warn': 'a coding agent’s file that needs a look',
     '.skrow > div:first-child > span.warn': 'a skill that needs a look',
     '.cip .offnote': 'a CI feature that is off: a look',
+    '.wfpanel .wfstate b': 'the lines Your workflow changes in the repository’s file: a look before Write file',
     '.set > .kvs dd small.warn': 'a setting that needs a look',
     '.egrp.mcp td small.mnote.warn': 'an MCP server that needs a look',
     '.trow.warn > span:last-child': 'a row that needs a look',
@@ -358,6 +382,9 @@ describe('amber', () => {
     '.connbar .cdot': 'the dashboard can’t be reached: a look',
     '.paloff .cdot': 'the palette’s line saying the server can’t be reached: a look',
     '.status .off': 'the dashboard can’t be reached: a look',
+    '.rmx-c.warn i': 'a results matrix’s cell that was inconclusive or influenced: its bar',
+    '.rmx-c.warn b': 'a results matrix’s cell that was inconclusive or influenced: its word',
+    '.mxsw.warn': 'a matrix’s key: what was inconclusive or influenced',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
@@ -405,7 +432,6 @@ describe('grounds, tints and lines', () => {
     '.connblock': 'the page behind the offline bar, veiled in its own ground',
     '.scrim': 'the page dimmed behind a dialog',
     '.msheet': 'the page dimmed behind a phone’s menu sheet',
-    '.prbody.clamp::after': 'report.md fading into its panel where it is cut',
     '.toast .tx:hover': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tx:focus-visible': 'on the toast’s ink ground, the page’s ground as its tint',
     '.toast .tbtn:hover': 'on the toast’s ink ground, the page’s ground as its tint',
@@ -416,11 +442,7 @@ describe('grounds, tints and lines', () => {
     '.banner.n': 'a banner that says nothing is wrong, a shade off the page',
   };
   /** Tints the design drops with the part they draw, each with the slice that does. */
-  const UNTIL: Record<string, string> = {
-    '.dp': 'port/overview: the delta pills go with the KPI tiles',
-    '.dp.good': 'port/overview: the delta pills go with the KPI tiles',
-    '.fstep .fb': 'port/overview: a fix step’s share goes with the Overview’s Fixes card',
-  };
+  const UNTIL: Record<string, string> = {};
 
   it('draws every ground, tint and line from the tokens, the tints that remain each with its reason', () => {
     const off: string[] = [];
@@ -446,7 +468,7 @@ describe('forced colours', () => {
   }
 
   it('keeps the colour of every mark that says something by its colour alone, edged so it shows on any ground', () => {
-    const marks = ['.cells button', '.ms', '.gs', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i'];
+    const marks = ['.cells button', '.ms', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw'];
     for (const s of marks) expect(forced.get(s)?.get('forced-color-adjust'), s).toBe('none');
   });
 
@@ -454,6 +476,8 @@ describe('forced colours', () => {
     expect(forced.get('.navlist a[aria-current="page"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('.run[aria-current="true"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
+    // A folded row in Calls that holds the open call is outlined as the open call's row is.
+    expect(forced.get('table.calls tr.held')?.get('outline')).toBe('2px solid Highlight');
     for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.legend.lfilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
     // The structural diff's marked words, which say what changed by their ground alone.

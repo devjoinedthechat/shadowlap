@@ -17,12 +17,19 @@ import type { Normalizer } from '@shadowlap/engine';
 
 /**
  * The rules an exported copy applies: the project's redaction rules, and the rules matching applies,
- * so the copy's Show diff says what they mask as this dashboard does.
+ * so the copy's Show diff says what they mask as this dashboard does. A broken redaction rule fails
+ * the export, which applies it; a broken normalizer doesn't (config.ts): the copy's Show diff then
+ * reads no rules, as the dashboard's own does (forks.ts).
  */
 function exportRules(ctx: RouteContext): { redact: Normalizer[]; normalize: Normalizer[] } {
   if (!ctx.options.loadConfig) return { redact: ctx.options.redact ?? [], normalize: [] };
   const config = ctx.config();
-  return { redact: config.redact, normalize: config.normalize };
+  const redact = config.redact;
+  try {
+    return { redact, normalize: config.normalize };
+  } catch {
+    return { redact, normalize: [] };
+  }
 }
 
 /** A whole number, 0 or more, from the query string; undefined when absent. */

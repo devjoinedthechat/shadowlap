@@ -1,3 +1,4 @@
+import type { HeldWhat, HoldingView } from '../src/cross-project.js';
 import type { AddProjectView, RemoveDialogView, SetupView, SwitcherView } from '../src/projects.js';
 
 /**
@@ -7,7 +8,7 @@ import type { AddProjectView, RemoveDialogView, SetupView, SwitcherView } from '
  * back to what they showed before. Types only from the server's read model (`src/projects.ts`).
  */
 
-export type { AddProjectView, RemoveDialogView, SetupView, SwitcherView };
+export type { AddProjectView, HoldingView, RemoveDialogView, SetupView, SwitcherView };
 export type { AddFolderItem, CalibrateStep, FindingRow, InspectStep, OnDiskRow, RecordStep, RemoveMode, StepState, SwitcherItem, TestStep, ToolRow } from '../src/projects.js';
 
 /** The switcher as `GET /api/projects` serves it: the projects, and why the list can't be changed when it can't. */
@@ -29,6 +30,15 @@ export interface RemovedProject {
   removed: string;
   current: string;
   deleted: string[];
+  message: string;
+  /** Its toast offers Undo ({@link ProjectsApi.restore}): not once its recordings are deleted, nor with its folder gone. */
+  undo: boolean;
+}
+
+/** A removed project back on the dashboard, at the place it left; the current project stays current. */
+export interface RestoredProject {
+  project: { id: string; name: string };
+  current: string;
   message: string;
 }
 
@@ -64,6 +74,8 @@ export interface ProjectsApi {
   /** What the Remove dialog shows for a project. */
   removal(id: string): Promise<RemoveDialogView>;
   remove(id: string, options: { deleteRecordings: boolean; name: string }): Promise<RemovedProject>;
+  /** The Undo of a removal: the project back at its place. */
+  restore(id: string): Promise<RestoredProject>;
   /** The current project's setup, or null when the server serves one store. */
   setup(): Promise<SetupView | null>;
   /** What recording `command` in the project's folder runs, and the confirmation to show first. Changes nothing. */
@@ -72,6 +84,11 @@ export interface ProjectsApi {
   checkGolden(project: string, golden: string): Promise<{ path: string; runId: string | null }>;
   /** Skip the rest, or Go to the overview: the project is set up. */
   finish(project: string): Promise<{ project: string; stage: string }>;
+  /**
+   * Which other project holds the run, fix, preview or migration a link names, which this one
+   * doesn't (pages/Elsewhere.tsx); null when the server serves one store. Fails as any read does.
+   */
+  holding(what: HeldWhat, ids: readonly string[]): Promise<HoldingView | null>;
 }
 
 /** The client's request function, as `createClient` has it: JSON in and out, an `ApiError` with the server's message. */
@@ -199,10 +216,12 @@ export function projectsApi(request: Request): ProjectsApi {
     add: (path) => send('POST', 'projects', { path }),
     removal: (projectId) => request<RemoveDialogView>(`projects/${id(projectId)}/remove`),
     remove: (projectId, o) => send('POST', `projects/${id(projectId)}/remove`, { deleteRecordings: o.deleteRecordings, name: o.name }),
+    restore: (projectId) => send('POST', `projects/${id(projectId)}/restore`, {}),
     setup: () => orNull(request<SetupView>('setup')),
     planRecording: (project, command) => send('POST', 'setup/record', { project, command }),
     checkGolden: (project, golden) => send('POST', 'setup/golden', { project, golden }),
     finish: (project) => send('POST', 'setup/finish', { project }),
+    holding: (what, ids) => orNull(request<HoldingView>(`projects/holding?what=${what}${ids.map((x) => `&id=${id(x)}`).join('')}`)),
   };
 }
 
@@ -215,9 +234,11 @@ export function noProjects(refuse: () => Promise<never>): ProjectsApi {
     add: refuse,
     removal: refuse,
     remove: refuse,
+    restore: refuse,
     setup: () => Promise.resolve(null),
     planRecording: refuse,
     checkGolden: refuse,
     finish: refuse,
+    holding: () => Promise.resolve(null),
   };
 }

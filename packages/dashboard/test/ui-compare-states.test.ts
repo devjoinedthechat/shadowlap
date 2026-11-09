@@ -106,16 +106,16 @@ describe('one run named', () => {
   it('names a run the store doesn’t hold', async () => {
     addressBar(`#/compare/${GONE}`);
     page = await render(createElement(AppContext.Provider, { value: app({ run: missing }) }, createElement(ComparePage, { a: GONE, b: null })));
-    await page.until('the answer', () => page!.all('.stepempty h3').length > 0);
-    expect(page.one('.stepempty h3').textContent).toBe('Not in this store');
+    await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
+    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
     expect(page.one('.stepempty p').textContent).toBe(`No run ${GONE} in this store. Pick two runs to compare, or open Runs to find the one you meant.`);
   });
 
   it('says an id that starts several runs’ ids matches several runs, not that there is no such run', async () => {
     addressBar(`#/compare/${SEVERAL}`);
     page = await render(createElement(AppContext.Provider, { value: app({ run: several }) }, createElement(ComparePage, { a: SEVERAL, b: null })));
-    await page.until('the answer', () => page!.all('.stepempty h3').length > 0);
-    expect(page.one('.stepempty h3').textContent).toBe('More than one run');
+    await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
+    expect(page.one('.stepempty h2').textContent).toBe('More than one run');
     expect(page.one('.stepempty p').textContent).toBe(`${SEVERAL} matches several runs; use more of the id. Pick two runs to compare, or open Runs to find the one you meant.`);
   });
 });
@@ -178,8 +178,8 @@ describe('two runs named', () => {
     addressBar(`#/compare/${REC}/${GONE}`);
     const client = { run: (id: string) => (id === GONE ? missing() : Promise.resolve(detail(id))), compare: () => Promise.reject(new ApiError(404, 'one of the runs does not exist')) };
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: GONE })));
-    await page.until('the answer', () => page!.all('.stepempty h3').length > 0);
-    expect(page.one('.stepempty h3').textContent).toBe('Not in this store');
+    await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
+    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
     expect(page.one('.stepempty p').textContent).toBe(`No run ${GONE} in this store. Pick another run for B.`);
     // The run pickers stay, to pick it.
     expect(page.all('.rpick').length).toBe(2);
@@ -189,21 +189,21 @@ describe('two runs named', () => {
     addressBar(`#/compare/${SEVERAL}/${FORK}`);
     const client = { run: (id: string) => (id === SEVERAL ? several() : id === GONE ? missing() : Promise.resolve(detail(id))), compare: () => Promise.reject(new ApiError(409, `run id prefix ${SEVERAL} matches several runs: use more of the id`)) };
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: SEVERAL, b: FORK })));
-    await page.until('the answer', () => page!.all('.stepempty h3').length > 0);
-    expect(page.one('.stepempty h3').textContent).toBe('More than one run');
+    await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
+    expect(page.one('.stepempty h2').textContent).toBe('More than one run');
     expect(page.one('.stepempty p').textContent).toBe(`${SEVERAL} matches several runs; use more of the id, or pick another run for A.`);
     // With a run the store doesn't hold on the other side, both are said.
     await page.unmount();
     addressBar(`#/compare/${SEVERAL}/${GONE}`);
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: SEVERAL, b: GONE })));
-    await page.until('the answer', () => page!.all('.stepempty h3').length > 0);
-    expect(page.one('.stepempty h3').textContent).toBe('Not in this store');
+    await page.until('the answer', () => page!.all('.stepempty h2').length > 0);
+    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
     expect(page.one('.stepempty p').textContent).toBe(`No run ${GONE} in this store; ${SEVERAL} matches several runs; use more of the id, or pick another run for A and for B.`);
     // The same prefix on both sides names no run to compare with itself.
     await page.unmount();
     addressBar(`#/compare/${SEVERAL}/${SEVERAL}`);
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: SEVERAL, b: SEVERAL })));
-    await page.until('the answer', () => page!.all('.stepempty h3').some((h) => h.textContent === 'More than one run'));
+    await page.until('the answer', () => page!.all('.stepempty h2').some((h) => h.textContent === 'More than one run'));
     expect(page.one('.stepempty p').textContent).toBe(`${SEVERAL} matches several runs; use more of the id, or pick another run for A and for B.`);
   });
 });

@@ -60,6 +60,8 @@ export interface JobView {
   worktree: { use: 'reads' | 'writes'; doing: string; folder: string | null } | null;
   /** The run the job is about (full id), or null when it is about none (an import, the tests). */
   runId: string | null;
+  /** The fix it blames, repairs, verifies or applies (full id), so its row can say so; absent for a job about no fix yet. */
+  fixId?: string;
   /** Whether the job makes a run to open when it ends. */
   opensRun: boolean;
   startedAt: number;
@@ -171,15 +173,20 @@ export interface MetaView {
 
 /** The icon an activity entry shows, as in the mock (each comes with its words beside it or on hover). */
 /** `warn`: neither passed nor failed, as an inconclusive test. */
-export type ActivityIcon = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train';
+export type ActivityIcon = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'fixinc' | 'project' | 'setting' | 'train';
 
 /** One entry of the activity feed. */
 export interface ActivityItem {
   /** Stable across requests: `e:<event id>` for a stored event, `r:<run id>:<what>` or `g:<group>` for one derived from runs. */
   id: string;
   at: number;
-  /** The icon. */
+  /** The icon: what it was, by its shape. */
   kind: ActivityIcon;
+  /**
+   * How it came out, by its colour, whatever its shape: `err` what failed or was rejected, `warn`
+   * what couldn't decide, stopped or needs a look. Absent: the shape's own colour.
+   */
+  outcome?: 'err' | 'warn';
   /** What happened, in the mock's words: "Replay clean · 30/30 · 0 upstream". */
   text: string;
   /** The run it is about. */

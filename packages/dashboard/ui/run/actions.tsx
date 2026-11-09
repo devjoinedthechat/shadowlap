@@ -7,7 +7,7 @@ import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { confirmWords } from '../labels.js';
 import { useApp } from '../state.js';
-import { bisectBlocked, bisectCardCommand, bisectLabel } from './offers.js';
+import { bisectBlocked, bisectCardCommand, bisectLabel, unknownBisect } from './offers.js';
 import { ActionButton } from '../components/ActionButton.js';
 import type { TipEst } from '../components/HoverCard.js';
 import { tipEst, useBilledPress } from '../components/JobButton.js';
@@ -18,7 +18,7 @@ import { onShow } from '../components/OnShow.js';
 
 /** The dialog an action asks in, a part of its own: it loads the first time an action asks something first (OnShow.tsx). */
 const ActionDialog = onShow(() => import('./ActionDialog.js').then((m) => m.ActionDialog));
-/** Find breaking commit's dialog, which the page rarely opens, a part of its own as Delete run's is (RunHeader.tsx): the run page keeps within its budget. */
+/** Find breaking commit's dialog, which a run's page rarely opens: a part of its own, with Delete run's (OnShow.tsx). */
 const BisectDialog = onShow(() => import('./RunDialogs.js').then((m) => m.BisectDialog));
 
 /**
@@ -42,9 +42,6 @@ export interface PendingAction {
    */
   estimate?: RowPrice;
 }
-
-/** A Find breaking commit with nothing known about the run's revisions: the dialog asks for a commit. */
-const UNKNOWN_BISECT = (runId: string): BisectOffer => ({ target: { kind: 'run', runId }, failed: true, good: null, bad: null, revisions: [], fork: false, live: false, unavailable: null, args: null });
 
 /**
  * Starts an action, or opens its dialog when it asks for something first, or only whether to start
@@ -107,7 +104,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   ) : bisecting ? (
     <BisectDialog
       runId={runId}
-      offer={offers?.bisect ?? UNKNOWN_BISECT(runId)}
+      offer={offers?.bisect ?? unknownBisect(runId)}
       onClose={() => setBisecting(false)}
       onRun={(good, sent) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good, ...sent })))}
     />
@@ -189,7 +186,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
             why={blocked}
             tip={confirmWords(bisect.label)}
             sub={bisect.hint}
-            command={bisectCardCommand(offers?.bisect ?? UNKNOWN_BISECT(runId))}
+            command={bisectCardCommand(offers?.bisect ?? unknownBisect(runId))}
             est={bisectOnCard(offers?.bisect, bisectPrice)}
             onClick={() => {
               onClose();

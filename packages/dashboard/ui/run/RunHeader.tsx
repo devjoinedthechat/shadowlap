@@ -14,7 +14,7 @@ import { shortcut } from '../shortcuts.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { isFailed, runType } from '../runs.js';
-import { labelSuggestions } from '../runspage/bulk.js';
+import { labelSuggestions } from '../runspage/run-words.js';
 import { pendingRunOf, useDeleteRun } from './delete-run.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
@@ -26,14 +26,25 @@ import { TraceLink } from './TraceLink.js';
 import { exitWords, type PresetAttempt } from './preset.js';
 import { checksOf, runDuration, runKindWords, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
-import { ShareMenu } from './ShareMenu.js';
+// The share job's drawer offers the link it made, as the run's page loads, whether Share has opened or not.
+import './share-link.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
 import { fitWork } from './fit-work.js';
 import { onShow } from '../components/OnShow.js';
+import { useServedParts, type ShareMenuProps } from '../served-parts.js';
 
-/** Delete run's dialog, which the page rarely opens, a part of its own as Find breaking commit's is (actions.tsx): the run page keeps within its budget. */
+/** Delete run's dialog, which a run's page rarely opens: a part of its own, with Find breaking commit's (OnShow.tsx). */
 const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.DeleteRunDialog));
+/**
+ * Share's menu, a part of its own for the same reason, which only the served dashboard hands in
+ * (served-parts.ts): an exported copy draws no Share, so its script holds no menu. Nothing where none
+ * was handed in.
+ */
+function ShareMenuPart(props: ShareMenuProps) {
+  const { ShareMenu } = useServedParts();
+  return ShareMenu ? <ShareMenu {...props} /> : null;
+}
 
 /**
  * The run's header, as every page's: what kind of run it is, muted, over its id (decision 10: the id
@@ -77,6 +88,9 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const type = runType(like);
   const live = r.status === 'running';
   const share = useMenu();
+  // Its script loads as the pointer or the focus reaches Share, so the menu opens at once.
+  const served = useServedParts();
+  const preloadShare = () => served.ShareMenu?.preload();
   const next = nextStepOf(run);
   const lead = next ? <NextStepButton key={next.key} run={run} step={next} offers={offers} onAction={onAction} onFindCommit={onFindCommit} /> : null;
   // The lineage is in the crumbs; a phone, which has none, reads the parent here, after the kind.
@@ -171,7 +185,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
         {next?.key === 'compare' ? null : <CompareButton run={run} />}<TraceLink trace={run.trace} />
         {exported ? lead : (
           <>
-            <ActionButton className="btn" id="shareBtn" reads aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
+            <ActionButton className="btn" id="shareBtn" reads aria-haspopup="menu" aria-expanded={share.open} onPointerEnter={preloadShare} onFocus={preloadShare} onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
               Share
               <Icon name="caret" className="caret" />
@@ -194,7 +208,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
           </>
         )}
       </div>
-      {share.open && share.anchor ? <ShareMenu anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
+      {share.open && share.anchor ? <ShareMenuPart anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
       {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
     </section>
   );

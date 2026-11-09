@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import { LoadFailed, PageHeader } from '../components/bits.js';
 import { onShow, type OnShow } from '../components/OnShow.js';
 import { Page } from '../components/Page.js';
+import { heldAsk } from '../held.js';
 import { setupShowsOn } from '../projects.js';
 import type { Route } from '../route.js';
 import { useRoute } from '../router.js';
@@ -9,6 +10,7 @@ import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
 import { pageTitle } from '../title.js';
 import { NotFoundPage } from './NotFound.js';
+import { Elsewhere } from './held-elsewhere.js';
 
 /**
  * The pages the dashboard's shell routes to, each in a script of its own that loads the first time
@@ -62,13 +64,18 @@ export const StoreSetupPage = onOpen(() => import('./settings/StoreSetup.js').th
 /**
  * The dashboard's page for a route, or the project's setup in its place: on every page but Settings
  * while the project has no runs, and on the Overview while its setup isn't finished
- * (`setupShowsOn`). Until that can be told, the page waits rather than flashing.
+ * (`setupShowsOn`). Until that can be told, the page waits rather than flashing. A link to a run, a
+ * fix or a pair asks first whether another project holds it (pages/held-elsewhere.tsx), the one part
+ * this list shows itself.
  */
 export function DashboardPages({ route }: { route: Route }) {
   const { exported, meta, runs } = useApp();
   const setup = setupShowsOn(route, { exported, meta, runs });
   if (setup === null) return <Page>{null}</Page>;
-  return setup ? <SetupPage asked={route.page === 'setup'} /> : <PageFor route={route} />;
+  if (!setup) return <PageFor route={route} />;
+  const page = <SetupPage asked={route.page === 'setup'} />;
+  const ask = heldAsk(route);
+  return ask ? <Elsewhere ask={ask} waiting={<Page>{null}</Page>} fallback={page} /> : page;
 }
 
 function PageFor({ route }: { route: Route }) {

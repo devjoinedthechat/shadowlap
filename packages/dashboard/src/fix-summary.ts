@@ -1,6 +1,5 @@
 import { checkSuggestion, commitTitle, fixCost, fixRecords, labelledFixes, lostWords, NO_REPAIRER, noRepairerOf, repairToApply, type RunRecord, shownBlame, type StoredRepair, type StoreOf, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
-import { loadRunIndex } from './run-index.js';
-import { acceptedCandidate, brokenOf, counting, fieldsOf, fixHref, isUnblamedFailure, noAnswerLost, type PatchCheck, patchMerged, rejectedSinceApplied, runHref, short, shownRepair, unrepairedVerdict } from './fix-shared.js';
+import { acceptedCandidate, brokenOf, counting, fieldsOf, fixHref, noAnswerLost, type PatchCheck, patchMerged, rejectedSinceApplied, rungOf, runHref, short, shownRepair, unblamedRuns, unrepairedVerdict } from './fix-shared.js';
 
 /** The Overview's fixes: how many there are by status and week, and those that need a look. */
 
@@ -66,8 +65,8 @@ export function fixesSummary(store: StoreOf<'recording' | 'readModels' | 'fixes'
   const blamed = records.filter((r) => r.blames.some((b) => b.outcome !== 'stopped')).length;
   return {
     open: fixes.filter((f) => f.status === 'open').length,
-    // A patch already in the working tree is no more to apply.
-    readyToApply: records.filter((r) => r.fix.status === 'verified' && !patchMerged(r, options.patchInTree)).length,
+    // A patch already in the working tree is no more to apply, nor a fix that shipped with its merged pull request.
+    readyToApply: records.filter((r) => r.fix.status === 'verified' && rungOf(r) !== 'merged' && !patchMerged(r, options.patchInTree)).length,
     broken: records.filter((r) => brokenOf(r) !== null).length,
     funnel: { failures: fixes.length + unblamedFailures(store).length, blamed, verified: fixes.filter((f) => f.status !== 'open').length, applied: fixes.filter((f) => f.status === 'applied').length },
     attempts: cost.attempts,
@@ -79,10 +78,7 @@ export function fixesSummary(store: StoreOf<'recording' | 'readModels' | 'fixes'
   };
 }
 
-function unblamedFailures(store: StoreOf<'recording' | 'readModels' | 'fixes'>): RunRecord[] {
-  const index = loadRunIndex(store);
-  return store.allRuns().filter((r) => isUnblamedFailure(store, r, index));
-}
+const unblamedFailures = (store: StoreOf<'recording' | 'readModels' | 'fixes'>): RunRecord[] => unblamedRuns(store);
 
 export interface NeedsLookItem {
   /**
@@ -121,7 +117,7 @@ function unaskedWords(r: StoredRepair): string | null {
  * every candidate it tried, or that it found none to try; or, for a change accepted under another
  * check than the fix's, that the change is not verified for it yet.
  */
-function repairLeft(r: StoredRepair): string {
+export function repairLeft(r: StoredRepair): string {
   if (acceptedCandidate(r)) return 'the last repair’s change is not verified yet';
   return unaskedWords(r) ?? (r.report.candidates.length ? 'the last repair’s candidates were rejected' : 'the last repair found no change to try');
 }
@@ -147,8 +143,9 @@ export function needsLookFixes(store: StoreOf<'recording' | 'readModels' | 'fixe
       const repaired = last ? repairLeft(last) : 'no change yet';
       open.push({ kind: 'open', href: fixHref(fix.fixId), icon: 'blame', title: fix.title, detail: `${where} · ${elsewhere ? 'look at the tools, the harness or the command' : repaired}`, action: elsewhere ? 'Open' : 'Fix it', fixId: fix.fixId, runId: null, at: fix.openedAt });
     } else if (fix.status === 'verified') {
-      // Its patch is in the working tree already: nothing is ready to apply, and the fix's page offers Mark applied.
-      if (patchMerged(rec, options.patchInTree)) continue;
+      // Its patch is in the working tree already: nothing is ready to apply, and the fix's page offers
+      // Mark applied. Merged with its pull request, it shipped: nothing waits to apply.
+      if (rungOf(rec) === 'merged' || patchMerged(rec, options.patchInTree)) continue;
       const p = shownRepair(rec);
       const c = p && acceptedCandidate(p);
       // No patch to apply, so the fix's page leads with Mark applied, and the line says it too: for a

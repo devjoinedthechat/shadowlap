@@ -8,7 +8,7 @@ import { outcomeOf, runType, TODAY } from '../runs.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Status } from '../components/Status.js';
 import { useLoad } from '../hooks.js';
-import { scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
+import { realScopes, scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
 import { useApp } from '../state.js';
 import type { PresetAttempt } from './preset.js';
 import { attemptOutcome } from './banner.js';
@@ -152,10 +152,11 @@ function spentBy(run: RunDetail): Pick<MetricInput, 'spentBy'> {
 /** Scopes as chips with counts, nested ones under their parent; picking one narrows every view to it. */
 export function ScopeBar({ run, scopes, scope, onScope }: { run: RunDetail; scopes: string[]; scope: string; onScope: (s: string) => void }) {
   // Blame the agent, not the model that plays its user: the scope picked, else the one that acts.
-  const hint = scopeHint(run.calls, scopes, scope) ?? { lead: 'Blame within one scope', scope: scopes[0]! };
+  // Blame is scoped by the scopes the author gave, so a run with none gets no hint.
+  const hint = scopeHint(run.calls, realScopes(run.calls), scope);
   return (
     <section className="scopebar">
-      <span className="k">scopes</span>
+      <span className="k">agents</span>
       <div className="chips">
         {['all', ...scopes].map((s) => (
           <button key={s} type="button" aria-pressed={scope === s} onClick={() => onScope(s)} title={s === 'all' ? undefined : s}>
@@ -165,9 +166,11 @@ export function ScopeBar({ run, scopes, scope, onScope }: { run: RunDetail; scop
           </button>
         ))}
       </div>
-      <span className="shint">
-        {hint.lead}: <code>shadowlap blame {shortId(run.run.runId)} --scope {hint.scope}</code>
-      </span>
+      {hint ? (
+        <span className="shint">
+          {hint.lead}: <code>shadowlap blame {shortId(run.run.runId)} --scope {hint.scope}</code>
+        </span>
+      ) : null}
     </section>
   );
 }

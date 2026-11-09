@@ -1,7 +1,8 @@
-import { commandIsImported, type DecisionRun, type DecisionStep, fieldValue, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, judgedOutcome, quoteArgv, type RetirementNotice, retirementOf, retirementTable, type StoreOf } from '@shadowlap/engine';
+import { commandIsImported, type DecisionRun, type DecisionStep, fieldValue, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, judgedOutcome, quoteArgv, retirementTable, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
+import { type RetiringModel, retiringModels } from './retirements.js';
 import { optionLike, type GoldenSource } from './tests.js';
 
 /**
@@ -65,7 +66,7 @@ export interface DecisionsListView {
 export interface RetirementsView {
   /** The day the providers' pages were read: the table holds what they said then. */
   version: string;
-  notices: Array<RetirementNotice & { goldens: string[] }>;
+  notices: RetiringModel[];
 }
 
 /** A run's part of a session, opened at its most consequential change (`decisionRow`'s cells), else at its start. */
@@ -129,30 +130,7 @@ export function runDecisions(store: StoreOf<'decisions'>, runId: string, limit =
  * (never tested here) can't be read, and is left out.
  */
 export function retirementsView(store: StoreOf<'recording'>, goldens: readonly GoldenSource[], now = Date.now()): RetirementsView {
-  const byModel = new Map<string, RetirementNotice & { goldens: string[] }>();
-  for (const g of goldens) {
-    if (!g.runId || !store.getRun(g.runId)) continue;
-    const seen = new Set<string>();
-    for (const c of store.getCalls(g.runId)) {
-      // Shadowlap's own calls (its judge's) are no model the agent uses.
-      if (c.kind !== 'api' || isReservedScope(c.meta.scope)) continue;
-      const provider = (c.meta.provider ?? c.end?.meta.provider ?? null);
-      const model = (c.end?.meta.model ?? c.meta.model ?? null);
-      if (!model) continue;
-      const key = `${String(provider)}\u0000${model}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const notice = byModel.get(key) ?? (() => {
-        const n = retirementOf(provider, model, { now });
-        return n ? { ...n, goldens: [] as string[] } : null;
-      })();
-      if (!notice) continue;
-      notice.goldens.push(g.path);
-      byModel.set(key, notice);
-    }
-  }
-  const order = (n: RetirementNotice) => (n.days === null ? Number.MAX_SAFE_INTEGER : n.days);
-  return { version: retirementTable().version, notices: [...byModel.values()].sort((a, b) => order(a) - order(b) || b.goldens.length - a.goldens.length) };
+  return { version: retirementTable().version, notices: retiringModels(store, goldens, now) };
 }
 
 // ---- jobs ----

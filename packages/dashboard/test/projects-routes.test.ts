@@ -551,8 +551,8 @@ describe('removing a project', () => {
     expect(existsSync(projectDbPath(w.support))).toBe(true);
 
     // Removing the current project forgets it and moves on; the store stays.
-    const removed = await w.api<{ removed: string; current: string; deleted: string[]; message: string }>('projects/support-agent/remove', { method: 'POST', body: {} });
-    expect(removed.body).toEqual({ removed: 'support-agent', current: 'triage-bot', deleted: [], message: 'Removed support-agent · its folder and recordings are untouched' });
+    const removed = await w.api<{ removed: string; current: string; deleted: string[]; message: string; undo: boolean }>('projects/support-agent/remove', { method: 'POST', body: {} });
+    expect(removed.body).toEqual({ removed: 'support-agent', current: 'triage-bot', deleted: [], message: 'Removed support-agent · nothing on disk changed', undo: true });
     expect(existsSync(projectDbPath(w.support))).toBe(true);
     expect((await w.api<{ project: { id: string } }>('meta')).body.project.id).toBe('triage-bot');
     // The only project left can't be removed.
@@ -561,8 +561,8 @@ describe('removing a project', () => {
 
     // Back, then removed with its recordings: the store goes, the folder stays.
     await w.api('projects', { method: 'POST', body: { path: w.support } });
-    const gone = await w.api<{ deleted: string[]; message: string }>('projects/support-agent/remove', { method: 'POST', body: { deleteRecordings: true, name: 'support-agent' } });
-    expect(gone.body.message).toBe('Removed support-agent and deleted its recordings');
+    const gone = await w.api<{ deleted: string[]; message: string; undo: boolean }>('projects/support-agent/remove', { method: 'POST', body: { deleteRecordings: true, name: 'support-agent' } });
+    expect(gone.body).toMatchObject({ message: 'Removed support-agent and deleted its recordings', undo: false });
     expect(gone.body.deleted).toContain('.shadowlap/shadowlap.db');
     expect(existsSync(projectDbPath(w.support))).toBe(false);
     expect(existsSync(join(w.support, 'pyproject.toml'))).toBe(true);
@@ -699,7 +699,7 @@ describe('the setup', () => {
     expect((await w.api<{ path: string }>('setup/golden', { method: 'POST', body: { golden: 'first-run' } })).body.path).toBe('goldens/first-run');
     expect(await w.api('jobs', { method: 'POST', body: { kind: 'pack-test', golden: '../outside', project: 'research-agent' } })).toMatchObject({ status: 400 });
 
-    // Pack as a golden: one job packs, then tests, each in this project's folder against its store.
+    // Pack as golden: one job packs, then tests, each in this project's folder against its store.
     const kept = await w.api<{ id: string; title: string; args: string[] }>('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/research-agent', project: 'research-agent' } });
     expect(kept.status).toBe(202);
     expect(kept.body).toMatchObject({ title: 'Packing and testing', args: ['pack', runId, 'goldens/research-agent'] });
@@ -758,7 +758,7 @@ describe('the setup', () => {
     const done = await w.waitJob(job.body.id);
     expect(done.code).toBe(1);
     expect(done.lines.some((l) => l.includes('shadowlap test'))).toBe(false);
-    // Nothing was packed: the step still offers its path and Pack as a golden.
+    // Nothing was packed: the step still offers its path and Pack as golden.
     const setup = await w.api<{ test: { button: { action: string }; golden: { value: string }; packed: unknown } }>('setup');
     expect(setup.body.test).toMatchObject({ button: { action: 'packgolden' }, golden: { value: 'goldens/research-agent' }, packed: null });
   });

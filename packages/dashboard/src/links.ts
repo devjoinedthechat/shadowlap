@@ -14,6 +14,7 @@
  *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a row of theirs, by its place
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
  *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup  #/setup/store
+ *   #/settings/ci?gate=<kind>            Settings → CI with Gates on a kind (`sprt` or `baseline`), which it reads once
  */
 
 /** A run page's views; Calls is the default and leaves the link. */
@@ -229,7 +230,8 @@ export const links = {
   tests: (): string => '#/tests',
   training: (tab?: 'pairs' | 'tasks'): string => (tab === 'tasks' ? '#/training/tasks' : '#/training'),
   /** Settings, at a tab (`matching`, `redaction`, `alerts` for CI, `agents`, `tools`, `project`, `store`). */
-  settings: (tab?: string | null): string => (tab ? `#/settings/${enc(tab)}` : '#/settings'),
+  /** A tab, and for CI the gate kind Gates opens on (a rule under Tests' table links there): the engine's `sprt` or `baseline`. */
+  settings: (tab?: string | null, o: { gate?: 'sprt' | 'baseline' } = {}): string => (tab ? `#/settings/${enc(tab)}${tab === 'ci' && o.gate ? `?gate=${o.gate}` : ''}` : '#/settings'),
   newProject: (): string => '#/new',
   setup: (): string => '#/setup',
   storeSetup: (): string => '#/setup/store',

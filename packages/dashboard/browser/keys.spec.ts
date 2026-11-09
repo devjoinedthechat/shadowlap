@@ -408,7 +408,7 @@ test('a job’s end hands the focus to what took its control’s place, however 
   const run = demoId('digestFailed');
   const fix = { role: 'failing', fix: { fixId: 'fx-0000000000000000000000000A', href: '#/fixes/fx-0000000000000000000000000A', title: 'The agent exited with code 1', status: 'open', label: 'digest', check: 'the agent exits 0' }, blame: null, probe: null, verify: null };
   // What the server leads with once the blame opened that fix.
-  const opens = { key: 'fix', label: 'Open fix', fixId: fix.fix.fixId, status: 'open', href: fix.fix.href, title: `“${fix.fix.title}”` };
+  const opens = { key: 'fix', label: 'Open fix', fixId: fix.fix.fixId, status: 'open', check: fix.fix.check, href: fix.fix.href, title: `“${fix.fix.title}”` };
   const job = (done: boolean) => ({ id: 'stubjob', kind: 'blame', title: 'Blaming', args: ['blame', run], worktree: { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: '/x' }, runId: run, opensRun: false, startedAt: Date.now() - 1000, endedAt: done ? Date.now() : null, done, stopped: false, code: done ? 3 : null, newRunId: null, runs: [], links: [], files: [], total: 0, lines: [], project: { id: 'support-agent', name: 'support-agent' } });
   let polls = 0;
   let ended = false;

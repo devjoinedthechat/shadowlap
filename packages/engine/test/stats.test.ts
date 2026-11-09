@@ -15,6 +15,7 @@ import {
   decide,
   decideCount,
   describeGate,
+  explainGate,
   dropProbability,
   formatPassK,
   formatTally,
@@ -33,6 +34,8 @@ import {
   sprtBounds,
   sprtScore,
   sprtStep,
+  tallyApart,
+  apartWords,
   verdictLine,
   wilson,
   rateBound,
@@ -557,6 +560,14 @@ describe('what a label rounds to', () => {
     expect(describeGate(h)).toContain('once 99.955% likely');
     expect(describeGate({ ...h, risk: 1 / 600 })).toContain('once 99.833% likely');
   });
+
+  it('words what a gate tells apart in one sentence, a split risk and a share of the suite’s included', () => {
+    expect(explainGate(sprt({}))).toBe('Tells an agent that passes 90% of the time or more from one that passes 70% or less, each verdict wrong at most 5% of the time at those two rates, and gives up after 80 attempts.');
+    expect(explainGate(sprt({ failRisk: 0.0005 }))).toContain('a pass wrong at most 5% of the time and a failure at most 0.05% at those two rates');
+    const h: BaselineGate = { kind: 'baseline', ...BASELINE_DEFAULTS };
+    expect(explainGate(h)).toBe('Asks whether this golden’s pass rate dropped 15 points or more from its last 10 sessions: it fails once that is 95% likely and passes once it is no likelier than not, deciding from attempt 5 up to 40.');
+    expect(explainGate({ ...h, risk: 0.00045, window: 1 })).toContain('from its last 1 session: it fails once that is 99.955% likely');
+  });
 });
 
 describe('a history gate a session widened past its own max', () => {
@@ -721,6 +732,9 @@ describe('what the reports say', () => {
     expect(r.interval).toEqual(gateResult(SPEC, Array(12).fill(true)).interval);
     expect(r.sentence).toBe('passed · 12 of 12 (2 unavailable, not counted) · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
     expect(verdictLine({ ...r, carried: 4 })).toBe('passed · 12 of 12 (4 carried over; 2 unavailable, not counted) · rate >= 0.73 (95%)');
+    // The same clauses for a page that says them apart from the line, and one attempt's words of itself.
+    expect(tallyApart({ carried: 4, cutShort: 0, unavailable: 2 })).toEqual(['4 carried over', '2 unavailable, not counted']);
+    expect([apartWords('cutShort', 2), apartWords('cutShort')]).toEqual(['2 cut short by the provider, counted against either verdict', 'cut short by the provider, counted against either verdict']);
     expect(gateResult(SPEC, Array(12).fill(true)).unavailable).toBeUndefined();
     // Three in a row before any counted: nothing decided, and no rate to show.
     expect(gateResult(SPEC, [], { unavailable: 3, decision: 'continue' }).sentence).toBe('undecided · 0 of 0 (3 unavailable, not counted) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
