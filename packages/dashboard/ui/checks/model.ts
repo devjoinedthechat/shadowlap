@@ -1,3 +1,4 @@
+import { lowerRecorded } from '../../../engine/src/checks/fields.js';
 import { EXPECT_KEYS, asNumber } from '../../../engine/src/checks/grammar.js';
 import { checkLabels } from '../../../engine/src/checks/labels.js';
 import { isReference, parseExpect, referenceTo } from '../../../engine/src/checks/parse.js';
@@ -138,13 +139,9 @@ export const firstCall = (ctx: RuleContext, tool: string): ContextCall | null =>
  * round number below it.
  */
 export function threshold(all: readonly ResultField[], f: Pick<ResultField, 'tool' | 'field' | 'value'>): number {
+  const lower = lowerRecorded(all, f);
+  if (lower !== null) return lower;
   const v = asNumber(f.value) ?? 0;
-  const lower = all
-    .filter((x) => !(x.tool === f.tool && x.field === f.field))
-    .map((x) => asNumber(x.value))
-    .filter((n): n is number => n !== null && n < v && n > 0)
-    .sort((a, b) => b - a)[0];
-  if (lower !== undefined) return lower;
   const p = v > 0 ? 10 ** Math.floor(Math.log10(v)) : NaN;
   return [5, 2, 1].map((x) => x * p).find((x) => x < v) ?? Math.floor(v / 2);
 }

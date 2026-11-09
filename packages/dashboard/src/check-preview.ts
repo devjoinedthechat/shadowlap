@@ -1,17 +1,14 @@
 import {
   agentOfRun,
-  asNumber,
+  agentToolCalls,
   checkRecording,
   checkRecordings,
   goldenWords,
-  intoText,
-  isJudgeCall,
-  isObject,
-  isUserInput,
   labelNoteWords,
   labelNotes,
   messageOf,
   notApplicable,
+  numberFields,
   packRecording,
   parseExpect,
   storedCalls,
@@ -19,6 +16,7 @@ import {
   type CheckedRecording,
   type CheckReport,
   type Price,
+  type RecordedField,
   type RecordingToCheck,
   type Store,
   type TestSpec,
@@ -43,12 +41,7 @@ import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry
  */
 
 /** A number a result recorded under a field: what a reference to it reads, `@lookup_order.result.total`. */
-export interface ResultField {
-  tool: string;
-  field: string;
-  value: number | string;
-  callNo: number;
-}
+export type ResultField = RecordedField;
 
 /** A tool call as the editor offers it: its arguments as recorded, and what it does to the world. */
 export interface ContextCall {
@@ -126,41 +119,12 @@ export type CheckPreviewJob = {
 
 export type CheckJob = CheckContextJob | CheckPreviewJob;
 
-/** The agent's tool calls: a person's answer the agent read and a judge's call are no tool of its own. */
-const agentTools = (calls: readonly CallRecord[]): CallRecord[] => calls.filter((c) => c.kind === 'tool' && !isUserInput(c) && !isJudgeCall(c));
-
-const toolsOf = (calls: readonly CallRecord[]): string[] => [...new Set(agentTools(calls).map((c) => c.name))];
-
-/** A result as an object its fields are read from: as recorded, or JSON held in a string, as a reference reads it (the engine's rule). */
-function resultObject(value: unknown): Record<string, unknown> | null {
-  const v = intoText(value);
-  return isObject(v) ? v : null;
-}
-
-/** The number fields the calls' results recorded, the latest per tool and field, in the order first seen. Results that failed, were blocked or hold an error are left out. */
-function numberFields(calls: readonly CallRecord[], resultOf: (c: CallRecord) => unknown): ResultField[] {
-  const at = new Map<string, number>();
-  const out: ResultField[] = [];
-  for (const c of calls) {
-    if (c.origin === 'blocked') continue;
-    const result = resultObject(resultOf(c));
-    if (!result || 'error' in result) continue;
-    for (const [field, value] of Object.entries(result)) {
-      if (asNumber(value) === null) continue;
-      const key = `${c.name}\n${field}`;
-      const f = { tool: c.name, field, value: value as number | string, callNo: c.callNo };
-      const i = at.get(key);
-      if (i === undefined) at.set(key, out.push(f) - 1);
-      else out[i] = f;
-    }
-  }
-  return out;
-}
+const toolsOf = (calls: readonly CallRecord[]): string[] => [...new Set(agentToolCalls(calls).map((c) => c.name))];
 
 function checkContext(store: Store, job: CheckContextJob): ReadAnswer {
   const run = store.getRun(job.runId);
   if (!run) return failed(404, `no run ${job.runId}`);
-  const calls = agentTools(store.getCalls(run.runId));
+  const calls = agentToolCalls(store.getCalls(run.runId));
   const { argsOf, resultOf } = storedCalls(store);
   const read = (v: ((c: CallRecord) => unknown) | undefined) => (c: CallRecord) => v?.(c);
   const callOf = (c: CallRecord): ContextCall => ({ callNo: c.callNo, tool: c.name, args: read(argsOf)(c) ?? null, effect: c.effect });
