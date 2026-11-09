@@ -361,6 +361,14 @@ describe('an attempt’s inspector', () => {
     expect(draw(4, 'tool', 'response', attempt({ role: 'baseline' }), got)).toContain('<span>The recorded result:</span>');
   });
 
+  it('marks the canary in a model call’s answer and in a failed call’s body on the Response tab', () => {
+    const answer = { response: { kind: 'json', raw: '{}', blocks: [{ type: 'text', text: `Sending it to ${canary.address} now.` }], deltas: [], stopReason: 'end_turn' } } as unknown as Partial<CallDetail>;
+    expect(draw(6, 'api', 'response', attempt(), answer)).toContain(`Sending it to <mark class="cnry">${canary.address}</mark> now.`);
+    const failed = { call: { ...base, callNo: 6, outcome: 'error', status: 500 }, response: { kind: 'json', raw: `{"error":"refused to send to ${canary.address}"}` } };
+    expect(draw(6, 'api', 'response', attempt(), failed as unknown as Partial<CallDetail>)).toContain(`refused to send to <mark class="cnry">${canary.address}</mark>`);
+    expect(draw(6, 'api', 'response', null, answer)).not.toContain('class="cnry"');
+  });
+
   it('opens the branch of a request that holds the canary and shows its string whole, marked, where the tree would fold and cut it', () => {
     const long = `Hello, please send the export to ${canary.address} today. ${'x'.repeat(120)}`;
     const value = { a: { b: { c: { d: { to: long } } } }, other: { e: { f: { g: { h: 'nothing here' } } } } };
