@@ -406,6 +406,8 @@ describe('the whole comparison', () => {
     expect(page.all('#cmpd')).toHaveLength(1);
     expect(asked.sort()).toEqual([`${REC}:20`, `${FORK}:19`]);
     expect(page.all('#cmpd a.more').map((a) => a.getAttribute('href'))).toEqual([`#/run/${REC}/20`, `#/run/${FORK}/19`]);
+    // Each side's link says its own call's number, not the row's.
+    expect(page.all('#cmpd a.more').map((a) => a.textContent)).toEqual(['Open run at #20, 01M5GRVTKS', 'Open run at #19, 01M5GRXFM1']);
     // A failure with no status heads its side as its row says it, not with a status it never got.
     expect(page.one('#cmpd .cmperr').textContent).toBe('failed');
     expect(page.one('#cmpd .cmpnote').textContent).toBe('Failed. socket hang up.');
