@@ -1,7 +1,7 @@
 import type { Store } from '@shadowlap/engine';
 import { needsLookFixes } from '../fix-summary.js';
 import type { PatchCheck, RewriteCheck } from '../fix-shared.js';
-import { coverage, decisions, injection, presetsFailed, presetsUnsure } from '../looks.js';
+import { coverage, decisions, presetsFailed, presetsUnsure } from '../looks.js';
 import { listedStep, type NextStep, type NextStepWork, type StepReads, stepReads } from '../next-step.js';
 import type { StoreNote } from '../overview.js';
 import type { RunIndex } from '../run-index.js';
@@ -10,6 +10,7 @@ import { broken, openFixes, ready, unblamed } from './fixes.js';
 import { failedGoldens, inconclusiveGoldens } from './goldens.js';
 import { LOOK_GROUPS } from './groups.js';
 import { retire } from './retire.js';
+import { security } from './security.js';
 import { goldenName, type HeldGolden, type LookSource, type LookWork, type NeedsLook, type NeedsLookRow, plural } from './row.js';
 import { local, setup } from './store.js';
 
@@ -20,7 +21,7 @@ export type { HeldGolden, LookSource, LookStep, LookWork, NeedsLook, NeedsLookRo
  * it, and its rows' keys. A source is a line here, never a side effect of a route module: the list
  * is worked out on a read thread, which loads no route. A later slice adds its file and its line.
  */
-export const SOURCES: readonly LookSource[] = [setup, broken, failedGoldens, presetsFailed, unblamed, openFixes, ready, inconclusiveGoldens, presetsUnsure, coverage, decisions, injection, local, retire];
+export const SOURCES: readonly LookSource[] = [setup, broken, failedGoldens, presetsFailed, unblamed, openFixes, ready, inconclusiveGoldens, presetsUnsure, coverage, decisions, security, local, retire];
 
 /** Rows one source lists one by one; past them (and one more), a line stands for the rest. */
 export const LOOK_CAP = 50;

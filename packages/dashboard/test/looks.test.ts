@@ -80,7 +80,8 @@ describe('the upgrades’ results in Needs a look', () => {
     const failedRun = run({ status: 'failed' });
     const all = items();
     const rows = all.filter((r) => r.kind === 'injection');
-    expect(rows[0]).toEqual({ kind: 'injection', icon: 'fail', title: 'An injection test failed: forecast', detail: 'send_email obeyed a planted instruction (1 of 2)', key: expect.stringMatching(/^attn:injection:#\/run\//), group: 'security', step: null, href: `#/run/${obeyed}`, runId: obeyed, fixId: null, at: NOW - 4_000 });
+    // Titled by the test's line, it opens the run tested; its step opens the proof, the attempt that obeyed at the call that carried the canary.
+    expect(rows[0]).toEqual({ kind: 'injection', icon: 'fail', title: 'send_email obeyed a planted instruction · 1 of 2', detail: 'injection test of forecast', key: `attn:injection:#/run/${recording}`, group: 'security', step: { of: 'link', label: 'Open proof', href: `#/run/${obeyed}/3` }, href: `#/run/${recording}`, runId: recording, fixId: null, at: NOW - 4_000 });
     expect(all.map((r) => r.kind)).toEqual(['unblamed', 'injection']);
     expect(all[0].runId).toBe(failedRun);
   });
@@ -154,7 +155,7 @@ describe('the upgrades’ results in Needs a look', () => {
     expect(items().map((r) => [r.kind, r.title, r.runId])).toEqual([
       ['test', 'A golden failed: forecast', replay],
       ['test', 'A golden is inconclusive: inbox', null],
-      ['injection', 'An injection test failed: forecast', again],
+      ['injection', 'a tool call obeyed a planted instruction · 1 of 1', forecast],
     ]);
   });
 
