@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { DivergenceView, FailureView, InconclusiveView, TestsSessionView, TestsView } from '../api.js';
+import { useOfflineLink } from '../components/ActionButton.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import { VerdictLine } from '../components/VerdictLine.js';
@@ -22,6 +23,7 @@ export interface LeadPress {
   onUpdate: (golden: string, e: Price) => void;
   onFind: (f: DivergenceView | FailureView) => void;
   onMore: (v: InconclusiveView, e: Price) => void;
+  onAgain: (lead: Extract<Lead, { kind: 'again' }>, e: Price) => void;
 }
 
 /** The verdict's step, lime: the page's one lime button while it leads (`leadStep`). */
@@ -49,6 +51,14 @@ function LeadButton({ lead, p }: { lead: Lead; p: LeadPress }) {
           {lead.label}
         </JobButton>
       );
+    case 'proof':
+      return <ProofLead lead={lead} />;
+    case 'again':
+      return (
+        <JobButton className="btn lime" why={p.wait('run it again')} {...testsJob({ tip: lead.label, sub: lead.sub, command: commandText(['test', lead.golden]) }, goldenPrice(p.prices, lead.golden, 'rerun'), (e) => p.onAgain(lead, e))}>
+          {lead.label}
+        </JobButton>
+      );
     case 'fix':
       return (
         <a className="btn lime" href={lead.href} data-tip={tipCard(lead.title ?? lead.label, [], `The fix for this failure: ${lead.check}`)}>
@@ -58,6 +68,16 @@ function LeadButton({ lead, p }: { lead: Lead; p: LeadPress }) {
     case 'blame':
       return <RunBlameButton runId={lead.runId} offer={lead.step.offer} className="btn lime" lead {...(lead.step.capture ? { capture: true } : {})} {...(lead.step.command ? { line: lead.step.command } : {})} />;
   }
+}
+
+/** Open proof: the attempt that proves the gate failed, waiting while the server is out of reach, as every link to an attempt does. */
+function ProofLead({ lead }: { lead: Extract<Lead, { kind: 'proof' }> }) {
+  const offline = useOfflineLink();
+  return (
+    <a className="btn lime" href={lead.href} data-tip={tipCard(lead.title ?? lead.label, [], lead.sub)} onClick={offline}>
+      {lead.label}
+    </a>
+  );
 }
 
 /** A word for each verdict, in its colour, as the mock says it: never a count in a tinted badge. */

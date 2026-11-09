@@ -15,7 +15,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
-import { divergedAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
+import { divergedAsk, gateAgainAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
 import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
@@ -155,6 +155,7 @@ export function TestsPage() {
     onUpdate: (golden, e) => guard(() => setOpen({ kind: 'update', paths: [golden], estimate: e })),
     onFind: findCommit,
     onMore: (v, e) => v.gate?.more && start(JOB_KINDS.tests, v.gate.more.job, moreAttemptsAsk(v.name, v.gate.more), e),
+    onAgain: (lead, e) => start(JOB_KINDS.tests, { golden: lead.golden }, gateAgainAsk(lead.name, lead.golden), e),
   };
 
   return (
