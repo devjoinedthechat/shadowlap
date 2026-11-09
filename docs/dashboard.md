@@ -1464,7 +1464,7 @@ It has [four steps](./team.md#set-it-up). Each unlocks the next, with its comman
 1. **Connect your bucket.** **Check access and connect** runs `store set --check`, which writes the config only once the check passes.
 2. **Push your runs.**
 3. **Push from CI**: on GitHub Actions, **Turn on Push from CI**, or `Skip for now`. On GitLab CI or another CI, its step to copy, then **I added it** or `Skip for now`.
-4. **Bring your team**: **Finish**.
+4. **Bring your team**: **Finish setup**.
 
 Step 3 writes Push from CI to `shadowlap.config.json`, as Settings → Store's switch does: **Turn on Push from CI** and **I added it** turn it on, and `Skip for now` turns it off. On GitHub Actions there is no step to copy: [your workflow](#ci) on Settings → CI pushes, and **Write the workflow →** leads there.
 
@@ -1475,7 +1475,7 @@ While a setup is under way:
 - the palette offers **Continue team store setup**;
 - the status bar says *setting up*.
 
-A setup finished before says so, with the way to Settings → Store.
+Once it is finished, one line says *set up · Your runs are in the bucket.*, with **Go to Overview**. A setup finished before says *set up · Runs go to* its bucket, with **Open store settings**.
 
 ## Projects
 
@@ -2255,7 +2255,7 @@ An exported copy holds every call.
 
 ### While a page's data loads
 
-While their data loads, the Overview, Runs, Tests, a run, a fix and the setup draw their final layout, its text as quiet bars, so nothing moves when the data comes. Nothing under the bars can be pressed, and a screen reader hears what is loading.
+While their data loads, the Overview, Runs, Tests, a run, a fix, a project's setup and the team store's draw their final layout, its text as quiet bars, so nothing moves when the data comes. Nothing under the bars can be pressed, and a screen reader hears what is loading.
 
 - **A read that fails** keeps the page's header, over one line that says why, with **Retry**.
 - **A link that names nothing** opens *Nothing here* under the page's header, with the way back: **Open Runs** for a run, **Open Fixes** for a fix, and **Back to Overview** for a page or a setup.
