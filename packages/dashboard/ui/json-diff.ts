@@ -228,16 +228,35 @@ class Walk {
   }
 }
 
-/** Side by side: a removed line beside the added line that replaces it, a line one side alone has beside a gap, a context line on both. */
+/**
+ * Side by side: a removed line beside the added line that replaces it, a context line on both, and
+ * between them the lines one side alone has, each side's from the top, beside a gap where the other
+ * side has fewer. So where a value's shape changed (a tool's result that came back as an error), the
+ * recording's keys sit beside this run's, not below them, though the walk lists this run's first.
+ */
 export function splitRows(lines: readonly JsonLine[]): Array<[JsonLine | null, JsonLine | null]> {
   const rows: Array<[JsonLine | null, JsonLine | null]> = [];
+  let was: JsonLine[] = [];
+  let now: JsonLine[] = [];
+  const alone = () => {
+    for (let k = 0; k < Math.max(was.length, now.length); k++) rows.push([was[k] ?? null, now[k] ?? null]);
+    was = [];
+    now = [];
+  };
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]!;
     const next = lines[i + 1];
     if (l.sign === '-' && next?.sign === '+' && next.key === l.key && next.depth === l.depth) {
+      alone();
       rows.push([l, next]);
       i++;
-    } else rows.push(l.sign === '-' ? [l, null] : l.sign === '+' ? [null, l] : [l, l]);
+    } else if (l.sign === '-') was.push(l);
+    else if (l.sign === '+') now.push(l);
+    else {
+      alone();
+      rows.push([l, l]);
+    }
   }
+  alone();
   return rows;
 }

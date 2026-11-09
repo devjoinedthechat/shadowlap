@@ -115,4 +115,28 @@ describe('the structural diff', () => {
       [null, '+ extra: 1'],
     ]);
   });
+
+  it('lays a result whose shape changed side by side from the top, the recording’s keys beside this run’s, not below them', () => {
+    // A tool's result that came back as an error: the walk lists this run's keys first, the recording's after.
+    const shipped = { status: 'shipped', eta: '2026-11-10' };
+    const failed = { error: 'timeout', retry: true };
+    expect(jsonDiff(shipped, failed).map(said)).toEqual(['+ error: "timeout"', '+ retry: true', '- status: "shipped"', '- eta: "2026-11-10"']);
+    const rows = splitRows(jsonDiff({ content: JSON.stringify(shipped) }, { content: JSON.stringify(failed) }));
+    expect(rows.map(([l, r]) => [l && said(l), r && said(r)])).toEqual([
+      ['  content: JSON in a string', '  content: JSON in a string'],
+      ['-   status: "shipped"', '+   error: "timeout"'],
+      ['-   eta: "2026-11-10"', '+   retry: true'],
+    ]);
+    // Fewer lines on one side: a gap beside the rest of the other's, and a changed value's two lines still share a row.
+    const keys = (was: unknown, now: unknown) => splitRows(jsonDiff(was, now)).map(([l, r]) => [l && `${l.sign}${l.key}`, r && `${r.sign}${r.key}`]);
+    expect(keys({ status: 'shipped', eta: 'soon', items: 2 }, { error: 'timeout' })).toEqual([
+      ['-status', '+error'],
+      ['-eta', null],
+      ['-items', null],
+    ]);
+    expect(keys({ a: 1, c: 1 }, { b: 1, c: 2 })).toEqual([
+      ['-a', '+b'],
+      ['-c', '+c'],
+    ]);
+  });
 });
