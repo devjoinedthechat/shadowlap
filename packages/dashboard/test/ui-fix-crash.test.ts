@@ -172,6 +172,18 @@ describe('a crash’s step on a row', () => {
     expect(calls.offers).toBe(1);
     expect(text(r.one('[role="dialog"] h3'))).toBe('Revert ccccccc?');
   });
+
+  it('opens it on the fix’s own commit where a drawer ends on its fix’s lead, reading no offers', async () => {
+    const lead = rowLead();
+    const calls: Calls = { started: [], offers: 0 };
+    const fix = { blame: { crash: { commit: { rev: 'ccccccc', subject: 'Log the total', author: '', date: null, at: 1, untested: [], change: null } } } } as unknown as FixDetail;
+    r = await render(inServed(served(fix, calls), createElement(RowStep, { fixId: 'fx-1', lead, why: null, version: '1', className: 'btn lime', fix })));
+    const revert = r.byText('button', 'Revert');
+    expect([revert.className, revert.getAttribute('data-next')]).toEqual(['btn lime', null]);
+    await r.click(revert);
+    await r.until('its dialog', () => r!.all('[role="dialog"]').length === 1);
+    expect(calls.offers).toBe(0);
+  });
 });
 
 describe('Needs a look’s Find breaking commit, once its job ends', () => {
