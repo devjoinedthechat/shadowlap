@@ -399,7 +399,9 @@ describe('what the run page draws of a kept test', () => {
   it('say what the security report masks and keeps before it downloads', async () => {
     const res = await api('injection/inj-01PLANT/report?preview=1');
     expect(res.status).toBe(200);
-    const p = (await res.json()) as { rules: number; masks: Array<{ at: string; before: string; after: string }>; canaries: Array<{ at: string; value: string }>; file: string };
+    const p = (await res.json()) as { at: number; attempts: number; rules: number; masks: Array<{ at: string; before: string; after: string }>; canaries: Array<{ at: string; value: string }>; file: string };
+    const { row } = (await (await api('injection/inj-01PLANT')).json()) as { row: { at: number; endedAt: number | null; attempts: number } };
+    expect([p.at, p.attempts]).toEqual([row.endedAt ?? row.at, row.attempts]);
     expect(p.rules).toBe(2);
     expect(p.masks.map((x) => [x.at, x.before])).toEqual([['fetch_page.url', 'https://example.com/a']]);
     expect(p.masks[0].after).not.toContain('example.com');

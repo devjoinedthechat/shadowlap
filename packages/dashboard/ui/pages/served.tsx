@@ -11,6 +11,7 @@ import type { ServedParts } from '../served-parts.js';
 export const SERVED_PARTS: ServedParts = {
   ShareMenu: onShow(() => import('../run/ShareMenu.js').then((m) => m.ShareMenu)),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog)),
+  SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog)),
   // The matrix's script starts as the panel's comes, so Show results opens on both.
   InjectionResults: onShow(
     () =>

@@ -18,7 +18,7 @@ import { namesTeamStore } from './verdicts.js';
  *   GET /api/injection/runs/:id           { untrusted, results, attempt }: a run's untrusted reads, its tests, and the test it is an attempt of
  *   GET /api/injection/:id                { row, report, gone, view }: one result, as --json printed it, and a plant's panel
  *   GET /api/injection/:id/report         the security report (HTML), the project's redaction rules applied;
- *                                         ?preview=1: { rules, masks, canaries, file }, what its dialog says first
+ *                                         ?preview=1: { at, attempts, rules, masks, canaries, file }, what its dialog says first
  *
  *   job injection  { runId | golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }
  */
@@ -65,7 +65,7 @@ export function register(router: Router, ctx: RouteContext): void {
     if (!found) throw new HttpError(404, `no injection result ${r.params.id!}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     // ?preview=1: what the dialog says before the download, from the same masks.
-    if (r.query.get('preview') === '1') return r.tagged(reportPreview(found.report, redact));
+    if (r.query.get('preview') === '1') return r.tagged(reportPreview(found.report, redact, found.row));
     const html = injectionReportHtml([found.report], { redact, version: ctx.options.version ?? null });
     r.res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',

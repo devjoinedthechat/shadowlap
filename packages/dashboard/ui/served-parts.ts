@@ -1,6 +1,7 @@
 import { createContext, useContext, type ComponentProps } from 'react';
 import type { OnShow } from './components/OnShow.js';
 import type { InjectionResults } from './injection/InjectionResults.js';
+import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
 import type { ShareMenu } from './run/ShareMenu.js';
 import type { StepDialog } from './run/StepDialogs.js';
 
@@ -8,6 +9,7 @@ import type { StepDialog } from './run/StepDialogs.js';
 export type ShareMenuProps = ComponentProps<typeof ShareMenu>;
 export type InjectionResultsProps = ComponentProps<typeof InjectionResults>;
 export type StepDialogProps = ComponentProps<typeof StepDialog>;
+export type SecurityReportProps = ComponentProps<typeof SecurityReportDialog>;
 
 /**
  * The parts a page draws only where the dashboard runs, never in an exported copy, handed in by the
@@ -15,7 +17,8 @@ export type StepDialogProps = ComponentProps<typeof StepDialog>;
  * holds none of their code, and a page that finds one missing draws nothing in its place. What keeps
  * each undrawn in a copy is pinned by a test (test/ui-exported-copy.test.ts: a copy's run page draws
  * no Share, so nothing there opens Share's menu; a copy keeps no injection results, so its run page
- * draws no test's finding to open them from; a copy's run page draws no step that asks).
+ * draws no test's finding to open them from, and no Share to download a report from; a copy's run
+ * page draws no step that asks).
  */
 export interface ServedParts {
   /** Share's menu (run/ShareMenu.tsx), with its Export dataset…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
@@ -24,6 +27,8 @@ export interface ServedParts {
   InjectionResults?: OnShow<InjectionResultsProps>;
   /** The dialogs the run page's steps ask in, Pack as golden…'s too (run/StepDialogs.tsx): loaded as one first shows. */
   StepDialog?: OnShow<StepDialogProps>;
+  /** A kept injection result's Security report, its masks and canaries read first (injection/SecurityReportDialog.tsx): Share's row opens it. */
+  SecurityReportDialog?: OnShow<SecurityReportProps>;
 }
 
 export const ServedPartsContext = createContext<ServedParts>({});

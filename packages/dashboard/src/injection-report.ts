@@ -263,6 +263,9 @@ export const reportFile = (runId: string): string => `shadowlap-injection-${runI
 
 /** What the security report's dialog says before it downloads: the rules it applies, up to two values they mask, each canary it keeps, and its file. */
 export interface ReportPreview {
+  /** When the result was kept, and its attempts: the dialog's From row (nothing runs again). */
+  at: number;
+  attempts: number;
   rules: number;
   masks: Array<{ at: string; before: string; after: string }>;
   canaries: Array<{ at: string; value: string }>;
@@ -283,7 +286,7 @@ function leaves(value: unknown, path = '$', out: Array<[string, string]> = [], m
  * the tool calls it shows that a rule masks, two at most, and each canary it keeps, since a canary is
  * the proof and no rule touches one.
  */
-export function reportPreview(report: InjectionReport, redact: readonly Normalizer[]): ReportPreview {
+export function reportPreview(report: InjectionReport, redact: readonly Normalizer[], row: { at: number; endedAt: number | null; attempts: number }): ReportPreview {
   const canaries = report.mode === 'plant' ? report.attempts.flatMap((a) => (a.canary ? [a.canary] : [])) : report.canary ? [report.canary] : [];
   const m = new Masker(redact, canaries);
   const calls: Array<{ tool: string; args: unknown }> = report.mode === 'plant' ? report.reads.map((r) => ({ tool: r.name, args: r.args })) : [{ tool: report.read.name, args: report.read.args }, ...report.writes.map((w) => ({ tool: w.name, args: w.args }))];
@@ -300,5 +303,5 @@ export function reportPreview(report: InjectionReport, redact: readonly Normaliz
     const c = canaries.find((x) => canaryIn(e.value, x));
     if (c && e.kind !== 'write') kept.set(`${e.tool}${e.path}`, { at: atPath(e.tool, e.path), value: [c.address, c.id, c.amount, c.token].find((f) => e.value.includes(f)) ?? e.value });
   }
-  return { rules: redact.length, masks, canaries: [...kept.values()].slice(0, 4), file: reportFile(report.runId) };
+  return { at: row.endedAt ?? row.at, attempts: row.attempts, rules: redact.length, masks, canaries: [...kept.values()].slice(0, 4), file: reportFile(report.runId) };
 }
