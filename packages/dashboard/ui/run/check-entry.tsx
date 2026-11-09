@@ -1,5 +1,4 @@
 import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { asNumber } from '../../../engine/src/checks/grammar.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import type { CallDetail, CallRow, RunDetail } from '../api.js';
@@ -7,7 +6,8 @@ import { ActionButton } from '../components/ActionButton.js';
 import { LoadFailed } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
-import { Popover, useMenu } from '../components/Popover.js';
+import { useMenu } from '../components/Popover.js';
+import { onShow } from '../components/OnShow.js';
 import { useApp } from '../state.js';
 import type { NextStep } from '../types.js';
 import { BuilderFailed, builderTitle, CheckBuilderPart, type CheckKind } from './check-part.js';
@@ -42,55 +42,6 @@ export function argsOf(detail: CallDetail): Record<string, unknown> {
   return isObject(args) ? args : {};
 }
 
-/** The check menu's rules for a call, each with the key of the check it writes, as the fork menu shows a flag. */
-export function checkMenuItems(name: string, args: Record<string, unknown>): Array<{ kind: CheckKind; label: string; keys: string }> {
-  const keys = Object.keys(args);
-  const [first] = keys;
-  // A number as a check compares one: the engine's rule, which the builder's argument picker reads by too.
-  const num = keys.find((k) => asNumber(args[k]) !== null);
-  return [
-    { kind: 'never', label: `Never call ${name}`, keys: 'tools' },
-    ...(first !== undefined
-      ? [
-          { kind: 'neverargs' as const, label: 'Never with these arguments', keys: 'tools · args' },
-          { kind: 'must' as const, label: `Must call with ${first} = …`, keys: 'tools · args' },
-        ]
-      : [{ kind: 'must' as const, label: `Must call ${name}`, keys: 'tools' }]),
-    { kind: 'after', label: 'Only after…', keys: 'calls · after' },
-    ...(num === undefined ? [] : [{ kind: 'every' as const, label: `${num.charAt(0).toUpperCase()}${num.slice(1).replace(/_/g, ' ')} at most…`, keys: 'calls · args' }]),
-    { kind: 'when', label: 'When… then…', keys: 'when' },
-  ];
-}
-
-/** The check menu at a call: its rules, then a judge's question about the whole run. It waits for the call, as the fork menu does. */
-function CheckMenu({ anchor, call, onPick, onClose }: { anchor: HTMLElement; call: CallDetail | null; onPick: (kind: CheckKind) => void; onClose: () => void }) {
-  if (!call) {
-    return (
-      <Popover key="loading" anchor={anchor} onClose={onClose} className="fkm ckm" label="Add check">
-        <div className="pnote">Loading the call…</div>
-      </Popover>
-    );
-  }
-  const c = call.call;
-  const item = (kind: CheckKind, label: string, keys: string) => (
-    <button key={kind} type="button" role="menuitem" onClick={() => onPick(kind)}>
-      <b>{label}</b>
-      <small>{keys}</small>
-    </button>
-  );
-  return (
-    <Popover key="menu" anchor={anchor} onClose={onClose} className="fkm ckm" label={`Add check at #${c.callNo}`}>
-      <div className="pk">
-        Add check · #{c.callNo} <code className="rnm">{c.name}</code>
-      </div>
-      {checkMenuItems(c.name, argsOf(call)).map((i) => item(i.kind, i.label, i.keys))}
-      <hr />
-      <div className="pk">The whole run</div>
-      {item('judge', 'Ask a judge…', 'judge')}
-    </Popover>
-  );
-}
-
 /** The inspector's Add check…, on its summary line: it opens the check menu at itself. */
 export function AddCheckLink({ check }: { check: CheckEntry }) {
   return (
@@ -100,6 +51,9 @@ export function AddCheckLink({ check }: { check: CheckEntry }) {
     </ActionButton>
   );
 }
+
+/** The check menu at a call, a part of its own: asked for with the builder's script, as Add check… is reached. */
+const CheckMenu = onShow(() => import('./CheckMenu.js').then((m) => m.CheckMenu));
 
 /** In the builder's place when its script didn't come: a small dialog, titled as the builder would be, with LoadFailed's line and Retry. */
 function NoBuilder({ title = 'Add check', onClose }: { title?: string; onClose: () => void }) {
@@ -128,9 +82,13 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
         ? {
             open: (el) => {
               Builder.preload();
+              CheckMenu.preload();
               openAt(el);
             },
-            preload: () => Builder.preload(),
+            preload: () => {
+              Builder.preload();
+              CheckMenu.preload();
+            },
           }
         : undefined,
     [Builder, openAt],
