@@ -12,9 +12,9 @@ import { readTeamStoreInput, teamStoreStatus, type TeamStoreStatus } from '../te
 /**
  * The team store, free: a bucket of your own that `push` copies runs to and `pull` brings the
  * team's from. `GET /api/store` says what this machine knows of it (nothing is asked of the
- * bucket) and who it records as; the `push`, `pull` and `share` job kinds run the CLI, which talks
- * to the bucket with this machine's own credentials. The Runs page (the `local` tag, Pull, Push in
- * the bulk bar), a run's page (Push, Share link) and Settings → Store use them.
+ * bucket) and who it records as; the `push`, `pull`, `store-check` and `share` job kinds run the
+ * CLI, which talks to the bucket with this machine's own credentials. The Runs page (the `local`
+ * tag, Pull, Push in the bulk bar), a run's page (Push, Share link) and Settings → Store use them.
  */
 
 /** The store the project's config names, as `teamStoreStatus` reports it, or null without one. Read fresh: Settings and `store set` change it. */
@@ -178,6 +178,19 @@ export function register(router: Router, ctx: RouteContext): void {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       if (!teamStoreFor(ctx)) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };
       return { args: ['pull'] };
+    },
+  });
+
+  // Check again (Settings → Store): `store check` lists, writes, reads and deletes a test object with
+  // this machine's credentials and records the result as the store's last check, which Last check and
+  // Activity read. It writes nothing to shadowlap.config.json, and a finished setup stays finished:
+  // never `store set --check`, which writes the store again.
+  ctx.jobs.registerJobKind('store-check', {
+    title: () => 'Checking store',
+    build: () => {
+      if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
+      if (!teamStoreFor(ctx)) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };
+      return { args: ['store', 'check'] };
     },
   });
 

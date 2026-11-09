@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api.js';
 import { CopyButton } from '../../components/bits.js';
 import { tipCard, tipText } from '../../components/HoverCard.js';
@@ -11,8 +11,9 @@ import { useApp } from '../../state.js';
 import { useTeamStore } from '../../teamstore.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { maskedLine, partialLine, previewChip, redactionNotes, returnedLine, unmaskedLine } from './logic.js';
-import { RuleDialog, RuleTable, addedText, removedText } from './RuleTable.js';
+import { RuleDialog, RuleTable, addedText, removeRule } from './RuleTable.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { Section } from '../../components/Section.js';
 
 /**
  * Redaction: the rules applied to every export, pack and share link of a run, where each applies
@@ -36,9 +37,11 @@ export function RedactionTab() {
   useEffect(() => REDACTION_ASK.on(() => setAdding(true)), []);
   const [run, setRun] = useState<string | null>(kept.run);
   const editor = useEditor(data?.config.version ?? null, reload);
+  // A rule an Undo put back: its Remove takes the focus once the table shows it.
+  const putBack = useRef<number | null>(null);
   const teamStore = !!useTeamStore();
   const gone = useFolderGone();
-  if (error && !data) return <LoadProblem error={error} />;
+  if (error && !data) return <LoadProblem error={error} retry={reload} />;
   if (!data) return <Loading title="Redaction" />;
   const off = app.actionsOff ?? gone ?? (data.config.error ? `Fix ${CONFIG_FILE} first` : editor.busy ? SAVING : null);
   const version = data.config.version ?? 'absent';
@@ -47,21 +50,22 @@ export function RedactionTab() {
   return (
     <>
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}
-      <section className="panel set">
-        <header>
-          <h2>Redaction</h2>
-          <span className="sub">what leaves your machine</span>
-          <span className="sp" />
+      <Section
+        className="set"
+        title="Redaction"
+        sub="what leaves your machine"
+        actions={
           <ActionButton className="btn sm" why={off} onClick={() => app.guard(() => setAdding(true))}>
             {ACTIONS.addRedactionRule.label}
           </ActionButton>
-        </header>
+        }
+      >
         <div className="pbody">
           <p className="muted">
             Applied to every export, pack and share link: <Where where={data.where} />. {redactionNotes(teamStore)}
           </p>
         </div>
-        <RuleTable list="redact" rows={data.rules} off={off} unreadable={unreadable} onRemove={(row) => void editor.run(() => client.settings.removeRule('redact', row.n, version), (r) => removedText('redact', r.n))} />
+        <RuleTable list="redact" rows={data.rules} off={off} unreadable={unreadable} onRemove={removeRule(app, editor, 'redact', version, putBack)} focus={putBack} />
         {/* No rules to preview while the file can't be read or the folder is gone: the table says so. */}
         {unreadable ? null : (
           <Preview
@@ -73,7 +77,7 @@ export function RedactionTab() {
             }}
           />
         )}
-      </section>
+      </Section>
       {adding ? (
         <RuleDialog
           list="redact"

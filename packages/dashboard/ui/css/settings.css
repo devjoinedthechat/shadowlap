@@ -4,15 +4,19 @@
 .setrow { display: flex; align-items: center; gap: 20px; padding: 14px 18px; border-top: 1px solid var(--line); }
 .setrow > div:first-child { flex: 1; min-width: 0; }
 .setrow b { display: block; font-weight: 500; }
-.setrow span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
+/* A row's lines under its label, never the spans of a picker or a field beside them. */
+.setrow > :where(div:first-child) span { display: block; margin-top: 2px; color: var(--faint); font-size: 12.5px; max-width: 72ch; }
 .setrow span.fieldnote { margin-top: 6px; }
+/* A picker's about line keeps to one line, fitted to the button (base.css sets every row's spans in pretty lines, which wrap). */
+.setrow .pick .rab { white-space: nowrap; }
 .preview { border-top: 1px solid var(--line); }
 .pvhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+@media (min-width: 641px) { .pvhead .rpick { width: 340px; } }
 
 .pvrule { display: grid; grid-template-columns: auto 34px minmax(0, 1fr); gap: 4px 12px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); }
 .pvrule .chip { justify-self: start; }
-.pvn { font: 600 13px var(--mono); text-align: right; }
-.pvs { grid-column: 3; display: flex; flex-direction: column; gap: 2px; font: 12px var(--mono); }
+.pvn { font: 600 12.5px var(--mono); text-align: right; }
+.pvs { grid-column: 3; display: flex; flex-direction: column; gap: 2px; font: 12.5px var(--mono); }
 .pvs + .pvs { grid-row: auto; }
 .pvs .del { color: var(--err); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--err) 50%, transparent); }
 .pvs .add { color: var(--add); }
@@ -27,11 +31,11 @@
   .effects div .muted { display: none; }
 }
 
-.egrp { padding: 12px 18px 14px; border-top: 1px solid var(--line); }
+.egrp { padding: 12px 0 14px; border-top: 1px solid var(--line); }
 .egrp .k { display: block; margin-bottom: 8px; }
 .tchips { display: flex; flex-wrap: wrap; gap: 6px; }
-.tchip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--raise); font: 12px var(--mono); }
-.tchip em { font-style: normal; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.tchip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--raise); font: 12.5px var(--mono); }
+.tchip em { font: normal 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
 .tchip.w em { color: var(--k-write); }
 .tchip.s em { color: var(--o-stub); }
 .set .tscroll table.t { min-width: 520px; }
@@ -39,7 +43,9 @@
 @media (max-width: 640px) {
   .set header .sub { display: none; }
   .setrow { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .pvhead .pick, .pvhead select { width: 100%; }
+  /* a row's switch comes right under what it turns on, and a link to where its step lives after it */
+  .setrow > .wflink { order: 1; }
+  .pvhead .pick, .pvhead select, .setrow > .pick { width: 100%; }
   .pvrule { grid-template-columns: auto 28px minmax(0, 1fr); }
 }
 
@@ -66,7 +72,6 @@
 .skrow .skall { margin-top: 10px; margin-left: -7px; }
 .skrow .skall svg { transition: transform .15s; transform: rotate(-90deg); }
 .skrow .skall[aria-expanded="true"] svg { transform: none; }
-.skrow .skall + .cmdline + .linkbtn { margin-top: 6px; margin-left: -7px; }
 
 /* alerts */
 .alertgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -100,7 +105,35 @@ ul.fails { margin: 0; padding-left: 18px; color: var(--dim); font-size: 13px; li
 .rule .switch, .setrow .switch { display: inline-flex; flex: none; margin: 0; color: inherit; }
 
 .settab > .panel:first-child { margin-top: 0 !important; }
-.settab > .panel + .panel { margin-top: 16px !important; }
+/* Under the tabs, one hairline: a tab's first section draws no second line under the tabs' own, nor does an empty state
+   that opens a tab (Store with no store yet). Sections after it sit 40px apart, each under its own hairline. */
+.settab > .panel.sec:first-child { border-top: 0; padding-top: 0; }
+.settab > .stepempty:first-child { border-top: 0; padding-top: 6px; }
+.settab > .loaderr:first-child { margin-top: 0; border-top: 0; padding-top: 6px; }
+.settab > .panel + .panel, .settab > .panel + .panel.sec { margin-top: 40px !important; }
+/* A section's parts are headed in words, as sentences start, never small capitals in mono (column heads keep those). The
+   source keeps them lowercase; the first letter is raised here. */
+.settab .k { font: 600 12.5px var(--body); letter-spacing: 0; text-transform: none; color: var(--dim); }
+.settab .k::first-letter { text-transform: uppercase; }
+/* Values read in the UI face; a path, a command or an id keeps its code. */
+.settab .kvs dd { font: 13.5px var(--body); word-break: normal; overflow-wrap: anywhere; }
+.settab .kvs dd code { font: 12.5px var(--mono); }
+/* A setting under a list of values starts on the list's last hairline, not a second one under it (Store, Project). */
+.settab dl.kvs + .setrow { border-top: 0; }
+/* On a phone a button beside a value (Copy access policy, Check again) takes a line of its own, whole; at 340px and under
+   each value goes under its key. */
+@media (max-width: 640px) { .settab .kvs dd :is(.btn, .linkbtn) { display: flex; width: fit-content; margin-top: 6px; } }
+@media (max-width: 340px) { .settab .kvs { grid-template-columns: minmax(0, 1fr); } .settab .kvs dt { border-bottom: 0; padding-bottom: 0; } }
+/* Rows run the section's full width: sections sit between hairlines, not in boxes. */
+.panel.sec.set .setrow { padding-left: 0; padding-right: 0; }
+.panel.sec.set dl.kvs { padding-left: 0 !important; padding-right: 0 !important; }
+.panel.sec.set > .pbody.preview, .panel.sec.set > .pbody.setfoot { padding: 14px 0 4px; }
+.panel.sec .alertgrid > .pbody { padding: 4px 28px 18px 0; }
+.panel.sec .alertgrid > .pbody.teamside { padding: 4px 0 18px 28px; }
+.panel.sec > .pbody.cicode { padding: 16px 0 4px; }
+@media (max-width: 1100px) { .panel.sec .alertgrid > .pbody, .panel.sec .alertgrid > .pbody.teamside { padding: 16px 0 18px; } .panel.sec .alertgrid > .pbody:first-child { padding-top: 4px; } }
+/* A rule's scope in words, every row alike; its path and pattern as code, or in words where it has none. */
+.set .rscope { color: var(--dim); }
 
 .setrow > div > span { text-wrap: pretty; }
 
@@ -109,7 +142,6 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 @media (max-width: 640px) { code.mcpt { max-width: 150px; } }
 
 /* Settings → CI: settings left, what lands where right; the workflow file reads as a file, with its own copy button. */
-.cip + .cip { margin-top: 16px; }
 .cip .cimain > p.muted { margin: 0 0 6px; }
 .cip .offnote { display: block; margin-top: 6px; font-weight: 500; color: var(--warn); }
 /* What a feature turned off would do: the faint ink, never faded, which fell under AA's contrast (2.0 to 4.0:1). */
@@ -166,19 +198,14 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 @media (max-width: 640px) { .cip .cistore .linkbtn { margin-left: -7px; } }
 
 /* ---- Settings: the spacing the mock wrote inline, and what the real tabs add ---- */
-.set > .kvs { padding: 4px 18px 0; }
-.set > .pbody + .kvs { padding: 0 18px 6px; }
 .set > .pbody.lead p.muted { margin: 0; }
-.set > .kvs dd.prose { word-break: normal; }
 .set > .kvs dd small.warn { color: var(--warn); }
 .set table.t tbody tr.still, .set table.ruletable tbody tr { cursor: default; }
-.set table.ruletable td.none { color: var(--faint); font-size: 12.5px; white-space: normal; }
-/* On a phone the empty table still scrolls sideways: the note stays in view, as wide as the panel. */
-.set table.ruletable td.none > span { position: sticky; left: 12px; display: block; max-width: calc(100vw - 80px); }
+/* With no rule left, one line under the hairline in the table's place. */
+.set .emptyline { border-top: 1px solid var(--line); }
 .set table.ruletable .rerr { color: var(--err); font-size: 12.5px; }
 .set table.ruletable td.num .linkbtn[disabled], .set table.ruletable td.num .linkbtn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .set table.ruletable td.num .linkbtn[disabled]:hover, .set table.ruletable td.num .linkbtn[aria-disabled="true"]:hover { background: none; color: var(--dim); }
-.settab > .verdict + .panel { margin-top: 0 !important; }
 
 .preview .pvnone, .preview .pvfoot { margin: 10px 0 0; }
 .preview .fieldnote { margin-top: 10px; }
@@ -195,7 +222,13 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .egrp.mcp p.none { margin: 0 0 12px; }
 .egrp.mcp .tscroll { margin: 4px 0 12px; }
 .egrp.mcp .tchips.mcpeffects { margin: 0 0 12px; }
-.egrp.mcp .codebox.mcpjson { margin-top: 14px; }
+/* Show the client’s config: what it folds, the configs to copy, under the table */
+.wftog { display: flex; align-items: center; gap: 18px; margin: 10px 0 0; }
+.wftog .linkbtn { gap: 6px; font-size: 12.5px; }
+.wftog .linkbtn svg { width: 10px; height: 10px; transition: transform .15s; }
+.wftog .linkbtn[aria-expanded="true"] svg { transform: rotate(180deg); }
+#mcpCfg[hidden] { display: none; }
+#mcpCfg > .boxwrap, #mcpCfg > .codewrap { margin-top: 10px; }
 .egrp.mcp td small.mnote { display: block; margin-top: 2px; color: var(--faint); font-size: 11.5px; white-space: normal; min-width: 180px; }
 .egrp.mcp td small.mnote.warn { color: var(--warn); }
 .egrp.mcp td small.mnote .linkbtn { padding: 0; margin: 0; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }

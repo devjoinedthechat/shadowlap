@@ -114,7 +114,7 @@ test.describe.configure({ timeout: 300_000 });
 
 test('every page and Settings tab has no serious or critical axe violation', async ({ page }) => {
   const pages = ['/', '/runs', '/runs?types=capture', '/runs?types=test', '/runs?types=failed', '/runs?q=label%3Agood', '/fixes', '/tests', '/training', '/training/tasks', '/compare', '/new'];
-  const settings = ['matching', 'redaction', 'alerts', 'agents', 'tools', 'project', 'store'];
+  const settings = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
   const changes: Array<[string, () => Promise<void>]> = [['/changes', at(page, '/changes', VERDICTS)], ['a revision’s page', revision(page)]];
   expect(await sweep(page, [...pages.map((p): [string, () => Promise<void>] => [p, at(page, p)]), ...changes, ...settings.map((t): [string, () => Promise<void>] => [`Settings → ${t}`, at(page, `/settings/${t}`)])])).toEqual([]);
 });
@@ -240,7 +240,7 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
   // The top bar's help menu: Keyboard shortcuts, Docs, Command line.
   states.push(['the help menu', click(page, '#helpBtn', undefined, { shows: '.pop.helpmenu' })], ['the help menu closed', escape(page, '.pop.helpmenu')]);
   // The shortcuts on pages of each kind: the keys that don't apply there are listed apart.
-  for (const [where, path, drawn] of [['the Overview', '/', 'overview'], ['Runs', '/runs', 'runs'], ['Fixes', '/fixes', 'main#view'], ['Settings', '/settings/alerts', 'main#view']] as const) {
+  for (const [where, path, drawn] of [['the Overview', '/', 'overview'], ['Runs', '/runs', 'runs'], ['Fixes', '/fixes', 'main#view'], ['Settings', '/settings/ci', 'main#view']] as const) {
     states.push([where, at(page, path, drawn)], [`the shortcuts on ${where}`, press(page, '?', { shows: '.help' })], [`the shortcuts on ${where} closed`, escape(page, '.help')]);
   }
   // A toast with Undo: the good/bad key pressed, then put back with u.
@@ -288,7 +288,7 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
   const states: Array<[string, () => Promise<void>]> = [];
   for (const p of ['/', '/runs', '/runs?types=failed', '/fixes', '/tests', '/training', '/compare', '/new', '/setup/store']) states.push([`${p} on a phone`, at(page, p)]);
   states.push(['/changes on a phone', at(page, '/changes', VERDICTS)], ['a revision’s page on a phone', revision(page)]);
-  for (const t of ['matching', 'redaction', 'alerts', 'agents', 'tools', 'project', 'store']) states.push([`Settings → ${t} on a phone`, at(page, `/settings/${t}`)]);
+  for (const t of ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store']) states.push([`Settings → ${t} on a phone`, at(page, `/settings/${t}`)]);
   for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step} on a phone`, at(page, `/fixes/${fx}${step}`, 'fix')]);
   for (const name of ['ticket', 'litellm', 'batchFork']) {
     const id = dash().runs[name] as string;

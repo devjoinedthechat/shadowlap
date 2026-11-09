@@ -38,7 +38,7 @@ const built: string[] = [
   links.training('pairs'),
   links.training('tasks'),
   links.settings(),
-  ...['matching', 'redaction', 'alerts', 'agents', 'tools', 'project', 'store'].map((tab) => links.settings(tab)),
+  ...['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'].map((tab) => links.settings(tab)),
   links.newProject(),
   links.setup(),
   links.storeSetup(),

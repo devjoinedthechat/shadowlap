@@ -205,7 +205,7 @@ export function storeSetupView(store: StoreOf<'recording' | 'readModels' | 'team
           // The setup gives your workflow's job the credentials steps alone; store ci prints them in a job of its own.
           const credentials = step.credentials ?? null;
           const printed = credentials ? `${command} prints these two steps in a job of its own, which would run your goldens a second time: copy only the two steps.` : null;
-          return { ...shown, command: credentials ? command : null, workflow: { href: links.settings('alerts'), credentials, printed } };
+          return { ...shown, command: credentials ? command : null, workflow: { href: links.settings('ci'), credentials, printed } };
         })
       : null,
     commit: loc ? { file: CONFIG_FILE, line: `"store": ${JSON.stringify(input.store)}`, command: COMMIT } : null,

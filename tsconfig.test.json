@@ -107,6 +107,14 @@
     "packages/dashboard/test/ui-run-outcome.test.ts",
     // These render Settings.
     "packages/dashboard/test/ui-settings-states.test.ts",
+    "packages/dashboard/test/ui-settings-shell.test.ts",
+    "packages/dashboard/test/ui-settings-undo.test.ts",
+    "packages/dashboard/test/ui-settings-store.test.ts",
+    "packages/dashboard/test/ui-settings-tools.test.ts",
+    "packages/dashboard/test/ui-training-sections.test.ts",
+    "packages/dashboard/test/ui-project-switcher.test.ts",
+    "packages/dashboard/test/ui-settings-lists.test.ts",
+    "packages/dashboard/test/ui-settings-calibrate.test.ts",
     "packages/dashboard/test/ui-ci-tab.test.ts",
     // This fits run names' about lines, which measures the page.
     "packages/dashboard/test/ui-about.test.ts",

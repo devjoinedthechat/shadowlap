@@ -12,7 +12,7 @@ import {
   lastCheck,
   openObjectStore,
   parseStoreUrl,
-  PROVIDER_NAMES,
+  policyLines,
   pull,
   pullRequestFolders,
   pullRequestJob,
@@ -369,14 +369,11 @@ export function storePolicy(t: TeamEnv, flags: { provider?: Provider; json?: boo
     line(t, JSON.stringify(policy, null, 2));
     return 0;
   }
-  note(t, p.dim(`# The access to ask your cloud admin for (${PROVIDER_NAMES[provider]}): one policy for people and protected branches, one for pull requests`));
-  for (const [i, part] of [policy.writer, policy.pullRequest].entries()) {
-    note(t, p.dim(`#\n# ${i + 1}. For ${part.for}: ${part.kind}`));
-    line(t, part.text);
-    for (const n of part.notes) note(t, p.dim(`# ${n}`));
+  // The same lines Settings → Store's Copy access policy copies.
+  for (const l of policyLines(policy)) {
+    if (l.comment) note(t, p.dim(l.text));
+    else line(t, l.text);
   }
-  if (policy.notes.length) note(t, p.dim('#'));
-  for (const n of policy.notes) note(t, p.dim(`# ${n}`));
   return 0;
 }
 

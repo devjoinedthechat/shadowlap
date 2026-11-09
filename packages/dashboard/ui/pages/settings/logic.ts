@@ -25,6 +25,19 @@ export function runListKey(runs: ReadonlyArray<{ runId: string; status: string }
   return `${project ?? ''}:${runs.length}:${runs[0]?.runId ?? ''}:${runs[runs.length - 1]?.runId ?? ''}:${running}`;
 }
 
+// ---- a rule's row ----
+
+/**
+ * A rule's scope in words, every row alike: `every call`, `API calls`, `tool calls`, then a call's
+ * name after `to`, as code (`tool calls to send_email`). A normalizer's `clock` and `random` read
+ * the same way; a name with no kind, which only a hand-written file has, is `calls to <name>`.
+ */
+export function ruleScope(rule: { kind?: string | undefined; name?: string | undefined }): { words: string; name: string | null } {
+  const name = rule.name || null;
+  if (!rule.kind) return name ? { words: 'calls', name } : { words: 'every call', name: null };
+  return { words: rule.kind === 'api' ? 'API calls' : `${rule.kind} calls`, name };
+}
+
 // ---- what leaves the machine ----
 
 /**
