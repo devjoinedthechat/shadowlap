@@ -833,7 +833,7 @@ What a copy would mask is counted as Settings → Redaction's preview counts it 
 - **Values a pack leaves as they are**: when the rules also match them (numbers, which a pattern never rewrites), it says how many stay as they are.
 - **A slow rule**: when a rule takes too long on the run's text, it says the values weren't counted, with why on hover.
 - **Busy previews**: while Settings → Redaction's previews hold every thread it uses, it says they are being counted, and asks again until they are.
-- **An injection attempt's canaries**: every copy keeps them, so they aren't counted, and the line ends *canaries kept*.
+- **An injection attempt's canaries**: a pack, an exported page, a share, a dataset and pairs keep them, so they aren't counted, and the line ends *canaries kept*.
 
 ### The inspector
 
@@ -1333,7 +1333,7 @@ A regex the [pattern check](./normalizers-and-redaction.md#patterns-that-could-t
 
 *Redaction* holds the rules, where each kind of copy applies them, and what they would mask in a run you pick. The [picker](#menus-pickers-and-dialogs) starts on the newest recording made here, and names each run by its id and its about line, as Compare's do. **Remove** offers **Undo**, as on Matching.
 
-What the rules would mask is counted per rule, path rules included, with up to two samples before and after, exactly as a pack masks them. An injection attempt's own canaries aren't counted, as every copy keeps them, and the count says *canaries kept*. A long run is read up to 2,000 calls, 64 MB or 5 seconds, and the page says how far it got; `shadowlap redact preview` reads it all.
+What the rules would mask is counted per rule, path rules included, with up to two samples before and after, exactly as a pack masks them. An injection attempt's own canaries aren't counted, as a pack, an exported page, a share, a dataset and pairs keep them, and the count says *canaries kept*. A long run is read up to 2,000 calls, 64 MB or 5 seconds, and the page says how far it got; `shadowlap redact preview` reads it all.
 
 Under a rule come quiet lines:
 
@@ -2624,7 +2624,7 @@ The `matrix` has a row per run and a cell per model call. Each cell holds:
 
 **Injection tests:**
 
-- `/api/injection`: the results kept, newest first, of a run or a golden (`limit` of them, at most 1,000). Each has its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to, its one `line`, its gate's `reason`, what it `spent`, and a `--clean` answer's `rule`.
+- `/api/injection`: the results kept, newest first, of a run or a golden (`limit` of them, at most 1,000). Each has its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to, its one `line`, its gate's `reason`, what it `spent`, and a `--clean` answer's `rule` and the call of the `read` it tested.
 - `/api/injection/:id`: one result as `injection --json` printed it, with its row, and the runs it names that gc has deleted since (`gone`). A finished plant also has its results as the run page draws them (`view`): each untrusted read by payload, each cell with the attempt that shows it and its proof.
 - `/api/injection/:id/report`: its security report, an HTML download with the project's redaction rules applied. With `?preview=1`, what its dialog says first: how many rules apply, two values they mask, each canary kept, and the file.
 - `/api/injection/needs-look`: the newest result of each run or golden that obeyed, was influenced or is inconclusive, for Needs a look.
