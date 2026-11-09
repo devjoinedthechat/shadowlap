@@ -1,5 +1,5 @@
 import { checkStatus, judgeLabel, judgeSourceParts, parseExpect, testResultVerdict, type CheckStatus, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
-import type { TestsView, UnjudgedCheck } from './tests.js';
+import type { GoldenSource, TestsView, UnjudgedCheck } from './tests.js';
 
 /*
  * A golden's checks on Tests: how its last result came out on each, and what changed in its entry
@@ -198,16 +198,24 @@ export interface ChangedCheck {
 }
 
 /**
+ * A golden's checks as the config holds them now, by their labels, or null where the config's tests
+ * couldn't be read (`checksUnread`, a file mid-edit), when nothing can say they changed since.
+ */
+export const checksNow = (g: Pick<GoldenSource, 'checks' | 'checksUnread'> | undefined): readonly string[] | null => (!g || g.checksUnread ? null : g.checks);
+
+/**
  * The checks changed since a golden's last test: those its last result failed or couldn't decide
  * that the golden's checks (`labels`, as the CLI labels them) no longer hold, removed or changed (a
  * changed check reads as another). Then that result stands on checks the config no longer has, and
  * only a test judges the checks as they are now. Null when none left, and for a result that passed,
  * or that failed or was undecided for a reason other than its checks (diverged, exit, no calls,
  * guard, injection, error), which keeps its own step: a check it passed changes nothing when it goes.
+ * Null too where the golden's checks couldn't be read (`labels` null, `checksNow`), whose last result
+ * keeps its own step: a config mid-edit says nothing of them.
  * The one rule for the row's line, the step on Tests, a run's page and Needs a look, and the report.
  */
-export function checksChanged(r: Pick<TestResult, 'ok' | 'failure' | 'data'> | null, labels: readonly string[]): ChangedCheck[] | null {
-  if (!r || r.ok || (r.failure !== 'check' && r.failure !== 'inconclusive')) return null;
+export function checksChanged(r: Pick<TestResult, 'ok' | 'failure' | 'data'> | null, labels: readonly string[] | null): ChangedCheck[] | null {
+  if (!labels || !r || r.ok || (r.failure !== 'check' && r.failure !== 'inconclusive')) return null;
   const now = new Set(labels);
   const out: ChangedCheck[] = [];
   for (const c of r.data?.checks ?? []) {

@@ -49,12 +49,14 @@ describe('goldens', () => {
     expect(listGoldens(project, [], 'nowhere')).toEqual([]);
     // As the dashboard asks for them: from the config on disk, or the folder alone when it can't be read.
     expect(projectGoldens(project)).toEqual(goldens);
+    expect(projectGoldens(project).some((g) => 'checksUnread' in g)).toBe(false);
     const broken = mkdtempSync(join(tmpdir(), 'sl-goldens-broken-'));
     try {
       mkdirSync(join(broken, 'goldens', 'a'), { recursive: true });
       writeFileSync(join(broken, 'goldens', 'a', 'run.json'), JSON.stringify({ format: 'shadowlap-pack', version: 1, createdAt: 5, runs: [{ runId: 'R_A', command: { argv: ['node'] } }] }));
       writeFileSync(join(broken, 'shadowlap.config.json'), '{ "tests": ');
-      expect(projectGoldens(broken).map((g) => [g.path, g.runId])).toEqual([['goldens/a', 'R_A']]);
+      // Its checks unknown, not none: nothing says they changed until the file reads again.
+      expect(projectGoldens(broken).map((g) => [g.path, g.runId, g.checks, g.checksUnread])).toEqual([['goldens/a', 'R_A', [], true]]);
     } finally {
       rmSync(broken, { recursive: true, force: true });
     }

@@ -3,7 +3,7 @@ import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResu
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
-import { addedTimes, changedReason, checksChanged, goldenChecks, heldVerdict, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
+import { addedTimes, changedReason, checksChanged, checksNow, goldenChecks, heldVerdict, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
 import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
@@ -38,6 +38,8 @@ export interface GoldenSource {
   judges?: string[];
   /** Why the pack can't be read, when it can't. */
   error?: string | null;
+  /** Set where the config's tests couldn't be read (a file mid-edit): `checks` is then empty for want of a read, so nothing says they changed since (`checksNow`). */
+  checksUnread?: boolean;
 }
 
 /** How a golden came out: passed, failed, or inconclusive (its gate ran out of attempts between its bounds, or a check couldn't be judged). */
@@ -578,7 +580,7 @@ function leadReason(r: TestResult, checks: readonly string[] | null): string {
 function verdictTitle(c: { first: TestResult | null; goldens: readonly GoldenSource[]; passing: number; total: number; notRun: number; presetsOnly: number }, folder: string): string {
   if (!c.first && !c.notRun && !c.presetsOnly) return c.total === 1 ? 'The golden passes' : `All ${c.total} goldens pass`;
   const goldens = (n: number) => `${n} golden${n === 1 ? '' : 's'}`;
-  const parts = [goldensPassed(c.passing, c.total), c.first ? `${nameOf(c.first.golden, folder)} ${leadReason(c.first, c.goldens.find((g) => g.path === c.first!.golden)?.checks ?? null)}` : '', c.notRun ? `${goldens(c.notRun)} not tested yet` : '', c.presetsOnly ? `${goldens(c.presetsOnly)} tested only by ${c.presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''];
+  const parts = [goldensPassed(c.passing, c.total), c.first ? `${nameOf(c.first.golden, folder)} ${leadReason(c.first, checksNow(c.goldens.find((g) => g.path === c.first!.golden)))}` : '', c.notRun ? `${goldens(c.notRun)} not tested yet` : '', c.presetsOnly ? `${goldens(c.presetsOnly)} tested only by ${c.presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''];
   return parts.filter(Boolean).join(' · ');
 }
 
@@ -1085,7 +1087,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       gate: gateView(g.gate),
       checks: g.checks,
       checkResults: goldenChecks(store, g.checks, latest, (label) => added(g.path, label)),
-      changed: checksChanged(latest, g.checks),
+      changed: checksChanged(latest, checksNow(g)),
       injection: !!g.injection,
       history: historyCells(store, list, revisions, { columnOf, columns: sessionIds, note: (r) => cellNote(store, r, g.checks, rules), runId: (r) => runIfKept(store, r.runId) }),
       last: latest
@@ -1342,7 +1344,7 @@ export function failingTests(store: StoreOf<'recording' | 'fixes' | 'tests'>, op
       const runId = runIfKept(store, r.runId);
       const verdict = verdictOfResult(r) === 'inconclusive' ? 'inconclusive' : 'failed';
       const fixId = verdict === 'failed' && runId ? (fixOfRun(store, runId)?.fixId ?? null) : null;
-      const next = failingNext(r, { fixId, mode: sources.get(r.golden)?.mode ?? null, checks: sources.get(r.golden)?.checks ?? null });
+      const next = failingNext(r, { fixId, mode: sources.get(r.golden)?.mode ?? null, checks: checksNow(sources.get(r.golden)) });
       const href = fixId ? links.fixes(fixId) : verdict === 'inconclusive' ? links.tests() : runId ? links.run(runId) : links.tests();
       // A gate's verdict says its word, tally and bound; the rule goes on the line's hover.
       const gate = decidedByGate(r) ? r.data!.gate! : null;

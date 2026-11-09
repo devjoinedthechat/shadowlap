@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { recordEvent, Store, type StoredCheck, type TestFailure, type TestResult } from '@shadowlap/engine';
-import { checksChanged } from '../src/tests-checks.js';
+import { checksStep } from '../src/check-steps.js';
+import { checksChanged, checksNow } from '../src/tests-checks.js';
 import { failingTests, testsView, type GoldenSource } from '../src/tests.js';
 
 /**
@@ -34,6 +35,14 @@ describe('the checks changed since a golden’s last test', () => {
     expect(checksChanged(result(true, undefined, [passed('issue_refund called 0 times')]), [])).toBeNull();
     for (const failure of ['diverged', 'exit', 'no-calls', 'error', 'injection', 'guard'] as const) expect(checksChanged(result(false, failure, checks), [])).toBeNull();
     expect(checksChanged(null, [])).toBeNull();
+  });
+
+  it('says nothing changed where the config’s tests couldn’t be read, whose goldens list no checks for want of a read', () => {
+    const r = result(false, 'check', [failed('issue_refund called 0 times')]);
+    expect(checksChanged(r, [])).toEqual([{ label: 'issue_refund called 0 times', status: 'failed' }]);
+    expect(checksNow({ checks: [], checksUnread: true })).toBeNull();
+    expect(checksChanged(r, checksNow({ checks: [], checksUnread: true }))).toBeNull();
+    expect(checksNow({ checks: ['escalate called 1 time'] })).toEqual(['escalate called 1 time']);
   });
 });
 
@@ -79,6 +88,19 @@ describe('a golden row on Tests', () => {
     const same = [golden(['issue_refund called 0 times', 'escalate called 1 time'])];
     expect(testsView(s, same).verdict!.title).not.toContain('changed since');
     expect(failingTests(s, { goldens: same })[0].next).not.toBe('run-tests');
+  });
+
+  it('keeps a failed golden’s own steps where the config couldn’t be read (a file mid-edit): no check changed since, no Run tests', () => {
+    const s = store([failed('issue_refund called 0 times'), passed('escalate called 1 time')], 'check');
+    // As the CLI lists the goldens folder then: no checks, marked unread.
+    const unread = [{ ...golden([]), checksUnread: true }];
+    const view = testsView(s, unread);
+    expect(view.rows[0].changed).toBeNull();
+    expect(view.verdict!.title).not.toContain('changed since');
+    expect(failingTests(s, { goldens: unread })[0].next).not.toBe('run-tests');
+    expect(checksStep(unread[0], s.listTestResults({ golden: 'goldens/refund-flow' }))).toBeNull();
+    // Read, an entry with no checks left is a change: its last result stands on checks it no longer has.
+    expect(testsView(s, [golden([])]).rows[0].changed).toEqual([{ label: 'issue_refund called 0 times', status: 'failed' }]);
   });
 
   it('has every mark again once a session judged its checks as they are now: nothing added, nothing changed since', () => {

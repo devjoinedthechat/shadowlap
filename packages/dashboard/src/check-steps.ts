@@ -1,6 +1,6 @@
 import { ACTIONS, checkStatus, type TestResult } from '@shadowlap/engine';
 import { commandLine } from './fix-shared.js';
-import { checksChanged } from './tests-checks.js';
+import { checksChanged, checksNow } from './tests-checks.js';
 import { nameOf, testPatterns, type GoldenSource } from './tests.js';
 
 /*
@@ -18,20 +18,22 @@ export type ChecksStep = { key: 'run-tests'; golden: string; gone: string[] } | 
 
 /**
  * A golden's step by its checks, from its results newest first and its checks now (`checks`, as the
- * CLI labels them); null when its checks lead with nothing.
+ * CLI labels them); null when its checks lead with nothing, and where the config couldn't be read
+ * (`checksUnread`), which says nothing of them.
  *
  * Edit check holds when its newest result failed a check the config still holds on a clean replay of
  * a golden marked replay, so that check's status is its recording's, and its previous result didn't
  * judge that check: it was added since. A golden with no previous result, and one marked fork (whose
  * telling needs the recording judged), keep the steps of a failed check.
  */
-export function checksStep(golden: { path: string; mode: 'replay' | 'fork'; checks: readonly string[] }, results: readonly TestResult[]): ChecksStep | null {
+export function checksStep(golden: Pick<GoldenSource, 'path' | 'mode' | 'checks' | 'checksUnread'>, results: readonly TestResult[]): ChecksStep | null {
   const [latest, previous] = results;
-  const gone = checksChanged(latest ?? null, golden.checks);
+  const checks = checksNow(golden);
+  const gone = checksChanged(latest ?? null, checks);
   if (gone) return { key: 'run-tests', golden: golden.path, gone: gone.map((c) => c.label) };
-  if (!latest || !previous || golden.mode !== 'replay' || latest.failure !== 'check' || latest.data?.divergence || latest.data?.mode === 'fork') return null;
+  if (!checks || !latest || !previous || golden.mode !== 'replay' || latest.failure !== 'check' || latest.data?.divergence || latest.data?.mode === 'fork') return null;
   const judged = new Set((previous.data?.checks ?? []).map((c) => c.label));
-  const added = (latest.data?.checks ?? []).find((c) => checkStatus(c) === 'failed' && golden.checks.includes(c.label) && !judged.has(c.label));
+  const added = (latest.data?.checks ?? []).find((c) => checkStatus(c) === 'failed' && checks.includes(c.label) && !judged.has(c.label));
   return added ? { key: 'edit-check', golden: golden.path, check: added.label } : null;
 }
 
