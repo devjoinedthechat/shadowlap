@@ -7,7 +7,7 @@ import { finalAnswer } from '../responses.js';
 import type { StoreOf } from '../store.js';
 import type { CallRecord, JudgeOutcome } from '../types.js';
 import { asNumber, hasWildcard, pathAt, type CallCondition, type CallRule, type CheckResult, type CountRange, type ExpectSpec, type JudgeCheck, type Matcher, type NamedPath, type Operand, type Reference, type TestSpec, type TextCheck, type WhenRule } from './grammar.js';
-import { COUNT_NOUNS, NEGATED, PHRASE, TEXT_NOUNS, callRuleLabel, costLabel, countLabel, formatCount, judgeLabel, orList, showValue, textLabel, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './labels.js';
+import { COUNT_NOUNS, NEGATED, NEVER_HELD, PHRASE, TEXT_NOUNS, callRuleLabel, costLabel, countLabel, formatCount, judgeLabel, orList, showValue, textLabel, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './labels.js';
 
 /**
  * A run judged by its checks: each check's status, what it expected and what happened, from the
@@ -445,7 +445,7 @@ function whenResults(rule: WhenRule, scope: Scope, options: EvaluateOptions): Ch
   const calls = (ts: typeof tried) => problemsDetail(ts.map((t) => `${cond.tool} #${t.c.callNo}: ${t.m.why}`), cond.tool);
   if (unread.length) return inner.map((r) => ({ status: 'inconclusive' as const, ok: false, label: whenLabel(cond, r.label), detail: `could not tell whether the condition held: ${calls(unread)}` }));
   const seen = tried.length ? calls(tried) : `${cond.tool} was never called`;
-  return inner.map((r) => ({ status: 'not-applicable' as const, ok: true, label: whenLabel(cond, r.label), detail: `the condition never held: ${seen}` }));
+  return inner.map((r) => ({ status: 'not-applicable' as const, ok: true, label: whenLabel(cond, r.label), detail: `${NEVER_HELD}: ${seen}` }));
 }
 
 /**

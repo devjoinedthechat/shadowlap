@@ -3,7 +3,7 @@ import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResu
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
-import { addedTimes, changedReason, checksChanged, goldenChecks, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
+import { addedTimes, changedReason, checksChanged, goldenChecks, heldVerdict, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
 import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
@@ -783,21 +783,6 @@ function moreAttempts(g: GateResult, golden: string, perAttempt: number | null):
 }
 
 const runIfKept = (store: StoreOf<'recording'>, runId: string | null) => (runId && store.getRun(runId) ? runId : null);
-
-/**
- * What a golden's pack holds for a judge check its test couldn't decide, read from the CLI's words for
- * why (`whyNotAnswered` in the CLI's judge.ts): no verdict, one given to an older form of the judge's
- * request, or one given on other material, with where it differs. Null for any other reason.
- */
-function heldVerdict(why: string): Pick<UnjudgedCheck, 'held' | 'changed'> {
-  const w = why.replace(/^not judged: /, '');
-  if (w.startsWith('no recorded verdict')) return { held: 'none', changed: null };
-  if (w.startsWith("the recording's verdict was given to an older form of the judge's request")) return { held: 'older', changed: null };
-  // `…on other material: it read "…" where it now reads "…", and <why the judge couldn't be asked>`, the last clause without a comma.
-  const other = /^the recording's verdict was given on other material(?:: (it read [\s\S]*))?, and [^,]*$/.exec(w);
-  if (other) return { held: 'material', changed: other[1] ?? null };
-  return { held: null, changed: null };
-}
 
 /**
  * The judge check an inconclusive result couldn't decide for want of a verdict it could use, and what

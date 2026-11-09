@@ -1,6 +1,6 @@
 import { approx, goldenName, num, plural } from '../format.js';
 import { blameStateWord, INCONCLUSIVE_FIRST, unrescuedWords } from '../../../engine/src/blame-words.js';
-import { fencedLabel, judgeSourceParts, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
+import { fencedLabel, judgeSourceParts, notApplicableParts, toolCheckLabel, toolCountDetail } from '../../../engine/src/checks/labels.js';
 import type { JudgeOutcome } from '../../../engine/src/types.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, lostWords } from '../../../engine/src/run-verdicts.js';
@@ -466,8 +466,8 @@ export function judgeVerdicts(checks: BannerInput['checks']): JudgeVerdict[] {
 function checkExtras(c: BannerInput['checks'][number]): { judge?: { callNo: number | null; why: string }; values?: string } {
   const why = judgeWhy(c);
   if (why) return { judge: { callNo: c.judge?.callNo ?? null, why } };
-  const at = c.status === 'not-applicable' && c.detail ? c.detail.indexOf(': ') : -1;
-  return at < 0 ? {} : { values: c.detail!.slice(at + 2) };
+  const values = c.status === 'not-applicable' && c.detail ? notApplicableParts(c.detail).values : null;
+  return values === null ? {} : { values };
 }
 
 /** An interrupted run's line: what stopped, and what it kept. */

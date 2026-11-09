@@ -164,6 +164,19 @@ export const textLabels = (key: TextKey, check: TextCheck): string[] => [...chec
 /** A check under a `when` rule, said under its condition: `when lookup_order has result.total > 200: escalate called at least 1 time`. */
 export const whenLabel = (c: CallCondition, label: string): string => `${conditionLabel(c)}: ${label}`;
 
+/** Why a check under a `when` rule didn't apply, before what the calls had instead (`evaluateChecks`). */
+export const NEVER_HELD = 'the condition never held';
+
+/**
+ * A not-applicable check's detail as `evaluateChecks` writes it, why and then, after `: `, what the
+ * calls had instead (`the condition never held: lookup_order #2: result.total 120 <= 200`), for a page
+ * that says why on the line and the values on its hover. A detail with nothing after why is all why.
+ */
+export function notApplicableParts(detail: string): { why: string; values: string | null } {
+  const at = detail.indexOf(': ');
+  return at < 0 ? { why: detail, values: null } : { why: detail.slice(0, at), values: detail.slice(at + 2) };
+}
+
 /**
  * Every check of an expect by its label, in the order `evaluateChecks` reports them: its tools, its
  * counts and cost, its output and final answer, its `calls` rules, each `when` rule's checks under

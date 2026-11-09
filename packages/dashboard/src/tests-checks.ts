@@ -1,5 +1,5 @@
 import { checkStatus, judgeLabel, judgeSourceParts, parseExpect, testResultVerdict, type CheckStatus, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
-import type { TestsView } from './tests.js';
+import type { TestsView, UnjudgedCheck } from './tests.js';
 
 /*
  * A golden's checks on Tests: how its last result came out on each, and what changed in its entry
@@ -52,9 +52,11 @@ export interface GoldenCheck {
    * A judge check: what it asks and the model it names, as the golden's entry holds them (null where
    * the entry names no such judge or can't be read: `withJudgeAsks`), the verdict its last result
    * kept, and where that verdict came from and what it cost in the engine's words, at the cost `live`
-   * gives (null before it was judged). Null for any other check.
+   * gives (null before it was judged), and for one a replay couldn't judge offline, what the golden's
+   * pack holds for it (`heldVerdict`: none, an older one, one on other material; null otherwise). Null
+   * for any other check.
    */
-  judge: { question: string | null; model: string | null; verdict: 'yes' | 'no' | null; judged: JudgedParts | null } | null;
+  judge: { question: string | null; model: string | null; verdict: 'yes' | 'no' | null; judged: JudgedParts | null; held: UnjudgedCheck['held'] } | null;
 }
 
 /** Where a judge's verdict came from (`judged live`), what that cost (null where the result doesn't say) and what was done to what it read, as the engine words them: a page joins them with ` · `. */
@@ -110,15 +112,33 @@ function judgeLive(r: TestResult, c: StoredCheck): GoldenCheck['live'] {
 }
 
 /**
+ * What a golden's pack holds for a judge check its test couldn't decide, read from the CLI's words for
+ * why (`whyNotAnswered` in the CLI's judge.ts): no verdict, one given to an older form of the judge's
+ * request, or one given on other material, with where it differs. Null for any other reason. Tests'
+ * judge cards and its inconclusive report (tests.ts' `unjudgedCheck`) read it alike.
+ */
+export function heldVerdict(why: string): Pick<UnjudgedCheck, 'held' | 'changed'> {
+  const w = why.replace(/^not judged: /, '');
+  if (w.startsWith('no recorded verdict')) return { held: 'none', changed: null };
+  if (w.startsWith("the recording's verdict was given to an older form of the judge's request")) return { held: 'older', changed: null };
+  // `…on other material: it read "…" where it now reads "…", and <why the judge couldn't be asked>`, the last clause without a comma.
+  const other = /^the recording's verdict was given on other material(?:: (it read [\s\S]*))?, and [^,]*$/.exec(w);
+  if (other) return { held: 'material', changed: other[1] ?? null };
+  return { held: null, changed: null };
+}
+
+/**
  * A judged check's judge, as its result kept it: the model that answered, its verdict, and where that
  * came from and what it cost by the engine's words, at the cost Tests gives (`live`), which for a
- * verdict asked over several attempts beside other judges the result doesn't say.
+ * verdict asked over several attempts beside other judges the result doesn't say. For one a replay,
+ * offline, couldn't decide: what the pack holds for it, by the CLI's words for why.
  */
-function judgeOf(c: StoredCheck, live: GoldenCheck['live']): GoldenCheck['judge'] {
+function judgeOf(r: TestResult, c: StoredCheck, live: GoldenCheck['live']): GoldenCheck['judge'] {
   if (!c.judge) return null;
   const parts = judgeSourceParts(live ? { ...c.judge, cost: live.cost } : c.judge);
   const judged = parts && c.judge.source === 'live' && !live && c.judge.cost !== null ? { ...parts, cost: null } : parts;
-  return { question: null, model: c.judge.model, verdict: c.judge.verdict, judged };
+  const held = checkStatus(c) === 'inconclusive' && r.data?.mode !== 'fork' ? heldVerdict(c.detail ?? '').held : null;
+  return { question: null, model: c.judge.model, verdict: c.judge.verdict, judged, held };
 }
 
 /**
@@ -144,7 +164,7 @@ export function goldenChecks(store: StoreOf<'recording'>, labels: readonly strin
     const c = kept[i]!;
     const tally = tallies?.get(label);
     const live = judgeLive(r!, c);
-    return { label, status: checkStatus(c), added: false, addedAt: null, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live, attempts: tally && tally.of > 1 ? tally : null, judge: judgeOf(c, live) };
+    return { label, status: checkStatus(c), added: false, addedAt: null, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live, attempts: tally && tally.of > 1 ? tally : null, judge: judgeOf(r!, c, live) };
   });
 }
 
@@ -231,7 +251,7 @@ export function withJudgeAsks(view: TestsView, expectOf: (golden: string) => unk
     if (!asks.size) return row;
     const checkResults = row.checkResults.map((c): GoldenCheck => {
       const ask = asks.get(c.label);
-      return ask ? { ...c, judge: { verdict: null, judged: null, ...c.judge, question: ask.question, model: c.judge?.model ?? ask.model } } : c;
+      return ask ? { ...c, judge: { verdict: null, judged: null, held: null, ...c.judge, question: ask.question, model: c.judge?.model ?? ask.model } } : c;
     });
     return { ...row, checkResults };
   });

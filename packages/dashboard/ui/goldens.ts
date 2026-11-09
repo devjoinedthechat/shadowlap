@@ -1,7 +1,7 @@
 import { justNow } from './format.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import { STATUS_WORDS } from '../../engine/src/check-status.js';
-import { CHECK_MARKS, checkLine } from '../../engine/src/checks/labels.js';
+import { CHECK_MARKS, checkLine, notApplicableParts } from '../../engine/src/checks/labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
@@ -137,12 +137,29 @@ export interface CheckMarkView {
   tip: { title: string; label: string; value: string; color: string; rows?: { label: string; value: string }[]; note?: string };
 }
 
-/** A check with no status: added since (`just now` within the minute the builder added it), its golden's last test couldn't run it, or it hasn't run yet. */
+/**
+ * A check with no status: added since (`just now` within the minute the builder added it), its
+ * golden's last test couldn't run it, or it hasn't run yet. A judge's card says what it asks, though
+ * nothing asked it yet, with why it has no mark under its title.
+ */
 function untested(c: GoldenCheck, ran: boolean): CheckMarkView {
   const word = 'not tested yet';
   const value = c.added ? 'Added to shadowlap.config.json since its last test: its next test judges it' : ran ? 'its last test couldn’t run the golden, so no check has a result' : 'its golden hasn’t run yet';
   const sub = c.added ? `added ${c.addedAt !== null && justNow(c.addedAt) ? 'just now' : 'since its last test'} · ${word}` : null;
-  return { mark: null, status: null, word, text: c.label, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' } };
+  const tip = { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' };
+  return { mark: null, status: null, word, text: c.label, sub, tip: c.judge?.question ? { ...tip, rows: [{ label: 'Asks', value: c.judge.question }], note: value } : tip };
+}
+
+/**
+ * A failed check's line and the why on its card: for a golden run more than once, how many attempts
+ * passed it and what the others did; else what it found, or for a judge where its verdict came from
+ * (`judgedLine`), as the design's line says it, what it answered being on its card.
+ */
+function failedLines(c: GoldenCheck, detail: string): { sub: string | null; value: string } {
+  const t = c.attempts;
+  const others = detail || 'failed';
+  if (t) return { sub: `${t.passed} of ${t.of} attempts passed · the others: ${others}`, value: `${t.passed} of ${t.of} attempts passed; the others: ${others}` };
+  return { sub: judgedLine(c) ?? (detail || null), value: others };
 }
 
 /**
@@ -163,36 +180,38 @@ export function checkMark(c: GoldenCheck, ran: boolean, cell = false): CheckMark
   let sub: string | null;
   let value: string;
   if (c.status === 'failed') {
-    sub = t ? `${t.passed} of ${t.of} attempts passed · the others: ${detail || 'failed'}` : detail || null;
-    value = t ? `${t.passed} of ${t.of} attempts passed; the others: ${detail || 'failed'}` : detail || 'failed';
+    ({ sub, value } = failedLines(c, detail));
   } else if (c.status === 'inconclusive') {
     sub = detail || null;
     value = detail || 'it could not be decided';
   } else if (c.status === 'not-applicable') {
     // The engine's detail is why, then what the calls had instead: the line says why, the hover the values.
-    const at = detail.indexOf(': ');
-    sub = `not applicable${detail ? ` · ${at < 0 ? detail : detail.slice(0, at)}` : ''}`;
-    value = at < 0 ? 'its condition never held' : detail.slice(at + 2);
+    const p = notApplicableParts(detail);
+    sub = `not applicable${p.why ? ` · ${p.why}` : ''}`;
+    value = p.values ?? 'its condition never held';
   } else {
     // A check over several attempts says how many passed it; a judge's verdict, where it came from.
     sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : cell ? null : judgedLine(c);
     value = [c.reason ? `“${c.reason}”` : null, t ? (t.passed === t.of ? `passed in every attempt, ${t.of} of ${t.of}` : `passed in ${t.passed} of ${t.of} attempts`) : null].filter(Boolean).join(' · ') || 'passed';
   }
   const m = { mark: CHECK_MARKS[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
-  return c.judge ? judgeCard(m, c, cell) : m;
+  return c.judge ? judgeCard(m, c) : m;
 }
 
 /**
  * A judge check's card: what it asks, then, where the judge was asked, what it answered and why, and
- * its model. Under them, why it has no verdict, or in Tests' cell where a passed verdict came from.
+ * its model. Under them, where its verdict came from wherever its line doesn't say it (Tests' cell, a
+ * line that counts attempts); for one a replay couldn't judge offline with no verdict in its pack, how
+ * to judge it once, as the design's card says it; else why it has no verdict.
  */
-function judgeCard(m: CheckMarkView, c: GoldenCheck, cell: boolean): CheckMarkView {
+function judgeCard(m: CheckMarkView, c: GoldenCheck): CheckMarkView {
   const j = c.judge!;
   const verdict = c.status === 'passed' || c.status === 'failed' ? j.verdict : null;
   const answered = verdict ? [{ label: 'Answered', value: c.reason ? `${verdict}: ${c.reason}` : verdict }, ...(j.model ? [{ label: 'Model', value: j.model }] : [])] : [];
   const rows = [...(j.question ? [{ label: 'Asks', value: j.question }] : []), ...answered];
   if (!rows.length) return m;
-  const note = c.status === 'passed' ? (cell ? judgedLine(c) : null) : c.status === 'failed' ? null : m.tip.value;
+  const line = judgedLine(c);
+  const note = verdict ? (m.sub === line ? null : line) : j.held === 'none' ? 'Not judged offline · update the golden to ask it once' : m.tip.value;
   return { ...m, tip: { ...m.tip, rows, ...(note ? { note } : {}) } };
 }
 
