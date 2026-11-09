@@ -412,9 +412,12 @@ describe('the CI tab', () => {
     // What an inconclusive golden does shows too: fail, the server's default, until it is changed here.
     expect(ciShown({}, view)).toEqual({ ...CI_DEFAULTS, inconclusive: 'fail' });
     expect(ciShown({ fix: true, secret: 'ALERTS_HOOK', inconclusive: 'warn' }, view)).toEqual({ ...CI_DEFAULTS, fix: true, secret: 'ALERTS_HOOK', inconclusive: 'warn' });
+    // The pull request comment is on until it is turned off here; the server's answer says it.
+    expect(ciShown({ comment: false }, view).comment).toBe(false);
+    expect(ciShown({}, ciWorkflows({ ...CI_DEFAULTS, comment: false }, { preview: null, failing: 0, at: null, repository: null, branch: null })).comment).toBe(false);
     // The branch "only for the main branch" means is the repository's default, in the switch's words and the YAML.
     expect(view.alerts.branch).toBe('master');
-    expect(view.alerts.yaml).toContain("github.ref == 'refs/heads/master'");
+    expect(view.workflow.text).toContain("github.ref == 'refs/heads/master'");
     expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on master.');
     expect(view.fixOnFailure.preview).toMatchObject({ example: true, base: 'master' });
   });

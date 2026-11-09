@@ -327,20 +327,23 @@ function PresetsLine({ p, only }: { p: Presets; only: boolean }) {
   );
 }
 
+/** A rule's card: where its link goes. */
+export const RULE_TIP = tipCard('What this gate takes', [], 'its figures, the attempts they take and the odds of each verdict, on Settings → CI');
+
 /**
  * Under the table: the key to By revision's cells, then each gate's rule, stated once for every
  * golden it decided (decision 9), beside the mode its goldens show: no row repeats it. Where two
  * rules share a mode (two goldens' gates with different limits), each names the goldens it decided,
- * so "up to 12 attempts" says whose it is.
+ * so "up to 12 attempts" says whose it is. A rule opens Settings → CI's Gates on its gate's kind.
  */
 function TableFoot({ rows, history }: { rows: readonly GoldenRow[]; history: boolean }) {
-  const rules = new Map<string, { mode: string; names: string[] }>();
+  const rules = new Map<string, { mode: string; kind: 'sprt' | 'baseline'; names: string[] }>();
   for (const r of rows) {
-    const rule = r.last.gate?.rule;
-    if (!rule) continue;
-    const kept = rules.get(rule);
+    const gate = r.last.gate;
+    if (!gate?.rule) continue;
+    const kept = rules.get(gate.rule);
     if (kept) kept.names.push(r.name);
-    else rules.set(rule, { mode: r.modeLabel, names: [r.name] });
+    else rules.set(gate.rule, { mode: r.modeLabel, kind: gate.kind, names: [r.name] });
   }
   const key = history ? <HistoryKey rows={rows} /> : null;
   if (!rules.size && !key) return null;
@@ -349,12 +352,14 @@ function TableFoot({ rows, history }: { rows: readonly GoldenRow[]; history: boo
   return (
     <div className="gfoot">
       {key}
-      {[...rules].map(([rule, { mode, names }]) => (
+      {[...rules].map(([rule, { mode, kind, names }]) => (
         <p key={rule}>
           <span className="chip">{mode}</span>
           <span>
             {shared(mode) ? <b className="gnames">{`${names.join(', ')}: `}</b> : null}
-            <RuleText rule={rule} />
+            <a className="dlink" href={href.settings('ci', { gate: kind })} data-tip={RULE_TIP}>
+              <RuleText rule={rule} />
+            </a>
           </span>
         </p>
       ))}

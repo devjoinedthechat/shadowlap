@@ -16,6 +16,7 @@ import {
   pull,
   pullRequestFolders,
   pullRequestJob,
+  pullCiSession,
   pullRequestLocation,
   push,
   queuedRuns,
@@ -685,6 +686,8 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
     } catch (err) {
       throw asTeamError(err);
     }
+    // The newest session CI pushed, for Settings → CI's line under Your workflow: never fails the pull.
+    await pullCiSession(store, remote, storeKey(loc));
     left = runCounts(store, loc);
     got = pulledRuns(store, result.pulled);
     recordEvent(store, {
@@ -923,11 +926,13 @@ export async function prepareTestPush(t: TeamEnv, options: { annotations?: boole
   }
   if (target.pr) note(t, p.dim(`--push: ${pullRequestLine(target)}`));
   const who = actor(t);
+  // The CI the session runs in, which its report names: a pull keeps the newest one CI pushed (Settings → CI's Last seen in CI).
+  const ci = ciProvider(t.env);
   const tally = { pushed: 0, failed: 0 };
   return {
     async pushRuns(store, runIds) {
       try {
-        const result = await push({ store, remote, actor: who, ci: ciProvider(t.env), pullRequest: target.pr, now: t.now }, { runIds });
+        const result = await push({ store, remote, actor: who, ci, pullRequest: target.pr, now: t.now }, { runIds });
         tally.pushed += result.pushed.length + result.updated.length;
       } catch (err) {
         tally.failed++;
@@ -937,7 +942,7 @@ export async function prepareTestPush(t: TeamEnv, options: { annotations?: boole
     async finish(report) {
       try {
         const id = ulid(t.now());
-        const doc = { format: 'shadowlap-store-tests', version: 1, at: t.now(), by: who, ...(target.pr ? { pullRequest: target.pr } : {}), report };
+        const doc = { format: 'shadowlap-store-tests', version: 1, at: t.now(), by: who, ...(ci ? { ci } : {}), ...(target.pr ? { pullRequest: target.pr } : {}), report };
         await remote.put(storeKeys.tests(id), Buffer.from(JSON.stringify(doc), 'utf8'), { contentType: 'application/json', ifNoneMatch: true }).catch((err: unknown) => {
           // The key is this session's own: it exists only if a retried write already landed.
           if (!isPrecondition(err)) throw err;

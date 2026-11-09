@@ -42,7 +42,7 @@ import { proposedRules } from '../settings.js';
  */
 
 const LISTS: readonly RuleList[] = ['normalize', 'redact'];
-/** The version of the file an edit was based on: `absent`, or a SHA-256. */
+/** The version of the file an edit was based on: `absent`, or a SHA-256. Settings → CI's Write file names its file's the same way. */
 export const VERSION = /^(absent|[0-9a-f]{64})$/;
 
 function listOf(name: string | undefined): RuleList {
@@ -100,6 +100,37 @@ export function log(ctx: RouteContext, events: ReadonlyArray<ConfigEvent & { run
   if (!events.length) return;
   const actor = resolveAuthor({ cwd });
   for (const e of events) recordEvent(ctx.store, { ...e, actor });
+}
+
+/** What a Push from CI write answers: the value now in force, the one before, what the file said (`was`, null when it said nothing) and its version. */
+export interface CiPushWrite {
+  ciPush: boolean;
+  previous: boolean;
+  was: boolean | null;
+  changed: boolean;
+  version: string;
+}
+
+/**
+ * Writes Push from CI (`ciPush`) as `shadowlap store push-from-ci on|off` does, with the same
+ * `store.ci` activity entry; null takes the key out, which is on. Against the version the page read
+ * when it names one (`expect`); the store's setup, which reads no config, writes it as the CLI does.
+ */
+export async function writeCiPush(ctx: RouteContext, cwd: string, on: boolean | null, expect?: string): Promise<CiPushWrite> {
+  let previous = true;
+  let was: boolean | null = null;
+  const written = await editWhenFree((o) =>
+    editConfigFile(cwd, { ...o, ...(expect ? { expect } : {}) }, (data) => {
+      previous = data.ciPush !== false;
+      was = typeof data.ciPush === 'boolean' ? data.ciPush : null;
+      if (on === null) delete data.ciPush;
+      else data.ciPush = on;
+    }),
+  );
+  const now = on !== false;
+  const store = typeof written.file.data.store === 'string' ? written.file.data.store : null;
+  if (written.changed) recordEvent(ctx.store, { kind: 'store.ci', actor: resolveAuthor({ cwd }), ...(store ? { ref: store } : {}), data: { push: now, previous } });
+  return { ciPush: now, previous, was, changed: written.changed, version: written.file.version };
 }
 
 export function register(router: Router, ctx: RouteContext): void {
@@ -166,22 +197,7 @@ export function register(router: Router, ctx: RouteContext): void {
     if (typeof body.on !== 'boolean' && body.on !== null) throw new HttpError(400, 'on is true or false');
     const on: boolean | null = body.on;
     const expect = expectOf(body.expect);
-    await edit(async (cwd) => {
-      let previous = true;
-      let was: boolean | null = null;
-      const written = await editWhenFree((o) =>
-        editConfigFile(cwd, { ...o, expect }, (data) => {
-          previous = data.ciPush !== false;
-          was = typeof data.ciPush === 'boolean' ? data.ciPush : null;
-          if (on === null) delete data.ciPush;
-          else data.ciPush = on;
-        }),
-      );
-      const now = on !== false;
-      const store = typeof written.file.data.store === 'string' ? written.file.data.store : null;
-      if (written.changed) recordEvent(ctx.store, { kind: 'store.ci', actor: resolveAuthor({ cwd }), ...(store ? { ref: store } : {}), data: { push: now, previous } });
-      r.json({ ciPush: now, previous, was, changed: written.changed, version: written.file.version });
-    });
+    await edit(async (cwd) => r.json(await writeCiPush(ctx, cwd, on, expect)));
   });
 
   // "Add normalizer" after a calibrate job: exactly the rules it proposed, the ones the person just

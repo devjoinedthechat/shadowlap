@@ -1226,7 +1226,7 @@ Then comes a row per golden. A row opens the golden's latest run, or, where its 
 
 Each revision's header gives its commit's subject on hover, and its author where names show. A golden run again on its own shows in the column of its commit, with changes on top named on hover, and adds no column of its own.
 
-**Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided.
+**Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided. A rule opens **Gates** on [Settings → CI](#ci) at its gate's kind.
 
 **A gated golden's evidence.** Its interval bar opens a row under it: why the gate stopped, the score line between its bounds, each attempt, and what a pass and a failure each weigh. A gate that ran out of attempts offers **Run more attempts** there. **Esc** closes the row and puts the focus back on the bar.
 
@@ -1348,28 +1348,70 @@ For values a pack leaves as they are, the lines then give:
 
 ### CI
 
-*CI* (`#/settings/ci`, which `#/settings/alerts` opens too) builds [your workflow](./ci.md#one-job-for-all-of-it): one job, in which the action runs the goldens once (`id: goldens`) and the parts you turn on follow it. It is built from its switches, **Fix pull requests** and **Tell Slack**.
+*CI* (`#/settings/ci`, which `#/settings/alerts` opens too) builds [your workflow](./ci.md#one-job-for-all-of-it): one job, in which the action runs the goldens once (`id: goldens`) and the parts you turn on follow it. Its panels come in this order:
 
-The workflow has the checkout, Node 22 and a line for the agent's dependencies before the action. With a fix pull request on, the checkout is of the branch its pull request goes into. The tab shows what the workflow needs for what is on, and what fails a golden in it. Then comes a panel for each part, its settings and what lands, for the repository's default branch, dimmed while it is off.
+| Panel | What it holds |
+| --- | --- |
+| **Your workflow** | How your repository's workflow stands against the one the switches build, the file, and **Write file** |
+| **Pull request comment** | The action's comment on each pull request, and what it needs |
+| **Fix on failure** | Its budget and repairer, what it needs, and the pull request it opens |
+| **Alerts** | Its branch and webhook secret, what it needs, the Slack message, and what fails a golden |
+| **Gates** | A gate's figures to try, how they decide, and what an inconclusive golden does in CI |
 
-**Keys.** The step's `env` names the keys of the providers the goldens' recordings call, with how many there are among what it needs:
+Each part has its switch in its panel's header: **Pull request comment**, **Fix on failure** and **Alerts**. A panel that is off says what happens without it (*Off: the verdict stays in the job summary.*), and only Fix on failure's pull request preview goes quiet. A switch's toast says whether your workflow changes with it, or is your repository's again. A switch changes only what **Write file** would write.
 
-- With Fix pull requests on, every golden's keys, since blame and verify run the agent live.
+**Where the switches start.** The tab reads `.github/workflows/agent.yml`, else the first other workflow there whose step uses the action. It reads that step's inputs line by line, with no YAML library, and the switches start as the file sets them. A value the panels don't offer is left out, as a budget over $1,000. Your changes are kept for each project while the dashboard is open, and the tab asks again when the window comes back.
+
+**Your workflow** is the repository's file with only the lines the switches own changed, or the switches' own file when there is none. The panel shows:
+
+- how it stands: *The same as your repository's* file, *Not in your repository yet.*, or *8 lines added and 1 line taken out against your repository's file.*;
+- the test session last seen: the newest one CI pushed to the [team store](./team.md#push-from-ci), once a pull brings it, else the last one here that ran every golden;
+- that session's line, as *Last seen in CI, d2e8a1f at 10:02: 2 of 7 goldens passed · 3 failed, 2 inconclusive*, or for one here *The last test session, …*;
+- **Show workflow**, the whole file with each line it adds (`+`) or takes out (`−`) marked, and **Copy workflow**;
+- its Team store row, which says how Push from CI stands and leads to Settings → Store.
+
+The workflow has the checkout, Node 22 and a line for the agent's dependencies before the action. With Fix on failure on, the checkout is of the branch its pull request goes into.
+
+**Write file** is lime while the two files differ. It asks first, *Write .github/workflows/agent.yml?*, with every line it changes, and writes your working tree only: CI runs the file once you commit and push it. Its toast offers **Undo**, which puts the file back as it was, or removes the file Write file made.
+
+**What Write file changes**: the triggers and permissions the parts need, the checkout's ref, the Claude Code install step, the bucket's sign-in steps, and the action step's `with:` and `env` keys, with its Slack steps. Every other line stays byte for byte.
+
+**The permissions go under the action's job**, so the file's other jobs keep the token they had. Where the file sets them for its other jobs too, the action's job gets a copy of that block, every key and comment, with the switches' keys in it, since a job's own block replaces the file's. A copy left saying just what the file's block says is taken out.
+
+**Write file** waits, and says why, while:
+
+- the project folder isn't its repository's root, where GitHub reads `.github/workflows/`;
+- the file can't be read or patched line by line, as one with tabs, an anchor, or two steps that use the action;
+- `shadowlap.config.json` can't be read.
+
+**Copy workflow** has the whole file whichever. A file over 256 KB, or one whose link leads out of the project folder, is left as it is.
+
+**Keys.** Each panel lists what it needs (*it needs*). The step's `env` names the keys of the providers the goldens' recordings call, with how many there are among what it needs:
+
+- With Fix on failure on, every golden's keys, since blame and verify run the agent live.
 - Otherwise, those of the goldens that run live: one marked `fork`, or with an injection gate, and a forking golden's judges.
 
 Where a golden's keys can't be named, a comment in the `env` says to add them. A list of keys breaks only after a comma.
 
-**What fails a golden** lists the injection gate too, and, in amber, a gate, judge or injection test that can't decide. **An inconclusive golden** sets that for the step:
+**Pull request comment** is the action's one comment on each pull request, kept current on every push: each golden's verdict by its gate, beside the base branch's last session. Off, the step says `comment: false`. It needs `pull-requests: write`.
+
+**Fix on failure** sets the budget per failing golden and the repairer. The pull request is shown as CI opens it: its branch named after the golden, blame where the run was lost, and verify's line with its rule stated once. It is the newest fix verified here, else the docs' example.
+
+**Alerts** post the count of failed goldens to Slack, then fail the job, for the repository's default branch only unless you turn that off. **A golden fails when** lists the injection gate too, and, in amber, a gate, judge or injection test that can't decide.
+
+**Gates** previews a gate's figures for a golden marked fork, from `GET /api/tests/gate`. Its kind is **fork · gate** or **fork · history**, and `#/settings/ci?gate=baseline` opens it on the second. You pick each figure: good, bad, risk and max, or drop, risk, window, min and max. Figures that differ from the defaults say what the defaults stand for, with **Reset**.
+
+Its preview says what the gate tells apart, what it takes for a golden on its own, and the odds of each verdict at six pass rates (seven against history), behind **Show odds of each verdict**. It says how often 100 such goldens of an agent that passes 95% of the time turn a CI run red for nothing, as `shadowlap test` plans the session. Figures the config would refuse say so, as *the config refuses it*. Under it, the figures come as the golden's entry in `shadowlap.config.json`, to copy.
+
+**An inconclusive golden**, in Gates, sets what one does in CI:
 
 - **Warns** writes `inconclusive: warn`.
 - **Fails** leaves the input out, so a gate against history with too few sessions still only warns.
 
-**The pull request** is shown as CI opens it: its branch named after the golden, blame where the run was lost, and verify's line with its rule stated once.
-
-**Push from CI.** The step follows the [team store](./team.md#push-from-ci)'s Push from CI, with no switch of its own. Its Team store row says how Push from CI stands, and leads to Settings → Store, where it is set. While it is on:
+**Push from CI.** The step follows the [team store](./team.md#push-from-ci)'s Push from CI, with no switch of its own on this tab. Its Team store row says how Push from CI stands, and leads to Settings → Store, where it is set. While it is on:
 
 - the step pushes the test runs and each fix;
-- what it needs names the bucket's credentials: for short-lived ones, the two credentials steps `shadowlap store ci` prints and `id-token: write`; for R2, its keys as secrets, which only your branches' jobs get, and only those push;
+- what it needs names the bucket's credentials: for short-lived ones, the two sign-in steps `shadowlap store ci` prints, which Write file adds, and `id-token: write`; for R2, its keys as secrets, which only your branches' jobs get, and only those push;
 - what lands in the team store adds the test runs, the fix on teammates' Fixes page, and what a pull request's job writes ([Fixes in the team store](./ci.md#fixes-in-the-team-store)).
 
 ### Coding agents
@@ -1418,8 +1460,10 @@ Credentials in a copied config:
 - the last sync, with the runs in the store and only on this machine, by run (attempts filed under their run);
 - the last check, once there is one;
 - **Push local runs** and **Pull**;
-- Push from CI (every test run, its report and each fix CI opens), a switch with its step to copy; the Fix on failure step on the CI tab follows it;
+- Push from CI (every test run, its report and each fix CI opens), a switch with **Undo**, which [your workflow](#ci) on Settings → CI follows;
 - while a setup is under way, the step that is next, with **Continue setup**.
+
+Beside Push from CI, **Open Your workflow** leads to Settings → CI, which writes the step with the rest of the job. For GitLab CI or another CI the setup picked, **Copy CI step** copies that CI's step in its place. A change's toast says, as Settings → CI's switches do, whether your workflow changes with it or is your repository's again.
 
 One button is lime, the next step: **Push local runs** while finished runs are only on this machine, else **Continue setup** while a setup is under way.
 
@@ -1449,8 +1493,10 @@ It has [four steps](./team.md#set-it-up). Each unlocks the next, with its comman
 
 1. **Connect your bucket.** **Check access and connect** runs `store set --check`, which writes the config only once the check passes.
 2. **Push your runs.**
-3. **Push from CI**: **I added it**, or `Skip for now`.
+3. **Push from CI**: on GitHub Actions, **Turn on Push from CI**, or `Skip for now`. On GitLab CI or another CI, its step to copy, then **I added it** or `Skip for now`.
 4. **Bring your team**: **Finish**.
+
+Step 3 writes Push from CI to `shadowlap.config.json`, as Settings → Store's switch does: **Turn on Push from CI** and **I added it** turn it on, and `Skip for now` turns it off. On GitHub Actions there is no step to copy: [your workflow](#ci) on Settings → CI pushes, and **Write the workflow →** leads there.
 
 While a setup is under way:
 
@@ -1852,6 +1898,8 @@ Settings changes `shadowlap.config.json` as `shadowlap normalize add` and `rm`, 
 - **The activity feed**: every change lands in it.
 - **Undo**: removing a rule, picking the clock, turning Push from CI on or off, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
 
+**Write file**, on Settings → CI, writes your repository's workflow the same way. It names the version of the file it read and the workflow the page showed, so a file changed since, or switches changed meanwhile, write nothing. It lands in the activity feed, as *Wrote .github/workflows/agent.yml · 8 lines added, 1 line taken out*. Its **Undo** puts the file back, or removes the file it made, and is refused once the file changed since. The dashboard keeps its last 20 Undos until it stops.
+
 **Calibrate** is a job that runs `shadowlap calibrate <run>` on the recording its picker shows, with each round in the drawer. When it proposes normalizers, **Add normalizer** adds exactly those, without replaying again.
 
 **Clean up old runs** runs `shadowlap gc --older-than 30 --dry-run`. When it finds runs, **Delete N runs** asks first (Cancel has the focus), naming the attempts bundled under them, which go too. It then deletes exactly the runs the dry run listed, or nothing if others match by then.
@@ -2167,6 +2215,7 @@ The work done on those threads:
 - the activity feed, and a search;
 - Settings → Tools' list;
 - what the project switcher and a project's setup count of its store;
+- Settings → CI's gate preview, whose CI figure plans a session;
 - Training's pairs, and Copy JSON.
 
 **Spare threads.** While every thread is busy, a spare thread answers what comes behind them. Each ends once it has had nothing to do for a while.
@@ -2402,12 +2451,14 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | Endpoint | What it does |
 | --- | --- |
 | `GET /api/tests` | The Tests screen |
-| `GET /api/tests/gate?good=&bad=&risk=&max=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do |
+| `GET /api/tests/gate?good=&bad=&risk=&max=&suiteRisk=`, `?baseline=history&drop=&window=&min=&max=&history=47/50` | What a [gate](./gating.md)'s figures would do |
 | `GET /api/tests/runs/:id?before=<ms>` | For a run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's choices |
 | `GET /api/tests/estimates?update=` | What Run tests and each golden's buttons bill, and Update goldens for the goldens `update` names |
 | `GET /api/tests/evidence?golden=` | A gated golden's attempts, each judged from its run, those carried over first |
 | `GET /api/estimates/bisect?runId=\|golden=&good=&bad=` | What Find breaking commit bills, on a run or a golden, from `good` up to `bad` |
-| `GET /api/ci/workflows?fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
+| `GET /api/ci/workflows?comment=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
+| `PUT /api/ci/workflow { options, expect, shown }` | Write file: the workflow those options build, written over the version read |
+| `POST /api/ci/workflow/undo { was }` | Write file's Undo: the file put back as it was, or removed |
 
 **The Tests screen** (`/api/tests`) holds:
 
@@ -2459,13 +2510,13 @@ An attempt the provider cut short is `inconclusive`, never the agent's failure; 
 
 **Gate figures** (`/api/tests/gate`):
 
-- the rule its verdicts state (`description`, `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`);
-- the attempts an agent that always passes needs, and one that always fails;
+- the rule its verdicts state (`description`, `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`), and the same in a sentence (`sentence`);
+- the attempts an agent that always passes needs, and one that always fails, with the verdict line each comes to (`extremes`); against history, the attempts to pass alone;
 - the exact odds of each verdict, and the attempts on average, at six pass rates;
-- how often 100 forked goldens of a healthy agent turn a CI run red under `--inconclusive fail` and `warn` (`ci`);
+- how often 100 forked goldens of a healthy agent turn a CI run red under `--inconclusive fail` and `warn` (`ci`), as `shadowlap test` plans the session: the suite's risk, `suiteRisk` (5% unless given), split across them;
 - the defaults.
 
-A gate against history is figured at seven pass rates against the baseline `history` names, 47 of 50 unless given: the chance it fails at each of those pass rates is its power to catch a drop. Figures the config would refuse are a 400 with its message.
+A gate against history is figured at seven pass rates against the baseline `history` names, 47 of 50 unless given: the chance it fails at each of those pass rates is its power to catch a drop. Figures the config would refuse are a 400 with its message, as is a `suiteRisk` that isn't above 0 and below 0.5.
 
 **A run's test** (`/api/tests/runs/:id`): the diverged-test banner has `rulesAdded` once the config has its rules. Find breaking commit's choices are the target, good and bad commits, revisions to pick from with their subjects, the check a run is judged by in `expect`, whether it costs tokens, or why it can't start. `before` limits the good commits to runs before it.
 
@@ -2475,7 +2526,18 @@ A gate against history is figured at seven pass rates against the baseline `hist
 - `update`, given once for each golden, adds `update` to the answer: what Update goldens bills for those goldens together. A path that isn't a golden on disk is left out.
 - `/api/estimates/bisect` counts the commits with git, as the job would search them. It has no estimate until `good` names a commit. A search the job would refuse has none, with why.
 
-**Your workflow** (`/api/ci/workflows`) takes its options: `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. It answers with one job that runs the goldens once (`workflow`), what it needs, and for each part its own step and a preview of what lands. Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
+**Your workflow** (`/api/ci/workflows`) takes its options: `comment`, `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. An option left out is what the repository's workflow sets. It answers with:
+
+- the repository's workflow (`file`), whether it `exists`, the `version` read, and why Write file waits (`problem`);
+- one job that runs the goldens once (`workflow`): the whole file (`text`), its `lines` marked against the repository's, how many are `added` and `removed`, whether it is the `same`, its hash (`shown`), and the test `session` last seen, with `ci` when CI pushed it;
+- for each part, what it needs and a preview of what lands;
+- what Gates sends (`gates`): the config's `suiteRisk`, and the goldens on each kind's defaults (`uses`).
+
+Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
+
+**Write file** (`PUT /api/ci/workflow`) takes the `options` the page changed, the `version` it read as `expect`, and the workflow it showed as `shown`. It answers the `path`, the `version` written, whether it `changed`, and `was`, the id its Undo sends. A file changed since, or a workflow other than the one shown, is a 409. A file it can't write, or a view with a `problem`, is a 422.
+
+**Its Undo** (`/api/ci/workflow/undo`) puts the file back only while it is the version the write left, which the dashboard keeps with `was`. It is a 409 once the file changed since, even after the page read it again, or once the dashboard no longer holds it.
 
 ### Settings
 
@@ -2514,7 +2576,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 | Endpoint | What it does |
 | --- | --- |
 | `GET /api/store` | The team store as this machine knows it (or `null`), and who this machine records as |
-| `GET /api/store/setup`, `GET /api/store/setup/url?provider=&url=`, `POST /api/store/setup { ci?, ciProvider?, finished? }` | The store's setup page; a typed URL checked; Push from CI added or skipped, and the setup finished |
+| `GET /api/store/setup`, `GET /api/store/setup/url?provider=&url=`, `POST /api/store/setup { ci?, ciProvider?, ciPush?, finished? }` | The store's setup page; a typed URL checked; Push from CI added or skipped, and the setup finished |
 | `GET /api/imports` | Whether each trace store's keys are set where the dashboard runs (Langfuse, LangSmith, Phoenix, Logfire), their hosts, and Phoenix's project |
 
 - **The setup page** gives where it stands and the step that is next, each provider with the credentials this machine would use, the CI steps and the commit. A typed URL is checked against the provider picked, with the access to ask for.

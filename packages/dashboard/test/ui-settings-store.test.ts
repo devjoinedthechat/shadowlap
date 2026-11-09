@@ -20,7 +20,7 @@ const POLICY = '# The access to ask your cloud admin for (Amazon S3): one policy
 
 function store(onlyLocal: number): StoreSettings {
   const status = { url: 's3://northwind-agent-runs/support-agent', name: 'northwind-agent-runs', region: 'eu-central-1', providerName: 'Amazon S3', access: 'AWS profile northwind-dev', syncedAt: null, inStore: 3, onlyLocal, queued: 0, check: null, ciPush: true };
-  return { config, configured: status.url, error: null, status, ciStep: null, policy: { text: POLICY, command: 'shadowlap store policy' }, redactRules: 2 } as unknown as StoreSettings;
+  return { config, configured: status.url, error: null, status, policy: { text: POLICY, command: 'shadowlap store policy' }, redactRules: 2 } as unknown as StoreSettings;
 }
 
 /** A setup under way at its second step, or none (finished). */

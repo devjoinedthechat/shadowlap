@@ -1,6 +1,12 @@
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+
+/** The checkout this config is in, which names its results' folder. */
+const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const checkout = `${basename(root)}-${createHash('sha256').update(root).digest('hex').slice(0, 8)}`;
 
 /**
  * The dashboard in a real browser: accessibility (axe-core, contrast, focus order, the skip link,
@@ -21,8 +27,9 @@ export default defineConfig({
   retries: 0,
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
-  // Nothing the run leaves belongs in the repository.
-  outputDir: join(tmpdir(), 'shadowlap-dashboard-browser-results'),
+  // Nothing the run leaves belongs in the repository. A folder for each checkout: a run empties its
+  // own as it starts, which would take a failing run's traces in another worktree with it.
+  outputDir: join(tmpdir(), 'shadowlap-dashboard-browser-results', checkout),
   use: {
     ...devices['Desktop Chrome'],
     viewport: { width: 1440, height: 900 },

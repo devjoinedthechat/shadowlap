@@ -6,7 +6,8 @@ import { dash, openPage } from './dashboard.js';
 /**
  * Settings and Training on a phone, 390 px: no tab scrolls the page sideways (a table scrolls in a
  * box of its own), the tabs keep one row with the one shown in view, a row's label and line sit
- * over its control, and a rule removed comes back from its toast's Undo, the file as it was.
+ * over its control, a rule removed comes back from its toast's Undo, the file as it was, and
+ * Settings → CI's workflow and a gate's odds, shown, scroll nothing sideways.
  */
 
 const TABS = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
@@ -32,12 +33,12 @@ test('a Settings row puts its label and line over its control on a phone, a Swit
   const row = page.locator('main#view .setrow').first();
   const [words, control] = await Promise.all([row.locator(':scope > div').first().boundingBox(), row.locator(':scope > :not(div:first-child)').first().boundingBox()]);
   expect(control!.y).toBeGreaterThanOrEqual(words!.y + words!.height);
-  // A Switch comes right under what it turns on, and the link beside it (Copy CI step) after it.
+  // A Switch comes right under what it turns on, and the link beside it (Open Your workflow, or another CI's Copy CI step) after it.
   await openPage(page, '/settings/store', 'main#view .setrow:has(#ciPush-name) [role="switch"]');
   const ci = page.locator('main#view .setrow:has(#ciPush-name)');
-  const [line, on, link] = await Promise.all([ci.locator(':scope > div').first().boundingBox(), ci.getByRole('switch', { name: 'Push from CI' }).boundingBox(), ci.getByRole('button', { name: 'Copy CI step' }).boundingBox()]);
+  const [line, on, link] = await Promise.all([ci.locator(':scope > div').first().boundingBox(), ci.getByRole('switch', { name: 'Push from CI' }).boundingBox(), ci.locator('.wflink').boundingBox()]);
   expect(on!.y, 'the Switch under its line').toBeGreaterThanOrEqual(line!.y + line!.height);
-  expect(link!.y, 'Copy CI step under the Switch').toBeGreaterThanOrEqual(on!.y + on!.height);
+  expect(link!.y, 'the link under the Switch').toBeGreaterThanOrEqual(on!.y + on!.height);
   await openPage(page, '/training', 'main#view .ph');
   expect(await page.evaluate(sideways)).toBe(0);
 });
@@ -62,4 +63,17 @@ test('a redaction rule removed on a phone comes back from its toast’s Undo, sh
   } finally {
     if (readFileSync(file, 'utf8') !== before) writeFileSync(file, before);
   }
+});
+
+test('Settings → CI on a phone: Write file in Your workflow’s header, and the file and the odds shown scroll nothing sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, '/settings/ci', 'main#view #gates .gsays');
+  // The demo's repository has no workflow yet: Write file asks to add it.
+  await expect(page.locator('#workflow header button', { hasText: 'Write file' })).toBeVisible();
+  await page.locator('#workflow .wftog button[aria-controls="wfBox"]').click();
+  await expect(page.locator('#wfBox pre.wfcode')).toBeVisible();
+  expect(await page.evaluate(sideways), 'Your workflow shown').toBe(0);
+  await page.locator('#gates .xbtn').click();
+  await expect(page.locator('#gates table.godds')).toBeVisible();
+  expect(await page.evaluate(sideways), 'the odds shown').toBe(0);
 });
