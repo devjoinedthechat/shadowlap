@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CallRow } from '../types.js';
-import { inScope, scopeChips, scopesOf } from '../scopes.js';
+import { agentsShown, inScope, scopeChips } from '../scopes.js';
 import { askedTools } from './calls.js';
 import { keepFilter, keyCounts, matchesFilter, pendingMatches, pickedFilter, shownFilter, type CallFilter } from './call-filter.js';
 import { ancestorsOf, callTree, unfolded } from './groups.js';
@@ -18,9 +18,8 @@ const NO_FOLDS: ReadonlySet<number> = new Set();
  */
 export function useCallList({ runId, calls, paging, selected, byKind }: { runId: string; calls: CallRow[]; paging: Paging | null; selected: number | null; byKind: boolean }) {
   const [scope, setScope] = useState('all');
-  const scopes = useMemo(() => scopesOf(calls), [calls]);
   const scopeTree = useMemo(() => scopeChips(calls), [calls]);
-  const scoped = scopes.length > 0;
+  const scoped = useMemo(() => agentsShown(calls), [calls]);
   const scopedCalls = useMemo(() => (scope === 'all' ? calls : calls.filter((c) => inScope(c, scope))), [calls, scope]);
   // The key's counts within the scope, of the whole run while its pages come.
   const codes = paging && scope === 'all' ? (byKind ? paging.kinds : paging.origins) : null;

@@ -699,7 +699,7 @@ describe('the setup', () => {
     expect((await w.api<{ path: string }>('setup/golden', { method: 'POST', body: { golden: 'first-run' } })).body.path).toBe('goldens/first-run');
     expect(await w.api('jobs', { method: 'POST', body: { kind: 'pack-test', golden: '../outside', project: 'research-agent' } })).toMatchObject({ status: 400 });
 
-    // Pack as a golden: one job packs, then tests, each in this project's folder against its store.
+    // Pack as golden: one job packs, then tests, each in this project's folder against its store.
     const kept = await w.api<{ id: string; title: string; args: string[] }>('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/research-agent', project: 'research-agent' } });
     expect(kept.status).toBe(202);
     expect(kept.body).toMatchObject({ title: 'Packing and testing', args: ['pack', runId, 'goldens/research-agent'] });
@@ -758,7 +758,7 @@ describe('the setup', () => {
     const done = await w.waitJob(job.body.id);
     expect(done.code).toBe(1);
     expect(done.lines.some((l) => l.includes('shadowlap test'))).toBe(false);
-    // Nothing was packed: the step still offers its path and Pack as a golden.
+    // Nothing was packed: the step still offers its path and Pack as golden.
     const setup = await w.api<{ test: { button: { action: string }; golden: { value: string }; packed: unknown } }>('setup');
     expect(setup.body.test).toMatchObject({ button: { action: 'packgolden' }, golden: { value: 'goldens/research-agent' }, packed: null });
   });

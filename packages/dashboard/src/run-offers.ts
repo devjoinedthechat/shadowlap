@@ -1,10 +1,10 @@
-import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, storeView, type Normalizer, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
+import { resolve } from 'node:path';
+import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, shortRunId, storeView, type Normalizer, type RunRecord, type Store, type StoreOf, type TestResult } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
-import { loadRunIndex } from './run-index.js';
+import { loadRunIndex, type IndexedRun } from './run-index.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { injectionResults, type InjectionRow } from './injection.js';
-import { crashed, goldenFolder, keepable } from './next-step.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testOf, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
 import { passedSince } from './runs-filter.js';
@@ -97,6 +97,31 @@ export interface RunOffersInput {
   head?: string | null;
   /** The project's folder, which goldens are packed into; none packs nothing. */
   dir?: string | null;
+}
+
+/** The folder a run is packed into as a golden: `goldens/` and its short id in lower case, never a label, which groups and filters runs and names none. */
+export const goldenFolder = (runId: string): string => `goldens/${shortRunId(runId).toLowerCase()}`;
+
+/**
+ * Whether a recording can be packed as a golden yet: there is a project to pack it into, and no golden
+ * is made from it, one whose pack holds it or one it was unpacked from. One of a fork or a replay of
+ * it says nothing of this one.
+ */
+export function packableIn(dir: string | null | undefined, goldens: readonly Pick<GoldenSource, 'runId' | 'path'>[], run: RunRecord): boolean {
+  if (!dir) return false;
+  const from: unknown = run.meta?.imported?.from;
+  const unpacked = typeof from === 'string' && from ? resolve(dir, from) : null;
+  return !goldens.some((g) => g.runId === run.runId || resolve(dir, g.path) === unpacked);
+}
+
+/**
+ * A recording a golden can be made from, as Pack as golden… takes one: it ended, didn't fail, holds
+ * calls and the command it was recorded with, and no golden is made from it yet. A golden from a
+ * failed run would pass on the failure and diverge once the fix ships. Its outcome by today's checks
+ * is the page's to add.
+ */
+export function keepable(row: Pick<IndexedRun, 'kind' | 'status' | 'failed' | 'calls'>, run: RunRecord, dir: string | null | undefined, goldens: readonly Pick<GoldenSource, 'runId' | 'path'>[]): boolean {
+  return row.kind === 'recording' && row.status === 'completed' && !row.failed && row.calls > 0 && hasRecordedCommand(run) && packableIn(dir, goldens, run);
 }
 
 /** Pack as golden… for a recording a golden can be made from: from the run index, reading no call. */
@@ -245,7 +270,13 @@ export function testOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord,
   return { ...banner, normalized, passingRun: normalized ? passedSince(store, run, banner.golden) : null, checks: goldens.find((g) => g.path === banner.golden)?.checks ?? null };
 }
 
-/** A test replay that crashed (next-step's `crashed`, by its golden's result): what the agent printed last, and where it stopped. */
+/** Whether a test replay's agent exited with an error, as its golden's result says (a run keeps no exit of its own): a crash. */
+export function crashed(row: Pick<IndexedRun, 'status' | 'outcome'> | null, result: TestResult | null): boolean {
+  if (result) return result.failure === 'exit';
+  return !!row && row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
+}
+
+/** A test replay that crashed (`crashed`, by its golden's result): what the agent printed last, and where it stopped. */
 export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord): NonNullable<RunOffers['crash']> | null {
   const test = testOf(run);
   const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;

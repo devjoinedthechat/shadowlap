@@ -12,8 +12,6 @@ import { namedIn } from '../components/Id.js';
 import { onShow } from '../components/OnShow.js';
 import { redactRuleCount } from './provenance.js';
 import { defaultPackFolder, htmlCopyVia, PACK_HOLDS, packRunCommand, REDACTION_SETTINGS, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING_CARD, type ShareKey } from './share.js';
-// The share job's drawer offers the link it made.
-import './share-link.js';
 import { ActionButton } from '../components/ActionButton.js';
 
 /** Export dataset…'s and Export OpenTelemetry trace…'s dialogs: rarely opened from a run's page, so each a part of its own, which loads as it first shows. */

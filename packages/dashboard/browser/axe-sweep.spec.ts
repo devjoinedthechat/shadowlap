@@ -1,10 +1,11 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
+import { routeTestsFixture } from './tests-fixture.js';
 
 /**
  * axe-core's WCAG 2.2 A and AA rules over everything the whole demo shows: every page, every run with
  * each view, its inspector's tabs, its menus and dialogs, Fixes and each fix's steps, Tests and its
- * dialogs, Settings' tabs, the team store's setup, the palette, the shortcuts on every kind of page,
+ * dialogs, a gated golden's evidence, Settings' tabs, the team store's setup, the palette, the shortcuts on every kind of page,
  * a toast with Undo and the bar that says the dashboard can't be reached; and again on a phone, 390 px
  * wide. Any serious or critical violation fails, named with the state it was found in.
  */
@@ -85,7 +86,7 @@ const revision = (page: Page) => async () => {
   }, view.lead.key);
   await settled(page, { shows: 'main#view table.vdg tbody tr' });
 };
-const click = (page: Page, selector: string, text?: string, o: { shows?: string } = {}) => async () => {
+const click = (page: Page, selector: string, text?: string, o: { shows?: string; hides?: string } = {}) => async () => {
   apiRequests(page);
   await page.locator(selector, text ? { hasText: text } : {}).first().click();
   await settled(page, o);
@@ -97,6 +98,17 @@ const press = (page: Page, key: string, o: { shows?: string; hides?: string } = 
 };
 /** Escape, and the dialog or menu it closes gone. */
 const escape = (page: Page, closes: string = DIALOG) => press(page, 'Escape', { hides: closes });
+/**
+ * Update goldens from Tests, as the palette opens it (`#/tests?update`): the header offers it only
+ * when more than one golden diverged, and the demo has one, so its dialog is for that one.
+ */
+const updateGoldens = (page: Page) => async () => {
+  apiRequests(page);
+  await page.evaluate(() => {
+    location.hash = '#/tests?update';
+  });
+  await settled(page, { shows: DIALOG });
+};
 
 test.describe.configure({ timeout: 300_000 });
 
@@ -211,13 +223,8 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
     await runTests.first().click();
     await settled(page, { shows: DIALOG });
   }], ['Tests · Run tests asks · closed', escape(page)]);
-  // Update goldens's dialog, when a golden diverged.
-  states.push(['Tests · Update goldens', async () => {
-    const update = page.locator('main#view button', { hasText: 'Update goldens' });
-    if (!(await update.count())) return;
-    await update.first().click();
-    await settled(page, { shows: DIALOG });
-  }], ['Tests · Update goldens closed', press(page, 'Escape')]);
+  // Update goldens' dialog, as the palette opens it.
+  states.push(['Tests · Update goldens', updateGoldens(page)], ['Tests · Update goldens closed', escape(page)]);
   states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture…', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · import closed', escape(page)]);
   states.push(['Runs · a run ticked', click(page, 'main#view table.runst tbody tr input[type="checkbox"]')]);
   // The palette's hits in what was recorded come from the server: swept once they have come.
@@ -241,6 +248,30 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
   const found = await sweep(page, states);
   await page.keyboard.press('u');
   expect(found).toEqual([]);
+});
+
+/**
+ * Tests as the demo can't draw it (tests-fixture.ts): a gated golden's evidence open under its row,
+ * then Update goldens for two goldens, with Add normalizer and update, wide and on a phone.
+ */
+test('Tests with a gated golden’s evidence open, and Update goldens for two goldens, have no serious or critical axe violation, wide and on a phone', async ({ page }) => {
+  // Every billed press asks, so Update goldens opens its dialog and starts nothing.
+  await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
+  await routeTestsFixture(page);
+  const states = (on: string): Array<[string, () => Promise<void>]> => [
+    [`Tests${on}`, at(page, '/tests', 'main#view table.gt')],
+    [`a gated golden’s evidence${on}`, click(page, 'main#view button.gev', undefined, { shows: 'main#view tr.gevrow .alist' })],
+    [`Update goldens for two${on}`, async () => {
+      await click(page, 'main#view button', 'Update goldens', { shows: DIALOG })();
+      await expect(page.locator(DIALOG).getByRole('button', { name: 'Add normalizer and update' })).toBeVisible();
+    }],
+    [`Update goldens for two closed${on}`, escape(page)],
+    // Closed again, as a page that stays drawn keeps it open: the phone's sweep opens it anew.
+    [`a gated golden’s evidence closed${on}`, click(page, 'main#view button.gev', undefined, { hides: 'main#view tr.gevrow' })],
+  ];
+  const wide = await sweep(page, states(''));
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect([...wide, ...(await sweep(page, states(' on a phone')))]).toEqual([]);
 });
 
 test('the bar that says the dashboard can’t be reached has no serious or critical axe violation', async ({ page }) => {
@@ -327,7 +358,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...bulk('Delete runs', 'Delete'),
     ...bulk('Pack runs', 'Pack'),
     ...bulk('Export the dataset of runs', 'Dataset'),
-    ...onPage('Update goldens', '/tests', 'Update goldens'),
+    ...opened('Update goldens', at(page, '/tests'), updateGoldens(page)),
     ...onPage('Update golden', '/tests', 'Update golden'),
     ...onPage('Add normalizer and update', '/tests', 'Add normalizer and update'),
     ...onPage('Run tests’ question', '/tests', 'Run tests'),

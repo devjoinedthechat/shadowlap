@@ -183,6 +183,9 @@ async function repairTargets(opts: GlobalOpts, request: RepairRequest, runs: { t
   }
 }
 
+/** A repair's way on, named by what it left on the fix's Repair step: the change it accepted, or the candidates it tried and why each was dropped. */
+const repairWayOn = (accepted: boolean): string => (accepted ? ACTIONS.openChange.label : ACTIONS.openCandidates.label);
+
 /**
  * What the repair kept, with the fix its blames opened or joined: accepted, it turns the fix verified;
  * empty, the fix stays open with every candidate tried and why each was dropped. Then the report, as
@@ -228,7 +231,7 @@ function reportRepair(opts: GlobalOpts, report: RepairReport, handOverFailed: Ha
   // Each candidate's verify: what its attempts ran that nothing recorded (the blame's attempts named theirs as they ran).
   const ranRepair = formatAttemptsUnrecorded(report.candidates.flatMap((c) => (c.verify ? verifyAttempts(c.verify) : [])).map((a) => a.unrecordedTools));
   if (ranRepair) process.stderr.write('\n' + ranRepair);
-  for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: ACTIONS.openFix.label, href: fixHref(f.fixId, 'repair') });
+  for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: repairWayOn(kept!.repair.accepted), href: fixHref(f.fixId, 'repair') });
   if (report.output.patch) emitJobEvent({ type: 'file', path: report.output.patch, label: 'fix.patch' });
   emitJobEvent({ type: 'result', data: json });
   // Fixed and handed over, 0; stopped before a verdict, by its reason; no fix, or a hand-over that failed, 1.

@@ -246,13 +246,18 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.verifiedAt).toBeGreaterThanOrEqual(shown.openedAt);
     expect(shown.goodRuns.map((r: { runId: string }) => r.runId)).toEqual([good]);
     expect(shown.failingRuns.map((r: { runId: string }) => r.runId)).toEqual(failed);
-    expect(shown.steps.map((x: { state: string }) => x.state)).toEqual(['done', 'todo', 'done']);
+    expect(shown.steps.map((x: { state: string; short: string }) => [x.state, x.short])).toEqual([['done', `lost at #${decision}`], ['done', 'by hand'], ['done', '2 fixed · 1 kept']]);
     expect(shown.steps[2]).toMatchObject({ short: '2 fixed · 1 kept', title: '2 fixed · 1 kept', meta: '1 earlier change rejected' });
     expect(shown.verify.map((v: { verdict: string }) => v.verdict)).toEqual(['accepted', 'rejected']);
     expect(shown.defaultVerify).toBe(shown.verify[0].verifyId);
     expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts" });
     // Each run shows its tally and the bound, at the confidence it was decided at.
     expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', bound: 'rate >= 0.73 (95%)' });
+    // And its tally in verify's words, as verify printed it for the run (engine verifyTally), whatever its parts.
+    const words = (r: { tally: string; cutShort: string | null; bound: string | null }) => `${r.tally}${r.cutShort ? ` (${r.cutShort})` : ''}${r.bound ? ` · ${r.bound}` : ''}`;
+    for (const r of shown.verify[0].rows) expect(accepted.stdout).toMatch(new RegExp(`${r.runId.slice(0, 10)} +${r.outcome} +${words(r).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(  |\n|$)`));
+    // verify's line as each run settled says it too: the outcome, then the same tally.
+    for (const r of shown.verify[0].rows) expect(accepted.out).toContain(`  ${r.role.padEnd(8)}  ${r.runId.slice(0, 10)}  ${r.outcome} · ${words(r)}\n`);
     expect(shown.verify[0].rows.map((r: { role: string; outcome: string }) => [r.role, r.outcome])).toEqual([
       ['target', 'fixed'],
       ['target', 'fixed'],
@@ -271,7 +276,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
     expect(shown.blame.callRow.filter((c: { kind: string }) => c.kind === 'api')).toHaveLength(4);
     // Verified on the working tree, with no repair behind it: applying it only marks it.
-    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: [], change: null }, applied: false, blameAgain: null, blameStronger: null });
+    expect(shown.actions).toEqual({ repair: null, apply: { kind: 'mark', argv: ['fix', 'apply', fixId], command: `shadowlap fix apply ${fixId}`, gitApply: null, pending: null, pulled: false, files: [], diff: null, patchFile: null, refused: null, inTree: false, goldens: 0, names: [], held: [], change: null }, applied: false, blameAgain: null, blameStronger: null, verifyLeft: null });
 
     const human = (await shadowlap(['fix', 'show', fixId])).stdout;
     expect(human).toContain(`${fixId}  Refunds above the limit issued without approval`);
@@ -283,8 +288,10 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(human).toContain('probes: gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 31 attempts');
     expect(human).toMatch(/0 of 6 passed · rate <= 0\.59 \(99%\) +lost/);
     // The failing runs by their gate; the good one against its own baseline at HEAD, pair by pair.
-    expect(human).toMatch(/fixed +12 of 12 · rate >= 0\.73 \(95%\)/);
-    expect(human).toMatch(/kept +38 of 38/);
+    expect(human).toMatch(/fixed +12 of 12 passed · rate >= 0\.73 \(95%\)/);
+    expect(human).toMatch(/kept +38 of 38 passed, baseline \d+ of \d+ · drop <= 0\.\d\d \(95%\)/);
+    // Each run's row in verify's words, as --json's parts and verify's report have them.
+    for (const r of shown.verify[0].rows) expect(human).toMatch(new RegExp(`${r.runId.slice(0, 10)} +${r.outcome} +${words(r).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(  |\n|$)`));
     expect(human).toContain('its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     expect(human).not.toMatch(/at least|at most|of the time/);
     expect(human).toContain(`next: shadowlap fix apply ${fixId.slice(0, 13)}`);
@@ -318,7 +325,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(report.fixes[0]).toMatchObject({ title: 'issue_refund called with amount 240', status: 'verified' });
     expect(report.repairId).toBe(basename(report.output.dir));
     expect(report.verifyId).toMatch(/^vf-/);
-    expect(r.events).toContainEqual({ type: 'link', label: 'Open fix', href: `#/fixes/${fixId}/repair` });
+    expect(r.events).toContainEqual({ type: 'link', label: 'Open change', href: `#/fixes/${fixId}/repair` });
     expect(r.events).toContainEqual({ type: 'file', path: report.output.patch, label: 'fix.patch' });
 
     const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
@@ -362,7 +369,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(shown.repair.lost).toEqual([{ runId: report.targets[0].runId, at: `model call #${decision} (3 of 4)`, href: `#/fixes/${fixId}/blame` }]);
     expect(shown.verify).toHaveLength(1);
     expect(shown.verify[0]).toMatchObject({ verifyId: report.verifyId, verdict: 'accepted', code: 'repair candidate 3', label: 'repair candidate 3 · accepted', candidate: 3, repairId: report.repairId });
-    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], gitApply: `git -c core.autocrlf=false apply ${report.output.dir}/fix.patch`, pending: null, pulled: false, files: ['agent.mjs'], diff: readFileSync(join(project, report.output.patch), 'utf8'), patchFile: `${report.output.dir}/fix.patch`, refused: null, inTree: false, goldens: 2, names: report.output.goldens.map((g: string, i: number) => ({ run: basename(g), name: `${TITLED}-${i + 1}` })), held: [], change: null });
+    expect(shown.actions.apply).toEqual({ kind: 'patch', argv: ['fix', 'apply', fixId], command: `shadowlap fix apply ${fixId}`, gitApply: `git -c core.autocrlf=false apply ${report.output.dir}/fix.patch`, pending: null, pulled: false, files: ['agent.mjs'], diff: readFileSync(join(project, report.output.patch), 'utf8'), patchFile: `${report.output.dir}/fix.patch`, refused: null, inTree: false, goldens: 2, names: report.output.goldens.map((g: string, i: number) => ({ run: basename(g), name: `${TITLED}-${i + 1}` })), held: [], change: null });
 
     // A golden recorded before the fix: the prompt the patch changes goes into its every request.
     expect((await shadowlap(['pack', good, 'goldens/good-refund'])).code).toBe(0);
@@ -454,7 +461,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     expect(report).toMatchObject({ outcome: 'not-fixed', verifyId: null });
     expect(report.fixes).toEqual([expect.objectContaining({ status: 'open' })]);
     const fixId = report.fixes[0].fixId as string;
-    expect(r.events).toContainEqual({ type: 'link', label: 'Open fix', href: `#/fixes/${fixId}/repair` });
+    expect(r.events).toContainEqual({ type: 'link', label: 'Open candidates', href: `#/fixes/${fixId}/repair` });
 
     const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
     expect(shown.status).toBe('open');

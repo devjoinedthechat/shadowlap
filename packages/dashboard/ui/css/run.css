@@ -59,7 +59,6 @@
 .banner.fork { background: color-mix(in srgb, var(--warn) 5%, transparent); }
 .banner.blame { background: color-mix(in srgb, var(--err) 5%, transparent); }
 .banner.live { background: color-mix(in srgb, var(--o-live) 6%, transparent); }
-.banner .bk { font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; }
 .banner.fork .bk, .banner.fork .bn { color: var(--ink); }
 .banner.blame .bk, .banner.blame .bn { color: var(--err); }
 .banner.live .bk { color: var(--ink); }
@@ -82,7 +81,7 @@
    write the origin colours of the strip. */
 .fdiff { border-top: 1px solid var(--line); padding: 10px 24px 12px; font-size: 13px; }
 .fdiff header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.fdiff h2 { margin: 0; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.fdiff h2 { margin: 0; color: var(--dim); }
 .fdiff header .sub { color: var(--faint); font-size: 12px; }
 .fdiff header .sub a { color: var(--dim); text-underline-offset: 2px; text-decoration-color: var(--line2); }
 .fdiff header .sub a:hover { color: var(--ink); }
@@ -629,7 +628,7 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .rnote + .rnote { border-top: 1px solid var(--line); }
 .rnote.err { background: color-mix(in srgb, var(--err) 5%, transparent); }
 .rnote.warn { background: color-mix(in srgb, var(--warn) 5%, transparent); }
-.rnote .bk { flex: none; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.rnote .bk { flex: none; color: var(--dim); }
 .rnote.err .bk { color: var(--err); }
 .rnote.warn .bk { color: var(--warn); }
 .rnote .rnw { min-width: 0; flex: 1; }

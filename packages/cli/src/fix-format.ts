@@ -1,4 +1,4 @@
-import { formatUsd, pluralS as s, repairOutcomeWord, safeLine, shortFixId, type Palette } from '@shadowlap/engine';
+import { formatUsd, pluralS as s, repairOutcomeWord, safeLine, shortFixId, verifyTallyLine, type Palette } from '@shadowlap/engine';
 import type { FixDetail, FixList, FixRow, FixStep } from '@shadowlap/dashboard';
 import { ago, quoteArgv, table } from './ui.js';
 
@@ -34,15 +34,15 @@ function failedMust(f: Pick<FixRow, 'title' | 'failed' | 'check'>, n: number): s
 }
 
 /**
- * A probe's or a verified run's tally: the attempts that passed of those judged, then `unit` (`2 of
- * 4 passed`), and those that could not be judged (all they fell short on is a check no attempt could
- * decide) apart, never as failures: `1 of 1 passed, an attempt not judged`.
+ * A probe's tally: the attempts that passed of those judged (`2 of 4 passed`), and those that could
+ * not be judged (all they fell short on is a check no attempt could decide) apart, never as failures:
+ * `1 of 1 passed, an attempt not judged`. A verified run's tally is verify's own (`verifyTallyLine`).
  */
-function tally(x: { passes: number; attempts: number; inconclusive: number }, unit = ''): string {
+function tally(x: { passes: number; attempts: number; inconclusive: number }): string {
   const judged = x.attempts - x.inconclusive;
-  if (!x.inconclusive) return `${x.passes} of ${x.attempts}${unit}`;
+  if (!x.inconclusive) return `${x.passes} of ${x.attempts} passed`;
   const apart = `${x.inconclusive === 1 ? 'an attempt' : `${x.inconclusive} attempts`} not judged`;
-  return judged ? `${x.passes} of ${judged}${unit}, ${apart}` : apart;
+  return judged ? `${x.passes} of ${judged} passed, ${apart}` : apart;
 }
 
 
@@ -96,7 +96,7 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
     if (b.probes.length) {
       out.push(`  ${p.dim(`probes: ${b.rule}; ${b.rescue}`)}`);
       // Each probe's tally with the Wilson bound its gate decided on; the rule is the line above.
-      const rows = b.probes.map((x) => [`#${x.callNo}`, `${x.step} of ${b.steps}`, `${tally(x, ' passed')}${x.bound ? ` · ${x.bound}` : ''}`, x.verdict]);
+      const rows = b.probes.map((x) => [`#${x.callNo}`, `${x.step} of ${b.steps}`, `${tally(x)}${x.bound ? ` · ${x.bound}` : ''}`, x.verdict]);
       out.push(table(rows, '    '));
     }
     out.push(p.dim(`  ${b.cost.attempts} attempt${s(b.cost.attempts)} · ${b.cost.upstreamRequests} upstream requests · ≈${formatUsd(b.cost.spent)} spent${unpriced(b.cost.unknownModels)}`));
@@ -138,7 +138,8 @@ export function formatFixDetail(d: FixDetail, p: Palette, o: { repairer?: string
       out.push(`  ${badge}  ${one(v.code, 90)}  ${v.counts ? v.headline : p.yellow(v.headline)}`);
       if (v.note) out.push(`    ${p.red(one(v.note, 200))}`);
       out.push(p.dim(`    ${one(v.oracle, 200)}`));
-      const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, x.deterministic && !x.inconclusive ? 'clean replay' : `${tally(x)}${x.rate?.bound ? ` · ${x.rate.bound}` : ''}`, x.note === 'clean replay' ? '' : one(x.note, 70)]);
+      // Each run's tally as verify printed it: the engine's parts the read model keeps (verifyTally), joined as verify joins them.
+      const rows = v.rows.map((x) => [x.role, x.runId.slice(0, 10), x.outcome, verifyTallyLine(x), x.note === 'clean replay' ? '' : one(x.note, 70)]);
       if (rows.length) out.push(table(rows, '    '));
       const delta = v.tokens ? `${Math.round(v.tokens.before).toLocaleString('en-US')} → ${Math.round(v.tokens.after).toLocaleString('en-US')} input tokens per run (${v.tokens.change})` : '';
       out.push(p.dim(`    ${v.attempts} attempt${s(v.attempts)} · ${v.upstreamRequests} upstream requests · ≈${formatUsd(v.spent)} spent${unpriced(v.unknownModels)}${delta ? ` · ${delta}` : ''}`));

@@ -79,7 +79,7 @@ describe('the Tests screen', () => {
       failing: 1,
       passing: 2,
       untested: 0,
-      title: 'refund-in-limit diverged at call 1',
+      title: '2 of 3 goldens passed · refund-in-limit diverged at call 1',
       first: { golden: 'goldens/refund-in-limit', name: 'refund-in-limit', reason: 'diverged at call 1 (api POST /v1/messages)', runId: 'R_C_LIMIT' },
       session: { command: 'shadowlap test goldens/*', revision: 'd2e8a1f', startedAt: T0, passed: 2, failed: 1, upstreamRequests: 0, actor: 'ci' },
     });
@@ -92,7 +92,7 @@ describe('the Tests screen', () => {
     session(store, 'e3f9b20', T0 + DAY, [{ golden: 'goldens/refund-flow', ok: true, runId: 'R_D_FLOW' }], ['shadowlap', 'test', 'goldens/refund-flow']);
     const view = testsView(store, goldens);
     // refund-in-limit still fails: its last result is the one from the full session.
-    expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, passing: 2, untested: 0, title: 'refund-in-limit diverged at call 1', first: { golden: 'goldens/refund-in-limit' } });
+    expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, passing: 2, untested: 0, title: '2 of 3 goldens passed · refund-in-limit diverged at call 1', first: { golden: 'goldens/refund-in-limit' } });
     // The line under it is the newest session that ran them all, with its own counts; what ran since on its own is said apart.
     expect(view.verdict!.session).toMatchObject({ revision: 'd2e8a1f', command: 'shadowlap test goldens/*', passed: 2, failed: 1 });
     expect(view.verdict!.since).toEqual([{ golden: 'goldens/refund-flow', name: 'refund-flow', ok: true, verdict: 'passed', revision: 'e3f9b20', at: T0 + DAY + 1 }]);
@@ -108,7 +108,7 @@ describe('the Tests screen', () => {
     ]);
     // A golden added since has not run yet, and the verdict says so rather than "all pass".
     const more = [...goldens, { path: 'goldens/new-one', runId: null, packedAt: T0, mode: 'replay' as const, repeat: 1, passes: 1, checks: [] }];
-    expect(testsView(store, more).verdict).toMatchObject({ state: 'passing', passing: 3, untested: 1, title: '3 of 4 goldens pass, 1 not run yet' });
+    expect(testsView(store, more).verdict).toMatchObject({ state: 'passing', passing: 3, untested: 1, title: '3 of 4 goldens passed · 1 golden not tested yet' });
     store.close();
   });
 
@@ -295,7 +295,7 @@ describe('the Tests screen', () => {
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', revision: 'abc1234+dirty', data: { checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time' } });
     store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: ['send_email called 0 times'] }]);
-    expect(view.verdict!.title).toBe('x check failed: send_email called 0 times');
+    expect(view.verdict!.title).toBe('0 of 1 golden passed · x check failed: send_email called 0 times');
     expect(view.divergences).toEqual([]);
     expect(view.failures).toEqual([{ golden: 'goldens/x', name: 'x', runId: null, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', checks: [{ ok: false, label: 'send_email called 0 times', detail: 'called 1 time' }], details: '✗ send_email called 0 times: called 1 time', output: null, blocked: null, bisect: null, found: null, missed: null, revisions: [], unreadable: null }]);
     expect(view.revisions).toEqual(['abc1234+dirty']);
@@ -309,7 +309,7 @@ describe('the Tests screen', () => {
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/x', ok: false, failure: 'exit', reason: 'the agent exited with code 1', revision: 'abc1234', data: { details: '30/30 calls replayed', output } });
     store.finishTestSession(s.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
     const view = testsView(store, [{ path: 'goldens/x', runId: null, packedAt: null, mode: 'replay', repeat: 1, passes: 1, checks: [] }]);
-    expect(view.verdict!.title).toBe('x exited with code 1');
+    expect(view.verdict!.title).toBe('0 of 1 golden passed · x exited with code 1');
     expect(view.failures).toMatchObject([{ failure: 'exit', reason: 'the agent exited with code 1', checks: null, details: '30/30 calls replayed', output, blocked: null }]);
     store.close();
   });
@@ -483,9 +483,9 @@ describe('the Tests screen', () => {
     expect(f.bisect).toEqual({ good: 'bbb2222', bad: 'ddd4444', args: ['bisect', 'goldens/x', '--good', 'bbb2222', '--bad', 'ddd4444'], live: true });
     // The dialog offers each commit it was tested at before, newest first, with how it did there.
     expect(f.revisions).toEqual([
-      { rev: 'ccc3333', at: T0 + 2 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true },
-      { rev: 'bbb2222', at: T0 + DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true },
-      { rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: true },
+      { rev: 'ccc3333', at: T0 + 2 * DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true, rate: { passes: 1, attempts: 1 } },
+      { rev: 'bbb2222', at: T0 + DAY + 1, result: 'pass', verdict: 'passed', sameChecks: true, rate: { passes: 1, attempts: 1 } },
+      { rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: true, rate: { passes: 1, attempts: 1 } },
     ]);
     store.close();
   });
@@ -504,7 +504,7 @@ describe('the Tests screen', () => {
     const [f] = testsView(store, [x]).failures;
     // No pass under today's check: the page asks for a good commit, offering aaa1111 as passed under other checks.
     expect(f.bisect).toBeNull();
-    expect(f.revisions).toEqual([{ rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: false }]);
+    expect(f.revisions).toEqual([{ rev: 'aaa1111', at: T0 + 1, result: 'pass', verdict: 'passed', sameChecks: false, rate: { passes: 1, attempts: 1 } }]);
     store.close();
   });
 
@@ -1067,7 +1067,7 @@ describe('goldens with a gate', () => {
     expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/flaky', reason: 'inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', gate: expect.objectContaining({ decision: 'inconclusive' }) })]);
     // Nothing to bisect or fix there: only the golden that failed is a failure.
     expect(view.failures.map((f) => f.golden)).toEqual(['goldens/drops']);
-    expect(testsView(store, gated.slice(0, 2)).verdict).toMatchObject({ state: 'inconclusive', failing: 0, inconclusive: 1, passing: 1, title: 'flaky inconclusive after 20 attempts' });
+    expect(testsView(store, gated.slice(0, 2)).verdict).toMatchObject({ state: 'inconclusive', failing: 0, inconclusive: 1, passing: 1, title: '1 of 2 goldens passed · flaky inconclusive after 20 attempts' });
     expect(testsSummary(store, { goldens: gated })).toMatchObject({ passing: 1, failing: 1, inconclusive: 1, line: '1 regression caught' });
     expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - 3 * DAY }, { goldens: gated })).toMatchObject({ passing: 1, inconclusive: 1, regressions: 1 });
     expect(failingTests(store, { goldens: gated }).map((t) => [t.title, t.verdict, t.href])).toEqual([
@@ -1101,7 +1101,7 @@ describe('goldens with a gate', () => {
     expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/escalates', reason: why, gate: null }), expect.objectContaining({ golden: 'goldens/flaky', reason: 'injection inconclusive: no attempt showed anything', gate: null })]);
     expect(flaky.last).toMatchObject({ verdict: 'inconclusive', line: 'injection inconclusive: no attempt showed anything' });
     // Its title and its history cell say what is inconclusive, never a gate that ran out of attempts.
-    expect(view.verdict).toMatchObject({ state: 'inconclusive', inconclusive: 2, title: 'escalates inconclusive: a check could not be judged' });
+    expect(view.verdict).toMatchObject({ state: 'inconclusive', inconclusive: 2, title: '0 of 2 goldens passed · escalates inconclusive: a check could not be judged' });
     expect(escalates.history.map((c) => c.note)).toEqual([why]);
     expect(failingTests(store, { goldens: gated.slice(0, 2) }).map((t) => t.line)).toEqual(['injection inconclusive: no attempt showed anything', why]);
     store.close();

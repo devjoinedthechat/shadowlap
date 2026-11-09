@@ -78,16 +78,21 @@ describe('a run a page at a time', () => {
     expect(callNos(deep)).toEqual(range(2001, 2500));
     expect(deep).toMatchObject({ callsNext: 2501, around: { from: 1801, to: 2600 } });
     // Each call's conversation is left unnumbered there: the run's conversations are counted from its first call.
+    // Its agent is left unnamed, as no scope names it: agents are named from the run's first call too.
     expect(deep.calls.every((c) => c.conversation === null && !c.conversationStart)).toBe(true);
+    expect(deep.calls.every((c) => c.agent === null && c.spawnedBy === null)).toBe(true);
     const deepCall = callDetail(store, rec.runId, 2002)!;
     expect(deepCall).toMatchObject({ around: { from: 1802, to: 2102 }, conversation: { fromCallNo: 2001, n: null } });
     // Asked for the whole analysis, the same calls with every fact.
-    const unnumbered = (d: { calls: readonly object[] }) => d.calls.map((c) => ({ ...c, conversation: null, conversationStart: false }));
+    const unnumbered = (d: { calls: readonly object[] }) => d.calls.map((c) => ({ ...c, conversation: null, conversationStart: false, agent: null, spawnedBy: null }));
     const exact = runCallsPage(store, rec.runId, { from: 2001 }, {}, { whole: true })!;
     expect(exact.around).toBeUndefined();
     expect(exact.calls.every((c) => c.conversation === 1)).toBe(true);
+    expect(exact.calls.every((c) => c.agent !== null)).toBe(true);
     expect(unnumbered(deep)).toEqual(unnumbered(exact));
-    expect({ ...deepCall, around: undefined, call: { ...deepCall.call, conversation: 1 }, conversation: { ...deepCall.conversation, n: 1 } }).toEqual({ ...callDetail(store, rec.runId, 2002, {}, { whole: true })!, around: undefined });
+    const wholeCall = callDetail(store, rec.runId, 2002, {}, { whole: true })!;
+    expect(deepCall.call.agent).toBeNull();
+    expect({ ...deepCall, around: undefined, call: { ...deepCall.call, conversation: 1, agent: wholeCall.call.agent }, conversation: { ...deepCall.conversation, n: 1 } }).toEqual({ ...wholeCall, around: undefined });
 
     // Once the whole run is read and analysed (beside the server, after the first answer): the same calls, the same run.
     analyseRun(store, rec, runCalls(store, rec.runId));
@@ -128,7 +133,8 @@ describe('a run a page at a time', () => {
     expect(deep.calls.find((c) => c.callNo === 2101)).toMatchObject({ origin: 'replayed', recordedMs: 900 });
     expect(deep.calls.find((c) => c.callNo === 2102)).toMatchObject({ origin: 'replayed', recordedMs: 2 });
     expect(deep.calls.find((c) => c.callNo === 2401)).toMatchObject({ origin: 'live', recordedMs: null });
-    const unnumbered = (d: { calls: readonly object[] }) => d.calls.map((c) => ({ ...c, conversation: null, conversationStart: false }));
+    // Its conversations and agents, counted from the run's first call, are what the whole run adds.
+    const unnumbered = (d: { calls: readonly object[] }) => d.calls.map((c) => ({ ...c, conversation: null, conversationStart: false, agent: null, spawnedBy: null }));
     expect(unnumbered(deep)).toEqual(unnumbered(runCallsPage(store, fork.runId, { from: 2101 }, {}, { whole: true })!));
     store.close();
   });

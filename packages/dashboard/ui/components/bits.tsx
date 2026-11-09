@@ -105,27 +105,6 @@ export function Legend({ origins, className = 'legend' }: { origins: readonly Or
   );
 }
 
-/** One square per attempt: passed, partly, failed. */
-export function Pips({ ok = 0, part = 0, unsure = 0, no = 0 }: { ok?: number; part?: number; unsure?: number; no?: number }) {
-  return (
-    // A tally drawn as dots: an image to assistive technology, its label the tally in words.
-    <span className="pips" role="img" aria-label={`${ok} passed${part ? `, ${part} partly` : ''}${unsure ? `, ${unsure} inconclusive` : ''}${no ? `, ${no} failed` : ''}`}>
-      {Array.from({ length: ok }, (_, i) => (
-        <i key={`o${i}`} />
-      ))}
-      {Array.from({ length: part }, (_, i) => (
-        <i key={`p${i}`} className="part" />
-      ))}
-      {Array.from({ length: unsure }, (_, i) => (
-        <i key={`u${i}`} className="unsure" />
-      ))}
-      {Array.from({ length: no }, (_, i) => (
-        <i key={`n${i}`} className="no" />
-      ))}
-    </span>
-  );
-}
-
 export function Badge({ tone, children }: { tone: 'ok' | 'no' | 'y' | 'n'; children: ReactNode }) {
   return <span className={`badge ${tone}`}>{children}</span>;
 }
