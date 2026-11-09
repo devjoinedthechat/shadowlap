@@ -540,7 +540,13 @@ An id that may be a real change leads with neither: only you can tell, so **Find
 
 Sometimes the rule alone can't make the replay match: the request carries a field the recording never had, as a per-run id added since. The button then reads **Add normalizer and update**, and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule. Once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes.
 
-**Show diff** opens in the inspector's place, beside the calls, so the list keeps its place. Under *Diff at #n* it shows the request that changed, and the normalizer to add when the change is a date or an id. For a test that diverged, it shows the value its finding names as made anew on every run, what it looks like and its normalizer. So the diff never says that no normalizer is suggested where the finding offers one.
+**Show diff** opens in the inspector's place, beside the calls, so the list keeps its place. Under *Diff at #n* it shows the request the run changed first as one list, a line a key, the recording's side signed − and this run's +. A key one side lacks is one signed line. A changed value is its two lines, the words that differ marked, a UUID whole. JSON inside a string is read as JSON and says so. Unchanged values longer than a line are cut with …, and a changed array's unchanged items fold into one line.
+
+Under the diff, a sentence says what changed and, on a fork, what changed it: its flag, or a tool's result the next request carries. A line for each changed path says what fixes it: a normalizer for a value made anew on every run, or **Update golden** for what your code or config changed. A change that matching masks gets a line too, as do a changed header and the clock. Every normalizer's command is in one box, so the diff never says no normalizer is suggested where the finding offers one.
+
+A fork forced live, as Run live from here makes, has Show diff too, and says so where its request didn't change. After a tool forced live or failed, the diff shows the next model call, the first request the tool's result reaches. A model call that `--fail-at` failed has none, since that call made no upstream request.
+
+Where the run it is compared with is gone, left out of an exported copy, or kept without its request, the diff is built from the finding's changes. It shows the model, each path that changed, and `messages: [ … ]` for the conversation it leaves out.
 
 **Hide diff**, a call picked, a key from `1` to `4` or Esc gives the inspector back.
 
@@ -2171,7 +2177,8 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
-- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's check, Find breaking commit… and Delete run. Each loads the first time it opens.
+- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's check, Share's eval dataset and OpenTelemetry trace dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
+- **The structural diff** a finding's diff draws has a script of its own as well. Both scripts, and a finished run's diff, are asked for once the pointer or the focus reaches Show diff, so it opens at once. The diff is kept while the page is open.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
@@ -2244,6 +2251,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs/:id/provenance`, `/show` | The run's record for Provenance, with what a copy made at this point would mask; `shadowlap show --json` as the CLI prints it |
 | `GET /api/runs/:id/unrecorded` | The tools the model called that the run never recorded, read beside the server from every model call's answer |
 | `GET /api/runs/:id/differences` | What a fork did differently from its parent (`null` for a run that is no fork of a run in the store) |
+| `GET /api/runs/:id/diff?call=` | Show diff's request, as recorded and as sent, with the finding's path and what fixes each changed path; `call` for call n |
 | `GET /api/runs/:id/outcome` | The run's outcome by checks, each check with it ([Judged by checks](#judged-by-checks)) |
 | `GET /api/runs/:id/next` | The run's next step alone, whole, with what it bills: what its page's answer leaves out rather than read a long run's calls |
 | `GET /api/runs/:id/estimates?at=&model=` | What Run blame and each fork menu row at call `at` bill, by the row's key; without `at`, the whole run's rows |
@@ -2604,7 +2612,7 @@ A second dashboard, started in the demo's triage-bot, checks [a link into anothe
 - **Attempts**: which runs are attempts is one rule, `packages/engine/src/run-roles.ts`.
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
 - **Shared parts**: a page's header and facts, its sections, statuses, verdict lines, switches, pickers, code boxes, run ids and attempts, and its empty, loading and error states are components in `packages/dashboard/ui/components/`, listed in its `README.md`, with their styles in `ui/css/components.css`. `Term` reads its definitions from `ui/glossary.ts`.
-- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`: Compare, the results matrix (`ui/components/ResultsMatrix.tsx`), and everything under `ui/changes/` but its head, `Head.tsx`.
+- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`: Compare, the structural diff (`ui/components/JsonDiff.tsx`), the results matrix (`ui/components/ResultsMatrix.tsx`), and everything under `ui/changes/` but its head, `Head.tsx`.
 
 ## Troubleshooting
 

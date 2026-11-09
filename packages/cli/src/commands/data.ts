@@ -120,7 +120,7 @@ export function register(program: Command): void {
           runIds: flags.lineage ? [run.runId, ...runIds.filter((id: string) => id !== run.runId)] : runIds,
           version: VERSION,
           ...(config.prices ? { prices: config.prices } : {}),
-          ...(flags.redact && config.redact.length ? { redact: config.redact } : {}),
+          ...(flags.redact && config.redact.length ? { redact: config.redact } : {}), normalize: config.normalize,
         });
         writeFileSync(out, result.html);
         emitJobEvent({ type: 'file', path: out, label: 'HTML' });

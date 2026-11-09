@@ -28,6 +28,8 @@ export interface ExportWork {
   dbPath: string;
   runIds: string[];
   redact: Normalizer[];
+  /** The rules matching applies, for Show diff's answer in the file. */
+  normalize?: Normalizer[];
   prices?: Record<string, Price>;
   version: string | null;
   uiDir?: string;

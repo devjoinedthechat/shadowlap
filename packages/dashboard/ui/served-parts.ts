@@ -13,7 +13,7 @@ export type ShareMenuProps = ComponentProps<typeof ShareMenu>;
  * no Share, so nothing there opens Share's menu).
  */
 export interface ServedParts {
-  /** Share's menu (run/ShareMenu.tsx), with its Export dataset…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
+  /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
   ShareMenu?: OnShow<ShareMenuProps>;
 }
 
