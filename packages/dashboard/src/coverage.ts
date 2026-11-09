@@ -39,7 +39,7 @@ export interface CoverageGroupView {
    * command it runs, and the agent's command it would reproduce the capture with: the one a run here
    * sent the same first request with, or null when nothing says, and the dialog asks for it (with
    * `{message}` where the agent's input goes). `forkable` when the last `--pack` found the agent no
-   * longer does this: Keep it as a test then packs it as a golden that forks, with the checks the
+   * longer does this: the setup's Pack then packs it as a golden that forks, with the checks the
    * dialog asks for (`fork: true, expect`).
    */
   pack: { key: string; args: string[]; command: string[] | null; commandFrom: string | null; forkable: boolean } | null;

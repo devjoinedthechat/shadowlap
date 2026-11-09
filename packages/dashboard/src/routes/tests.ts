@@ -58,7 +58,7 @@ export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bi
 /**
  * Jobs that replay the goldens on disk or rewrite them, by what each is doing: a second one at once
  * would replay a pack the other is rewriting, or report a session the other's results land in. A
- * setup's Keep it as a test packs a new golden and tests it. Find breaking commit on a golden reads its
+ * setup's Pack packs a new golden and tests it. Find breaking commit on a golden reads its
  * pack and answers the failure it started from, so it runs alone too; on a run, it touches none.
  * The error-path presets replay a golden's pack (on a run, they touch none), and packing goldens
  * of production writes new ones into the goldens folder.

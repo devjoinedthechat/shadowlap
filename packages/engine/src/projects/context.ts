@@ -417,7 +417,7 @@ export class ProjectHost<C = unknown> {
   }
 
   /**
-   * Skip the rest, or Go to the overview: the project is set up (see `ProjectRegistry.finishSetup`),
+   * Skip setup, or Go to Overview: the project is set up (see `ProjectRegistry.finishSetup`),
    * with the recording, golden and steps the setup found. The setup offers both only once its first
    * recording has finished with calls in it, so this refuses before then: a request can't skip
    * recording.

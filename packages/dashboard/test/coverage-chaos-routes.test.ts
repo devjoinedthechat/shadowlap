@@ -85,7 +85,7 @@ beforeAll(async () => {
   store.endRun(packRun, 'completed', T0 + 1);
 
   store.saveCoverageScan({ scanId: 'S1', at: T0, runs: 3, groups: 2, uncovered: 1, goldens: 1, actor: 'dana@example.com', data: { goldens: ['goldens/escalate'] } }, [group({}), group({ key: 'bbbb000011112222', behaviour: { path: ['lookup_order', 'escalate'], writes: ['escalate'], unknown: [], outcome: 'answered' }, runs: 1, runIds: ['C1'], coveredBy: ['goldens/escalate'], nearest: null, command: null })]);
-  // The last --pack found the agent no longer does what production did: Keep it as a test may pack it as a golden that forks.
+  // The last --pack found the agent no longer does what production did: the setup's Pack may pack it as a golden that forks.
   store.saveCoveragePack({ key: 'aaaa000011112222', at: T0 - 500, golden: null, runId: null, from: 'C1', mode: null, reason: 'not-reproduced', why: 'node agent.mjs B-7 doesn\'t reproduce C1: diverged at call 1 (api POST /v1/messages), where the agent sends something else now', command: { argv: ['node', 'agent.mjs', 'B-7'], from: 'REC1' } });
 
   store.startChaosSession({ sessionId: 'X1', startedAt: T0 + 2, command: ['shadowlap', 'test', 'goldens/forecast', '--chaos'], presets: ['timeout', 'malformed', '429'] });
