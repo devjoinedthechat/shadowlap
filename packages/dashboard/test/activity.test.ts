@@ -415,7 +415,7 @@ describe('a test session', () => {
     expect(items.filter((i) => i.text.includes('gate:'))).toEqual([]);
     // Never a gate's evidence for a golden whose gate is not what is inconclusive.
     expect(line(stopped)).toEqual(['warn', 'Test inconclusive · stopped · a check could not be judged']);
-    expect(line(planted)).toEqual(['warn', 'Test inconclusive · planted · its injection test showed too little to say']);
+    expect(line(planted)).toEqual(['warn', 'Test inconclusive · planted · its injection gate showed too little to say']);
     // No gate decided either: no rule to give.
     expect([stopped, planted, plain].map((id) => byId(items, `r:${id}:end`)?.rule)).toEqual([undefined, undefined, undefined]);
     expect(JSON.stringify(items)).not.toContain('needed');
