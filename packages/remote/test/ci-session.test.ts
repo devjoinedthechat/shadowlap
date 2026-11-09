@@ -47,12 +47,10 @@ describe('the newest session CI pushed', () => {
     const remote = new MemoryStore(loc);
     await remote.put(ulid(1), Buffer.from(doc({ ci: 'github', session: 'S1' })));
     await pullCiSession(store, remote, KEY);
-    const broken = Object.assign(Object.create(remote) as MemoryStore, {
-      list: () => {
-        throw new Error('network down');
-      },
-    });
-    expect(await pullCiSession(store, broken, KEY)).toMatchObject({ session: 'S1' });
+    remote.list = () => {
+      throw new Error('network down');
+    };
+    expect(await pullCiSession(store, remote, KEY)).toMatchObject({ session: 'S1' });
     expect(lastCiSession(store, 'another store')).toBeNull();
     store.close();
   });
