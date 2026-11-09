@@ -22,6 +22,7 @@ import { OverviewPage } from '../ui/pages/Overview.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { RunsPage } from '../ui/pages/Runs.js';
 import { SetupPage } from '../ui/pages/Setup.js';
+import { LoadProblem } from '../ui/pages/settings/common.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { TrainingPage } from '../ui/pages/Training.js';
 import { parseRoute } from '../ui/route.js';
@@ -401,6 +402,16 @@ describe('the setup while its read comes, fails or answers', () => {
     expect(done.querySelectorAll('.actions .btn').map(text)).toEqual(['Go to Overview']);
     // Nothing left to skip.
     expect(page.all('.ph .actions')).toEqual([]);
+  });
+});
+
+describe('a Settings tab whose read failed', () => {
+  it('says so in the sentence every page uses: the status the server answered, where it sent no words of its own', async () => {
+    r = await render(createElement(AppContext.Provider, { value: app({}) }, createElement(LoadProblem, { error: new ApiError(500, 'HTTP 500'), retry: () => undefined })));
+    expect(r.all('.loaderr p > span').map(text)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    await r.unmount();
+    r = await render(createElement(AppContext.Provider, { value: app({}) }, createElement(LoadProblem, { error: new ApiError(409, 'The config changed on disk.'), retry: () => undefined })));
+    expect(r.all('.loaderr p > span').map(text)).toEqual(['couldn’t load', 'The config changed on disk.']);
   });
 });
 
