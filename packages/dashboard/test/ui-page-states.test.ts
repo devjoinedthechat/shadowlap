@@ -24,10 +24,12 @@ import { RunPage } from '../ui/pages/Run.js';
 import { RunsPage } from '../ui/pages/Runs.js';
 import { SetupPage } from '../ui/pages/Setup.js';
 import { LoadProblem } from '../ui/pages/settings/common.js';
+import { StoreSetupPage } from '../ui/pages/settings/StoreSetup.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { TrainingPage } from '../ui/pages/Training.js';
 import { parseRoute } from '../ui/route.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import type { SetupUrlCheck, StoreSetupView } from '../ui/store-api.js';
 import { FakeElement, render, type Rendered } from './ui-render.js';
 import { addressBar } from './ui-route-helpers.js';
 
@@ -518,6 +520,107 @@ describe('the setup while its read comes, fails or answers', () => {
     expect(done.querySelectorAll('.actions .btn').map(text)).toEqual(['Go to Overview']);
     // Nothing left to skip.
     expect(page.all('.ph .actions')).toEqual([]);
+  });
+});
+
+describe('the team store’s setup while its read comes, fails or answers', () => {
+  const URL = 's3://acme-runs/support-agent';
+  const POLICY: SetupUrlCheck['policy'] = {
+    writer: { for: 'people, and CI on protected branches', kind: 'an IAM policy', text: '{ "Statement": ["write"] }', notes: [] },
+    pullRequest: { for: 'pull requests’ CI jobs', kind: 'an IAM policy', text: '{ "Statement": ["read"] }', notes: [] },
+    notes: [],
+    command: 'shadowlap store policy --provider s3',
+  };
+  /** The server's view of the setup: the bucket connected, the runs pushed and CI skipped, so Bring your team is at hand. */
+  const viewAt = (over: Partial<StoreSetupView> = {}): StoreSetupView => ({
+    store: { url: URL, configured: URL, key: 'team', name: 'acme-runs', provider: 's3', providerName: 'Amazon S3' },
+    active: true,
+    next: { step: 4, title: 'Bring your team' },
+    setup: { startedAt: 1, ci: 'skipped', ciProvider: 'github', finishedAt: null },
+    connected: true,
+    pushed: true,
+    check: null,
+    runs: { onlyLocal: 0, pushedHere: 3 },
+    providers: [{ provider: 's3', name: 'Amazon S3', scheme: 's3://', example: 's3://<bucket>/<project>', credentials: null, hint: { uses: 'AWS credentials', from: 'the default chain' } }],
+    ci: [],
+    commit: { file: 'shadowlap.config.json', line: `"store": "${URL}"`, command: 'git add shadowlap.config.json && git commit -m "Use the team store"' },
+    ...over,
+  });
+  /** The page, its server answering the setup's read with `view` and a typed URL's check with `check`; what it saves goes in `saved`, what it toasts in `toasts`. */
+  const storePage = (view: () => Promise<StoreSetupView>, o: { saved?: unknown[]; toasts?: string[]; check?: () => Promise<SetupUrlCheck> } = {}) => {
+    const storeSetup = { view, check: o.check ?? (() => new Promise(() => undefined)), save: (step: unknown) => (o.saved?.push(step), Promise.resolve({})) };
+    const client = { exported: false, jobs: () => Promise.resolve([]), storeSetup } as unknown as Client;
+    const state = { ...app({}), client, toast: (t: string) => void o.toasts?.push(t) } as unknown as AppState;
+    return createElement(AppContext.Provider, { value: state }, createElement(StoreSetupPage, {}));
+  };
+  const steps = (page: Rendered) => page.all('ol.setup.storesetup').length === 1 && page.all('.skel').length === 0;
+
+  it('draws its header, the project in its eyebrow, over the four steps in quiet bars while the setup is read, with nothing to press', async () => {
+    r = await render(storePage(() => new Promise(() => undefined)));
+    waiting(r, 'the team store’s setup');
+    expect(text(r.one('.ph .eyebrow'))).toBe('support-agent · team store setup');
+    expect(text(r.one('.ph h1'))).toBe('Set up team store');
+    expect(r.all('.skin ol.setup.storesetup > li h2').map(text)).toEqual(['Connect your bucket', 'Push your runs', 'Push from CI', 'Bring your team']);
+    // No heading over the bars that the page's own layout doesn't have, and nothing to press.
+    expect(r.all('.skel > header')).toEqual([]);
+    expect(r.all('button')).toEqual([]);
+  });
+
+  it('keeps that header when the read fails, over the error line, and Retry reads the setup again', async () => {
+    let asked = 0;
+    let answer: () => Promise<StoreSetupView> = failed;
+    r = await render(storePage(() => (asked++, answer())));
+    await r.until('the failure', () => r!.all('.loaderr').length === 1);
+    expect(r.one('.page').hasAttribute('aria-busy')).toBe(false);
+    expect(text(r.one('.ph h1'))).toBe('Set up team store');
+    expect(r.all('.loaderr p > span').map(text)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    answer = () => Promise.resolve(viewAt());
+    const before = asked;
+    await r.click(r.byText('.loaderr button', 'Retry'));
+    await r.until('the steps', () => steps(r!));
+    expect(asked).toBe(before + 1);
+  });
+
+  it('gives each access policy a box of its own, its Copy named for whom it is, in Settings → Store’s noun', async () => {
+    const check = (): Promise<SetupUrlCheck> => Promise.resolve({ ok: false, provider: 's3', error: 'Type the bucket and folder.', policy: POLICY });
+    const fresh = viewAt({ store: null, connected: false, pushed: false, setup: { startedAt: null, ci: null, ciProvider: null, finishedAt: null }, next: { step: 1, title: 'Connect your bucket' }, commit: null });
+    r = await render(storePage(() => Promise.resolve(fresh), { check }));
+    await r.until('the access to ask for', () => r!.all('details.foundsum .policypart').length === 2);
+    expect(r.all('.policypart .boxwrap > pre.codebox').map(text)).toEqual([POLICY.writer.text, POLICY.pullRequest.text]);
+    expect(r.all('.policypart .boxcopy').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy access policy for people, and CI on protected branches', 'Copy access policy for pull requests’ CI jobs']);
+  });
+
+  it('says a setup just finished in a verdict line under the steps, set up first, with Go to Overview at its right', async () => {
+    const saved: unknown[] = [];
+    const toasts: string[] = [];
+    r = await render(storePage(() => Promise.resolve(viewAt()), { saved, toasts }));
+    await r.until('the steps', () => steps(r!));
+    expect(r.all('ol.setup.storesetup > li.cur .actions .btn').map(text)).toEqual(['Copy commit command', 'Finish setup']);
+    await r.click(r.byText('ol.setup.storesetup .btn.lime', 'Finish setup'));
+    await r.until('the verdict line', () => r!.all('.verdict.sdone').length === 1);
+    expect(saved).toEqual([{ finished: true }]);
+    expect(toasts).toContain('The store is set up');
+    const done = r.one('.verdict.sdone');
+    expect(done.getAttribute('class')).toBe('verdict sdone');
+    expect(text(done.querySelector('.vw')!)).toBe('set up');
+    expect(text(done.querySelector('h2')!)).toBe('set up Your runs are in the bucket.');
+    expect(text(done.querySelector('p')!)).toBe('Teammates’ runs show up here as they pull the config and push.');
+    expect(done.querySelectorAll('.actions a').map((a) => [text(a), a.getAttribute('class'), a.getAttribute('href')])).toEqual([['Go to Overview', 'btn lime', '#/']]);
+  });
+
+  it('says a setup finished before in a verdict line alone, where the steps would be, with the store’s settings and Go to Overview', async () => {
+    r = await render(storePage(() => Promise.resolve(viewAt({ active: false, next: null, setup: { startedAt: 1, ci: 'skipped', ciProvider: 'github', finishedAt: 5 }, runs: { onlyLocal: 2, pushedHere: 3 } }))));
+    await r.until('the verdict line', () => r!.all('.verdict.sdone').length === 1);
+    const done = r.one('.verdict.sdone');
+    expect(done.getAttribute('class')).toBe('verdict sdone alone');
+    expect(text(done.querySelector('h2')!)).toBe(`set up Runs go to ${URL}`);
+    expect(text(done.querySelector('h2 code')!)).toBe(URL);
+    expect(text(done.querySelector('p')!)).toBe('2 runs only on this machine. Its settings are in Settings → Store.');
+    expect(done.querySelectorAll('.actions a').map((a) => [text(a), a.getAttribute('class'), a.getAttribute('href')])).toEqual([
+      ['Open store settings', 'btn', '#/settings/store'],
+      ['Go to Overview', 'btn lime', '#/'],
+    ]);
+    expect(r.all('ol.setup')).toEqual([]);
   });
 });
 
