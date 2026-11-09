@@ -1,4 +1,4 @@
-import { goldensPassed, recordEvent, resolveAuthor, WorkflowConflictError, WorkflowFileError, writeWorkflow, type StoreOf } from '@shadowlap/engine';
+import { recordEvent, resolveAuthor, sessionTally, WorkflowConflictError, WorkflowFileError, writeWorkflow, type StoreOf } from '@shadowlap/engine';
 import { lastCiSession, parseStoreUrl, storeKey, type CiSessionSeen } from '@shadowlap/remote';
 import { randomBytes } from 'node:crypto';
 import { repositoryWorkflow, type RepositoryWorkflow } from '../ci-file.js';
@@ -44,21 +44,15 @@ interface Kept {
   version: string;
 }
 
-/** A session's tally as every tally on a page counts it, inconclusive goldens apart: `2 of 7 goldens passed · 3 failed, 2 inconclusive`. */
-function tally(passed: number, failed: number, inconclusive: number): string {
-  const notPassed = [failed ? `${failed} failed` : '', inconclusive ? `${inconclusive} inconclusive` : ''].filter(Boolean).join(', ');
-  return `${goldensPassed(passed, passed + failed + inconclusive)}${notPassed ? ` · ${notPassed}` : ''}`;
-}
-
 /**
  * The test session the line under Your workflow names: the newest one CI pushed to the project's
  * team store, as a pull keeps it (*Last seen in CI*), else the last one here that ran every golden.
  */
 function ciSession(store: StoreOf<'tests' | 'team'>, goldens: readonly GoldenSource[], storeUrl: string | null): CiSession | null {
   const ci = seenInCi(store, storeUrl);
-  if (ci) return { ci: true, revision: ci.revision, at: ci.at, text: tally(ci.passed, ci.failed, ci.inconclusive) };
+  if (ci) return { ci: true, revision: ci.revision, at: ci.at, text: sessionTally(ci.passed, ci.failed, ci.inconclusive) };
   const s = lastFullSession(store, goldens);
-  return s ? { ci: false, revision: s.revision, at: s.endedAt ?? s.startedAt, text: tally(s.passed, s.failed, s.inconclusive) } : null;
+  return s ? { ci: false, revision: s.revision, at: s.endedAt ?? s.startedAt, text: sessionTally(s.passed, s.failed, s.inconclusive) } : null;
 }
 
 /** The newest session CI pushed to the store `shadowlap.config.json` names, as a pull kept it; null without a store, or before one. */

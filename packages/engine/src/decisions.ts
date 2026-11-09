@@ -819,12 +819,14 @@ export function decisionLine(d: DecisionView | null, width = 72): string {
   return `${STOP_WORDS[d.stop]}${said}`;
 }
 
-const pct = (a: number, b: number) => {
+/** How far a cost or a count moved, in words: `+25%`, `−50%`, `about the same`, `the same`, `new` (from nothing). */
+export const percentChange = (a: number, b: number): string => {
   if (a === 0) return b === 0 ? 'the same' : 'new';
   const n = Math.round((Math.abs(b - a) / a) * 100);
   return n === 0 ? 'about the same' : `${b >= a ? '+' : '−'}${n}%`;
 };
-const tokenTotal = (t: TokenCount | null) => (t ? t.input + t.cacheRead + t.cacheWrite : 0);
+/** A request's input tokens, cached or not: what a report's `input tokens` count. */
+export const tokenTotal = (t: TokenCount | null | undefined): number => (t ? t.input + t.cacheRead + t.cacheWrite : 0);
 const thousands = (n: number) => Math.round(n).toLocaleString('en-US');
 
 /** The difference one step makes to tokens and cost, as a report line ends: `+120 tokens · +$0.002`. */
@@ -866,20 +868,23 @@ export interface DecisionsHeadline {
  * steps of those it flags, which say whether a write, a stop or a judge flagged them. A run refused
  * whole (a --from-code change that is more than its prompt and tools) counts no step, so it is named
  * apart: no headline reads as if it had nothing to ask. Its sentence alone (`lead` and `rest`) is what
- * a list of previews says of one.
+ * a list of previews says of one. `unit` is what it counts: runs, or goldens for a preview whose runs
+ * are each a golden's recording, as the pull request comment counts them.
  */
-export function decisionsHeadline(r: Pick<DecisionsReport, 'counts' | 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'refused' | 'decisions'>> }): DecisionsHeadline {
+export function decisionsHeadline(r: Pick<DecisionsReport, 'counts' | 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'refused' | 'decisions'>> }, unit: 'run' | 'golden' = 'run'): DecisionsHeadline {
   const changed = r.counts[1] + r.counts[2] + r.counts[3] + r.counts[4] + r.counts[5];
   const asked = changed + r.counts.same > 0;
   const refused = r.runs.filter((x) => x.refused).length;
-  const unasked = refused ? `${refused} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'} could not be asked` : null;
+  // What it counts in: runs, or goldens where each run is a golden's recording (the pull request comment's).
+  const of = `${r.runs.length} ${unit}${r.runs.length === 1 ? '' : 's'}`;
+  const unasked = refused ? `${refused} of ${of} could not be asked` : null;
   const head = (mark: DecisionsHeadline['mark'], lead: string, rest = '', detail = ''): DecisionsHeadline => ({ mark, lead, rest, detail, unasked, asked });
   if (!asked) {
     if (unasked) return head('!', unasked);
     if (r.counts.notAsked) return head('!', 'No step was answered', '', ' (the warnings say why)');
     return head('✓', 'Nothing to ask', '', r.counts.untouched ? ': the change leaves every request as recorded' : ': the runs hold no model call');
   }
-  if (r.flagged.length) return head('✗', `${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`, ` ${flaggedFor(r)}`);
+  if (r.flagged.length) return head('✗', `${r.flagged.length} of ${of}`, ` ${flaggedFor(r)}`);
   if (changed) return head('!', 'No write and no stop changes', '', `: ${changed} decision${changed === 1 ? ' differs' : 's differ'} in reads or text`);
   return head(unasked ? '!' : '✓', 'The same decisions', ' at every step asked');
 }
@@ -1055,7 +1060,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
     }
     if (run.cost.before !== null || run.cost.after !== null) {
       const tokens = `${thousands(tokenTotal(run.tokens.before))} → ${thousands(tokenTotal(run.tokens.after))} input tokens`;
-      const cost = run.cost.before !== null && run.cost.after !== null ? ` · ≈${formatUsd(run.cost.before)} → ≈${formatUsd(run.cost.after)} (${pct(run.cost.before, run.cost.after)})` : '';
+      const cost = run.cost.before !== null && run.cost.after !== null ? ` · ≈${formatUsd(run.cost.before)} → ≈${formatUsd(run.cost.after)} (${percentChange(run.cost.before, run.cost.after)})` : '';
       lines.push(p.dim(`  the steps asked, as recorded and now: ${tokens}${cost}`));
     }
     for (const w of run.warnings) lines.push(`  ${p.yellow('!')} ${safeLine(w)}`);
@@ -1071,7 +1076,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
   lines.push('');
   for (const n of r.notes) lines.push(p.dim(`  ${safeLine(n)}`));
   const unpriced = r.cost.unknownModels.length ? ` (no price for ${r.cost.unknownModels.map(safeLine).join(', ')})` : '';
-  const perRun = r.cost.before !== null && r.cost.after !== null ? ` · per run ≈${formatUsd(r.cost.before)} → ≈${formatUsd(r.cost.after)} (${pct(r.cost.before, r.cost.after)})` : '';
+  const perRun = r.cost.before !== null && r.cost.after !== null ? ` · per run ≈${formatUsd(r.cost.before)} → ≈${formatUsd(r.cost.after)} (${percentChange(r.cost.before, r.cost.after)})` : '';
   lines.push(p.dim(`  asking: ${r.cost.upstreamRequests} upstream request${r.cost.upstreamRequests === 1 ? '' : 's'} · ≈${formatUsd(r.cost.spent)} spent${unpriced}${perRun}${r.stopReason ? ` · stopped: ${safeLine(r.stopReason)}` : ''}`));
   // The judge's calls apart from the agent's: free only when none went upstream, as a judge with no price is no free call.
   const j = r.judge;
