@@ -316,7 +316,8 @@ describe('setupView', () => {
     expect(one.calibrate).toMatchObject({
       state: 'current',
       text: 'Found a value the agent makes anew on every run, at $.metadata.user_id: this looks like a UUID. A normalizer for it makes the replay clean.',
-      button: { label: 'Add normalizer', action: 'calibratewrite', enabled: true },
+      // Its hover card says what it writes, and its command.
+      button: { label: 'Add normalizer', action: 'calibratewrite', enabled: true, tip: { sub: 'Writes the rule calibrate proposed to shadowlap.config.json', command: 'shadowlap calibrate 01K5CQ7A3M --write' } },
       // Beside the proposal, plain: the proposal left as it is.
       again: { label: 'Calibrate again', action: 'calibrate' },
       cli: ['shadowlap calibrate 01K5CQ7A3M --write'],
@@ -325,11 +326,13 @@ describe('setupView', () => {
     });
     const two = view(p, f, { calibration: { done: false, added: [], proposed: [{ path: '$.system', why: null }, { path: '$.metadata.user_id', why: null }], stopped: null } });
     expect(two.calibrate.text).toBe('Found 2 values the agent makes anew on every run, at $.system and $.metadata.user_id. Normalizers for them make the replay clean.');
-    expect(two.calibrate.button).toMatchObject({ label: 'Add normalizers', action: 'calibratewrite' });
+    // The action's name, as everywhere a normalizer is added, however many it adds.
+    expect(two.calibrate.button).toMatchObject({ label: 'Add normalizer', action: 'calibratewrite', tip: { sub: 'Writes the rules calibrate proposed to shadowlap.config.json' } });
     expect(two.calibrate.again).toEqual({ label: 'Calibrate again', action: 'calibrate' });
 
     const stopped = view(p, f, { calibration: { done: false, added: [], proposed: [], stopped: 'still diverging after 8 rounds' } });
     expect(stopped.calibrate).toMatchObject({ text: 'Calibrate stopped: still diverging after 8 rounds.', button: { label: 'Calibrate', action: 'calibrate', enabled: true }, again: null, stopped: 'still diverging after 8 rounds' });
+    expect(stopped.calibrate.button?.tip).toBeUndefined();
     // Once the list says the step is done, an old result changes nothing.
     const done = entry('research-agent', { stage: 'clean', runId: RUN, calibration: { added: [{ path: '$.metadata.user_id', why: null }] } });
     expect(view(done, f, { calibration: { done: false, added: [], proposed: [{ path: '$.x', why: null }], stopped: null } }).calibrate).toMatchObject({ state: 'done', button: null, proposed: [], text: 'Added a normalizer for $.metadata.user_id. The replay is clean now.' });

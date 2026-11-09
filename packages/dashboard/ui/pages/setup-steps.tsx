@@ -333,7 +333,7 @@ function CalibrateBody({ step, off, tree, busy, canCalibrate, runId, onCalibrate
       </p>
       {button ? (
         <div className="actions">
-          <ActionButton className={limeIf(button.lime)} disabled={!button.enabled || !runId} why={why} onClick={() => runId && onCalibrate(runId, button.action === 'calibratewrite')}>
+          <ActionButton className={limeIf(button.lime)} disabled={!button.enabled || !runId} why={why} tip={button.tip ? button.label : undefined} sub={button.tip?.sub} command={button.tip ? `$ ${button.tip.command}` : undefined} onClick={() => runId && onCalibrate(runId, button.action === 'calibratewrite')}>
             {button.label}
           </ActionButton>
           {/* Beside a proposal: calibrate once more, the proposal left as it is. */}

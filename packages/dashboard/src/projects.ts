@@ -319,8 +319,11 @@ export interface RecordStep extends StepBase {
 export interface CalibrateStep extends StepBase {
   key: 'calibrate';
   text: string;
-  /** Calibrate, or once it proposed normalizers, add them (`calibrate <run> --write`): plain while Pack waits. */
-  button: { label: string; action: 'calibrate' | 'calibratewrite'; enabled: boolean; lime: boolean } | null;
+  /**
+   * Calibrate, or once it proposed normalizers, add them (`calibrate <run> --write`): plain while
+   * Pack waits. Adding them says on hover what it writes, and its command (`tip`).
+   */
+  button: { label: string; action: 'calibrate' | 'calibratewrite'; enabled: boolean; lime: boolean; tip?: { sub: string; command: string } } | null;
   /** Beside a proposal, Calibrate again, never lime: the proposal left as it is. */
   again: { label: string; action: 'calibrate' } | null;
   /** What the last calibrate proposed and didn't add yet. */
@@ -688,7 +691,7 @@ function calibrateStep(f: SetupFacts): CalibrateStep {
     state: state(clean, recorded, tested || packedOnly !== null),
     cli: clean ? [] : commands.calibrate,
     text: calibrateText(f, added, proposed, last?.stopped ?? null),
-    button: clean ? null : offer ? { label: proposed.length === 1 ? 'Add normalizer' : 'Add normalizers', action: 'calibratewrite', enabled: true, lime: !held } : { label: 'Calibrate', action: 'calibrate', enabled: recorded, lime: !held },
+    button: clean ? null : offer ? { label: ACTIONS.addNormalizer.label, action: 'calibratewrite', enabled: true, lime: !held, tip: { sub: `Writes the ${proposed.length === 1 ? 'rule' : 'rules'} calibrate proposed to shadowlap.config.json`, command: commands.calibrate.join(' && ') } } : { label: ACTIONS.calibrate.label, action: 'calibrate', enabled: recorded, lime: !held },
     again: offer ? { label: 'Calibrate again', action: 'calibrate' } : null,
     proposed,
     stopped: last?.stopped ?? null,
@@ -721,7 +724,7 @@ function testStep({ input, clean, tested, state, golden, commands, totals, packe
         }
       : null,
     golden: ahead ? { value: golden, enabled: clean } : null,
-    button: tested ? null : packedOnly ? { label: failed ? 'Re-run test' : 'Run test', action: 'testgolden', enabled: true, lime: !held } : { label: confirmWords(ACTIONS.packAsGolden.label), action: 'packgolden', enabled: clean, lime: !held },
+    button: tested ? null : packedOnly ? { label: failed ? ACTIONS.rerunTest.label : 'Run test', action: 'testgolden', enabled: true, lime: !held } : { label: confirmWords(ACTIONS.packAsGolden.label), action: 'packgolden', enabled: clean, lime: !held },
     result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: links.tests() } } : null,
     packed: packedOnly ? packedLine(packedOnly, failed, setup.goldenTest?.reason ?? null) : null,
   };

@@ -10,7 +10,7 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, deriveSetup, emptySetup, emptyStoreFacts, type ProjectEntry, type RunFact, type SetupFindings, type StoreFacts } from '@shadowlap/engine';
 import { fixesView } from '../src/fixes-view.js';
-import { setupView } from '../src/projects.js';
+import { setupView, type SetupInput } from '../src/projects.js';
 import { readTraining, trainingView } from '../src/training.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
@@ -310,15 +310,17 @@ describe('the setup while its read comes, fails or answers', () => {
   });
   const RECORDING: RunFact = { runId: RUN, status: 'completed', startedAt: 10, endedAt: 20, live: false, calls: 12, replayedClean: false };
   /** The server's read model of support-agent's setup (src/projects.ts), the project at `over` and its store holding `store`. */
-  const setupAt = (over: Partial<ProjectEntry['setup']>, store: Partial<StoreFacts> = {}) => {
+  const setupAt = (over: Partial<ProjectEntry['setup']>, store: Partial<StoreFacts> = {}, extra: Partial<SetupInput> = {}) => {
     const project: ProjectEntry = { id: 'support-agent', name: 'support-agent', path: `${HOME}/support-agent`, addedAt: 1, setup: { ...emptySetup(1), ...over }, confirmed: [] };
-    return setupView({ project, setup: deriveSetup(project.setup, { ...emptyStoreFacts(), ...store }, { packs: [] }), redactRules: 0, home: HOME });
+    return setupView({ project, setup: deriveSetup(project.setup, { ...emptyStoreFacts(), ...store }, { packs: [] }), redactRules: 0, home: HOME, ...extra });
   };
   const FRESH = setupAt({});
   const UNWRAPPED = setupAt({ stage: 'inspected', findings: found(false) });
   // Recorded before the write tool was wrapped, and found wrapped since: Pack waits for a recording made since.
   const WRAPPED_SINCE = setupAt({ stage: 'recorded', findings: found(true), inspections: [{ at: 1, unwrapped: ['refund_order'] }, { at: 50, unwrapped: [] }], runId: RUN, command: ['uv', 'run', 'support-agent'] }, { runs: 1, recordings: [RECORDING] });
   const SET_UP = setupAt({ stage: 'tested', findings: found(true), runId: RUN, golden: 'goldens/support-agent' }, { runs: 2, recordings: [RECORDING] });
+  // Recorded with every tool wrapped, and calibrate proposed a normalizer.
+  const PROPOSED = setupAt({ stage: 'recorded', findings: found(true), runId: RUN }, { runs: 1, recordings: [RECORDING] }, { calibration: { done: false, added: [], proposed: [{ path: '$.metadata.user_id', why: 'this looks like a UUID' }], stopped: null } });
 
   /** The setup page, its server answering the setup's read with `setup`; what it toasts goes in `toasts`. */
   const setupPage = (setup: () => Promise<unknown>, toasts: string[] = []) => {
@@ -391,6 +393,14 @@ describe('the setup while its read comes, fails or answers', () => {
       await page.unmount();
       r = null;
     }
+  });
+
+  it('says on Add normalizer’s hover what it writes and its command, Calibrate again plain beside it', async () => {
+    const page = await drawn(() => Promise.resolve(PROPOSED));
+    expect(limes(page)).toEqual(['Add normalizer']);
+    const [add, again] = page.all('li[data-step="calibrate"] .actions .btn');
+    expect([text(add), text(again), again.className]).toEqual(['Add normalizer', 'Calibrate again', 'btn']);
+    expect(JSON.parse(add.getAttribute('data-tip')!)).toMatchObject({ t: 'Add normalizer', s: 'Writes the rule calibrate proposed to shadowlap.config.json', cmd: '$ shadowlap calibrate 01K5CQ7A3M --write' });
   });
 
   it('says a finished setup in a verdict line under the steps, set up first, with Go to Overview at its right', async () => {
