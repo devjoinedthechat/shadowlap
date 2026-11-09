@@ -124,7 +124,7 @@
       "teamPull": 39
     },
     "packages/cli/src/test-report.ts": {
-      "markdownReport": 39
+      "markdownReport": 33
     },
     "packages/cli/src/verify.ts": {
       "runVerify": 58,

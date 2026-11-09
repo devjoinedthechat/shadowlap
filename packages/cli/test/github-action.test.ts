@@ -45,7 +45,7 @@ describe('the GitHub Action', () => {
     expect(r.outputs).toMatchObject({ passed: '1', failed: '0', diverged: '0', 'checks-failed': '0', fixes: '0', 'fix-prs': '' });
     expect(r.outputs.session).toMatch(/^\w{26}$/);
     expect(readFileSync(r.outputs['report-json'], 'utf8')).toContain('"passed": 1');
-    expect(r.summary).toContain('### Shadowlap: 1 recording passed');
+    expect(r.summary).toContain('### Shadowlap: 1 of 1 golden passed');
     expect(r.summary).toMatch(/✅ \| `reference-agent` \| clean \| 30\/30/);
     expect(r.out).not.toContain('::error');
   });
@@ -55,7 +55,7 @@ describe('the GitHub Action', () => {
     expect(r.code).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '1', 'checks-failed': '0' });
     expect(r.out).toContain('::error file=testing/golden/reference-agent/run.json,title=Shadowlap%3A reference-agent::diverged at call 3');
-    expect(r.summary).toContain('### Shadowlap: 1 of 1 recording failed');
+    expect(r.summary).toContain('### Shadowlap: 0 of 1 golden passed · 1 failed');
     expect(r.summary).toContain('+ "You are a research agent. Use the tools, then email a summary. Be brief."');
     expect(r.summary).toContain('update the golden: `shadowlap test testing/golden/reference-agent --update`');
   });
@@ -123,7 +123,7 @@ describe('the GitHub Action', () => {
     const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project, GUARD: 'off' });
     expect(r.code, r.out).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '0', 'checks-failed': '0', inconclusive: '1' });
-    expect(r.summary).toContain('### Shadowlap: 1 of 1 recording is inconclusive');
+    expect(r.summary).toContain('### Shadowlap: 0 of 1 golden passed · 1 inconclusive');
     expect(r.summary).toContain('| 🟡 | `reference-agent` |');
   });
 
@@ -154,7 +154,7 @@ describe('the GitHub Action and inconclusive goldens', () => {
         "const warn = at('--inconclusive') === 'warn';",
         "const result = { name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'fork', ok: warn, verdict: 'inconclusive', failure: 'inconclusive', message: 'inconclusive · 64 of 80 · rate 0.70 to 0.87 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', details: null, output: null, checks: null };",
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: '01K5CQ4N7G8M2XWQH6V3T9RB1D', revision: null, passed: warn ? 1 : 0, failed: warn ? 0 : 1, inconclusive: 1, interrupted: false, results: [result] }));",
-        "appendFileSync(at('--markdown'), '### Shadowlap: 1 of 1 recording is inconclusive\\n');",
+        "appendFileSync(at('--markdown'), '### Shadowlap: 0 of 1 golden passed · 1 inconclusive\\n');",
         'process.exit(warn ? 0 : 1);',
       ].join('\n'),
     );
@@ -359,7 +359,7 @@ describe('test reports', () => {
     const passed = gated('passed', true, 12, 12);
     const unsure = gated('inconclusive', false, 16, 20);
     const md = markdownReport(testReport([passed, unsure, failed]));
-    expect(md).toContain('### Shadowlap: 1 of 3 recordings failed, 1 inconclusive');
+    expect(md).toContain('### Shadowlap: 1 of 3 goldens passed · 1 failed, 1 inconclusive');
     // The verdict word, the tally, the bound and the rule, stated once; never a claimed rate.
     expect(md).toContain('| ✅ | `refund-passed` | passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00 · forked at call 3 | 2/5 | 1.2k |');
     expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 0.28 | 2/5 | 1.2k |');
@@ -370,7 +370,7 @@ describe('test reports', () => {
     expect(markdownReport(testReport([passed, unsure, failed]), 'fail')).toContain('This run fails on each of them (`--inconclusive fail`).');
     // Under --inconclusive warn it is let through, and says so; the heading still counts it.
     const warned = markdownReport(testReport([passed, { ...unsure, ok: true }]), 'warn');
-    expect(warned).toContain('### Shadowlap: 1 of 2 recordings is inconclusive');
+    expect(warned).toContain('### Shadowlap: 1 of 2 goldens passed · 1 inconclusive');
     expect(warned).toContain('This run lets inconclusive recordings through (`--inconclusive warn`).');
     expect(testReport([passed, { ...unsure, ok: true }])).toMatchObject({ passed: 2, failed: 0, inconclusive: 1 });
     expect(githubAnnotations(testReport([passed, { ...unsure, ok: true }]))).toBe(
@@ -563,7 +563,7 @@ describe('the pull request comment the GitHub Action keeps', () => {
         "const at = (flag) => args[args.indexOf(flag) + 1];",
         `writeFileSync(${JSON.stringify(join(dir, 'env.json'))}, JSON.stringify({ input: process.env.INPUT_GITHUB_TOKEN ?? null, job: process.env.SHADOWLAP_JOB_TOKEN ?? null }));`,
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S', revision: null, passed: 1, failed: 0, inconclusive: 0, interrupted: false, results: [{ name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'replay', ok: true, verdict: 'passed', failure: null, message: null, runs: [] }] }));",
-        "writeFileSync(at('--markdown'), '### Shadowlap: 1 recording passed\\n');",
+        "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 golden passed\\n');",
       ].join('\n'),
     );
     const r = await onPullRequest({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, GITHUB_TOKEN: 'github_pat_secret' }, 'northwind/agent', { SHADOWLAP_CLI: cli });
@@ -593,7 +593,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
         "if (args.includes('repair')) { process.stdout.write(JSON.stringify({ outcome: 'not-fixed', why: 'the gate accepted none of the 1 candidate tried', cost: { blame: 0.1, repairer: 0.01, verify: 0.2 }, candidates: [], output: {} })); process.exit(1); }",
         "const result = { name: 'refund-flow', dir: 'goldens/refund-flow', golden: 'goldens/refund-flow', mode: 'replay', ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time', expect: { tools: { issue_refund: 0 } }, checks: [{ ok: false, status: 'failed', label: 'issue_refund called 0 times', detail: 'called 1 time' }], runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', runs: [{ runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', ok: false, verdict: 'failed' }] };",
         "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S', revision: null, passed: 0, failed: 1, inconclusive: 0, interrupted: false, results: [result] }));",
-        "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 recording failed\\n');",
+        "writeFileSync(at('--markdown'), '### Shadowlap: 0 of 1 golden passed · 1 failed\\n');",
         'process.exit(1);',
       ].join('\n'),
     );
