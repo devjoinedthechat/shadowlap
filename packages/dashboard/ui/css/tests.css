@@ -221,6 +221,8 @@ table.gt td.glast .gpre { display: block; margin-top: 4px; text-decoration: none
 table.gt td.glast .gpre.err { color: var(--cq-red); }
 table.gt td.glast .gpre.warn { color: var(--cq-amber); }
 table.gt td.glast a.gpre:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* Show report under a presets line keeps its distance from it: neither has under 24px of room (WCAG 2.5.8) */
+table.gt td.glast .gpre + .grptog { margin-top: 4px; }
 
 /* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
    by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen

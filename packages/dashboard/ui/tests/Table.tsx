@@ -129,8 +129,9 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, repo
         </span>
         {/* A golden with a report shows its bar alone: Show report opens its evidence with the report. */}
         {gated(last.gate) && last.gate.attempts ? report ? <EvidenceBar g={last.gate} name={row.name} /> : <EvidenceToggle g={last.gate} name={row.name} open={open} onToggle={onToggle} /> : null}
-        {report ? <ReportToggle name={row.name} open={report.shown} onToggle={report.toggle} /> : null}
         {row.presets ? <PresetsLine p={row.presets} only={last.result === null && !row.error} /> : null}
+        {/* Last, under the whole of its last result, as the mock draws it. */}
+        {report ? <ReportToggle name={row.name} open={report.shown} onToggle={report.toggle} /> : null}
       </td>
     </tr>
   );
