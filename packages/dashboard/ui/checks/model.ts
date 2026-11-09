@@ -327,6 +327,18 @@ export function labelsOf(f: Fragment): string[] {
   }
 }
 
+/**
+ * The place of the unit of a golden's checks that yields `label`, as the CLI labels a check: one unit
+ * can yield several (a `when` rule's checks, an output's texts). -1 where none does, as after the
+ * file was edited by hand since the page named the check.
+ */
+export function unitWithLabel(expect: unknown, label: string): number {
+  return unitsOf(expect).findIndex((f) => labelsOf(f).includes(label));
+}
+
+/** What the builder toasts, closing, for a check its golden's entry doesn't yield as written. */
+export const NOT_AS_WRITTEN = 'This check isn’t in shadowlap.config.json as written: edit it there';
+
 // ---- The golden's checks as they change ---------------------------------------------------------
 
 /** One check of the golden's, or one added: as the file holds it, the rule once opened in the editor, and what it writes now. */

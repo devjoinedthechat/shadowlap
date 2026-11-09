@@ -8,9 +8,9 @@ export type CheckKind = 'never' | 'neverargs' | 'must' | 'after' | 'every' | 'wh
 /**
  * The check builder (checks/Builder.tsx): opened from a run's tool call with the kind picked in its
  * check menu, or on a golden to add a check to it or change one of its checks (`edit`, the check's
- * place among the golden's).
+ * label as the CLI labels it, found in the golden's entry as the builder reads it).
  */
-export type BuilderProps = { onClose: () => void } & ({ run: RunDetail; call: CallDetail; kind: CheckKind } | { golden: string; edit: number | null });
+export type BuilderProps = { onClose: () => void } & ({ run: RunDetail; call: CallDetail; kind: CheckKind } | { golden: string; edit: string | null });
 
 /**
  * The check builder, a part of its own that the served dashboard hands a run's page (App.tsx) and an
