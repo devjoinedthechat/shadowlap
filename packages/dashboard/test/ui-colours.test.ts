@@ -495,6 +495,8 @@ describe('forced colours', () => {
     expect(forced.get('.navlist a[aria-current="page"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('.run[aria-current="true"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
+    // A folded row in Calls that holds the open call is outlined as the open call's row is.
+    expect(forced.get('table.calls tr.held')?.get('outline')).toBe('2px solid Highlight');
     for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.legend.lfilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
     // The structural diff's marked words, which say what changed by their ground alone.
