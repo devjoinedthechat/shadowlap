@@ -16,7 +16,8 @@ import { render, type Rendered } from './ui-render.js';
 /**
  * The Overview as the shell draws it: Watch live naming the recording by what it is about, Recent
  * runs' eight newest with a recording first, j and k through its four lists in the order they read,
- * and where the focus goes when a job a Needs a look row started ends and the page draws anew.
+ * where the focus goes when a job a Needs a look row started ends and the page draws anew, and a
+ * Dismiss in another tab, which the page reads again without asking a fix step its price again.
  */
 
 const NOW = Date.UTC(2026, 9, 22, 12);
@@ -53,22 +54,31 @@ interface Shown {
   live?: AppState['live'];
 }
 
-/** The Overview in the shell's place for a page, its keys and the router mounted; `show` swaps what the server says, then moves the shell's tick so the page reads it again. */
-async function overview(first: Shown): Promise<{ show: (next: Shown) => Promise<void> }> {
+/**
+ * The Overview in the shell's place for a page, its keys and the router mounted; `show` swaps what
+ * the server says, then moves the shell's tick so the page reads it again, and `feed` swaps it and
+ * moves the change feed's counters alone. `reads` counts the summaries read.
+ */
+async function overview(first: Shown, more: Partial<Client> = {}): Promise<{ show: (next: Shown) => Promise<void>; feed: (next: Shown, counters: Record<string, number>) => Promise<void>; reads: () => number }> {
   let now = first;
+  let reads = 0;
   const client = {
-    summary: () => Promise.resolve(now.summary),
+    summary: () => (reads++, Promise.resolve(now.summary)),
     activity: () => Promise.resolve({ items: now.activity ?? [], next: null }),
     teamStore: () => Promise.resolve(null),
     jobs: async () => [],
     nextStep: async () => ({ next: null }),
+    ...more,
   } as unknown as Client;
   let move: (tick: number) => void = () => undefined;
+  let counters: (feeds: Record<string, number>) => void = () => undefined;
   function Host() {
     useRoute();
     const [tick, setTick] = useState(0);
+    const [feeds, setFeeds] = useState<Record<string, number>>({});
     move = setTick;
-    const state = app({ client, runs: now.runs ?? [], live: now.live ?? [], tick, runsTick: 0, feeds: {}, hasKind: () => true });
+    counters = setFeeds;
+    const state = app({ client, runs: now.runs ?? [], live: now.live ?? [], tick, runsTick: 0, feeds, hasKind: () => true });
     return createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('h1', { ref: headingRef }, 'Overview'), createElement(OverviewPage)), createElement(Keyboard));
   }
   r = await render(createElement(Host));
@@ -79,6 +89,11 @@ async function overview(first: Shown): Promise<{ show: (next: Shown) => Promise<
       now = next;
       await act(async () => move(++ticks));
     },
+    feed: async (next, to) => {
+      now = next;
+      await act(async () => counters(to));
+    },
+    reads: () => reads,
   };
 }
 
@@ -177,5 +192,30 @@ describe('a Needs a look row’s job’s end', () => {
     await changed();
     await tick();
     expect(r!.focused().closest?.('.arow')).toBeFalsy();
+  });
+});
+
+describe('a Dismiss in another tab', () => {
+  it('reads the summary again once the dismissals counter moves, a fix step keeping the price it asked for', async () => {
+    const fixId = 'fx-01M5H3D15MQJ8V2W3X4Y5Z6A7B';
+    const fix: NeedsLookRow = { kind: 'open', icon: 'blame', title: 'Refunds above the limit issued without approval', detail: 'lost at model call #5', key: `attn:fix:#/fixes/${fixId}`, group: 'failing', step: { of: 'fix', fixId, lead: { key: 'blame-stronger', label: 'Blame with a stronger model', command: `shadowlap blame --fix ${fixId} --model claude-opus-5`, use: 'reads' } }, href: `#/fixes/${fixId}`, runId: null, fixId, at: 0 };
+    const local: NeedsLookRow = { kind: 'local', icon: 'rec', title: '1 run is only on this machine', detail: 'push it so the team can open it', key: 'attn:local', group: 'housekeeping', step: null, href: '#/runs?types=local', runId: null, fixId: null, at: 0, advice: { key: 'local', facts: [rid(1)], until: 'Until another run is only on this machine', dismissed: false } };
+    const fixEstimates = vi.fn(() => Promise.reject(new Error('no estimate here')));
+    const looks = (dismissed: boolean, dismissals: number) => ({ summary: { ...week, needsLook: { items: [fix, { ...local, advice: { ...local.advice!, dismissed } }], total: dismissed ? 1 : 2, dismissals } } });
+    const page = await overview(looks(false, 0), { estimates: { fixEstimates } } as unknown as Partial<Client>);
+    const step = () => r!.byText('.arow .ast .btn', 'Blame with a stronger model');
+    await r!.focus(step());
+    await r!.until('its price asked for', () => fixEstimates.mock.calls.length === 1);
+    const reads = page.reads();
+    await page.feed(looks(true, 1), { dismissals: 1 });
+    await r!.until('the summary read again', () => page.reads() === reads + 1 && r!.all('.aoff').length === 1);
+    await r!.focus(step());
+    await r!.wait(20);
+    expect(fixEstimates).toHaveBeenCalledTimes(1);
+    // A new answer of the list, as a tick brings, asks for it again.
+    await page.show(looks(true, 1));
+    await r!.until('the summary read again', () => page.reads() === reads + 2);
+    await r!.focus(step());
+    await r!.until('its price asked for again', () => fixEstimates.mock.calls.length === 2);
   });
 });
