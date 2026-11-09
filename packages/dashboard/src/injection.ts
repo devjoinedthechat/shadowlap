@@ -1,6 +1,6 @@
-import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofLine, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
+import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
-import { attemptPlant, injectionPanel, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
+import { attemptPlant, injectionPanel, markProof, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
 import { links } from './links.js';
@@ -42,6 +42,8 @@ export interface InjectionRow {
   spent: number;
   /** A `--clean` answer's gate rule (cleanRule); null for a plant. */
   rule: string | null;
+  /** A `--clean` answer's read, the call it tested; null for a plant, whose reads are its panel's rows. */
+  read: number | null;
   href: string;
 }
 
@@ -84,7 +86,7 @@ function resultGate(r: StoredInjectionResult): InjectionRow['gate'] {
 }
 
 function row(r: StoredInjectionResult): InjectionRow {
-  const data = r.data as Partial<PlantReport> & Partial<Pick<Extract<InjectionReport, { mode: 'clean' }>, 'rule'>>;
+  const data = r.data as Partial<PlantReport> & Partial<Pick<Extract<InjectionReport, { mode: 'clean' }>, 'rule' | 'read'>>;
   return {
     resultId: r.resultId,
     runId: r.runId,
@@ -106,6 +108,7 @@ function row(r: StoredInjectionResult): InjectionRow {
     reason: r.mode === 'plant' && r.endedAt !== null ? (data.gate?.reason ?? null) : null,
     spent: data.cost?.spent ?? 0,
     rule: r.mode === 'clean' ? (data.rule ?? null) : null,
+    read: r.mode === 'clean' ? (data.read?.callNo ?? null) : null,
     href: links.run(r.runId),
   };
 }
@@ -150,7 +153,7 @@ export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: s
   const mark = run?.meta?.injection ?? null;
   const of = mark ? store.getInjectionResult(mark.result) : null;
   const untrusted = untrustedView(store.getCalls(runId), tools);
-  const proof = mark?.evidence?.length ? proofLine({ read: mark.read, forkedAt: mark.readAt ?? null, readAt: mark.readAt ?? null, evidence: mark.evidence.map((e) => ({ ...e, why: null })) }) : null;
+  const proof = mark ? markProof(mark) : null;
   const report = of ? (of.data as unknown as InjectionReport) : null;
   const plant = run && mark ? attemptPlant(store, run, mark, report) : null;
   return { untrusted, results: store.listInjectionResults({ runId }).map(row), attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId) } : null };

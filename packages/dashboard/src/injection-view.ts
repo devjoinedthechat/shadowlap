@@ -1,4 +1,4 @@
-import { fillPayload, injectionTemplates, plantInToolResult, plural, proofLine, refused, shortRunId as short, type AttemptReport, type InjectionMark, type InjectionReport, type InjectionVerdict, type PlantReport, type RunRecord, type StoreOf, type TrustSource } from '@shadowlap/engine';
+import { fillPayload, injectionTemplates, plantInToolResult, plural, proofLine, refused, shortRunId as short, type AttemptReport, type CleanReport, type InjectionMark, type InjectionReport, type InjectionVerdict, type PlantReport, type RunRecord, type StoreOf, type TrustSource } from '@shadowlap/engine';
 import { commandLine } from './fix-shared.js';
 import type { InjectionAgain } from './next-step.js';
 
@@ -6,8 +6,9 @@ import type { InjectionAgain } from './next-step.js';
  * What the run page draws of a kept injection test, worked out here so the browser copies none of the
  * engine's rules: one result's panel (its untrusted reads by payload, each cell's strongest verdict
  * with the attempt that shows it and its proof, past eight reads each tool's reads summed, the meta,
- * the command and the receipt), and what an attempt's page marks (where the payload was planted, the
- * path it went after, the planted text with its canary filled, a clean attempt's writes gone).
+ * the command and the receipt), what an attempt's page marks (where the payload was planted, the
+ * path it went after, the planted text with its canary filled, a clean attempt's writes gone), and
+ * what the Forks view files each replay under (lineageInjection).
  */
 
 /** Past this many reads, the matrix gives each tool a row that sums its reads (ui/matrix.ts groupRows). */
@@ -63,7 +64,7 @@ export function proofOf(store: StoreOf<'recording'>, report: Partial<PlantReport
 }
 
 /** The call an attempt shows its verdict at: the call that carried the canary, else where the planted text was read. */
-export const proofCall = (a: Pick<AttemptReport, 'evidence' | 'readAt'>): number | null => a.evidence?.[0]?.callNo ?? a.readAt ?? null;
+export const proofCall = (a: { evidence?: ReadonlyArray<{ callNo: number }> | undefined; readAt?: number | null | undefined }): number | null => a.evidence?.[0]?.callNo ?? a.readAt ?? null;
 
 /** What the `injection` job takes to test again as the test did. */
 export function testedAs(report: Partial<PlantReport>): InjectionAgain {
@@ -184,4 +185,55 @@ export function attemptPlant(store: StoreOf<'recording'>, run: RunRecord, mark: 
   const payload = report.payloads.find((p) => p.id === mark.payload);
   const canary = a?.canary ?? mark.canary ?? null;
   return { ...NONE, plantedAt: a?.plantedAt ?? null, path, planted: payload && canary ? fillPayload(payload.text, canary) : (payload?.text ?? null) };
+}
+
+/** What the Forks view files a replay `shadowlap injection` made under, from its own record (`meta.injection`): its test, its role and place in it, and what its cell's card says. */
+export interface LineageInjection {
+  result: string;
+  role: 'attempt' | 'baseline' | 'clean';
+  attempt: number;
+  of: number;
+  verdict: string | null;
+  /** The read it planted in (an attempt, a baseline) or tested (a clean attempt), and an attempt's payload. */
+  read: number;
+  payload: string | null;
+  /** The call its line opens at: where an attempt shows its verdict (proofCall), where a clean attempt forked. */
+  at: number | null;
+  /** What an attempt's verdict rests on, its proof line, else why it showed nothing; why a clean attempt decided nothing. Null otherwise. */
+  says: string | null;
+  /** A clean attempt's recorded writes it did not make again, from its result; null for the others, and where the result is gone. */
+  gone: number[] | null;
+}
+
+/** An attempt's proof line from its own record, as its page and its cell in the Forks view say it. */
+export const markProof = (mark: InjectionMark): string | null =>
+  mark.evidence?.length ? proofLine({ read: mark.read, forkedAt: mark.readAt ?? null, readAt: mark.readAt ?? null, evidence: mark.evidence.map((e) => ({ ...e, why: null })) }) : null;
+
+/** The lineage's reader of each replay's injection mark: a --clean answer's result is read once, however many of its attempts the family holds. */
+export function lineageInjection(store: StoreOf<'injection'>): (r: RunRecord) => LineageInjection | undefined {
+  const cleans = new Map<string, CleanReport | null>();
+  const cleanOf = (id: string): CleanReport | null => {
+    if (!cleans.has(id)) {
+      const kept = store.getInjectionResult(id);
+      cleans.set(id, kept?.mode === 'clean' ? (kept.data as unknown as CleanReport) : null);
+    }
+    return cleans.get(id)!;
+  };
+  return (r) => {
+    const m = r.meta?.injection;
+    if (!m) return undefined;
+    const clean = m.role === 'clean';
+    return {
+      result: m.result,
+      role: m.role,
+      attempt: m.attempt,
+      of: m.of,
+      verdict: m.verdict ?? null,
+      read: m.read,
+      payload: m.payload ?? null,
+      at: clean ? (m.readAt ?? null) : proofCall(m),
+      says: m.role === 'attempt' ? (markProof(m) ?? m.why ?? null) : (m.why ?? null),
+      gone: clean ? (cleanOf(m.result)?.attempts.find((a) => a.runId === r.runId)?.gone ?? null) : null,
+    };
+  };
 }

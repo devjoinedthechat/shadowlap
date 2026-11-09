@@ -13,6 +13,7 @@ import { analysisFor, blameAt, conversationSource, modelName, NO_FACTS, ownFacts
 import { keptCalls, runCalls } from './run-calls.js';
 import { blameStep, runWholeFacts } from './run-summary.js';
 import { kindCode } from './call-kinds.js';
+import { lineageInjection, type LineageInjection } from './injection-view.js';
 // How a run stands, as the run list works it out: a run's page and its family read the same state.
 import { bundleOf, runState, runStates, type RunState } from './runs-list.js';
 
@@ -861,15 +862,9 @@ export interface LineageNode {
    * session that decided it (chaos.ts `presetMarks`), since the run alone reads as a healthy fork.
    */
   preset?: PresetMark;
-  /** A replay `shadowlap injection` made: its result, its role in it, which of how many, and its verdict (`meta.injection`), so the Forks view files it under its test. */
-  injection?: { result: string; role: 'attempt' | 'baseline' | 'clean'; attempt: number; of: number; verdict: string | null };
+  /** A replay `shadowlap injection` made: its result, its role in it, which of how many, its verdict and what its cell's card says (`meta.injection`), so the Forks view files it under its test. */
+  injection?: LineageInjection;
 }
-
-/** A replay's injection mark as the lineage carries it. */
-const injectionNode = (r: RunRecord): LineageNode['injection'] => {
-  const m = r.meta?.injection;
-  return m ? { result: m.result, role: m.role, attempt: m.attempt, of: m.of, verdict: m.verdict ?? null } : undefined;
-};
 
 /**
  * Every run in the family of a run: its root recording and all that descends from it, depth first,
@@ -897,6 +892,7 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
     return gates.get(key)!;
   };
   const index = loadRunIndex(store);
+  const injectionNode = lineageInjection(store);
   const out: LineageNode[] = [];
   const attempts: RunRecord[] = [];
   const walk = (r: RunRecord, depth: number) => {
