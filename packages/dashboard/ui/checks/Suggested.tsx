@@ -1,10 +1,14 @@
-import { useEffect, useId, useRef } from 'react';
-import type { CheckSuggestion, CheckSuggestions, SuggestionsAsk } from '../checks-api.js';
-import { ErrorState } from '../components/States.js';
-import { shortId } from '../format.js';
-import { useApp } from '../state.js';
-import type { Fragment } from './model.js';
-import { useSettledRead } from './settled-read.js';
+import { useEffect, useId, useRef } from "react";
+import type {
+  CheckSuggestion,
+  CheckSuggestions,
+  SuggestionsAsk,
+} from "../checks-api.js";
+import { ErrorState } from "../components/States.js";
+import { shortId } from "../format.js";
+import { useApp } from "../state.js";
+import type { Fragment } from "./model.js";
+import { useSettledRead } from "./settled-read.js";
 
 /**
  * Suggested, in the check builder: at most three rules that fail a failed recording and none of its
@@ -17,14 +21,17 @@ import { useSettledRead } from './settled-read.js';
 export interface SuggestedProps {
   /** What is asked; null where the builder asks nothing (a golden's checks, a run that didn't fail). */
   ask: SuggestionsAsk | null;
-  verb: 'Use rule' | 'Add rule';
+  verb: "Use rule" | "Add rule";
   onUse: (expect: Fragment) => void;
 }
 
 /** The suggestions for what is asked, read as the draft's preview is: settled, one read in flight, the last answer kept. */
 function useSuggestions(ask: SuggestionsAsk | null) {
   const { client } = useApp();
-  return useSettledRead<CheckSuggestions>(ask ? JSON.stringify(ask) : null, (k) => client.checks.suggestions(JSON.parse(k) as SuggestionsAsk));
+  return useSettledRead<CheckSuggestions>(
+    ask ? JSON.stringify(ask) : null,
+    (k) => client.checks.suggestions(JSON.parse(k) as SuggestionsAsk),
+  );
 }
 
 /** What each suggestion fails and passes: the run, and its one good run by its id or how many there are. */
@@ -32,7 +39,7 @@ function SubLine({ answer }: { answer: CheckSuggestions }) {
   const [one] = answer.goods;
   return (
     <span className="cb-sub">
-      each fails <code>{shortId(answer.runId)}</code> and{' '}
+      each fails <code>{shortId(answer.runId)}</code> and{" "}
       {answer.goods.length === 1 && one ? (
         <>
           not its good run, <code>{shortId(one)}</code>
@@ -55,18 +62,28 @@ function useFocusKept(rows: readonly CheckSuggestion[]) {
   useEffect(() => {
     const was = focused.current;
     if (!was || rows.some((r) => r.label === was.label)) return;
-    // Focus still on something else is left there.
+    focused.current = null;
+    // Focus that went on to something else is left there.
     const active = document.activeElement;
-    if (active && active !== document.body) return;
-    const buttons = list.current?.querySelectorAll<HTMLButtonElement>('button') ?? [];
-    const next = buttons[Math.min(was.at, buttons.length - 1)] ?? dialog.current?.querySelector<HTMLElement>('.cb-kinds [aria-pressed="true"]') ?? null;
-    focused.current = next && buttons.length ? { label: rows[Math.min(was.at, rows.length - 1)]!.label, at: Math.min(was.at, rows.length - 1) } : null;
-    next?.focus();
+    if (active && active !== document.body && active.isConnected) return;
+    const buttons =
+      list.current?.querySelectorAll<HTMLButtonElement>("button") ?? [];
+    const at = Math.min(was.at, buttons.length - 1);
+    const row = rows[at];
+    if (buttons[at] && row) focused.current = { label: row.label, at };
+    (
+      buttons[at] ??
+      dialog.current?.querySelector<HTMLElement>(
+        '.cb-kinds [aria-pressed="true"]',
+      )
+    )?.focus();
   });
-  const track = (label: string, at: number) => (e: { currentTarget: Element }) => {
-    focused.current = { label, at };
-    dialog.current = e.currentTarget.closest('[role="dialog"]');
-  };
+  /** A row's button took the focus, or was pressed. */
+  const track =
+    (label: string, at: number) => (e: { currentTarget: Element }) => {
+      focused.current = { label, at };
+      dialog.current = e.currentTarget.closest(".dialog");
+    };
   const untrack = (e: { relatedTarget: EventTarget | null }) => {
     if (e.relatedTarget) focused.current = null;
   };
@@ -78,7 +95,10 @@ export function Suggested({ ask, verb, onUse }: SuggestedProps) {
   const id = useId();
   const answer = read.answer ?? read.last;
   // A used rule leaves at once: the builder holds it, so the next answer leaves it out too.
-  const rows = answer && ask ? answer.suggestions.filter((s) => !ask.have.includes(s.label)) : [];
+  const rows =
+    answer && ask
+      ? answer.suggestions.filter((s) => !ask.have.includes(s.label))
+      : [];
   const focus = useFocusKept(rows);
   if (!ask || (!rows.length && !read.error)) return null;
   return (
@@ -87,13 +107,25 @@ export function Suggested({ ask, verb, onUse }: SuggestedProps) {
         <span className="k">Suggested</span>
         {answer && rows.length ? <SubLine answer={answer} /> : null}
       </p>
-      {read.error ? <ErrorState retry={read.retry}>{read.error}</ErrorState> : null}
+      {read.error ? (
+        <ErrorState retry={read.retry}>{read.error}</ErrorState>
+      ) : null}
       {rows.length ? (
         <ul className="cb-sugs" ref={focus.list}>
           {rows.map((s, i) => (
             <li className="cb-sug" key={s.label}>
               <code id={`${id}-${i}`}>{s.label}</code>
-              <button type="button" className="linkbtn" aria-describedby={`${id}-${i}`} onFocus={focus.track(s.label, i)} onBlur={focus.untrack} onClick={() => onUse(s.expect as Fragment)}>
+              <button
+                type="button"
+                className="linkbtn"
+                aria-describedby={`${id}-${i}`}
+                onFocus={focus.track(s.label, i)}
+                onBlur={focus.untrack}
+                onClick={(e) => {
+                  focus.track(s.label, i)(e);
+                  onUse(s.expect as Fragment);
+                }}
+              >
                 {verb}
               </button>
             </li>
