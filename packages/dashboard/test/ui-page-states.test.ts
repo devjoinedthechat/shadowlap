@@ -6,9 +6,12 @@
  */
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
+import { fixesView } from '../src/fixes-view.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import type { NotFoundKind } from '../ui/not-found-words.js';
+import { FixesPage } from '../ui/pages/Fixes.js';
 import { NotFoundPage } from '../ui/pages/NotFound.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { RunsPage } from '../ui/pages/Runs.js';
@@ -139,6 +142,34 @@ describe('Runs while its runs haven’t come', () => {
     await r.until('the runs read again', () => r!.all('.loaderr').length === 0);
     expect(asked).toBe(before + 1);
     expect(text(r.one('.runsec .emptyline'))).toBe('No runs yet.');
+  });
+});
+
+describe('a page of a project with no runs', () => {
+  const step = (page: Rendered) => page.all('.stepempty a.btn.lime').map((a) => [text(a), a.getAttribute('href')]);
+
+  it('says on Runs what it will hold, with Set up <project> to the Overview, where the setup is', async () => {
+    const state = { ...app({}), runs: [], client: { exported: false, teamStore: () => Promise.resolve(null) } } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunsPage, {})));
+    expect(text(r.one('.stepempty h2'))).toBe('No runs yet');
+    expect(step(r)).toEqual([['Set up support-agent', '#/']]);
+    expect(r.all('ol.setup')).toEqual([]);
+  });
+
+  it('says on Fixes what it will hold, with Set up <project>, and no blame command, which needs a run', async () => {
+    const store = Store.open(':memory:');
+    try {
+      const state = { ...app({}), runs: [], client: { exported: false, fixes: () => Promise.resolve(fixesView(store)), jobs: () => Promise.resolve([]) } } as unknown as AppState;
+      r = await render(createElement(AppContext.Provider, { value: state }, createElement(FixesPage, { id: null, step: null, sub: null })));
+      await r.until('the empty list', () => r!.all('.stepempty').length === 1);
+      expect(text(r.one('.stepempty h2'))).toBe('No fixes yet');
+      expect(step(r)).toEqual([['Set up support-agent', '#/']]);
+      expect(text(r.document.body)).not.toContain('shadowlap blame');
+    } finally {
+      await r?.unmount();
+      r = null;
+      store.close();
+    }
   });
 });
 
