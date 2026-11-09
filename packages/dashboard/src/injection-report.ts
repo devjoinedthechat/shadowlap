@@ -281,27 +281,76 @@ function leaves(value: unknown, path = '$', out: Array<[string, string]> = [], m
   return out;
 }
 
+/** A tool call's arguments the report shows, with the canaries a mask keeps in them. */
+interface ShownArgs {
+  tool: string;
+  args: unknown;
+  canaries: readonly Canary[];
+}
+
+/** An attempt's evidence as arguments: a value in its place (`$.to`), a write's whole arguments from the JSON it keeps; cut short, they can't be masked by place, so they give no example. */
+function evidenceArgs(e: Evidence): unknown[] {
+  if (e.kind !== 'write') return [{ [e.path.replace(/^\$\.?/, '') || 'value']: e.value }];
+  try {
+    return [JSON.parse(e.value) as unknown];
+  } catch {
+    return [];
+  }
+}
+
 /**
- * The security report's preview, from the same masks the download applies (Masker): the values of
- * the tool calls it shows that a rule masks, two at most, and each canary it keeps, since a canary is
- * the proof and no rule touches one.
+ * The tool calls' arguments the report shows: a plant's reads, then each attempt's evidence with
+ * that attempt's canary, the only one its replay held; a --clean answer's read and writes, with its
+ * one canary. The recorded reads hold none: a canary is made for its attempt.
  */
-export function reportPreview(report: InjectionReport, redact: readonly Normalizer[], row: { at: number; endedAt: number | null; attempts: number }): ReportPreview {
-  const canaries = report.mode === 'plant' ? report.attempts.flatMap((a) => (a.canary ? [a.canary] : [])) : report.canary ? [report.canary] : [];
-  const m = new Masker(redact, canaries);
-  const calls: Array<{ tool: string; args: unknown }> = report.mode === 'plant' ? report.reads.map((r) => ({ tool: r.name, args: r.args })) : [{ tool: report.read.name, args: report.read.args }, ...report.writes.map((w) => ({ tool: w.name, args: w.args }))];
-  const evidence = report.mode === 'plant' ? report.attempts.flatMap((a) => a.evidence) : [];
+function shownArgs(report: InjectionReport): ShownArgs[] {
+  if (report.mode !== 'plant') {
+    const canaries = report.canary ? [report.canary] : [];
+    return [{ tool: report.read.name, args: report.read.args, canaries }, ...report.writes.map((w) => ({ tool: w.name, args: w.args, canaries }))];
+  }
+  const evidence = report.attempts.flatMap((a) => a.evidence.flatMap((e) => evidenceArgs(e).map((args) => ({ tool: e.tool, args, canaries: a.canary ? [a.canary] : [] }))));
+  return [...report.reads.map((r) => ({ tool: r.name, args: r.args, canaries: [] })), ...evidence];
+}
+
+/** Up to `max` values a rule masks, each once, masked in its place as the download masks it (Masker.at); it tries a value once in each place, and stops at the last it needs. */
+function maskSamples(shown: readonly ShownArgs[], redact: readonly Normalizer[], max = 2): ReportPreview['masks'] {
   const masks: ReportPreview['masks'] = [];
-  for (const c of [...calls, ...evidence.filter((e) => e.kind !== 'write').map((e) => ({ tool: e.tool, args: { [e.path.replace(/^\$\.?/, '') || 'value']: e.value } }))]) {
+  const tried = new Set<string>();
+  for (const c of shown) {
+    const m = new Masker(redact, c.canaries);
     for (const [path, before] of leaves(c.args)) {
+      const key = `${c.tool}\0${path}\0${before}`;
+      if (tried.has(key) || masks.some((x) => x.before === before)) continue;
+      tried.add(key);
       const after = m.at(before, path, c.tool);
-      if (after !== before && masks.length < 2 && !masks.some((x) => x.before === before)) masks.push({ at: atPath(c.tool, path), before, after });
+      if (after !== before) masks.push({ at: atPath(c.tool, path), before, after });
+      if (masks.length >= max) return masks;
     }
   }
+  return masks;
+}
+
+/** Each place up to `max` where an attempt's evidence carries its own canary, which the report keeps: the first such value of each. */
+function keptCanaries(report: InjectionReport, max = 4): ReportPreview['canaries'] {
   const kept = new Map<string, { at: string; value: string }>();
-  for (const e of evidence) {
-    const c = canaries.find((x) => canaryIn(e.value, x));
-    if (c && e.kind !== 'write') kept.set(`${e.tool}${e.path}`, { at: atPath(e.tool, e.path), value: [c.address, c.id, c.amount, c.token].find((f) => e.value.includes(f)) ?? e.value });
+  for (const a of report.mode === 'plant' ? report.attempts : []) {
+    const c = a.canary;
+    if (!c) continue;
+    for (const e of a.evidence) {
+      if (e.kind === 'write' || kept.has(`${e.tool}${e.path}`) || !canaryIn(e.value, c)) continue;
+      kept.set(`${e.tool}${e.path}`, { at: atPath(e.tool, e.path), value: [c.address, c.id, c.amount, c.token].find((f) => e.value.includes(f)) ?? e.value });
+      if (kept.size >= max) return [...kept.values()];
+    }
   }
-  return { at: row.endedAt ?? row.at, attempts: row.attempts, rules: redact.length, masks, canaries: [...kept.values()].slice(0, 4), file: reportFile(report.runId) };
+  return [...kept.values()];
+}
+
+/**
+ * The security report's preview, from the same masks the download applies (Masker): the values of
+ * the tool calls it shows that a rule masks, two at most, an influenced attempt's write among them,
+ * and each canary it keeps, since a canary is the proof and no rule touches one. It reads no run
+ * and stops at what it shows, so it answers on the server thread.
+ */
+export function reportPreview(report: InjectionReport, redact: readonly Normalizer[], row: { at: number; endedAt: number | null; attempts: number }): ReportPreview {
+  return { at: row.endedAt ?? row.at, attempts: row.attempts, rules: redact.length, masks: redact.length ? maskSamples(shownArgs(report), redact) : [], canaries: keptCanaries(report), file: reportFile(report.runId) };
 }

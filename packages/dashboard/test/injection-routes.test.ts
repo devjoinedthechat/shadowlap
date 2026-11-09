@@ -8,7 +8,7 @@ import { startDashboard, type Dashboard } from '../src/index.js';
 import { injectionJob, injectionLine, injectionNeedsLook, toolTrust } from '../src/injection.js';
 import { injectionPanel, lineageInjection } from '../src/injection-view.js';
 import { securityOffer } from '../src/run-offers.js';
-import { injectionReportHtml } from '../src/injection-report.js';
+import { injectionReportHtml, reportPreview } from '../src/injection-report.js';
 import { commandTreeUse } from '../src/worktree.js';
 
 /**
@@ -443,6 +443,18 @@ describe('what the run page draws of a kept test', () => {
     // The canary is the proof: no rule touches it, though the email rule would match it.
     expect(p.canaries).toEqual([{ at: 'send_email.to', value: CANARY.address }]);
     expect(p.file).toBe(`shadowlap-injection-${recording.runId.slice(0, 10).toLowerCase()}.html`);
+  });
+
+  it('take a preview\'s example masks from an influenced attempt\'s write too, as the download masks its arguments, two at most', () => {
+    const base = plantReport(recording.runId, attemptRun.runId);
+    const influenced = (n: number, value: string) => ({ runId: attemptRun.runId, read: 1, payload: 'system-notice', attempt: n, canary: CANARY, verdict: 'influenced' as const, why: null, failed: false, plantedAt: 1, forkedAt: 2, readAt: 2, exitCode: 0, spent: 0, evidence: [{ kind: 'write' as const, callNo: 6, tool: 'send_email', path: '$', value, why: 'no clean replay called send_email with this value of to' }] });
+    const write = (n: number) => influenced(n, JSON.stringify({ to: `c-31${n}@example.com`, subject: 'Refund approved' }));
+    // A write's arguments cut short can't be masked by place: it gives no example.
+    const attempts = [influenced(9, '{"to":"c-319@example.com","subject":"Refund appr'), write(1), write(2), write(3)];
+    const report: PlantReport = { ...base, reads: [{ callNo: 1, name: 'fetch_page', from: 'config', readAt: 2, args: { url: 'https://docs.test/a' }, planted: true, why: null }], attempts };
+    const p = reportPreview(report, [{ pattern: 'email', replace: '<EMAIL>' }], { at: 10, endedAt: 20, attempts: 4 });
+    expect(p.masks).toEqual([1, 2].map((n) => ({ at: 'send_email.to', before: `c-31${n}@example.com`, after: '<EMAIL>' })));
+    expect(p.canaries).toEqual([]);
   });
 
   it('file each attempt under its test in the lineage, and name an untrusted read in the fork menu\'s header', async () => {
