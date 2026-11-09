@@ -9,7 +9,8 @@ import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { Popover, useMenu } from '../components/Popover.js';
 import { useApp } from '../state.js';
-import { BuilderFailed, CheckBuilderPart, type CheckKind } from './check-part.js';
+import type { NextStep } from '../types.js';
+import { BuilderFailed, builderTitle, CheckBuilderPart, type CheckKind } from './check-part.js';
 
 /**
  * Add check… on a run's page: first in a tool call's row menu, on the inspector's summary line and in
@@ -100,10 +101,10 @@ export function AddCheckLink({ check }: { check: CheckEntry }) {
   );
 }
 
-/** In the builder's place when its script didn't come: a small dialog with LoadFailed's line and Retry. */
-function NoBuilder({ onClose }: { onClose: () => void }) {
+/** In the builder's place when its script didn't come: a small dialog, titled as the builder would be, with LoadFailed's line and Retry. */
+function NoBuilder({ title = 'Add check', onClose }: { title?: string; onClose: () => void }) {
   return (
-    <Dialog title="Add check" cancel="Close" onClose={onClose}>
+    <Dialog title={title} cancel="Close" onClose={onClose}>
       <LoadFailed what="check builder" />
     </Dialog>
   );
@@ -170,4 +171,31 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
   );
   // Whether the run's tool calls take Add check… here, as no checks' hover tells it.
   return { check: can ? entry : undefined, fromPalette: can ? fromPalette : undefined, offered: !!Builder && takesChecks(o.run, app), node };
+}
+
+/**
+ * Edit check…, a test replay's step where its golden's own recording fails a check added since: the
+ * builder on the golden at that check (`check`, its label, found in the entry as the builder reads
+ * it). None where nothing hands the page the builder (an exported copy); on a dashboard that can't
+ * act it keeps its place and says why.
+ */
+export function EditCheckStep({ step }: { step: Extract<NextStep, { key: 'edit-check' }> }) {
+  const Builder = useContext(CheckBuilderPart);
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  if (!Builder) return null;
+  const ahead = () => Builder.preload();
+  return (
+    <>
+      <ActionButton className="btn lime" data-next={step.key} tip={step.label} sub={step.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => setOpen(true)}>
+        {step.label}
+      </ActionButton>
+      {open ? (
+        <BuilderFailed.Provider value={<NoBuilder title={builderTitle(step.golden, { edit: true, fromCall: false })} onClose={close} />}>
+          {/* eslint-disable-next-line react-hooks/static-components -- the one part the served dashboard hands the page (App.tsx), the same on every render */}
+          <Builder golden={step.golden} edit={step.check} onClose={close} />
+        </BuilderFailed.Provider>
+      ) : null}
+    </>
+  );
 }

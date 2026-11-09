@@ -34,6 +34,7 @@ const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean 
   'update-golden': { verb: 'update it', tests: true },
   'rerun-test': { verb: 'run it again', tests: true },
   'gate-again': { verb: 'run it again', tests: true },
+  'run-tests': { verb: 'run the tests', tests: true },
   bisect: { verb: 'find the breaking commit', tests: true },
   blame: { verb: 'blame', tests: false },
   'injection-test': { verb: 'test it', tests: false },

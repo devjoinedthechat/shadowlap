@@ -9,7 +9,7 @@ import { checksOf, runLikeOf } from '../ui/run/model.js';
 import { isFailed, matchesChip, RUN_CHIPS, type RunLike } from '../ui/runs.js';
 import { RunsTable } from '../ui/runspage/RunsTable.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { RunDetail, RunListItem } from '../ui/types.js';
+import type { RunDetail, RunListItem, RunOffers } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -138,5 +138,22 @@ describe('a capture its import judged failed, on its page and in Runs', () => {
     expect([isFailed(runLikeOf(judgedCapture)), isFailed(row as unknown as RunLike)]).toEqual([true, true]);
     expect(pendingRunOf(judgedCapture, null).chips).toEqual(runsChips(row as unknown as RunLike));
     expect(pendingRunOf(judgedCapture, null).chips).toEqual(['capture', 'failed']);
+  });
+});
+
+describe('a test replay whose golden’s checks changed since', () => {
+  it('names the checks gone on a line of its own and ends on nothing for them, as the header leads with Run tests', async () => {
+    const label = 'issue_refund called 1 time';
+    const failing = { ...fixedTest, fixedBy: null, run: { ...fixedTest.run, divergence: null, meta: { ...fixedTest.run.meta, checks: [{ ok: false, status: 'failed', label, detail: 'called 0 times' }] } }, state: { ...fixedTest.state!, outcome: { kind: 'check-failed', check: label } } } as unknown as RunDetail;
+    const offers = { blame: { failed: [], from: 'check' } } as unknown as RunOffers;
+    const draw = async (run: RunDetail) => {
+      page = await render(createElement(AppContext.Provider, { value: app }, createElement(Banner, { run, judged: run.judged, blame: null, rescued: null, checks: checksOf(run), offers, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined })));
+      return { lines: page.all('#findings .ckline').map((l) => read(l.textContent)), blame: page.all('#findings button').filter((b) => b.textContent.includes('Run blame')).length };
+    };
+    expect(await draw(failing)).toEqual({ lines: [], blame: 1 });
+    await page!.unmount();
+    forgetOpenFindings();
+    const next = { key: 'run-tests', label: 'Run tests', golden: 'goldens/refund', gone: [label, 'send_email called 1 time'], sub: 'Its checks changed since this test: the session judges them as they are now' };
+    expect(await draw({ ...failing, next } as unknown as RunDetail)).toEqual({ lines: [`checks changed since: ${label}; send_email called 1 time, no longer in shadowlap.config.json · not tested yet`], blame: 0 });
   });
 });

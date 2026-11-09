@@ -161,6 +161,8 @@ interface Draw {
   leads: (key: NextStepKey) => boolean;
   /** The header's bisect step has Run blame beside it. */
   blameBeside: boolean;
+  /** The checks its result failed or couldn't decide that the config no longer holds, where its step is Run tests: null otherwise. */
+  gone: readonly string[] | null;
   checks: number;
   off: boolean;
   call: (n: number) => ReactNode;
@@ -391,13 +393,19 @@ function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
 /** Its weight's colour: amber to look at, muted for a test replay its golden passed since, else red. */
 const failedTone = (b: Of<'failed'>): string => (bannerSeverity(b) === 1 ? 'inc' : b.fixedBy ? 'n' : 'blame');
 
+/**
+ * A failed or inconclusive result: its words, then the fix that holds it or Run blame. Where its
+ * golden's checks changed since, it names the checks gone on a line of its own and ends on nothing,
+ * as neither is for a check the config no longer holds: the header leads with Run tests.
+ */
 function FailedFinding({ b, x, s }: { b: Of<'failed'>; x: Draw; s: Slot }) {
-  const end = b.fix ? fixLink(x) : b.blamed ? null : runBlame(x);
+  const end = x.gone ? null : b.fix ? fixLink(x) : b.blamed ? null : runBlame(x);
   return (
     <section className={cls(failedTone(b), s)}>
       {b.label ? <span className="bk">{b.label}</span> : null}
       <Why lead={b.lead}>{b.why}</Why>
       {end ? <span className="end">{end}</span> : null}
+      {x.gone ? <span className="ckline">{`checks changed since: ${x.gone.join('; ')}, no longer in shadowlap.config.json · not tested yet`}</span> : null}
       {s.more}
     </section>
   );
@@ -444,7 +452,7 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
       {p.showDiff ? 'Hide diff' : 'Show diff'}
     </button>
   );
-  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: next?.key === 'bisect' && !!next.blame, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, onAction: p.onAction };
+  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: next?.key === 'bisect' && !!next.blame, gone: next?.key === 'run-tests' ? next.gone : null, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, onAction: p.onAction };
 }
 
 /** Which runs' bars are open, by run, for the session: a module's memory, as the inspector's last tab is. */
