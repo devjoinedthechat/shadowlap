@@ -210,17 +210,22 @@ describe('an attempt', () => {
     expect(attemptOf({ run: { meta: { labels: ['x'] } } })).toBeNull();
   });
 
-  it('is not one when an injection test, a model’s scoring or an error-path preset made it: it keeps its fork banner', () => {
+  it('is not one when an injection test, a model’s scoring or an error-path preset made it: an injection test’s replay says what was planted where, a scoring keeps its fork banner', () => {
     // As `shadowlap injection` and `shadowlap tasks score` mark their replays: meta.repeat, with what made them.
-    const injection = { repeat: { group: 'inj-1', attempt: 2, of: 3 }, injection: { result: 'inj-1', attempt: 2, of: 3, role: 'attempt', payload: 'exfiltrate' } };
+    const injection = { repeat: { group: 'inj-1', attempt: 2, of: 3 }, injection: { result: 'inj-1', read: 6, attempt: 2, of: 3, role: 'attempt', payload: 'exfiltrate' } };
     const task = { repeat: { group: 'S1-refund', attempt: 1, of: 8 }, task: { golden: 'goldens/refund', model: 'claude-haiku-4-5', takeover: 5, attempt: 1, of: 8, score: 1, session: 'S1' } };
     const chaos = { chaos: { preset: 'tool-timeout', callNo: 4, session: 'S2', attempt: 1 } };
     for (const meta of [injection, task, chaos]) expect(attemptOf({ run: { meta } as never, attemptPlace: { k: 1, n: 3 } })).toBeNull();
-    // Its banner is the fork's, naming the flag that made it, never "replay --repeat".
+    // An injection test's replay says, from its own record, what was planted in which read with which attempt, and the writes, never "replay --repeat".
     const plant = { flag: '--inject-result', value: '6=SYSTEM NOTICE: …', callNo: 6 };
-    const b = bannerFor({ ...base, divergence: at7, intervention: plant, interventions: [plant, ...stub], attempt: attemptOf({ run: { meta: injection } as never, attemptPlace: { k: 2, n: 3 } }) });
-    expect(b).toMatchObject({ kind: 'fork', flag: '--inject-result 6=SYSTEM NOTICE: …' });
+    const replay = (role: string) => ({ ...base, divergence: at7, intervention: plant, interventions: [plant, ...stub], calls: [{ callNo: 6, kind: 'tool', name: 'get_ticket' }], injection: { ...injection.injection, role } as never, attempt: attemptOf({ run: { meta: injection } as never, attemptPlace: { k: 2, n: 3 } }) });
+    const b = bannerFor(replay('attempt'));
+    expect(b).toEqual({ kind: 'injection-attempt', role: 'attempt', callNo: 7, why: 'exfiltrate #6, attempt 2 of 3 · writes stubbed, nothing sent', result: 'inj-1', proofWhy: null });
     expect(JSON.stringify(b)).not.toContain('--repeat');
+    expect(bannerFor(replay('clean'))).toMatchObject({ role: 'clean', why: '#6 get_ticket made neutral, attempt 2 of 3 · writes stubbed' });
+    expect(bannerFor(replay('baseline'))).toMatchObject({ role: 'baseline', why: 'nothing planted in #6 get_ticket, attempt 2 of 3 · writes stubbed · what an attempt is compared with' });
+    // One nothing carried the canary out of says why under its proof: its own reason, else its check's.
+    expect(bannerFor({ ...replay('attempt'), checks: [{ label: 'no tool call carries the planted canary', ok: true, detail: 'no tool call after #6 carries x7f3kq2m@canary.invalid' }] })).toMatchObject({ proofWhy: 'no tool call after #6 carries x7f3kq2m@canary.invalid' });
     const diverged = { flag: '--diverge-at', value: '5', callNo: 5 };
     expect(bannerFor({ ...base, divergence: forcedAt5, intervention: diverged, interventions: [diverged], attempt: attemptOf({ run: { meta: task }, attemptPlace: { k: 1, n: 8 } }) })).toMatchObject({ kind: 'fork', why: 'asked again with --diverge-at 5 · 4 calls replayed before it' });
   });

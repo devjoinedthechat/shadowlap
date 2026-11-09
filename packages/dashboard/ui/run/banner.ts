@@ -4,7 +4,9 @@ import { fencedLabel, toolCheckLabel, toolCountDetail } from '../../../engine/sr
 import { isObject } from '../../../engine/src/is-object.js';
 import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, lostWords } from '../../../engine/src/run-verdicts.js';
 import { toolFailure } from '../../../engine/src/words.js';
+import { INJECTION_CHECK } from '../../../engine/src/trust-words.js';
 import { fixedByWords, type RunType } from '../runs.js';
+import type { InjectionMark } from '../types.js';
 import { presetWhy, type PresetAttempt } from './preset.js';
 
 /**
@@ -96,6 +98,8 @@ export interface BannerInput {
   attempt?: AttemptInput | null;
   /** The revision the run ran: a verify attempt's is the code it verified (`· code 35034be`). */
   codeVersion?: string | null;
+  /** An injection test's replay: its own record of what was planted where, with which attempt (`meta.injection`). */
+  injection?: InjectionMark | null;
 }
 
 /**
@@ -151,6 +155,13 @@ export type Banner =
    * null: the attempt replayed every call from the recording, forking nowhere.
    */
   | { kind: 'attempt'; of: AttemptInput['kind'] | 'rescued'; callNo: number | null; outcome: AttemptOutcome; why: string; flag: string | null; diff: boolean }
+  /**
+   * An injection test's replay, in the attempt's grammar: what was planted in which read with which
+   * attempt, and the writes (its first fact says how it came out). `result`: the test it belongs to,
+   * whose results its way back opens; `proofWhy`: why an attempt nothing carried the canary out of
+   * shows no write, the attempt's own reason, else its check's.
+   */
+  | { kind: 'injection-attempt'; role: InjectionMark['role']; callNo: number | null; why: string; result: string; proofWhy: string | null }
   /** `failed`: the fork failed (its check, or its agent's exit), so Run blame applies to it as to any failed run. */
   | { kind: 'fork'; callNo: number; name: string; why: string; flag: string | null; path: string | null; normalizer: boolean; diff: boolean; failed: boolean }
   /** `words`: where blame found the run lost, in the engine's words (lostWords): at the call, or around or between two. */
@@ -560,6 +571,22 @@ function presetBanner(i: BannerInput, p: PresetAttempt): Banner {
   return { kind: 'preset', callNo: i.divergence?.callNo ?? p.callNo, verdict: p.verdict, why, golden: p.golden };
 }
 
+/**
+ * An injection test's replay, as the design words it: `system-notice #4, attempt 1 of 3 · writes
+ * stubbed, nothing sent`; a clean attempt's `#4 get_ticket made neutral, attempt 1 of 10`; a
+ * baseline's `nothing planted in #4 get_ticket, attempt 1 of 3 · … · what an attempt is compared with`.
+ */
+function injectionAttemptBanner(i: BannerInput, m: InjectionMark): Banner {
+  const name = i.calls?.find((c) => c.callNo === m.read)?.name;
+  const read = name ? `#${m.read} ${name}` : `#${m.read}`;
+  const which = `attempt ${m.attempt} of ${m.of}`;
+  const writes = writesWord(i.interventions) ?? 'writes stubbed';
+  const why =
+    m.role === 'clean' ? `${read} made neutral, ${which} · ${writes}` : m.role === 'baseline' ? `nothing planted in ${read}, ${which} · ${writes} · what an attempt is compared with` : `${m.payload ?? 'planted'} #${m.read}, ${which} · ${writes}${writes === 'writes allowed' ? '' : ', nothing sent'}`;
+  const check = i.checks.find((c) => c.label === INJECTION_CHECK);
+  return { kind: 'injection-attempt', role: m.role, callNo: i.divergence?.callNo ?? m.readAt ?? null, why, result: m.result, proofWhy: m.why ?? check?.detail ?? null };
+}
+
 /** A test that left its recording: what the value that changed looks like, or why it came, then what came before it. */
 function divergedBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']>): Banner {
   const lead = i.volatile?.looks ? `this looks like ${i.volatile.looks}` : (d.hints?.[0]?.message ?? DIVERGED[d.type] ?? d.type);
@@ -669,6 +696,7 @@ export function ownBanner(i: BannerInput): Banner | null {
   const d = i.divergence;
   if (i.status === 'running') return { kind: 'recording' };
   if (i.preset) return presetBanner(i, i.preset);
+  if (i.injection) return injectionAttemptBanner(i, i.injection);
   // The fork blame rescued a run with is the attempt of its probe that passed: it says so, as every attempt does.
   if (i.rescued && d) return attemptBanner(i, i.attempt?.kind === 'probe' ? i.attempt : null, i.rescued.callNo ?? d.callNo);
   // An attempt of blame, verify or --repeat is one sample of many: it says so, and how it came out.

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { forkMenuTitle } from '../ui/actions.js';
 import { createExportedClient } from '../ui/api.js';
 import { InjectionFinding } from '../ui/injection/Finding.js';
+import { Proof } from '../ui/injection/Proof.js';
 import { injectionMatrix, panelMeta, panelReceipt } from '../ui/injection/InjectionResults.js';
 import { countsLine, injectionFactOf, injectionFinding, NO_INJECTION, runInjectionView, shownResult } from '../ui/injection/model.js';
 import { outcomeFact } from '../ui/run/metrics.js';
@@ -12,7 +13,7 @@ import { runFindings } from '../ui/run/findings.js';
 import { useResultsBodies } from '../ui/run/InspectorPanel.js';
 import { onShow } from '../ui/components/OnShow.js';
 import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
-import type { InjectionPanelView, InjectionRow, UntrustedView } from '../ui/types.js';
+import type { InjectionPanelView, InjectionRow, ProofParts, UntrustedView } from '../ui/types.js';
 
 /**
  * What a run's page draws of the injection tests it was in (port/injection-results): the untrusted
@@ -250,5 +251,26 @@ describe('the results panel', () => {
     expect(panelMeta(view({ by: 'Ana', totals: { attempts: 0, obeyed: 0, influenced: 0, inconclusive: 0, ignored: 0 }, what: 'a payload file' }))).toEqual(['a payload file', 'Ana, Oct 1, 09:31']);
     expect(panelReceipt(view())).toEqual([{ parts: ['this test spent ≈$3.11', 'every call before a read replayed free'] }, { parts: ['819 upstream requests', '6 clean replays to compare with'] }]);
     expect(panelReceipt(view({ receipt: { spent: 25, upstreamRequests: 1, baselines: 1, stopReason: 'the budget of $25.00 is spent' } }))).toEqual([{ parts: ['this test spent ≈$25.00', 'stopped: the budget of $25.00 is spent'] }, { parts: ['1 upstream request', '1 clean replay to compare with'] }]);
+  });
+});
+
+describe('an attempt’s proof', () => {
+  const proof = (parts: ProofParts, why: string | null = null) => renderToStaticMarkup(createElement(Proof, { parts, why, onPick: () => undefined }));
+  const text = (html: string) => html.replace(/<[^>]+>/g, '');
+  const tabs = (html: string) => [...html.matchAll(/data-call="(\d+)" data-injtab="(\w+)"/g)].map((m) => `#${m[1]} ${m[2]}`);
+
+  it('joins the read to the write, each call a pick on the tab that shows it, the canary in red, = with its field and the value with its call', () => {
+    const html = proof({ plantedAt: 4, readAt: 5, evidence: { kind: 'canary', callNo: 6, at: 'send_email.to', value: 'x7f3kq2m@canary.invalid', why: null } });
+    expect(text(html)).toBe('planted at #4 → read at #5 → send_email.to = x7f3kq2m@canary.invalid at #6');
+    expect(tabs(html)).toEqual(['#4 response', '#5 conversation', '#6 request']);
+    expect(html).toContain('<span class="nw">send_email.to =</span> <span class="nw"><b class="cnry">x7f3kq2m@canary.invalid</b> at <button');
+  });
+
+  it('says why a write no clean replay made counts, and why an attempt nothing carried the canary out of shows none', () => {
+    const write = proof({ plantedAt: 4, readAt: 5, evidence: { kind: 'write', callNo: 9, at: 'send_email(to = a@b.example)', value: null, why: 'no clean replay sent it' } });
+    expect(text(write)).toBe('planted at #4 → read at #5 → send_email(to = a@b.example) at #9 · no clean replay sent it');
+    expect(write).toContain('<span class="pwhy">· no clean replay sent it</span>');
+    expect(text(proof({ plantedAt: 4, readAt: 5, evidence: null }, 'no tool call after #4 carries x7f3kq2m@canary.invalid'))).toBe('planted at #4 → read at #5 · no tool call after #4 carries x7f3kq2m@canary.invalid');
+    expect(text(proof({ plantedAt: 4, readAt: null, evidence: null }))).toBe('planted at #4 → read at #?');
   });
 });

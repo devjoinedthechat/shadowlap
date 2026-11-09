@@ -17,7 +17,7 @@ export type { InjectionRow, RunInjection, ToolTrustRow } from '../src/injection.
 export type { AttemptPlant, InjectionCellView, InjectionPanelView } from '../src/injection-view.js';
 export type { ReportPreview } from '../src/injection-report.js';
 export type { UntrustedView } from '../../engine/src/injection.js';
-export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';
+export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport, ProofParts } from '../../engine/src/injection.js';
 export type { InjectionMark } from '../../engine/src/types.js';
 
 /**

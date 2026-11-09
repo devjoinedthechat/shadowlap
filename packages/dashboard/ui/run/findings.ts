@@ -55,6 +55,7 @@ export function bannerSeverity(b: Banner): Severity {
 export function bannerSays(b: Banner): string {
   switch (b.kind) {
     case 'preset':
+    case 'injection-attempt':
       return 'forked at';
     case 'attempt':
       return b.callNo !== null ? 'forked at' : 'replayed';

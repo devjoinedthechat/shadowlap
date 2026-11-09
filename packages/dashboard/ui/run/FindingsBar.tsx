@@ -2,7 +2,7 @@ import { Fragment, useLayoutEffect, useReducer, useRef, useState, type ReactNode
 import type { BlameView, CheckView, RunDetail, RunOffers } from '../api.js';
 import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
-import type { TestBannerOffer } from '../types.js';
+import type { RunInjection, TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { Icon } from '../components/Icon.js';
 import { glossed } from '../components/Term.js';
@@ -29,6 +29,8 @@ import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
 import { NoteFinding } from './RunNotes.js';
 import { InjectionFinding } from '../injection/Finding.js';
+import { Proof, type ProofTab } from '../injection/Proof.js';
+import { openResults } from './panel-state.js';
 import type { InjectionFinding as InjectionFindingView } from '../injection/model.js';
 
 /**
@@ -128,6 +130,10 @@ export interface BannerProps {
   preset?: PresetAttempt | null;
   /** The call `n` jumps to where it is the fork or the lost call, and its card. */
   jump?: { n: number; card: string } | null;
+  /** An injection test's replay: what was planted where, and its proof, once the read of it comes (none in a copy). */
+  attempt?: RunInjection['attempt'];
+  /** A call a proof names, picked on the inspector's tab that shows it. */
+  onPick?: (n: number, tab: ProofTab) => void;
 }
 
 /**
@@ -164,6 +170,8 @@ interface Draw {
   call: (n: number) => ReactNode;
   diffToggle: ReactNode;
   onAction: (p: PendingAction) => void;
+  attempt: RunInjection['attempt'];
+  pick: (n: number, tab: ProofTab) => void;
 }
 
 /** Where a finding sits in the bar: one a closed bar folds away (`fx`), and the bar's toggle at its end (`more`). */
@@ -210,6 +218,7 @@ function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 
     attempt: attemptOf(run),
     codeVersion: r.codeVersion,
     preset: p.preset ?? null,
+    injection: r.meta?.injection ?? null,
   };
 }
 
@@ -302,6 +311,33 @@ function AttemptFinding({ b, x, s }: { b: Of<'attempt'>; x: Draw; s: Slot }) {
           </a>
         ))}
       </span>
+      {s.more}
+    </section>
+  );
+}
+
+/**
+ * An injection test's replay, as the design draws every attempt: what was planted where, with which
+ * attempt, and the writes. Then the way back to the run tested, its results open (a clean attempt's
+ * to the answer it counts in), and an attempt's proof, the line that joins the read to the write.
+ * The way back and the proof wait for the read of what was planted, so a copy, which answers it
+ * empty, draws neither.
+ */
+function InjectionAttemptFinding({ b, x, s }: { b: Of<'injection-attempt'>; x: Draw; s: Slot }) {
+  const tested = x.attempt ? x.run.run.parentRunId : null;
+  return (
+    <section className={cls('fork wrap', s)}>
+      <span className="bk">forked at</span>
+      {b.callNo !== null ? x.call(b.callNo) : null}
+      <span className="why">{said(b.why, null, true)}</span>
+      {tested ? (
+        <span className="end">
+          <a className="more" href={href.run(tested)} onClick={b.role === 'clean' ? undefined : () => openResults(tested, `injection:${b.result}`)}>
+            {b.role === 'clean' ? 'The answer →' : 'Results →'}
+          </a>
+        </span>
+      ) : null}
+      {x.attempt?.parts ? <Proof parts={x.attempt.parts} why={b.proofWhy} onPick={x.pick} /> : null}
       {s.more}
     </section>
   );
@@ -412,6 +448,8 @@ function BannerFinding({ b, x, s }: { b: BannerView; x: Draw; s: Slot }) {
       return <DivergedFinding b={b} x={x} s={s} />;
     case 'attempt':
       return <AttemptFinding b={b} x={x} s={s} />;
+    case 'injection-attempt':
+      return <InjectionAttemptFinding b={b} x={x} s={s} />;
     case 'fork':
       return <ForkFinding b={b} x={x} s={s} />;
     case 'lost':
@@ -442,7 +480,7 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
       {p.showDiff ? 'Hide diff' : 'Show diff'}
     </button>
   );
-  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: next?.key === 'bisect' && !!next.blame, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, onAction: p.onAction };
+  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: next?.key === 'bisect' && !!next.blame, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, onAction: p.onAction, attempt: p.attempt ?? null, pick: p.onPick ?? p.onSelect };
 }
 
 /** Which runs' bars are open, by run, for the session: a module's memory, as the inspector's last tab is. */
