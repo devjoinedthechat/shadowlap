@@ -1,13 +1,15 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import type { FailureView, FoundCommit, NextStep, TestsView } from '../ui/types.js';
+import { parseTraceback } from '@shadowlap/engine';
+import type { FailureView, FoundCommit, GoldenReport, NextStep, TestsAnswer } from '../ui/types.js';
 import { demoId, openPage, seriousViolations } from './dashboard.js';
+import { openReport } from './tests-fixture.js';
 
 /**
  * Revert, once Find breaking commit named a crash's first bad commit, on invented data routed over the
  * demo's answers (the demo store has no crashed golden): on a crash's run page the commit's finding
  * leads, Show change opens the change in the inspector's place, and Revert leads the header with Open
- * in editor and Run blame plain; on Tests the change sits under the commit's card and Revert leads the
- * verdict. Each has no serious axe violation at 1440 and 390 with the change open, nor has Revert's
+ * in editor and Run blame plain; on Tests the change sits under the commit in the crash's report and
+ * Revert leads the verdict. Each has no serious axe violation at 1440 and 390 with the change open, nor has Revert's
  * dialog, whose code box of the change undone keeps to its width. A revert's drawer reads Reverting,
  * then Reverted where git reverted, its status not saying reverted again, or Tried reverting where
  * git refused.
@@ -16,6 +18,7 @@ import { demoId, openPage, seriousViolations } from './dashboard.js';
 const DIALOG = '[role="dialog"][aria-modal="true"]';
 const REV = '9a3c5e0';
 const GOLDEN = 'goldens/refund-flow';
+const NAME = 'refund-flow';
 const HUNK = '@@ -10,4 +10,4 @@ def refund(order):\n     total = order["amount"]\n-    limit = policy.limit(order)\n+    limit = policy.limit()\n     return min(total, limit)\n';
 const FOUND: FoundCommit = {
   rev: REV,
@@ -73,11 +76,11 @@ async function routeTests(page: Page): Promise<void> {
   const run = demoId('ticket');
   await page.route(
     (url) => url.pathname === '/api/tests',
-    (route) => (route.request().method() !== 'GET' ? route.continue() : patched<TestsView>(route, (real) => {
+    (route) => (route.request().method() !== 'GET' ? route.continue() : patched<TestsAnswer>(route, (real) => {
       const row = real.rows.find((r) => r.path !== real.divergences[0]?.golden) ?? real.rows[0]!;
       const crash: FailureView = {
         golden: GOLDEN,
-        name: row.name,
+        name: NAME,
         runId: run,
         failure: 'exit',
         reason: 'the agent exited with code 1',
@@ -91,13 +94,28 @@ async function routeTests(page: Page): Promise<void> {
         revisions: [],
         unreadable: null,
       } as unknown as FailureView;
+      // Its report as GET /api/tests builds it for such a crash (golden-report.ts): its exception, then its first bad commit.
+      const output = crash.output!;
+      const report: GoldenReport = {
+        golden: GOLDEN,
+        name: NAME,
+        verdict: 'failed',
+        head: ['The agent exited with code 1 after its last call'],
+        sub: [],
+        parts: [{ kind: 'error', error: parseTraceback(output)!, file: 'agent/refund.py', lines: output.split('\n') }, { kind: 'commit', found: FOUND }],
+        open: { label: 'Open run', href: `#/run/${run}` },
+        failedRuns: null,
+        hint: { key: 'crash' },
+        printed: [{ text: `✗ ${NAME}: ${crash.reason}`, tone: 'no' }, ...output.split('\n').map((text) => ({ text: `    │ ${text}`, tone: 'dim' as const }))],
+      };
       const view = {
         ...real,
-        rows: real.rows.map((r) => (r.path === row.path ? { ...r, path: GOLDEN } : r)),
+        rows: real.rows.map((r) => (r.path === row.path ? { ...r, path: GOLDEN, name: NAME } : r)),
         failures: [crash, ...real.failures],
-        verdict: real.verdict ? { ...real.verdict, state: 'failing', first: { golden: GOLDEN, name: row.name, reason: crash.reason, runId: run } } : real.verdict,
+        verdict: real.verdict ? { ...real.verdict, state: 'failing', first: { golden: GOLDEN, name: NAME, reason: crash.reason, runId: run } } : real.verdict,
         steps: { ...(real.steps ?? {}), [GOLDEN]: step(run) },
-      } as TestsView;
+        reports: { ...Object.fromEntries(Object.entries(real.reports ?? {}).filter(([golden]) => golden !== row.path)), [GOLDEN]: report },
+      } as TestsAnswer;
       return view;
     })),
   );
@@ -159,8 +177,9 @@ for (const [width, height] of [
   test(`at ${width}×${height} Tests shows the commit's change under its card and leads with Revert, passing axe`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await routeTests(page);
-    await openPage(page, '/tests', 'main#view .bisectdiff');
-    // The demo's own divergence keeps its commit's change too; the crash's is the invented one.
+    await openPage(page, '/tests', 'main#view table.gt');
+    // The crash's report, folded under its row: open, the change sits under its first bad commit.
+    await openReport(page, NAME);
     await expect(page.locator('#view .bisectdiff', { hasText: 'agent/refund.py' })).toBeVisible();
     await expect(page.locator('#view .btn.lime', { hasText: /^Revert$/ }).first()).toBeVisible();
     await expect(page.locator('#view')).toContainText('The agent stopped part way at the commit above: revert it or fix the code, then run the tests.');
