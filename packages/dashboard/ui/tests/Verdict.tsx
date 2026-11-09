@@ -60,7 +60,7 @@ export function LeadButton({ lead, p, lime = true }: { lead: Lead; p: LeadPress;
       );
     case 'rerun':
       return (
-        <JobButton className={btn} why={p.wait('run it again')} {...testsJob({ tip: lead.label, sub: 'Plants the same payloads in the same reads again', command: commandText(['test', lead.golden]) }, goldenPrice(p.prices, lead.golden, 'rerun'), (e) => p.onRerun(lead.golden, e))}>
+        <JobButton className={btn} why={p.wait('run it again')} {...testsJob({ tip: lead.label, sub: lead.sub ?? '', command: lead.command ?? commandText(['test', lead.golden]) }, goldenPrice(p.prices, lead.golden, 'rerun'), (e) => p.onRerun(lead.golden, e))}>
           {lead.label}
         </JobButton>
       );

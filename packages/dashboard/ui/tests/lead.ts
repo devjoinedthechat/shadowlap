@@ -14,7 +14,7 @@ export type Lead =
   | { kind: 'bisect'; label: string; f: DivergenceView | FailureView }
   | { kind: 'revert'; label: string; step: Extract<NextStep, { key: 'revert' }>; f: FailureView }
   | { kind: 'more'; label: string; v: InconclusiveView; more: MoreAttempts }
-  | { kind: 'rerun'; label: string; golden: string }
+  | { kind: 'rerun'; label: string; golden: string; /** The server's words for its hover, and what it runs. */ sub: string | null; command: string | null }
   | { kind: 'fix'; label: string; href: string; title: string | null; check: string }
   | { kind: 'blame'; runId: string; step: Extract<NextStep, { key: 'blame' }> };
 
@@ -58,7 +58,7 @@ function goldenLead(view: StepView, step: Extract<NextStep, { golden: string }>,
     }
     // An injection gate that showed too little to say: its test again, which plants the same payloads.
     case 'gate-again':
-      return has('test') ? { kind: 'rerun', label, golden } : null;
+      return has('test') ? { kind: 'rerun', label, golden, sub: step.sub ?? null, command: step.command ?? null } : null;
     case 'update-golden':
       return has('test-update') ? { kind: 'update', label, golden, judge: v?.judge?.update ?? null } : null;
     case 'bisect': {
