@@ -633,6 +633,14 @@ function unpackGroups(runs: RunRecord[]): Array<{ at: number; runs: RunRecord[] 
   return groups;
 }
 
+/**
+ * A run another entry tells: blame's probes and verify's attempts are bundled under what made them, an
+ * error-path preset's attempt is told by its session's chaos.session event, a scoring attempt (tasks
+ * score) by its model.scored event, and an injection test's replay by its injection.tested event. The
+ * last two are a --repeat group too, and never told as one.
+ */
+const toldElsewhere = (m: RunRecord['meta']): boolean => !!(m?.probe || m?.verify || m?.chaos || m?.task || m?.injection);
+
 /** Every item the runs tell, as stubs: cheap to sort, rendered only for the page asked for. */
 function derived(store: StoreOf<'recording' | 'activity' | 'tests'>, runs: RunRecord[], covered: Set<string>): Stub[] {
   const stubs: Stub[] = [];
@@ -645,9 +653,7 @@ function derived(store: StoreOf<'recording' | 'activity' | 'tests'>, runs: RunRe
   for (const run of runs) {
     const m = run.meta;
     if (m?.blame && !covered.has(`blame:${run.runId}`)) stubs.push({ id: `r:${run.runId}:blame`, at: time(m.blame.at, run.endedAt ?? run.startedAt), render: () => blamed(run) });
-    if (m?.probe || m?.verify) continue; // bundled under the blame or verify that made them
-    if (m?.chaos) continue; // an error-path preset's attempt: its session's chaos.session event tells it
-    if (m?.task) continue; // a scoring attempt (tasks score): told by its model.scored event, not as a --repeat
+    if (toldElsewhere(m)) continue;
     if (m?.repeat) {
       const group = String(m.repeat.group);
       const list = groups.get(group) ?? [];

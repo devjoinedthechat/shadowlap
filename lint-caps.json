@@ -138,7 +138,7 @@
       "startFakeMcpHttpServer > createServer(…) > async () => { const…(…)": 33
     },
     "packages/dashboard/src/activity.ts": {
-      "derived": 41,
+      "derived": 34,
       "replayEnd": 34,
       "testEnd": 50
     },
