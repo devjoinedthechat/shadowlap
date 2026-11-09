@@ -1,4 +1,4 @@
-import { canonicalize } from '../../engine/src/canonical.js';
+import { canonicallySame } from '../../engine/src/canonical.js';
 import { isObject } from '../../engine/src/is-object.js';
 
 /**
@@ -69,14 +69,6 @@ export function jsonInString(v: unknown): Nested | null {
 const textOf = (v: unknown): string => JSON.stringify(v) ?? 'null';
 const cut = (t: string): string => (t.length > CUT ? `${t.slice(0, CUT - 1)}…` : t);
 const keptWhole = (t: string): boolean => /^"\S*"$/.test(t);
-
-function same(a: unknown, b: unknown): boolean {
-  try {
-    return canonicalize(a) === canonicalize(b);
-  } catch {
-    return false;
-  }
-}
 
 /** Two values' texts as runs of words, what differs between them marked; a common start and end are set aside before matching the rest. */
 export function wordMarks(x: string, y: string): [Piece[], Piece[]] {
@@ -175,7 +167,7 @@ class Walk {
     if (px && py) {
       this.line(' ', depth, key, path, [], { json: true });
       this.pair(px, py, depth + 1, null, path, true);
-    } else if (same(x, y)) {
+    } else if (canonicallySame(x, y)) {
       if (key !== null || !nested(x)) this.plain(' ', depth, key, path, x, true);
       else this.each(' ', x, depth, path, inner);
     } else if (Array.isArray(x) && Array.isArray(y)) this.items(x, y, depth, key, path, inner);
@@ -194,10 +186,10 @@ class Walk {
     for (let i = 0; i < Math.max(x.length, y.length); i++) {
       if (i >= y.length) this.one('-', x[i], depth, `${key ?? ''}[${i}]`, at(i), inner);
       else if (i >= x.length) this.one('+', y[i], depth, `${key ?? ''}[${i}]`, at(i), inner);
-      else if (!same(x[i], y[i])) this.pair(x[i], y[i], depth, `${key ?? ''}[${i}]`, at(i), inner);
+      else if (!canonicallySame(x[i], y[i])) this.pair(x[i], y[i], depth, `${key ?? ''}[${i}]`, at(i), inner);
       else {
         let j = i;
-        while (j + 1 < both && same(x[j + 1], y[j + 1])) j++;
+        while (j + 1 < both && canonicallySame(x[j + 1], y[j + 1])) j++;
         if (j === i) this.plain(' ', depth, `${key ?? ''}[${i}]`, at(i), y[i], true);
         else this.line(' ', depth, `${key ?? ''}[${i}–${j}]`, at(i), [{ text: FOLDED, marked: false }], { fold: true });
         i = j;
