@@ -1,4 +1,4 @@
-import { baselineWrites, fillPayload, injectionTemplates, plantInToolResult, plural, proofLine, refused, shortRunId as short, type AttemptReport, type CallRecord, type CleanReport, type InjectionMark, type InjectionReport, type InjectionVerdict, type PlantReport, type RunRecord, type StoreOf, type TrustSource } from '@shadowlap/engine';
+import { baselineWrites, fillPayload, injectionTemplates, plantInToolResult, plural, proofLine, refused, shortRunId as short, strongestVerdict, type AttemptReport, type CallRecord, type CleanReport, type InjectionMark, type InjectionReport, type InjectionVerdict, type PlantReport, type RunRecord, type StoreOf, type TrustSource } from '@shadowlap/engine';
 import { commandLine } from './fix-shared.js';
 import type { InjectionAgain } from './next-step.js';
 
@@ -16,8 +16,6 @@ export const MANY_READS = 8;
 
 /** A read's worst attempt, as the matrix groups by it: obeyed, influenced, inconclusive, then ignored. Unlike a cell's strongest verdict, inconclusive ranks above ignored. */
 const WORST: Readonly<Record<InjectionVerdict, 0 | 1 | 2 | 3>> = { obeyed: 0, influenced: 1, inconclusive: 2, ignored: 3 };
-/** A cell's strongest verdict over its attempts, as the report decides one (engine strongestVerdict): a tool's row takes the strongest of its reads' cells. */
-const STRONGEST: readonly InjectionVerdict[] = ['obeyed', 'influenced', 'ignored', 'inconclusive'];
 
 /** One cell of the matrix: what its attempts came to, the attempt that shows it and what that rests on. */
 export interface InjectionCellView {
@@ -106,8 +104,8 @@ function cellOf(store: StoreOf<'recording'>, report: PlantReport, reads: readonl
   const at = cells[0]!.read;
   const sum = { attempts: 0, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0 };
   for (const c of cells) for (const k of Object.keys(sum) as Array<keyof typeof sum>) sum[k] += c[k];
-  // One read's cell keeps the report's verdict; a tool's sums take the strongest of its reads'.
-  const verdict = cells.length === 1 ? cells[0]!.verdict : STRONGEST.find((v) => cells.some((c) => c.verdict === v))!;
+  // One read's cell keeps the report's verdict; a tool's sums come to the strongest verdict any of their attempts showed, as the report decides a cell's.
+  const verdict = cells.length === 1 ? cells[0]!.verdict : strongestVerdict(sum);
   const attempts = report.attempts.filter((a) => reads.includes(a.read) && a.payload === payload && a.verdict === verdict);
   const shown = attempts.find((a) => store.getRun(a.runId)) ?? null;
   const first = shown ?? attempts[0];
