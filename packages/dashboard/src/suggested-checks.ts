@@ -3,7 +3,7 @@ import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry
 
 /**
  * The check builder's suggested checks, a pooled read (routes/checks.ts asks it): at most three rules
- * that fail a failed recording and pass every good run it is compared with, its fix's and the agent's
+ * that fail a failed recording and none of the good runs it is compared with, its fix's and the agent's
  * recordings labelled good, mined and judged by the engine's suggestChecks from what the recordings
  * hold. Nothing is replayed, sent or written. Finding the good runs reads every run's record, so it is
  * worked out beside the server.

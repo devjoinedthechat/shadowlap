@@ -16,7 +16,7 @@ import type { StoredFix } from './store/fixes.js';
 import type { CallRecord, RunRecord } from './types.js';
 
 /**
- * Suggested checks: rules mined from a failed recording that fail it and pass every good run it is
+ * Suggested checks: rules mined from a failed recording that fail it and none of the good runs it is
  * compared with, as the dashboard's check builder offers them, each one click into the builder and
  * never saved by itself. Four shapes are tried, in turn:
  *
@@ -273,7 +273,7 @@ function resultsOn(store: Store, r: RunCalls, cands: readonly CheckSuggestion[])
 }
 
 /**
- * At most `max` rules that fail the recording and pass every good run it is compared with (a rule
+ * At most `max` rules that fail the recording and none of the good runs it is compared with (a rule
  * that doesn't apply to a good run doesn't fail it, though it never counts as passed there), each
  * judged on its own result. None for a run that is no finished recording of a command, or that has
  * no good runs.

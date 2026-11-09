@@ -26,7 +26,7 @@ import { VERSION, editError, editFolder, failed, log } from './settings.js';
  *   POST /api/checks/preview { expect, run | golden } the draft judged on the agent's newest recordings,
  *                                                     its goldens' and the run's (pooled; changes nothing)
  *   POST /api/checks/suggestions { run, at?, have?, fix? }   at most three rules that fail the recording
- *                                                     and pass every good run, those labelled in `have`
+ *                                                     and none of its good runs, those labelled in `have`
  *                                                     left out (suggested-checks.ts; pooled; changes nothing)
  *   PUT  /api/checks/tests { golden, version, read, entry }   the golden's entry, its `expect` set or taken
  *                                                     out (null), refused when the file changed since

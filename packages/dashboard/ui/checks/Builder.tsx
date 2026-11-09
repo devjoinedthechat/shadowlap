@@ -169,10 +169,6 @@ function notesOf(props: BuilderProps, d: Drawn, golden: string | null, answer: C
   return previewNotes(answer, { golden, failedItsCheck, judges: d.judges, fork: d.fork });
 }
 
-/**
- * Save's words, which follow the state: off with why until it can save, plain while a note needs a
- * look, lime once none does. A save the server refused stays off on its words until something changes.
- */
 /** What the builder asks suggestions with: made from a call of a recording that failed, never on a golden; the labels it holds left out. */
 function suggestAsk(props: BuilderProps, have: string[]): SuggestionsAsk | null {
   if (!('call' in props)) return null;
@@ -180,6 +176,10 @@ function suggestAsk(props: BuilderProps, have: string[]): SuggestionsAsk | null 
   return runType(like) === 'recording' && isFailed(like) ? { run: props.run.run.runId, at: props.call.call.callNo, have } : null;
 }
 
+/**
+ * Save's words, which follow the state: off with why until it can save, plain while a note needs a
+ * look, lime once none does. A save the server refused stays off on its words until something changes.
+ */
 function waysOf(d: Drawn, s: State, o: { amber: boolean; conflict: boolean; edit: boolean; cfgError: string | null; warn: string | null; redactions: number }) {
   return {
     ok: o.conflict ? 'Save again' : o.edit ? 'Save change' : 'Save check',
