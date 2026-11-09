@@ -95,3 +95,13 @@ describe('a crash whose blame found something of its own', () => {
     expect(d.actions.blameStronger).not.toBeNull();
   });
 });
+
+describe('a crash’s Fixes row', () => {
+  it('moves with the project’s goldens and config, not only with fixes, runs and events', () => {
+    const { rec } = blamed();
+    expect(fixesView(store, { next: work([source(rec)]) }).fixes[0].next).toMatchObject({ key: 'bisect', step: { starts: true } });
+    // Marked fork, the golden's search runs live from where it forks: it asks first, as the run's page does.
+    expect(fixesView(store, { next: work([source(rec, { mode: 'fork' })]) }).fixes[0].next).toMatchObject({ key: 'bisect', step: { starts: false } });
+    expect(fixesView(store, { next: work([source(rec)]) }).fixes[0].next).toMatchObject({ step: { starts: true } });
+  });
+});

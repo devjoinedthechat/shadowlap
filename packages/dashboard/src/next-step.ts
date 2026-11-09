@@ -113,6 +113,13 @@ export interface NextStepWork {
   prices?: Record<string, Price>;
 }
 
+/**
+ * What a list's steps read of the project, as one key its kept rows are tagged by: the goldens (each
+ * one's mode, gate, checks, injection test and judges), the config's tests and normalize, and its
+ * folder. Not the prices or the tools: only a step's estimate reads them, asked for on its own.
+ */
+export const listedWorkKey = (work: NextStepWork | null): string => (work ? JSON.stringify([work.goldens, work.tests ?? null, work.normalize ?? null, work.dir]) : '');
+
 export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'more-attempts' | 'bisect' | 'revert' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
 
 /** A step as a list's row carries it: which one, its words, where it opens when it is a link, why it can't start when it can't, and what it says it does: none of which reads a call. */

@@ -5,7 +5,7 @@ import { fixLead, type FixLead } from './fix-lead.js';
 import { type FixRow, openingTitles, rowOf } from './fix-list.js';
 import { checksOf, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, short, unblamedRuns } from './fix-shared.js';
 import { pulledPatchOf } from './fixes.js';
-import { type NextStepRow, type NextStepWork, type StepReads, stepReads, stepRow, unblamedListedStep } from './next-step.js';
+import { listedWorkKey, type NextStepRow, type NextStepWork, type StepReads, stepReads, stepRow, unblamedListedStep } from './next-step.js';
 import { patchesInTree, rewritesHere } from './patch-in-tree.js';
 import { answer, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsUpTo, SUMMARY_CALLS_BUDGET } from './run-about.js';
@@ -116,7 +116,7 @@ function viewRow(store: Store, rec: FixRecords, opening: () => ReadonlyMap<strin
   return { ...row, rung, pr: prOf(rec), ci: rec.fix.data.source?.ci ?? null, bucket: bucketOf(rung, rec.fix.status), failingIds: rec.failing.slice(0, 5).map(short), next: fixLead(rec, actions, { repairer: o.repairer ?? null, crash }) };
 }
 
-/** The failed runs nobody has blamed, kept until runs or fixes change: a recording that adds calls changes neither. */
+/** The failed runs nobody has blamed, kept until runs, fixes or events change: a recording that adds calls changes none of them. */
 const unblamedKept = new WeakMap<object, { key: string; runs: RunRecord[] }>();
 
 /** The failed runs nobody has blamed, as the list's first row; null when there are none. */
@@ -166,13 +166,15 @@ function answersKey(store: Store, records: readonly FixRecords[], o: FixesViewOp
 }
 
 /**
- * The rows, in to-do order, kept until fixes or runs change, the repairer the config names does, or
- * git says something else of a patch: a page polled while a recording adds calls works out none again.
+ * The rows, in to-do order, kept until fixes, runs or events change (a search's answer, which a
+ * crash's lead reads), the repairer the config names does, git says something else of a patch, or
+ * what a crash's step reads of the project does (its goldens and the config's tests: `listedWorkKey`):
+ * a page polled while a recording adds calls works out none again.
  */
 const rowsKept = new WeakMap<object, { key: string; rows: FixesViewRow[] }>();
 
 function viewRows(store: Store, records: readonly FixRecords[], changes: string | null, o: FixesViewOptions): FixesViewRow[] {
-  const key = changes === null ? null : `${changes}:${o.repairer ?? ''}:${answersKey(store, records, o)}`;
+  const key = changes === null ? null : `${changes}:${o.repairer ?? ''}:${answersKey(store, records, o)}:${listedWorkKey(o.next ?? null)}`;
   const kept = rowsKept.get(store);
   if (key !== null && kept?.key === key) return kept.rows;
   const once = readingRunsOnce(store);
