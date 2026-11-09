@@ -88,7 +88,7 @@
       "rebuildResponse": 37
     },
     "packages/cli/src/injection.ts": {
-      "cleanInjection": 57,
+      "cleanInjection": 56,
       "formatPlant": 44
     },
     "packages/cli/src/migrate.ts": {

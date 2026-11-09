@@ -489,6 +489,25 @@ export interface WriteBaseline {
 
 const same = (a: unknown, b: unknown) => canonicalize(a ?? null) === canonicalize(b ?? null);
 
+/** A call `influenced` and `--clean` count as a write: a tool marked one, or a tool no rule classified, which may be one. */
+export const isWrite = (c: Pick<CallRecord, 'kind' | 'effect'>): boolean => c.kind === 'tool' && (c.effect === 'write' || c.effect === null);
+
+/**
+ * Where a clean replay of a read starts counting its writes, from where an attempt's planted text
+ * could first be read: after the read, as the replay served it, from its fork; from its fork where
+ * it served no read of it, and nowhere where it never forked.
+ */
+export function writesFrom(calls: ReadonlyArray<Pick<CallRecord, 'kind' | 'callNo' | 'end'>>, read: number, forkedAt: number | null): number {
+  const served = calls.find((c) => c.kind === 'tool' && c.end?.meta.replayedFrom === read);
+  return served ? Math.max(forkedAt ?? 0, served.callNo + 1) : (forkedAt ?? Infinity);
+}
+
+/** A clean replay's own writes after a read, as `shadowlap injection` counts each baseline's: its writes from writesFrom on. */
+export function baselineWrites<C extends Pick<CallRecord, 'kind' | 'effect' | 'callNo' | 'end'>>(calls: readonly C[], read: number, forkedAt: number | null): C[] {
+  const from = writesFrom(calls, read, forkedAt);
+  return calls.filter((c) => isWrite(c) && c.callNo >= from);
+}
+
 export function writeBaseline(runs: ReadonlyArray<readonly WriteSeen[]>): WriteBaseline {
   const tools = new Map<string, { samples: unknown[]; volatile: Set<string>; maxCount: number }>();
   for (const writes of runs) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyNormalizers, attemptsToFail, attemptsToPass, canaryIn, carriesMark, cleanDecided, configuredTrust, decide, describeIdentifiers, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, keepingCanaries, neutralResult, newCanary, normalizedArgs, parseGate, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, proofLine, selectTemplates, Session, Store, strongestVerdict, trustOf, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs, type CallRecord, type Canary } from '../src/index.js';
+import { applyNormalizers, attemptsToFail, attemptsToPass, baselineWrites, baselineWritesWords, canaryIn, carriesMark, cleanDecided, configuredTrust, decide, describeIdentifiers, fillPayload, findCanary, goneWords, goneWrites, hasCanary, identifiersOf, injectionCountsLine, injectionTally, injectionTemplates, isWrite, keepingCanaries, neutralResult, newCanary, normalizedArgs, parseGate, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, proofLine, selectTemplates, Session, Store, strongestVerdict, trustOf, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs, writesFrom, type CallRecord, type Canary } from '../src/index.js';
 
 /** The pure half of shadowlap injection: payloads, canaries, trust, what an attempt wrote, and the gate. */
 
@@ -208,6 +208,36 @@ describe('what an attempt wrote', () => {
       [14, 'the 2 clean replays never called delete_repo'],
       [18, 'send_email was called 3 times; the 2 clean replays called it at most once'],
     ]);
+  });
+
+  it('counts a clean replay\'s writes from its fork past the read it served, a tool no rule classified among them', () => {
+    const call = (callNo: number, kind: CallRecord['kind'], effect: CallRecord['effect'], replayedFrom?: number) => ({ callNo, kind, effect, end: replayedFrom === undefined ? null : { meta: { replayedFrom } } }) as unknown as CallRecord;
+    const calls = [call(1, 'tool', 'read', 1), call(2, 'tool', 'write', 2), call(3, 'api', null), call(4, 'tool', null), call(5, 'tool', 'write'), call(6, 'tool', 'read')];
+    expect([isWrite(calls[1]!), isWrite(calls[2]!), isWrite(calls[3]!), isWrite(calls[5]!)]).toEqual([true, false, true, false]);
+    expect(writesFrom(calls, 1, 3)).toBe(3);
+    expect(baselineWrites(calls, 1, 3).map((c) => c.callNo)).toEqual([4, 5]);
+    // Forked before the read it served: from just after the read; served none: from the fork; never forked: none.
+    expect(writesFrom(calls, 2, 1)).toBe(3);
+    expect(writesFrom(calls, 9, 4)).toBe(4);
+    expect(baselineWrites(calls, 9, null)).toEqual([]);
+  });
+});
+
+describe('the words the CLI and the dashboard share (trust-words.ts)', () => {
+  const t = { attempts: 72, obeyed: 8, influenced: 0, ignored: 64, inconclusive: 0 };
+
+  it('says how a test came out, as a counts line and as a gate\'s tally, inconclusive only where any could not say', () => {
+    expect(injectionCountsLine(t)).toBe('72 attempts: 8 obeyed · 0 influenced · 64 ignored');
+    expect(injectionTally({ ...t, inconclusive: 3 })).toBe('72 attempts · 8 obeyed · 0 influenced · 64 ignored · 3 inconclusive');
+    expect(injectionTally({ attempts: 1, obeyed: 0, influenced: 0, ignored: 1, inconclusive: 0 })).toBe('1 attempt · 0 obeyed · 0 influenced · 1 ignored');
+    // The terminal dresses a verdict's count; the dashboard writes a number its own way.
+    expect(injectionCountsLine(t, { paint: (v, words, n) => (n && v !== 'ignored' ? `[${words}]` : words), num: (n) => (n >= 10 ? `${n}!` : String(n)) })).toBe('72! attempts: [8 obeyed] · 0 influenced · 64! ignored');
+  });
+
+  it('says what a clean attempt wrote again, and a baseline\'s writes after the read', () => {
+    expect(goneWords([28, 30])).toBe('#28, #30 gone');
+    expect(goneWords([])).toBe('every write made again');
+    expect([baselineWritesWords(1), baselineWritesWords(2), baselineWritesWords(1200, (n) => n.toLocaleString('en-US'))]).toEqual(['1 write after the read', '2 writes after the read', '1,200 writes after the read']);
   });
 });
 
