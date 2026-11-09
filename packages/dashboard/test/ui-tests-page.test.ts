@@ -452,6 +452,12 @@ describe('the Tests page\'s styles', () => {
     expect(css).not.toMatch(/td\.hist i:nth-last-child/);
   });
 
+  it('give a check its Edit and Remove where a pointer hovers, and on a touch screen, as where the checks sit under the name, one line of Edit checks… and Add check… instead', () => {
+    expect(css).toMatch(/\ntable\.gt \.chk \.ckt \{ display: none; \}/);
+    for (const query of ['@media \\(hover: none\\)', '@container \\(max-width: 840px\\)'])
+      expect(css, query).toMatch(new RegExp(`${query} \\{\\s*table\\.gt \\.chk \\.cka \\{ display: none; \\}\\s*table\\.gt \\.chk \\.ckt \\{ display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 8px; \\}\\s*\\}`));
+  });
+
   it('wrap a cell without leaving a word alone on its last line, as the mock\'s do', () => {
     expect(css).toMatch(/\ntable\.gt td \{ text-wrap: pretty; \}/);
   });
