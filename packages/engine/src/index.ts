@@ -58,7 +58,7 @@ export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry
 export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedRole, recordedVerdicts } from './checks/recorded.js';
 export type { Judged, JudgeMaterialSource, RecordingJudged } from './checks/recorded.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
-export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
+export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHintMessage, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
 // The advice Needs a look shows that its owner put away, kept in the project's store alone, and the rule that brings it back.
 export { stillDismissed, type NewDismissal, type StoredDismissal } from './store.js';
@@ -88,7 +88,7 @@ export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, Rec
 export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
 export { bringRequest, loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { ACCOUNT_HEADERS } from './account-headers.js';
-export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
+export { changedPathLabel, comparedRequest, compareRuns, formatComparison, requestReadRule, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { pathSetByCode, requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
 export type { CallDifference, ComparedIntervention, RunComparison } from './compare.js';

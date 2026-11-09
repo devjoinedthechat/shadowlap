@@ -62,6 +62,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'bisect-estimate': { kind: 'bisect-estimate', commits: 6, target: { runId: FORK, fork: true } },
   'decision-estimates': { kind: 'decision-estimates', sessionId: SESSION, runId: null, work: null, rule: { keptMax: null, baseline: 'paired' } },
   'held-by': { kind: 'held-by', what: 'run', ids: [REC], stores: [] },
+  'request-diff': { kind: 'request-diff', runId: FORK, callNo: null, normalizers: [] },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };
