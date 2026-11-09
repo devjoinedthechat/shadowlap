@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, deriveSetup, emptySetup, emptyStoreFacts, type ProjectEntry, type RunFact, type SetupFindings, type StoreFacts } from '@shadowlap/engine';
 import { fixesView } from '../src/fixes-view.js';
 import { setupView } from '../src/projects.js';
+import { readTraining, trainingView } from '../src/training.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import type { NotFoundKind } from '../ui/not-found-words.js';
@@ -22,6 +23,7 @@ import { RunPage } from '../ui/pages/Run.js';
 import { RunsPage } from '../ui/pages/Runs.js';
 import { SetupPage } from '../ui/pages/Setup.js';
 import { TestsPage } from '../ui/pages/Tests.js';
+import { TrainingPage } from '../ui/pages/Training.js';
 import { parseRoute } from '../ui/route.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -223,6 +225,25 @@ describe('a page of a project with no runs', () => {
     expect(text(r.one('.stepempty h2'))).toBe('No goldens yet');
     expect(step(r)).toEqual([['Set up support-agent', '#/']]);
     expect(text(r.document.body)).not.toContain('shadowlap pack');
+  });
+
+  it('says on Training’s Pairs and Tasks what each will hold, with Set up <project>, and neither of the server’s commands, which name a run', async () => {
+    const store = Store.open(':memory:');
+    const training = trainingView(readTraining(store, { tasks: [], redactRules: 0 }));
+    store.close();
+    const client = { exported: false, training: () => Promise.resolve(training), models: () => new Promise(() => undefined), jobs: () => Promise.resolve([]) } as unknown as Client;
+    for (const [tab, title] of [
+      ['pairs', 'No pairs yet'],
+      ['tasks', 'No tasks yet'],
+    ] as const) {
+      r = await render(createElement(AppContext.Provider, { value: { ...app({}), client, runs: [] } as unknown as AppState }, createElement(TrainingPage, { tab })));
+      await r.until('the empty tab', () => r!.all('.stepempty').length === 1);
+      expect(text(r.one('.stepempty h2')), tab).toBe(title);
+      expect(step(r), tab).toEqual([['Set up support-agent', '#/']]);
+      expect(text(r.document.body), tab).not.toMatch(/shadowlap (blame|pack)/);
+      await r.unmount();
+      r = null;
+    }
   });
 
   it('keeps Set up <project> a link on a read-only dashboard, since opening the Overview asks the server nothing', async () => {

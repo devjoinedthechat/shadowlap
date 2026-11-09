@@ -9,8 +9,8 @@ import { dash, demoId, openPage, serveDashboard, serverLinks, seriousViolations,
  * The links the shared dashboard writes are each found in support-agent from there; a run's and a
  * fix's open the page that says so, In support-agent, with Switch to support-agent, at a laptop's
  * width and a phone's; and Switch opens the run there, at the same address, its heading taking the
- * focus. On a phone, triage-bot's own pages: its setup on the Overview, and every other page its own
- * empty state with Set up triage-bot.
+ * focus. On a phone, triage-bot's own pages: its setup on the Overview, and Runs, Fixes, Tests and
+ * Training's tabs each their own empty state with Set up triage-bot.
  *
  * The suite runs its tests in parallel, and a `beforeAll` runs in each worker that takes one of a
  * file's tests: this file's run in order in one worker, so it starts one dashboard, and the test
@@ -91,12 +91,11 @@ for (const item of ITEMS) {
   }
 }
 
-test('triage-bot, with no runs, shows its setup on the Overview alone at 390px, Runs, Fixes and Tests each its own empty state with Set up triage-bot, and no serious axe violation', async ({ page }) => {
+test('triage-bot, with no runs, shows its setup on the Overview alone at 390px, Runs, Fixes, Tests and Training each its own empty state with Set up triage-bot, and no serious axe violation', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await openPage(page, '/', 'main#view section#setup ol.setup', triage());
   expect(await seriousViolations(page)).toEqual([]);
-  // Training's Pairs and Tasks take the step once port/settings has drawn their empty states.
-  for (const path of ['/runs', '/fixes', '/tests']) {
+  for (const path of ['/runs', '/fixes', '/tests', '/training', '/training/tasks']) {
     const step = page.locator('main#view .stepempty a.btn.lime');
     await openPage(page, path, 'main#view .stepempty a.btn.lime', triage());
     await expect(step, path).toHaveText('Set up triage-bot');

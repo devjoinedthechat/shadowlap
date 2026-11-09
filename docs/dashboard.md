@@ -1515,7 +1515,7 @@ Suggesting folders means the dashboard lists directories, so it does that within
 Adding a project opens its setup.
 
 - **The Overview** shows it until it is finished, and so does `#/setup`.
-- **Runs, Fixes and Tests** each say what they will hold, with **Set up** and the project's name, as in **Set up triage-bot**, which opens it. The other pages show as before.
+- **Runs, Fixes, Tests and Training** each say what they will hold, with **Set up** and the project's name, as in **Set up triage-bot**, which opens it. None offers a command that needs a run. The other pages show as before.
 - **A project that can't be opened**, its folder or its store gone, says so on every page but Settings, and offers to remove it.
 - **Skip setup**, or, once its golden's test passes, **Go to Overview**, finishes it.
 
