@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cellNote, cellShare, historyKey, KEY_WORDS, revisionTip } from '../ui/tests/cells.js';
 import { leadStep, staleSub } from '../ui/tests/lead.js';
-import { runTestsCard } from '../ui/pages/tests-cards.js';
 import { asksUpdate, changedLine, checkMark, checkReportLine, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
 import { goodCommits } from '../ui/tests/good-commits.js';
 import { updatePlan } from '../ui/update-plan.js';
@@ -175,10 +174,9 @@ describe('the verdict\'s step', () => {
     const stale = { key: 'run-tests' as const, label: 'Run tests', golden: GOLDEN, gone: ['issue_refund called 0 times'], sub: 'Its checks changed since its last test: the session judges them as they are now' };
     const v = view({ steps: { [GOLDEN]: stale } });
     expect(leadStep(v, all, false, true)).toBeNull();
+    // Its line is the header's Run tests' (ui-tests-check-entries.test.ts draws it there).
     expect(staleSub(v)).toBe(stale.sub);
-    expect(runTestsCard({ ...v, rows: [] }, staleSub(v))).toMatchObject({ tip: 'Run tests', sub: stale.sub });
     expect([staleSub(v, true), staleSub(view({ steps: { [GOLDEN]: edit } }))]).toEqual([undefined, undefined]);
-    expect(runTestsCard({ ...v, rows: [] }, staleSub(v, true)).sub).toBe('Replays every golden offline');
   });
 });
 
