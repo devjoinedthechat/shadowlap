@@ -71,6 +71,8 @@ export const ACTIONS = {
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
   // What a run's page leads with besides those: a page to open, a test run again, a pack made a golden.
   openFix: { label: 'Open fix' },
+  // A golden's check its own recording fails, opened in the check builder (Tests, a run's page, Needs a look).
+  editCheck: { label: 'Edit check…' },
   openProof: { label: 'Open proof' },
   openPassingRun: { label: 'Open passing run' },
   compareWithParent: { label: 'Compare with parent' },

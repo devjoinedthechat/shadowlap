@@ -174,9 +174,9 @@ describe('a run’s next step', () => {
     const t = addRun(store, { parent: rec, startedAt: T0 + MIN, calls: 'r', meta: { test: { golden: GOLDEN, session } } });
     const judge = { name: 'polite', model: 'claude-haiku-4-5', answer: null, cost: null };
     store.addTestResult({ sessionId: session, golden: GOLDEN, ok: false, failure: 'inconclusive', runId: t, goldenRunId: rec, at: T0 + MIN, data: { verdict: 'inconclusive', checks: [{ ok: false, status: 'inconclusive', label: 'judge: polite', detail: 'not judged: no recorded verdict', judge } as never] } });
-    expect(step(t, work([source(rec)]))).toMatchObject({ key: 'update-golden', label: 'Update golden', sub: expect.stringContaining('Asks the judge once') });
+    expect(step(t, work([source(rec, { checks: ['judge: polite'] })]))).toMatchObject({ key: 'update-golden', label: 'Update golden', sub: expect.stringContaining('Asks the judge once') });
     // A golden that forks asks its judges live: an update doesn't settle it.
-    expect(step(t, work([source(rec, { mode: 'fork' })])).key).not.toBe('update-golden');
+    expect(step(t, work([source(rec, { mode: 'fork', checks: ['judge: polite'] })])).key).not.toBe('update-golden');
   });
 
   it('leaves a test whose golden is gone to what any failed run leads with', () => {
@@ -531,7 +531,7 @@ describe('what the next step of a run bills', () => {
     const t = addRun(store, { parent: other, startedAt: T0 + 2 * MIN, calls: 'r', meta: { test: { golden: GOLDEN, session } } });
     const judge = { name: 'polite', model: 'claude-haiku-4-5', answer: null, cost: 0.0005 };
     store.addTestResult({ sessionId: session, golden: GOLDEN, ok: false, failure: 'inconclusive', runId: t, goldenRunId: other, at: T0 + 2 * MIN, data: { verdict: 'inconclusive', checks: [{ ok: false, status: 'inconclusive', label: 'judge: polite', detail: 'not judged', judge } as never] } });
-    const update = await priced(t, work([source(other)]), () => false);
+    const update = await priced(t, work([source(other, { checks: ['judge: polite'] })]), () => false);
     expect(update).toMatchObject({ key: 'update-golden', sub: expect.stringContaining('Asks the judge once'), estimate: { kind: 'update', parts: expect.arrayContaining([expect.stringContaining('judge')]) } });
     expect(update?.estimate?.usd).toBeCloseTo(0.0005, 5);
     expect(update).not.toHaveProperty('later');

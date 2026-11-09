@@ -55,6 +55,7 @@ import { runJudged, type OutcomeWork, type RunJudged } from './run-outcome.js';
 import { callTotals, priced as pricedTotals } from './run-stats.js';
 import { fixedBy } from './runs-filter.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
+import { checksStep, checksStepWords } from './check-steps.js';
 import { liveReasons } from './tests-live.js';
 import { bisectAnswers, bisectChoices, gateResultView, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
 
@@ -66,6 +67,9 @@ import { bisectAnswers, bisectChoices, gateResultView, standingAnswer, underChec
  * - still recording: Replay, off until it ends;
  * - a failed test replay whose golden passed when it ran again, whatever way it failed: Open passing
  *   run, as Runs' Status says `fixed by <run>`;
+ * - its golden's last test replay, by the golden's checks (check-steps.ts): Run tests once a check it
+ *   failed or couldn't decide left the config, Edit check… for a check added since that the golden's
+ *   own recording fails; Tests leads a golden with the same, before Run more attempts;
  * - a test that diverged: on a value that changes every run, Add normalizer and re-run (or Re-run test
  *   once the rule is in the config); on what a patch or a config change changed, Update golden; on
  *   anything else, Find breaking commit…, unless it can't start from this replay (one cut short, or an
@@ -109,7 +113,7 @@ export interface NextStepWork {
   prices?: Record<string, Price>;
 }
 
-export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'more-attempts' | 'bisect' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
+export type NextStepKey = 'replay' | 'run-tests' | 'edit-check' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'more-attempts' | 'bisect' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
 
 /** A step as a list's row carries it: which one, its words, where it opens when it is a link, why it can't start when it can't, and what it says it does: none of which reads a call. */
 export interface NextStepRow {
@@ -153,6 +157,8 @@ export type NextStep = StepWords &
     | { key: 'normalizer' | 'update-golden'; golden: string; test: TestOffer | null }
     | { key: 'rerun-test' | 'gate-again'; golden: string }
     | { key: 'more-attempts'; golden: string }
+    | { key: 'run-tests'; golden: string; gone: string[] }
+    | { key: 'edit-check'; golden: string; check: string }
     | { key: 'bisect'; golden: string; starts: boolean; blame: BlameBeside | null }
     | { key: 'rule' }
     | { key: 'injection-test'; runId: string }
@@ -410,6 +416,15 @@ function passingStep(f: Facts): Decided | null {
   const run = f.index.byId.get(f.row.runId);
   const passing = run ? fixedBy(f.store, run, f.reads.results) : null;
   return passing ? { key: 'passing', label: ACTIONS.openPassingRun.label, runId: passing, href: links.run(passing), title: `Opens ${short(passing)}`, about: passing } : null;
+}
+
+/** What the last test replay of a golden leads with by its checks: Run tests once they changed since, Edit check for one added since that its recording fails (check-steps.ts). */
+function checksLead(f: Facts): Decided | null {
+  const t = f.tested();
+  // Only a result that didn't pass has a step by its checks: one that passed reads no history.
+  const results = t?.result && !t.result.ok ? f.reads.results(t.golden) : [];
+  const step = t && results[0]?.runId === f.row.runId ? checksStep(t.source, results) : null;
+  return step ? checksStepWords(step, f.work?.goldens ?? [], true) : null;
 }
 
 /** What a test replay of its own leads with while its golden is on disk: by how it diverged, or its judge's verdict. */
@@ -691,6 +706,7 @@ function decide(f: Facts): Decided {
   if (row.status === 'running') return { ...replayStep(f.store, row, record, index), label: ACTIONS.replay.label, off: 'Replay once the recording finishes' };
   return (
     passingStep(f) ??
+    checksLead(f) ??
     testStep(f) ??
     attemptStep(f) ??
     crashStep(f) ??
@@ -824,6 +840,9 @@ export function stepCalls(store: StoreOf<'readModels'>, run: Pick<RunRecord, 'ru
 export function goldenStep(store: Store, golden: string, work: NextStepWork | null, reads: StepReads): NextStep | null {
   const result = reads.results(golden)[0];
   if (!result || verdictOfResult(result) === 'passed') return null;
+  const source = work?.goldens.find((g) => g.path === golden);
+  const checks = source ? checksStep(source, reads.results(golden)) : null;
+  if (checks) return checksStepWords(checks, work?.goldens ?? [], false);
   const more = verdictOfResult(result) === 'inconclusive' ? gateResultView(result, golden)?.more : null;
   if (more) return { key: 'more-attempts', label: ACTIONS.runMoreAttempts.label, golden, command: commandLine(more.args) };
   return (result.runId ? listedStep(store, result.runId, work, { reads }) : null) ?? null;

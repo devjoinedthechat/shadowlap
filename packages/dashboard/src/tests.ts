@@ -483,7 +483,7 @@ export const unreadable = (g: GoldenSource): string | null => (optionLike(g.path
 /** A word as a shell reads it: a plain path stays as it is; a pattern (`goldens/*`), which the CLI expands itself, and a path with a space are quoted. */
 const ciWord = (s: string) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
-function nameOf(path: string, folder: string): string {
+export function nameOf(path: string, folder: string): string {
   return path.startsWith(`${folder}/`) ? path.slice(folder.length + 1) : path;
 }
 
