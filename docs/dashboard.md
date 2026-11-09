@@ -445,6 +445,7 @@ The header's one lime button is the run's next step: the first of these that app
 | A recording a read is proven to have caused a write in, no golden made from it | **Pack with injection gate…** |
 | Error-path presets that failed | **Open proof** |
 | A failure a fix holds | **Open fix** |
+| A test replay that failed a check an open fix is for, on its page and Tests | **Open fix** |
 | A capture its import judged failed | **Open fix** where a fix holds the same failure, else **Run blame** |
 | A failure never blamed | **Run blame** |
 | A replay that left its recording on a value made anew on every run | **Add normalizer** |
@@ -1163,44 +1164,89 @@ Each revision's header gives its commit's subject on hover, and its author where
 
 **Last result** for a golden with a [gate](./gating.md) is its verdict, then its tally and bound; against history, with its baseline. The pass rate's interval is drawn against the gate's two rates or its baseline. Each gate's rule is stated once under the table, beside its goldens' mode, and where two rules share a mode, with the goldens each decided.
 
-**A gated golden's evidence.** Its interval bar opens a row under it: why the gate stopped, the score line between its bounds, each attempt, and what a pass and a failure each weigh. A gate that ran out of attempts offers **Run more attempts** there. **Esc** closes the row and puts the focus back on the bar.
+**A gated golden's evidence.** Its interval bar opens a row under it: why the gate stopped, the score line between its bounds, each attempt, and what a pass and a failure each weigh. A gate that ran out of attempts offers **Run more attempts** there. **Esc** closes the row and puts the focus back on the bar. A gated golden with a report draws its bar alone: its evidence opens with the report, above it.
 
 Under the last result comes how the golden's [error-path presets](./error-paths.md) came out, opening the attempt that failed. A golden whose presets ran but whose replay hasn't yet says so, never *not run yet*.
 
 The table fits its panel at every width. With less room the oldest revisions give way, then the checks move under the golden's name. On a phone the revisions become a strip there too, while the last result keeps its width.
 
+### A golden's report
+
+Each golden that failed or is inconclusive has a report, folded under its row at the table's full width. **Show report**, last under its last result, opens it, and **Hide report** folds it. With two reports or more, **Show every report** over the table opens or folds them all.
+
+- **Folded**, a report stays in the page, hidden until found: the browser's find in page opens the one it matches, its lines as printed too.
+- **A link to it**, `#/tests?report=<name>`, opens it and scrolls to it, then sets the address back to `#/tests`.
+- **It stays open** while the dashboard is, so Esc's way back from a link inside it finds that link. Esc folds no report.
+
+A report reads, top to bottom:
+
+1. **Its verdict**: the word in its colour, then what happened in one sentence, such as *Diverged at call 1: `$.metadata.user_id` changed, a UUID*, with a grey line under it.
+2. **Its parts**, each named in its margin, as listed below.
+3. **Its steps**: the golden's own step, plain, then what else it offers. **⌘K** on its row presses them while it is folded, and a press opens it.
+4. **Its hint**: one sentence of why. What each button does, and what it costs, is its hover.
+5. **Show as printed**, at its foot, as [below](#a-report-as-printed).
+
+Its header holds **Open run**, or **Open failing attempt** for a golden run more than once. Unless its step is a fix, **Failed runs →** comes before it where Runs' Failed view holds the golden's failed replays, how many and which on hover.
+
+Its parts come in this order, each where it has something to say:
+
+| Part                 | Shows                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Checks changed       | A check it failed or couldn't decide that has left the config since its test               |
+| Replay               | Its replay against the recording: a cell a call, the call it stopped at red, and its words |
+| Error                | The exception the agent died of, where its own code raised it, and the line there          |
+| Checks               | Its checks, marked as its row marks them                                                   |
+| Gate                 | The gate's tally and bound, its interval, pass^5 while inconclusive, and its rule          |
+| Attempts             | A cell an attempt, each opening its run, then the check they failed and where they forked  |
+| First bad commit     | The commit Find breaking commit named, with its change where the answer kept it            |
+| Find breaking commit | Why the search named none                                                                  |
+
+- **Replay** is left out for a divergence at call 1, which the verdict says all of.
+- **Error** reads Python and Node tracebacks as their runtimes print them, anything else by its last line that says something. **Show traceback** opens the agent's last lines as the store kept them.
+- **Attempts** past 24 fold behind the caret that ends the Gate's line. Those a session carried over come first, with a hairline where this one took over.
+
+**An injection gate's report** draws its **Proof**, each call it names a link to that call of the attempt. Its header opens that attempt as **Open proof**, or **Open attempt** where it showed too little to say. Its **Attempts** follow: how many obeyed, were influenced, were inconclusive or ignored the planted text, where it was planted, and the command that writes every attempt's proof. Its steps add **Security report**, which saves its HTML report and says whether the project's redaction rules applied.
+
 ### Failures
 
-Each failure follows as the CLI prints it. A divergence offers:
+A divergence's report offers:
 
 - **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run test** once the rule is in the config.
 - **Update golden.**
-- **Find breaking commit**, whose answer then shows above the buttons while the golden keeps failing as it did when the search started.
+- **Find breaking commit**, whose answer then shows as the report's last part, above its steps, while the golden keeps failing as it did when the search started.
 
 Find breaking commit's answer is the first bad commit, or why there is none between the commits it searched, with **Find breaking commit…** to search from an older one.
 
 - **An answer given while the golden passed**, or about an earlier failure, never shows over a later one.
 - **A golden passing at the commit it fails at**: when the search found that, the failure is in changes not committed there, or doesn't happen every time. It says so, and offers no other commit until it fails at another one.
 
-A failed check, a non-zero exit or a replay with no calls shows with its checks and the agent's last lines of output, as `test --markdown` prints them. It offers **Find breaking commit…** unless the pack can't be read.
+A failed check, a non-zero exit or a replay with no calls shows its checks, and an exit its **Error** too. It offers **Find breaking commit…** unless the pack can't be read. A crash offers **Run blame** beside its step, unless a fix holds its run. A test replay that failed a check an open fix is for leads with **Open fix**, as its run's page does.
 
-**A named commit's change** shows under its card wherever the answer kept it, in the box **Show change** opens on a run's page. A crash whose first bad commit stands offers **Revert** first, and its hint says what to do with the commit: *The agent stopped part way at the commit above: revert it or fix the code, then run the tests.*
+**A named commit's change** shows in the **First bad commit** part wherever the answer kept it, in the box **Show change** opens on a run's page. A crash whose first bad commit stands offers **Revert** first, and its hint says what to do with the commit: *The agent stopped part way at the commit above: revert it or fix the code, then run the tests.*
 
 ### Inconclusive goldens
 
-An inconclusive golden follows too:
+An inconclusive golden's report offers:
 
-- **A [gate](./gating.md) that ran out of attempts** offers **Run more attempts**.
-- **A [judge check](./judges.md#not-judged) with no verdict its replay could use** offers **Update golden**, as below.
-- **A golden marked `fork`**, whose judges are asked live, names the key the judge's provider lacked.
+- **A [gate](./gating.md) that ran out of attempts**: **Run more attempts**, which carries its attempts over.
+- **A [judge check](./judges.md#not-judged) with no verdict its replay could use**: **Update golden**, as below.
+- **A golden marked `fork`**, whose judges are asked live, names in its hint the key the judge's provider lacked.
 
 Such a judge check's pack holds no verdict its replay can use: none, one given to an older form of the judge's request, or one given on other material. A test that replays offline can't ask the judge. **Update golden** asks first, then runs `shadowlap test <golden> --update`: the judge is asked once, live, with the key in the dashboard's environment, and its verdict kept in the pack. Nothing is re-recorded.
 
 For a verdict given on other material, it says first that a value that changes every run needs a [normalizer](./normalizers-and-redaction.md#normalizers) before the update, or the next test reads not judged again.
 
+### A report as printed
+
+**Show as printed**, at a report's foot, opens the lines `shadowlap test` prints under the golden, in its order and words, as a CI log holds them. `test --markdown` writes the same checks, details and last lines into a job summary. Find in page searches them while they are folded, so a line copied from a CI log finds its report.
+
+- **Copy report**, in the box's corner, copies them whole.
+- **A long report**, such as a gate's every attempt, scrolls in its box past 25 lines. On a phone its lines stay whole and scroll sideways in the box.
+- **Left out**: the notes the CLI prints under a golden's line on how its gate decided, which the store doesn't keep, and what the agent printed past 400 characters on a line.
+
 ### The network guard in a test
 
-**A blocked connection.** A connection the [network guard](./how-it-works.md#the-network-guard) blocked in a replay is named on the golden's row, in its history and in its report: the agent went to a host directly, past Shadowlap, which a test refuses. It is named also when the agent caught the refusal and the golden passed.
+**A blocked connection.** A connection the [network guard](./how-it-works.md#the-network-guard) blocked in a replay is named on the golden's row, in its history and in its report: the agent went to a host directly, past Shadowlap, which a test refuses. It is named also when the agent caught the refusal and the golden passed. Its report's hint leads with it, whatever failed after it: wrap the call as a tool so it is recorded, or allow the host with `SHADOWLAP_GUARD_ALLOW`.
 
 **No preload.** A golden whose replay no Shadowlap preload loaded in fails under `--guard block` as *no preload loaded: the network guard never watched it*. It shows what the command shows of why, and what to do: run the agent on Node or Python with the environment `shadowlap` gives it, or test with `--guard warn`.
 
