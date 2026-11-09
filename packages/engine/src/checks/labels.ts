@@ -235,17 +235,28 @@ export function checkWords(c: StoredCheck, join = ': '): string {
 }
 
 /**
- * Where a judge check's verdict came from and what it cost, with what was done to what it read:
- * `judged from the recording, free`, `judged live, ≈$0.0004 · read with 1 redaction rule applied`.
- * Null for a check that was not judged.
+ * A judge check's source in parts: how its verdict was judged (`judged from the recording`, `judged
+ * live`), what that cost (`free`, `≈$0.0004`, `no price for <model>`), and what was done to what it
+ * read. Null for a check that was not judged. The CLI joins them (`judgeSource`); a page joins every
+ * part with ` · `.
  */
-export function judgeSource(j: JudgeOutcome): string | null {
+export function judgeSourceParts(j: JudgeOutcome): { how: string; cost: string; read: string[] } | null {
   if (!j.source) return null;
   const read = [
     j.redactions ? `read with ${j.redactions} redaction rule${j.redactions === 1 ? '' : 's'} applied` : null,
     j.normalized ? 'values that change every run masked' : null,
     j.cut ? `${j.cut.toLocaleString('en-US')} characters left out` : null,
-  ].filter(Boolean);
-  const how = j.source === 'recording' ? 'judged from the recording, free' : `judged live, ${j.cost === null ? `no price for ${j.model}` : aboutUsd(j.cost)}`;
-  return [how, ...read].join(' · ');
+  ].filter((x): x is string => x !== null);
+  if (j.source === 'recording') return { how: 'judged from the recording', cost: 'free', read };
+  return { how: 'judged live', cost: j.cost === null ? `no price for ${j.model}` : aboutUsd(j.cost), read };
+}
+
+/**
+ * Where a judge check's verdict came from and what it cost, with what was done to what it read, as
+ * the CLI prints it: `judged from the recording, free`, `judged live, ≈$0.0004 · read with 1
+ * redaction rule applied`. Null for a check that was not judged.
+ */
+export function judgeSource(j: JudgeOutcome): string | null {
+  const p = judgeSourceParts(j);
+  return p ? [`${p.how}, ${p.cost}`, ...p.read].join(' · ') : null;
 }
