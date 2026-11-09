@@ -29,8 +29,10 @@ import { failingCard, leadCard, rungStatus } from './list.js';
 import { useFixRead, useFollowJobs } from './page-fix.js';
 import { FailedMust } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
-import { useTreeBusy } from './tree.js';
-import { verifyTip } from './lead.js';
+import { useServerJobs, useTreeBusy } from './tree.js';
+import { leadWait, verifyTip } from './lead.js';
+import { CrashStepButton } from '../revert/CrashStep.js';
+import { EditorButton } from '../revert/EditorButton.js';
 import { VerifyAsk } from './verify-asks.js';
 import { VerifyLeftButton, VerifyStepView } from './VerifyStep.js';
 
@@ -46,10 +48,12 @@ import { ActionButton } from '../components/ActionButton.js';
  * Run repair on an open fix, Apply fix on a verified one.
  */
 export function FixPage({ id, step, sub }: { id: string; step: string | null; sub: string | null }) {
-  const { client, tick, feeds } = useApp();
-  // Again when runs change, or fixes do (a title set in a terminal, a repair's report), each answer
-  // shared with what a job of the fix ends on in the drawer.
-  const loaded = useFixRead(client, id, `${tick}:${feeds.fixes ?? 0}`);
+  const { client, tick, feeds, jobs } = useApp();
+  // A search or a revert of this tab's running: once it ends, the crash's step it leads with moves on.
+  const crashJob = jobs.some((w) => !w.job.done && !w.lost && (w.job.kind === JOB_KINDS.bisect || w.job.kind === JOB_KINDS.revert));
+  // Again when runs change, or fixes do (a title set in a terminal, a repair's report), or such a job
+  // ends, each answer shared with what a job of the fix ends on in the drawer.
+  const loaded = useFixRead(client, id, `${tick}:${feeds.fixes ?? 0}:${crashJob}`);
   const fix = loaded.data;
   useEffect(() => {
     if (fix) rememberFix(fix, id);
@@ -346,7 +350,30 @@ function OpenButtons({ fix, prices, lime, why, ask, shown }: ButtonsProps & { sh
           ask={blameNextAsk(fix, blameNext.kind, blameNextPrice(blameNext.kind, prices))}
         />
       ) : null}
+      <CrashButtons fix={fix} lime={lime} />
       {left ? <VerdictNext fix={fix} v={left} prices={prices} /> : null}
+    </>
+  );
+}
+
+/**
+ * A crash's own step at the head's end, where the fix leads with it (fix-lead.ts): Find breaking
+ * commit, then, once that named the commit, Open in editor at the line the commit added and Revert,
+ * the page's lead, with the commit the Blame step shows. Find breaking commit is gone once the commit
+ * is named: the run's page keeps it, to search again. Each waits as its row on Fixes does.
+ */
+function CrashButtons({ fix, lime }: Pick<ButtonsProps, 'fix' | 'lime'>) {
+  const app = useApp();
+  const lead = fix.lead?.key === 'bisect' || fix.lead?.key === 'revert' ? fix.lead : null;
+  const jobs = useServerJobs(!!lead);
+  if (!lead) return null;
+  const leads = lime?.key === lead.key;
+  const why = app.actionsOff ?? leadWait(lead, { jobs, folder: app.meta?.project?.path ?? null, projectId: app.meta?.project?.id ?? null, hasKind: app.hasKind });
+  const found = fix.blame?.crash?.commit ?? null;
+  return (
+    <>
+      {lead.key === 'revert' ? <EditorButton change={found?.change} /> : null}
+      <CrashStepButton runId={lead.runId} step={lead.step} why={why} className={leads ? 'btn lime' : 'btn'} lead={leads} found={found} />
     </>
   );
 }
