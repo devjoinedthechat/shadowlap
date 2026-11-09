@@ -234,7 +234,7 @@ The activity feed is what happened in the project, newest first: the Overview sh
 
 - Recordings started and finished, and clean replays.
 - Forks, with the flags that made them as the replay kept them on the run (`--fail-at 19=529`, `--model 15:claude-opus-5`).
-- The attempts of one `replay --repeat`, as one entry with how many took the same path.
+- The attempts of one `replay --repeat`, as one entry with how many took the same path. An [injection test](./injection.md)'s replays are told by the test's own entry instead.
 - Captures and packs imported: the runs one import or one pack brought in make one entry.
 - Tests passed or failed, a golden once per session, by its result. A golden that may fork reads *5 of 5 attempts passed*. One with a [gate](./gating.md) reads its verdict, tally and bound, with the gate's rule on hover, and opens the replay that failed.
 - Blames.
