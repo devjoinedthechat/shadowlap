@@ -5,7 +5,7 @@ import { checkReportLine } from '../ui/goldens.js';
 
 // A golden's check line on Tests is the line `shadowlap test` prints under the golden, for every
 // status and wherever a judge's verdict came from: one rule, the engine's, never a copy that drifts.
-const judge = (over: Partial<JudgeOutcome>): JudgeOutcome => ({ name: 'explains', model: 'gpt-5-mini', of: 'answer', verdict: 'yes', source: 'live', cost: 0.0004, redactions: 0, ...over });
+const judge = (over: Partial<JudgeOutcome>): JudgeOutcome => ({ name: 'explains', model: 'gpt-5-mini', of: 'answer', verdict: 'yes', source: 'live', cost: 0.0004, redactions: 0, ...over }) as JudgeOutcome;
 const JUDGE = 'judge "explains" answers yes';
 const CHECKS: StoredCheck[] = [
   { status: 'passed', ok: true, label: 'escalate called 1 time', detail: null },
