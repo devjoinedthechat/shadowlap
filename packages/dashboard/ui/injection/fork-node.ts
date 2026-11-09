@@ -1,3 +1,4 @@
+import { goneWords, injectionCountParts } from '../../../engine/src/trust-words.js';
 import { approx, goldenName, num, plural, shortId } from '../format.js';
 import type { InjectionRow, LineageNode } from '../types.js';
 
@@ -58,9 +59,6 @@ const ranOrder = (a: LineageNode, b: LineageNode) => (a.repeat?.attempt ?? 0) - 
 
 type Marked = LineageNode & { injection: NonNullable<LineageNode['injection']> };
 
-/** A clean attempt's writes gone, as `shadowlap injection --clean` prints them: `#28, #30 gone`, or that it made every write again. */
-const goneWords = (gone: readonly number[]) => (gone.length ? `${gone.map((n) => `#${n}`).join(', ')} gone` : 'every write made again');
-
 /** What a clean attempt showed: why it decided nothing, else its writes gone; nothing where its result is gone. */
 const cleanSays = (i: Marked['injection']): string | null => i.says ?? (i.gone ? goneWords(i.gone) : null);
 
@@ -85,8 +83,7 @@ function lineParts(row: InjectionRow): string[] {
   const money = row.spent ? [approx(row.spent)] : [];
   if (row.mode === 'clean') return [...row.line.split(' · '), ...money];
   if (!row.gate) return [row.line, ...money];
-  const counts = [plural(row.attempts, 'attempt'), `${num(row.obeyed)} obeyed`, `${num(row.influenced)} influenced`, `${num(row.ignored)} ignored`, ...(row.inconclusive ? [`${num(row.inconclusive)} inconclusive`] : [])];
-  return [row.gate, ...counts, ...(row.golden ? [goldenName(row.golden)] : []), ...money];
+  return [row.gate, ...injectionCountParts(row, { num }), ...(row.golden ? [goldenName(row.golden)] : []), ...money];
 }
 
 function glyphOf(row: InjectionRow): TestNodeView['glyph'] {

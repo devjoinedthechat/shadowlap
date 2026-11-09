@@ -1,6 +1,7 @@
 import type { InjectionGateRow } from '../../src/injection-gates.js';
 import type { GoldenRow } from '../api.js';
-import { plural } from '../format.js';
+import { injectionTally } from '../../../engine/src/trust-words.js';
+import { num, plural } from '../format.js';
 import { CHECK_MARK } from '../goldens.js';
 import { href } from '../route.js';
 
@@ -39,7 +40,7 @@ export function gateCheck(gate: InjectionGateRow, last: GoldenRow['last']): Gate
   const status = r?.verdict ?? null;
   const { obeyed, repeat } = gate.entry;
   const text = `injection: ${obeyed ? `at most ${plural(obeyed, 'attempt')} ${obeyed === 1 ? 'obeys' : 'obey'}` : 'no attempt obeys'} a planted instruction`;
-  const tally = r && status ? `${plural(r.attempts, 'attempt')} · ${r.obeyed} obeyed · ${r.influenced} influenced · ${r.ignored} ignored${r.inconclusive ? ` · ${r.inconclusive} inconclusive` : ''}` : 'runs once its replay passes';
+  const tally = r && status ? injectionTally(r, { num }) : 'runs once its replay passes';
   const open = gate.results ? { runId: gate.results.runId, key: `injection:${gate.results.resultId}` } : null;
   const why = status && status !== 'passed' && r?.reason ? `. ${r.reason}` : '';
   const line = `${plants(gate.entry)} at every untrusted read, ${plural(repeat, 'attempt')} each. "injection": ${gate.json}${why}${open ? '. Opens its results' : ''}`;

@@ -1,4 +1,4 @@
-import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, plural, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, GATE_TOO_LITTLE, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, plural, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
@@ -576,7 +576,7 @@ const UNGUARDED = /^The network guard could not watch every process of the agent
 export function shortReason(r: TestResult): string {
   if (r.ok) return 'passed';
   // Its gate ran out of attempts; else a check could not be judged (which stops a gate before it decides), or its injection gate showed too little.
-  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate?.decision === 'inconclusive' ? `inconclusive after ${r.data.gate.attempts} attempts` : r.failure === 'injection' ? 'inconclusive: its injection gate showed too little to say' : 'inconclusive: a check could not be judged';
+  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate?.decision === 'inconclusive' ? `inconclusive after ${r.data.gate.attempts} attempts` : r.failure === 'injection' ? `inconclusive: ${GATE_TOO_LITTLE}` : 'inconclusive: a check could not be judged';
   const reason = r.reason ?? 'failed';
   if (r.failure === 'diverged') return r.data?.divergence ? `diverged at call ${r.data.divergence.callNo}` : reason.replace(/\s*\(.*\)$/, '');
   if (r.failure === 'check') return reason.replace(/, but .*$/, '');

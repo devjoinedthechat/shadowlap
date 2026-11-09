@@ -1,4 +1,4 @@
-import { DEFAULT_BASELINES, type InjectionEntry, type StoreOf } from '@shadowlap/engine';
+import { DEFAULT_BASELINES, GATE_TOO_LITTLE, type InjectionEntry, type StoreOf } from '@shadowlap/engine';
 import { proofCall, proofOf } from './injection-view.js';
 import { injectionLine } from './injection.js';
 import type { FailingTest, GoldenRow, GoldenSource } from './tests.js';
@@ -37,9 +37,6 @@ function entryJson(e: InjectionEntry): string {
   return `{ ${set.filter(([, v]) => v !== null).map(([k, v]) => `${JSON.stringify(k)}: ${value(v)}`).join(', ')} }`;
 }
 
-/** The last result of a golden whose verdict is its gate's, where the gate showed too little to say. */
-const TOO_LITTLE = 'its injection gate showed too little to say';
-
 export function withInjectionGates<V extends { rows: GoldenRow[] }>(store: StoreOf<'recording' | 'injection'>, view: V, goldens: readonly GoldenSource[]): V {
   const entries = new Map(goldens.filter((g) => g.injectionGate).map((g) => [g.path, g.injectionGate!]));
   if (!entries.size) return view;
@@ -50,7 +47,8 @@ export function withInjectionGates<V extends { rows: GoldenRow[] }>(store: Store
     const proof = kept ? proofOf(store, kept.data) : null;
     const results = kept ? { runId: kept.runId, resultId: kept.resultId } : null;
     const gate: InjectionGateRow = { entry, proof: proof ? { runId: proof.runId, callNo: proofCall(proof) } : null, line: kept ? injectionLine(kept) : null, results, json: entryJson(entry) };
-    const said = row.last.failure !== 'injection' ? null : row.last.verdict === 'inconclusive' ? TOO_LITTLE : gate.line;
+    // The last result of a golden whose verdict is its gate's: the gate's own line, or that it showed too little to say.
+    const said = row.last.failure !== 'injection' ? null : row.last.verdict === 'inconclusive' ? GATE_TOO_LITTLE : gate.line;
     return { ...row, injectionGate: gate, ...(said ? { last: { ...row.last, line: said } } : {}) };
   });
   return { ...view, rows };

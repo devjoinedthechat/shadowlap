@@ -1,4 +1,5 @@
-import { INJECTION_CHECK } from '../../../engine/src/trust-words.js';
+import { INJECTION_CHECK, injectionCountsLine } from '../../../engine/src/trust-words.js';
+import { num } from '../format.js';
 import type { CheckView, InjectionMark, InjectionRow, RunDetail, RunInjection, UntrustedView } from '../types.js';
 
 /**
@@ -28,19 +29,13 @@ export interface RunInjectionView {
 
 export const NO_INJECTION: RunInjectionView = { untrusted: new Map(), finding: null, attempt: null };
 
-/** `6 attempts: 0 obeyed · 0 influenced · 6 ignored`, ` · 3 inconclusive` after where any couldn't say. */
-export function countsLine(r: Pick<InjectionRow, 'attempts' | 'obeyed' | 'influenced' | 'ignored' | 'inconclusive'>): string {
-  const head = `${r.attempts.toLocaleString('en-US')} attempt${r.attempts === 1 ? '' : 's'}: ${r.obeyed} obeyed · ${r.influenced} influenced · ${r.ignored} ignored`;
-  return r.inconclusive ? `${head} · ${r.inconclusive} inconclusive` : head;
-}
-
 /** The result a run's finding shows, and Share's Security report saves: its newest plant test that has ended. */
 export const shownResult = (results: readonly InjectionRow[]): InjectionRow | null => results.find((r) => r.mode === 'plant' && !r.running && r.gate !== null) ?? null;
 
 /** A kept test's finding, from its row: a failed gate's reason ends at its limit, as the proof is the panel's to show. */
 export function injectionFinding(r: InjectionRow): InjectionFinding | null {
   if (!r.gate) return null;
-  const line = r.gate === 'passed' ? countsLine(r) : r.gate === 'failed' ? (r.reason ?? r.line).replace(/\): [\s\S]*$/, ')') : (r.reason ?? r.line);
+  const line = r.gate === 'passed' ? injectionCountsLine(r, { num }) : r.gate === 'failed' ? (r.reason ?? r.line).replace(/\): [\s\S]*$/, ')') : (r.reason ?? r.line);
   return { resultId: r.resultId, gate: r.gate, label: r.golden ? 'injection gate' : 'injection test', line, golden: r.golden };
 }
 

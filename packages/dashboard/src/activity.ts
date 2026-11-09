@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, GATE_TOO_LITTLE, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
 import { num } from './fields.js';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
@@ -404,7 +404,7 @@ function testEnd(store: StoreOf<'recording' | 'tests'>, run: RunRecord, test: { 
   // A count settled before an attempt a check could not decide keeps that attempt apart: it neither passed nor failed.
   const tally = (a: NonNullable<typeof repeated>) => `${a.passed} of ${a.total} attempts passed${a.inconclusive ? `, ${a.inconclusive} inconclusive` : ''}`;
   // Its gate ran out of attempts, or a check could not be judged (which stops a gate before it decides), or its injection gate showed too little to say.
-  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden}${gate?.decision === 'inconclusive' ? `: ${gateTally(gate)}` : ` · ${result.failure === 'injection' ? 'its injection gate showed too little to say' : 'a check could not be judged'}`}`, ...(gate?.decision === 'inconclusive' ? gateRuleOf(gate) : {}) };
+  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden}${gate?.decision === 'inconclusive' ? `: ${gateTally(gate)}` : ` · ${result.failure === 'injection' ? GATE_TOO_LITTLE : 'a check could not be judged'}`}`, ...(gate?.decision === 'inconclusive' ? gateRuleOf(gate) : {}) };
   if (result?.ok) {
     if (gate) return { ...item, kind: 'test', text: `Test passed · ${golden}: ${gateTally(gate)}`, ...gateRuleOf(gate) };
     const how = repeated ? tally(repeated) : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;

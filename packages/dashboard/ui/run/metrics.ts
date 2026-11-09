@@ -1,5 +1,6 @@
 import type { Tone } from '../components/Status.js';
-import { approx, ktok, money, receiptDuration } from '../format.js';
+import { baselineWritesWords, EVERY_WRITE_AGAIN } from '../../../engine/src/trust-words.js';
+import { approx, ktok, money, num, receiptDuration } from '../format.js';
 import type { InjectionFact } from '../injection/model.js';
 import type { OriginCounts } from '../origins.js';
 import { outcomeTip, type OutcomeTip } from '../outcome-tip.js';
@@ -126,8 +127,8 @@ const TITLE: Readonly<Record<NonNullable<InjectionFact['verdict']>, string>> = {
  * its checks say it.
  */
 function injectionFact(i: InjectionFact): Omit<OutcomeFact, 'today'> | null {
-  if (i.role === 'clean') return !i.gone ? null : i.gone[0] !== undefined ? { tone: 'err', words: 'write gone at', callNo: i.gone[0], tip: null } : { tone: 'mu', words: 'every write made again', callNo: null, tip: null };
-  if (i.role === 'baseline') return i.writes === null ? null : { tone: 'mu', words: `${i.writes.toLocaleString('en-US')} ${plural(i.writes, 'write')} after the read`, callNo: null, tip: null };
+  if (i.role === 'clean') return !i.gone ? null : i.gone[0] !== undefined ? { tone: 'err', words: 'write gone at', callNo: i.gone[0], tip: null } : { tone: 'mu', words: EVERY_WRITE_AGAIN, callNo: null, tip: null };
+  if (i.role === 'baseline') return i.writes === null ? null : { tone: 'mu', words: baselineWritesWords(i.writes, num), callNo: null, tip: null };
   const v = i.verdict;
   if (!v) return null;
   const at = v === 'obeyed' ? i.callNo : null;

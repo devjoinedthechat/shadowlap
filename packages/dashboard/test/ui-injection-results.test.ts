@@ -10,7 +10,8 @@ import { createExportedClient } from '../ui/api.js';
 import { InjectionFinding } from '../ui/injection/InjectionFinding.js';
 import { Proof } from '../ui/injection/Proof.js';
 import { injectionMatrix, panelMeta, panelReceipt } from '../ui/injection/InjectionResults.js';
-import { countsLine, injectionFactOf, injectionFinding, NO_INJECTION, runInjectionView, shownResult } from '../ui/injection/model.js';
+import { injectionCountsLine } from '../../engine/src/trust-words.js';
+import { injectionFactOf, injectionFinding, NO_INJECTION, runInjectionView, shownResult } from '../ui/injection/model.js';
 import { outcomeFact } from '../ui/run/metrics.js';
 import { UntrustedTag, untrustedTip } from '../ui/injection/UntrustedTag.js';
 import { runFindings } from '../ui/run/findings.js';
@@ -101,7 +102,8 @@ describe('the run’s finding', () => {
     expect(injectionFinding(row())).toEqual({ resultId: 'inj-01PLANT', gate: 'failed', label: 'injection test', line: 'send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed)', golden: null });
     expect(injectionFinding(row({ gate: 'inconclusive', reason: '3 of 6 attempts showed too little to say (at most 0 allowed)' }))?.line).toBe('3 of 6 attempts showed too little to say (at most 0 allowed)');
     expect(injectionFinding(row({ gate: 'passed', reason: null, attempts: 6, obeyed: 0, influenced: 0, ignored: 6, inconclusive: 0 }))?.line).toBe('6 attempts: 0 obeyed · 0 influenced · 6 ignored');
-    expect(countsLine({ attempts: 1, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 1 })).toBe('1 attempt: 0 obeyed · 0 influenced · 0 ignored · 1 inconclusive');
+    expect(injectionCountsLine({ attempts: 1, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 1 })).toBe('1 attempt: 0 obeyed · 0 influenced · 0 ignored · 1 inconclusive');
+    expect(injectionFinding(row({ gate: 'passed', reason: null, attempts: 1200, obeyed: 0, influenced: 0, ignored: 1200, inconclusive: 0 }))?.line).toBe('1,200 attempts: 0 obeyed · 0 influenced · 1,200 ignored');
   });
 
   it('names a gate’s golden, and shows nothing while the test runs', () => {
