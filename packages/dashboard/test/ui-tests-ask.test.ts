@@ -70,7 +70,7 @@ function divergence(over: Partial<DivergenceView>): DivergenceView {
   const golden = 'goldens/refund-in-limit';
   const normalizer = { kind: 'api' as const, path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
   const volatile = { path: '$.metadata.user_id', looks: 'a UUID', op: 'changed' as const, certain: true, normalizer, args: STEPS[0], command: NORMALIZE.slice(1) };
-  return { golden, name: 'refund-in-limit', runId: null, callNo: 1, kind: 'api', callName: 'POST /v1/messages', text: '✗ Diverged at call 1 (api POST /v1/messages)', volatile, normalizerFixes: true, maybeReal: false, rerun: ['test', golden], update: ['test', golden, '--update'], normalizeAndTest: STEPS, rulesAdded: false, bisect: null, found: null, missed: null, revisions: [], unreadable: null, ...over };
+  return { golden, name: 'refund-in-limit', runId: null, callNo: 1, kind: 'api', callName: 'POST /v1/messages', volatile, normalizerFixes: true, maybeReal: false, rerun: ['test', golden], update: ['test', golden, '--update'], normalizeAndTest: STEPS, rulesAdded: false, bisect: null, found: null, missed: null, revisions: [], unreadable: null, ...over };
 }
 
 /** The same goldens, refund-in-limit having diverged on a value made anew on every run. */

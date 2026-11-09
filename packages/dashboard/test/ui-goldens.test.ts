@@ -40,7 +40,6 @@ const divergence = (name: string, over: Partial<DivergenceView> = {}): Divergenc
   callNo: 1,
   kind: 'api',
   callName: 'POST /v1/messages',
-  text: `✗ ${name}: diverged at call 1 (api POST /v1/messages)\n    ✗ Diverged at call 1 (api POST /v1/messages): 0 calls replayed before divergence\n      ~ $.metadata.user_id\n          - "3f1c9a2e-5b7d-4e21-9c0a-8d6f2b1e7a43"\n          + "b84e07d1-2c9f-4a63-8e15-6f0d3a9c2b78"`,
   volatile: UUID,
   normalizerFixes: true,
   maybeReal: false,
@@ -409,7 +408,7 @@ describe('waiting for a test job', () => {
 describe('the Update golden dialog', () => {
   it('asks the judge once for a golden that replays clean and only lacks its verdict, re-recording nothing', () => {
     const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: 'not judged: no recorded verdict and the test runs offline', held: 'none', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null };
-    const v = view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge }] });
+    const v = view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], gate: null, judge }] });
     const plan = updatePlan(v, ['goldens/judged']);
     // As the mock's dialog has it: no card, since nothing diverged and the title names the golden.
     expect(plan).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, instead: null, note: null, command: 'shadowlap test goldens/judged --update', ok: 'Update golden' });
@@ -430,7 +429,7 @@ describe('the Update golden dialog', () => {
 
   it('words the judge\'s update by what its pack holds: an older form of the request, or other material, where a normalizer comes first', () => {
     const judge: UnjudgedCheck = { name: 'explains-escalation', label: 'judge "explains-escalation" answers yes', model: 'claude-haiku-4-5', provider: 'anthropic', why: '', held: 'older', changed: null, update: ['test', 'goldens/judged', '--update'], keys: null };
-    const plan = (j: UnjudgedCheck) => updatePlan(view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], details: null, gate: null, judge: j }] }), ['goldens/judged']);
+    const plan = (j: UnjudgedCheck) => updatePlan(view({ divergences: [], diverged: [], rows: [row('judged')], inconclusive: [{ golden: 'goldens/judged', name: 'judged', runId: null, reason: 'check inconclusive', checks: [], gate: null, judge: j }] }), ['goldens/judged']);
     const older = plan(judge);
     expect(older).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, ok: 'Update golden', command: 'shadowlap test goldens/judged --update' });
     expect(older.facts[0]).toEqual({ label: 'Holds', value: 'a verdict given to an older form of the judge’s request' });

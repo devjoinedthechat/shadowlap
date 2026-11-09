@@ -78,6 +78,8 @@ async function routeTests(page: Page): Promise<void> {
     (url) => url.pathname === '/api/tests',
     (route) => (route.request().method() !== 'GET' ? route.continue() : patched<TestsAnswer>(route, (real) => {
       const row = real.rows.find((r) => r.path !== real.divergences[0]?.golden) ?? real.rows[0]!;
+      // What the agent printed last, as its result keeps it: the report reads it, never the failure.
+      const output = 'Traceback (most recent call last):\n  File "agent/refund.py", line 12, in refund\nTypeError: limit() missing 1 required positional argument: \'order\'';
       const crash: FailureView = {
         golden: GOLDEN,
         name: NAME,
@@ -85,8 +87,6 @@ async function routeTests(page: Page): Promise<void> {
         failure: 'exit',
         reason: 'the agent exited with code 1',
         checks: null,
-        details: null,
-        output: 'Traceback (most recent call last):\n  File "agent/refund.py", line 12, in refund\nTypeError: limit() missing 1 required positional argument: \'order\'',
         blocked: null,
         bisect: null,
         found: FOUND,
@@ -95,7 +95,6 @@ async function routeTests(page: Page): Promise<void> {
         unreadable: null,
       } as unknown as FailureView;
       // Its report as GET /api/tests builds it for such a crash (golden-report.ts): its exception, then its first bad commit.
-      const output = crash.output!;
       const report: GoldenReport = {
         golden: GOLDEN,
         name: NAME,
