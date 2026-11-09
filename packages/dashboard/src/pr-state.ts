@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import type { Store, StoredFix } from '@shadowlap/engine';
+import type { Store, StoredFix, TestSession } from '@shadowlap/engine';
 import { gitAsync } from './patch-in-tree.js';
 
 /**
@@ -163,10 +163,26 @@ export function openPullRequest(fix: StoredFix): string | null {
   return pr && (pr.state ?? 'open') === 'open' && isGithubPr(pr.url) ? pr.url : null;
 }
 
+/** A pull request to ask about: its page, which gh is asked of, and what its state is written under (a fix's id, a session's page). */
+export interface PrItem {
+  key: string;
+  url: string;
+  /** Its number, where what the state is written to names it by its number too (a test session's). */
+  number?: number | null;
+}
+
+/** A test session's pull request to ask about: one whose page is a GitHub pull request's, open or not yet told where it stands. */
+export function sessionPullRequest(session: Pick<TestSession, 'pullRequest'>): PrItem | null {
+  const pr = session.pullRequest;
+  return pr && (pr.state ?? 'open') === 'open' && isGithubPr(pr.url) ? { key: pr.url, url: pr.url, number: pr.number } : null;
+}
+
 export interface PrStatesOptions {
   read: PrReader;
-  /** Records a state that changed. */
-  write: (fixId: string, state: PrState) => void;
+  /** Records a state that changed, under the item's key. */
+  write: (key: string, state: PrState, item: PrItem) => void;
+  /** Writes `open` too: a test session's pull request stands nowhere until told, where a fix's is open as recorded. */
+  writesOpen?: boolean;
   /**
    * Which addresses may be read (default: github.com's): `readableHosts`. A promise is waited for
    * before the pull request is asked about (git names the project's own hosts).
@@ -217,17 +233,27 @@ export class PrStates {
 
   /** Starts asking about the open pull requests of these fixes that weren't asked about lately. Never waits, never throws. */
   refresh(fixes: readonly StoredFix[]): void {
+    this.refreshItems(
+      fixes.flatMap((fix) => {
+        const url = openPullRequest(fix);
+        return url ? [{ key: fix.fixId, url }] : [];
+      }),
+    );
+  }
+
+  /** Starts asking about these pull requests, those that weren't asked about lately. Never waits, never throws. */
+  refreshItems(items: readonly PrItem[]): void {
     const now = this.now();
-    for (const fix of fixes) {
+    for (const item of items) {
       if (this.running >= this.parallel) return;
-      const url = openPullRequest(fix);
-      if (!url || now - (this.asked.get(url) ?? -Infinity) < this.everyMs || this.checking.has(url)) continue;
+      const url = item.url;
+      if (now - (this.asked.get(url) ?? -Infinity) < this.everyMs || this.checking.has(url)) continue;
       const host = prHost(url);
       if (this.paused(host, now)) continue;
       const readable = this.readable(url);
       if (readable === false) continue;
       if (readable === true) {
-        this.ask(fix, url, host, now);
+        this.ask(item, host, now);
         continue;
       }
       // Asked once git has named the project's own hosts; a read meanwhile doesn't ask twice.
@@ -235,14 +261,15 @@ export class PrStates {
       readable.then(
         (yes) => {
           this.checking.delete(url);
-          if (yes && this.running < this.parallel && !this.paused(host, this.now())) this.ask(fix, url, host, this.now());
+          if (yes && this.running < this.parallel && !this.paused(host, this.now())) this.ask(item, host, this.now());
         },
         () => this.checking.delete(url),
       );
     }
   }
 
-  private ask(fix: StoredFix, url: string, host: string, now: number): void {
+  private ask(item: PrItem, host: string, now: number): void {
+    const url = item.url;
     this.asked.set(url, now);
     this.running++;
     this.o.read(url, (read) => {
@@ -252,9 +279,9 @@ export class PrStates {
         if (read.unusable) this.pausedUntil.set(read.missing ? EVERY_HOST : host, this.now() + this.pauseMs);
         return;
       }
-      if (read.state === 'open') return;
+      if (read.state === 'open' && !this.o.writesOpen) return;
       try {
-        this.o.write(fix.fixId, read.state);
+        this.o.write(item.key, read.state, item);
       } catch {
         // the fix is gone, or the store is closing: the next read asks again
         this.asked.delete(url);
@@ -263,12 +290,8 @@ export class PrStates {
   }
 }
 
-/**
- * A refresher that writes what it reads to `store`, as `{ source: { pr: { state } } }` merged into
- * the fix's data, reading only pull requests on the hosts the project uses (`readableHosts` of
- * `projectDir`).
- */
-export function storePrStates(store: () => Store, o: { projectDir?: string | null; read?: PrReader; env?: NodeJS.ProcessEnv } = {}): PrStates {
+/** Where a store's refresher reads: gh, or `read`, only for pull requests on the hosts the project uses (`readableHosts` of `projectDir`). */
+function projectReads(o: { projectDir?: string | null; read?: PrReader; env?: NodeJS.ProcessEnv }): Pick<PrStatesOptions, 'read' | 'readable'> {
   const env = o.env ?? process.env;
   // The hosts as git last named them: gh checks them again before it is handed an address.
   let hosts = new Set<string>();
@@ -276,5 +299,33 @@ export function storePrStates(store: () => Store, o: { projectDir?: string | nul
     hosts = await readableHosts(o.projectDir ?? null, env);
     return hosts.has(prHost(url));
   };
-  return new PrStates({ read: o.read ?? ghReader({ readable: (url) => hosts.has(prHost(url)), env }), readable, write: (fixId, state) => store().mergeFixData(fixId, { source: { pr: { state } } }) });
+  return { read: o.read ?? ghReader({ readable: (url) => hosts.has(prHost(url)), env }), readable };
+}
+
+/**
+ * A refresher that writes what it reads to `store`, as `{ source: { pr: { state } } }` merged into
+ * the fix's data, reading only pull requests on the hosts the project uses (`readableHosts` of
+ * `projectDir`).
+ */
+export function storePrStates(store: () => Store, o: { projectDir?: string | null; read?: PrReader; env?: NodeJS.ProcessEnv } = {}): PrStates {
+  return new PrStates({ ...projectReads(o), write: (fixId, state) => store().mergeFixData(fixId, { source: { pr: { state } } }) });
+}
+
+/**
+ * storePrStates' counterpart for test sessions: asks about the pull requests the sessions given ran
+ * for, open or not yet told (sessionPullRequest), and tells every session of each where it stands by
+ * its page and its number (setTestPullRequestState), `open` included, as a session's stands nowhere
+ * until told. The store writes nothing for a state a session has already.
+ */
+export function storeSessionPrStates(store: () => Store, o: { projectDir?: string | null; read?: PrReader; env?: NodeJS.ProcessEnv } = {}): { refresh(sessions: ReadonlyArray<Pick<TestSession, 'pullRequest'>>): void } {
+  const prs = new PrStates({ ...projectReads(o), writesOpen: true, write: (_page, state, item) => void store().setTestPullRequestState({ number: item.number ?? null, url: item.url }, state) });
+  return {
+    refresh: (sessions) =>
+      prs.refreshItems(
+        sessions.flatMap((s) => {
+          const item = sessionPullRequest(s);
+          return item ? [item] : [];
+        }),
+      ),
+  };
 }
