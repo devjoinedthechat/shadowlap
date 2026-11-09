@@ -30,7 +30,7 @@ export function updateCard(golden: string, judge: readonly string[] | null = nul
   return { tip: ACTIONS.updateGolden.label, sub: judge ? GOLDEN_JOB_WORDS.judgeOnce : GOLDEN_JOB_WORDS.remade, command: commandText(judge ?? ['test', golden, '--update']) };
 }
 
-/** A diverged golden's way on: Re-run once its rule is in, else Add normalizer, which replays the golden or re-records it after the rule. */
+/** A diverged golden's way on: Re-run test once its rule is in, else Add normalizer, which replays the golden or re-records it after the rule. */
 export function normalizeCard(d: Pick<DivergenceView, 'golden' | 'normalizeAndTest'>, n: { label: string; run: 'rerun' | 'normalize' | 'normalize-update' }): TestsCard {
   if (n.run === 'rerun') return { tip: n.label, sub: GOLDEN_JOB_WORDS.ruleIn, command: commandText(['test', d.golden]) };
   return { tip: n.label, sub: n.run === 'normalize' ? GOLDEN_JOB_WORDS.masksThenReplays : GOLDEN_JOB_WORDS.masksThenRemakes, command: (d.normalizeAndTest ?? []).map(commandText).join(' && ') };

@@ -1,21 +1,23 @@
-import { ACTIONS, confirmWords, messageOf, noEstimate, type Normalizer, type StoreOf } from '@shadowlap/engine';
-import { describeEvent } from '../activity.js';
+import { ACTIONS, confirmWords, messageOf, noEstimate, normalizeAddArgs, type Normalizer, type StoreOf } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
-import { choicesInCheckout, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
+import { choicesInCheckout, commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
-import { links } from '../links.js';
-import { searchedCommits } from '../next-step.js';
-import { sendAnswer } from '../read-pool.js';
+import { searchedCommits, type NextStep } from '../next-step.js';
+import { nextStepWork } from '../outcome-work.js';
+import { answerData, sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
+import { namesTeamStore } from './verdicts.js';
+import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { liveAsk } from '../tests-live.js';
-import { bisectChoices, bisectJob, checkedRevision, gatePreview, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type BisectRange, type GoldenSource, type TestsJob, type TestsView } from '../tests.js';
+import { bisectChoices, bisectJob, checkedRevision, gatePreview, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource, type TestsJob, type TestsView, type UntestedCommit } from '../tests.js';
+import { divergenceOf, rulesToAdd, volatileOf } from '../tests-normalize.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
@@ -24,13 +26,16 @@ import { bisectChoices, bisectJob, checkedRevision, gatePreview, liveTestSession
  * figured against `&history=47/50`), the
  * workflow steps Settings → CI shows (`GET /api/ci/workflows`), what Tests' buttons and Find breaking
  * commit would bill (`GET /api/tests/estimates`, `GET /api/estimates/bisect`, worked out beside the
- * server: estimates.ts), and the jobs the Tests screen starts:
+ * server: estimates.ts), a gated golden's attempts (`GET /api/tests/evidence?golden=`, beside the
+ * server: tests-evidence.ts), and the jobs the Tests screen starts:
  *
  *   test                 { golden?, maxAttempts?,       every golden on disk (the goldens folder's pattern, which the CLI
  *                          continue?, yes? }            expands without a shell, and each pack named elsewhere), or one;
  *                                                       `maxAttempts` raises each gate's limit for that session, and
  *                                                       `continue` carries an inconclusive gate's attempts over (Run more attempts)
- *   test-update          { goldens: [...] } | { golden } re-record each live with writes stubbed; replaced when its checks pass
+ *   test-update          { goldens: [...] } | { golden } re-record each live with writes stubbed; replaced when its checks pass;
+ *                        { goldens, normalize: true } Add normalizer and update: first `normalize add` for each value made
+ *                                                       anew on every run that they diverged on, each rule once
  *   bisect               { golden | runId, good, bad? }  Find breaking commit: replays at each commit, halving the range;
  *                                                       for a run, as `GET /api/tests/runs/:id` offers it
  *   normalize-and-test   { golden | runId, path?, yes? } `normalize add` for each value made anew on every run, then `test` on the golden
@@ -120,26 +125,73 @@ export function testsBuild(job: TestsJob, busy: string | null = null, ask: { err
 }
 
 /**
+ * Add normalizer and update, for several goldens: each rule tests-normalize.ts finds for them (a value
+ * their last replays diverged on that is made anew on every run, its rule not in the config), each
+ * once, then the update of every golden named. Refused as Update goldens refuses, and when it would
+ * mask nothing. No question: the update's dialog asked, and an update re-records whatever the mode.
+ */
+export function normalizeAndUpdateJob(store: StoreOf<'tests'>, goldens: readonly GoldenSource[], req: Record<string, unknown>, config: readonly Normalizer[]): TestsJob {
+  const update = updateGoldensJob(goldens, req);
+  if (!('args' in update)) return update;
+  const rules: Normalizer[] = [];
+  // `test <goldens…> --update`: the goldens as checked, each once.
+  for (const golden of update.args.slice(1, -1)) {
+    const latest = store.listTestResults({ golden, limit: 1 })[0];
+    const d = latest?.failure === 'diverged' ? divergenceOf(latest) : null;
+    if (latest && d) rules.push(...rulesToAdd(volatileOf(latest, d), [...config, ...rules]));
+  }
+  if (!rules.length) return { error: 'none of them diverged on a value that changes every run: update them' };
+  return { title: ACTIONS.updateGoldens.doing, steps: [...rules.map((rule) => normalizeAddArgs(rule)), update.args] };
+}
+
+/**
  * Tests' Find breaking commit as the project's checkout can run it: a golden whose last pass was at a
  * commit this checkout lacks (a CI test session's merge commit, a teammate's) asks for a good one,
  * and one that failed at such a commit is searched up to HEAD. The commits its dialog offers are
- * those this checkout has, each with its subject. As it is without a project folder or when git
- * can't say.
+ * those this checkout has, each with its subject, and with no range to search (it never passed), the
+ * few before the one it failed at that it was never tested at. As it is without a project folder or
+ * when git can't say.
  */
-async function rangesInCheckout(view: TestsView, root: string | null | undefined): Promise<TestsView> {
+async function rangesInCheckout(store: StoreOf<'tests'>, view: TestsView, root: string | null | undefined): Promise<TestsView> {
   const all = [...view.divergences, ...view.failures];
   const revs = all.flatMap((d) => [d.bisect?.good ?? null, d.bisect?.bad ?? null, ...d.revisions.map((r) => r.rev)]);
-  if (!root || !revs.some(Boolean)) return view;
-  const here = await commitsHere(root, revs);
+  if (!root || !all.length) return view;
+  const here = revs.some(Boolean) ? await commitsHere(root, revs) : new Set<string>();
   if (!here) return view;
   const subjects = await commitSubjects(root, revs);
-  const inCheckout = <T extends { golden: string; bisect: BisectRange | null; revisions: TestsView['divergences'][number]['revisions'] }>(d: T): T => ({ ...d, bisect: d.bisect ? rangeHere(d.golden, d.bisect, here) : null, revisions: revisionsHere(d.revisions, here, subjects) });
-  return { ...view, divergences: view.divergences.map(inCheckout), failures: view.failures.map(inCheckout) };
+  const inCheckout = async <T extends Pick<TestsView['divergences'][number], 'golden' | 'bisect' | 'missed' | 'revisions' | 'untested'>>(d: T): Promise<T> => {
+    const bisect = d.bisect ? rangeHere(d.golden, d.bisect, here) : null;
+    const revisions = revisionsHere(d.revisions, here, subjects);
+    return { ...d, bisect, revisions, ...(bisect || d.missed ? {} : { untested: await untestedBefore(store, root, d.golden, revisions) }) };
+  };
+  return { ...view, divergences: await Promise.all(view.divergences.map(inCheckout)), failures: await Promise.all(view.failures.map(inCheckout)) };
 }
 
-// Find breaking commit that named no first bad commit, in the activity feed: why, so the next search
-// starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
-describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
+/**
+ * The commits before the one a golden last failed at, along this checkout's first parents, that it
+ * was never tested at (none of `tested`), each with its subject: Find breaking commit offers them for
+ * a golden that never passed, as `not tested there`. None for a result with no commit.
+ */
+async function untestedBefore(store: StoreOf<'tests'>, root: string, golden: string, tested: readonly { rev: string }[]): Promise<UntestedCommit[]> {
+  const bad = store.listTestResults({ golden, limit: 1 })[0]?.revision?.replace(/\+dirty$/, '');
+  if (!bad) return [];
+  const same = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
+  return (await commitsBefore(root, bad)).filter((c) => !tested.some((t) => same(c.rev, t.rev)));
+}
+
+/**
+ * What git says of Tests' revisions beside the server: each one's commit subject, and its author's
+ * email where names show (a team store configured), and whether the working tree has moved on since
+ * the session the verdict names. As it is without a project folder.
+ */
+async function revisionsInCheckout(view: TestsView, root: string | null | undefined): Promise<TestsView> {
+  if (!root) return view;
+  const commits = revisionCommits(view.revisions);
+  const shared = namesTeamStore(root);
+  const session = view.verdict?.session ?? null;
+  const [subjects, authors, tree] = await Promise.all([commitSubjects(root, commits), shared ? commitAuthors(root, commits) : new Map<string, string>(), session?.revision && session.endedAt !== null ? treeNow(root, session.revision) : null]);
+  return { ...withRevisionFacts(view, subjects, authors, shared), older: olderThanTree(session, tree) };
+}
 
 /**
  * Find breaking commit's job as `req` asks it: whether this checkout has the commit a run's search
@@ -186,8 +238,22 @@ export function register(router: Router, ctx: RouteContext): void {
   // Another job replaying or rewriting the goldens, then a session from a terminal: the job is named first.
   const busy = (store: StoreOf<'tests' | 'chaos'>, projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb) ?? sessionBusy(store, verb);
 
+  // Each golden that didn't pass with the step it leads with, as its replay's page leads, worked out
+  // beside the server: the light form, which reads no call. Left out when that read fails: the page
+  // then leads with Run tests.
+  const withSteps = async (view: TestsView): Promise<TestsView> => {
+    const named = [...view.divergences, ...view.failures, ...view.inconclusive].map((d) => d.golden);
+    if (!named.length) return view;
+    try {
+      return { ...view, steps: answerData<Record<string, NextStep>>(await ctx.reads.run({ kind: 'tests-steps', goldens: named, next: nextStepWork(ctx) })) };
+    } catch {
+      return view;
+    }
+  };
+
   router.get('/tests', async (r) => {
-    r.tagged(await rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path));
+    const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
+    r.tagged(await withSteps(await revisionsInCheckout(view, ctx.project?.path)));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's
@@ -200,6 +266,14 @@ export function register(router: Router, ctx: RouteContext): void {
     if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');
     const bisect = bisectChoices(ctx.store, run.runId, { goldens: goldens(), ...(before !== undefined ? { before } : {}) });
     r.tagged({ banner: testRunBanner(ctx.store, run.runId, { normalizers: normalizers() }), bisect: bisect && (await choicesInCheckout(ctx.project?.path, bisect)) });
+  });
+
+  // A gated golden's attempts, each judged from its run, asked when the row under it opens: read in
+  // the pool, by key. A golden not on disk is refused here, before the pool is asked.
+  router.get('/tests/evidence', async (r) => {
+    const golden = knownGolden(goldens(), r.query.get('golden'));
+    if (!golden) throw new HttpError(400, 'golden: name a golden on disk');
+    sendAnswer(r, await ctx.reads.run({ kind: 'tests-evidence', golden }));
   });
 
   // What Run tests and each golden's buttons would bill, worked out beside the server: they read the
@@ -286,9 +360,11 @@ export function register(router: Router, ctx: RouteContext): void {
       return testsBuild(job, busy(store, projectId, req.golden === undefined ? 'run the tests' : 'run it again'), liveAsk(list, job, req.yes));
     },
   });
+  // Several at once with their rules first (`normalize`) are a job of their own.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.update, {
     title: () => ACTIONS.updateGoldens.doing,
-    build: (req, { store, projectId }) => testsBuild(updateGoldensJob(goldens(), req), busy(store, projectId, 'update it')),
+    build: (req, { store, projectId }) =>
+      req.normalize === true ? testsBuild(normalizeAndUpdateJob(store, goldens(), req, normalizers()), busy(store, projectId, 'update them')) : testsBuild(updateGoldensJob(goldens(), req), busy(store, projectId, 'update it')),
   });
   // A golden's search waits for the tests, and they for it; a run's searches nothing on disk.
   ctx.jobs.registerJobKind(TEST_JOB_KINDS.bisect, {

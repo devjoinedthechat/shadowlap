@@ -26,6 +26,12 @@ export interface JobButtonProps extends Omit<ActionButtonProps, 'onClick' | 'est
   ask: () => void;
 }
 
+/** A list row's step's handlers (Needs a look): a list carries no estimate, so the step asks for its own as the pointer or the focus reaches it. */
+export interface StepHooks {
+  onPointerEnter: () => void;
+  onFocus: () => void;
+}
+
 /** The rule a press follows, inside the app's guard as every start is: for what renders, a button or a menu's row. */
 export function useBilledPress(): (p: BilledPress) => boolean {
   const { guard } = useApp();

@@ -77,16 +77,23 @@ function described(whose: string, arm: Arm): string {
 }
 
 /**
- * The report's line on what answered the attempts after their forks: the change's, and its good runs'
- * baselines' apart. None when the change's attempts made no tool call after a fork, or none counted
- * them (each replayed clean, or a report made before attempts did).
+ * What answered the attempts after their forks, in one sentence: the change's, and its good runs'
+ * baselines' apart, as the report's line says it (`afterForkLines`) and a fix's Verify step shows it.
+ * Null when the change's attempts made no tool call after a fork, or none counted them (each replayed
+ * clean, or a report made before attempts did).
  */
-export function afterForkLines(runs: readonly Pick<VerifiedRun, 'attempts' | 'baselineRuns'>[], p: Palette, columns?: number | null): string[] {
+export function afterForkSentence(runs: readonly Pick<VerifiedRun, 'attempts' | 'baselineRuns'>[]): string | null {
   const change = armOf(runs.flatMap((r) => r.attempts));
-  if (!total(change.calls)) return [];
+  if (!total(change.calls)) return null;
   const base = armOf(runs.flatMap((r) => r.baselineRuns ?? []));
   const baseline = base.attempts ? `; ${described("the baselines'", base)}` : '';
-  return dimLines(p, '  ', `after the fork, ${described("the change's", change)}${baseline}`, columns);
+  return `after the fork, ${described("the change's", change)}${baseline}`;
+}
+
+/** The report's line on what answered the attempts after their forks (`afterForkSentence`); none when the sentence is. */
+export function afterForkLines(runs: readonly Pick<VerifiedRun, 'attempts' | 'baselineRuns'>[], p: Palette, columns?: number | null): string[] {
+  const sentence = afterForkSentence(runs);
+  return sentence ? dimLines(p, '  ', sentence, columns) : [];
 }
 
 /** Of an arm's tool calls after the fork, the share no tool answered: stubbed or blocked. */

@@ -121,20 +121,18 @@
 .diffpanel { border-top: 1px solid var(--line); padding: 14px 24px 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; background: var(--bg2); }
 .diffpanel h4 { margin: 0 0 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .diffpanel pre { margin: 0; padding: 12px 14px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.7 var(--mono); color: var(--dim); overflow-x: auto; }
-.diffpanel .add { color: var(--add); background: var(--add-bg); display: block; margin: 0 -14px; padding: 0 14px; }
-.diffpanel .val { display: block; }
+.diffpanel pre .add { color: var(--add); background: var(--add-bg); display: block; margin: 0 -14px; padding: 0 14px; }
 
 /* Where the two requests stack, a value too long for its pane wraps in it, after a comma where it can,
    and goes on under its own start, so the line that changed is read whole without scrolling. */
 @media (max-width: 1000px) {
   .diffpanel pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .diffpanel .val { padding-left: 2ch; text-indent: -2ch; }
-  .diffpanel .add { padding-left: calc(14px + 2ch); text-indent: -2ch; }
+  .diffpanel pre .add { padding-left: calc(14px + 2ch); text-indent: -2ch; }
 }
 .diffpanel .hint { grid-column: 1 / -1; font-size: 12.5px; color: var(--faint); }
-.strip { position: relative; display: flex; align-items: center; gap: 16px; padding: 22px 24px 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.strip { position: relative; display: flex; align-items: center; gap: 16px; padding: 14px 24px 8px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .cells { position: relative; flex: 1; display: grid; gap: 3px; min-width: 0; }
-.cells button { position: relative; height: 22px; padding: 0; border: 0; border-radius: 3px; cursor: pointer; background: var(--line2); }
+.cells button { position: relative; height: 22px; padding: 0; border: 0; border-radius: var(--r-mark); cursor: pointer; background: var(--line2); }
 .cells button.rep { background: var(--o-rep); }
 .cells button.live { background: var(--o-live); }
 .cells button.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
@@ -145,11 +143,42 @@
 /* a fork is marked in ink; a lost call in the one red */
 .cells button.mark { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
 .cells button.mark.bl { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--err); }
-.cells button .flag { position: absolute; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%); font: 600 9.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; color: var(--ink); }
+.cells button .flag { position: absolute; left: 50%; bottom: calc(100% + 3px); transform: translateX(-50%); font: 600 var(--fs-label) / 1 var(--body); white-space: nowrap; color: var(--ink); }
+/* a marked cell's focus ring outside its mark; the selected cell ringed while the focus is in the strip */
+.cells button.mark:focus-visible { outline-offset: 5px; }
+.cells:focus-within button[aria-current="true"] { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+/* a recording's cells by kind: a model call in live's tone, a read at 40% of it, a write teal, an error the one red */
+.cells button.k-model { background: var(--k-model); }
+.cells button.k-read { background: var(--k-read); }
+.cells button.k-write { background: var(--k-write); }
+.cells button.k-err { background: var(--k-err); }
+/* a range's notch: its rarer notable call (an error, a write, what a fork changed or fenced), at its place in the range */
+.cells button .tk { position: absolute; top: -4px; height: 8px; width: 2px; margin-left: -1px; border-radius: 1px; pointer-events: none; background: var(--ink); box-shadow: 0 0 0 1px var(--bg); }
+.cells button .tk.k-err, .cells button .tk.fail { background: var(--err); }
+.cells button .tk.k-write { background: var(--k-write); }
+.cells button .tk.block { background: var(--o-block); }
+.cells button .tk.stub { background: var(--o-stub); }
+.cells button .tk.over, .cells button .tk.inject { background: var(--o-over); }
+.cells button .tk.live { background: var(--o-live); }
+@media (pointer: coarse) { .cells button { height: 24px; } }
 .cells button.bl .flag { color: var(--err); }
 .cells button[aria-current="true"]::after { content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); border: 5px solid transparent; border-bottom-color: var(--ink); }
 .cells button:hover:not(.pending) { filter: brightness(1.15); }
 .strip .legend { flex: none; }
+/* the key, which is the call filter: chips with a swatch, a word and a count; a recording says first that every call is live */
+.legend.lfilter { gap: 2px; align-items: center; font: 500 12px var(--body); }
+.legend.lfilter button { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 0; border-radius: var(--r-chip); background: none; cursor: pointer; font: inherit; color: var(--faint); white-space: nowrap; }
+.legend.lfilter button:hover { color: var(--ink); }
+.legend.lfilter button[aria-pressed="true"] { background: var(--raise); color: var(--ink); box-shadow: 0 0 0 1px var(--line2); }
+.legend.lfilter button b { font: 500 11px var(--mono); color: var(--faint); }
+.legend.lfilter i.lg { border-radius: var(--r-mark); }
+.legend.lfilter .lk { color: var(--faint); margin-right: 8px; white-space: nowrap; }
+.legend i.lg.k-model { background: var(--k-model); }
+.legend i.lg.k-read { background: var(--k-read); }
+.legend i.lg.k-write { background: var(--k-write); }
+.legend i.lg.k-err { background: var(--k-err); }
+.strip .filter-in { flex: none; margin-left: 0; }
+.strip .filter-in input { height: 26px; width: 150px; }
 .work { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(380px, 1fr); }
 .views { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
 .tabs { display: flex; align-items: center; gap: 2px; padding: 8px 16px 0 18px; border-bottom: 1px solid var(--line); }
@@ -158,12 +187,8 @@
 .tabs [aria-selected="true"] { color: var(--ink); }
 .tabs [aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); }
 .tabs .count { font: 11px var(--mono); color: var(--faint); margin-left: 4px; }
+.views > .tabs { padding-top: 0; }
 .toolbar { display: flex; align-items: center; gap: 10px; padding: 9px 18px; border-bottom: 1px solid var(--line); }
-.ofilter { display: flex; gap: 2px; }
-.ofilter button { border: 0; background: none; cursor: pointer; padding: 4px 8px; border-radius: 7px; font: 500 12px var(--body); color: var(--faint); }
-.ofilter button b { font: 500 11px var(--mono); margin-left: 4px; color: var(--faint); }
-.ofilter button:hover { color: var(--ink); }
-.ofilter button[aria-pressed="true"] { background: var(--raise); color: var(--ink); box-shadow: 0 0 0 1px var(--line2); }
 .filter-in { margin-left: auto; position: relative; }
 .filter-in input { height: 30px; width: 200px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--body); padding: 0 30px 0 10px; outline: none; }
 .filter-in input:focus { border-color: var(--accent-line); }
@@ -183,16 +208,18 @@ table.calls tbody tr { cursor: pointer; }
 table.calls tbody tr:hover td { background: var(--hover); }
 table.calls tr[aria-selected="true"] td { background: var(--sel); }
 table.calls tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
-table.calls .n { width: 54px; text-align: right; font: 12px var(--mono); color: var(--faint); }
-table.calls .n .fk { font: 600 9px var(--mono); letter-spacing: .1em; color: var(--ink); margin-right: 5px; }
+table.calls .n { width: 54px; text-align: right; font: 12.5px var(--mono); color: var(--faint); }
+table.calls .n .fk { font: 600 var(--fs-label) var(--body); color: var(--ink); margin-right: 5px; }
 table.calls .n .fk.bl { color: var(--err); }
 table.calls .name { font-weight: 500; }
 table.calls .name small { font: 11px var(--mono); color: var(--faint); margin-right: 8px; }
 table.calls .name { max-width: 1px; width: 100%; overflow: hidden; text-overflow: ellipsis; }
-table.calls .det { font: 12px var(--mono); font-weight: 400; color: var(--faint); margin-left: 12px; }
+table.calls .det { font: 12.5px var(--mono); font-weight: 400; color: var(--faint); margin-left: 12px; }
 /* a tool's result sits under its call: the request on one line, what came back on the next */
-table.calls .res { display: block; margin: 1px 0 0 37px; font: 11.5px var(--mono); font-weight: 400; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
+table.calls .res { display: block; margin: 1px 0 0 37px; font: 11px var(--mono); font-weight: 400; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
 table.calls .res.err { color: var(--err); }
+/* a blocked write's result in the blocked grey, as its origin is: the fence is Shadowlap working, never the red of what failed */
+table.calls .res.blk { color: var(--o-block); }
 /* light grouping: a call under the call it belongs to, its fold mark in the room before its kind */
 table.calls .lead { display: inline-flex; justify-content: flex-end; align-items: center; height: 16px; vertical-align: -3px; margin-right: 4px; }
 table.calls .tw { width: 16px; height: 16px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--dim); cursor: pointer; }
@@ -202,9 +229,8 @@ table.calls .tw:hover { color: var(--ink); background: var(--hover); }
 table.calls .gitem { font: 11px var(--mono); font-weight: 400; color: var(--dim); margin-left: 10px; }
 table.calls .gfold { font: 11px var(--mono); font-weight: 400; color: var(--dim); margin-left: 10px; padding: 0 5px; border: 1px solid var(--line2); border-radius: 5px; }
 table.calls.grouped .res { margin-left: calc(37px + var(--lead, 0px)); }
-.toolbar .foldall { white-space: nowrap; }
 table.calls .num.was { color: var(--faint); }
-table.calls .num { text-align: right; font: 12px var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
+table.calls .num { text-align: right; font: 12.5px var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
 table.calls .rowact { width: 36px; padding: 0 8px 0 0; text-align: right; }
 table.calls .rowact button { visibility: hidden; width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 6px; border: 1px solid var(--line2); background: var(--panel); color: var(--dim); cursor: pointer; }
 table.calls .rowact button svg { width: 12px; height: 12px; }
@@ -273,6 +299,11 @@ table.ctab tr.miss td { color: var(--warn); }
 .tl-row .bar.live { background: var(--o-live); }
 .tl-row .bar.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
 .tl-row .bar.stub { background: var(--o-stub); }
+/* A recording's bars by what each call was, in the strip's key. */
+.tl-row .bar.k-model { background: var(--k-model); }
+.tl-row .bar.k-read { background: var(--k-read); }
+.tl-row .bar.k-write { background: var(--k-write); }
+.tl-row .bar.k-err { background: var(--k-err); }
 .tl-row .ft { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--bg); }
 .tl-sum .ftkey { display: inline-block; width: 16px; height: 8px; margin-right: 6px; vertical-align: 0; border-radius: 2px; background: linear-gradient(90deg, var(--dim) 0 6px, var(--bg) 6px 8px, var(--dim) 8px); }
 .tl-sum { display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 4px 18px 16px; font-size: 12.5px; color: var(--faint); }
@@ -304,6 +335,11 @@ table.ctab tr.miss td { color: var(--warn); }
 .ihead .nav { margin-left: auto; display: flex; gap: 4px; }
 .insp .tabs { padding-left: 10px; }
 .ibody { flex: 1; overflow: auto; min-height: 0; padding: 12px 18px 24px; }
+/* a finding's diff in the inspector's place, with Hide in its head: one column, the inspector's width, scrolling with it */
+.insp.fpanel .fhead { padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.insp.fpanel .fhead .ct { font: 600 13.5px var(--body); }
+.insp.fpanel .fbody { padding: 0; }
+.insp.fpanel .diffpanel { grid-template-columns: minmax(0, 1fr); border-top: 0; padding: 14px 18px 16px; background: none; }
 .ibar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; color: var(--faint); }
 .ibar .sp { flex: 1; }
 .expand { display: block; width: 100%; margin: 4px 0 2px; padding: 8px 10px; border: 1px dashed var(--line2); border-radius: 9px; background: none; color: var(--faint); font: 12px var(--body); cursor: pointer; text-align: center; }
@@ -355,28 +391,96 @@ table.ctab tr.miss td { color: var(--warn); }
 .addnote textarea { flex: 1; min-height: 38px; max-height: 120px; resize: vertical; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 13px var(--body); padding: 8px 10px; outline: none; }
 .addnote textarea:focus { border-color: var(--accent-line); }
 
+/* The run page keeps its views in sight. From 1001px the window doesn't scroll, so the findings and
+   the strip took their height from the views until the calls list kept a row or none. The work area
+   keeps its minimum instead, the calls list about 180px (its head and four rows) and the inspector
+   beside it or under it, and the run page scrolls (.rv) when the window is shorter, the strip kept
+   at its top as the calls' header. */
+@media (min-width: 1001px) {
+  .rv { overflow-y: auto; overscroll-behavior: contain; }
+  .work { flex: 1 1 0; min-height: 420px; }
+  .strip { position: sticky; top: 0; z-index: 6; background: var(--bg); }
+}
+/* While a job's log is open the views give up their minimum height, so the calls keep their rows
+   above it, from 1281px where the inspector sits beside them; a shorter window scrolls the page. */
+@media (min-width: 1281px) { body.docked:not(.dockfold) .work { min-height: 240px; } }
+/* The calls and the inspector stay side by side down to 1160px, the inspector at its 360px least
+   (its tabs and its title fit), the view tabs 8px a side so the counts keep inside the calls'
+   column; narrower, the inspector goes under the calls. Below 1281px the cells take the strip's
+   whole width, the key and the field under them. */
+@media (min-width: 1160px) and (max-width: 1280px) {
+  .work { grid-template-columns: minmax(0, 1fr) minmax(360px, .62fr); }
+  .views > .tabs { padding-left: 16px; }
+  .views > .tabs button { padding-left: 8px; padding-right: 8px; }
+  .views > .tabs [aria-selected="true"]::after { left: 8px; right: 8px; }
+}
 @media (max-width: 1280px) {
+  .strip { flex-wrap: wrap; row-gap: 8px; }
+  .strip .cells { flex: 1 1 100%; }
+  .strip .legend.lfilter { flex: 1 1 auto; }
+}
+@media (max-width: 1159px) {
   .work { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(280px, 1fr) minmax(320px, 1fr); }
   .views { border-right: 0; border-bottom: 1px solid var(--line); }
+}
+/* From 1001px to 1159px the inspector sits under the calls at its own height and the run page
+   scrolls to it: only the calls list scrolls inside the page, at most half the window (fit-work.ts
+   sets it lower, so the inspector's head shows under it), so nothing is a scroll inside a scroll
+   inside a scroll. The list stays a box of its own height, which its window needs to draw only
+   the rows in view. */
+@media (min-width: 1001px) and (max-width: 1159px) {
+  .work { flex: none; grid-template-rows: auto auto; min-height: 0; }
+  .vbody { max-height: max(300px, 50vh); }
+  .ibody { overflow: visible; }
+  #insp { scroll-margin-top: 84px; }
 }
 
 @media (max-width: 1000px) {
   .diffpanel { grid-template-columns: minmax(0, 1fr); }
   .rhead { padding: 16px 16px 12px; }
   .rhead .actions { margin-left: 0; justify-content: flex-start; }
-  .strip .legend { display: none; }
   .rv { flex: none; }
   .work { grid-template-rows: auto auto; }
   .vbody, .ibody { max-height: 70vh; }
+  /* The window scrolls: the cells stay at its top as the calls' header, the key and the field under
+     them, one 16px gutter down the page as the header's. */
+  .strip { display: contents; }
+  .strip .cells { flex: none; position: sticky; top: 0; z-index: 6; padding: 18px 16px 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--bg); }
+  .strip .legend.lfilter { flex: none; padding: 10px 16px 0; }
+  /* its rows wrap here, a chip over another: each 24px tall, a finger's target */
+  .strip .legend.lfilter button { min-height: 24px; }
+  .strip .filter-in { margin: 8px 16px 10px; }
+  .strip .filter-in input { width: 100%; }
+  .rv .scopebar { padding-left: 16px; padding-right: 16px; }
+  #insp { scroll-margin-top: 64px; }
 }
 
 @media (max-width: 640px) {
-  table.calls .tok { display: none; }
+  table.calls .tok, table.calls .hide-sm { display: none; }
   table.calls .det { display: none; }
   .toolbar { flex-wrap: wrap; padding: 9px 16px; }
-  .filter-in { margin-left: 0; flex: 1 1 100%; }
-  .filter-in input { width: 100%; }
 }
+/* Under 400px a call's name keeps its room: a cell's padding 6px, the origin its swatch alone (its
+   word kept for a screen reader, on the swatch's hover and in the inspector), a fork's or a lost
+   call's word over its number. The word is hidden inside its cell, which holds it in place. */
+@media (max-width: 400px) {
+  table.calls td, table.calls th { padding-left: 6px; padding-right: 6px; }
+  table.calls .n { width: auto; }
+  table.calls .n .fk { display: block; margin: 0 0 1px; line-height: 1.1; }
+  table.calls .org .orgw, table.calls .orgh .orgw { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  table.calls .org { position: relative; }
+}
+/* Under 360px (a 320px phone, or 400% zoom) the inspector's four tabs keep the width by tighter
+   sides; if they still don't fit, they scroll in their row rather than push the page sideways, a
+   focused tab's ring drawn inside it, whole. */
+@media (max-width: 359px) {
+  .insp .tabs { padding-right: 10px; overflow-x: auto; scrollbar-width: none; }
+  .insp .tabs::-webkit-scrollbar { display: none; }
+  .insp .tabs button { flex: none; padding-left: 6px; padding-right: 6px; }
+  .insp .tabs [aria-selected="true"]::after { left: 6px; right: 6px; bottom: 0; }
+}
+/* A scope gives its room to the call's name past 140px; its hover has all of it. */
+table.calls .scopecell code { display: inline-block; max-width: 140px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 
 .cells button.inject { background: var(--o-inject); }
 .cells button.fail { background: var(--o-fail-fill); }
@@ -446,7 +550,7 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .banner.wrap .why { flex: 1 1 280px; white-space: normal; overflow: visible; text-overflow: clip; text-wrap: pretty; }
 /* long runs */
 .cells.binned { gap: 1px; }
-.cells.binned button { border-radius: 1px; }
+.cells.binned button { border-radius: var(--r-mark); }
 .cbars.many, .couts.many, .clabels.many { gap: 1px; }
 .cbars.many .cbar > i:last-child { border-radius: 1px 1px 0 0; }
 .clabels.many span { overflow: visible; white-space: nowrap; }
@@ -476,6 +580,7 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 
 /* On a phone the run's view tabs scroll sideways inside their row instead of widening the page. */
 @media (max-width: 640px) { .views .tabs { overflow-x: auto; scrollbar-width: none; } .views .tabs::-webkit-scrollbar { display: none; } .views .tabs button { flex: none; } .views .tabs [aria-selected="true"]::after { bottom: 0; } }
+@media (max-width: 640px) { .views .tabs button:focus-visible { outline-offset: -2px; } }
 @media (max-width: 640px) { .rhead > div { max-width: 100%; } .rhead .meta code { white-space: normal; overflow-wrap: anywhere; } }
 
 .rv.loading { flex: 1; }
@@ -547,13 +652,12 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 /* At a phone's width the label goes over the note, which takes the whole width: no baseline alignment to hold it at its text's width. */
 @media (max-width: 760px) { .rnote { flex-direction: column; align-items: stretch; gap: 4px; padding: 8px 16px; } }
 .banner.n .bk { color: var(--dim); }
-/* a run's page at a phone's width: the origin filters wrap under each other, why a run failed
-   wraps like the sentence it is, and so do a banner's buttons (a diverged test's Add normalizer and
-   update…, Update golden and Show diff) rather than run off the screen */
+/* a run's page at a phone's width: why a run failed wraps like the sentence it is, and so do a
+   banner's buttons (a diverged test's Add normalizer and update…, Update golden and Show diff)
+   rather than run off the screen */
 .rhead .meta > span.mfail { white-space: normal; }
 
 @media (max-width: 640px) {
-  .toolbar .ofilter { flex-wrap: wrap; row-gap: 4px; }
   .banner .end { flex-wrap: wrap; row-gap: 8px; }
 }
 
@@ -654,7 +758,9 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
   .cells button:focus-visible { outline-color: Highlight; }
   .cells button .flag { forced-color-adjust: auto; }
   .tabs [aria-selected="true"]::after, .clabels .sel::before { background: CanvasText; }
-  .ofilter button[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
+  .legend.lfilter button[aria-pressed="true"] { text-decoration: underline 2px; text-underline-offset: 4px; }
+  /* a range's notch in the text colour, over a cell that keeps its own */
+  .cells button .tk { forced-color-adjust: none; background: CanvasText; }
   /* the open call's and turn's fill and bar are lost: their row is outlined in the highlight colour */
   table.calls tr[aria-selected="true"], .turn.sel { outline: 2px solid Highlight; outline-offset: -2px; }
   /* a chart's thinnest parts keep their colours inside a halo of the page's own dark; the open call's bar is outlined */

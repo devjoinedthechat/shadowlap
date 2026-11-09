@@ -170,7 +170,7 @@ The terminal UI's keys:
 | `/` | Filter calls by name, arguments, origin or scope as you type; in the runs view, filter runs |
 | `[` / `]` | Previous / next call that didn't replay cleanly |
 | `n`, `d` | Jump to the call the run forked at; show what changed there on the diff tab |
-| `f` | Cycle the origin filter: all / live / replayed / fenced |
+| `f` | Cycle the origin filter: all / live / replayed / blocked / stubbed |
 | `:` | Actions for the selected call |
 | `y`, `w` | Copy the request (or the response, on that tab) to the clipboard; write request and response to a file |
 | `p` | Open the parent run |
@@ -184,7 +184,7 @@ The terminal UI's keys:
 
 **`/`** filters as you type: `Enter` keeps the filter, `Esc` puts back the one before, and `Esc` again clears it. In the runs view, it filters runs by id, what they were about, command, revision or label.
 
-**`[` and `]`** step to a call that didn't replay cleanly: one that ran live, was fenced, overridden or injected, or failed.
+**`[` and `]`** step to a call that didn't replay cleanly: one that ran live, was blocked, stubbed, overridden or injected, or failed.
 
 **`n` and `d`**: `n` jumps to the call the run forked at, and `d` shows what changed there, and what the fork did differently, on the diff tab.
 

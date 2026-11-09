@@ -28,6 +28,8 @@ const STANDS_FOR_MS = 60_000;
 const KEPT = 200;
 /** How long git gets to answer. */
 const GIT_TIMEOUT_MS = 5000;
+/** Only a commit's hex name is ever handed to git: a revision comes from a run, which may have come from anyone. */
+export const HEX = /^[0-9a-f]{4,64}$/i;
 
 interface Answer {
   files: string;

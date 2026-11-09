@@ -4,7 +4,7 @@ import { normalizeRunDetail, normalizeState } from '../ui/normalize.js';
 import { failedWord, familyLine, familyLineParts, isFailed, isInterrupted, repeatBundle, runGlyph, runOutcome, runTag, sideLine, type RunLike } from '../ui/runs.js';
 import { lineageRunLike, runLikeOf } from '../ui/run/model.js';
 import { datasetTooMany, DATASET_MAX_RUNS } from '../ui/run/share.js';
-import { blameScope, scopeChips, scopeHint } from '../ui/scopes.js';
+import { agentsShown, blameScope, inScope, realScopes, scopeChips, scopeHint } from '../ui/scopes.js';
 import type { LineageNode, RunDetail, RunListItem } from '../ui/types.js';
 import { MAX_DATASET_RUNS } from '../src/run-exports.js';
 
@@ -203,6 +203,48 @@ describe('the scope the page suggests blaming within', () => {
     const both = [...calls, { callNo: 5, scope: 'customer', kind: 'tool' }];
     expect(scopeHint(both, scopeChips(both), 'all')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
     expect(scopeHint([], [], 'all')).toBeNull();
+  });
+
+  it('shows agents the server names, and hints blame by the scopes the author gave alone', () => {
+    const one = [
+      { callNo: 1, agent: 'support-agent', kind: 'api' },
+      { callNo: 2, agent: 'support-agent', kind: 'tool' },
+    ];
+    // One agent and no scope: nothing to show.
+    expect(agentsShown(one)).toBe(false);
+    const two = [...one, { callNo: 3, agent: 'support-agent/Explore', kind: 'api' }];
+    expect(agentsShown(two)).toBe(true);
+    expect(scopeChips(two)).toEqual(['support-agent', 'support-agent/Explore']);
+    expect(two.filter((c) => inScope(c, 'support-agent/Explore')).map((c) => c.callNo)).toEqual([3]);
+    // No scope to blame by.
+    expect(realScopes(two)).toEqual([]);
+    // A scope, alone, shows; a picked agent that is no scope hints the scope that acts.
+    const scoped = [{ callNo: 1, scope: 'agent', agent: 'agent', kind: 'tool' }, { callNo: 2, scope: 'agent', agent: 'agent/summarizer', kind: 'api' }];
+    expect(agentsShown(scoped.slice(0, 1))).toBe(true);
+    expect(scopeHint(scoped, realScopes(scoped), 'agent/summarizer')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
+  });
+
+  it("gives Shadowlap's judge no chip, no bar and no blame hint of its own: its calls are under All", () => {
+    const judge = { callNo: 9, scope: 'shadowlap:judge', agent: 'shadowlap:judge', kind: 'api' };
+    // A judge call beside a scoped one: the chips, and the scopes blame is offered, are the agent's alone.
+    const scoped = [{ callNo: 1, scope: 'agent', agent: 'agent', kind: 'api' }, { callNo: 2, scope: 'agent', agent: 'agent', kind: 'tool' }, judge];
+    expect(scopeChips(scoped)).toEqual(['agent']);
+    expect(realScopes(scoped)).toEqual(['agent']);
+    // Never "not the shadowlap:judge it answers", nor `--scope shadowlap:judge`, picked or not.
+    expect(scopeHint(scoped, realScopes(scoped), 'all')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
+    expect(scopeHint(scoped, realScopes(scoped), 'shadowlap:judge')).toEqual({ lead: 'Blame within one scope', scope: 'agent' });
+    // Nor does it hide the model that plays the user in an eval it judges.
+    const evaluated = [{ callNo: 0, scope: 'customer', agent: 'customer', kind: 'api' }, ...scoped];
+    expect(scopeHint(evaluated, realScopes(evaluated), 'all')).toEqual({ lead: 'Blame only the agent, not the customer it answers', scope: 'agent' });
+    expect(scoped.filter((c) => inScope(c, 'all'))).toHaveLength(3);
+    // One agent, judged: no bar, as with no judge.
+    const one = [{ callNo: 1, agent: 'support-agent', kind: 'api' }, { callNo: 2, agent: 'support-agent', kind: 'tool' }, judge];
+    expect(agentsShown(one)).toBe(false);
+    expect(agentsShown([judge])).toBe(false);
+    // Two agents, judged: the bar, with no chip for the judge.
+    const two = [...one, { callNo: 3, agent: 'support-agent/Explore', kind: 'api' }];
+    expect(agentsShown(two)).toBe(true);
+    expect(scopeChips(two)).toEqual(['support-agent', 'support-agent/Explore']);
   });
 });
 

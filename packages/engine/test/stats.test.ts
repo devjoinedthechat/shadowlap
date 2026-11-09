@@ -33,6 +33,8 @@ import {
   sprtBounds,
   sprtScore,
   sprtStep,
+  tallyApart,
+  apartWords,
   verdictLine,
   wilson,
   rateBound,
@@ -721,6 +723,9 @@ describe('what the reports say', () => {
     expect(r.interval).toEqual(gateResult(SPEC, Array(12).fill(true)).interval);
     expect(r.sentence).toBe('passed · 12 of 12 (2 unavailable, not counted) · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
     expect(verdictLine({ ...r, carried: 4 })).toBe('passed · 12 of 12 (4 carried over; 2 unavailable, not counted) · rate >= 0.73 (95%)');
+    // The same clauses for a page that says them apart from the line, and one attempt's words of itself.
+    expect(tallyApart({ carried: 4, cutShort: 0, unavailable: 2 })).toEqual(['4 carried over', '2 unavailable, not counted']);
+    expect([apartWords('cutShort', 2), apartWords('cutShort')]).toEqual(['2 cut short by the provider, counted against either verdict', 'cut short by the provider, counted against either verdict']);
     expect(gateResult(SPEC, Array(12).fill(true)).unavailable).toBeUndefined();
     // Three in a row before any counted: nothing decided, and no rate to show.
     expect(gateResult(SPEC, [], { unavailable: 3, decision: 'continue' }).sentence).toBe('undecided · 0 of 0 (3 unavailable, not counted) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');

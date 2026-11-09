@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CallRow, CallsPage, Client, RunDetail } from '../ui/api.js';
 import type { Origin7 } from '../ui/origins.js';
+import type { Kind } from '../ui/run/kinds.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { forgetPickedCalls, firstFailedCall, firstStep, openingCall, type OpenCall } from '../ui/run/open-at.js';
 import { PAGE } from '../ui/run/paging.js';
@@ -77,6 +78,18 @@ describe('where a run opens', () => {
     const clock = [...read.slice(0, 9), oc(10, 'clock', 'error'), ...read.slice(10)];
     const both: Origin7[] = origins.map((o, i) => (i === 9 ? 'fail' : o));
     expect(firstFailedCall(clock, both)).toBe(900);
+  });
+
+  it('finds a long run’s first write and last model call past the calls read from every call’s kind', () => {
+    const read = Array.from({ length: 200 }, (_, i) => oc(i + 1, i % 2 ? 'tool' : 'api', 'ok', 'live', 'read'));
+    const kinds: Kind[] = Array.from({ length: 1200 }, (_, i) => (i === 699 ? 'k-write' : i === 1099 ? 'k-model' : 'k-read'));
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, kinds })).toBe(700);
+    // With no write, its last model call, far past the calls read.
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, kinds: kinds.map((k) => (k === 'k-write' ? 'k-read' : k)) })).toBe(1100);
+    // A failure still comes first, and every page read the kinds go unused.
+    const origins: Origin7[] = Array.from({ length: 1200 }, (_, i) => (i === 899 ? 'fail' : 'live'));
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, origins, kinds })).toBe(900);
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read.slice(0, 2), kinds: kinds.slice(0, 2) })).toBe(1);
   });
 });
 

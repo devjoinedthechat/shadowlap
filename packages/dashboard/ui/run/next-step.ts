@@ -7,6 +7,7 @@ import type { PaletteEntry } from '../palette.js';
 import { keyColumn, type ShortcutId } from '../shortcuts.js';
 import type { ActionItem, BlameBeside, GateEntry, NextStep, NextStepRow, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
+import { PACK_VERB } from './share.js';
 
 /**
  * The step the run page leads with, as the server works it out (src/next-step.ts): the header's one
@@ -23,9 +24,6 @@ export function nextStepOf(run: Pick<RunDetail, 'next'>): NextStep | null {
 export function replayAction(step: NextStep | null): ActionItem | null {
   return step?.key === 'replay' && step.action ? normalizeAction(step.action as unknown as ActionItem) : null;
 }
-
-/** What Pack as golden… waits with, as it packs a golden and tests it: a Tests job holds the goldens. */
-export const PACK_VERB = 'pack it';
 
 /**
  * What a step that runs a job waits for, by the verb its button says it in: a Tests job for a job

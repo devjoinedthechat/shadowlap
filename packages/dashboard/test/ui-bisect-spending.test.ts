@@ -88,7 +88,7 @@ describe('Find breaking commit, priced from its commit', () => {
 
   it('prices Tests’ search of a golden over its known range, and sends it with the range', async () => {
     const ran: Array<Record<string, unknown>> = [];
-    const { asked } = await shown(createElement(TestsFindCommit, { name: 'flaky', golden: 'goldens/flaky', range: { good: 'aaaaaaa', bad: 'bbbbbbb' }, live: true, revisions: [], tried: null, onRun: (f: Record<string, unknown>) => ran.push(f), onClose: () => undefined }));
+    const { asked } = await shown(createElement(TestsFindCommit, { name: 'flaky', golden: 'goldens/flaky', range: { good: 'aaaaaaa', bad: 'bbbbbbb' }, live: true, goods: { revisions: [] }, onRun: (f: Record<string, unknown>) => ran.push(f), onClose: () => undefined }));
     await r!.wait(300);
     expect(asked).toEqual([{ golden: 'goldens/flaky', good: 'aaaaaaa', bad: 'bbbbbbb' }]);
     await r!.click(r!.one('.dialog .dlg-ok'));

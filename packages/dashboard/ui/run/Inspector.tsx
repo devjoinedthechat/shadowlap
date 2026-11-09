@@ -9,6 +9,7 @@ import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
 import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
+import { agentOf } from '../scopes.js';
 import { shortcut, shortcutCard } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
@@ -75,7 +76,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
           {kindName}
         </span>
         <Org origin={originOf(call)} />
-        {call.scope ? <span className="scopetag">{call.scope}</span> : null}
+        {agentOf(call) ? <span className="scopetag">{agentOf(call)}</span> : null}
         <span className="nav">
           <button className="ibtn" type="button" aria-label="Previous call" data-tip={tipText(shortcutCard('prevCall')!)} onClick={() => onStep(-1)} {...shortcut('prevCall')}>
             <Icon name="up" />
@@ -360,7 +361,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
   const [raw, setRaw] = useState(false);
   if (c.kind !== 'api') {
     const result = detail.result as { result?: unknown; error?: { name?: string; message?: string } } | null;
-    const head = c.origin === 'blocked' ? (c.effect === 'read' ? 'Fenced: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:' : 'Blocked: a write tool after the fork, so the agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:';
+    const head = c.origin === 'blocked' ? (c.effect === 'read' ? 'Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:' : 'Blocked: a write tool after the fork, so the agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:';
     return (
       <>
         <div className="ibar">
@@ -559,6 +560,7 @@ function DetailsTab({ runId, detail, models, flag }: { runId: string; detail: Ca
   const rows: Array<[string, ReactNode]> = originRows(c, flag);
   if (c.effect) rows.push(['Effect', c.effect]);
   if (c.scope) rows.push(['Scope', c.scope]);
+  if (c.agent && (c.agent !== c.scope || c.spawnedBy)) rows.push(['Agent', c.spawnedBy ? <>{c.agent}<small> started by #{c.spawnedBy}</small></> : c.agent]);
   // A call made to a host of another's format: the format it speaks, and the host it went to.
   if (c.provider)
     rows.push([

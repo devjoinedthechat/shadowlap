@@ -3,7 +3,6 @@ import type { CompareHead } from '../src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { bundleSource } from './fixes/model.js';
-import { ciQuery } from './goldens.js';
 import { normalizeCallDetail, normalizeJudged, normalizeMeta, normalizeRunDetail, normalizeRuns } from './normalize.js';
 import { noteParent } from './parents.js';
 import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type ProjectsApi } from './projects-api.js';
@@ -11,14 +10,16 @@ import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
 import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
 import { changesApi, type ChangesApi } from './changes-api.js';
+import { testsApi, type TestsApi } from './tests-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
-import type { CallDetail, CallsPage, Changes, CiWorkflowOptions, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestRunView, TestsView, TrainingView } from './types.js';
+import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
+import type { RequestDiff } from '../src/request-diff.js';
 import type { UnrecordedView } from '../src/run-unrecorded.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import { copyAmbiguous, copyRunId } from './runs.js';
@@ -144,7 +145,7 @@ export function tokenInUse(): string | null {
 
 // ---------------------------------------------------------------------------------------------- client
 
-export interface Client extends ChangesApi {
+export interface Client extends ChangesApi, TestsApi {
   /** An exported copy: answers come from the file, nothing changes. */
   exported: boolean;
   meta(): Promise<Meta>;
@@ -234,17 +235,6 @@ export interface Client extends ChangesApi {
   /** The attempts blame and verify made in a run's family, for the Forks view; null when the server does not bundle them. */
   fixBundles(runId: string): Promise<FixBundle[] | null>;
 
-  // ---- Tests
-  /** The goldens on disk and how each did (`/api/tests`). */
-  tests(): Promise<TestsView>;
-  /**
-   * A run's test banner (a replay `shadowlap test` made that diverged) and Find breaking commit's choices
-   * (`/api/tests/runs/:id`); `before` limits the good commits to runs before it, as the calendar's days do.
-   */
-  testRun(id: string, before?: number): Promise<TestRunView>;
-  /** Settings → CI's two panels for the options given; those left out take the server's defaults (`/api/ci/workflows`). */
-  ciWorkflows(options?: Partial<CiWorkflowOptions>): Promise<CiWorkflowsView>;
-
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
   settings: SettingsApi;
@@ -282,6 +272,11 @@ export interface Client extends ChangesApi {
   outcome(id: string): Promise<{ judged: RunJudged | null }>;
   /** A run's next step alone, whole, with what it bills (`GET /api/runs/:id/next`): what a page's answer leaves out where it would read a long run's calls (`later`). */
   nextStep(id: string): Promise<{ next: NextStep | null }>;
+  /**
+   * The request a fork or a diverged replay changed, as recorded and as sent, with what fixes each
+   * changed path (`GET /api/runs/:id/diff[?call=<n>]`): Show diff's. Null for a run that never diverged.
+   */
+  requestDiff(id: string, callNo?: number): Promise<RequestDiff | null>;
 }
 
 
@@ -503,9 +498,7 @@ export function createClient(token: string): Client {
     renameFix: (fixId, title) => request<FixDetail>(`fixes/${id(fixId)}/title`, { method: 'PUT', body: JSON.stringify({ title }) }),
     // A server that does not bundle them, or one that never heard of the run: the Forks view lists the attempts as runs.
     fixBundles: bundleSource((runId) => request<{ bundles: FixBundle[] }>(`fixes/family/${id(runId)}`).then((out) => out.bundles)),
-    tests: () => request<TestsView>('tests'),
-    testRun: (runId, before) => request<TestRunView>(`tests/runs/${id(runId)}${before !== undefined ? `?before=${before}` : ''}`),
-    ciWorkflows: (o) => request<CiWorkflowsView>(`ci/workflows${ciQuery(o)}`),
+    ...testsApi(request),
     ...ownApis(request),
     training: () => request<TrainingView>('training'),
     models: () => request<ModelsView>('models'),
@@ -527,11 +520,12 @@ function ownApis(request: Request): Pick<Client, 'settings' | 'storeSetup' | 'pr
 }
 
 /** What a long run's first answer leaves to reads of their own, as its analysis has them. */
-function longRunReads(request: Request): Pick<Client, 'outcome' | 'nextStep'> {
+function longRunReads(request: Request): Pick<Client, 'outcome' | 'nextStep' | 'requestDiff'> {
   const id = encodeURIComponent;
   return {
     outcome: (runId) => request<{ judged: unknown }>(`runs/${id(runId)}/outcome`).then((r) => ({ judged: normalizeJudged(r.judged) })),
     nextStep: (runId) => request<{ next: NextStep | null }>(`runs/${id(runId)}/next`),
+    requestDiff: (runId, callNo) => request<{ diff: RequestDiff | null }>(`runs/${id(runId)}/diff${callNo === undefined ? '' : `?call=${callNo}`}`).then((r) => r.diff),
   };
 }
 
@@ -613,6 +607,7 @@ export function createExportedClient(data: StaticPayload): Client {
     tests: () => get<TestsView>('tests'),
     testRun: () => Promise.resolve({ banner: null, bisect: null }),
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
+    testEvidence: () => Promise.reject(new ApiError(404, 'this is an exported copy, and a golden’s attempts are not part of it')),
     settings: noSettings(readOnly),
     estimates: noEstimates(readOnly),
     storeSetup: noStoreSetup(readOnly),
@@ -638,5 +633,7 @@ export function createExportedClient(data: StaticPayload): Client {
     outcome: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ judged: normalizeJudged(d.judged ?? null) })),
     // As its page holds it: a copy runs nothing, so it bills nothing.
     nextStep: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ next: d.next ?? null })),
+    // Held for each run that diverged, at the call it diverged at; another call's is the store's to read.
+    requestDiff: (runId, callNo) => Promise.resolve(callNo === undefined ? ((data.responses[`runs/${full(runId)}/diff`] as { diff: RequestDiff | null } | undefined)?.diff ?? null) : null),
   };
 }

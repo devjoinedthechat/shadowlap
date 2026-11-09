@@ -83,6 +83,9 @@ export function clock(ms: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Within a minute of `now`, a clock a little ahead included: what a strip, a card or a line says `just now` of. */
+export const justNow = (ms: number, now = Date.now()): boolean => now - ms < 60_000 && now >= ms - 60_000;
+
 /** When a run started, in a list: now, 09:58 today, Sep 30 before that. */
 export function whenShort(ms: number, now = Date.now()): string {
   if (now - ms < 60_000 && now >= ms) return 'now';
@@ -217,6 +220,14 @@ export function shellWords(line: string): string[] {
   }
   if (word) words.push(word);
   return words;
+}
+
+/** A line kept to `max` characters: its first sentence where that fits, else cut after a whole word, with nothing dangling before the `…`. */
+export function cutClean(line: string, max: number): string {
+  const first = /^(.+?[.!?])(\s|$)/.exec(line)?.[1];
+  const s = first && first.length <= max ? first : line;
+  const cut = s.length > max ? `${s.slice(0, Math.max(1, s.slice(0, max + 1).lastIndexOf(' '))).replace(/[\s,;:·…–—-]+$/, '')}…` : s;
+  return cut.replace(/\.$/, '');
 }
 
 export function clip(s: string, max = 1500): string {

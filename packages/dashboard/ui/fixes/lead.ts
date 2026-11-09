@@ -1,0 +1,71 @@
+import { JOB_KINDS } from '../api.js';
+import { shortId } from '../format.js';
+import { ACTIONS } from '../labels.js';
+import type { FixLead, VerifyStep } from '../types.js';
+import { pluralS } from '../../../engine/src/words.js';
+import { repairSub } from './estimates.js';
+import { blameAgainTip, STRONGER_TIP, treeBusy, type TreeJob } from './model.js';
+
+/**
+ * A fix's lead as a list row draws it (fix-lead.ts `fixLead`), on Fixes and on Needs a look alike:
+ * the job it starts, what its wait says it does, whether its dialog shows the fix's detail, its card
+ * and its wait. Light on purpose: the Overview loads it, and none of a fix's page.
+ */
+
+/** Verify this run's card: the failing runs it verifies, by their short ids, on the code as it is now. */
+export const verifyLeftCard = (runs: readonly string[]): string =>
+  `Verifies the code as it is now on ${runs.map(shortId).join(', ')}, the failing run${pluralS(runs.length)} this change wasn’t verified on`;
+
+/** What Run more attempts or Verify again does, on its card and as its ask's lead. */
+export const verifyTip = (more: Pick<NonNullable<VerifyStep['more']>, 'kind' | 'max'>): string => (more.kind === 'more' ? `Verifies the change again from the start, up to ${more.max} attempts a run` : 'Verifies the same runs again from the start, once the check can be judged');
+
+/** The job each lead starts. */
+export const LEAD_KIND: Readonly<Record<FixLead['key'], string>> = {
+  'blame-again': JOB_KINDS.blame,
+  'blame-stronger': JOB_KINDS.blame,
+  repair: JOB_KINDS.repair,
+  apply: JOB_KINDS.applyFix,
+  more: JOB_KINDS.verify,
+  again: JOB_KINDS.verify,
+  'verify-left': JOB_KINDS.verify,
+};
+
+/** What a lead does once the working tree is free, as its wait says it: "repair once it is done". */
+export const LEAD_VERB: Readonly<Record<FixLead['key'], string>> = {
+  'blame-again': 'blame again',
+  'blame-stronger': 'blame it',
+  repair: 'repair',
+  apply: 'apply the patch',
+  more: 'run more attempts',
+  again: 'verify again',
+  'verify-left': 'verify it',
+};
+
+/** A lead whose dialog shows the fix's detail, read when it is pressed: the rest ask from the lead's own fields. */
+export const leadReadsFix = (lead: Pick<FixLead, 'key'>): boolean => lead.key === 'blame-stronger' || lead.key === 'repair' || lead.key === 'apply';
+
+const capital = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
+
+/** A lead's card sentence, under its label: the words the fix's own page gives the same button. */
+export function leadCard(lead: FixLead): string | null {
+  switch (lead.key) {
+    case 'blame-again':
+      return blameAgainTip({ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate });
+    case 'blame-stronger':
+      return STRONGER_TIP;
+    case 'repair':
+      return repairSub(lead.repairer);
+    case 'apply':
+      return lead.pending ? capital(lead.pending) : lead.label === ACTIONS.applyFix.label ? 'Asks first: it changes your working tree' : null;
+    case 'verify-left':
+      return verifyLeftCard(lead.runs);
+    default:
+      return verifyTip({ kind: lead.key, max: lead.max });
+  }
+}
+
+/** Why a lead can't start now, or null: a job this dashboard doesn't run, or one holding the working tree it would use. */
+export function leadWait(lead: FixLead, o: { jobs: readonly TreeJob[]; folder: string | null; hasKind: (kind: string) => boolean }): string | null {
+  if (!o.hasKind(LEAD_KIND[lead.key])) return 'This dashboard doesn’t run it: run the command in a terminal.';
+  return treeBusy(o.jobs, lead.use, LEAD_VERB[lead.key], o.folder);
+}

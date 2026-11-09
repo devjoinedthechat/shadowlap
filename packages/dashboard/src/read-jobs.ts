@@ -3,12 +3,12 @@ import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareHead, compareView } from './compare.js';
-import { fixDetail, goldensFolderIn, patchesToCheck } from './fixes.js';
+import { fixDetail, goldensFolderIn, patchesToCheck, pulledPatchesToCheck, withAbouts } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
 import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
 import { overviewKnown, overviewSummary } from './overview.js';
-import { patchesInTree } from './patch-in-tree.js';
+import { patchesInTree, rewritesHere } from './patch-in-tree.js';
 import { answer, failed, readRegistry, type JobOf, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { localRunIds } from './routes/store.js';
 import { SUMMARY_CALLS_BUDGET } from './run-about.js';
@@ -16,12 +16,14 @@ import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { ESTIMATE_READS } from './estimates.js';
+import { TESTS_EVIDENCE_READS } from './tests-evidence.js';
 import { FIXES_READS } from './fixes-view.js';
 import { CROSS_PROJECT_READS } from './cross-project.js';
 import { withExitCodes } from './exit-codes.js';
 import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
 import { judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
 import { RUNS_FAILURES_READS } from './runs-failures.js';
+import { REQUEST_DIFF_READS } from './request-diff.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
 import type { RunsPageRow } from './routes/runs-list.js';
@@ -63,6 +65,8 @@ export interface SummaryWork {
   project: string | null;
   /** What a run's next step reads of the project, as Needs a look's lines say it. */
   next?: NextStepWork | null;
+  /** The repairer the config names, which Run repair's card on Needs a look names. */
+  repairer?: string | null;
 }
 
 // The most calls the Overview's request reads to work out what isn't known yet (run-about.ts).
@@ -170,8 +174,10 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   // A setup of the store left unfinished leads back to its page.
   const setup = status && w.team && w.project ? setupUnderWay(store, w.team) : null;
   const patchInTree = w.project ? await patchesInTree(w.project, patchesToCheck(store)) : null;
+  // A pulled patch `fix apply` refuses here gets no step on Needs a look, as its fix's page applies none.
+  const rewriteHere = w.project ? await rewritesHere(w.project, pulledPatchesToCheck(store)) : null;
   // It names the time it was worked out at, so it is never the same twice: no ETag.
-  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(w.next ? { next: w.next } : {}) }));
+  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(rewriteHere ? { rewriteHere } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}) }));
 }
 
 function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'judge'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {
@@ -203,7 +209,7 @@ function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnsw
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
   const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
-  return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+  return d ? answer(withAbouts(store, d), { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 
 /**
@@ -338,7 +344,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS, REQUEST_DIFF_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

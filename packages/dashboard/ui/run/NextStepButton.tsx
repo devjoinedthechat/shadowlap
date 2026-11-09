@@ -17,16 +17,16 @@ import { href } from '../route.js';
 import { compareTarget, outcomeOf } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { sentEstimate } from '../spending.js';
-import { guardedWayOn, useApp } from '../state.js';
+import { useApp } from '../state.js';
 import { gateAgainAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
-import { errorText } from '../toast.js';
 import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
 import { checksOf, runLikeOf } from './model.js';
-import { blameBesideCard, gateEntry, PACK_VERB, replayAction, stepCard, stepCostLine, stepEstimate, stepJob, type StepCard } from './next-step.js';
+import { blameBesideCard, gateEntry, replayAction, stepCard, stepCostLine, stepEstimate, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
-import { PACK_HOLDS, packRunCommand, packTestCommands, redactsFact } from './share.js';
+import { PackAsGolden } from './PackAsGolden.js';
+import { PACK_HOLDS, packRunCommand, redactsFact } from './share.js';
 
 /**
  * The header's one lime button, drawn from the step the server worked out (src/next-step.ts): a link
@@ -260,68 +260,6 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
         />
       ) : null}
       {asking?.kind === 'consent' ? <ConsentDialog why={asking.why} ok={title} onClose={() => setAsking(null)} onOk={() => start(asking.confirm)} /> : null}
-    </>
-  );
-}
-
-/**
- * Pack as golden…, lime where it leads and plain beside another step: the run packed into a folder
- * of the goldens, named for the run, then its test, as one job (`pack-test`), leaving the config as it
- * is. It waits while a Tests job holds the goldens. A start the server refuses keeps the dialog open
- * with its words, as a folder taken or a bad one is; a recording from elsewhere asks first, since its
- * test runs the command it was recorded with, and a start refused after that yes opens the dialog
- * again on the folder tried, with the server's words.
- */
-export function PackAsGolden({ runId, folder, offers, lead, tip, fold }: { runId: string; folder: string; offers: RunOffers | null; lead: boolean; tip: string; fold?: string }) {
-  const app = useApp();
-  // The dialog, on the folder last tried, with the server's words where it refused it.
-  const [asking, setAsking] = useState<{ dir: string; refused: string | null } | null>(null);
-  const [consent, setConsent] = useState<{ why: string; confirm: string; golden: string } | null>(null);
-  const id = shortId(runId);
-  const start = (golden: string, yes?: string): Promise<boolean> =>
-    app.client.startJob(JOB_KINDS.keepGolden, { runId, golden, ...(yes ? { yes } : {}) }).then(
-      (job) => {
-        app.watchJob(Promise.resolve(job));
-        return true;
-      },
-      (err: unknown) => {
-        const asked = yes === undefined ? consentAsked(err) : null;
-        if (asked) setConsent({ why: asked.why, confirm: asked.confirm, golden });
-        else {
-          setConsent(null);
-          setAsking({ dir: golden, refused: errorText(err) });
-        }
-        return Boolean(asked);
-      },
-    );
-  return (
-    <>
-      <TestsJobButton verb={PACK_VERB} off={null} className={lead ? 'btn lime' : 'btn'} tip={tip} {...(lead ? { lead: 'pack' } : {})} {...(fold ? { fold } : {})} onClick={() => app.guard(() => setAsking({ dir: folder, refused: null }))}>
-        {ACTIONS.packAsGolden.label}
-      </TestsJobButton>
-      {asking ? (
-        <PromptDialog
-          title={namedIn(`Pack ${id} as golden?`, id)}
-          lead="Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit."
-          doc="makeGolden"
-          {...(asking.refused ? { warn: { text: asking.refused } } : {})}
-          facts={[{ label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' }, PACK_HOLDS, redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null)]}
-          label="Golden"
-          initial={asking.dir}
-          command={(dir) => ({ command: packTestCommands(runId, dir) })}
-          ok={confirmWords(ACTIONS.packAsGolden.label)}
-          onClose={() => setAsking(null)}
-          onRun={(dir) => guardedWayOn(app.guard, () => start(dir))}
-        />
-      ) : null}
-      {consent ? (
-        <ConsentDialog
-          why={consent.why}
-          ok={confirmWords(ACTIONS.packAsGolden.label)}
-          onOk={() => guardedWayOn(app.guard, () => start(consent.golden, consent.confirm))}
-          onClose={() => setConsent(null)}
-        />
-      ) : null}
     </>
   );
 }

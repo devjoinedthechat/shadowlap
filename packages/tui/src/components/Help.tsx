@@ -53,8 +53,8 @@ export const HELP: Record<HelpContext, Group[]> = {
       title: 'Find',
       keys: [
         ['/', 'filter calls as you type'],
-        ['f', 'only the calls that ran live, replayed, or were fenced'],
-        ['[ ]', 'previous, next call that ran live, was fenced or failed'],
+        ['f', 'only the calls that ran live, replayed, were blocked or were stubbed'],
+        ['[ ]', 'previous, next call that ran live, was blocked or stubbed, or failed'],
         ['n  d', 'the call the run forked at; d what changed and what it did'],
       ],
     },

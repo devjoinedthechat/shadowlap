@@ -4,8 +4,9 @@ import { useLatest } from '../hooks.js';
 /**
  * Where each view of Runs was left, by its address, so Back, the crumbs and the nav's Runs land on
  * its list where it was: kept as a view is left (a commit, Back or Forward, a link, the page going)
- * and given back once its rows are in, then once more after a tick. The scroller is the page when it
- * scrolls, else the window, as on a phone, where the page grows with what it holds.
+ * and given back once its rows, and what is above them, are in, then once more after a tick. The
+ * scroller is the page when it scrolls, else the window, as on a phone, where the page grows with
+ * what it holds.
  */
 const left = new Map<string, number>();
 
@@ -33,7 +34,7 @@ export function forgetScroll(href: string): void {
   left.delete(href);
 }
 
-/** Runs showing `href`: kept as it is left, and where it was left given back once `ready` (its rows are in). */
+/** Runs showing `href`: kept as it is left, and where it was left given back once `ready` (its rows are in, and what is above them). */
 export function useKeptScroll(href: string, ready: boolean): void {
   const at = useLatest(href);
   useEffect(() => {

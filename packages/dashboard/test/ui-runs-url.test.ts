@@ -8,6 +8,7 @@ import { useRoute } from '../ui/router.js';
 import { dayTimes, runsLinkQuery } from '../ui/runspage/query.js';
 import { lastRunsHref, lastViewOf, useLastRunsHref } from '../ui/runs-view.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import type { RunsByDay } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -120,6 +121,9 @@ function addressBar(start: string) {
 }
 
 const row = (i: number) => ({ runId: `01M5MXZ4Q3FWR1ND46Y5PGV${String(i).padStart(3, '0')}`, parentRunId: null, depth: 0, mode: 'record', status: 'completed', label: 'recording', divergence: null, command: 'node agent.mjs', about: { text: `ticket ${i}`, from: 'user' }, codeVersion: null, startedAt: 1_760_000_000_000 - i * 60_000, endedAt: 1_760_000_000_000 - i * 60_000 + 5000, calls: 12, spent: 0.01, saved: 0, captured: 0, imported: false, covers: null, source: null, labels: [], origins: 'llllllllllll' });
+
+/** Twelve weeks with no run in them, as the days row reads them. */
+const NO_DAYS: RunsByDay = { tz: 'UTC', weeks: 12, today: '2026-01-05', from: 0, to: 0, days: [], thresholds: null, totals: { runs: 0, failed: 0, all: 0, busiest: null } };
 
 function server() {
   const asked: RunsQuery[] = [];
@@ -270,7 +274,7 @@ describe('Runs, from its address', () => {
     expect(pressed()).toEqual(['Forks']);
   });
 
-  it('gives a view back where its list was left, once its rows are in', async () => {
+  it('gives a view back where its list was left, once its rows and the twelve weeks above them are in', async () => {
     addressBar('#/runs?types=fork');
     const { client } = server();
     r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(Routed)));
@@ -279,15 +283,22 @@ describe('Runs, from its address', () => {
     // A row opened: the page goes.
     await r.unmount();
     r = null;
-    // Back to it: the rows come once the spy is in place.
-    let open: () => void = () => undefined;
-    const gate = new Promise<void>((res) => (open = res));
-    const slow: Client = { ...client, runsPage: (q: RunsQuery) => gate.then(() => client.runsPage(q)) };
+    // Back to it: the rows, then the weeks, come once the spy is in place.
+    let rows: () => void = () => undefined;
+    let weeks: () => void = () => undefined;
+    const rowsIn = new Promise<void>((res) => (rows = res));
+    const weeksIn = new Promise<void>((res) => (weeks = res));
+    const slow: Client = { ...client, runsPage: (q: RunsQuery) => rowsIn.then(() => client.runsPage(q)), runsByDay: () => weeksIn.then(() => NO_DAYS) };
     r = await render(createElement(AppContext.Provider, { value: app(slow) }, createElement(Routed)));
     const to = vi.fn();
     (window as unknown as { scrollTo: typeof to }).scrollTo = to;
     expect(to).not.toHaveBeenCalled();
-    open();
+    rows();
+    await r.until('the rows', () => r!.all('table.runst tbody tr').length > 0);
+    // The weeks' sentence can take a second line: given back before it, the list would sit that much higher.
+    await r.wait(50);
+    expect(to).not.toHaveBeenCalled();
+    weeks();
     await r.until('the place given back, and again after a tick', () => to.mock.calls.length >= 2);
     expect(to.mock.calls).toEqual([
       [0, 640],

@@ -1,0 +1,124 @@
+/* The results matrix (components/ResultsMatrix.tsx), one design for an injection test and the error-path presets: what was
+   tested down the side, its variants across the top, each cell the strip's cell grammar (a bar in its tone, the word, the
+   tally, the bound) in the consequence colours: a verdict as on Tests (passed lime), a cell where nothing happened muted, so
+   the red and the amber stand out. Columns that don't fit: a matrix of one row wraps them into bands that repeat its head,
+   each band keeping its full number of columns, so cells line up from band to band; one of several rows scrolls (below).
+   Named `matrix`, so its key's queries find it and no box around it; Changes' preview matrix takes the name too. */
+.rmx { container: matrix / inline-size; }
+.rmx-band { display: grid; grid-template-columns: minmax(var(--rh), max-content) repeat(var(--n), minmax(var(--cw), 180px)); column-gap: 4px; row-gap: 2px; justify-content: start; align-items: start; }
+.rmx-band + .rmx-band { margin-top: 18px; }
+.rmx-k { align-self: end; padding: 0 10px 8px 0; font: var(--fs-small) / 1.35 var(--body); color: var(--faint); }
+.rmx-k::first-letter { text-transform: uppercase; }
+/* a column's head breaks at a space or after a hyphen, never inside a word or an id; its card says what the variant does */
+.rmx-ch { position: relative; align-self: end; min-width: 0; padding: 0 6px 8px; font: var(--fs-label) / 1.35 var(--mono); color: var(--dim); overflow-wrap: normal; word-break: normal; }
+.rmx-ch.rmx-chr { font: 500 var(--fs-quiet) var(--mono); color: var(--ink); }
+.rmx-ch small, .rmx-r small { display: block; margin-top: 3px; font: var(--fs-small) / 1.4 var(--body); color: var(--faint); }
+.rmx-r { min-width: 0; padding: 16px 10px 9px 0; font: 500 var(--fs-quiet) var(--mono); color: var(--ink); overflow-wrap: normal; }
+.rmx-r.rmx-sub { padding-left: 16px; }
+/* a read's head goes to its call, its number muted; a group's opens its reads, each by its number alone */
+.rmx-rb, .rmx-g { position: relative; border: 0; background: none; padding: 0; font: inherit; color: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.rmx-rb::after, .rmx-g::after { content: ""; position: absolute; inset: -4px 0; }
+.rmx-cn { color: var(--faint); }
+.rmx-rn .rmx-cn { color: var(--dim); }
+.rmx-r .rmx-rb, .rmx-r .rmx-g { white-space: nowrap; }
+.rmx-rb:hover, .rmx-g:hover span { text-decoration: underline; text-decoration-color: var(--line2); text-underline-offset: 3px; }
+.rmx-g { display: inline-flex; align-items: baseline; gap: 6px; }
+.rmx-g svg { width: 10px; height: 10px; flex: none; color: var(--faint); transform: rotate(-90deg); }
+.rmx-g[aria-expanded="true"] svg { transform: none; }
+/* on a phone a group's head sets its count under its tool, with no dot to end a line on, as a panel's line of parts does */
+@media (max-width: 640px) { .rmx-g .rmxl { display: block; } .rmx-g .rmxsep { display: none; } }
+/* a run's head in the presets' matrix: its id, its golden a chip beside it, its about line fitted under them */
+.rmx-gc { margin-left: 8px; vertical-align: 1px; }
+.rmx-r small .rab.rmxab, .rmx-chr small .rab.rmxab { display: block; white-space: nowrap; overflow: hidden; }
+.rmx-note { grid-column: 1 / -1; padding: 2px 0 10px 16px; font-size: var(--fs-small); color: var(--faint); }
+/* One band, each row head once: what doesn't fit scrolls sideways inside the matrix, under row heads that stay put on the
+   ground of what holds it (--rmx-ground, the page's unless a panel sets its own); a fade at the right edge while columns
+   run past it, a hairline beside the heads once cells are under them. A note keeps its words in view as the band scrolls. */
+.rmx-in { overflow-x: auto; overscroll-behavior-x: contain; scroll-padding-right: 40px; }
+.rmx-k, .rmx-r { position: sticky; left: 0; z-index: 1; background: var(--rmx-ground, var(--bg)); box-shadow: 4px 0 0 var(--rmx-ground, var(--bg)); }
+.rmx-in.rmx-under .rmx-k, .rmx-in.rmx-under .rmx-r { box-shadow: 4px 0 0 var(--rmx-ground, var(--bg)), 5px 0 0 var(--line); }
+.rmx-in.rmx-more { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+.rmx-note > span { position: sticky; left: 16px; display: inline-block; }
+/* a cell holds its hidden name, so that name never stretches the page past the band's edge */
+.rmx-c { position: relative; display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 7px 6px 8px; border-radius: var(--r-control); text-decoration: none; color: var(--dim); }
+a.rmx-c:hover { background: var(--hover); }
+.rmx-c i { display: block; height: 4px; border-radius: var(--r-mark); background: var(--cq-muted); margin-bottom: 6px; }
+.rmx-c b { font: 500 var(--fs-small) var(--body); color: var(--dim); white-space: nowrap; }
+.rmx-c .rmx-tally { font: var(--fs-label) var(--mono); color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* a bound's ">=" stays two characters, never a ligature */
+.rmx-c small { font: var(--fs-label) / 1.4 var(--mono); color: var(--faint); font-variant-ligatures: none; }
+/* a passed cell colours its bar only, so the red and the amber, which colour the word too, stand out */
+.rmx-c.err i { background: var(--cq-red); }
+.rmx-c.err b { color: var(--cq-red); }
+.rmx-c.warn i { background: var(--cq-amber); }
+.rmx-c.warn b { color: var(--cq-amber); }
+.rmx-c.ok i { background: var(--cq-lime); }
+.rmx-c.none i { background: none; box-shadow: inset 0 0 0 1px var(--line2); }
+.rmx-c.none b { color: var(--faint); font-weight: 400; }
+.rmx-fill { display: block; }
+
+/* One key for every matrix (components/MatrixKey.tsx), in its head over the cells it explains: the entries that matter
+   numbers first in the run page's stat style (.metric: the figure in the display face, its words muted, 7px apart, 26px
+   between entries), the quieter ones on a line of their own under it, smaller; a lone quieter entry ends the first line
+   instead. Each entry keeps whole, each line breaks between entries into balanced lines, and with under 560px of room the
+   entries stand in two aligned columns, one under 300px. */
+.mxkey p { margin: 0; text-wrap: balance; line-height: 1.9; }
+.mxk { display: inline-flex; align-items: baseline; gap: 7px; margin-right: 23px; white-space: nowrap; font-size: var(--fs-small); color: var(--faint); }
+.mxk:last-child { margin-right: 0; }
+.mxk[tabindex]:focus-visible { outline-offset: 3px; border-radius: 3px; }
+.mxk b { font: 700 17px / 1 var(--disp); letter-spacing: -.03em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mxk > i { align-self: center; }
+.mxk.q { gap: 5px; margin-right: 15px; }
+.mxk.q b { font: 500 var(--fs-quiet) / 1 var(--body); letter-spacing: 0; color: var(--dim); }
+.mxk1 .mxk.q { margin-left: 9px; }
+.mxk2 { margin-top: 2px !important; }
+@container matrix (max-width: 560px) {
+  .mxkey { display: grid; grid-template-columns: repeat(2, max-content); gap: 3px 20px; }
+  .mxkey p { display: contents; }
+  .mxk, .mxk.q, .mxk1 .mxk.q { margin: 0; }
+  .mxk2 > .mxk:first-child { grid-column: 1; margin-top: 4px; }
+  .mxk2 > .mxk:nth-child(2) { margin-top: 4px; }
+}
+@container matrix (max-width: 300px) { .mxkey { grid-template-columns: max-content; } .mxk2 > .mxk:nth-child(2) { margin-top: 0; } }
+.mxsw { flex: none; width: 12px; height: 4px; border-radius: var(--r-mark); background: var(--cq-muted); }
+.mxsw.err { background: var(--cq-red); }
+.mxsw.warn { background: var(--cq-amber); }
+.mxsw.ok { background: var(--cq-lime); }
+
+/* The receipt at a matrix's foot (components/Receipt.tsx), under a hairline: what it cost in plain words, then what it
+   asked; quiet. */
+.mxfoot { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.mxr { margin: 0; font-size: var(--fs-quiet); color: var(--faint); text-wrap: balance; font-variant-ligatures: none; }
+.mxr.q { margin-top: 2px; font-size: var(--fs-small); }
+
+/* What a finding's Show results opens (components/FindingPanel.tsx): what was tried, where and when, the command at the
+   right; the matrix with its key in its head over the cells; the rule and the checks on one line under it; a quiet receipt
+   at its foot under a hairline. */
+.rmxp { border-top: 1px solid var(--line); padding: 14px 24px 14px; background: var(--bg2); --rmx-ground: var(--bg2); }
+.rmxp-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 14px; }
+.rmxp-t { flex: none; font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
+.rmxp-meta { font-size: var(--fs-small); color: var(--faint); }
+.rmxp-cmd { margin-left: auto; font-size: var(--fs-label); color: var(--faint); overflow-wrap: normal; }
+/* the key starts where the cells start (--rhk, set as the matrix is fitted) */
+.rmx-key0 { padding: 0 0 12px var(--rhk, 0px); }
+.rmxp-line { margin: 10px 0 0; font-size: var(--fs-small); color: var(--faint); text-wrap: pretty; }
+.rmxp .mxfoot { margin-top: 12px; padding-top: 10px; }
+.rmxp-none { margin: 2px 0 0; font-size: var(--fs-quiet); color: var(--dim); }
+@media (max-width: 640px) {
+  .rmxp-line .rmxl { display: block; }
+  .rmxp-line .rmxl + .rmxl { margin-top: 2px; }
+  .rmxp-line .rmxsep { display: none; }
+  .rmxp { padding: 12px 16px 14px; }
+  .rmxp-cmd { margin-left: 0; flex-basis: 100%; }
+}
+/* in the inspector's place: the column's width, no hairline and no ground of its own, so the heads stay put on the page's;
+   16px in on a phone, as the rest of the page is */
+.insp.fpanel .rmxp { border-top: 0; padding: 14px 18px 16px; background: none; --rmx-ground: var(--bg); }
+@media (max-width: 640px) { .insp.fpanel .rmxp { padding: 12px 16px 14px; } }
+
+/* A cell's bar and a key's swatch say what came of it by their colour alone: kept in a high-contrast theme, edged in its text
+   colour so they show on any ground. */
+@media (forced-colors: active) {
+  .rmx-c i, .mxsw { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
+  .rmx-c.none i { box-shadow: inset 0 0 0 1px CanvasText; }
+}

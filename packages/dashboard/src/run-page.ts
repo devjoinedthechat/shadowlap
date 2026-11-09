@@ -8,9 +8,12 @@ import {
   isJudgeCall,
   LiveConversations,
   normalizeResponse,
+  ownAgent,
   previewRedaction,
   recordedDurations,
   responseInfo,
+  RunAgents,
+  runAgents,
   runConversations,
   runInterventions,
   runStamp,
@@ -69,9 +72,17 @@ export interface CallFacts {
    * not they ran here (a capture records none of them); null for other calls.
    */
   asks: string[] | null;
+  /**
+   * The agent that made the call (the engine's RunAgents): its path, such as `claude-code/Explore`,
+   * and in a scoped run its scope. Null for a call nothing names an agent for. Around a page deep in
+   * a long run (not `numbered`), only what the call carries itself: its scope, a trace's agent.
+   */
+  agent: string | null;
+  /** A call of a sub-agent's conversation: the model call whose tool started it. */
+  spawnedBy: number | null;
 }
 
-export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null });
+export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null, agent: null, spawnedBy: null });
 
 export interface RunAnalysis {
   /**
@@ -81,6 +92,8 @@ export interface RunAnalysis {
    */
   numbered: boolean;
   conversations: RunConversations;
+  /** Which agent made each call, and each conversation's first user message; null when not `numbered`. */
+  agents: RunAgents | null;
   cache: RunCache;
   recorded: Map<number, number>;
   facts(callNo: number): CallFacts;
@@ -103,7 +116,7 @@ const analyses = new WeakMap<object, Map<string, RunAnalysis>>();
  * were read from. A recording's page asks for its newest calls every two seconds; working out where
  * every call of a long run belongs each time held up the dashboard for seconds at 50,000 calls.
  */
-const following = new WeakMap<object, Map<string, { live: LiveConversations; asks: Map<number, { rec: CallRecord; names: string[] }> }>>();
+const following = new WeakMap<object, Map<string, { live: LiveConversations; agents: RunAgents; asks: Map<number, { rec: CallRecord; names: string[] }> }>>();
 
 /** The runs followed at once per store. */
 const FOLLOW = 4;
@@ -116,13 +129,13 @@ const asked = (store: StoreOf<'recording'>, c: CallRecord) => responseInfo(store
  * calls arrive, from where it was last asked for (`following`): each call is worked out once, and its
  * answer once it arrives. A finished run is placed whole, every call with everything known.
  */
-function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecord[]): { conversations: RunConversations; asks: Map<number, string[]> } {
+function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecord[]): { conversations: RunConversations; asks: Map<number, string[]>; agents: RunAgents | null } {
   let byRun = following.get(store);
   if (run.status !== 'running') {
     byRun?.delete(run.runId);
     const asks = new Map<number, string[]>();
     for (const c of calls) if (c.kind === 'api') asks.set(c.callNo, asked(store, c));
-    return { conversations: runConversations(store, calls, { attribute: true }), asks };
+    return { conversations: runConversations(store, calls, { attribute: true }), asks, agents: null };
   }
   if (!byRun) {
     byRun = new Map();
@@ -131,9 +144,10 @@ function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecor
   let entry = byRun.get(run.runId);
   let conversations = entry?.live.update(calls) ?? null;
   if (!entry || !conversations) {
-    entry = { live: new LiveConversations(store, { attribute: true }), asks: new Map() };
+    entry = { live: new LiveConversations(store, { attribute: true }), agents: new RunAgents(store), asks: new Map() };
     conversations = entry.live.update(calls)!;
   }
+  entry.agents.update(calls, conversations);
   byRun.delete(run.runId);
   byRun.set(run.runId, entry);
   for (const key of byRun.keys()) if (byRun.size > FOLLOW) byRun.delete(key);
@@ -144,7 +158,7 @@ function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecor
     if (had?.rec !== c) entry.asks.set(c.callNo, (had = { rec: c, names: asked(store, c) }));
     asks.set(c.callNo, had.names);
   }
-  return { conversations, asks };
+  return { conversations, asks, agents: entry.agents };
 }
 
 /** Its status too: a recording is placed as its calls arrive, the finished run whole. */
@@ -296,7 +310,9 @@ export function partAnalysis(store: Store, run: RunRecord, part: readonly CallRe
 function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[], o: { numbered?: boolean } = {}): RunAnalysis {
   const numbered = o.numbered !== false;
   // Read already, while tool calls were matched to the model calls that asked for them: cached by blob.
-  const { conversations, asks } = conversationsOf(store, run, calls);
+  const { conversations, asks, agents: kept } = conversationsOf(store, run, calls);
+  // A recording's are kept as its calls arrive; a finished run's read once, here, with its conversations.
+  const agents = numbered ? (kept ?? runAgents(store, calls, conversations)) : null;
   const cache = cacheMisses(calls, conversations);
   const recorded = run.mode !== 'replay' ? new Map<number, number>() : numbered ? recordedDurations(store, run, calls) : recordedOf(store, run, calls);
   const misses = new Map<number, CacheMiss>(cache.misses.map((m) => [m.callNo, m]));
@@ -313,6 +329,7 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
   const analysis: RunAnalysis = {
     numbered,
     conversations,
+    agents,
     cache,
     recorded,
     byNo,
@@ -344,11 +361,14 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
         cacheMiss: miss ? { sentAgain: miss.sentAgain, previousCallNo: miss.previousCallNo } : null,
         recordedMs: recorded.get(callNo) ?? null,
         asks: asks.get(callNo) ?? null,
+        ...(agents ? agents.of(callNo) : ownOf(byNo.get(callNo))),
       };
     },
   };
   return analysis;
 }
+
+const ownOf = (c: CallRecord | undefined) => (c ? ownAgent(c) : { agent: null, spawnedBy: null });
 
 /**
  * Tool results in a line, per store, by what the line depends on: the result blob (content
