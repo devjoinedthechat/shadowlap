@@ -105,7 +105,7 @@ export function shareItems(o: { can: (key: CopyKey) => boolean; team: RunOffers[
   keys.push('html');
   for (const key of ['pack', 'dataset', 'otel', 'har'] as const) if (o.can(key)) keys.push(key);
   const items: ShareItem[] = keys.map((key) => ({ key, ...ITEMS[key] }));
-  if (o.security) items.push({ key: 'security', label: 'Security report', flag: null, why: o.security.mode === 'plant' ? 'The kept test’s report: the matrix and each proof' : 'The kept answer’s report: each write, its verdict and tally' });
+  if (o.security) items.push({ key: 'security', label: ACTIONS.securityReport.label, flag: null, why: o.security.mode === 'plant' ? 'The kept test’s report: the matrix and each proof' : 'The kept answer’s report: each write, its verdict and tally' });
   return items;
 }
 
