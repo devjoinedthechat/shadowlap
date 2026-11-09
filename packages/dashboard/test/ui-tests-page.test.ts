@@ -6,6 +6,7 @@ import { testsView, type GoldenSource } from '../src/tests.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { pageUp } from '../ui/focus-manager.js';
 import { ApiError, JOB_KINDS, type Client, type TestsView } from '../ui/api.js';
+import type { NextStep } from '../ui/types.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { goldenRowScope } from '../ui/tests/row-scope.js';
@@ -429,10 +430,10 @@ describe('a golden’s injection gate on Tests', () => {
   const gate = (over: Partial<InjectionGateRow> = {}): InjectionGateRow => ({ entry: ENTRY, proof: { runId: 'run_ATTEMPT2', callNo: 6 }, line: 'send_email obeyed a planted instruction · 1 of 3', results: { runId: 'run_TESTED', resultId: 'inj-01GATE' }, json: JSON_LINE, ...over });
   const tally = { resultId: 'inj-01GATE', attempts: 3, obeyed: 1, influenced: 0, ignored: 2, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, skipped: null };
   /** refunds, gated: its last result as `last` says, its gate as `g`; the verdict leads with `step`. */
-  const gated = (g: InjectionGateRow, last: Partial<TestsView['rows'][number]['last']>, step?: Record<string, unknown>) => (v: TestsView): TestsView => ({
+  const gated = (g: InjectionGateRow, last: Partial<TestsView['rows'][number]['last']>, step?: NextStep) => (v: TestsView): TestsView => ({
     ...v,
     rows: v.rows.map((r) => (r.name === 'refunds' ? { ...r, injectionGate: g, last: { ...r.last, ...last } } : r)),
-    ...(step ? { steps: { ...v.steps, 'goldens/refunds': step } } as Partial<TestsView> : {}),
+    ...(step ? { steps: { ...v.steps, 'goldens/refunds': step } } : {}),
   });
   const gateOf = (page: Rendered) => {
     const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'refunds')!;
@@ -470,12 +471,12 @@ describe('a golden’s injection gate on Tests', () => {
   });
 
   it('leads the verdict with Open proof, a link to the proving attempt, or Re-run test where the gate showed too little to say', async () => {
-    const proof = { key: 'injection-proof', label: 'Open proof', runId: 'run_ATTEMPT2', href: '#/run/run_ATTEMPT2/6', title: 'Opens ATTEMPT2', sub: 'send_email obeyed a planted instruction · 1 of 3' };
+    const proof: NextStep = { key: 'injection-proof', label: 'Open proof', runId: 'run_ATTEMPT2', href: '#/run/run_ATTEMPT2/6', title: 'Opens ATTEMPT2', sub: 'send_email obeyed a planted instruction · 1 of 3' };
     let page = await open([], GOLDENS, gated(gate(), { failure: 'injection', injection: { ...tally, verdict: 'failed', reason: 'obeyed' } }, proof));
     let lime = one(page.one('.verdict.tv'), '.btn.lime');
     expect([lime.tagName.toLowerCase(), lime.textContent, lime.getAttribute('href')]).toEqual(['a', 'Open proof', '#/run/run_ATTEMPT2/6']);
     await r?.unmount();
-    const again = { key: 'gate-again', label: 'Re-run test', golden: 'goldens/refunds', command: 'shadowlap test goldens/refunds', sub: 'Its injection gate showed too little to say: 2 of 3 attempts got no answer' };
+    const again: NextStep & { sub: string } = { key: 'gate-again', label: 'Re-run test', golden: 'goldens/refunds', command: 'shadowlap test goldens/refunds', sub: 'Its injection gate showed too little to say: 2 of 3 attempts got no answer' };
     page = await open([], GOLDENS, gated(gate(), { failure: 'injection', verdict: 'inconclusive', injection: { ...tally, verdict: 'inconclusive', reason: 'too little' } }, again));
     lime = one(page.one('.verdict.tv'), '.btn.lime');
     expect([lime.tagName.toLowerCase(), lime.textContent]).toEqual(['button', 'Re-run test']);
