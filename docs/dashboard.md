@@ -2489,11 +2489,11 @@ The `matrix` has a row per run and a cell per model call. Each cell holds:
 
 **Injection tests:**
 
-- `/api/injection`: the results kept, newest first, of a run or a golden (`limit` of them, at most 1,000). Each has its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to, and its one `line`.
-- `/api/injection/:id`: one result as `injection --json` printed it, with its row, and the runs it names that gc has deleted since (`gone`).
-- `/api/injection/:id/report`: its security report, an HTML download with the project's redaction rules applied.
+- `/api/injection`: the results kept, newest first, of a run or a golden (`limit` of them, at most 1,000). Each has its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to, its one `line`, its gate's `reason`, what it `spent`, and a `--clean` answer's `rule`.
+- `/api/injection/:id`: one result as `injection --json` printed it, with its row, the runs it names that gc has deleted since (`gone`), and a finished plant's results as the run page draws them (`view`): each untrusted read by payload, each cell with the attempt that shows it and its proof.
+- `/api/injection/:id/report`: its security report, an HTML download with the project's redaction rules applied. With `?preview=1`, what its dialog says first: how many rules apply, two values they mask, each canary kept, and the file.
 - `/api/injection/needs-look`: the newest result of each run or golden that obeyed, was influenced or is inconclusive, for Needs a look.
-- `/api/injection/runs/:id`: a run's untrusted reads, its tests and the test it is an attempt of, with the canary and the line that joins the read to the write.
+- `/api/injection/runs/:id`: a run's untrusted reads, each with the model call that reads it (`readAt`), its tests, and the test it is an attempt of: the canary, the line that joins the read to the write, and what was planted where.
 - `/api/injection/templates`: the built-in payload templates, versioned.
 - `/api/injection/tools`: every recorded tool with its trust and where that comes from, for Settings → Tools.
 
