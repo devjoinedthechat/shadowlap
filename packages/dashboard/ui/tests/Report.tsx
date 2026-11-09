@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { CopyButton } from '../components/CodeBox.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
+import { failedRunsWords } from '../failed-runs.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { plural, shortId } from '../format.js';
 import type { GoldenReport, GoldenRow, Piece, ReportLine, TestsAnswer } from '../types.js';
@@ -131,11 +132,10 @@ function Head({ pieces }: { pieces: readonly Piece[] }) {
 function ReportLinks({ report }: { report: GoldenReport }) {
   const f = report.failedRuns;
   if (!f && !report.open) return null;
-  const more = f ? f.count - f.ids.length : 0;
   return (
     <span className="glinks">
       {f ? (
-        <a className="more" href={f.href} data-tip={tipCard(plural(f.count, 'failed replay'), [], [`${f.ids.map(shortId).join(', ')}${more > 0 ? ` and ${more} more` : ''}`, f.count === 1 ? 'Opens it' : 'Opens them on Runs, under Failed'].join(' · '))}>
+        <a className="more" href={f.href} data-tip={tipCard(plural(f.count, 'failed replay'), [], failedRunsWords(f.ids.map(shortId), f.count))}>
           Failed runs →
         </a>
       ) : null}

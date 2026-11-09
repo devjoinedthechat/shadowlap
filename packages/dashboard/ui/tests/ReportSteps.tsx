@@ -6,6 +6,7 @@ import { divergenceButtons, findCommitButton } from '../goldens.js';
 import { ACTIONS } from '../labels.js';
 import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
 import { FindCommitButton } from '../pages/TestsDialogs.js';
+import { savedWords } from '../saved-words.js';
 import { useApp } from '../state.js';
 import { goldenPrice } from '../tests-estimates.js';
 import { errorText } from '../toast.js';
@@ -100,7 +101,7 @@ function UpdateButton({ golden, judge, press }: { golden: string; judge: readonl
 /** Security report: the injection gate's kept result as its HTML report, saved as Share's is, with whether the project's rules masked it. */
 function SecurityReport({ resultId }: { resultId: string }) {
   const { client, guard, toast } = useApp();
-  const save = () => guard(() => void client.injectionReport(resultId).then((r) => toast(`Saved ${r.filename} · ${r.redacted ? 'redaction rules applied' : 'no redaction rules to apply'}`), (err: unknown) => toast(errorText(err), 'error')));
+  const save = () => guard(() => void client.injectionReport(resultId).then((r) => toast(savedWords(r)), (err: unknown) => toast(errorText(err), 'error')));
   return (
     <button type="button" className="btn" onClick={save}>
       Security report
