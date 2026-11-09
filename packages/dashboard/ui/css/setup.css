@@ -70,6 +70,13 @@ dl.found dd small { color: var(--faint); font-size: 12px; margin-left: 4px; }
 .recline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 13.5px; }
 .recline .ic { width: 9px; height: 9px; border-radius: 50%; background: var(--cq-lime); }
 .recline .btn { margin-left: auto; }
+/* a setup's finished state: a verdict line ("set up" in the passed colour) under a hairline, level with the steps' text; on a
+   page that says it is set up already, the line alone where the steps would be */
+.verdict.sdone { margin: 0 0 0 50px; padding-top: 18px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.verdict.sdone > div:not(.actions) { flex: 1 1 320px; min-width: 0; }
+.verdict.sdone.alone { margin-left: 0; border-top: 0; padding-top: 0; }
+.verdict.sdone h2 code { font-size: 15px; font-weight: 500; }
+/* the team store's setup's finished states (#/setup/store), until they are verdict lines as the project's is */
 .setupdone { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-left: 50px; padding: 16px 20px; border-radius: 14px; background: color-mix(in srgb, var(--lime) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-line) 45%, transparent); }
 .setupdone div { flex: 1; min-width: 0; }
 .setupdone b { display: block; font: 600 16px var(--disp); letter-spacing: -.02em; }
@@ -80,7 +87,7 @@ dl.found dd small { color: var(--faint); font-size: 12px; margin-left: 4px; }
   .trow { grid-template-columns: minmax(0, 1fr) 54px; }
   .trow > span:last-child { grid-column: 1 / -1; }
   dl.found { grid-template-columns: 90px minmax(0, 1fr); }
-  .setupdone { margin-left: 0; }
+  .setupdone, .verdict.sdone { margin-left: 0; }
 }
 
 @media (max-width: 640px) {

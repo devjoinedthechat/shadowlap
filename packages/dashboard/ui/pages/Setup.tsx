@@ -13,6 +13,7 @@ import { useApp } from '../state.js';
 import { NotFoundPage } from './NotFound.js';
 import { NoRunsSteps } from './no-runs.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { VerdictLine } from '../components/VerdictLine.js';
 import { useSetupJobs, useSetupView } from './setup-jobs.js';
 import { SetupSteps } from './setup-steps.js';
 
@@ -69,15 +70,19 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
       <SetupHeader view={view} onSkip={off ? null : jobs.finish} />
       <SetupSteps view={view} jobs={jobs} off={off} treeBusy={treeBusy} testsWait={testsWait} />
       {view.done ? (
-        <div className="setupdone">
-          <div>
-            <b>{view.done.title}</b>
-            <span>{view.done.text}</span>
-          </div>
-          <ActionButton className="btn lime" why={off} onClick={jobs.finish}>
-            {view.done.button.label}
-          </ActionButton>
-        </div>
+        <VerdictLine
+          word={view.done.word}
+          tone="ok"
+          className="sdone"
+          facts={view.done.text}
+          actions={
+            <ActionButton className="btn lime" why={off} onClick={jobs.finish}>
+              {view.done.button.label}
+            </ActionButton>
+          }
+        >
+          {view.done.title}
+        </VerdictLine>
       ) : null}
       {jobs.asking ? <RecordRunDialog confirm={jobs.asking.confirm} onClose={jobs.closeAsking} onOk={jobs.confirmAsking} /> : null}
     </Page>
