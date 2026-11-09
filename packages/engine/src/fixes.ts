@@ -111,12 +111,18 @@ export function fixLabelInfo(store: StoreOf<'recording' | 'fixes'>, fix: StoredF
 
 /** The fix a run fails in: one not yet applied (the latest opened), else the latest applied one. */
 export function fixOfRun(store: StoreOf<'fixes'>, runId: string): StoredFix | null {
-  const fixes = store
-    .linksTo(runId, 'failing')
-    .map((l) => store.getFix(l.fixId))
-    .filter((f): f is StoredFix => f !== null)
-    .sort((a, b) => b.openedAt - a.openedAt);
-  return fixes.find((f) => f.status !== 'applied') ?? fixes[0] ?? null;
+  return fixAmong(
+    store
+      .linksTo(runId, 'failing')
+      .map((l) => store.getFix(l.fixId))
+      .filter((f): f is StoredFix => f !== null),
+  );
+}
+
+/** Of the fixes whose failing runs list a run, the one it fails in, as `fixOfRun` picks it: for a read that has every fix's failing runs already. */
+export function fixAmong(fixes: readonly StoredFix[]): StoredFix | null {
+  const newest = [...fixes].sort((a, b) => b.openedAt - a.openedAt);
+  return newest.find((f) => f.status !== 'applied') ?? newest[0] ?? null;
 }
 
 /**

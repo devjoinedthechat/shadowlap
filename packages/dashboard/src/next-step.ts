@@ -613,7 +613,11 @@ export function failureKey(text: string): string {
 export function fixesByFailure(fixes: readonly StoredFix[]): (failed: string) => StoredFix | null {
   const holding = new Map<string, StoredFix[]>();
   for (const f of fixes) {
-    for (const key of new Set([...f.check.oracle, ...f.check.text.split('; ')].map(failureKey))) holding.set(key, [...(holding.get(key) ?? []), f]);
+    for (const key of new Set([...f.check.oracle, ...f.check.text.split('; ')].map(failureKey))) {
+      const held = holding.get(key);
+      if (held) held.push(f);
+      else holding.set(key, [f]);
+    }
   }
   return (failed) => {
     const found = holding.get(failureKey(failed)) ?? [];
