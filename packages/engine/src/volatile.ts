@@ -242,15 +242,15 @@ export function valueHints(d: DivergenceReport, normalizers: readonly Normalizer
   const named = new Set((d.hints ?? []).map((h) => h.normalizer?.path).filter((p): p is string => !!p));
   return volatileValues(d, normalizers)
     .values.filter((v) => !named.has(v.path))
-    .map((v) => ({
-      message:
-        v.op === 'added'
-          ? `${v.path} is new in the request and looks like ${v.looks}: if the change is meant, add this normalizer as well as updating the golden, or the next run diverges on it`
-          : v.certain
-            ? `${v.path} looks like ${v.looks}, made anew on every run; to ignore it in matching, add a normalizer`
-            : `${v.path} is an id, and a changed id may be a real change (another customer, another order); only if this one is made anew on every run, add a normalizer`,
-      normalizer: v.normalizer,
-    }));
+    .map((v) => ({ message: valueHintMessage(v), normalizer: v.normalizer }));
+}
+
+/** What a report says of one such value, its path first: the CLI's line, and Show diff's beside the path (the dashboard's request-diff.ts). */
+export function valueHintMessage(v: Pick<VolatileValue, 'path' | 'op' | 'looks' | 'certain'>): string {
+  if (v.op === 'added') return `${v.path} is new in the request and looks like ${v.looks}: if the change is meant, add this normalizer as well as updating the golden, or the next run diverges on it`;
+  return v.certain
+    ? `${v.path} looks like ${v.looks}, made anew on every run; to ignore it in matching, add a normalizer`
+    : `${v.path} is an id, and a changed id may be a real change (another customer, another order); only if this one is made anew on every run, add a normalizer`;
 }
 
 /** The `shadowlap` arguments that add a normalizer: `['normalize', 'add', '--kind', 'api', '--path', …]`. */

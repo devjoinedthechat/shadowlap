@@ -84,7 +84,7 @@ function Inspector() {
       <div className="findings">
         <ResultsToggle runId={RUN} which="presets" preload={() => ResultsMatrixPart.preload()} />
       </div>
-      <InspectorPlace panel={p.panel} run={run} test={null} onClose={p.close} onPick={p.close} results={(key) => (key === 'presets' ? presetsPanel : null)}>
+      <InspectorPlace panel={p.panel} run={run} onClose={p.close} onPick={p.close} results={(key) => (key === 'presets' ? presetsPanel : null)}>
         <section className="insp" id="insp" aria-label="Call 4">
           <p>The inspector</p>
         </section>

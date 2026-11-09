@@ -6,11 +6,13 @@ import { attemptOutcome, bannerFor, type BannerInput } from '../ui/run/banner.js
 import { ForksView } from '../ui/run/ForksView.js';
 import { attemptLinks, attemptOf, forkKindWords } from '../ui/run/model.js';
 import { Banner, type BannerProps } from '../ui/run/FindingsBar.js';
-import { DiffPanel } from '../ui/run/DiffPanel.js';
+import { DiffHead, DiffNotes } from '../ui/components/DiffNotes.js';
+import { jsonDiff } from '../ui/json-diff.js';
+import type { RequestDiff } from '../src/request-diff.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { familyLine, kindTag, runTag, type RunLike } from '../ui/runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { LineageNode, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
+import type { LineageNode, RunDetail, RunOffers } from '../ui/types.js';
 import { render, shownText, type Rendered } from './ui-render.js';
 
 
@@ -371,34 +373,115 @@ describe('the Forks view', () => {
   });
 });
 
-describe('a diverged test’s diff', () => {
-  it('says what its banner says: the value made anew on every run, and its normalizer', () => {
-    const run = { run: { divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, counterpart: { callNo: 3 }, diff: [{ path: '$.metadata', op: 'added', after: { user_id: '6faa71ad-0381-40a5-aaa6-2b90195750da' } }] } }, parent: null } as never;
-    const test = {
-      golden: 'goldens/refund-in-limit',
-      volatile: { path: '$.metadata.user_id', looks: 'a UUID', op: 'added', certain: true, command: "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'" },
-      normalizeAndTest: [
-        ['normalize', 'add'],
-        ['test', 'goldens/refund-in-limit', '--update'],
+describe('Show diff’s words', () => {
+  const user = '6faa71ad-0381-40a5-aaa6-2b90195750da';
+  const uuidCommand = "shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'";
+  const uuidFix = { kind: 'normalizer' as const, looks: 'a UUID', op: 'added' as const, certain: true, message: '$.metadata.user_id is new in the request and looks like a UUID: if the change is meant, add this normalizer as well as updating the golden, or the next run diverges on it', args: [], command: uuidCommand };
+  const answer = (over: Partial<RequestDiff>): RequestDiff => ({
+    at: 3,
+    what: 'request',
+    call: { kind: 'api', name: 'POST /v1/messages' },
+    against: { runId: '01K5CQ4N7G'.padEnd(26, '0'), callNo: 3 },
+    was: { model: 'claude-sonnet-4-5' },
+    now: { model: 'claude-sonnet-4-5', metadata: { user_id: user } },
+    whole: true,
+    leftOut: [],
+    same: false,
+    askedAgain: false,
+    type: 'request_changed',
+    path: '$.metadata.user_id',
+    paths: [{ path: '$.metadata.user_id', what: 'metadata.user_id', fix: uuidFix }],
+    updates: true,
+    masked: [],
+    outside: [],
+    hints: [],
+    flag: null,
+    tool: null,
+    next: null,
+    test: true,
+    ...over,
+  });
+  // What a reader reads: the markup's text, its glued spaces as spaces.
+  const said = (d: RequestDiff, lines = jsonDiff(d.was, d.now)) =>
+    renderToStaticMarkup(createElement(AppContext.Provider, { value: app() }, createElement(DiffNotes, { diff: d, lines })))
+      .replace(/<[^>]+>/g, '')
+      .replace(/&#x27;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/\u00a0|&nbsp;/g, ' ');
+
+  it('says a test’s one value made anew as its banner does, with its normalizer, and the golden updated after it where the recording lacked it', () => {
+    const text = said(answer({}));
+    expect(text).toContain('A value the recording never had, at $.metadata.user_id, looks like a UUID: the agent makes a new one on every run. A normalizer masks it before matching; the request still carries the field the recording lacks, so the golden is updated after it.');
+    expect(text).toContain(`$${uuidCommand}`);
+    expect(text).not.toContain('no normalizer is suggested');
+    const changed = answer({ was: { metadata: { user_id: 'a1' } }, paths: [{ path: '$.metadata.user_id', what: null, fix: { ...uuidFix, op: 'changed' } }], updates: false });
+    expect(said(changed)).toContain('Only a value changed at $.metadata.user_id, and it looks like a UUID: the agent makes a new one on every run. A normalizer masks it before matching, and older recordings match too.');
+    const real = answer({ paths: [{ path: '$.metadata.user_id', what: null, fix: { ...uuidFix, op: 'changed', certain: false } }], updates: false });
+    expect(said(real)).toContain('and it looks like a UUID, though it may be a real change: look at it before masking it. A normalizer masks it before matching, and older recordings match too.');
+  });
+
+  it('gives each change a line with what fixes it, what matching masks a muted line, and every command in one box', () => {
+    const d = answer({
+      paths: [
+        { path: '$.metadata.user_id', what: null, fix: { ...uuidFix, op: 'changed' } },
+        { path: '$.model', what: 'model', fix: { kind: 'update' } },
+        { path: '$.metadata.order_id', what: null, fix: { ...uuidFix, looks: 'an id', op: 'changed', certain: false, message: '$.metadata.order_id is an id, and a changed id may be a real change (another customer, another order); only if this one is made anew on every run, add a normalizer', command: "shadowlap normalize add --kind api --path '$.metadata.order_id' --replace '<ID>'" } },
       ],
-    } as unknown as TestBannerOffer;
-    const html = renderToStaticMarkup(createElement(DiffPanel, { run, test }));
-    expect(html).toContain('looks like a UUID: the agent makes a new one on every run.');
-    expect(html).toContain('so the golden is updated after it');
-    // The command wraps between its words, each its own element, so it is read without them.
-    expect(html.replace(/<[^>]+>/g, '')).toContain('--path &#x27;$.metadata.user_id&#x27; --pattern uuid');
-    expect(html).not.toContain('no normalizer is suggested');
-    // A value that only changed: the design's sentence, and older recordings match too.
-    const changed = {
-      ...test,
-      volatile: { ...test.volatile!, op: 'changed' },
-      normalizeAndTest: [
-        ['normalize', 'add'],
-        ['test', 'goldens/refund-in-limit'],
-      ],
-    } as unknown as TestBannerOffer;
-    expect(renderToStaticMarkup(createElement(DiffPanel, { run, test: changed }))).toContain('and it looks like a UUID: the agent makes a new one on every run. A normalizer masks it before matching, and older recordings match too.');
-    // Without the finding, and no hint, it still says none is suggested.
-    expect(renderToStaticMarkup(createElement(DiffPanel, { run }))).toContain('Not a date or an id, so no normalizer is suggested.');
+      masked: ['$.metadata.sent_at'],
+      outside: ['headers.x-trace'],
+      hints: [{ message: 'the x-trace header is part of what makes a model call the same call, and no normalizer masks it: send the recorded value, or record again with the new one', command: null }],
+    });
+    const text = said(d);
+    expect(text).toContain('$.metadata.user_id looks like a UUID, made anew on every run: a normalizer masks it.');
+    expect(text).toContain('$.model is what your code or config changed: Update golden re-records it.');
+    expect(text).toContain('$.metadata.order_id is an id, and a changed id may be a real change (another customer, another order); only if this one is made anew on every run, add a normalizer.');
+    expect(text).toContain('$.metadata.sent_at changed too, and matching masks it.');
+    expect(text).toContain('The x-trace header is part of what makes a model call the same call');
+    // A header the engine's hint names has no line of its own.
+    expect(text).not.toContain('headers.x-trace');
+    expect(text).not.toContain('Only a value changed');
+    expect(text).toContain("$shadowlap normalize add --kind api --path '$.metadata.user_id'");
+    expect(text).toContain("$shadowlap normalize add --kind api --path '$.metadata.order_id'");
+    // No value made anew: the paths that changed, then what fixes each.
+    const code = answer({ was: { model: 'a', system: 'x' }, now: { model: 'b', system: 'y' }, path: '$.model', paths: [{ path: '$.model', what: 'model', fix: { kind: 'update' } }, { path: '$.system', what: 'system', fix: { kind: 'update' } }] });
+    expect(said(code)).toMatch(/^The request changed at \$\.model and \$\.system\.\$\.model is what your code or config changed/);
+  });
+
+  it('says what a fork changed: a tool’s result the next request carries, a flag, or nothing at all', () => {
+    const fork = { test: false, updates: false, paths: [], path: '$.messages[2].content', at: 3, against: { runId: '01K5CQ4N7G'.padEnd(26, '0'), callNo: 3 } };
+    const result = (policy: object) => ({ messages: [{ role: 'user', content: 'Refund order 1042' }, { role: 'assistant', content: 'lookup_policy' }, { role: 'user', content: JSON.stringify(policy) }] });
+    const added = answer({ ...fork, was: result({ region: 'EU' }), now: result({ region: 'EU', refund_limit: 100 }), flag: '--override 2=@policy.json', tool: { callNo: 2, name: 'lookup_policy' } });
+    expect(said(added)).toBe('One field added at $.messages[2].content: lookup_policy’s refund_limit now reaches the model. Not a date or an id, so no normalizer is suggested.');
+    const changed = answer({ ...fork, was: result({ region: 'EU' }), now: result({ region: 'US' }), flag: '--override 2=@policy.json', tool: { callNo: 2, name: 'lookup_policy' } });
+    expect(said(changed)).toBe('The result of #2 lookup_policy changed at $.messages[2].content (--override 2=@policy.json). Not a date or an id, so no normalizer is suggested.');
+    const live = answer({ ...fork, type: 'forced', was: result({ hits: 1 }), now: result({ hits: 2 }), flag: '--live-tool search_web', tool: { callNo: 2, name: 'search_web' } });
+    expect(said(live)).toBe('The result of #2 search_web came from --live-tool search_web. The next model call, #3, is the first request that changed.');
+    const model = answer({ ...fork, type: 'request_changed', was: { model: 'claude-sonnet-4-5' }, now: { model: 'claude-haiku-4-5' }, flag: '--model 3:claude-haiku-4-5' });
+    expect(said(model)).toBe('The request at #3 is the first that changed, by --model 3:claude-haiku-4-5.');
+    const again = answer({ ...fork, type: 'forced', path: null, was: { model: 'a' }, now: { model: 'a' }, same: true, askedAgain: true, flag: '--diverge-at 3' });
+    expect(said(again, [])).toBe('No request changed: --diverge-at 3 asked #3 again, live, as recorded.');
+    // A tool asked again, live, whose result left the next request as recorded.
+    const tool = { ...again, at: 3, flag: '--live-tool search_web', tool: { callNo: 2, name: 'search_web' } };
+    expect(said(tool, [])).toBe('No request changed: --live-tool search_web asked #2 again, live, as recorded.');
+    // A tool failed in its place (here retried before the next model call, #4): where its result came from, alone.
+    expect(said({ ...tool, at: 4, askedAgain: false, flag: '--fail-at 2=500' }, [])).toBe('The result of #2 search_web came from --fail-at 2=500.');
+    // The model switched in the URL path, as on Gemini and Bedrock: the body as recorded, the call not.
+    const urlModel = { ...again, askedAgain: false, flag: '--model 3:gemini-2.5-flash' };
+    expect(said(urlModel, [])).toBe('The request at #3 is the first that changed, by --model 3:gemini-2.5-flash.');
+    // A tool's own result, where no request changed: the override that changed it, and where the next request changed.
+    const own = answer({ ...fork, what: 'result', at: 906, call: { kind: 'tool', name: 'check_fraud' }, path: '$.messages[4].content', was: { result: {} }, now: { result: { fraud_hold: true } }, flag: '--override 906=@fraud.json', tool: { callNo: 906, name: 'check_fraud' }, next: 907 });
+    expect(said(own)).toBe('The tool result at #906 was overridden (--override 906=@fraud.json). The next model call, #907, is the first request that changed, at $.messages[4].content.');
+  });
+
+  it('names both sides in its heads, the recording’s run by its id', () => {
+    const d = answer({});
+    const heads = renderToStaticMarkup(createElement(DiffHead, { diff: d }));
+    expect(heads.replace(/<[^>]+>/g, '').replace(/\u00a0/g, ' ')).toBe('−Recorded request #3 · 01K5CQ4N7G+This run’s request #3');
+    expect(heads).toContain('<code class="rnm">01K5CQ4N7G</code>');
+    expect(heads).toContain('<span class="js del" aria-hidden="true">−</span>');
+    expect(renderToStaticMarkup(createElement(DiffHead, { diff: { ...d, what: 'result', at: 906, against: null }, as: 'h3' }))).toMatch(/^<div class="jdh"><h3>.*Recorded result #906\u00a0· the recording<\/h3><h3>.*This run’s result #906<\/h3><\/div>$/);
   });
 });
+

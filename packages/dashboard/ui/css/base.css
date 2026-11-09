@@ -486,7 +486,7 @@ code.rnm { white-space: nowrap; }
   :is(#root, body) :is(
     .eyebrow, .k:not(.stepper>a>.k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
     .tchip em, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
-    .fxtable th, .msg .role small, .callrow .pp, .callrow .pl, .diffpanel h4,
+    .fxtable th, .msg .role small, .callrow .pp, .callrow .pl, .diffpanel:not(.jdp) h4,
     .paths h4, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,
     .hkey .hkh, .evl .ev
   ) { font-size: var(--fs-label); }

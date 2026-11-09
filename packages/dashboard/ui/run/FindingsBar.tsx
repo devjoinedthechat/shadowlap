@@ -17,7 +17,7 @@ import { fixedByWords, runType } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
-import { notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
+import { findingPath, notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
 import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
 import { DifferencesPanel, useForkDifferences } from './ForkDifferences.js';
@@ -32,6 +32,7 @@ import { InjectionFinding } from '../injection/Finding.js';
 import { Proof, type ProofTab } from '../injection/Proof.js';
 import { openResults } from './panel-state.js';
 import type { InjectionFinding as InjectionFindingView } from '../injection/model.js';
+import { warmDiff } from './InspectorPanel.js';
 
 /**
  * What a run's page found, as one bar under its header (findings.ts): the most telling finding whole,
@@ -475,8 +476,10 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
       #{n}
     </button>
   );
+  // The pointer or the focus on Show diff asks for its scripts and its answer, so it opens at once.
+  const warm = () => warmDiff(app.client, p.run.run.runId, p.run.run.status === 'running');
   const diffToggle = (
-    <button className="linkbtn" type="button" data-act="diff" onClick={p.onToggleDiff}>
+    <button className="linkbtn" type="button" data-act="diff" onClick={p.onToggleDiff} onPointerEnter={warm} onFocus={warm}>
       {p.showDiff ? 'Hide diff' : 'Show diff'}
     </button>
   );
@@ -601,7 +604,7 @@ function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
   return (
     <section className={cls(b.fixedBy ? 'n' : 'blame', s)}>
       <Why lead={b.lead} code={b.name}>{[...(b.fixedBy ? [fixedByWords(b.fixedBy)] : []), b.name, b.why].join(' · ')}</Why>
-      {b.path ? <span className="path">~ {test?.volatile?.path ?? test?.cause ?? b.path}</span> : null}
+      {b.path ? <span className="path">~ {findingPath(b, test)}</span> : null}
       <span className="end">
         {add?.kind === 'added' ? (
           <NormalizerAdded passingRun={add.passingRun} leads={leads} />

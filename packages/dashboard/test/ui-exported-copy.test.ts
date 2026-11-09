@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -17,7 +17,8 @@ import { render, type Rendered } from './ui-render.js';
  * shows (ui/pages/copy.tsx): its runs, a run's page and Compare between them. Drawn here from a real
  * export's data, as the copy draws it, it still opens on the run that was shared, lists its runs,
  * compares them, and sends every other page to its runs. It draws nothing that opens a part only the
- * served dashboard hands in (ui/served-parts.ts), whose code its script doesn't hold.
+ * served dashboard hands in (ui/served-parts.ts), whose code its script doesn't hold, nor the dialogs
+ * only such a part opens.
  */
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent', import.meta.url));
 
@@ -147,6 +148,16 @@ describe('an exported copy', () => {
     expect(banner).toContain('forked at#3system-notice #2, attempt 2 of 3 · writes stubbed');
     expect(banner).not.toMatch(/Results →|The answer →|planted at/);
     expect(r!.all('.injline, .pbn, mark.cnry, mark.ins-plant')).toHaveLength(0);
+  });
+
+  it('never opens Export OpenTelemetry trace…: Share’s menu alone loads its dialog, and a copy draws no Share', () => {
+    // The page's code that loads the dialog's script: Share's menu, and nothing a copy draws, so the
+    // copy's script holds none of it (COPY_PARTS in test/ui-bundle-size.test.ts).
+    const ui = fileURLToPath(new URL('../ui/', import.meta.url));
+    const loaders = readdirSync(ui, { recursive: true, encoding: 'utf8' })
+      .filter((f) => /\.tsx?$/.test(f) && /\bOtelDialog\.js['"]/.test(readFileSync(join(ui, f), 'utf8')))
+      .map((f) => f.split(sep).join('/'));
+    expect(loaders).toEqual(['run/ShareMenu.tsx']);
   });
 
   it('lists its runs, and only those', async () => {

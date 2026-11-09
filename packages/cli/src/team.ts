@@ -803,6 +803,7 @@ export async function teamShare(t: TeamEnv, runArg: string, flags: { lineage?: b
       version: flags.version ?? null,
       ...(cfg.prices ? { prices: cfg.prices } : {}),
       ...(cfg.redact.length ? { redact: cfg.redact } : {}),
+      ...(cfg.normalize.length ? { normalize: cfg.normalize } : {}),
       ...(flags.uiDir ? { uiDir: flags.uiDir } : {}),
     });
     html = result.html;

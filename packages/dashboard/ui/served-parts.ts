@@ -21,7 +21,7 @@ export type SecurityReportProps = ComponentProps<typeof SecurityReportDialog>;
  * page draws no step that asks).
  */
 export interface ServedParts {
-  /** Share's menu (run/ShareMenu.tsx), with its Export dataset…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
+  /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
   ShareMenu?: OnShow<ShareMenuProps>;
   /** An injection test's results in the inspector's place (injection/InjectionResults.tsx), with the matrix they draw: loaded ahead as the pointer or the focus reaches Show results. */
   InjectionResults?: OnShow<InjectionResultsProps>;
