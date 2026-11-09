@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { PAUSED } from '../ui/connection.js';
 import { LookStepButton } from '../ui/overview/steps.js';
 import { AppContext } from '../ui/state.js';
-import { render } from './ui-render.js';
+import { render, shownText, type Rendered } from './ui-render.js';
 import { forkMenuTitle } from '../ui/actions.js';
 import { createExportedClient } from '../ui/api.js';
 import { InjectionFinding } from '../ui/injection/Finding.js';
@@ -25,11 +25,15 @@ import { MarksContext } from '../ui/components/marks.js';
 import { attemptMarks } from '../ui/injection/marks.js';
 import { reportSaved, SecurityReportDialog } from '../ui/injection/SecurityReportDialog.js';
 import { withStepDialogs } from './ui-served-now.js';
+import { ForksView } from '../ui/run/ForksView.js';
+import { panelOn, resetPanel } from '../ui/run/panel-state.js';
+import type { LineageNode } from '../ui/types.js';
 
 /**
  * What a run's page draws of the injection tests it was in (port/injection-results): the untrusted
  * tag in Calls and Turns, the finding of the run's newest kept test with its Show results, the panel
  * that opens on the shared matrix, and an exported copy, which keeps no results and draws none of it.
+ * Then where else a test shows: an attempt's page, Needs a look, Share and the Forks view.
  */
 
 const RUN = '01K5CQ4N7G';
@@ -55,6 +59,7 @@ const row = (o: Partial<InjectionRow> = {}): InjectionRow => ({
   reason: 'send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed): send_email.to = x7f3kq2m@canary.invalid',
   spent: 3.11,
   rule: null,
+  read: null,
   href: `#/run/${RUN}`,
   ...o,
 });
@@ -404,5 +409,122 @@ describe('Share’s Security report', () => {
     expect(reportSaved('f.html', false, 0)).toBe('Saved f.html · no redaction rules to apply');
     expect(reportSaved('f.html', true, 1)).toBe('Saved f.html · 1 redaction rule applied; canaries kept');
     expect(reportSaved('f.html', true, null)).toBe('Saved f.html · redaction rules applied; canaries kept');
+  });
+});
+
+/** An element of the test renderer's page. */
+type El = ReturnType<Rendered['one']>;
+
+describe('the Forks view', () => {
+  const REC = `${RUN}0000000000000000`;
+  const id = (k: number) => `01K5CQ${String(k).padStart(4, '0')}`.padEnd(26, '0');
+  const node = (runId: string, over: Partial<LineageNode> = {}): LineageNode => ({ runId, parentRunId: REC, depth: 1, mode: 'replay', status: 'completed', label: 'injection', divergence: { callNo: 5, type: 'request_changed' }, calls: 8, spent: 0.01, saved: 0, startedAt: 10, repeat: null, checks: null, origins: 'rrrrollw', test: null, kind: 'fork', outcome: { kind: 'none' }, failed: false, ...over });
+  const replay = (k: number, result: string, mark: Partial<NonNullable<LineageNode['injection']>>, over: Partial<LineageNode> = {}) =>
+    node(id(k), { startedAt: 10 + k, repeat: { group: result, attempt: k, of: 12 }, injection: { result, role: 'attempt', attempt: 1, of: 2, verdict: null, read: 4, payload: 'system-notice', at: null, says: null, gone: null, ...mark }, ...over });
+  const PROOF = 'planted at #4 → read at #5 → send_email.to = x7f3kq2m@canary.invalid at #6';
+  const WHY = 'the clean replay never called send_email with this value of to';
+  const lineage: LineageNode[] = [
+    node(REC, { parentRunId: null, depth: 0, mode: 'record', kind: 'recording', divergence: null, startedAt: 1 }),
+    replay(1, 'inj-01PLANT', { verdict: 'obeyed', at: 6, says: PROOF }),
+    replay(2, 'inj-01PLANT', { verdict: 'ignored', attempt: 2 }),
+    replay(3, 'inj-01PLANT', { verdict: 'influenced', payload: 'user-urgent', at: 7, says: `planted at #4 → read at #5 → send_email at #7: ${WHY}` }),
+    replay(4, 'inj-01PLANT', { verdict: 'ignored', payload: 'user-urgent', attempt: 2 }),
+    replay(5, 'inj-01PLANT', { verdict: 'inconclusive', payload: 'tool-output', says: 'no model read the planted text' }),
+    // Its clean replays, made first, drawn after the attempts.
+    replay(0, 'inj-01PLANT', { role: 'baseline', payload: null }, { startedAt: 2, about: { text: 'baseline from #4, attempt 1 of 2', from: 'flags' } as never }),
+    replay(6, 'inj-01PLANT', { role: 'baseline', payload: null, attempt: 2 }, { startedAt: 3, about: { text: 'baseline from #4, attempt 2 of 2', from: 'flags' } as never }),
+    replay(7, 'inj-01CLEAN', { role: 'clean', payload: null, at: 5, gone: [28] }),
+    replay(8, 'inj-01CLEAN', { role: 'clean', payload: null, attempt: 2, at: 5, gone: [] }),
+    replay(9, 'inj-01CLEAN', { role: 'clean', payload: null, attempt: 3, says: 'it never made the read', gone: [] }),
+    // A test whose result was deleted: its runs stay a --repeat's bundle, as before.
+    replay(10, 'inj-01GONE', { verdict: 'ignored' }),
+  ];
+  const plant = row({ runId: REC, attempts: 6, obeyed: 1, influenced: 1, ignored: 3, inconclusive: 1 });
+  const clean = row({ resultId: 'inj-01CLEAN', runId: REC, mode: 'clean', at: 3_000, attempts: 3, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'caused', gate: 'passed', line: 'caused by #4 fetch_page · gone in 1 of 3 clean attempts · rate >= 0.29 (95%)', reason: null, spent: 0, rule: 'gate: tells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts', read: 4 });
+  const asked: string[] = [];
+  const said: string[] = [];
+  const client = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]), injectionResults: (runId: string) => (asked.push(runId), Promise.resolve({ results: runId === REC ? [clean, plant] : [] })) };
+  const view = (runId: string) => render(createElement(AppContext.Provider, { value: { client, runs: [], runsTick: 0, live: [], feeds: {}, conn: 'offline', toast: (t: string) => said.push(t), exported: false } as never }, createElement(ForksView, { runId })));
+  const tip = (el: El | undefined) => JSON.parse(el?.getAttribute('data-tip') ?? 'null') as unknown;
+  const inside = (el: El, selector: string): El => el.querySelector(selector)!;
+  const within = (el: El, selector: string): El[] => el.querySelectorAll(selector);
+  const nodeOf = (page: Rendered, title: string): El => page.all('.fnode.fb').find((n) => inside(n, '.f1 code').textContent === title)!;
+
+  it('files each kept test under the run it tested, its replays in it, oldest first, and reads the tests of only the runs replays tested', async () => {
+    const page = await view(id(3));
+    await page.until('the family to load', () => page.all('.fnode').length > 0);
+    expect(asked).toEqual([REC]);
+    expect(page.all('.fnode.fb .f1 code').map((c) => c.textContent)).toEqual(['injection test', 'injection --clean 4']);
+    // No replay of a kept test is a fork of its own; one whose result is gone stays a bundle.
+    expect(page.all('.fnode .fid').map((c) => c.textContent)).toEqual([REC.slice(0, 10)]);
+    expect(page.all('.fnode:not(.fb) .f1 code').some((c) => c.textContent.startsWith('replay --repeat'))).toBe(true);
+    // The page of one of its attempts is here; the node is no link, its title is, opening the run tested with the test's results.
+    const [test, answer] = [nodeOf(page, 'injection test'), nodeOf(page, 'injection --clean 4')];
+    expect(test.className).toContain('here');
+    expect(answer.className).not.toContain('here');
+    expect(test.tagName).toBe('DIV');
+    resetPanel();
+    const title = inside(test, '.fbt');
+    expect(title.getAttribute('href')).toBe(`#/run/${REC}`);
+    await page.click(title);
+    expect(panelOn(REC)).toEqual({ runId: REC, kind: 'results', key: 'injection:inj-01PLANT' });
+    resetPanel();
+    await page.unmount();
+  });
+
+  it('says a test by its gate\'s verdict, its counts and what it spent, influenced glossed, and a --clean answer by its own line and its rule', async () => {
+    const page = await view(REC);
+    await page.until('the family to load', () => page.all('.fnode.fb').length === 2);
+    const [test, answer] = [nodeOf(page, 'injection test'), nodeOf(page, 'injection --clean 4')];
+    expect(inside(test, '.glyph').className).toContain('fail');
+    expect(inside(test, '.glyph').getAttribute('aria-label')).toBe('Injection test');
+    expect(shownText(inside(test, '.f2'))).toBe('failed · 6 attempts · 1 obeyed · 1 influenced · 3 ignored · 1 inconclusive · ≈$3.11');
+    expect(within(test, '.f2 [data-term="influenced"]')).toHaveLength(1);
+    expect(inside(answer, '.glyph').getAttribute('aria-label')).toBe('Clean attempts');
+    expect(shownText(inside(answer, '.f2'))).toBe(`caused by #4 fetch_page · gone in 1 of 3 clean attempts · rate >= 0.29 (95%)${clean.rule}`);
+    expect(inside(answer, '.frule').textContent).toBe(clean.rule);
+    await page.unmount();
+  });
+
+  it('draws its replays as one picture named by its counts, a plant\'s clean replays muted after a hairline, each with its card and no Tab stop', async () => {
+    const page = await view(REC);
+    await page.until('the family to load', () => page.all('.fnode.fb').length === 2);
+    const [test, answer] = [nodeOf(page, 'injection test'), nodeOf(page, 'injection --clean 4')];
+    const strip = inside(test, '.astrip');
+    expect(strip.getAttribute('role')).toBe('img');
+    expect(strip.getAttribute('aria-label')).toBe('5 attempts in the order they ran: 1 obeyed, 1 influenced, 2 ignored, 1 inconclusive, then 2 clean replays');
+    expect(within(strip, 'i, span').map((c) => c.className)).toEqual(['ac no', 'ac mu', 'ac inc', 'ac mu', 'ac inc', 'acsep', 'ac mu', 'ac mu']);
+    expect(within(strip, 'a, [tabindex]')).toEqual([]);
+    const cells = within(strip, 'i.ac');
+    expect(tip(cells[0])).toEqual({ t: `system-notice at #4, attempt 1 · ${id(1).slice(0, 10)}`, s: `obeyed: ${PROOF}` });
+    expect(tip(cells[1])).toEqual({ t: `system-notice at #4, attempt 2 · ${id(2).slice(0, 10)}`, s: 'ignored' });
+    expect(tip(cells[5])).toEqual({ t: `clean replay 1 · ${id(0).slice(0, 10)}`, s: 'baseline from #4, attempt 1 of 2' });
+    const answers = inside(answer, '.astrip');
+    expect(answers.getAttribute('aria-label')).toBe('3 clean attempts in the order they ran: 1 with a write gone, 1 with every write made again, 1 inconclusive');
+    expect(within(answers, 'i.ac').map((c) => [c.className, tip(c)])).toEqual([
+      ['ac no', { t: `clean attempt 1 · ${id(7).slice(0, 10)}`, s: '#28 gone' }],
+      ['ac mu', { t: `clean attempt 2 · ${id(8).slice(0, 10)}`, s: 'every write made again' }],
+      ['ac inc', { t: `clean attempt 3 · ${id(9).slice(0, 10)}`, s: 'it never made the read' }],
+    ]);
+    await page.unmount();
+  });
+
+  it('links at most three attempts its verdict rests on, obeyed first, then says what it left out and the attempts it holds no run of', async () => {
+    const page = await view(REC);
+    await page.until('the family to load', () => page.all('.fnode.fb').length === 2);
+    const [test, answer] = [nodeOf(page, 'injection test'), nodeOf(page, 'injection --clean 4')];
+    expect(within(test, '.alist .al').map((l) => l.textContent)).toEqual([
+      `${id(1).slice(0, 10)} · system-notice · obeyed: ${PROOF}`,
+      `${id(3).slice(0, 10)} · user-urgent · influenced: planted at #4 → read at #5 → send_email at #7: ${WHY}`,
+      `${id(5).slice(0, 10)} · tool-output · inconclusive: no model read the planted text`,
+    ]);
+    expect(within(test, '.alist .al a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${id(1)}/6`, `#/run/${id(3)}/7`, `#/run/${id(5)}`]);
+    expect(inside(test, '.more2').textContent).toBe('2 ignored · 1 attempt not drawn: gone from the store, or past the family’s first 1,000 runs · each attempt is a cell above');
+    expect(within(answer, '.alist .al').map((l) => l.textContent)).toEqual([`${id(7).slice(0, 10)} · clean attempt 1 · #28 gone`]);
+    expect(inside(answer, '.more2').textContent).toBe('1 with every write made again · 1 inconclusive · each attempt is a cell above');
+    // An attempt opens as every attempt link does: while the server is out of reach it says so.
+    await page.click(inside(test, '.alist .al a'));
+    expect(said).toEqual([PAUSED]);
+    await page.unmount();
   });
 });
