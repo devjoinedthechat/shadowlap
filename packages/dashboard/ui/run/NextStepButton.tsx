@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
-import { ActionButton } from '../components/ActionButton.js';
+import { ActionButton, useOfflineLink } from '../components/ActionButton.js';
 import { useBilledPress } from '../components/JobButton.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Icon, type IconName } from '../components/Icon.js';
@@ -273,12 +273,16 @@ function PackStep({ step, offers }: { step: Extract<NextStep, { key: 'pack' | 'p
   );
 }
 
+/** The steps whose link opens an attempt, which waits while the server is out of reach, as every link to one does. */
+const TO_ATTEMPT = new Set(['injection-proof', 'preset-proof']);
+
 export function NextStepButton(props: StepProps) {
   const { run, step, onAction } = props;
+  const offline = useOfflineLink();
   if (step.href) {
     const icon = ICONS[step.key];
     return (
-      <a className="btn lime" href={step.href} data-next={step.key} data-tip={tipOf(stepCard(step))} {...(step.key === 'compare' ? shortcut('compare') : {})}>
+      <a className="btn lime" href={step.href} data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={TO_ATTEMPT.has(step.key) ? offline : undefined} {...(step.key === 'compare' ? shortcut('compare') : {})}>
         {icon ? <Icon name={icon} /> : null}
         {step.label}
       </a>

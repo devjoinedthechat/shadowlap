@@ -1,4 +1,5 @@
 import { createElement } from 'react';
+import { PAUSED } from '../ui/connection.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
 import { fixStatusWords, nextStepOf, stepCard, stepCostLine } from '../ui/run/next-step.js';
@@ -291,11 +292,15 @@ describe('the run page’s next step', () => {
       { key: 'injection-proof', label: 'Open proof', runId: PARENT, href: `#/run/${PARENT}/6`, title: `Opens ${PARENT.slice(0, 10)}`, sub: 'send_email obeyed a planted instruction · 8 of 72 · system-notice at #4' },
       { key: 'preset-proof', label: 'Open proof', runId: PARENT, href: `#/run/${PARENT}/2`, title: `Opens ${PARENT.slice(0, 10)}`, sub: 'tool timeout failed · 0 of 1 passed' },
     ] as NextStep[]) {
-      page = await render(createElement(AppContext.Provider, { value: app() }, createElement(RunHeader, header(detail({ state: passedState, next })))));
+      const said: string[] = [];
+      page = await render(createElement(AppContext.Provider, { value: app({ conn: 'offline', toast: (t: string) => void said.push(t) }) }, createElement(RunHeader, header(detail({ state: passedState, next })))));
       const lead = page.byText('.rhead .actions a', next.label);
       expect(lead.className, next.key).toBe('btn lime');
       expect(lead.props.href).toBe(next.href);
       expect(lead.props['data-next']).toBe(next.key);
+      // A proof opens an attempt, which waits while the server is out of reach, as every link to one does.
+      await page.click(lead);
+      expect(said, next.key).toEqual(next.key === 'passing' ? [] : [PAUSED]);
       await page.unmount();
       page = null;
     }
