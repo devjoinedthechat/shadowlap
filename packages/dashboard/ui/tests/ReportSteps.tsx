@@ -17,8 +17,8 @@ import { LeadButton, type LeadPress } from './Verdict.js';
 /**
  * A report's next steps, plain (the verdict's lime is the page's): the golden's own step as the
  * server leads it (next-step.ts, the run page's rule), then what else its report offers, from the
- * page's own helpers: a divergence's normalizer, Update golden and Find breaking commit (never where
- * Update golden leads); a crash's Run blame beside its step, from the step's own offer; Find breaking
+ * page's own helpers: a divergence's normalizer, Update golden beside it, and Find breaking commit
+ * (never where Update golden leads); a crash's Run blame beside its step, from the step's own offer; Find breaking
  * commit where it is offered; Run more attempts and Update golden for an inconclusive golden; an
  * injection gate's Security report. A press opens the report, so a job's end has a part to hand
  * the focus to (⌘K presses these while it is folded).
@@ -53,17 +53,22 @@ interface Siblings {
   step: NextStep | undefined;
 }
 
-/** A divergence's normalizer (or Re-run test once its rule is in), Update golden, and Find breaking commit, never where Update golden leads. */
+/**
+ * A divergence's normalizer (or Re-run test once its rule is in), Update golden beside that step
+ * only, as the mock offers it, and Find breaking commit, never where Update golden leads.
+ */
 function divergenceSiblings(d: DivergenceView, { has, press, leads, step }: Siblings): ReactNode[] {
   const b = divergenceButtons(d, has);
   const n = b.normalize;
+  // Without the server's step, the normalizer's button is the first.
+  const normalizer = step ? step.key === 'normalizer' || step.key === 'rerun-test' : !!n;
   return [
     n && !leads('normalize') ? (
       <JobButton key="normalize" className="btn" why={press.wait(n.run === 'rerun' ? 'run it again' : 'add the normalizer')} {...testsJob(normalizeCard(d, n), goldenPrice(press.prices, d.golden, n.run === 'rerun' ? 'rerun' : 'normalize'), (e) => press.onNormalize(d, e))}>
         {n.label}
       </JobButton>
     ) : null,
-    b.update && !leads('update') ? <UpdateButton key="update" golden={d.golden} judge={null} press={press} /> : null,
+    b.update && normalizer && !leads('update') ? <UpdateButton key="update" golden={d.golden} judge={null} press={press} /> : null,
     b.bisect && !leads('bisect') && step?.key !== 'update-golden' ? <FindCommitButton key="bisect" f={d} live={press.live(d)} why={press.wait('find the breaking commit')} onBisect={() => press.onFind(d)} /> : null,
   ];
 }
