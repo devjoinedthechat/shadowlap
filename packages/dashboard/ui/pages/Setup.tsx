@@ -48,12 +48,12 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
 
   const shows = setupPageShows({ meta, view, runs });
   // No setup to follow (a dashboard that serves one store): with runs, nothing to set up here; without, the steps and their commands.
-  if (shows === 'nothing') return <NotFoundPage what="Nothing to set up here." />;
+  if (shows === 'nothing') return <NotFoundPage kind="setup" />;
   if (shows === 'steps') return <NoRunsSteps />;
   if (shows === 'wait' || !view) return <SetupWaiting failed={failed} retry={load} />;
 
   // #/setup on a project that is set up: nothing to do here, as the mock says.
-  if (asked && view.shows === 'none') return <NotFoundPage what="Nothing to set up here." />;
+  if (asked && view.shows === 'none') return <NotFoundPage kind="setup" />;
 
   const off = actionsOff;
   return (

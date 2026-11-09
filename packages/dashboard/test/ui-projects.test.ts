@@ -4,6 +4,7 @@ import { heldAsk } from '../ui/held.js';
 import { elsewhereWords, lineText } from '../ui/held-words.js';
 import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, followKey, type FollowView, keepsPageOnSwitch, liveCalls, nameMatches, noRunsYet, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, switchToLabel, terminalLine } from '../ui/projects.js';
 import { dialogOnSwitch, expectProject, noteDialogDropped, noteRefusal, onProjectSwitched, onShownProject, projectHeader, showProject, shownProject, takeDialogDropped, takeLanding } from '../ui/projects-api.js';
+import { notFoundWords } from '../ui/not-found-words.js';
 import { parseRoute } from '../ui/route.js';
 import type { RunLike } from '../ui/runs.js';
 import type { Meta } from '../ui/types.js';
@@ -303,5 +304,16 @@ describe('a link into another project', () => {
     ]);
     for (const what of ['run', 'preview', 'migration'] as const) expect(lineText(elsewhereWords({ what, id: 'x', holder: 'a', current: 'b' }).line)).toBe(`The ${what} x is in a’s store, not b’s.`);
     expect(switchToLabel('support-agent')).toBe('Switch to support-agent');
+  });
+});
+
+describe('a not-found page', () => {
+  it('says what is missing and points back to the list that holds its kind', () => {
+    expect(notFoundWords('run', '01ZZZZZZZZ', '#/runs?q=x')).toEqual({ text: 'No run 01ZZZZZZZZ.', code: null, back: ['#/runs?q=x', 'Open Runs'] });
+    expect(notFoundWords('runs', '01M5', '#/runs')).toEqual({ text: '01M5 matches several runs; use more of the id.', code: null, back: ['#/runs', 'Open Runs'] });
+    expect(notFoundWords('fix', 'fx-nope')).toEqual({ text: 'No fix fx-nope.', code: null, back: ['#/fixes', 'Open Fixes'] });
+    expect(notFoundWords('setup', '')).toEqual({ text: 'Nothing to set up here.', code: null, back: ['#/', 'Back to Overview'] });
+    // A route with nothing at it names the address, as code, and goes back to the Overview.
+    expect(notFoundWords('page', '#/nowhere')).toEqual({ text: 'No page at #/nowhere.', code: '#/nowhere', back: ['#/', 'Back to Overview'] });
   });
 });

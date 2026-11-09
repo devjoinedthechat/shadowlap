@@ -157,20 +157,25 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
         return (
           <>
             <Unshown at={`run:${id}`} />
-            <NotFoundPage header what={`No run ${id} in this copy.`} back={[lastRunsHref(), 'Open Runs']} />
+            <NotFoundPage kind="run" id={id} what={`No run ${id} in this copy.`} back={[lastRunsHref(), 'Open Runs']} />
           </>
         );
-      const page = (
-        <Page>
-          {missing ? <Unshown at={`run:${id}`} /> : null}
-          <div className="empty tall">
-            {several ? `${id} matches several runs; use more of the id.` : missing ? `No run ${id} in this store.` : `Could not load ${id}: ${loaded.error.message}`}{' '}
-            <a className="more" href={lastRunsHref()}>
-              Back to Runs
-            </a>
-          </div>
-        </Page>
-      );
+      const page =
+        missing || several ? (
+          <>
+            {missing ? <Unshown at={`run:${id}`} /> : null}
+            <NotFoundPage kind={several ? 'runs' : 'run'} id={id} back={[lastRunsHref(), 'Open Runs']} />
+          </>
+        ) : (
+          <Page>
+            <div className="empty tall">
+              {`Could not load ${id}: ${loaded.error.message}`}{' '}
+              <a className="more" href={lastRunsHref()}>
+                Open Runs
+              </a>
+            </div>
+          </Page>
+        );
       // Another project may hold it: a link from there, or a page left open across a switch.
       return missing ? <Elsewhere ask={{ what: 'run', ids: [id] }} error={loaded.error} waiting={<RunLoading />} retry={loaded.reload} fallback={page} /> : page;
     }

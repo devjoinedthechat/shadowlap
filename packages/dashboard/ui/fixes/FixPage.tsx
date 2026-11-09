@@ -72,7 +72,7 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
           fallback={
             <>
               <Unshown at={`fixes:${id}`} />
-              <NotFoundPage what={`No fix ${id}.`} />
+              <NotFoundPage kind="fix" id={id} />
             </>
           }
         />
