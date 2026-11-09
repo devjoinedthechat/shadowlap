@@ -581,13 +581,16 @@ describe('the team store’s setup while its read comes, fails or answers', () =
     expect(asked).toBe(before + 1);
   });
 
-  it('gives each access policy a box of its own, its Copy named for whom it is, in Settings → Store’s noun', async () => {
+  it('gives each access policy a box of its own, its Copy named for whom it is, in Settings → Store’s noun, and Check access and connect its command on hover', async () => {
     const check = (): Promise<SetupUrlCheck> => Promise.resolve({ ok: false, provider: 's3', error: 'Type the bucket and folder.', policy: POLICY });
     const fresh = viewAt({ store: null, connected: false, pushed: false, setup: { startedAt: null, ci: null, ciProvider: null, finishedAt: null }, next: { step: 1, title: 'Connect your bucket' }, commit: null });
     r = await render(storePage(() => Promise.resolve(fresh), { check }));
     await r.until('the access to ask for', () => r!.all('details.foundsum .policypart').length === 2);
     expect(r.all('.policypart .boxwrap > pre.codebox').map(text)).toEqual([POLICY.writer.text, POLICY.pullRequest.text]);
     expect(r.all('.policypart .boxcopy').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy access policy for people, and CI on protected branches', 'Copy access policy for pull requests’ CI jobs']);
+    // Check access and connect says on its hover what it checks and its command, the step's own terminal line.
+    const connect = r.byText('ol.setup.storesetup .btn.lime', 'Check access and connect');
+    expect(JSON.parse(connect.getAttribute('data-tip')!)).toMatchObject({ t: 'Check access and connect', s: 'Lists, writes, reads and deletes a test object with the credentials on this machine', cmd: '$ shadowlap store set s3://<bucket>/<project> --check' });
   });
 
   it('says a setup just finished in a verdict line under the steps, set up first, with Go to Overview at its right', async () => {

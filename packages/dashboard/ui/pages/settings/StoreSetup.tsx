@@ -123,6 +123,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
     });
   const copy = (text: string, what: string) => void copyText(text).then((done) => toast(done ? `Copied ${what}` : 'Copying was refused by the browser'));
   const credentials = (current?.ok ? current.credentials : null) ?? p.credentials;
+  const connectCli = current?.ok ? current.command : `shadowlap store set ${typed || p.example} --check`;
   const step = view.ci?.find((x) => x.ci === ci) ?? null;
   const store = view.store;
   const runs = view.runs.onlyLocal;
@@ -132,7 +133,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
   return (
     <>
       <ol className="setup storesetup">
-        <Step n={1} state={states.connect} title={STEP_TITLES[0]} cli={current?.ok ? current.command : `shadowlap store set ${typed || p.example} --check`}>
+        <Step n={1} state={states.connect} title={STEP_TITLES[0]} cli={connectCli}>
           {states.connect === 'done' && store ? (
             <>
               <div className="recline ok">
@@ -194,7 +195,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                 </details>
               ) : null}
               <div className="actions">
-                <ActionButton className="btn lime" why={connectOff} onClick={connect}>
+                <ActionButton className="btn lime" why={connectOff} tip="Check access and connect" sub="Lists, writes, reads and deletes a test object with the credentials on this machine" command={`$ ${connectCli}`} onClick={connect}>
                   Check access and connect
                 </ActionButton>
               </div>
