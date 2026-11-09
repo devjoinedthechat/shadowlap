@@ -69,7 +69,11 @@ async function routeCrash(page: Page): Promise<string> {
   return run;
 }
 
-/** The demo's fix as a crash no model rescued, whose run's search named the commit: Revert leads it, and its Blame step shows the commit. */
+/**
+ * The demo's fix as a crash no model rescued, whose run's search named the commit: Revert leads it,
+ * and its Blame step shows the commit. Its blame offers a stronger model, as one kept with its flags
+ * does on a machine that names one, so its head has the most buttons a named crash's fix draws.
+ */
 async function routeCrashFix(page: Page): Promise<string> {
   const fix = demoId('refundFix');
   const run = await routeCrash(page);
@@ -79,6 +83,7 @@ async function routeCrashFix(page: Page): Promise<string> {
       ...d,
       status: 'open',
       lead: { key: 'revert', label: 'Revert', command: `git revert --no-commit ${REV} && shadowlap test ${GOLDEN}`, use: 'writes', runId: run, step: step(run) },
+      actions: { ...d.actions, blameAgain: null, blameStronger: { argv: ['blame', run], command: `shadowlap blame ${run} --model <model>`, attempts: 8, spent: 0, pulled: null, left: [] } },
       blame: d.blame && { ...d.blame, outcome: 'unrescuable', answers: null, crash: { commit: FOUND, offline: true, stronger: false } },
     })),
   );
@@ -171,13 +176,13 @@ for (const [width, height] of [
     await expect(lead).toHaveAttribute('data-at', String(FOUND.at));
     expect(await seriousViolations(page)).toEqual([]);
     if (width === 1440) {
-      // At most four, Revert lime and last with Open in editor before it; Find breaking commit stays on the run's page.
+      // Four, Revert lime and last with Open in editor before it; Find breaking commit stays on the run's page.
       const names = (await page.locator('.ph .actions button:visible').allTextContents()).map((n) => n.trim());
       console.log(`a named crash's fix head at 1440: ${names.join(' | ')}`);
-      expect(names.slice(-2)).toEqual(['Open in editor', 'Revert']);
-      expect(names.length).toBeLessThanOrEqual(4);
-      expect(names.some((n) => n.startsWith('Find breaking commit'))).toBe(false);
-      const title = await page.locator('.ph h1').evaluate((h) => h.getBoundingClientRect().width);
+      expect(names).toEqual(['Run repair', 'Run blame with stronger model…', 'Open in editor', 'Revert']);
+      // They leave the title its 520px, so the head doesn't stack: the title and its buttons share a line.
+      await expect(page.locator('.ph.fxh')).not.toHaveClass(/\bstack\b/);
+      const title = await page.locator('.ph.fxh > :first-child').evaluate((h) => h.getBoundingClientRect().width);
       expect(title).toBeGreaterThanOrEqual(520);
     }
   });
