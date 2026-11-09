@@ -75,7 +75,7 @@ function app(o: { inTree?: boolean; started?: Array<[string, unknown]>; problem?
 /** The fix's page, opened at a step, once it has loaded. */
 async function open(fixId: string, step: string | null = null, sub: string | null = null, o: Parameters<typeof app>[0] = {}): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(o) }, createElement(FixPage, { id: fixId, step, sub })));
-  await r.until('the fix to load', () => r!.all('h1').length === 1);
+  await r.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
   return r;
 }
 
