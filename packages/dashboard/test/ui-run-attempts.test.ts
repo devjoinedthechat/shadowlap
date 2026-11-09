@@ -233,8 +233,13 @@ describe('an attempt', () => {
     // One that forked nowhere is an attempt all the same.
     expect(forkKindWords({ run: { meta: { verify: { role: 'good', passed: true }, repeat: { group: 'g', attempt: 1, of: 3 } }, divergence: null } } as never, 'clean', false)).toBe('verify attempt');
     expect(forkKindWords({ run: { meta: { repeat: { group: 'g', attempt: 3, of: 5 } }, divergence: { callNo: 16 } } } as never, 'fork', false)).toBe('repeat attempt');
-    // Any other fork by where it forked, an injection test's replay among them; any other run by its kind.
-    expect(forkKindWords({ run: { meta: { repeat: { group: 'inj', attempt: 1, of: 3 }, injection: { result: 'inj', attempt: 1, of: 3 } }, divergence: { callNo: 7 } } } as never, 'fork', false)).toBe('fork @7');
+    // An injection test's replay by its role, from its own record, never by where it forked.
+    const injection = (role: string) => ({ run: { meta: { repeat: { group: 'inj', attempt: 1, of: 3 }, injection: { result: 'inj', role, read: 4, attempt: 1, of: 3 } }, divergence: { callNo: 7 } } }) as never;
+    expect(forkKindWords(injection('attempt'), 'fork', false)).toBe('injection attempt');
+    expect(forkKindWords(injection('clean'), 'fork', false)).toBe('clean attempt');
+    expect(forkKindWords(injection('baseline'), 'fork', false)).toBe('baseline');
+    // Any other fork by where it forked; any other run by its kind.
+    expect(forkKindWords({ run: { meta: { repeat: { group: 'g', attempt: 1, of: 3 }, task: { golden: 'goldens/refund', model: 'm', takeover: 7, attempt: 1, of: 3, score: 1, session: 'S1' } }, divergence: { callNo: 7 } } } as never, 'fork', false)).toBe('fork @7');
     expect(forkKindWords({ run: { meta: {}, divergence: null } }, 'recording', false)).toBeNull();
   });
 

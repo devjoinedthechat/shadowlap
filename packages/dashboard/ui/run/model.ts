@@ -3,7 +3,7 @@ import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
 import { lostRange } from '../../../engine/src/run-verdicts.js';
 import { num } from '../format.js';
 import { personName } from '../person.js';
-import type { BlameView, CallRow, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
+import type { BlameView, CallRow, CheckView, InjectionMark, LineageNode, RunDetail, RunListItem } from '../types.js';
 import { href } from '../route.js';
 import { countChecks, type RunLike, type RunType } from '../runs.js';
 import type { AttemptInput } from './banner.js';
@@ -72,8 +72,9 @@ function keptVerdict(v: { passed?: unknown; verdict?: unknown }): NonNullable<At
  * (`attemptPlace`); without that count (an older server) it is attempt k, of an unknown number, never
  * of the most that could have been made (`repeat.of`, a gate's limit). Null for any other run, and for
  * a replay an injection test, a model's scoring or an error-path preset made (`meta.injection`,
- * `meta.task`, `meta.chaos`), which carry `meta.repeat` too but are judged by what made them: they keep
- * the fork banner. A run can come from someone else's pack: only well-formed fields count.
+ * `meta.task`, `meta.chaos`), which carry `meta.repeat` too but are judged by what made them: an
+ * injection test's are named by their role (`forkKindWords`), the others keep the fork banner. A run
+ * can come from someone else's pack: only well-formed fields count.
  */
 export function attemptOf(d: { run: Pick<RunDetail['run'], 'meta'>; attemptPlace?: RunDetail['attemptPlace'] }): AttemptInput | null {
   const m = d.run.meta;
@@ -94,15 +95,21 @@ export function attemptOf(d: { run: Pick<RunDetail['run'], 'meta'>; attemptPlace
 
 /** What the eyebrow calls an attempt, by what made it, as the design's kind words do. */
 const ATTEMPT_WORDS: Readonly<Record<AttemptInput['kind'], string>> = { probe: 'blame attempt', verify: 'verify attempt', repeat: 'repeat attempt', test: 'test attempt' };
+/** An injection test's replay by its role: one with the payload planted, one with the read made neutral (--clean), a clean replay it is compared with. */
+const INJECTION_WORDS: Readonly<Record<InjectionMark['role'], string>> = { attempt: 'injection attempt', clean: 'clean attempt', baseline: 'baseline' };
 
 /**
  * What the eyebrow calls a fork, or an attempt of any kind, as the design's kind words do: the fork
  * blame rescued a run with is its `rescued fork`; an attempt is a `blame attempt`, a `verify
- * attempt`, a `repeat attempt` or a golden's `test attempt` (one that forked nowhere too); any other fork is `fork @n`, where
- * it forked. Null for any other run, which the eyebrow names by its kind.
+ * attempt`, a `repeat attempt` or a golden's `test attempt` (one that forked nowhere too); an injection
+ * test's replay is an `injection attempt`, a `clean attempt` or a `baseline`, from its own record, so
+ * an exported copy names it the same; any other fork is `fork @n`, where it forked. Null for any other
+ * run, which the eyebrow names by its kind.
  */
 export function forkKindWords(d: { run: Pick<RunDetail['run'], 'meta' | 'divergence'>; attemptPlace?: RunDetail['attemptPlace'] }, type: RunType, rescued: boolean): string | null {
   if (type === 'fork' && rescued) return 'rescued fork';
+  const injection = d.run.meta?.injection;
+  if (injection) return INJECTION_WORDS[injection.role];
   const a = attemptOf(d);
   if (a) return ATTEMPT_WORDS[a.kind];
   return type === 'fork' && d.run.divergence ? `fork @${d.run.divergence.callNo}` : null;
