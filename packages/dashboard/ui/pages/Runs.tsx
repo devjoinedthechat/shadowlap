@@ -87,7 +87,8 @@ export function RunsPage({ filter }: { filter?: RunsFilterRead | undefined }) {
 const RUNS_LINE = 'Recordings, and the replays and forks made from them.';
 
 /**
- * Runs in a project with no runs yet: its header, with Import capture…, then what the page will hold,
+ * Runs in a project with no runs yet: its header, with Import capture… alone (a team store's Pull
+ * and Push wait for the list, as the setup is the way to a first run), then what the page will hold,
  * with Set up <project> and the command quiet under it. No calendar, chips or filter: nothing to
  * pick from. The first run recorded turns it into the list.
  */
@@ -98,7 +99,7 @@ function NoRuns() {
   useImportAsked(useCallback(() => setImporting(true), []));
   return (
     <Page>
-      <PageHeader eyebrow={runsEyebrow(projectOf(meta), store, known)} title="Runs" text={RUNS_LINE} actions={<RunsActions store={store} onImport={() => setImporting(true)} />} />
+      <PageHeader eyebrow={runsEyebrow(projectOf(meta), store, known)} title="Runs" text={RUNS_LINE} actions={<RunsActions store={null} onImport={() => setImporting(true)} />} />
       <EmptyState title="No runs yet" text="Every recording shows here with its replays and forks: record the agent once, or import a capture another tool made." copy step={<SetUpStep />} command="shadowlap run -- <command>" />
       {importing ? <ImportDialog onClose={() => setImporting(false)} /> : null}
     </Page>
