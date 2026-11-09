@@ -3,26 +3,35 @@
  * header over its final layout in quiet bars (inert, one status, the page busy, none of the classes
  * the tests and the browser suite read as the page drawn); a read that failed, the header kept over
  * the error line with Retry, which reads again; and a link that names nothing, one page per kind.
+ * A project with no runs shows its setup on the Overview alone: every other page says what it will
+ * hold, with Set up <project>, and the setup draws its own loading, failure and steps.
  */
 import { createElement } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Store, deriveSetup, emptySetup, emptyStoreFacts, type ProjectEntry, type RunFact, type SetupFindings, type StoreFacts } from '@shadowlap/engine';
 import { fixesView } from '../src/fixes-view.js';
+import { setupView } from '../src/projects.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import type { NotFoundKind } from '../ui/not-found-words.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
+import { DashboardPages } from '../ui/pages/lazy.js';
 import { NotFoundPage } from '../ui/pages/NotFound.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { RunsPage } from '../ui/pages/Runs.js';
+import { SetupPage } from '../ui/pages/Setup.js';
+import { TestsPage } from '../ui/pages/Tests.js';
+import { parseRoute } from '../ui/route.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { addressBar } from './ui-route-helpers.js';
 
 let r: Rendered | null = null;
 
 afterEach(async () => {
   await r?.unmount();
   r = null;
+  vi.unstubAllGlobals();
 });
 
 const text = (el: FakeElement) => el.textContent.replace(/\u00a0/g, ' ');
@@ -170,6 +179,174 @@ describe('a page of a project with no runs', () => {
       r = null;
       store.close();
     }
+  });
+
+  it('says on Tests what it will hold, with Set up <project>, and no pack command, which needs a run', async () => {
+    const tests = { empty: true, rows: [], diverged: [], commands: { pack: 'shadowlap pack <run> goldens/<name>' } };
+    const state = { ...app({}), runs: [], client: { exported: false, tests: () => Promise.resolve(tests), jobs: () => Promise.resolve([]) } } as unknown as AppState;
+    addressBar('#/tests');
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(TestsPage)));
+    await r.until('the empty page', () => r!.all('.stepempty').length === 1);
+    expect(text(r.one('.stepempty h2'))).toBe('No goldens yet');
+    expect(step(r)).toEqual([['Set up support-agent', '#/']]);
+    expect(text(r.document.body)).not.toContain('shadowlap pack');
+  });
+
+  it('keeps Set up <project> a link on a read-only dashboard, since opening the Overview asks the server nothing', async () => {
+    const off = 'This dashboard is read-only: it was started with --read-only.';
+    const state = { ...app({}), meta: { ...META, readOnly: true, actions: false }, actionsOff: off, runs: [], client: { exported: false, teamStore: () => Promise.resolve(null) } } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunsPage, {})));
+    const link = r.one('.stepempty a.btn.lime');
+    expect([text(link), link.getAttribute('href'), link.getAttribute('aria-disabled'), link.getAttribute('data-why')]).toEqual(['Set up support-agent', '#/', null, null]);
+  });
+});
+
+describe('Runs before the meta says which project it is, and in a project that can’t be opened', () => {
+  const GONE = { project: { id: 'support-agent', name: 'support-agent', path: '/work/support-agent', problem: 'Its folder is gone: /work/support-agent.', missing: true } };
+  let asked = 0;
+  /** The shell's pages at #/runs, the meta as given; `asked` counts the reads of the runs' table. */
+  const routed = (meta: unknown) => {
+    asked = 0;
+    const read = () => (asked++, new Promise(() => undefined));
+    const client = { exported: false, jobs: () => Promise.resolve([]), runsPage: read, runsByDay: read, teamStore: () => Promise.resolve(null), knownRuns: (ids: string[]) => Promise.resolve(ids), projects: { setup: () => new Promise(() => undefined) } } as unknown as Client;
+    const state = { ...app({}), client, meta, runs: meta ? [] : null, refresh: () => undefined } as unknown as AppState;
+    return createElement(AppContext.Provider, { value: state }, createElement(DashboardPages, { route: parseRoute('#/runs') }));
+  };
+
+  it('waits with the page empty, reading no runs, as the meta is what says a project can’t be opened', async () => {
+    r = await render(routed(null));
+    expect(r.all('.page').map(text)).toEqual(['']);
+    expect(r.all('h1')).toEqual([]);
+    expect(asked).toBe(0);
+  });
+
+  it('says in Runs’ place why the project can’t be opened, with Remove project…, and reads no runs', async () => {
+    r = await render(routed(GONE));
+    await r.until('the project’s page', () => r!.all('.ph h1').length === 1);
+    expect(text(r.one('.ph .eyebrow'))).toBe('support-agent');
+    expect(text(r.one('.ph h1'))).toBe('Can’t open support-agent');
+    expect(text(r.one('.ph'))).toContain('Its folder is gone: /work/support-agent.');
+    expect(r.all('.ph .actions button').map(text)).toEqual(['Remove project…']);
+    for (const drawn of ['.stepempty', '.runsec', 'ol.setup']) expect(r.all(drawn), drawn).toEqual([]);
+    expect(asked).toBe(0);
+  });
+});
+
+describe('the setup while its read comes, fails or answers', () => {
+  const HOME = '/home/dana';
+  const RUN = '01K5CQ7A3M00000000000000AB';
+  const SETTING_UP = { project: { id: 'support-agent', name: 'support-agent', path: `${HOME}/support-agent`, display: '~/support-agent', settingUp: true } };
+  const TOOLS: SetupFindings['tools'] = [
+    { name: 'search_orders', effect: 'read', wrapped: true, why: 'declared', file: 'agent/tools.py', line: 12 },
+    { name: 'refund_order', effect: 'write', wrapped: false, why: '"refund" changes something', file: 'agent/tools.py', line: 41 },
+  ];
+  /** What Inspect found: the write tool not wrapped yet, or (`wrapped`) found wrapped by a later look. */
+  const found = (wrapped: boolean): SetupFindings => ({
+    at: wrapped ? 50 : 1,
+    language: 'Python 3.12 · uv',
+    files: ['pyproject.toml'],
+    sdk: 'anthropic 0.69.0',
+    framework: 'Anthropic tool runner',
+    command: ['uv', 'run', 'support-agent'],
+    commandFrom: '[project.scripts] in pyproject.toml',
+    config: { file: 'shadowlap.config.json', created: true, existed: false },
+    tools: TOOLS.map((t) => ({ ...t, wrapped: wrapped || t.wrapped })),
+    wrap: wrapped ? [] : [{ language: 'python', tools: ['refund_order'], code: 'from shadowlap import tool' }],
+  });
+  const RECORDING: RunFact = { runId: RUN, status: 'completed', startedAt: 10, endedAt: 20, live: false, calls: 12, replayedClean: false };
+  /** The server's read model of support-agent's setup (src/projects.ts), the project at `over` and its store holding `store`. */
+  const setupAt = (over: Partial<ProjectEntry['setup']>, store: Partial<StoreFacts> = {}) => {
+    const project: ProjectEntry = { id: 'support-agent', name: 'support-agent', path: `${HOME}/support-agent`, addedAt: 1, setup: { ...emptySetup(1), ...over }, confirmed: [] };
+    return setupView({ project, setup: deriveSetup(project.setup, { ...emptyStoreFacts(), ...store }, { packs: [] }), redactRules: 0, home: HOME });
+  };
+  const FRESH = setupAt({});
+  const UNWRAPPED = setupAt({ stage: 'inspected', findings: found(false) });
+  // Recorded before the write tool was wrapped, and found wrapped since: Pack waits for a recording made since.
+  const WRAPPED_SINCE = setupAt({ stage: 'recorded', findings: found(true), inspections: [{ at: 1, unwrapped: ['refund_order'] }, { at: 50, unwrapped: [] }], runId: RUN, command: ['uv', 'run', 'support-agent'] }, { runs: 1, recordings: [RECORDING] });
+  const SET_UP = setupAt({ stage: 'tested', findings: found(true), runId: RUN, golden: 'goldens/support-agent' }, { runs: 2, recordings: [RECORDING] });
+
+  /** The setup page, its server answering the setup's read with `setup`; what it toasts goes in `toasts`. */
+  const setupPage = (setup: () => Promise<unknown>, toasts: string[] = []) => {
+    const client = { exported: false, jobs: () => Promise.resolve([]), projects: { setup } } as unknown as Client;
+    const state = { ...app({}), client, meta: SETTING_UP, runs: [], toast: (t: string) => void toasts.push(t) } as unknown as AppState;
+    return createElement(AppContext.Provider, { value: state }, createElement(SetupPage, {}));
+  };
+  const drawn = async (setup: () => Promise<unknown>, toasts?: string[]) => {
+    r = await render(setupPage(setup, toasts));
+    await r.until('the steps', () => r!.all('section#setup').length === 1);
+    return r;
+  };
+  /** The lime buttons that can be pressed: one at a time, the step at hand's. */
+  const limes = (page: Rendered) => page.all('section#setup .btn.lime').filter((b) => !b.hasAttribute('disabled') && b.getAttribute('aria-disabled') !== 'true').map(text);
+
+  it('draws its header over the four steps in quiet bars while the setup is read, with no step to press', async () => {
+    r = await render(setupPage(() => new Promise(() => undefined)));
+    waiting(r, 'the setup');
+    expect(text(r.one('.ph .eyebrow'))).toBe('support-agent · ~/support-agent');
+    expect(text(r.one('.ph h1'))).toBe('Set up support-agent');
+    expect(r.all('.skin ol.setup > li h2').map(text)).toEqual(['Inspect', 'Record', 'Calibrate', 'Pack']);
+    for (const none of ['section#setup', '[data-step]', 'button']) expect(r.all(none), none).toEqual([]);
+  });
+
+  it('keeps that header when the read fails, over the error line, and Retry reads it again, each step then a section of its own', async () => {
+    let asked = 0;
+    let answer: () => Promise<unknown> = failed;
+    r = await render(setupPage(() => (asked++, answer())));
+    await r.until('the failure', () => r!.all('.loaderr').length === 1);
+    expect(r.one('.page').hasAttribute('aria-busy')).toBe(false);
+    expect(text(r.one('.ph h1'))).toBe('Set up support-agent');
+    expect(r.all('.loaderr p > span').map(text)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    expect(r.all('.skel')).toEqual([]);
+    answer = () => Promise.resolve(FRESH);
+    const before = asked;
+    await r.click(r.byText('.loaderr button', 'Retry'));
+    await r.until('the steps', () => r!.all('section#setup').length === 1);
+    expect(asked).toBe(before + 1);
+    expect(r.all('section#setup ol.setup > li').map((li) => [li.getAttribute('data-step'), text(li.querySelector('h2')!)])).toEqual([
+      ['inspect', 'Inspect'],
+      ['record', 'Record'],
+      ['calibrate', 'Calibrate'],
+      ['test', 'Pack'],
+    ]);
+  });
+
+  it('gives the step at hand the one lime button to press, as the read model says', async () => {
+    for (const [view, lime] of [
+      [FRESH, 'Inspect folder'],
+      [UNWRAPPED, 'Check again'],
+      [WRAPPED_SINCE, 'Record again'],
+      [SET_UP, 'Go to Overview'],
+    ] as const) {
+      expect(limes(await drawn(() => Promise.resolve(view))), lime).toEqual([lime]);
+      await r!.unmount();
+      r = null;
+    }
+  });
+
+  it('draws Pack plain while it waits, not disabled, saying why under it and on a press, before the replay is clean too', async () => {
+    for (const view of [UNWRAPPED, WRAPPED_SINCE]) {
+      const toasts: string[] = [];
+      const page = await drawn(() => Promise.resolve(view), toasts);
+      const why = view.wait!.text;
+      const pack = page.byText('li[data-step="test"] button', 'Pack as golden');
+      expect([pack.className, pack.getAttribute('aria-disabled'), pack.hasAttribute('disabled'), pack.getAttribute('data-why')]).toEqual(['btn', 'true', false, why]);
+      expect(page.all('li[data-step="test"] p.fieldnote.warn').map(text)).toEqual([why]);
+      await page.click(pack);
+      expect(toasts).toEqual([why]);
+      await page.unmount();
+      r = null;
+    }
+  });
+
+  it('says a finished setup in a verdict line under the steps, set up first, with Go to Overview at its right', async () => {
+    const page = await drawn(() => Promise.resolve(SET_UP));
+    const done = page.one('section#setup .verdict.sdone');
+    expect(text(done.querySelector('.vw')!)).toBe('set up');
+    expect(text(done.querySelector('h2')!)).toBe('set up support-agent replays exactly.');
+    expect(text(done.querySelector('p')!)).toBe(SET_UP.done!.text);
+    expect(done.querySelectorAll('.actions .btn').map(text)).toEqual(['Go to Overview']);
+    // Nothing left to skip.
+    expect(page.all('.ph .actions')).toEqual([]);
   });
 });
 
