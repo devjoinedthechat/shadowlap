@@ -210,7 +210,7 @@ What the rows mean:
 
 - **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own.
 - **Inconclusive goldens**: **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection test showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
-- **Failed runs nobody has blamed**: a fork that failed counts as much as a recording, and so does a capture its import judged failed. The row names the newest by its id, with what it was about on hover, and opens Runs on the week's failed runs. A capture's **Run blame** opens its page, which asks for the command that starts your agent first.
+- **Failed runs nobody has blamed**: a fork that failed counts as much as a recording, and so does a capture its import judged failed. The row names the newest by its id and failure, with what it was about on hover, and opens its issue on this week's [Failed](#failed-as-issues). A capture's **Run blame** opens its page, which asks for the command that starts your agent first.
 - **Open fixes**: where blame found that no answer of the model's lost the run, a repair of the prompt is no fix, and the row opens the fix at Blame.
 - **A preview of a change** is settled by a session of that change that asked its flagged runs again and flagged none, or whose verify accepted them, as a migration to a model after a preview of it.
 - **Verified fixes**: one verified with request fields set, as `--set temperature=1`, says to make them in your agent first.
@@ -326,7 +326,9 @@ Each issue's row shows:
 - **The issue**: the fix's title, the golden's name and what its newest replay did, or what failed. The line under it says what failed, where an instruction was planted (*planted in #2 lookup_order's result*) or where blame found it lost, how many came from production, and the newest run.
 - **Runs**: how many failed so. The count shows them under the row, newest first, 50 at a time, and hides them again.
 - **First seen** and **Last seen**: when the oldest and the newest of them started.
-- **Fix**: the fix's place on the ladder, as on Fixes, with *· 1 not blamed* for its runs nobody has blamed, or *passed* for a golden whose last result passed. At the end, the issue's next step: **Run blame** for its newest run nobody has blamed, **Open fix**, or a link to the run or to Tests.
+- **Fix**: the fix's place on the ladder, as on Fixes, with *· 1 not blamed* for its runs nobody has blamed, or *passed* for a golden whose last result passed. At its end is the issue's next step.
+
+The next step starts from the row, as on [Needs a look](#needs-a-look): **Run blame** for the newest run nobody has blamed, or the golden's step, such as **Add normalizer and re-run** or **Find breaking commit**. **Open fix** opens the fix, and a capture's **Run blame** opens its page, which asks for your command first. An issue with no step links to its newest run, or to Tests.
 
 The days and the filter's words narrow the issues as they narrow the table: an issue counts only the runs they keep. While the verdicts Failed counts by are worked out, the line above says so, as it does for `status:`. On a phone, each issue is a block.
 
@@ -345,7 +347,7 @@ One line beside the bars says what they count: *207 runs in 12 weeks, on this ma
 With **Failed** picked and days chosen, **Find breaking commit…** bisects from the first failure of those days, between a commit where it still worked and its own:
 
 - It offers only commits this checkout has. A teammate's runs can name commits of theirs, and a failure whose own commit isn't here is bisected up to HEAD.
-- Days whose only failures fail their family's checks have nothing to start from, and the dialog says so: *Find breaking commit needs a run that failed on its own.*
+- Days whose only failures fail their family's checks have nothing to start from. Find breaking commit says so and opens no dialog: *…needs a run that failed on its own.*
 - A failure at the repository's first commit (or the oldest a shallow clone has) has nothing before it to search. The dialog says so, and bisects from the first failure of those days that started later, or offers no search when none did.
 
 ### Act on several runs
