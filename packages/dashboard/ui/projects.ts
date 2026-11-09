@@ -85,7 +85,7 @@ export function stepClass(state: 'done' | 'current' | 'todo' | 'skipped'): 'done
 export interface FollowView {
   done: object | null;
   steps: ReadonlyArray<{ key: string; state: string }>;
-  inspect: { warning: { recheck: { lime: boolean } } | null; node: { recheck: { lime: boolean } } | null };
+  inspect: { button?: { lime: boolean } | null; warning: { recheck: { lime: boolean } } | null; node: { recheck: { lime: boolean } } | null };
   record: { live: object | null; again: { lime: boolean } | null };
 }
 
@@ -93,13 +93,14 @@ export interface FollowView {
  * Where the setup leads, as one key: the step at hand (`inspect`, `record`, `calibrate`, `test`, or
  * `done` once every step is), then what leads in it: `:live` while a recording runs, `:wrap` while
  * the unwrapped writes' Check again does, `:node` while the Node pin's does, `:again` while Record
- * again does. When it changes, the page goes on to where the next step's button is (setup-jobs.ts).
+ * again does, `:inspect` while Inspect folder does after a recording made before it. When it
+ * changes, the page goes on to where the next step's button is (setup-jobs.ts).
  */
 export function followKey(view: FollowView): string {
   if (view.done) return 'done';
   if (view.record.live) return 'record:live';
   const step = view.steps.find((s) => s.state === 'current')?.key ?? 'record';
-  const lead = view.inspect.warning?.recheck.lime ? ':wrap' : view.inspect.node?.recheck.lime ? ':node' : view.record.again?.lime ? ':again' : '';
+  const lead = view.inspect.warning?.recheck.lime ? ':wrap' : view.inspect.node?.recheck.lime ? ':node' : view.record.again?.lime ? ':again' : step !== 'inspect' && view.inspect.button?.lime ? ':inspect' : '';
   return step + lead;
 }
 

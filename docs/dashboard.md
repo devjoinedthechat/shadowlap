@@ -1530,7 +1530,7 @@ The setup has four steps. Each runs the command beside it in the project's folde
 
 **1. Inspect.** Inspecting finds the SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged, with the code to wrap them. The dashboard reads what [`init --json`](./cli.md#init) prints, from the job, and the job's drawer shows what `init` found, a line each.
 
-- Inspecting is done once `init` has run in the folder. The step then folds to one line: what it found, then the command. A project recorded in a terminal first shows it as skipped, and can still be inspected.
+- Inspecting is done once `init` has run in the folder. The step then folds to one line: what it found, then the command. A project recorded in a terminal first shows it as skipped, and **Inspect folder** leads until it is inspected, as packing can't tell a write tool that isn't wrapped before then.
 - A Node the project pins before 18.18 (`.nvmrc` or `.node-version`) is flagged there: an agent on it never starts under Shadowlap. So **Record run** stays off until the pin is raised and the folder checked again.
 - **Check again** leads while a write tool isn't wrapped, since packing waits for it.
 

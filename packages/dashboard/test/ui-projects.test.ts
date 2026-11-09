@@ -185,13 +185,18 @@ describe('the setup’s words', () => {
   });
 
   it('follows the step at hand, and what leads in it', () => {
-    const view = (at: string, o: { live?: boolean; wrap?: boolean; node?: boolean; again?: boolean; done?: boolean } = {}): FollowView => ({
+    const view = (at: string, o: { live?: boolean; wrap?: boolean; node?: boolean; again?: boolean; done?: boolean; inspect?: boolean } = {}): FollowView => ({
       done: o.done ? {} : null,
       steps: ['inspect', 'record', 'calibrate', 'test'].map((key) => ({ key, state: key === at ? 'current' : 'todo' })),
-      inspect: { warning: o.wrap === undefined ? null : { recheck: { lime: o.wrap } }, node: o.node ? { recheck: { lime: true } } : null },
+      inspect: { button: o.inspect === undefined ? null : { lime: o.inspect }, warning: o.wrap === undefined ? null : { recheck: { lime: o.wrap } }, node: o.node ? { recheck: { lime: true } } : null },
       record: { live: o.live ? {} : null, again: o.again === undefined ? null : { lime: o.again } },
     });
     expect(followKey(view('inspect'))).toBe('inspect');
+    expect(followKey(view('inspect', { inspect: true }))).toBe('inspect');
+    // Recorded in a terminal before the folder was inspected: Inspect folder leads from a later step,
+    // until the folder is inspected, when the step at hand's own button does.
+    expect(followKey(view('calibrate', { inspect: true }))).toBe('calibrate:inspect');
+    expect(followKey(view('calibrate', { inspect: false }))).toBe('calibrate');
     expect(followKey(view('record', { wrap: true }))).toBe('record:wrap');
     // Reads alone not wrapped: the warning shows, and Record run leads.
     expect(followKey(view('record', { wrap: false }))).toBe('record');

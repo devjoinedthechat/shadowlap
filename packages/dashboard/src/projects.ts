@@ -459,6 +459,13 @@ interface SetupFacts {
   packedOnly: string | null;
   /** Why Pack (or its test) waits: a write tool not wrapped, or wrapped since the recording. */
   wait: PackWait | null;
+  /**
+   * Recorded (here or in a terminal) before the folder was inspected: with no findings, Pack's wait
+   * can't tell a write tool that isn't wrapped, so Inspect folder leads.
+   */
+  uninspected: boolean;
+  /** The buttons after Inspect read plain, though they still work: Pack waits, or Inspect leads (`uninspected`). */
+  held: boolean;
 }
 
 /** The four steps of a project's setup, each with its state and the CLI command it runs. */
@@ -510,25 +517,26 @@ function setupFacts(input: SetupInput): SetupFacts {
   const oldNode = findings?.nodePin && nodePinTooOld(findings.nodePin.version) ? findings.nodePin : null;
   const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
   const wait = packWait({ findings, setup, packed: packedOnly !== null });
-  return { input, findings, inspected, run, live, finished, recorded, clean, tested, state, golden, argv, server, commands, totals, unwrapped, oldNode, packedOnly, wait };
+  const uninspected = !findings && (stageAtLeast(stage, 'recorded') || live);
+  return { input, findings, inspected, run, live, finished, recorded, clean, tested, state, golden, argv, server, commands, totals, unwrapped, oldNode, packedOnly, wait, uninspected, held: !!wait || uninspected };
 }
 
 /**
  * 1 · Inspect: done once `init` ran and its findings are kept, then folded to one line; skipped when
  * a later step was reached without it (a recording made in a terminal first), which can still be
- * done.
+ * done, and leads until it is, as Pack's wait can't judge the tools without it.
  */
 function inspectStep(f: SetupFacts): InspectStep {
-  const { input, findings, live, state, argv, commands } = f;
-  const passedInspect = !findings && (stageAtLeast(input.setup.stage, 'recorded') || live);
+  const { findings, uninspected, tested, finished, state, argv, commands } = f;
   return {
     key: 'inspect',
     n: 1,
     title: 'Inspect',
-    state: state(!!findings, true, passedInspect),
+    state: state(!!findings, true, uninspected),
     cli: findings ? [] : commands.inspect,
-    text: findings ? null : passedInspect ? 'Recorded before the folder was inspected. Inspect it to see its tools, and whether each one is wrapped.' : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
-    button: findings ? null : { label: 'Inspect folder', action: 'init', lime: true },
+    text: findings ? null : uninspected ? 'Recorded before the folder was inspected. Inspect it to see its tools, and whether each one is wrapped.' : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
+    // Lime until the golden's test passed, whose verdict line leads then.
+    button: findings ? null : { label: 'Inspect folder', action: 'init', lime: !tested && !finished },
     findings: findings ? { rows: findingRows(findings), tools: findings.tools.map(toolRow) } : null,
     summaryFacts: findings ? summaryFacts(findings, f.unwrapped.length) : null,
     // The command the run was recorded with, typed or found, as the design's summary ends on it.
@@ -580,7 +588,7 @@ function recordText(server: SetupFacts['server'], oldNode: SetupFacts['oldNode']
 
 /** 2 · Record. */
 function recordStep(f: SetupFacts): RecordStep {
-  const { input, inspected, run, live, recorded, clean, tested, finished, state, argv, server, commands, totals, oldNode, wait } = f;
+  const { input, inspected, run, live, recorded, clean, tested, finished, state, argv, server, commands, totals, oldNode, held } = f;
   const { setup } = input;
   // A model server the dashboard can't forward to (credentials in its address, or not a plain URL) is recorded in a terminal.
   const canRecord = inspected && !(server && !server.upstream) && !oldNode;
@@ -595,7 +603,7 @@ function recordStep(f: SetupFacts): RecordStep {
     text: ahead ? recordText(server, oldNode) : null,
     command: ahead ? command : null,
     // Plain while a write tool isn't wrapped: Check again leads, though recording still works.
-    button: ahead ? { label: 'Record run', action: 'record', enabled: canRecord, lime: !wait } : null,
+    button: ahead ? { label: 'Record run', action: 'record', enabled: canRecord, lime: !held } : null,
     live: live && run ? { runId: run.runId, calls: totals?.calls ?? 0, text: `Recording ${short(run.runId)} · ${plural(totals?.calls ?? 0, 'call')} so far`, watch: { label: 'Watch live', href: links.run(run.runId) } } : null,
     recorded: recorded && run ? recordedLine(run, totals) : null,
     ...recordLead(f, command),
@@ -665,9 +673,9 @@ function calibrateText({ run, clean }: SetupFacts, added: Array<{ path: string; 
   return 'Replays the run offline with the same code until it is clean, and proposes a normalizer for every value the agent makes anew. No model calls; writes are blocked.';
 }
 
-/** 3 · Calibrate: plain while Pack waits, since a clean replay of this recording still couldn't be packed. */
+/** 3 · Calibrate: plain while Pack waits, since a clean replay of this recording still couldn't be packed, or Inspect leads. */
 function calibrateStep(f: SetupFacts): CalibrateStep {
-  const { input, recorded, clean, tested, state, commands, packedOnly, wait } = f;
+  const { input, recorded, clean, tested, state, commands, packedOnly, held } = f;
   const { project, setup } = input;
   const added = setup.own ? (project.setup.calibration?.added ?? null) : null;
   const last = !clean && recorded ? (input.calibration ?? null) : null;
@@ -680,7 +688,7 @@ function calibrateStep(f: SetupFacts): CalibrateStep {
     state: state(clean, recorded, tested || packedOnly !== null),
     cli: clean ? [] : commands.calibrate,
     text: calibrateText(f, added, proposed, last?.stopped ?? null),
-    button: clean ? null : offer ? { label: proposed.length === 1 ? 'Add normalizer' : 'Add normalizers', action: 'calibratewrite', enabled: true, lime: !wait } : { label: 'Calibrate', action: 'calibrate', enabled: recorded, lime: !wait },
+    button: clean ? null : offer ? { label: proposed.length === 1 ? 'Add normalizer' : 'Add normalizers', action: 'calibratewrite', enabled: true, lime: !held } : { label: 'Calibrate', action: 'calibrate', enabled: recorded, lime: !held },
     again: offer ? { label: 'Calibrate again', action: 'calibrate' } : null,
     proposed,
     stopped: last?.stopped ?? null,
@@ -690,9 +698,10 @@ function calibrateStep(f: SetupFacts): CalibrateStep {
 /**
  * 4 · Pack: packed, then its test; done once the test passed. A golden packed (here or in a
  * terminal) whose test hasn't passed keeps the step open, with the test to run. Either waits, plain,
- * while a write tool isn't wrapped or was wrapped since the recording (`packWait`).
+ * while a write tool isn't wrapped or was wrapped since the recording (`packWait`), and reads plain
+ * while Inspect leads.
  */
-function testStep({ input, clean, tested, state, golden, commands, totals, packedOnly, wait }: SetupFacts): TestStep {
+function testStep({ input, clean, tested, state, golden, commands, totals, packedOnly, held }: SetupFacts): TestStep {
   const { setup } = input;
   const calls = totals?.calls ?? 0;
   const failed = packedOnly !== null && setup.goldenTest?.ok === false;
@@ -712,7 +721,7 @@ function testStep({ input, clean, tested, state, golden, commands, totals, packe
         }
       : null,
     golden: ahead ? { value: golden, enabled: clean } : null,
-    button: tested ? null : packedOnly ? { label: failed ? 'Re-run test' : 'Run test', action: 'testgolden', enabled: true, lime: !wait } : { label: confirmWords(ACTIONS.packAsGolden.label), action: 'packgolden', enabled: clean, lime: !wait },
+    button: tested ? null : packedOnly ? { label: failed ? 'Re-run test' : 'Run test', action: 'testgolden', enabled: true, lime: !held } : { label: confirmWords(ACTIONS.packAsGolden.label), action: 'packgolden', enabled: clean, lime: !held },
     result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: links.tests() } } : null,
     packed: packedOnly ? packedLine(packedOnly, failed, setup.goldenTest?.reason ?? null) : null,
   };

@@ -453,6 +453,23 @@ describe('setupView', () => {
     expect([again.wait, again.record.again, limes(again)]).toEqual([null, null, ['Calibrate']]);
   });
 
+  it('leads with Inspect folder when a recording came first, Calibrate and Pack plain until the folder is inspected', () => {
+    // Recorded in a terminal before init: without the findings, Pack's wait can't tell a write that isn't wrapped.
+    const terminal = view(entry('triage-bot', { stage: 'recorded', runId: RUN }), facts({ runs: 1, recordings: [run()] }));
+    expect([terminal.inspect.state, terminal.calibrate.state, terminal.wait]).toEqual(['skipped', 'current', null]);
+    expect(terminal.calibrate.button).toEqual({ label: 'Calibrate', action: 'calibrate', enabled: true, lime: false });
+    expect(limes(terminal)).toEqual(['Inspect folder']);
+    // Clean already: Pack reads plain too.
+    const clean = view(entry('triage-bot', { stage: 'clean', runId: RUN, calibration: { added: [] } }), facts({ runs: 1, recordings: [run()] }));
+    expect([clean.test.state, clean.test.button?.lime, limes(clean)]).toEqual(['current', false, ['Inspect folder']]);
+    // Inspected since: the step at hand leads again.
+    const inspected = view(entry('triage-bot', { stage: 'recorded', runId: RUN, findings: findings({ at: 50, tools: [], wrap: [] }) }), facts({ runs: 1, recordings: [run()] }));
+    expect(limes(inspected)).toEqual(['Calibrate']);
+    // Its golden's test passed: the verdict line leads, and Inspect folder reads plain.
+    const tested = view(entry('triage-bot', { stage: 'tested', runId: RUN, golden: 'goldens/triage-bot' }), facts({ runs: 2, recordings: [run()] }));
+    expect([tested.inspect.button?.lime, limes(tested)]).toEqual([false, ['Go to Overview']]);
+  });
+
   it('says when the last recording held nothing, and asks for the command again', () => {
     const typo = { ...run('failed', { calls: 0, startedAt: 30 }), runId: '01M4ZKQKEF000000000000TYPO' };
     const v = view(entry('research-agent', { stage: 'inspected', findings: findings(), runId: typo.runId, command: ['nod', 'agent.mjs'] }), facts({ runs: 1, recordings: [typo] }));
