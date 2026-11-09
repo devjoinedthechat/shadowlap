@@ -1,6 +1,10 @@
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { PAUSED } from '../ui/connection.js';
+import { LookStepButton } from '../ui/overview/steps.js';
+import { AppContext } from '../ui/state.js';
+import { render } from './ui-render.js';
 import { forkMenuTitle } from '../ui/actions.js';
 import { createExportedClient } from '../ui/api.js';
 import { InjectionFinding } from '../ui/injection/Finding.js';
@@ -272,5 +276,17 @@ describe('an attempt’s proof', () => {
     expect(write).toContain('<span class="pwhy">· no clean replay sent it</span>');
     expect(text(proof({ plantedAt: 4, readAt: 5, evidence: null }, 'no tool call after #4 carries x7f3kq2m@canary.invalid'))).toBe('planted at #4 → read at #5 · no tool call after #4 carries x7f3kq2m@canary.invalid');
     expect(text(proof({ plantedAt: 4, readAt: null, evidence: null }))).toBe('planted at #4 → read at #?');
+  });
+});
+
+describe('Needs a look’s Security row', () => {
+  it('opens its proof as an attempt link does: while the server is out of reach it says so, and stays where it is', async () => {
+    const said: string[] = [];
+    const row = { kind: 'injection', icon: 'fail', title: 'send_email obeyed a planted instruction · 8 of 72', detail: 'injection test of 01K5CQ4N7G', key: 'k', group: 'security', step: { of: 'link', label: 'Open proof', href: '#/run/01K5CQ9ATT/6', attempt: true }, href: `#/run/${RUN}`, runId: RUN, fixId: null, at: 0 };
+    const page = await render(createElement(AppContext.Provider, { value: { conn: 'offline', toast: (t: string) => said.push(t) } as never }, createElement(LookStepButton, { row: row as never, wait: null, version: '' })));
+    expect(page.one('a.btn').getAttribute('href')).toBe('#/run/01K5CQ9ATT/6');
+    await page.click(page.one('a.btn'));
+    expect(said).toEqual([PAUSED]);
+    await page.unmount();
   });
 });

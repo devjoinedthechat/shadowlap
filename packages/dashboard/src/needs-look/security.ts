@@ -50,7 +50,7 @@ function securityLooks(store: StoreOf<'recording' | 'tests' | 'injection'>, gold
       icon: x.severity === 'obeyed' ? 'fail' : 'warn',
       title: x.text,
       detail: `injection test of ${name}${readsWhere(report, x.severity)}`,
-      step: proof ? { of: 'link', label: ACTIONS.openProof.label, href: links.run(proof.runId, proofCall(proof)) } : null,
+      step: proof ? { of: 'link', label: ACTIONS.openProof.label, href: links.run(proof.runId, proofCall(proof)), attempt: true } : null,
       href: runId ? links.run(runId) : links.tests(),
       runId,
       fixId: null,
