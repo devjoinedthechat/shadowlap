@@ -1,4 +1,4 @@
-import { suggestChecks, type CheckSuggestion, type Store, type StoredFix } from '@shadowlap/engine';
+import { FixIdError, resolveFix, suggestChecks, type CheckSuggestion, type Store, type StoredFix } from '@shadowlap/engine';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 
 /**
@@ -20,15 +20,30 @@ export type CheckSuggestionsJob = {
   /** The labels of the checks the builder holds: a rule among them is left out. */
   have: string[];
   max: number;
-  /** In a fix's builder, the fix whose good runs come first; null for a check made from a call, which takes the fix the run fails in. */
+  /** In a fix's builder, the fix whose good runs come first, by its id or a unique prefix of it; null for a check made from a call, which takes the fix the run fails in. */
   fix: string | null;
 };
 
 export interface CheckSuggestions {
   runId: string;
-  /** The good runs each suggestion passes, the fix's first. */
+  /** The good runs the run is compared with, none of which a suggestion fails, the fix's first. */
   goods: string[];
   suggestions: CheckSuggestion[];
+}
+
+/**
+ * The fix a fix's builder names, found as Fixes finds one (`resolveFix`: its id or a unique prefix of
+ * it), when it holds the run as failing; else why not, a prefix several fixes share in its own words.
+ */
+function fixHolding(store: Store, id: string, runId: string): { fix: StoredFix } | { why: string } {
+  let fix: StoredFix | null;
+  try {
+    fix = resolveFix(store, id);
+  } catch (err) {
+    if (err instanceof FixIdError) return { why: err.message };
+    throw err;
+  }
+  return fix && store.fixLinks(fix.fixId, 'failing').some((l) => l.ref === runId) ? { fix } : { why: `no fix ${id.slice(0, 40)} holds this run as failing` };
 }
 
 function checkSuggestions(store: Store, job: CheckSuggestionsJob): ReadAnswer {
@@ -36,9 +51,9 @@ function checkSuggestions(store: Store, job: CheckSuggestionsJob): ReadAnswer {
   if (!run) return failed(404, `no run ${job.runId}`);
   let fix: StoredFix | undefined;
   if (job.fix !== null) {
-    const found = store.getFix(job.fix);
-    if (!found || !store.fixLinks(found.fixId, 'failing').some((l) => l.ref === run.runId)) return failed(404, `no fix ${job.fix} holds this run as failing`);
-    fix = found;
+    const held = fixHolding(store, job.fix, run.runId);
+    if ('why' in held) return failed(404, held.why);
+    fix = held.fix;
   }
   const out = suggestChecks(store, run, { at: job.at, have: job.have, max: job.max, ...(fix ? { fix } : {}) });
   const body: CheckSuggestions = { runId: run.runId, goods: out.goods.map((r) => r.runId), suggestions: out.suggestions };

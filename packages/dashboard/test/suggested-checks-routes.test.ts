@@ -9,7 +9,7 @@ import type { CheckSuggestions } from '../src/suggested-checks.js';
 
 /**
  * The check builder's suggested checks (POST /api/checks/suggestions, a pooled read): at most three
- * rules that fail a failed recording and pass every good run it is compared with, its fix's and the
+ * rules that fail a failed recording and none of the good runs it is compared with, its fix's and the
  * agent's recordings labelled good, the builder's own left out. Nothing is written.
  */
 
@@ -77,14 +77,14 @@ const VALUE = 'every issue_refund call: amount <= get_policy.result.limit';
 const WHEN = 'when lookup_order has result.amount > 100: issue_refund called 0 times';
 const FIX = 'fx-01K8RG00000000000000000003';
 
-function fixOf(failing: string, good: string[]): void {
-  store.insertFix({ fixId: FIX, title: 'Refund over the limit', labels: [], check: { expect: null, key: 'check:exit', oracle: [], text: 'the agent exits 0' }, status: 'open', openedAt: 3_000, verifiedAt: null, appliedAt: null, data: {} });
-  store.addFixLink(FIX, 'failing', failing, 3_000);
-  good.forEach((id, i) => store.addFixLink(FIX, 'good', id, 3_001 + i));
+function fixOf(failing: string, good: string[], fixId = FIX): void {
+  store.insertFix({ fixId, title: 'Refund over the limit', labels: [], check: { expect: null, key: 'check:exit', oracle: [], text: 'the agent exits 0' }, status: 'open', openedAt: 3_000, verifiedAt: null, appliedAt: null, data: {} });
+  store.addFixLink(fixId, 'failing', failing, 3_000);
+  good.forEach((id, i) => store.addFixLink(fixId, 'good', id, 3_001 + i));
 }
 
 describe('suggested checks', () => {
-  it('answers the rules that fail a failed recording and pass its fix’s good run and the agent’s labelled good', async () => {
+  it('answers the rules that fail a failed recording and neither its fix’s good run nor the agent’s labelled good', async () => {
     const labelled = recording(AGENT, refund(80), { at: 1_000, ...GOOD });
     const kept = recording(AGENT, refund(90), { at: 1_500 });
     recording(['python', 'other.py'], refund(500), { at: 1_600, ...GOOD });
@@ -95,8 +95,9 @@ describe('suggested checks', () => {
     expect(out.goods).toEqual([kept, labelled]);
     expect(out.suggestions.map((s) => s.label)).toEqual([VALUE, WHEN]);
     expect(out.suggestions[0]).toEqual({ shape: 'value', expect: { calls: [{ tool: 'issue_refund', args: { amount: { '<=': '@get_policy.result.limit' } } }] }, label: VALUE });
-    // The fix's builder asks with the fix, made from no call.
+    // The fix's builder asks with the fix, made from no call: by its id, or a unique prefix as Fixes takes one.
     expect((await suggested({ run: bad, fix: FIX })).goods).toEqual([kept, labelled]);
+    expect((await suggested({ run: bad, fix: FIX.slice(3, 14).toLowerCase() })).goods).toEqual([kept, labelled]);
   });
 
   it('leaves out a rule the builder holds', async () => {
@@ -122,11 +123,19 @@ describe('suggested checks', () => {
     expect(missing.status).toBe(404);
     for (const at of [0, 1.5, 'three']) expect(await error(await ask({ run: bad, at }))).toBe('at is the number of the call the check is made from: a whole number, 1 or more');
     for (const have of ['refund', [1], Array.from({ length: 201 }, (_, i) => `rule ${i}`)]) expect(await error(await ask({ run: bad, have }))).toBe('have is the labels of the checks the builder holds: at most 200, as text');
-    expect((await ask({ run: bad, fix: 'refund' })).status).toBe(400);
+    for (const fix of [42, '', ['fx-01K8RG']]) expect(await error(await ask({ run: bad, fix }))).toBe('fix is the id of the fix whose check is built, or a unique prefix of it, as text');
+    const none = await ask({ run: bad, fix: 'refund' });
+    expect(none.status).toBe(404);
+    expect(await error(none)).toBe('no fix refund holds this run as failing');
     fixOf(good, []);
     const notFailing = await ask({ run: bad, fix: FIX });
     expect(notFailing.status).toBe(404);
     expect(await error(notFailing)).toBe(`no fix ${FIX} holds this run as failing`);
+    // A prefix two fixes share names neither, in the words Fixes answers it with.
+    fixOf(bad, [], 'fx-01K8RG00000000000000000004');
+    const shared = await ask({ run: bad, fix: 'fx-01K8RG' });
+    expect(shared.status).toBe(404);
+    expect(await error(shared)).toBe('fix id prefix "fx-01K8RG" is ambiguous: it matches 2 fixes');
   });
 
   it('answers on a read-only dashboard, as it changes nothing', async () => {

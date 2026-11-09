@@ -145,10 +145,13 @@ function labelsOf(raw: unknown): string[] {
   return raw;
 }
 
-/** The fix a fix's builder asks for, as a request gives it: null for a check made from a call, or a 400. */
+/**
+ * The fix a fix's builder asks for, as a request gives it: its id or a unique prefix of it, which the
+ * pooled read resolves as Fixes does; null for a check made from a call, or a 400.
+ */
 function fixOf(raw: unknown): string | null {
   if (raw === undefined || raw === null) return null;
-  if (typeof raw !== 'string' || !/^fx-[0-9A-Za-z]{1,64}$/.test(raw)) throw new HttpError(400, 'fix is the id of the fix whose check is built, such as fx-01M3RZ4XKN');
+  if (typeof raw !== 'string' || !raw.trim()) throw new HttpError(400, 'fix is the id of the fix whose check is built, or a unique prefix of it, as text');
   return raw;
 }
 
