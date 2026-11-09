@@ -286,7 +286,7 @@ describe('Failed’s issues, as they are used', () => {
     const page = served(store);
     const x = page.issues[0];
     expect(x).toMatchObject({ kind: 'failure', stepRun: runId, step: { key: 'blame' } });
-    const t = await drawn(state({ runsIssues: () => Promise.resolve(page), nextStep: () => Promise.resolve({ next: { ...x.step, estimate: { kind: 'blame', usd: 0.42, ceiling: true, parts: [] } } }) }));
+    const t = await drawn(state({ runsIssues: () => Promise.resolve(page), nextStep: (() => Promise.resolve({ next: { ...x.step!, estimate: { kind: 'blame', usd: 0.42, ceiling: true, parts: [] } } })) as unknown as Client['nextStep'] }));
     const step = t.one(`tr[data-rowkey="${x.key}"] .isfix button`);
     expect(step.props.className).toBe('btn sm');
     expect(step.textContent).toBe('Run blame');

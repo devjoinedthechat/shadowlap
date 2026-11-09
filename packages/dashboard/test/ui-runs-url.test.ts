@@ -205,7 +205,7 @@ describe('Runs, from its address', () => {
     const { client, asked } = server();
     const issuesAsked: RunsQuery[] = [];
     const served = { ...client, runsIssues: (q: RunsQuery) => (issuesAsked.push(q), Promise.resolve({ issues: [], total: 0 })) } as unknown as Client;
-    const parts: ServedParts = { FailedIssues: FailedIssues as unknown as ServedParts['FailedIssues'] };
+    const parts: ServedParts = { FailedIssues: FailedIssues as unknown as NonNullable<ServedParts['FailedIssues']> };
     r = await render(createElement(AppContext.Provider, { value: app(served) }, createElement(ServedPartsContext.Provider, { value: parts }, createElement(Routed))));
     await r.until('both reads', () => asked.length > 0 && issuesAsked.length > 0);
     expect(asked[0]).toMatchObject({ types: ['failed'], sort: 'when' });
