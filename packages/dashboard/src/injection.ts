@@ -118,6 +118,12 @@ export function injectionResults(store: StoreOf<'injection'>, o: { runId?: strin
   return { results: store.listInjectionResults(o).map(row) };
 }
 
+/** One kept result's row and its report as `--json` printed it, and nothing it names: what the security report and its preview read. */
+export function keptInjection(store: StoreOf<'injection'>, resultId: string): { row: InjectionRow; report: InjectionReport } | null {
+  const r = store.getInjectionResult(resultId);
+  return r ? { row: row(r), report: r.data as unknown as InjectionReport } : null;
+}
+
 /**
  * One result as `--json` printed it, with its row, the runs it names that are no longer in the store
  * (gc took them: a cell whose attempt is gone can't open it), and, for a plant that ended, the panel

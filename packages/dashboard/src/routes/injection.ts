@@ -1,6 +1,6 @@
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
-import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView } from '../injection.js';
+import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, keptInjection } from '../injection.js';
 import { injectionReportHtml, reportFile, reportPreview } from '../injection-report.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
@@ -61,7 +61,8 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged(found);
   });
   router.get('/injection/:id/report', (r) => {
-    const found = injectionResult(store, r.params.id!);
+    // The report reads the result alone: neither the runs it names nor the panel's view.
+    const found = keptInjection(store, r.params.id!);
     if (!found) throw new HttpError(404, `no injection result ${r.params.id!}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     // ?preview=1: what the dialog says before the download, from the same masks.
