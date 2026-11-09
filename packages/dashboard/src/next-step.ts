@@ -933,6 +933,24 @@ export function listedStep(store: Store, runId: string, work: NextStepWork | nul
   }
 }
 
+/** A crash's own step: Find breaking commit, then Revert once that named the commit. */
+export type CrashStep = Extract<NextStep, { key: 'bisect' | 'revert' }>;
+
+/**
+ * A test replay's listed step where its agent exited with an error and the step is a crash's
+ * (`crashStep`): what a fix whose blame found no call that rescues the run leads with
+ * (fix-crash.ts). Null for a diverged test's Find breaking commit, a run whose step is another (a
+ * later replay passed it), and a record that can't be read.
+ */
+export function crashStepOf(store: Store, runId: string, work: NextStepWork | null, reads: StepReads): CrashStep | null {
+  const step = listedStep(store, runId, work, { reads });
+  const found = reads.index.byId.get(runId);
+  if ((step?.key !== 'bisect' && step?.key !== 'revert') || !found) return null;
+  const row = asListed(found, reads.state(runId));
+  const tested = testedGolden({ store, row, work });
+  return tested && crashed(row, tested.result) ? step : null;
+}
+
 /**
  * The newest run's step on the row of failed runs nobody has blamed (Fixes, Needs a look): its listed
  * step, a capture's by the verdict its import kept, as the lists count it failed (fix-shared.ts

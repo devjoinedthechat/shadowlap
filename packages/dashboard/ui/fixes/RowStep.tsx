@@ -68,7 +68,21 @@ function fieldsOf(lead: FixLead): Record<string, unknown> {
  * the button is busy and another press does nothing. `why` is the list's: one jobs read for every row.
  * A press refused once the fix's blame moved on offers Open Blame (`refusedPress`).
  */
-export function RowStep({ fixId, lead, why, version, className = 'btn sm', fix: detail }: { fixId: string; lead: FixLead; why: string | null; version: string; className?: string; fix?: FixDetail }) {
+export function RowStep(p: RowStepProps) {
+  // A crash's Find breaking commit and Revert run on its run, not the fix: drawn apart (until then, none).
+  return p.lead.key === 'bisect' || p.lead.key === 'revert' ? null : <FixRowStep {...p} lead={p.lead} />;
+}
+
+interface RowStepProps {
+  fixId: string;
+  lead: FixLead;
+  why: string | null;
+  version: string;
+  className?: string;
+  fix?: FixDetail;
+}
+
+function FixRowStep({ fixId, lead, why, version, className = 'btn sm', fix: detail }: RowStepProps & { lead: Exclude<FixLead, { key: 'bisect' | 'revert' }> }) {
   const app = useApp();
   const press = useBilledPress();
   const [got, setGot] = useState<{ version: string; e: FixEstimates | null } | null>(null);
