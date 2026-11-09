@@ -12,6 +12,8 @@ import { foldLabel, itemWords, type CallTree } from './groups.js';
 import { isPending, type ListedCall, type PendingCall } from './paging.js';
 import { useWindow } from './window-hook.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { UntrustedTag } from '../injection/UntrustedTag.js';
+import type { UntrustedView } from '../types.js';
 
 /**
  * Calls: #, call, origin, tokens, time. A tool's result sits on a second line under it. A replayed
@@ -46,6 +48,7 @@ export function CallsTable({
   tree = null,
   folded = NONE,
   onFold = null,
+  untrusted = NO_READS,
 }: {
   calls: readonly ListedCall[];
   asked: ReadonlyMap<number, string> | null;
@@ -64,6 +67,8 @@ export function CallsTable({
   /** The heads folded. */
   folded?: ReadonlySet<number>;
   onFold?: ((callNo: number) => void) | null;
+  /** The run's untrusted reads a model call reads, by call: each tagged after its effect. */
+  untrusted?: ReadonlyMap<number, UntrustedView>;
 }) {
   const head = useRef<HTMLTableSectionElement>(null);
   const placed = useRef(false);
@@ -123,7 +128,7 @@ export function CallsTable({
           isPending(c) ? (
             <PendingRow key={c.callNo} at={win.start + j} c={c} selected={c.callNo === selected} scoped={scoped} mark={c.callNo === forkAt ? 'fork' : c.callNo === lostAt ? 'lost' : null} onSelect={onSelect} grouped={grouped} />
           ) : (
-            <Row key={c.callNo} at={win.start + j} c={c} asked={c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined} selected={c.callNo === selected} scoped={scoped} mark={c.callNo === forkAt ? 'fork' : c.callNo === lostAt ? 'lost' : null} ancestors={ancestors} live={live} canFork={canFork} onSelect={onSelect} onFork={onFork} group={groupOf(c.callNo)} onFold={onFold} />
+            <Row key={c.callNo} at={win.start + j} c={c} asked={c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined} selected={c.callNo === selected} scoped={scoped} mark={c.callNo === forkAt ? 'fork' : c.callNo === lostAt ? 'lost' : null} ancestors={ancestors} live={live} canFork={canFork} onSelect={onSelect} onFork={onFork} group={groupOf(c.callNo)} onFold={onFold} untrusted={untrusted.get(c.callNo)} />
           ),
         )}
         {win.after ? <Spacer height={win.after} cols={cols} /> : null}
@@ -133,6 +138,7 @@ export function CallsTable({
 }
 
 const NONE: ReadonlySet<number> = new Set();
+const NO_READS: ReadonlyMap<number, UntrustedView> = new Map();
 
 /** Where a row sits in the grouping, as it draws it. */
 interface Group {
@@ -210,6 +216,7 @@ const Row = memo(function Row({
   onFork,
   group = null,
   onFold = null,
+  untrusted,
 }: {
   at: number;
   c: CallRow;
@@ -224,6 +231,7 @@ const Row = memo(function Row({
   onFork: (n: number, el: HTMLElement) => void;
   group?: Group | null;
   onFold?: ((callNo: number) => void) | null;
+  untrusted?: UntrustedView | undefined;
 }) {
   const d = callDetail(c, asked);
   const res = resultLine(c);
@@ -239,6 +247,7 @@ const Row = memo(function Row({
         <small>{kindShort(c.kind)}</small>
         {callName(c.kind, c.name)}
         {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
+        <UntrustedTag read={untrusted} />
         {c.extraRead ? (
           <span className="eff extra" title="An extra read: answered live, as its recording held no counterpart, while the replay went on replaying">
             extra

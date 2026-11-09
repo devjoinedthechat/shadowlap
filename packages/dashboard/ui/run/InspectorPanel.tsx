@@ -7,6 +7,7 @@ import { parseRoute } from '../route.js';
 import type { TestBannerOffer } from '../types.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
+import { useServedParts } from '../served-parts.js';
 import { closePanelOn, openDiff, usePanel, type Panel } from './panel-state.js';
 
 /**
@@ -95,6 +96,19 @@ export function useFindingPanel(runId: string) {
     if (shown && before.runId === runId && before.shown !== shown) inspectorInView();
   }, [runId, shown]);
   return { panel, showDiff, onToggleDiff: () => (showDiff ? closePanelOn(runId) : openDiff(runId)), close };
+}
+
+/** The prefix of an injection test's results' key: `injection:<result id>`, its finding's `which`. */
+const INJECTION = 'injection:';
+
+/**
+ * The bodies of the results a run's findings open, by their key, for InspectorPlace's `results`: an
+ * injection test's (`injection:<result id>`), where the served dashboard handed its part in
+ * (served-parts.ts). None in an exported copy, which keeps no results.
+ */
+export function useResultsBodies(runId: string): (key: string) => ReactNode {
+  const { InjectionResults } = useServedParts();
+  return useCallback((key: string) => (InjectionResults && key.startsWith(INJECTION) ? <InjectionResults runId={runId} resultId={key.slice(INJECTION.length)} /> : null), [InjectionResults, runId]);
 }
 
 /**

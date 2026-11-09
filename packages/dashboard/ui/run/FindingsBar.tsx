@@ -28,6 +28,8 @@ import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
 import { NoteFinding } from './RunNotes.js';
+import { InjectionFinding } from '../injection/Finding.js';
+import type { InjectionFinding as InjectionFindingView } from '../injection/model.js';
 
 /**
  * What a run's page found, as one bar under its header (findings.ts): the most telling finding whole,
@@ -470,18 +472,19 @@ function MoreToggle({ findings, open, onToggle }: { findings: readonly Finding[]
 function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSelect: (n: number) => void }) {
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
   if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
+  if (f.injection) return <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} />;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
 }
 
 /** The bar, from the findings the page has: drawn by FindingsBar, and alone by Banner. */
-function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null }) {
+function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null; injection?: InjectionFindingView | null }) {
   const runId = p.run.run.runId;
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const next = nextStepOf(p.run);
   const test = p.offers?.test ?? (next?.key === 'normalizer' || next?.key === 'update-golden' ? next.test : null);
   const x = useDraw(p, test);
   const input = bannerInput(p.run, p, test);
-  const findings = runFindings({ own: ownBanner(input), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes });
+  const findings = runFindings({ own: ownBanner(input), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, injection: p.injection });
   if (!findings.length) return null;
   const open = opened.get(runId) ?? false;
   const toggle = () => {
@@ -500,9 +503,9 @@ function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Dif
 
 /**
  * The run's findings under its header: its own, what its fork did differently from its parent (read
- * once it has ended), what it did not record, and its notes.
+ * once it has ended), what it did not record, its notes, and the injection test kept for it.
  */
-export function FindingsBar(p: BannerProps & { notes: readonly RunNote[] }) {
+export function FindingsBar(p: BannerProps & { notes: readonly RunNote[]; injection?: InjectionFindingView | null }) {
   const r = p.run.run;
   const differences = useForkDifferences(r.runId, !!r.divergence && !!r.parentRunId && r.status !== 'running');
   return <Findings {...p} differences={differences} />;

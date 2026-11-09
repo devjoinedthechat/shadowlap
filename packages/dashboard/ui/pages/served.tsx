@@ -1,4 +1,6 @@
+import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
+import { Skeleton } from '../components/States.js';
 import type { ServedParts } from '../served-parts.js';
 
 /**
@@ -8,4 +10,13 @@ import type { ServedParts } from '../served-parts.js';
  */
 export const SERVED_PARTS: ServedParts = {
   ShareMenu: onShow(() => import('../run/ShareMenu.js').then((m) => m.ShareMenu)),
+  // The matrix's script starts as the panel's comes, so Show results opens on both.
+  InjectionResults: onShow(
+    () =>
+      import('../injection/InjectionResults.js').then((m) => {
+        m.preloadMatrix();
+        return m.InjectionResults;
+      }),
+    { waiting: <Skeleton what="the results" lines={4} />, failed: <LoadFailed what="panel" /> },
+  ),
 };

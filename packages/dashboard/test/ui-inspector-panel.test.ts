@@ -1,7 +1,8 @@
 import { act, createElement, useCallback, useLayoutEffect, useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RunDetail } from '../ui/api.js';
-import { FindingPanel, ResultsToggle } from '../ui/components/FindingPanel.js';
+import { FindingPanel } from '../ui/components/FindingPanel.js';
+import { ResultsToggle } from '../ui/components/ResultsToggle.js';
 import { claimCallFocus } from '../ui/focus-manager.js';
 import type { Matrix } from '../ui/matrix.js';
 import { InspectorPlace, useFindingPanel, usePickInView } from '../ui/run/InspectorPanel.js';

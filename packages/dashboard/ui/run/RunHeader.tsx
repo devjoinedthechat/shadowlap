@@ -33,6 +33,7 @@ import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
 import { fitWork } from './fit-work.js';
 import { onShow } from '../components/OnShow.js';
 import { useServedParts, type ShareMenuProps } from '../served-parts.js';
+import type { UntrustedView } from '../types.js';
 
 /** Delete run's dialog, which a run's page rarely opens: a part of its own, with Find breaking commit's (OnShow.tsx). */
 const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.DeleteRunDialog));
@@ -56,7 +57,7 @@ function ShareMenuPart(props: ShareMenuProps) {
  * the eyebrow. The next step is the server's (src/next-step.ts); every other action stays, plain. No
  * chip says how the run stands: its first fact does.
  */
-export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged }: {
+export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged, untrusted }: {
   run: RunDetail;
   call: CallDetail | null;
   selected: number | null;
@@ -76,6 +77,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   facts?: ReactNode;
   /** Its verdict by today's checks, the first fact's (useJudgedAt): undefined while they judge it, when no plain Pack as golden… shows. */
   judged?: RunDetail['judged'];
+  /** The run's untrusted reads a model call reads, by call: the fork menu's header names one where the server didn't. */
+  untrusted?: ReadonlyMap<number, UntrustedView> | undefined;
 }) {
   const app = useApp();
   const { exported, toast, client, guard, hasKind } = app;
@@ -210,7 +213,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
         )}
       </div>
       {share.open && share.anchor ? <ShareMenuPart anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
-      {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
+      {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} untrusted={untrusted} /> : null}
     </section>
   );
 }

@@ -10,6 +10,7 @@ import { useApp } from '../state.js';
 import { bisectBlocked, bisectCardCommand, bisectLabel, unknownBisect } from './offers.js';
 import { ActionButton } from '../components/ActionButton.js';
 import type { TipEst } from '../components/HoverCard.js';
+import type { UntrustedView } from '../types.js';
 import { tipEst, useBilledPress } from '../components/JobButton.js';
 import { bisectQuery, useBisectEstimate } from '../runspage/bisect-estimate.js';
 import { sentEstimate } from '../spending.js';
@@ -116,7 +117,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
  * The fork menu at a call: what applies to that call, each with its flag on the right, then what
  * applies to the whole run. A capture has no command, so it says so and offers its replay.
  */
-export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onClose }: { anchor: HTMLElement; run: RunDetail; call: CallDetail | null; offers: RunOffers | null; onPick: (p: PendingAction) => void; onFindCommit: () => void; onClose: () => void }) {
+export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onClose, untrusted }: { anchor: HTMLElement; run: RunDetail; call: CallDetail | null; offers: RunOffers | null; onPick: (p: PendingAction) => void; onFindCommit: () => void; onClose: () => void; untrusted?: ReadonlyMap<number, UntrustedView> | undefined }) {
   const { hasKind } = useApp();
   // What each row bills at this call, asked as the menu opens on it: its answer redraws the menu in place.
   const estimates = useRunEstimates(run.run.runId, call ? call.call.callNo : undefined);
@@ -155,7 +156,7 @@ export function ForkMenu({ anchor, run, call, offers, onPick, onFindCommit, onCl
   });
   return (
     <Popover key="menu" anchor={anchor} onClose={onClose} className="fkm" label={`Fork at #${c.callNo}`}>
-      <div className="pk">{call.forkTitle ?? forkMenuTitle({ ...c, ...(c.input ? { input: true } : {}) }, shortName)}</div>
+      <div className="pk">{call.forkTitle ?? forkMenuTitle({ ...c, ...(c.input ? { input: true } : {}) }, shortName, { untrusted: !!untrusted?.has(c.callNo) })}</div>
       {capture && replay ? (
         <>
           <div className="pnote">A capture has no command. Replay it with yours first; every fork works on that replay.</div>
