@@ -213,7 +213,7 @@ describe('what an attempt wrote', () => {
   it('counts a clean replay\'s writes from its fork past the read it served, a tool no rule classified among them', () => {
     const call = (callNo: number, kind: CallRecord['kind'], effect: CallRecord['effect'], replayedFrom?: number) => ({ callNo, kind, effect, end: replayedFrom === undefined ? null : { meta: { replayedFrom } } }) as unknown as CallRecord;
     const calls = [call(1, 'tool', 'read', 1), call(2, 'tool', 'write', 2), call(3, 'api', null), call(4, 'tool', null), call(5, 'tool', 'write'), call(6, 'tool', 'read')];
-    expect([isWrite(calls[1]!), isWrite(calls[2]!), isWrite(calls[3]!), isWrite(calls[5]!)]).toEqual([true, false, true, false]);
+    expect(calls.map((c) => isWrite(c))).toEqual([false, true, false, true, true, false]);
     expect(writesFrom(calls, 1, 3)).toBe(3);
     expect(baselineWrites(calls, 1, 3).map((c) => c.callNo)).toEqual([4, 5]);
     // Forked before the read it served: from just after the read; served none: from the fork; never forked: none.
