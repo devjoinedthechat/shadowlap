@@ -1,4 +1,4 @@
-import { checkStatus, type CheckStatus, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { checkStatus, testResultVerdict, type CheckStatus, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
 
 /*
  * A golden's checks on Tests: how its last result came out on each, and what changed in its entry
@@ -167,4 +167,16 @@ export function checksChanged(r: Pick<TestResult, 'ok' | 'failure' | 'data'> | n
     if ((status === 'failed' || status === 'inconclusive') && !now.has(c.label) && !out.some((x) => x.label === c.label)) out.push({ label: c.label, status });
   }
   return out.length ? out : null;
+}
+
+/**
+ * The verdict's reason for a golden whose checks changed since (`checksChanged`): its base, then
+ * `, its checks changed since`. The base is its gate's verdict where one decided it (`gated`), else
+ * `inconclusive`, after how many attempts, or `failed its check`: what the check it failed or
+ * couldn't decide found applies no longer.
+ */
+export function changedReason(r: Pick<TestResult, 'ok' | 'failure' | 'data'>, gated: string | null): string {
+  const n = r.data?.attempts?.total ?? 1;
+  const base = gated ?? (testResultVerdict(r) === 'inconclusive' ? `inconclusive${n > 1 ? ` after ${n} attempts` : ''}` : 'failed its check');
+  return `${base}, its checks changed since`;
 }

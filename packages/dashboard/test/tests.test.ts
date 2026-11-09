@@ -1110,7 +1110,7 @@ describe('goldens with a gate', () => {
   it('says where each failing golden leads: more attempts for a gate that ran out, an update for a replay golden a judge could not decide, a run again for an injection test, else its run', () => {
     const store = gatedStore();
     const judgeCheck = (detail: string) => ({ status: 'inconclusive' as const, ok: false, label: 'judge "polite" answers yes', detail, judge: { name: 'polite', model: 'claude-haiku-4-5', of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0 } });
-    const replayGolden = (path: string): GoldenSource => ({ path, runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] });
+    const replayGolden = (path: string): GoldenSource => ({ path, runId: null, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: ['judge "polite" answers yes', 'send_email called 1 time'] });
     const unjudged = 'check inconclusive: judge "polite" answers yes, but not judged: no recorded verdict';
     session(store, 'f6a7b8c', T0 + DAY, [
       // A replay golden whose judge has no recorded verdict: updating the golden asks the judge once and keeps its verdict.

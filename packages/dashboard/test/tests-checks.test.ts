@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { recordEvent, Store, type StoredCheck, type TestFailure, type TestResult } from '@shadowlap/engine';
 import { checksChanged } from '../src/tests-checks.js';
-import { testsView, type GoldenSource } from '../src/tests.js';
+import { failingTests, testsView, type GoldenSource } from '../src/tests.js';
 
 /**
  * A golden's checks on Tests against its entry as it is now: the checks its last result failed or
@@ -68,5 +68,16 @@ describe('a golden row on Tests', () => {
       // Added in an editor: since its last test, with no time.
       ['cost at most $0.02', true, null],
     ]);
+  });
+
+  it('words the verdict of a golden whose checks changed since by its base, and leads Needs a look with Run tests', () => {
+    const s = store([failed('issue_refund called 0 times'), passed('escalate called 1 time')], 'check');
+    const stale = [golden(['escalate called 1 time'])];
+    expect(testsView(s, stale).verdict!.title).toContain('refund-flow failed its check, its checks changed since');
+    expect(failingTests(s, { goldens: stale })[0].next).toBe('run-tests');
+    // Its checks as they were: the check's own words, and its failing steps.
+    const same = [golden(['issue_refund called 0 times', 'escalate called 1 time'])];
+    expect(testsView(s, same).verdict!.title).not.toContain('changed since');
+    expect(failingTests(s, { goldens: same })[0].next).not.toBe('run-tests');
   });
 });

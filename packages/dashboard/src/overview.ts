@@ -305,7 +305,7 @@ const GRID_MIN_CALLS = 30;
 const NEEDS_LOOK_EACH = 10;
 
 /** The word before a failing test's arrow, by where it leads (`FailingTest['next']`). */
-const TEST_ACTIONS = { fix: 'Fix', open: 'Open', 'run-more': 'Run more', 'run-again': 'Run again', update: 'Update' } as const;
+const TEST_ACTIONS = { fix: 'Fix', open: 'Open', 'run-more': 'Run more', 'run-again': 'Run again', update: 'Update', 'run-tests': 'Run tests' } as const;
 
 function emptyWeek(): WeekSums {
   return { runs: 0, calls: 0, origins: emptyOriginCounts(), spent: 0, notRespent: 0, notWaitedMs: 0, attempts: 0, attemptsSpent: 0 };

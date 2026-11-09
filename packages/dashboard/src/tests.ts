@@ -3,7 +3,7 @@ import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResu
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
-import { addedTimes, checksChanged, goldenChecks, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
+import { addedTimes, changedReason, checksChanged, goldenChecks, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
 import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
@@ -565,18 +565,20 @@ export function shortReason(r: TestResult): string {
  * (`failed its gate`, `failed against its own history`), one over several attempts (`failed its
  * check`), and a judge check a replay couldn't judge offline.
  */
-function leadReason(r: TestResult): string {
+function leadReason(r: TestResult, checks: readonly string[] | null): string {
   const gate = r.data?.gate;
-  if (r.failure === 'check' && gate && gate.decision !== 'continue') return gate.kind === 'baseline' ? 'failed against its own history' : 'failed its gate';
-  if (r.failure === 'check' && (r.data?.attempts?.total ?? 1) > 1) return 'failed its check';
+  const gated = r.failure === 'check' && gate && gate.decision !== 'continue' ? (gate.kind === 'baseline' ? 'failed against its own history' : 'failed its gate') : null;
+  // A golden whose checks changed since: its base, as the failed check's own words no longer apply.
+  if (checks && checksChanged(r, checks)) return changedReason(r, gated);
+  if (gated || (r.failure === 'check' && (r.data?.attempts?.total ?? 1) > 1)) return gated ?? 'failed its check';
   return unjudgedOffline(r) ? 'inconclusive: its judge check wasn’t judged offline' : shortReason(r);
 }
 
 /** The verdict's line: the tally first wherever a golden leads or one wasn't tested, then the golden that leads and what wasn't tested; else that they all pass ("All 1 goldens pass" isn't English). */
-function verdictTitle(c: { first: TestResult | null; passing: number; total: number; notRun: number; presetsOnly: number }, folder: string): string {
+function verdictTitle(c: { first: TestResult | null; goldens: readonly GoldenSource[]; passing: number; total: number; notRun: number; presetsOnly: number }, folder: string): string {
   if (!c.first && !c.notRun && !c.presetsOnly) return c.total === 1 ? 'The golden passes' : `All ${c.total} goldens pass`;
   const goldens = (n: number) => `${n} golden${n === 1 ? '' : 's'}`;
-  const parts = [goldensPassed(c.passing, c.total), c.first ? `${nameOf(c.first.golden, folder)} ${leadReason(c.first)}` : '', c.notRun ? `${goldens(c.notRun)} not tested yet` : '', c.presetsOnly ? `${goldens(c.presetsOnly)} tested only by ${c.presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''];
+  const parts = [goldensPassed(c.passing, c.total), c.first ? `${nameOf(c.first.golden, folder)} ${leadReason(c.first, c.goldens.find((g) => g.path === c.first!.golden)?.checks ?? null)}` : '', c.notRun ? `${goldens(c.notRun)} not tested yet` : '', c.presetsOnly ? `${goldens(c.presetsOnly)} tested only by ${c.presetsOnly === 1 ? 'its' : 'their'} error-path presets` : ''];
   return parts.filter(Boolean).join(' · ');
 }
 
@@ -1186,7 +1188,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       inconclusive: unsure.length,
       passing,
       untested,
-      title: verdictTitle({ first, passing, total, notRun, presetsOnly }, folder),
+      title: verdictTitle({ first, goldens, passing, total, notRun, presetsOnly }, folder),
       first: first ? { golden: first.golden, name: nameOf(first.golden, folder), reason: first.reason ?? 'failed', runId: runIfKept(store, first.runId) } : null,
       session: sessionView(store, shown),
       since: lastResults.filter((r) => r.sessionId !== shown.sessionId && r.at > shown.startedAt).map((r) => ({ golden: r.golden, name: nameOf(r.golden, folder), ok: r.ok, verdict: verdictOfResult(r), revision: r.revision, at: r.at })),
@@ -1308,7 +1310,7 @@ export interface FailingTest {
   /** Where its line goes: the fix its failing run belongs to, else the failing run, else the Tests screen. */
   href: string;
   /** What the line's word says it leads to (Needs a look's "Fix →", "Run more →"): see `failingNext`. */
-  next: 'fix' | 'open' | 'run-more' | 'run-again' | 'update';
+  next: 'fix' | 'open' | 'run-more' | 'run-again' | 'update' | 'run-tests';
   /** The fix that holds the failing run, when one does. */
   fixId: string | null;
   at: number;
@@ -1324,7 +1326,8 @@ export interface FailingTest {
  * its verdict (`update`, `unjudgedOffline`). Any other reason is opened (`open`): a judge that lacked
  * a key on a golden that forks, a check that couldn't be decided for another reason.
  */
-function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSource['mode'] | null }): FailingTest['next'] {
+function failingNext(r: TestResult, o: { fixId: string | null; mode: GoldenSource['mode'] | null; checks: readonly string[] | null }): FailingTest['next'] {
+  if (o.checks && checksChanged(r, o.checks)) return 'run-tests';
   if (verdictOfResult(r) !== 'inconclusive') return o.fixId ? 'fix' : 'open';
   if (gateResultView(r, r.golden)?.more) return 'run-more';
   if (r.failure === 'injection') return 'run-again';
@@ -1354,7 +1357,7 @@ export function failingTests(store: StoreOf<'recording' | 'fixes' | 'tests'>, op
       const runId = runIfKept(store, r.runId);
       const verdict = verdictOfResult(r) === 'inconclusive' ? 'inconclusive' : 'failed';
       const fixId = verdict === 'failed' && runId ? (fixOfRun(store, runId)?.fixId ?? null) : null;
-      const next = failingNext(r, { fixId, mode: sources.get(r.golden)?.mode ?? null });
+      const next = failingNext(r, { fixId, mode: sources.get(r.golden)?.mode ?? null, checks: sources.get(r.golden)?.checks ?? null });
       const href = fixId ? links.fixes(fixId) : verdict === 'inconclusive' ? links.tests() : runId ? links.run(runId) : links.tests();
       // A gate's verdict says its word, tally and bound; the rule goes on the line's hover.
       const gate = decidedByGate(r) ? r.data!.gate! : null;
