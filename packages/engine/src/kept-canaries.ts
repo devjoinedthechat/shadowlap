@@ -11,9 +11,14 @@ import { isObject } from './is-object.js';
  * keeps the canaries it held (keptWhole). Either way a secret beside a canary is masked as ever.
  */
 
-/** A canary's mark: private-use characters no rule's pattern is written to match. */
-const MARKS = /+/g;
-const markOf = (i: number) => `${''.repeat(i + 1)}`;
+/** A canary's mark: private-use characters no rule's pattern is written to match, an opening one, a run of tallies that numbers the text it hides, a closing one. */
+const OPEN = '\uE000';
+const TALLY = '\uE002';
+const CLOSE = '\uE001';
+const MARKS = new RegExp(`${OPEN}${TALLY}+${CLOSE}`, 'g');
+/** A mark with its tallies as its group, which say what text it hides. */
+const MARK_TALLIES = new RegExp(`${OPEN}(${TALLY}+)${CLOSE}`, 'g');
+const markOf = (i: number) => `${OPEN}${TALLY.repeat(i + 1)}${CLOSE}`;
 
 /** Every canary mark in a value's strings and keys, in order. */
 function marksIn(v: unknown, out: string[] = []): string[] {
@@ -80,7 +85,7 @@ export function keepingTexts<T>(value: T, texts: readonly string[], rewrite: (v:
     return `${typeof after === 'string' ? after : (JSON.stringify(after) ?? '')} ${lost.join(' ')}`;
   };
   const out = restore(hidden, rewrite(hidden));
-  return deep(out, (s) => s.replace(/(+)/g, (m, run: string) => originals[run.length - 1 - base] ?? m)) as T;
+  return deep(out, (s) => s.replace(MARK_TALLIES, (m, run: string) => originals[run.length - 1 - base] ?? m)) as T;
 }
 
 /** The copy keepingWhile runs: its canaries' texts, them as one pattern, and how many a rule would have masked. */
