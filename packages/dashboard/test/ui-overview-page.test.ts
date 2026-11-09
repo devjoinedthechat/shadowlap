@@ -4,6 +4,8 @@ import { Store } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
 import type { ActivityItem, Client, NeedsLookRow, OverviewSummary, RunListItem } from '../ui/api.js';
 import { handOnAtEnd, headingRef, notingJobFrom } from '../ui/focus-manager.js';
+import { dropRowScope, rowScopeNow, takeRowScope } from '../ui/list-keys.js';
+import { ISSUE_ASK } from '../ui/page-ask.js';
 import { OverviewPage } from '../ui/pages/Overview.js';
 import { href } from '../ui/route.js';
 import { useRoute } from '../ui/router.js';
@@ -140,6 +142,38 @@ describe('the Overview’s keys', () => {
     await r!.press('k');
     expect(r!.focused().getAttribute('data-rowkey')).toBe('e:3');
     expect(r!.all('.krow').map((x) => x.getAttribute('data-rowkey'))).toEqual(['e:3']);
+  });
+});
+
+describe('Needs a look’s row of failed runs nobody has blamed', () => {
+  it('opens its newest’s issue on Runs › Failed from its link, from Enter and from ⌘K’s Open', async () => {
+    vi.stubGlobal('CSS', { escape: (x: string) => x });
+    const issue = 'fail:the agent exited with an error';
+    const unblamed: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: '1 failing run nobody has blamed', detail: `${rid(2).slice(0, 10)} · the agent exited with an error`, key: `attn:unblamed:${rid(2)}`, group: 'failing', step: { of: 'link', label: 'Run blame', href: href.run(rid(2)) }, href: '#/runs?types=failed', runId: rid(2), fixId: null, at: 2, issue };
+    await overview({ summary: { ...week, needsLook: { items: [unblamed], total: 1 } } });
+    const link = r!.one(`[data-rowkey="${unblamed.key}"] a.at`);
+    expect(link.getAttribute('href')).toBe('#/runs?types=failed');
+    // Its link asks for the issue as it goes there; Failed opens it as it shows.
+    await r!.click(link);
+    expect(ISSUE_ASK.take(issue)).toBe(true);
+    await r!.press('j');
+    expect(r!.focused().getAttribute('data-rowkey')).toBe(unblamed.key);
+    await r!.press('Enter');
+    expect(location.hash).toBe('#/runs?types=failed');
+    expect(ISSUE_ASK.take(issue)).toBe(true);
+    addressBar('#/');
+    await r!.focus(r!.one(`.arow[data-rowkey="${unblamed.key}"]`));
+    takeRowScope();
+    try {
+      rowScopeNow()!
+        .items()
+        .find((i) => i.label === 'Open')!
+        .run();
+    } finally {
+      dropRowScope();
+    }
+    expect(location.hash).toBe('#/runs?types=failed');
+    expect(ISSUE_ASK.take(issue)).toBe(true);
   });
 });
 
