@@ -1,23 +1,22 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS, type JobView } from '../api.js';
 import { ConfirmDialog } from '../components/Dialog.js';
-import { Eyebrow, PageHeader, StepList, type Step } from '../components/bits.js';
+import { Eyebrow, PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { copyText } from '../dom.js';
 import { RECORD_PART } from '../../../engine/src/cost-words.js';
 import { headingRef } from '../focus-manager.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import type { CalibrateStep, InspectStep, RecordConfirmation, RecordStep, SetupView, TestStep } from '../projects-api.js';
-import { RECORD_PLACEHOLDER, aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, liveCalls, recordingLine, setupPageShows, stepClass, terminalLine } from '../projects.js';
+import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, liveCalls, recordingLine, setupPageShows, stepClass, terminalLine } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { projectOf } from '../shell/ProjectBlock.js';
 import { RemoveProjectDialog } from '../shell/RemoveProject.js';
 import { useTestsWait, useTreeBusy } from '../fixes/tree.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { SETUP_INTRO } from '../../src/setup-words.js';
 import { NotFoundPage } from './NotFound.js';
+import { NoRunsSteps } from './no-runs.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { tipEst } from '../spending.js';
 import { startTestsJob, type TestsAsk } from '../tests-ask.js';
@@ -33,40 +32,6 @@ import { commandText } from '../goldens.js';
  * (`setupView`) says what each step shows; this page runs the jobs and follows them. A step whose
  * job kind this dashboard doesn't run says so and keeps its command.
  */
-
-/**
- * The four steps with their commands, for a page that can't follow this project's setup (a
- * dashboard that serves one store, the Overview before its summary): from the first, with nothing
- * marked done, since nothing here can tell how far the project got.
- */
-export function setupSteps(): Step[] {
-  return [
-    {
-      title: 'Inspect the folder',
-      text: 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing.',
-      command: 'shadowlap init',
-      state: 'cur',
-    },
-    {
-      title: 'Record a first run',
-      text: 'Runs your command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.',
-      command: `shadowlap run -- ${RECORD_PLACEHOLDER}`,
-      state: 'todo',
-    },
-    {
-      title: 'Make the replay clean',
-      text: 'Replays the run offline until it is clean, and proposes a normalizer for every value the agent makes anew.',
-      command: 'shadowlap calibrate <run> --write',
-      state: 'todo',
-    },
-    {
-      title: 'Keep it as a test',
-      text: 'Packs the run into the repository, and CI replays it offline on every commit.',
-      command: 'shadowlap pack <run> goldens/first-run && shadowlap test goldens/first-run',
-      state: 'todo',
-    },
-  ];
-}
 
 /** Words with the names in them shown as code, as the mock writes tools, paths and goldens. */
 function Coded({ text, names }: { text: string; names: readonly string[] }) {
@@ -191,15 +156,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   const shows = setupPageShows({ meta, view, runs });
   // No setup to follow (a dashboard that serves one store): with runs, nothing to set up here; without, the steps and their commands.
   if (shows === 'nothing') return <NotFoundPage what="Nothing to set up here." />;
-  if (shows === 'steps') {
-    const name = projectOf(meta)?.name ?? 'this project';
-    return (
-      <Page>
-        <PageHeader eyebrow={name} title="No runs yet" text={SETUP_INTRO} />
-        <StepList steps={setupSteps()} />
-      </Page>
-    );
-  }
+  if (shows === 'steps') return <NoRunsSteps />;
   if (shows === 'wait' || !view)
     return (
       <Page>

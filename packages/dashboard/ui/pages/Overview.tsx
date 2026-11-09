@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OverviewSummary } from '../api.js';
-import { PageHeader, StepList } from '../components/bits.js';
+import { PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { viewerTimeZone } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -13,7 +13,7 @@ import { isAttempt } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
-import { setupSteps } from './Setup.js';
+import { NoRunsSteps } from './no-runs.js';
 
 /**
  * The Overview: this week at a glance, worked out on the server in the viewer's time zone. Its
@@ -53,13 +53,7 @@ export function OverviewPage() {
   if (!s) {
     // Nothing recorded yet: the steps that make a project replayable, as before the summary loads.
     const none = runs !== null && !runs.some((r) => !isAttempt(r));
-    if (none)
-      return (
-        <Page>
-          <PageHeader eyebrow={name} title="No runs yet" text="Record the agent once. Every replay after that is free." />
-          <StepList steps={setupSteps()} />
-        </Page>
-      );
+    if (none) return <NoRunsSteps />;
     return (
       // Busy while it works the week out; a warming store says how far it has got in a status of its own, read out as it moves.
       <Page busy={!summary.error && !warming}>
@@ -77,12 +71,7 @@ export function OverviewPage() {
     );
   }
   if (s.counts.runs === 0)
-    return (
-      <Page>
-        <PageHeader eyebrow={name} title="No runs yet" text="Record the agent once. Every replay after that is free." />
-        <StepList steps={setupSteps()} />
-      </Page>
-    );
+    return <NoRunsSteps />;
 
   const recording = s.today.recording[0] ?? null;
   const liveCalls = recording ? (live.find((l) => l.runId === recording.runId)?.calls ?? recording.calls) : 0;
