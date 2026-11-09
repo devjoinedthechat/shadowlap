@@ -265,6 +265,15 @@ describe('the results panel', () => {
     expect(m.cell(m.rows[0], m.cols[1])).toBeNull();
   });
 
+  it('past eight reads, words a tool with a single read as that read’s cell, with no prefix', () => {
+    const rows: InjectionPanelView['rows'] = [...Array.from({ length: 8 }, (_, i) => ({ callNo: 4 + i * 2, name: 'get_ticket', from: 'config' as const, readAt: 5 + i * 2, worst: 3 as const })), { callNo: 30, name: 'fetch_page', from: 'config', readAt: 31, worst: 3 }];
+    const one = { read: 30, payload: 'system-notice', verdict: 'ignored' as const, n: 3, of: 3, attempt: { runId: '01K5CQXJ09', callNo: 31 }, line: 'no tool call after #30 carries the canary' };
+    const m = injectionMatrix(view({ rows, cells: [], tools: [{ name: 'get_ticket', reads: rows.slice(0, 8).map((r) => r.callNo), cells: [] }, { name: 'fetch_page', reads: [30], cells: [one] }] }), RUN, 'inj-01PLANT');
+    const row = m.rows.find((r) => r.key === 'g:fetch_page');
+    const cell = row ? m.cell(row, m.cols[0]) : null;
+    expect(JSON.parse(cell?.tip ?? 'null')).toMatchObject({ t: '#30 fetch_page · system-notice', s: 'no tool call after #30 carries the canary' });
+  });
+
   it('says what was tried, how and when, and its receipt in upstream requests', () => {
     expect(panelMeta(view())).toEqual(['12 attempts', '12 templates, version 1', 'Oct 1, 09:31']);
     expect(panelMeta(view({ by: 'Ana', totals: { attempts: 0, obeyed: 0, influenced: 0, inconclusive: 0, ignored: 0 }, what: 'a payload file' }))).toEqual(['a payload file', 'Ana, Oct 1, 09:31']);

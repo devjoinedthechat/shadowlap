@@ -47,7 +47,9 @@ export function injectionMatrix(view: InjectionPanelView, runId: string, resultI
     const tool = row.key.startsWith('g:') ? tools.get(row.key.slice(2)) : undefined;
     if (tool) {
       const c = tool.cells.find((x) => x.payload === col.key);
-      return c ? cellOf(c, `${plural(tool.reads.length, 'read')} of ${tool.name} · ${col.key}`, `at #${c.read}: `) : null;
+      if (!c) return null;
+      // A tool's sums over its reads, by the read its card opens; a tool with one read is that read's cell.
+      return tool.reads.length > 1 ? cellOf(c, `${plural(tool.reads.length, 'read')} of ${tool.name} · ${col.key}`, `at #${c.read}: `) : cellOf(c, `#${c.read} ${tool.name} · ${col.key}`, '');
     }
     const c = cells.get(cellKey(Number(row.key), col.key));
     return c ? cellOf(c, `#${c.read} ${nameOf.get(c.read) ?? ''} · ${col.key}`, '') : null;
