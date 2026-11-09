@@ -44,6 +44,9 @@ function sample(flagged = true): CommentDecisionsSource {
 
 const result = (o: Partial<CommentResult>): CommentResult => ({ name: 'x', golden: 'goldens/x', ok: true, verdict: 'passed', message: null, gate: null, divergence: null, attempts: null, checks: null, ...o });
 
+/** A result made before results had a verdict. */
+const unverdicted = (o: Partial<CommentResult>): CommentResult => Object.fromEntries(Object.entries(result(o)).filter(([k]) => k !== 'verdict'));
+
 describe('the pull request comment', () => {
   it('heads with what passed, as every tally on a page counts it', () => {
     expect(sessionTally(2, 3, 2)).toBe('2 of 7 goldens passed · 3 failed, 2 inconclusive');
@@ -51,7 +54,7 @@ describe('the pull request comment', () => {
     expect(sessionTally(0, 0, 1)).toBe('0 of 1 golden passed · 1 inconclusive');
     expect(commentHead([result({}), result({ ok: false, verdict: 'failed' }), result({ ok: false, verdict: 'inconclusive' })])).toBe('1 of 3 goldens passed · 1 failed, 1 inconclusive');
     // A result from before results had a verdict reads as ok says.
-    expect(commentHead([result({ verdict: undefined }), result({ ok: false, verdict: undefined })])).toBe('1 of 2 goldens passed · 1 failed');
+    expect(commentHead([unverdicted({}), unverdicted({ ok: false })])).toBe('1 of 2 goldens passed · 1 failed');
   });
 
   it('lists the goldens worst first, each in the order the session ran it', () => {
