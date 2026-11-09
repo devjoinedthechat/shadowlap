@@ -24,6 +24,7 @@ const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent', 
 let store: Store;
 let runId: string;
 let forkId: string;
+let attemptId: string;
 let uiDir: string;
 
 beforeAll(() => {
@@ -39,6 +40,17 @@ beforeAll(() => {
   }
   store.setDivergence(forkId, { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2 });
   store.endRun(forkId, 'completed');
+  // An injection test's attempt, its mark on its own record: a copy holds the mark, never the test's results.
+  const canary = { token: 'x7f3kq2m', address: 'x7f3kq2m@canary.invalid', id: 'CNRY-x7f3kq2m', amount: '4,812.00' };
+  const injection = { result: 'inj-01PLANT', role: 'attempt' as const, read: 2, payload: 'system-notice', attempt: 2, of: 3, canary, verdict: 'obeyed' as const, readAt: 3, evidence: [{ kind: 'canary' as const, callNo: 4, tool: 'send_email', path: '$.to', value: canary.address }] };
+  attemptId = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { injection } }).runId;
+  for (const c of store.getCalls(runId).slice(0, 4)) {
+    const { end, attempts, ...start } = c;
+    void attempts;
+    store.appendCallStart({ ...start, runId: attemptId, origin: c.callNo < 3 ? 'replayed' : 'live' });
+    if (end) store.appendCallEnd(c, { ...end, runId: attemptId });
+  }
+  store.endRun(attemptId, 'completed');
   // A stand-in for the built UI: what is under test is the data the file carries, drawn by the copy's pages.
   uiDir = mkdtempSync(join(tmpdir(), 'sl-export-copy-ui-'));
   mkdirSync(join(uiDir, 'assets'), { recursive: true });
@@ -125,6 +137,16 @@ describe('an exported copy', () => {
     expect(r!.all('.rhead button').map((b) => b.textContent)).toEqual(['Copy ID']);
     expect(r!.all('.rhead button[data-next], .rhead button[data-fold]')).toHaveLength(0);
     expect(r!.all('.dialog')).toHaveLength(0);
+  });
+
+  it('names an injection attempt by its own record, and draws nothing of what only the test’s read holds: where it planted, its proof, the way to its results', async () => {
+    await open([attemptId, runId], `#/run/${attemptId}`);
+    await r!.until('the attempt’s finding', () => r!.all('.banner').length > 0);
+    expect(r!.one('.rhead').textContent).toContain('injection attempt');
+    const banner = r!.all('.banner').map((b) => b.textContent).join(' ').replace(/\u00a0/g, ' ');
+    expect(banner).toContain('forked at#3system-notice #2, attempt 2 of 3 · writes stubbed');
+    expect(banner).not.toMatch(/Results →|The answer →|planted at/);
+    expect(r!.all('.injline, .pbn, mark.cnry, mark.ins-plant')).toHaveLength(0);
   });
 
   it('lists its runs, and only those', async () => {
