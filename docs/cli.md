@@ -1665,7 +1665,7 @@ More on some of them:
   it), or those of them named after it, as `--then-verify` verifies them, under the session's change.
   It keeps what verify finds in the session. The dashboard runs it as its `decisions-verify` job.
 - **`--test-session`**: the GitHub Action's `decisions: true` gives it the session `test` just ran, so
-  the [pull request comment](./ci.md#the-pull-request-comment) lists the decisions the branch changes,
+  the [pull request comment](./ci.md#decisions-in-the-comment) lists the decisions the branch changes,
   and Settings → CI's preview shows them. A session the store has no record of is refused before
   anything is asked.
 - **`--gate` and the rest**: each run is decided by verify's gate, unless `--attempts` or `--passes`
@@ -2275,7 +2275,7 @@ and `suite` with a gated golden:
 | `inconclusive` | The inconclusive packs, either way (below) |
 | `interrupted` | Whether a signal stopped the session; `results` has the goldens that finished before it |
 | `results` | One result per pack (below) |
-| `costPerRun` | What a run costs as it would run live, in USD: `before` as the goldens were recorded, `after` as this session replayed them, the mean over the goldens whose replay ran to its end; null when none has a price |
+| `costPerRun` | What a run costs live, in USD: `before` as recorded, `after` as replayed here, the mean over goldens that ran whole; null without a price |
 | `suite` | With a gated golden: the session's one risk, and how it was split (below) |
 
 An inconclusive pack counts as failed, or as passed when it only warns: under `--inconclusive warn`, or,
