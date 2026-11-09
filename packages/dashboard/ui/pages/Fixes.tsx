@@ -140,7 +140,7 @@ function Rows({ view, chip, version }: { view: FixesView; chip: FixChip; version
       {HEADS}
       {rows.map((r) =>
         r.kind === 'fix' ? (
-          <FixListRow key={r.f.fixId} f={r.f} jobs={jobs} focused={inFocus === r.f.href} why={r.f.next ? leadWait(r.f.next, { jobs, folder, hasKind }) : null} version={version} />
+          <FixListRow key={r.f.fixId} f={r.f} jobs={jobs} focused={inFocus === r.f.href} why={r.f.next ? leadWait(r.f.next, { jobs, folder, projectId: meta?.project?.id ?? null, hasKind }) : null} version={version} />
         ) : (
           <UnblamedListRow key="unblamed" u={r.u} jobs={jobs} focused={inFocus === 'unblamed'} />
         ),

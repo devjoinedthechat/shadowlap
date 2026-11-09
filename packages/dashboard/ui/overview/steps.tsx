@@ -1,11 +1,10 @@
-import { type ReactNode, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS } from '../api.js';
-import { ActionButton } from '../components/ActionButton.js';
 import { ConfirmDialog, ConsentDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
-import { JobButton, type StepHooks, useBilledPress } from '../components/JobButton.js';
+import { JobButton } from '../components/JobButton.js';
 import { LEAD_KIND, LEAD_VERB, leadCard } from '../fixes/lead.js';
 import { treeBusy } from '../fixes/model.js';
 import { RowStep } from '../fixes/RowStep.js';
@@ -16,12 +15,13 @@ import { testsBusy } from '../goldens.js';
 import { PUSH_LOCAL } from '../labels.js';
 import { moreCard } from '../pages/tests-cards.js';
 import { stepCard, stepJob } from '../run/next-step.js';
-import { blameTitle, unknownBisect } from '../run/offers.js';
+import { blameTitle } from '../run/offers.js';
+import { CrashStepButton } from '../revert/CrashStep.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
-import { sentEstimate, tipEst } from '../spending.js';
+import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
 import { bannerNormalizerAsk, gateAgainAsk, moreAttemptsAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
-import { errorText } from '../toast.js';
+import { useAsking, usePriced } from '../step-asks.js';
 import type { LookStep, NeedsLookRow, NextStep } from '../types.js';
 import { updatePlan } from '../update-plan.js';
 
@@ -61,7 +61,7 @@ export function useLookWaits(): LookWait {
 }
 
 /** The run steps a row runs from here; any other (a rule, a pack, an injection test, Replay, Compare) opens its page. */
-const RUN_KINDS: Partial<Record<NextStep['key'], string>> = { blame: JOB_KINDS.blame, normalizer: JOB_KINDS.normalizeAndTest, 'update-golden': JOB_KINDS.testUpdate, 'rerun-test': JOB_KINDS.tests, 'gate-again': JOB_KINDS.tests, bisect: JOB_KINDS.bisect };
+const RUN_KINDS: Partial<Record<NextStep['key'], string>> = { blame: JOB_KINDS.blame, normalizer: JOB_KINDS.normalizeAndTest, 'update-golden': JOB_KINDS.testUpdate, 'rerun-test': JOB_KINDS.tests, 'gate-again': JOB_KINDS.tests, bisect: JOB_KINDS.bisect, revert: JOB_KINDS.revert };
 
 /** The job a row's step runs, and what it waits for; null for a link, none, or a step that opens its page instead. */
 export function stepRun(s: LookStep | null): { kind: string; job: Job | null } | null {
@@ -70,8 +70,8 @@ export function stepRun(s: LookStep | null): { kind: string; job: Job | null } |
     case 'link':
       return null;
     case 'fix':
-      // As Fixes' row waits (lead.ts `leadWait`): the job its lead starts, and how it uses the working tree.
-      return { kind: LEAD_KIND[s.lead.key], job: { verb: LEAD_VERB[s.lead.key], tests: false, use: s.lead.use } };
+      // As Fixes' row waits (lead.ts `leadWait`): the job its lead starts, how it uses the working tree, and a crash's step waiting for Tests' jobs too.
+      return { kind: LEAD_KIND[s.lead.key], job: { verb: LEAD_VERB[s.lead.key], tests: s.lead.key === 'bisect' || s.lead.key === 'revert', use: s.lead.use } };
     case 'run': {
       const kind = RUN_KINDS[s.step.key];
       return kind ? { kind, job: stepJob(s.step) } : null;
@@ -117,28 +117,6 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
   }
 }
 
-/**
- * A step's estimate, asked for once the pointer or the focus reaches it (never as the page opens: a
- * list carries none), undefined until it comes and null for none. `when` runs what a press does with
- * it: at once where it has come, else once it has, so a press before it came waits for it.
- */
-function usePriced(load: (() => Promise<Price>) | null): { estimate: Price; on: StepHooks; when: (f: (e: Price) => void) => () => void } {
-  const [estimate, setEstimate] = useState<Price>(load ? undefined : null);
-  const asked = useRef<Promise<Price> | null>(null);
-  const prime = (): Promise<Price> =>
-    (asked.current ??= (load ? load() : Promise.resolve(null))
-      .then(
-        (e) => e ?? null,
-        () => null,
-      )
-      .then((e) => {
-        setEstimate(e);
-        return e;
-      }));
-  const when = (f: (e: Price) => void) => () => (estimate !== undefined ? f(estimate) : void prime().then(f));
-  return { estimate, on: { onPointerEnter: () => void prime(), onFocus: () => void prime() }, when };
-}
-
 /** A job's start, with the yes a job asks for before it runs someone else's command (409), in its own dialog. */
 function usePost(kind: string, ok: string): [(fields: Record<string, unknown>) => void, ReactNode] {
   const app = useApp();
@@ -154,14 +132,6 @@ function usePost(kind: string, ok: string): [(fields: Record<string, unknown>) =
     );
   const node = consent ? <ConsentDialog why={consent.why} ok={ok} onClose={() => setConsent(null)} onOk={() => app.guard(() => post({ ...consent.fields, yes: consent.confirm }))} /> : null;
   return [post, node];
-}
-
-/** The dialog a step asks in, drawn once what it needs has come (the fix, the goldens, the run's offers, its script). */
-function useAsking(): [ReactNode, (build: (close: () => void) => Promise<ReactNode>) => void] {
-  const { toast } = useApp();
-  const [node, setNode] = useState<ReactNode>(null);
-  const close = () => setNode(null);
-  return [node, (build) => void build(close).then(setNode, (err: unknown) => toast(errorText(err), 'error'))];
 }
 
 /**
@@ -186,7 +156,8 @@ export function LookStepButton({ row, wait, version }: { row: NeedsLookRow; wait
       // A fix's lead, as its row on Fixes draws and presses it; `version`, the list's answer its prices last as long as.
       return <RowStep fixId={s.fixId} lead={s.lead} why={why} version={version} />;
     case 'run':
-      return <RunStep s={s} why={why} />;
+      // A crash's Find breaking commit, then Revert, as a fix's row whose lead it is draws it (revert/CrashStep.tsx).
+      return s.step.key === 'bisect' || s.step.key === 'revert' ? <CrashStepButton runId={s.runId} step={s.step} why={why} /> : <RunStep s={s} why={why} />;
     case 'push':
     case 'migrate':
       return <StoreStep s={s} why={why} />;
@@ -274,13 +245,12 @@ function StoreStep({ s, why }: { s: Extract<LookStep, { of: 'push' | 'migrate' }
 }
 
 /**
- * A run's step as its page leads with it: Run blame, Add normalizer and re-run, Update golden, Re-run
- * test, or Find breaking commit, each taking the step and the run's id, not the run's page, priced
- * from the run's own next step (`GET /api/runs/:id/next`).
+ * A run's step as its page leads with it: Run blame, Add normalizer and re-run, Update golden or Re-run
+ * test, each taking the step and the run's id, not the run's page, priced from the run's own next
+ * step (`GET /api/runs/:id/next`). A crash's Find breaking commit and Revert are revert/CrashStep.tsx's.
  */
 function RunStep({ s, why }: { s: Extract<LookStep, { of: 'run' }>; why: string | null }) {
   const app = useApp();
-  const press = useBilledPress();
   const { runId, step } = s;
   const priced = usePriced(() => app.client.nextStep(runId).then((r) => (r.next?.key === step.key ? (r.next.estimate ?? null) : null)));
   const [asking, show] = useAsking();
@@ -296,33 +266,6 @@ function RunStep({ s, why }: { s: Extract<LookStep, { of: 'run' }>; why: string 
   else if (step.key === 'rerun-test' || step.key === 'gate-again') {
     const name = goldenName(step.golden);
     go = (p) => void startTestsJob(app, JOB_KINDS.tests, { golden: step.golden, ...sentEstimate(p) }, { ...(step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden)), estimate: p });
-  } else if (step.key === 'bisect') {
-    // From where its golden last passed it starts by Spending; with no commit to start from, its dialog asks for one.
-    const starts = step.starts;
-    const bisect = (good: string | null, sent: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good, ...sent })));
-    go = (p) =>
-      void app.client.offers(runId).then(
-        (offers) => {
-          // With no offer, as on the run's page: its dialog asks for the commit to start from.
-          const b = offers?.bisect ?? unknownBisect(runId);
-          const ask = () =>
-            show(async (close) => {
-              const m = await import('../run/RunDialogs.js');
-              return <m.BisectDialog runId={runId} offer={b} onClose={close} onRun={bisect} />;
-            });
-          if (starts && b.good && !b.unavailable) press({ estimate: p, start: (sent) => void bisect(b.good, sent), ask });
-          else ask();
-        },
-        (err: unknown) => app.toast(errorText(err), 'error'),
-      );
-    return (
-      <>
-        <ActionButton className="btn sm" why={why} {...card} est={tipEst(e, !starts)} {...priced.on} onClick={() => app.guard(priced.when(go))}>
-          {step.label}
-        </ActionButton>
-        {asking}
-      </>
-    );
   } else return <span className="go">Open →</span>;
   return (
     <>
