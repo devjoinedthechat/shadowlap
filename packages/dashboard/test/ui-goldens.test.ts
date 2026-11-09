@@ -285,7 +285,7 @@ describe('the goldens table', () => {
     // The engine's detail says what the calls had instead: the line says why, the hover the values.
     expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held: lookup_order #2: result.amount 45 <= 100' }), true)).toMatchObject({ sub: 'not applicable · the condition never held', tip: { title: 'not applicable · issue_refund called 0 times', value: 'lookup_order #2: result.amount 45 <= 100', color: 'var(--faint)' } });
     // A judge's verdict says where it came from, in the engine's words as a page joins them: free from the recording, and live at what it cost.
-    const judged = (how: string, cost: string | null): Partial<GoldenCheck> => ({ judge: { question: null, model: 'claude-haiku-4-5', verdict: 'yes', judged: { how, cost, read: [] } } });
+    const judged = (how: string, cost: string | null): Partial<GoldenCheck> => ({ judge: { question: null, model: 'claude-haiku-4-5', verdict: 'yes', judged: { how, cost, read: [] }, held: null } });
     expect(checkMark(c({ ...judged('judged from the recording', 'free'), source: 'recording' }), true).sub).toBe('judged from the recording · free');
     expect(checkMark(c({ ...judged('judged live', '<$0.001'), source: 'live', live: { cost: 0.00043, asked: 1 } }), true).sub).toBe('judged live · <$0.001');
     expect(checkMark(c({ ...judged('judged live', '≈$0.0021'), source: 'live', live: { cost: 0.0021, asked: 5 }, attempts: { passed: 5, of: 5 } }), true).sub).toBe('judged live in 5 attempts · ≈$0.0021');
