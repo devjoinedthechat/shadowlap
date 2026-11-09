@@ -1,5 +1,6 @@
 import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createExportedClient } from '../ui/api.js';
 import { ToastHost } from '../ui/components/Toast.js';
 import { PAUSED } from '../ui/connection.js';
 import type { Dismissed, DismissalsApi, Restored } from '../ui/dismissals-api.js';
@@ -309,6 +310,14 @@ describe('the keys on Needs a look', () => {
       { label: 'Open', hint: local.href },
       { label: 'Dismiss', hint: READ_ONLY, wait: READ_ONLY, job: true },
     ]);
+  });
+});
+
+describe('an exported copy', () => {
+  it('keeps nothing: Dismiss and Restore are refused, as every change in it is', async () => {
+    const { dismissals } = createExportedClient({ responses: {} } as never);
+    await expect(dismissals.dismiss('local', RUNS)).rejects.toThrow('this is an exported copy: it cannot be changed from here');
+    await expect(dismissals.restore('local')).rejects.toThrow('this is an exported copy: it cannot be changed from here');
   });
 });
 
