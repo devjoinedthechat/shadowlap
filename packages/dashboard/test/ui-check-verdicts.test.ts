@@ -99,4 +99,10 @@ describe('the run page', () => {
       { label: 'x', ok: true },
     ]);
   });
+
+  it('keeps a judge check\'s judge as the server sends it: its verdict, source, cost, what it read and its call', () => {
+    const judge = { name: 'j', model: 'claude-haiku-4-5', of: 'answer', verdict: 'yes', source: 'live', cost: 0.0004, redactions: 1, normalized: true, cut: 0, callNo: 7 };
+    const d = normalizeRunDetail({ run: { runId: 'R' }, checks: [{ label: 'judge "j" answers yes', ok: true, status: 'passed', judge }, { label: 'y', ok: true, judge: { name: 'j' } }, { label: 'z', ok: false, judge: { name: 'j', model: 'm', verdict: 'maybe', source: 'x', cost: 'free', callNo: -1 } }] } as unknown as RunDetail);
+    expect(d.checks?.map((c) => c.judge)).toEqual([judge, undefined, { name: 'j', model: 'm', of: 'answer', verdict: null, source: null, cost: null, redactions: 0, cut: 0 }]);
+  });
 });
