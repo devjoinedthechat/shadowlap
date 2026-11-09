@@ -6,11 +6,11 @@
  * A project with no runs shows its setup on the Overview alone: every other page says what it will
  * hold, with Set up <project>, and the setup draws its own loading, failure and steps.
  */
-import { createElement } from 'react';
+import { createElement, Fragment } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, deriveSetup, emptySetup, emptyStoreFacts, type ProjectEntry, type RunFact, type SetupFindings, type StoreFacts } from '@shadowlap/engine';
 import { fixesView } from '../src/fixes-view.js';
-import { setupView, type SetupInput } from '../src/projects.js';
+import { setupView, type SetupInput, type SetupView } from '../src/projects.js';
 import { readTraining, trainingView } from '../src/training.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
@@ -28,7 +28,7 @@ import { TestsPage } from '../ui/pages/Tests.js';
 import { TrainingPage } from '../ui/pages/Training.js';
 import { parseRoute } from '../ui/route.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { FakeElement, render, type Rendered } from './ui-render.js';
 import { addressBar } from './ui-route-helpers.js';
 
 let r: Rendered | null = null;
@@ -353,6 +353,14 @@ describe('the setup while its read comes, fails or answers', () => {
   // Recorded before the write tool was wrapped, and found wrapped since: Pack waits for a recording made since.
   const WRAPPED_SINCE = setupAt({ stage: 'recorded', findings: found(true), inspections: [{ at: 1, unwrapped: ['refund_order'] }, { at: 50, unwrapped: [] }], runId: RUN, command: ['uv', 'run', 'support-agent'] }, { runs: 1, recordings: [RECORDING] });
   const SET_UP = setupAt({ stage: 'tested', findings: found(true), runId: RUN, golden: 'goldens/support-agent' }, { runs: 2, recordings: [RECORDING] });
+  // Recorded in a terminal before the folder was inspected: Inspect folder leads until it is, then Calibrate.
+  const TERMINAL = setupAt({ stage: 'recorded', runId: RUN }, { runs: 1, recordings: [RECORDING] });
+  const INSPECTED = setupAt({ stage: 'recorded', findings: found(true), runId: RUN }, { runs: 1, recordings: [RECORDING] });
+  // Recorded while a read and the write weren't wrapped, the write alone wrapped since: Pack waits for a recording made since.
+  const MIXED = setupAt(
+    { stage: 'recorded', findings: { ...found(true), tools: [{ ...TOOLS[0], wrapped: false }, { ...TOOLS[1], wrapped: true }] }, inspections: [{ at: 1, unwrapped: ['search_orders', 'refund_order'] }, { at: 50, unwrapped: ['search_orders'] }], runId: RUN, command: ['uv', 'run', 'support-agent'] },
+    { runs: 1, recordings: [RECORDING] },
+  );
   // Recorded with every tool wrapped, and calibrate proposed a normalizer.
   const PROPOSED = setupAt({ stage: 'recorded', findings: found(true), runId: RUN }, { runs: 1, recordings: [RECORDING] }, { calibration: { done: false, added: [], proposed: [{ path: '$.metadata.user_id', why: 'this looks like a UUID' }], stopped: null } });
 
@@ -406,6 +414,9 @@ describe('the setup while its read comes, fails or answers', () => {
       [FRESH, 'Inspect folder'],
       [UNWRAPPED, 'Check again'],
       [WRAPPED_SINCE, 'Record again'],
+      [MIXED, 'Record again'],
+      [TERMINAL, 'Inspect folder'],
+      [INSPECTED, 'Calibrate'],
       [SET_UP, 'Go to Overview'],
     ] as const) {
       expect(limes(await drawn(() => Promise.resolve(view))), lime).toEqual([lime]);
@@ -427,6 +438,67 @@ describe('the setup while its read comes, fails or answers', () => {
       await page.unmount();
       r = null;
     }
+  });
+
+  describe('as it moves on', () => {
+    let scrolled: FakeElement[] = [];
+    /**
+     * The setup drawn as `first`, a button outside the page beside it; `then` answers its next read,
+     * its poll's 4 s on, and lets the page's follow run, 60 ms after that read is drawn.
+     */
+    const moving = async (first: SetupView, focus: (page: Rendered) => FakeElement | null) => {
+      vi.useFakeTimers();
+      scrolled = [];
+      vi.spyOn(FakeElement.prototype, 'scrollIntoView').mockImplementation(function (this: FakeElement) {
+        scrolled.push(this);
+      });
+      let answer = first;
+      r = await render(createElement(Fragment, null, createElement('button', { type: 'button', id: 'elsewhere' }, 'Elsewhere'), setupPage(() => Promise.resolve(answer))));
+      await r.until('the steps', () => r!.all('section#setup').length === 1);
+      const at = focus(r);
+      if (at) await r.focus(at);
+      return async (next: SetupView) => {
+        answer = next;
+        await r!.wait(4000);
+        await r!.wait(100);
+      };
+    };
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+    const step = (el: FakeElement | undefined) => el?.getAttribute('data-step') ?? null;
+
+    it('goes on to the next step’s button, scrolling to its step, the focus with it from the step that ended', async () => {
+      const then = await moving(UNWRAPPED, (page) => page.byText('li[data-step="inspect"] .warnline button', 'Check again'));
+      await then(WRAPPED_SINCE);
+      expect(text(r!.focused())).toBe('Record again');
+      expect(scrolled.map(step)).toEqual(['record']);
+    });
+
+    it('goes on to Calibrate once the folder a recording came before is inspected', async () => {
+      const then = await moving(TERMINAL, (page) => page.byText('li[data-step="inspect"] button', 'Inspect folder'));
+      await then(INSPECTED);
+      expect(text(r!.focused())).toBe('Calibrate');
+      expect(scrolled.map(step)).toEqual(['calibrate']);
+    });
+
+    it('leaves the focus where it was moved to, outside the step, and moves nothing on the first draw', async () => {
+      const then = await moving(UNWRAPPED, (page) => page.one('#elsewhere'));
+      await r!.wait(100);
+      expect(scrolled).toEqual([]);
+      await then(WRAPPED_SINCE);
+      expect(r!.focused().id).toBe('elsewhere');
+      // The page still scrolls to the step at hand.
+      expect(scrolled.map(step)).toEqual(['record']);
+    });
+
+    it('moves nothing when the setup read is another project’s', async () => {
+      const then = await moving(UNWRAPPED, (page) => page.byText('li[data-step="inspect"] .warnline button', 'Check again'));
+      await then({ ...WRAPPED_SINCE, project: { ...WRAPPED_SINCE.project, id: 'triage-bot', name: 'triage-bot' } });
+      expect(r!.focused()).toBe(r!.document.body);
+      expect(scrolled).toEqual([]);
+    });
   });
 
   it('says on Add normalizer’s hover what it writes and its command, Calibrate again plain beside it', async () => {
