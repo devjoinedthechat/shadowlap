@@ -1656,6 +1656,7 @@ The check builder makes a check from a tool call and writes it to the golden's e
 - **The golden's checks**: one row a check, labelled as reports label them. The rule being built reads `new`, or `changed` once it edits one of the file's, and a removed one `removed`, with **Keep**. A tool's count the rule takes the place of reads `replaced`.
 - **An injection gate** set in the golden's entry is a row of its own, read only.
 - **Against your recordings**: the counts, with *not applicable* apart, the notes in amber or grey, the recordings on request, and the `shadowlap check` command with **Copy whole command**.
+- **Suggested**, on a failed recording with good runs to compare with: at most three rules that fail it and none of its good runs, the fix's and the agent's recordings labelled `good`. **Use rule** puts one in place of the rule being built, **Add rule** adds it beside a check being edited, and nothing is saved until **Save check**.
 - **The change**: the golden's entry as the file will hold it, with the file's version. When saving would also lay out other lines of the file anew, it says so first.
 
 **Save check** turns lime once nothing needs a look, and stays off with its reason until the rule can be saved. For an edited check it reads **Save change**. While the dashboard server can't be reached, it waits.
@@ -2087,6 +2088,7 @@ The work done on those threads:
 
 - the Overview, and the totals the Runs table filters and sorts by;
 - a run's page and its calls, its Provenance, and what a run's untrusted reads are;
+- the check builder's reads: what a call offers, a draft judged on your recordings, and its suggested checks;
 - Compare, and what a fork did differently;
 - a fix's page and its attempt groups;
 - the activity feed, and a search;
