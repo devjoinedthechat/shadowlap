@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from '@playwright/test';
+import { expect, test, type Page, type Request, type Route } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
 import { routeTestsFixture } from './tests-fixture.js';
 
@@ -7,7 +7,8 @@ import { routeTestsFixture } from './tests-fixture.js';
  * each view, its inspector's tabs, its menus and dialogs, Fixes and each fix's steps, Tests and its
  * dialogs, a gated golden's evidence, Settings' tabs, the team store's setup, the palette, the shortcuts on every kind of page,
  * a toast with Undo and the bar that says the dashboard can't be reached; and again on a phone, 390 px
- * wide. Any serious or critical violation fails, named with the state it was found in.
+ * wide, with a not-found page of each kind and Runs while its table loads and once its read failed.
+ * Any serious or critical violation fails, named with the state it was found in.
  */
 
 /** The demo's runs by name, each by its id: every run the demo names. */
@@ -70,6 +71,38 @@ const at = (page: Page, path: string, drawn = 'main#view') => async () => {
   await settled(page);
 };
 const run = (page: Page, id: string, view = '') => at(page, `/run/${id}${view ? `/${view}` : ''}`, 'run');
+/** A link that names nothing: the not-found page, drawn once the other projects were asked whether one holds it. */
+const NOT_FOUND = 'main#view .ph h1:text-is("Nothing here")';
+/**
+ * Runs with its table's read held, its rows drawn as quiet bars, then answered 500, the error line
+ * with Retry in the table's place. The table reads `/api/runs/page?…`; the shell's own run list,
+ * `/api/runs`, answers as ever. Opened from another page, so Runs starts its read anew.
+ */
+function runsTableHeld(page: Page): Array<[string, () => Promise<void>]> {
+  const TABLE = /\/api\/runs\/page/;
+  const held: Route[] = [];
+  const fail = (route: Route) => route.fulfill({ status: 500, body: '' });
+  // Held, then answered 500. The route goes only once nothing is held: its going lets what it holds through.
+  let answer = (route: Route) => void held.push(route);
+  const loading = async () => {
+    const open = apiRequests(page);
+    await page.route(TABLE, (route) => answer(route));
+    await openPage(page, '/runs', 'main#view .runsec .rskrun');
+    // Every other read back, so axe reads the page as it stays while the table waits.
+    await expect.poll(() => [...open].map((r) => new URL(r.url()).pathname).filter((p) => p !== '/api/runs/page'), { timeout: 60_000, intervals: [25] }).toEqual([]);
+    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  };
+  const failed = async () => {
+    answer = (route) => void fail(route);
+    await Promise.all(held.splice(0).map(fail));
+    await settled(page, { shows: 'main#view .runsec .loaderr' });
+    await page.unroute(TABLE);
+  };
+  return [
+    ['Runs while its table loads on a phone', loading],
+    ['Runs when its table’s read failed on a phone', failed],
+  ];
+}
 /** Changes' Verdicts, drawn with its rows. */
 const VERDICTS = 'main#view table.vdt tbody tr';
 /**
@@ -295,6 +328,9 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
     for (const v of ['', 'turns', 'timeline']) states.push([`run ${name}${v ? ` · ${v}` : ''} on a phone`, run(page, id, v)]);
   }
   states.push(['Runs on a phone', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture… on a phone', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · import closed on a phone', escape(page)]);
+  // A link that names nothing, of each kind; then Runs while its table loads, and once its read failed.
+  for (const p of ['/nowhere', '/run/01ZZZZZZZZZZZZZZZZZZZZZZZZ', '/fixes/fx-nope']) states.push([`${p} on a phone`, at(page, p, NOT_FOUND)]);
+  states.push(...runsTableHeld(page));
   expect(await sweep(page, states)).toEqual([]);
 });
 
