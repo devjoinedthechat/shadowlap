@@ -112,6 +112,19 @@ export function untrustedReads(calls: readonly CallRecord[], tools: ToolTrust = 
   return { reads, skipped };
 }
 
+/** An untrusted read as `show --json` and the dashboard list it: where its mark came from, and the model call that reads it (null when none follows, so nothing would read a payload planted there). */
+export interface UntrustedView {
+  callNo: number;
+  name: string;
+  from: TrustSource;
+  readAt: number | null;
+}
+
+/** A run's untrusted reads (untrustedReads), in the one shape `shadowlap show --json` prints and the dashboard serves. */
+export function untrustedView(calls: readonly CallRecord[], tools?: ToolTrust): UntrustedView[] {
+  return untrustedReads(calls, tools).reads.map((r) => ({ callNo: r.callNo, name: r.name, from: r.from, readAt: r.readAt }));
+}
+
 // ---- payloads ----
 
 /** What a payload pretends to be. The built-in templates cover each. */

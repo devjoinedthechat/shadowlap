@@ -760,7 +760,7 @@ dashboard's Provenance tab copies:
 | `run` | The run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`) |
 | `summary` | Its summary, as [`run --summary-json`](#run-summary-as-json) writes it |
 | `calls` | Every call as stored (`runId`, `callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`) |
-| `untrusted` | Its untrusted reads in call order, as the dashboard's `GET /api/injection/runs/:id` lists them (`callNo`, `name`, and `from`: `config`, `sdk` or `mcp`); empty if it has none |
+| `untrusted` | Its untrusted reads in call order, as the dashboard's `GET /api/injection/runs/:id` lists them (`callNo`, `name`, `from`: `config`, `sdk` or `mcp`, and `readAt`: the model call that reads it, null when none follows); empty if it has none |
 | `unrecordedTools` | The tools its model called that the run never recorded (below); empty if it has none |
 
 Each of the tools its model called that the run never recorded, `unrecordedTools`, has these fields:
