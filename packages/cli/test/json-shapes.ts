@@ -119,7 +119,7 @@ export const SHAPES = {
   migrateConfigChange: { section: 'migrate', grows: true, fields: ['files', 'patch', 'review'] },
   migrateError: { section: 'migrate', fields: ['kind', 'outcome', 'error'] },
   // Tests: test's report (the GitHub Action reads it), and bisect's.
-  test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'inconclusive', 'interrupted', 'results'] },
+  test: { section: 'test', grows: true, fields: ['version', 'session', 'revision', 'passed', 'failed', 'inconclusive', 'interrupted', 'results', 'costPerRun'] },
   testResult: { section: 'test', grows: true, fields: ['name', 'dir', 'golden', 'mode', 'ok', 'verdict', 'failure', 'message', 'details', 'output', 'seconds', 'runId', 'runs', 'goldenRunId', 'calls', 'upstreamRequests', 'tokensNotRespent', 'divergence', 'checks', 'attempts', 'gate', 'expect', 'updated', 'judge', 'injection'] },
   // A golden's gate in test's report: its figures, then what it made of the attempts (test-gate.test.ts holds them).
   testGate: { section: 'test', grows: true, fields: ['kind', 'good', 'bad', 'risk', 'max', 'decision', 'passes', 'attempts', 'outcomes', 'interval', 'passK', 'evidence', 'clean', 'sentence'] },

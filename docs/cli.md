@@ -2260,7 +2260,7 @@ That verdict is inconclusive, and `--inconclusive warn` lets it through.
 ### Test report as JSON
 
 `--json <file>` writes a JSON report: the session, counts and, per pack, the result and the kind of
-failure. The report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results }`,
+failure. The report is `{ version, session, revision, passed, failed, inconclusive, interrupted, results, costPerRun }`,
 and `suite` with a gated golden:
 
 | Field | Meaning |
@@ -2270,6 +2270,7 @@ and `suite` with a gated golden:
 | `inconclusive` | The inconclusive packs, either way (below) |
 | `interrupted` | Whether a signal stopped the session; `results` has the goldens that finished before it |
 | `results` | One result per pack (below) |
+| `costPerRun` | What a run costs as it would run live, in USD: `before` as the goldens were recorded, `after` as this session replayed them, the mean over the goldens whose replay ran to its end; null when none has a price |
 | `suite` | With a gated golden: the session's one risk, and how it was split (below) |
 
 An inconclusive pack counts as failed, or as passed when it only warns: under `--inconclusive warn`, or,

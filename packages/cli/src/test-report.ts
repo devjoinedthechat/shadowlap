@@ -92,6 +92,12 @@ export interface TestReport {
   interrupted: boolean;
   results: PackResult[];
   /**
+   * What a run of the goldens costs as it would run live, in USD: `before` as recorded, `after` as this
+   * session replayed them, the mean over the goldens whose replay ran to its end with a price; null
+   * when none did. The pull request comment says it.
+   */
+  costPerRun: { before: number | null; after: number | null } | null;
+  /**
    * With a gated golden: the session's one risk of going red for nothing, each gated golden's share
    * of it (Bonferroni), how many shared it, what inconclusive verdicts did, the chance the session
    * went red for nothing at most as planned, and the forecast made before it ran: attempts on
@@ -124,10 +130,10 @@ export function suiteRed(plan: { risk: number; red: number; over?: number; early
   return `but ${why.length ? why.join(' and ') : "its goldens can't keep within their shares"}, so a healthy suite ${red} in ${odds}, with the provider answering`;
 }
 
-export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null, suite: TestReport['suite'] | null = null): TestReport {
+export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null, suite: TestReport['suite'] | null = null, costPerRun: TestReport['costPerRun'] = null): TestReport {
   const failed = results.filter((r) => !r.ok).length;
   const inconclusive = results.filter((r) => r.verdict === 'inconclusive').length;
-  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results, ...(suite ? { suite } : {}) };
+  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results, costPerRun, ...(suite ? { suite } : {}) };
 }
 
 /** A pack's verdict, as CI's `ok` says for a result made before results had one. */

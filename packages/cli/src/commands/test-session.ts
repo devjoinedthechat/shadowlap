@@ -21,6 +21,7 @@ import { junitXml, type JunitCase } from '../junit.js';
 import { ProviderStreak, unavailableWords } from '../provider-retry.js';
 import { type GuardMode } from '../run-agent.js';
 import { givenCommand, telemetry, usageOf, type GlobalOpts } from '../shared.js';
+import { keepCostPerRun } from '../session-cost.js';
 import { planSession, suiteJson, suiteLines } from '../suite-plan.js';
 import { takeoverReader } from '../tasks.js';
 import { prepareTestPush, teamEnv } from '../team.js';
@@ -203,6 +204,8 @@ class Session {
   readonly cut: string[] = [];
   /** Applied fixes whose goldens failed their last test and passed every one of them here. */
   settled: StoredFix[] = [];
+  /** What a run of its goldens costs as recorded and in this session (session-cost.ts), once it finished; null when that can't be told. */
+  costPerRun: { before: number; after: number } | null = null;
   /**
    * Ctrl-C, or a dashboard job being stopped: the replay running now is cut short (its agent, and
    * whatever the agent started, get the signal), nothing more starts, and the session ends with
@@ -357,6 +360,8 @@ class Session {
       process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept in the test history: ${messageOf(err)}\n`));
     }
     recordEvent(this.store, { kind: 'test.session', actor: this.actor, ref: this.session.sessionId, data: { passed, failed, ...(inconclusive ? { inconclusive } : {}), goldens: this.results.length, revision: this.revision, upstreamRequests: this.upstreamRequests, ...(this.updates ? { updated: this.updates } : {}), ...(this.signal ? { interrupted: true, notRun: packs.length - this.results.length } : {}) } });
+    // The JSON report is written once the store has closed: the cost per run is worked out here.
+    this.costPerRun = keepCostPerRun(this.store, this.session.sessionId, this.results, this.request.config.prices);
     try {
       this.store.close();
     } catch {
@@ -620,7 +625,7 @@ async function reportSession(request: TestRequest, pusher: Pusher | null, s: Ses
   const notRun = packs.length - results.length;
   for (const c of s.cut) process.stdout.write(`${p.yellow('⏹')} ${safe(c)}: interrupted, so it has no result this time\n`);
   if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', s.cases));
-  const report = testReport(results, { id: s.session.sessionId, revision: s.revision, interrupted: signal !== null }, s.planned ? suiteJson(s.planned.plan) : null);
+  const report = testReport(results, { id: s.session.sessionId, revision: s.revision, interrupted: signal !== null }, s.planned ? suiteJson(s.planned.plan) : null, s.costPerRun);
   if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
   // What CI did with an inconclusive golden, as the summary names it: the --inconclusive given, or the default and a young golden's rule.
   if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report, request.inconclusiveGiven), { flag: 'a' });
