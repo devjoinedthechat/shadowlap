@@ -1,4 +1,4 @@
-import { fillPayload, injectionTemplates, plantInToolResult, plural, proofLine, refused, shortRunId as short, type AttemptReport, type CleanReport, type InjectionMark, type InjectionReport, type InjectionVerdict, type PlantReport, type RunRecord, type StoreOf, type TrustSource } from '@shadowlap/engine';
+import { baselineWrites, fillPayload, injectionTemplates, plantInToolResult, plural, proofLine, refused, shortRunId as short, type AttemptReport, type CallRecord, type CleanReport, type InjectionMark, type InjectionReport, type InjectionVerdict, type PlantReport, type RunRecord, type StoreOf, type TrustSource } from '@shadowlap/engine';
 import { commandLine } from './fix-shared.js';
 import type { InjectionAgain } from './next-step.js';
 
@@ -167,20 +167,15 @@ function plantPath(store: StoreOf<'recording'>, parent: string | null, read: num
   return refused(at) ? null : at.at;
 }
 
-/** A replay's own writes after its fork, as the CLI counts a baseline's (its drawer's `2 writes after the read`). */
-function writesAfter(store: StoreOf<'recording'>, run: RunRecord, from: number): number {
-  return store.getCalls(run.runId, { after: from - 1 }).filter((c) => c.kind === 'tool' && c.effect === 'write').length;
-}
-
-/** What an attempt's page marks, from its mark and the result it belongs to. */
-export function attemptPlant(store: StoreOf<'recording'>, run: RunRecord, mark: InjectionMark, report: InjectionReport | null): AttemptPlant {
+/** What an attempt's page marks, from its mark, the result it belongs to and its run's calls: a baseline's writes after the read, counted as the CLI counts them (baselineWrites). */
+export function attemptPlant(store: StoreOf<'recording'>, run: RunRecord, mark: InjectionMark, report: InjectionReport | null, calls: readonly CallRecord[]): AttemptPlant {
   if (!report) return NONE;
   if (report.mode === 'clean') {
     const a = report.attempts.find((x) => x.runId === run.runId);
     return { ...NONE, plantedAt: mark.read, gone: a ? a.gone : null };
   }
   const path = plantPath(store, run.parentRunId, mark.read);
-  if (mark.role === 'baseline') return { ...NONE, path, writes: writesAfter(store, run, mark.readAt ?? mark.read) };
+  if (mark.role === 'baseline') return { ...NONE, path, writes: baselineWrites(calls, mark.read, run.divergence?.callNo ?? null).length };
   const a = report.attempts.find((x) => x.runId === run.runId);
   const payload = report.payloads.find((p) => p.id === mark.payload);
   const canary = a?.canary ?? mark.canary ?? null;

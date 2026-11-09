@@ -152,10 +152,11 @@ export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: s
   const run = store.getRun(runId);
   const mark = run?.meta?.injection ?? null;
   const of = mark ? store.getInjectionResult(mark.result) : null;
-  const untrusted = untrustedView(store.getCalls(runId), tools);
+  const calls = store.getCalls(runId);
+  const untrusted = untrustedView(calls, tools);
   const proof = mark ? markProof(mark) : null;
   const report = of ? (of.data as unknown as InjectionReport) : null;
-  const plant = run && mark ? attemptPlant(store, run, mark, report) : null;
+  const plant = run && mark ? attemptPlant(store, run, mark, report, calls) : null;
   return { untrusted, results: store.listInjectionResults({ runId }).map(row), attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId) } : null };
 }
 
