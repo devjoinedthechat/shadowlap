@@ -7,8 +7,11 @@ import { looksGenerated } from './volatile.js';
 import { atLeast, atMost, rateBound, riskPercent, tallyInterval, type Gate } from './stats.js';
 import type { Refusal } from './interventions.js';
 import { applyNormalizers } from './normalize.js';
-import type { CallRecord, Effect, Normalizer, Trust } from './types.js';
+import { previewRedaction, type PreviewLimits, type RedactionPreview } from './redact.js';
+import type { Store } from './store.js';
+import type { CallRecord, Effect, Normalizer, RunRecord, Trust } from './types.js';
 import { isObject } from './is-object.js';
+import { keepingTexts, keepingWhile } from './kept-canaries.js';
 
 /**
  * Causal injection tests: the pure half of `shadowlap injection`. An attacker leaves text where an
@@ -400,57 +403,38 @@ export function findCanary(value: unknown, canary: Canary, planted?: string | nu
   return hits;
 }
 
-const MARKS = /\uE000\uE002+\uE001/g;
+/**
+ * A copy of `value` rewritten by `rewrite` (the project's normalizers or redaction rules) with every
+ * canary left as it was, in each of its forms (keepingTexts).
+ */
+export function keepingCanaries<T>(value: T, canaries: readonly Canary[], rewrite: (v: T) => T): T {
+  return keepingTexts(value, canaryTexts(canaries), rewrite);
+}
 
-/** Every canary mark in a value's strings and keys, in order. */
-function marksIn(v: unknown, out: string[] = []): string[] {
-  if (typeof v === 'string') out.push(...(v.match(MARKS) ?? []));
-  else if (Array.isArray(v)) v.forEach((x) => marksIn(x, out));
-  else if (isObject(v)) for (const [k, x] of Object.entries(v)) marksIn(x, marksIn(k, out));
-  return out;
+/** Each form the canaries take in text: their addresses, ids, tokens and amounts, with and without a thousands comma. */
+export function canaryTexts(canaries: readonly Canary[]): string[] {
+  return canaries.flatMap((c) => needles(c).map((n) => n.text));
 }
 
 /**
- * A copy of `value` rewritten by `rewrite` (the project's normalizers or redaction rules) with every
- * canary left as it was: each occurrence is swapped for a mark no rule's pattern matches (private-use
- * characters) before the rewrite, and back after it. A rule that replaces a whole value (a path rule,
- * or a pattern that matches all of it) loses the marks with it, so they are put back: a value that
- * was a canary and nothing else is the canary again; one that held more keeps what the rule made of
- * it, with its canaries after.
+ * `copy()` keeping the run's own canaries (an injection attempt's, `meta.injection.canary`), or the
+ * runs' a copy draws on, wherever its rules rewrite (keepingWhile), and how many a rule would have
+ * masked. A run with none is copied as it is.
  */
-export function keepingCanaries<T>(value: T, canaries: readonly Canary[], rewrite: (v: T) => T): T {
-  const texts = [...new Set(canaries.flatMap((c) => needles(c).map((n) => n.text)))].sort((a, b) => b.length - a.length);
-  if (!texts.length) return rewrite(value);
-  const originals: string[] = [];
-  const mark = (i: number) => `\uE000${'\uE002'.repeat(i + 1)}\uE001`;
-  const pattern = new RegExp(texts.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
-  const hide = (s: string) =>
-    s.replace(pattern, (m) => {
-      originals.push(m);
-      return mark(originals.length - 1);
-    });
-  const deep = (v: unknown, f: (s: string) => string): unknown => {
-    if (typeof v === 'string') return f(v);
-    if (Array.isArray(v)) return v.map((x) => deep(x, f));
-    if (isObject(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [f(k), deep(x, f)]));
-    return v;
-  };
-  const hidden = deep(value, hide) as T;
-  // Where a rule took marks with what it replaced, the canaries go back.
-  const restore = (before: unknown, after: unknown): unknown => {
-    if (typeof before === 'string' && !(before.match(MARKS) ?? []).length) return after;
-    if (Array.isArray(before) && Array.isArray(after)) return (after as unknown[]).map((x, i) => (i < before.length ? restore(before[i], x) : x));
-    if (isObject(before) && isObject(after)) return Object.fromEntries(Object.entries(after).map(([k, x]) => [k, Object.hasOwn(before, k) ? restore(before[k], x) : x]));
-    const held = marksIn(before);
-    if (!held.length) return after;
-    const left = marksIn(after);
-    const lost = held.filter((m) => !left.includes(m));
-    if (!lost.length) return after;
-    if (typeof before === 'string' && !before.replace(MARKS, '').trim()) return before;
-    return `${typeof after === 'string' ? after : (JSON.stringify(after) ?? '')} ${lost.join(' ')}`;
-  };
-  const out = restore(hidden, rewrite(hidden));
-  return deep(out, (s) => s.replace(/\uE000(\uE002+)\uE001/g, (m, run: string) => originals[run.length - 1] ?? m)) as T;
+export function keepingRunCanaries<T>(runs: KeptRun | readonly KeptRun[], copy: () => T): { value: T; kept: number } {
+  const canaries = [runs].flat().flatMap((r) => (r?.meta?.injection?.canary ? [r.meta.injection.canary] : []));
+  return keepingWhile(canaryTexts(canaries), copy);
+}
+
+type KeptRun = Pick<RunRecord, 'meta'> | null | undefined;
+
+/**
+ * What a copy of the run made now would mask (previewRedaction), counted as that copy masks: with the
+ * run's own canaries kept, and so left out of the count. `kept` is how many a rule would have masked.
+ */
+export function previewKeepingCanaries(store: Store, runId: string, rules: Normalizer[], options: PreviewLimits = {}): RedactionPreview & { kept: number } {
+  const { value, kept } = keepingRunCanaries(store.getRun(runId), () => previewRedaction(store, runId, rules, options));
+  return { ...value, kept };
 }
 
 /**
