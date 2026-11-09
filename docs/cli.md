@@ -4165,6 +4165,9 @@ It is a copy of recorded data, so the redaction rules in `shadowlap.config.json`
 `pack`. The command says how many applied, that there were none, or, with `--no-redact`, how many it
 skipped.
 
+A redaction rule that can't be read stops it, naming the rule. A normalizer that can't be read only
+warns, `! <why>; the copy's Show diff applies no normalizers`, and the copy's diff applies none.
+
 A run still recording is refused, exit status 2: every export waits for a run to end, or the copy would
 show it recording for good. With `--lineage`, so is a run whose ancestor is still recording.
 
@@ -4714,6 +4717,9 @@ the link can open it, without an account.
 
 A run still recording, or with `--lineage` one whose ancestor is, is shared once it has ended. Until then
 `share` refuses it, exit status 2, before anything is asked of the store.
+
+A redaction rule that can't be read stops it, and a normalizer that can't be read warns, as for
+[`export html`](#export-html).
 
 `--json` prints `{ runId, url, expiresAt, note, store, key, bytes, redacted, rules, runs }`:
 

@@ -332,6 +332,8 @@ Every export, pack and share link applies the rules, and Shadowlap's tests hold 
 
 A push copies runs to your [team store](./team.md) as recorded, so teammates can replay them, but for the credentials Shadowlap masks by itself. The bucket's own permissions decide who reads them.
 
+**An [injection test](./injection.md)'s attempt** keeps its own canary in every copy above but a HAR file and repair's: the value only its planted text held stays as recorded, the proof that it got out. A secret beside it in the same string is masked as ever. `redact preview` counts the canary apart: its first line ends `canaries kept`, and `--json` says how many (`kept`).
+
 **`--no-redact`.** Each export that applies rules takes `--no-redact`, and stops, naming the rule, when one can't be read. `share` takes no `--no-redact`. `repair` always applies them, and stops the same way before it blames anything.
 
 ### Preview
