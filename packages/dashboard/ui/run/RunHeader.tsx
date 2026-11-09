@@ -25,7 +25,7 @@ import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, Re
 import { TraceLink } from './TraceLink.js';
 import { exitWords, type PresetAttempt } from './preset.js';
 import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
-import { canPush, pushTitle } from './share.js';
+import { canPush, pushTitle } from './share-steps.js';
 // The share job's drawer offers the link it made, as the run's page loads, whether Share has opened or not.
 import './share-link.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';

@@ -6,7 +6,8 @@ import { goldenName, shortId } from '../format.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import type { NextStep } from '../types.js';
 import { gateEntry, stepCostLine } from './next-step.js';
-import { PACK_HOLDS, packRunCommand, packTestCommands, redactsFact } from './share.js';
+import { PACK_HOLDS, packTestCommands, redactsFact } from './share.js';
+import { packRunCommand } from './share-steps.js';
 
 /*
  * The dialogs the run page's steps ask in, Pack as golden…'s too: rarely opened, so a part of their

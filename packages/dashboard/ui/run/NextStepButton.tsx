@@ -24,7 +24,7 @@ import { checksOf, runLikeOf } from './model.js';
 import { blameBesideCard, replayAction, stepCard, stepEstimate, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
 import { PackAsGolden, StepDialogPart } from './PackAsGolden.js';
-import { packRunCommand } from './share.js';
+import { packRunCommand } from './share-steps.js';
 
 /**
  * The header's one lime button, drawn from the step the server worked out (src/next-step.ts): a link

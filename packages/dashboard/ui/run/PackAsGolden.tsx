@@ -6,7 +6,7 @@ import { ACTIONS, confirmWords } from '../labels.js';
 import { useServedParts, type StepDialogProps } from '../served-parts.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { PACK_VERB } from './share.js';
+import { PACK_VERB } from './share-steps.js';
 
 /*
  * Pack as golden…'s button and what its dialog runs, in a module of their own: the run page's header
