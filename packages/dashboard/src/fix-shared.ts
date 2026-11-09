@@ -1,8 +1,8 @@
-import { BLAME_DEFAULTS, fieldValue, outcomeOf, repairPatchProblem, repairToApply, shownBlame, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type NoFixToTry, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, fieldValue, keptCaptureVerdict, outcomeOf, repairPatchProblem, repairToApply, shownBlame, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type NoFixToTry, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredCheck, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { isCount } from './rerun.js';
-import { loadRunIndex, type RunIndex } from './run-index.js';
+import { type IndexedRun, loadRunIndex, type RunIndex } from './run-index.js';
 import { splitCommandLine } from './settings.js';
 
 /** What the Fixes pages' read models share: a fix's links and its steps' words, its blame, repair and verdicts as the pages pick them, a patch as it is checked, and the change a verdict was made under. */
@@ -356,15 +356,34 @@ export function patchToCheck(rec: FixRecords): string | null {
 
 /**
  * A failed run that is not a fix yet, with no blame kept and in no fix: a recording whose agent
- * exited with an error, or a fork that failed as the run list judges it (its own check, or its
- * agent's exit), which Run blame takes as it takes a recording. Attempts are not: a blame probe's,
- * a verify's, a `--repeat`'s or a preset's failure counts towards what made them, a test's is
- * Tests', and an injection test's replay is judged by that test. A blame from before Fixes kept
- * blames (only `meta.blame` on the run) does not count: blaming it again opens its fix.
+ * exited with an error, a capture its import judged failed (`capturedFailure`), or a fork that
+ * failed as the run list judges it (its own check, or its agent's exit), which Run blame takes as it
+ * takes a recording. Attempts are not: a blame probe's, a verify's, a `--repeat`'s or a preset's
+ * failure counts towards what made them, a test's is Tests', and an injection test's replay is
+ * judged by that test. A blame from before Fixes kept blames (only `meta.blame` on the run) does not
+ * count: blaming it again opens its fix.
  */
 export function isUnblamedFailure(store: StoreOf<'readModels' | 'fixes'>, run: RunRecord, index: RunIndex = loadRunIndex(store)): boolean {
-  if (run.mode === 'record' ? run.status !== 'failed' : !failedFork(index, run.runId, !!run.meta?.injection)) return false;
+  if (!failedAlone(index, run, !!run.meta?.injection)) return false;
   return store.blamesOfRun(run.runId).length === 0 && store.linksTo(run.runId, 'failing').length === 0;
+}
+
+/**
+ * A capture its import judged failed, by the verdict it kept (the index's `meta.judged`), as Runs
+ * counts it failed (runs-filter.ts `listFailed`) and its page leads with Run blame. The lists read
+ * the kept verdict; the page judges by the rules on calls as they are now.
+ */
+export const capturedFailure = (row: Pick<IndexedRun, 'kind' | 'meta'> | undefined): boolean => row?.kind === 'capture' && row.meta.judged === 'failed';
+
+/** The first half of isUnblamedFailure, from what the run index says of a run: a recording that failed, a capture its import judged failed, or a fork that failed on its own. */
+function failedAlone(index: RunIndex, run: Pick<RunRecord, 'runId' | 'mode' | 'status'>, injected: boolean): boolean {
+  if (capturedFailure(index.byId.get(run.runId))) return true;
+  return run.mode === 'record' ? run.status === 'failed' : failedFork(index, run.runId, injected);
+}
+
+/** The checks a failed run says it failed on: those it recorded, or a capture's that its import judged it by (the verdict it kept). */
+export function checksOf(run: RunRecord, row: Pick<IndexedRun, 'kind' | 'meta'> | undefined): readonly StoredCheck[] {
+  return capturedFailure(row) ? (keptCaptureVerdict(run)?.checks ?? []) : (run.meta?.checks ?? []);
 }
 
 /** A fork the run list counts as failed that stands on its own: no attempt of anything, no test's, and not the fork blame rescued a run with. */
@@ -385,7 +404,7 @@ export function unblamedRuns(store: StoreOf<'readModels' | 'fixes' | 'recording'
   const out: RunRecord[] = [];
   for (const row of index.runs) {
     // The first half of isUnblamedFailure, on the row: the rest only for a run that passes it.
-    if (row.mode === 'record' ? row.status !== 'failed' : !failedFork(index, row.runId, !!row.meta.injection)) continue;
+    if (!failedAlone(index, row, !!row.meta.injection)) continue;
     const run = store.getRun(row.runId);
     if (run && isUnblamedFailure(store, run, index)) out.push(run);
   }

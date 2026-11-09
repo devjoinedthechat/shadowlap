@@ -3,19 +3,22 @@ import { consentAsked } from '../actions.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { ConsentDialog } from '../components/Dialog.js';
 import { useBilledPress } from '../components/JobButton.js';
+import { onShow } from '../components/OnShow.js';
 import type { FixEstimates } from '../estimates-api.js';
 import { ACTIONS } from '../labels.js';
-import { sentEstimate, tipEst } from '../spending.js';
+import { tipEst } from '../spending.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { FixDetail, FixLead } from '../types.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
-import { BlameAgainDialog, StrongerDialog } from './BlameAgain.js';
 import { blameNextPrice, verifyPrice } from './estimates.js';
-import { ApplyDialog, RepairDialog } from './FixPage.js';
-import { LEAD_KIND, leadCard, leadReadsFix } from './list.js';
+import { LEAD_KIND, leadCard, leadReadsFix } from './lead.js';
+import type { LeadOpen } from './LeadDialog.js';
+import { fixAction } from './model.js';
 import { refusedPress } from './page-fix.js';
-import { VerifyAsk, VerifyLeftAsk } from './VerifyStep.js';
+
+/** The dialog a press opens, the fix page's own, in a script of its own that loads as it first shows (LeadDialog.tsx). */
+const LeadDialog = onShow(() => import('./LeadDialog.js').then((m) => m.LeadDialog));
 
 /**
  * Each fix's estimates, asked the first time a row's card shows or its step is pressed, once per
@@ -53,17 +56,17 @@ function fieldsOf(lead: FixLead): Record<string, unknown> {
   return lead.key === 'verify-left' ? { left: true } : {};
 }
 
-type Open = { kind: 'ask'; estimate: Estimate | null | undefined } | { kind: 'fix'; fix: FixDetail; estimate: Estimate | null | undefined };
-
 /**
- * A fix's next step on its Fixes row (`fixLead`), small and plain, or where a job's drawer ends on its
- * fix's page (job-footers.tsx: its `className`, and the page's `fix`, so a press reads none): it runs
- * or asks as the same button on the fix's page does. A press asks the fix's estimates, and the fix's detail for a step whose dialog
- * shows it (Run blame with stronger model…, Run repair, Apply fix, Mark applied, Finish applying), then
- * opens that dialog; Run blame again, Run more attempts, Verify again and Verify this run follow Spending from the lead's
- * own fields, starting at or under the threshold, else asking. While a read is out the button is busy
- * and another press does nothing. `why` is the list's: one jobs read for every row. A press refused once
- * the fix's blame moved on offers Open Blame (`refusedPress`).
+ * A fix's next step on a list row (`fixLead`), small and plain: its Fixes row and its row on Needs a
+ * look, or where a job's drawer ends on its fix's page (job-footers.tsx: its `className`, and the
+ * page's `fix`, so a press reads none). It runs or asks as the same button on the fix's page does. A
+ * press asks the fix's estimates, and the fix's detail for a step whose dialog shows it (Run blame
+ * with stronger model…, Run repair, Apply fix, Mark applied, Finish applying), then opens that dialog;
+ * Run blame again, Run more attempts, Verify again and Verify this run follow Spending from the lead's
+ * own fields, starting at or under the threshold, else asking. A list can be older than the working
+ * tree: an apply whose patch `fix apply` refuses now says why instead (`fixAction`). While a read is out
+ * the button is busy and another press does nothing. `why` is the list's: one jobs read for every row.
+ * A press refused once the fix's blame moved on offers Open Blame (`refusedPress`).
  */
 export function RowStep({ fixId, lead, why, version, className = 'btn sm', fix: detail }: { fixId: string; lead: FixLead; why: string | null; version: string; className?: string; fix?: FixDetail }) {
   const app = useApp();
@@ -71,7 +74,7 @@ export function RowStep({ fixId, lead, why, version, className = 'btn sm', fix: 
   const [got, setGot] = useState<{ version: string; e: FixEstimates | null } | null>(null);
   const [reading, setReading] = useState(false);
   const out = useRef(false);
-  const [open, setOpen] = useState<Open | null>(null);
+  const [open, setOpen] = useState<LeadOpen | null>(null);
   const [consent, setConsent] = useState<{ why: string; confirm: string; fields: Record<string, unknown> } | null>(null);
   const api = app.client.estimates;
   const known = got?.version === version ? got.e : undefined;
@@ -102,7 +105,10 @@ export function RowStep({ fixId, lead, why, version, className = 'btn sm', fix: 
           ([e, fix]) => {
             setGot({ version, e });
             const est = priceOf(lead, e);
-            if (fix) setOpen({ kind: 'fix', fix, estimate: est });
+            // As the fix's page leads (`fixAction`): a patch `fix apply` refuses now says why, and the dialog takes the page's label.
+            const act = fix && lead.key === 'apply' ? fixAction(fix) : null;
+            if (act?.kind === 'none') app.toast(act.why, 'error');
+            else if (fix) setOpen({ kind: 'fix', fix, estimate: est, label: act?.kind === 'apply' ? act.label : lead.label });
             else press({ estimate: est, form: false, start: (sent) => void start(sent), ask: () => setOpen({ kind: 'ask', estimate: est }) });
           },
           (err: unknown) => app.toast(errorText(err)),
@@ -141,19 +147,4 @@ export function RowStep({ fixId, lead, why, version, className = 'btn sm', fix: 
       ) : null}
     </>
   );
-}
-
-/** The dialog a lead's press opens: the one the fix's page opens for the same button. */
-function LeadDialog({ lead, open, run, close }: { lead: FixLead; open: Open; run: (fields: Record<string, unknown>) => boolean; close: () => void }) {
-  const sent = sentEstimate(open.estimate);
-  if (open.kind === 'fix') {
-    if (lead.key === 'repair') return <RepairDialog fix={open.fix} onClose={close} onRun={(repairer, more) => run({ repairer, ...more })} />;
-    if (lead.key === 'apply') return <ApplyDialog fix={open.fix} label={lead.label} onClose={close} onRun={(names) => run(names ? { names } : {})} />;
-    return <StrongerDialog fix={open.fix} onClose={close} onRun={(model, more) => run({ ...sent, model, ...more })} />;
-  }
-  if (lead.key === 'blame-again')
-    return <BlameAgainDialog again={{ kind: lead.stopped ? 'stopped' : 'unsettled', gate: lead.gate, soFar: lead.soFar, lastGood: lead.lastGood, command: lead.command }} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
-  if (lead.key === 'more' || lead.key === 'again') return <VerifyAsk more={{ kind: lead.key, command: lead.command }} attempts={lead.attempts} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
-  if (lead.key === 'verify-left') return <VerifyLeftAsk left={lead} estimate={open.estimate} onRun={() => run(sent)} onClose={close} />;
-  return null;
 }

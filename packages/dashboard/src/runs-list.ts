@@ -250,8 +250,8 @@ export function matchedRuns(store: Store, filter: RunFilter): { runs: IndexedRun
 /**
  * The index's runs as the lists show them now: a run the store still marks running though nothing
  * records it (its recorder was killed, or ran out of memory, before ending it) is interrupted, as
- * the Overview's grid and the top bar's chip have it. Nothing adds to such a run or ends it until
- * gc marks it interrupted; meanwhile it can be deleted, packed and pushed like a run that ended.
+ * the top bar's chip has it. Nothing adds to such a run or ends it until gc marks it interrupted;
+ * meanwhile it can be deleted, packed and pushed like a run that ended.
  * Asked on every read: a recorder can stop without anything in the store changing.
  */
 export function withLiveness(store: StoreOf<'recording'>, index: RunIndex): IndexedRun[] {

@@ -124,11 +124,12 @@ describe('the Blame step’s row of calls', () => {
   });
 
   it('steps through the model calls of each scope the run page offers blame by: one its author gave, never an agent the server names alone', () => {
-    const run = makeRun(store, { labels: ['scoped'], calls: [{ kind: 'api', scope: 'agent' }, { kind: 'tool', scope: 'agent' }, { kind: 'api', scope: 'agent/planner' }, 'api', { kind: 'api', scope: 'customer' }] });
+    const run = makeRun(store, { labels: ['scoped'], calls: [{ kind: 'api', scope: 'agent' }, { kind: 'tool', scope: 'agent' }, { kind: 'api', scope: 'agent/planner' }, 'api', { kind: 'api', scope: 'customer' }, { kind: 'api', scope: 'shadowlap:judge' }] });
     const calls = store.getCalls(run);
     // The run page's rows as the server sends them: each call's scope, and at #4 a sub-agent it names, with no scope of its own.
     const rows = calls.map((c) => ({ callNo: c.callNo, kind: c.kind, scope: typeof c.meta.scope === 'string' ? c.meta.scope : null, agent: c.callNo === 4 ? 'agent/Explore' : null }));
     const chips = realScopes(rows);
+    // Not the judge's scope at #6: blame never steps through Shadowlap's own calls.
     expect(chips).toEqual(['agent', 'agent/planner', 'customer']);
     const onPage = (chip: string) => rows.filter((c) => c.kind === 'api' && inScope(c, chip, scopeOnly)).map((c) => c.callNo);
     for (const chip of chips) expect(blameSteps(calls, chip).map((c) => c.callNo)).toEqual(onPage(chip));

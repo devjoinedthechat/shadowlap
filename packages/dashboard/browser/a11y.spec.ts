@@ -28,6 +28,26 @@ for (const p of PAGES) {
   });
 }
 
+test('the Overview has no serious or critical axe violation on a laptop or a phone, Usage folded or open, a phone never scrolls it sideways, and no row runs past its panel', async ({ page }) => {
+  const usage = page.locator('main#view .ovuse > header button.linkbtn');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await openPage(page, '/', 'main#view .ovg');
+    // Usage is kept open for the session once asked for: each width starts it folded.
+    if ((await usage.getAttribute('aria-expanded')) === 'true') await usage.click();
+    await expect(usage).toHaveText('Show');
+    expect(await seriousViolations(page)).toEqual([]);
+    await usage.click();
+    await page.waitForSelector('main#view .ovuse .ugrid');
+    expect(await usage.getAttribute('aria-expanded')).toBe('true');
+    expect(await seriousViolations(page)).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `at ${width}px`).toBe(0);
+    // A piece too long for any line, as the demo project's path in its Project added entry, breaks where it must.
+    const past = await page.evaluate(() => [...document.querySelectorAll('main#view .feed .w, main#view .arow .at')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
+    expect(past, `at ${width}px`).toEqual([]);
+  }
+});
+
 /** The run's findings bar opened, as `N findings` (or `Details`) opens it: the findings it folds, a note's tools and hint, and the fork's changes show. */
 async function openFindings(page: Page) {
   const more = page.locator('main#view .findings .fmore');

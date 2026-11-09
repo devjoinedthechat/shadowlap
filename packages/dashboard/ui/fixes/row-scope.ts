@@ -30,14 +30,18 @@ export function fixRowScope(f: Pick<FixRow, 'fixId' | 'label' | 'title'> & { ste
   };
 }
 
-/** The unblamed row, under its title: Open, its newest run's issue under Failed (`issue`), then Run blame, which presses the row's own button and waits as it waits. */
-export function unblamedScope(o: { name: string; issue: string | null; command: string | null; wait: string | null; press: () => void }): RowScope {
+/**
+ * The unblamed row, under its title: Open, its newest run's issue under Failed (`issue`), then Run
+ * blame, which presses the row's own button and waits as it waits; a job unless it opens the run's
+ * page (`job: false`, a capture's).
+ */
+export function unblamedScope(o: { name: string; issue: string | null; command: string | null; job?: boolean; wait: string | null; press: () => void }): RowScope {
   const to = href.runs({ types: 'failed' });
   return {
     name: o.name,
     items: () => [
       { label: 'Open', hint: to, run: () => openIssue(to, o.issue) },
-      ...(o.command === null ? [] : [{ label: ACTIONS.runBlame.label, hint: o.command, job: true, ...(o.wait ? { wait: o.wait } : {}), run: o.press }]),
+      ...(o.command === null ? [] : [{ label: ACTIONS.runBlame.label, hint: o.command, ...(o.job === false ? {} : { job: true }), ...(o.wait ? { wait: o.wait } : {}), run: o.press }]),
     ],
   };
 }
