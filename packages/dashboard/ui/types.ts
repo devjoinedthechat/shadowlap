@@ -11,6 +11,7 @@ export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixPr, FixRow, FixRung, FixRunRef, FixStep, RepairStep, StepKey, StepLine, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
 export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fixes-view.js';
 export type { FixLead } from '../src/fix-lead.js';
+export type { BlameCrash } from '../src/fix-blame-step.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
 export type { InjectionRow, ToolTrustRow } from '../src/injection.js';
 export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';

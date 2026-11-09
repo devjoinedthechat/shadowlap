@@ -1,14 +1,13 @@
 import type { ReactNode } from 'react';
-import { UNTESTED_WORDS } from '../../../engine/src/bisect-words.js';
 import type { BisectMiss, DivergenceView, FailureView, FoundCommit, InconclusiveView, NextStep } from '../api.js';
-import { tipText } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import type { TestsEstimates } from '../estimates-api.js';
-import { divergenceButtons, failureHint, failureLines, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, type ReportLine } from '../goldens.js';
+import { divergenceButtons, failureHint, failureLines, inconclusiveHint, inconclusiveLines, missedLine, reportLines, type ReportLine } from '../goldens.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { FindCommitButton } from '../pages/TestsDialogs.js';
 import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
 import { ChangeBox } from '../revert/ChangeBox.js';
+import { FoundCommitLine } from '../revert/FoundLine.js';
 import { RevertButton } from '../revert/RevertButton.js';
 import { href } from '../route.js';
 import { moreAttemptsAsk, type TestsAsk } from '../tests-ask.js';
@@ -38,16 +37,9 @@ function ReportLines({ lines }: { lines: ReportLine[] }) {
  * where the answer kept one.
  */
 function BisectCard({ found }: { found: FoundCommit }) {
-  const f = foundLine(found);
   return (
     <>
-      <div className="bisect" data-tip={found.why ? tipText(found.why) : undefined}>
-        <span className="k">first bad commit</span>
-        <code>{f.rev}</code>
-        <b>{f.subject}</b>
-        <span className="m">{f.meta}</span>
-        {found.untested.length ? <span className="m">{UNTESTED_WORDS.line(found.untested)}</span> : null}
-      </div>
+      <FoundCommitLine found={found} />
       {found.change ? <ChangeBox rev={found.rev} change={found.change} /> : null}
     </>
   );
