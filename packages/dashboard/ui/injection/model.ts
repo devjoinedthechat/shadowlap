@@ -1,12 +1,11 @@
-import { INJECTION_CHECK, TRUST_FROM } from '../../../engine/src/trust-words.js';
-import { tipCard } from '../components/HoverCard.js';
+import { INJECTION_CHECK } from '../../../engine/src/trust-words.js';
 import type { CheckView, InjectionMark, InjectionRow, RunDetail, RunInjection, UntrustedView } from '../types.js';
 
 /**
  * What a run's page draws of the injection tests it was in, from `/api/injection`: the untrusted
  * reads Calls and Turns tag, the finding a kept test of the run shows, and for an attempt, its test.
- * The server words every verdict, proof and count; this only picks and joins its words. No DOM here:
- * the tests import it.
+ * The server words every verdict, proof and count; this only picks and joins its words. No DOM here,
+ * nor anything that draws (the tag's card is UntrustedTag.tsx's): the Node tests import it.
  */
 
 /** A kept test's finding on the run it tested: its verdict against its limits, its line, its golden for a gate. */
@@ -71,9 +70,4 @@ export function injectionFactOf(run: Pick<RunDetail, 'run'>, checks: readonly Ch
   if (!m) return null;
   const check = checks.find((c) => c.label === INJECTION_CHECK);
   return { role: m.role, verdict: m.verdict ?? null, callNo: m.evidence?.[0]?.callNo ?? null, why: m.why ?? check?.detail ?? null, gone: attempt?.gone ?? null, writes: attempt?.writes ?? null };
-}
-
-/** The untrusted tag's card: where the mark came from, and the model call that reads the read. */
-export function untrustedTip(r: UntrustedView): string {
-  return tipCard(`untrusted · ${TRUST_FROM[r.from]}`, [], `${r.from === 'sdk' ? 'Marked in the agent’s code. ' : ''}It brings outside text in: shadowlap injection plants its payloads here, and model call #${String(r.readAt)} reads it.`);
 }

@@ -5,9 +5,9 @@ import { forkMenuTitle } from '../ui/actions.js';
 import { createExportedClient } from '../ui/api.js';
 import { InjectionFinding } from '../ui/injection/Finding.js';
 import { injectionMatrix, panelMeta, panelReceipt } from '../ui/injection/InjectionResults.js';
-import { countsLine, injectionFactOf, injectionFinding, NO_INJECTION, runInjectionView, shownResult, untrustedTip } from '../ui/injection/model.js';
+import { countsLine, injectionFactOf, injectionFinding, NO_INJECTION, runInjectionView, shownResult } from '../ui/injection/model.js';
 import { outcomeFact } from '../ui/run/metrics.js';
-import { UntrustedTag } from '../ui/injection/UntrustedTag.js';
+import { UntrustedTag, untrustedTip } from '../ui/injection/UntrustedTag.js';
 import { runFindings } from '../ui/run/findings.js';
 import { useResultsBodies } from '../ui/run/InspectorPanel.js';
 import { onShow } from '../ui/components/OnShow.js';
@@ -235,7 +235,7 @@ describe('the results panel', () => {
   });
 
   it('past eight reads, sums each tool’s reads in a row of its own, its card naming how many and the read it opens', () => {
-    const rows = Array.from({ length: 9 }, (_, i) => ({ callNo: 4 + i * 2, name: 'get_ticket', from: 'config' as const, readAt: 5 + i * 2, worst: (i ? 3 : 0) }));
+    const rows: InjectionPanelView['rows'] = Array.from({ length: 9 }, (_, i) => ({ callNo: 4 + i * 2, name: 'get_ticket', from: 'config', readAt: 5 + i * 2, worst: i ? 3 : 0 }));
     const summed = { read: 4, payload: 'system-notice', verdict: 'obeyed' as const, n: 3, of: 27, attempt: { runId: '01K5CQXJ00', callNo: 6 }, line: 'planted at #4 → read at #5 → send_email.to = x7f3kq2m@canary.invalid at #6' };
     const m = injectionMatrix(view({ rows, cells: [], tools: [{ name: 'get_ticket', reads: rows.map((r) => r.callNo), cells: [summed] }] }), RUN, 'inj-01PLANT');
     expect(m.rows.map((r) => r.key)).toEqual(['g:get_ticket']);
