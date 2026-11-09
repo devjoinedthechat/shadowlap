@@ -4,9 +4,10 @@ import { Icon } from '../components/Icon.js';
 import type { Dismissed } from '../dismissals-api.js';
 import { num } from '../format.js';
 import { useLatest } from '../hooks.js';
+import { onShownProject, shownProject } from '../projects-api.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { type AppState, useApp } from '../state.js';
-import { errorText } from '../toast.js';
+import { errorText, type ToastAction } from '../toast.js';
 import type { NeedsLookRow } from '../types.js';
 import { hold, holdBack, leftOf, lookGroups, type LookGroupRows, lookMemory, setFold, settle, subscribeLook } from './dismissed.js';
 
@@ -59,6 +60,32 @@ function foldIfLast(now: Now, x: NeedsLookRow): () => void {
   const g = lookGroups(now.items, memory.held, now.stamp).find((y) => y.group === x.group);
   if (g && !g.dismissed.some((y) => y.key !== x.key)) setFold(now.project, x.group, false);
   return () => setFold(now.project, x.group, was);
+}
+
+/**
+ * A Dismiss's toast, with its Undo. The Undo writes through the client, which asks for the project
+ * the page shows, and a key (`local`, `coverage`, `retire <model>`) is the same in every project, so
+ * it is offered only while the page shows the project the Dismiss was made in (`madeIn`). The toast
+ * goes once the page turns to another, and an Undo pressed after does nothing: it never undoes that
+ * project's own dismissal.
+ */
+function offerUndo(app: AppState, madeIn: string | null, undo: () => void): void {
+  if (shownProject() !== madeIn) return;
+  const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const action: ToastAction = {
+    label: 'Undo',
+    undo: true,
+    returnTo,
+    run: () => {
+      if (shownProject() === madeIn) undo();
+    },
+  };
+  const stop = onShownProject(() => {
+    stop();
+    app.dropToast(action);
+  });
+  action.onGone = stop;
+  app.toast(DISMISSED_WORDS, 'notice', action);
 }
 
 /**
@@ -121,12 +148,12 @@ export function useDismissals(items: readonly NeedsLookRow[], total: number, sta
       const g = lookGroups(n.items, lookMemory(n.project).held, n.stamp).find((y) => y.group === x.group);
       const next = g?.open[g.open.findIndex((y) => y.key === x.key) + 1];
       focus(next ? linkOf(next.key) : foldOf(x.group));
+      const madeIn = shownProject();
       hold(n.project, key, { dismissed: true, stamp: null });
       n.app.client.dismissals.dismiss(key, x.advice.facts).then(
         (answer) => {
           hold(n.project, key, { dismissed: true, stamp: answer.dismissals });
-          const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-          n.app.toast(DISMISSED_WORDS, 'notice', { label: 'Undo', undo: true, returnTo, run: () => undo(x, answer) });
+          offerUndo(n.app, madeIn, () => undo(x, answer));
         },
         (err: unknown) => {
           focus(`${rowAt(x.key)} .adis`);

@@ -8,6 +8,7 @@ import { dropRowScope, rowScopeNow } from '../ui/list-keys.js';
 import { DISMISSED_WORDS } from '../ui/overview/Dismiss.js';
 import { drawnRows, hold, holdBack, isDismissed, leftOf, lookGroups, lookMemory, resetLookMemory, setFold, settle } from '../ui/overview/dismissed.js';
 import { NeedsLook } from '../ui/overview/NeedsLook.js';
+import { showProject } from '../ui/projects-api.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction } from '../ui/toast.js';
@@ -53,6 +54,7 @@ afterEach(async () => {
   r = null;
   resetLookMemory();
   dropRowScope();
+  showProject(null);
 });
 
 const page = () => r!;
@@ -85,7 +87,9 @@ async function look(first: NeedsLookRow[] | Look, o: { conn?: string; actionsOff
       said.push({ text: words, kind, action });
       setToastText({ id: said.length, text: words, kind, ...(action ? { action } : {}) } as AppState['toastText']);
     };
-    const value = app({ client: { jobs: async () => [], dismissals: { dismiss, restore } }, conn: o.conn ?? 'ok', actionsOff: o.actionsOff ?? null, toast, toastText, feeds: {}, hasKind: () => true, guard: (fn: () => void) => (fn(), true) } as unknown as Partial<AppState>);
+    // As the app's: the toast goes only while it is still the one with that action.
+    const dropToast = (action: ToastAction) => setToastText((t) => (t?.action === action ? null : t));
+    const value = app({ client: { jobs: async () => [], dismissals: { dismiss, restore } }, conn: o.conn ?? 'ok', actionsOff: o.actionsOff ?? null, toast, dropToast, toastText, feeds: {}, hasKind: () => true, guard: (fn: () => void) => (fn(), true) } as unknown as Partial<AppState>);
     return createElement(AppContext.Provider, { value }, createElement('main', { id: 'view', tabIndex: -1 }, createElement(NeedsLook, shown)), createElement(ToastHost), createElement(Keyboard));
   }
   r = await render(createElement(Host));
@@ -162,6 +166,36 @@ describe('Dismiss', () => {
     ]);
     expect(p.restore).not.toHaveBeenCalled();
     expect(inFocus()).toEqual([local.key, true]);
+  });
+
+  // A key is the same in every project, and the client asks for the project the page shows: an Undo there would undo its own dismissal.
+  it('comes undone only in the project it was made in: the page turning to another takes its toast away, and its Undo then writes nothing', async () => {
+    showProject('support-agent');
+    const p = await look([local, retire]);
+    await page().click(cross(local));
+    await page().until('the toast', () => p.said.length === 1);
+    // A switch made in this tab: the page's meta names the other project.
+    await act(async () => showProject('triage-bot'));
+    await page().until('the toast gone', () => page().all('.toast').length === 0);
+    await page().press('z', { metaKey: true });
+    // Its Undo run all the same, as by a press while the toast fades.
+    p.said[0].action!.run();
+    await page().wait(10);
+    expect(p.restore).not.toHaveBeenCalled();
+    expect(p.dismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers no Undo when its answer comes after the page turned to another project', async () => {
+    showProject('support-agent');
+    let answer: (a: Dismissed) => void = () => undefined;
+    const p = await look([local, retire], { dismiss: () => new Promise<Dismissed>((resolve) => (answer = resolve)) });
+    await page().click(cross(local));
+    await act(async () => showProject('triage-bot'));
+    await act(async () => answer({ key: 'local', facts: RUNS, was: null, dismissals: 1 }));
+    await page().wait(10);
+    expect(p.said).toEqual([]);
+    await page().press('z', { metaKey: true });
+    expect(p.restore).not.toHaveBeenCalled();
   });
 
   it('puts a row the server refused to put away back, the focus on its ×, the reason in an error toast', async () => {
