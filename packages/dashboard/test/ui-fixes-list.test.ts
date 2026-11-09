@@ -98,6 +98,23 @@ describe('a row’s words', () => {
     expect(leadWait(more, { jobs: [], folder: null, hasKind: (k) => k !== JOB_KINDS.verify })).toBe('This dashboard doesn’t run it: run the command in a terminal.');
   });
 
+  it('makes a crash’s Find breaking commit and Revert wait for a Tests job in this project, and Revert for any reader of the tree too', () => {
+    const find = { key: 'bisect', label: 'Find breaking commit', command: 'shadowlap bisect goldens/refund --good aaaaaaa', use: 'reads', runId: 'R', step: {} } as unknown as FixLead;
+    const revert = { key: 'revert', label: 'Revert', command: 'git revert --no-commit ccccccc && shadowlap test goldens/refund', use: 'writes', runId: 'R', step: {} } as unknown as FixLead;
+    const at = { folder: null, projectId: 'p1', hasKind: () => true };
+    const testing = (project: string) => ({ id: 't', done: false, kind: 'test', project: { id: project } });
+    // A test session in this project: both wait, naming it, as Tests' own buttons do.
+    expect(leadWait(find, { ...at, jobs: [testing('p1')] })).toBe('A test session is running: find the breaking commit once it is done.');
+    expect(leadWait(revert, { ...at, jobs: [testing('p1')] })).toBe('A test session is running: revert it once it is done.');
+    // Another project's Tests job holds neither.
+    expect(leadWait(find, { ...at, jobs: [testing('p2')] })).toBeNull();
+    expect(leadWait(revert, { ...at, jobs: [testing('p2')] })).toBeNull();
+    // A job reading the working tree: Revert, which changes it, waits; the search, which holds none, doesn't.
+    const verifying = { id: 'v', done: false, worktree: { use: 'reads' as const, doing: 'a verify is running', folder: null } };
+    expect(leadWait(revert, { ...at, jobs: [verifying] })).toBe('A verify is running: revert it once it is done.');
+    expect(leadWait(find, { ...at, jobs: [verifying] })).toBeNull();
+  });
+
   it('offers on ⌘K a fix’s row its page and its three steps, and the unblamed row its runs and Run blame', () => {
     const steps = [
       { key: 'blame' as const, short: 'lost at #5' },
