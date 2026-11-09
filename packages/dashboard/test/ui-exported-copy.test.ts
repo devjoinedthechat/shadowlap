@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -107,6 +107,25 @@ describe('an exported copy', () => {
     expect(r!.one('.ph .eyebrow').textContent).toBe('not found');
     expect(r!.one('.ph').textContent).toContain(`No run ${runId} in this copy. Open Runs`);
     expect(r!.one('.ph a.more').getAttribute('href')).toBe('#/runs');
+  });
+
+  it('offers no Add check… at a tool call, in its inspector or its row, as only the served dashboard hands a page the check menu and the builder', async () => {
+    await open([forkId, runId], `#/run/${runId}/4`);
+    await r!.until('the tool call’s inspector, with its summary line', () => r!.all('section.insp[aria-label="Call 4"] .isumrow .isum').length === 1);
+    expect(r!.one('section.insp[aria-label="Call 4"] .ct').textContent).toBe('search_web');
+    expect(r!.all('[data-act="ckmenu"]')).toHaveLength(0);
+    expect(r!.all('[role="menu"]')).toHaveLength(0);
+  });
+
+  it('never loads the check menu or the builder: the served entry alone asks for their scripts', () => {
+    // So the copy's one script holds neither (COPY_PARTS in test/ui-bundle-size.test.ts, OnShow.tsx).
+    const ui = fileURLToPath(new URL('../ui/', import.meta.url));
+    const loaders = (part: RegExp) =>
+      readdirSync(ui, { recursive: true, encoding: 'utf8' })
+        .filter((f) => /\.tsx?$/.test(f) && part.test(readFileSync(join(ui, f), 'utf8')))
+        .map((f) => f.split(sep).join('/'));
+    expect(loaders(/import\(['"][./]*(?:run\/)?CheckMenu\.js['"]\)/)).toEqual(['App.tsx']);
+    expect(loaders(/import\(['"][./]*(?:checks\/)?Builder\.js['"]\)/)).toEqual(['App.tsx']);
   });
 
   it('lists its runs, and only those', async () => {

@@ -1,13 +1,13 @@
 import { asNumber } from '../../../engine/src/checks/grammar.js';
-import type { CallDetail } from '../api.js';
 import { Popover } from '../components/Popover.js';
 import { argsOf } from './check-entry.js';
-import type { CheckKind } from './check-part.js';
+import type { CheckKind, CheckMenuProps } from './check-part.js';
 
 /**
  * The check menu at a tool call, which Add check… opens (check-entry.tsx): its rules, each with the
- * key of the check it writes, then a judge's question about the whole run. A part of its own, as the
- * run's page rarely opens it.
+ * key of the check it writes, then a judge's question about the whole run. A part of its own, which
+ * the served dashboard hands a run's page beside the builder (App.tsx, CheckMenuPart in
+ * check-part.tsx): the run's page rarely opens it, and an exported copy never does.
  */
 
 /** The check menu's rules for a call, each with the key of the check it writes, as the fork menu shows a flag. */
@@ -31,7 +31,7 @@ export function checkMenuItems(name: string, args: Record<string, unknown>): Arr
 }
 
 /** The check menu at a call: its rules, then a judge's question about the whole run. It waits for the call, as the fork menu does. */
-export function CheckMenu({ anchor, call, onPick, onClose }: { anchor: HTMLElement; call: CallDetail | null; onPick: (kind: CheckKind) => void; onClose: () => void }) {
+export function CheckMenu({ anchor, call, onPick, onClose }: CheckMenuProps) {
   if (!call) {
     return (
       <Popover key="loading" anchor={anchor} onClose={onClose} className="fkm ckm" label="Add check">

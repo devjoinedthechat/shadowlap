@@ -28,8 +28,10 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
  * the parts they show and none of the dashboard's other pages. A part a copy never draws stays out of
- * it: the check builder, which only Add check… opens and a copy never offers, is handed to a run's page
- * by the served dashboard (App.tsx, run/check-part.tsx), so the copy's script holds none of it. The one part the page list shows
+ * it: the check menu at a tool call and the check builder its pick opens, which only Add check… opens
+ * and a copy never offers, are handed to a run's page by the served dashboard (App.tsx,
+ * run/check-part.tsx), so the copy's script holds neither (test/ui-exported-copy.test.ts pins that a
+ * copy's run page offers no Add check…). The one part the page list shows
  * itself, the page that says another project holds what a link names, is declared in a module of its
  * own that the pages showing it import too (pages/held-elsewhere.tsx), and the bundle size test pins
  * it. The bundle size test holds each page's and each part's script to a budget of its own.

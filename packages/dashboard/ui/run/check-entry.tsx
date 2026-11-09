@@ -7,15 +7,15 @@ import { LoadFailed } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { useMenu } from '../components/Popover.js';
-import { onShow } from '../components/OnShow.js';
 import { useApp } from '../state.js';
 import type { NextStep } from '../types.js';
-import { BuilderFailed, builderTitle, CheckBuilderPart, type CheckKind } from './check-part.js';
+import { BuilderFailed, builderTitle, CheckBuilderPart, CheckMenuPart, type CheckKind } from './check-part.js';
 
 /**
  * Add check… on a run's page: first in a tool call's row menu, on the inspector's summary line and in
- * ⌘K, each opening the check menu at the call, whose pick opens the check builder (checks/), a part
- * of its own. Nothing here imports the builder's code, so the run's page carries only the entries.
+ * ⌘K, each opening the check menu at the call, whose pick opens the check builder (checks/). Both are
+ * parts of their own that the served dashboard hands the page (App.tsx): nothing here imports their
+ * code, so the run's page carries only the entries, and an exported copy, handed neither, none.
  */
 
 /** Where Add check… opens the check menu, and its builder's script asked for ahead. */
@@ -52,9 +52,6 @@ export function AddCheckLink({ check }: { check: CheckEntry }) {
   );
 }
 
-/** The check menu at a call, a part of its own: asked for with the builder's script, as Add check… is reached. */
-const CheckMenu = onShow(() => import('./CheckMenu.js').then((m) => m.CheckMenu));
-
 /** In the builder's place when its script didn't come: a small dialog, titled as the builder would be, with LoadFailed's line and Retry. */
 function NoBuilder({ title = 'Add check', onClose }: { title?: string; onClose: () => void }) {
   return (
@@ -66,33 +63,34 @@ function NoBuilder({ title = 'Add check', onClose }: { title?: string; onClose: 
 
 /**
  * Add check… for the selected call: the entry the row menu, the inspector and ⌘K open the check menu
- * through, undefined where the call takes none (`addsCheck`) or where nothing hands the page the
- * builder (an exported copy); and what to draw, the check menu and the builder once a rule is picked.
+ * through, undefined where the call takes none (`addsCheck`) or where nothing hands the page the menu
+ * and the builder (an exported copy); and what to draw, the check menu and the builder once a rule is
+ * picked. A menu whose script didn't come draws the builder's small dialog in its place.
  */
 export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: CallDetail | null }): { check: CheckEntry | undefined; fromPalette: (() => void) | undefined; offered: boolean; node: ReactNode } {
   const app = useApp();
   const Builder = useContext(CheckBuilderPart);
+  const Menu = useContext(CheckMenuPart);
   const menu = useMenu();
   const [start, setStart] = useState<{ call: CallDetail; kind: CheckKind } | null>(null);
-  const can = !!Builder && addsCheck(o.run, o.row, app);
+  const handed = !!Builder && !!Menu;
+  const can = handed && addsCheck(o.run, o.row, app);
   const openAt = menu.openAt;
-  const entry = useMemo<CheckEntry | undefined>(
-    () =>
-      Builder
-        ? {
-            open: (el) => {
-              Builder.preload();
-              CheckMenu.preload();
-              openAt(el);
-            },
-            preload: () => {
-              Builder.preload();
-              CheckMenu.preload();
-            },
-          }
-        : undefined,
-    [Builder, openAt],
-  );
+  const entry = useMemo<CheckEntry | undefined>(() => {
+    if (!Builder || !Menu) return undefined;
+    // Both scripts asked for at once, as Add check… is reached: the menu, then the builder its pick opens.
+    const preload = () => {
+      Menu.preload();
+      Builder.preload();
+    };
+    return {
+      open: (el) => {
+        preload();
+        openAt(el);
+      },
+      preload,
+    };
+  }, [Builder, Menu, openAt]);
   const call = o.detail && o.row && o.detail.call.callNo === o.row.callNo ? o.detail : null;
   const close = useCallback(() => setStart(null), []);
   const callNo = o.row?.callNo;
@@ -108,16 +106,19 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
   }, [can, closeMenu]);
   const node = (
     <>
-      {menu.anchor ? (
-        <CheckMenu
-          anchor={menu.anchor}
-          call={call}
-          onPick={(kind) => {
-            menu.close();
-            if (call) setStart({ call, kind });
-          }}
-          onClose={menu.close}
-        />
+      {menu.anchor && Menu ? (
+        <BuilderFailed.Provider value={<NoBuilder onClose={menu.close} />}>
+          {/* eslint-disable-next-line react-hooks/static-components -- the one part the served dashboard hands the page (App.tsx), the same on every render */}
+          <Menu
+            anchor={menu.anchor}
+            call={call}
+            onPick={(kind) => {
+              menu.close();
+              if (call) setStart({ call, kind });
+            }}
+            onClose={menu.close}
+          />
+        </BuilderFailed.Provider>
       ) : null}
       {start && Builder ? (
         <BuilderFailed.Provider value={<NoBuilder onClose={close} />}>
@@ -128,7 +129,7 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
     </>
   );
   // Whether the run's tool calls take Add check… here, as no checks' hover tells it.
-  return { check: can ? entry : undefined, fromPalette: can ? fromPalette : undefined, offered: !!Builder && takesChecks(o.run, app), node };
+  return { check: can ? entry : undefined, fromPalette: can ? fromPalette : undefined, offered: handed && takesChecks(o.run, app), node };
 }
 
 /**

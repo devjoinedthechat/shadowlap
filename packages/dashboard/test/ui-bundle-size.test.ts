@@ -42,7 +42,7 @@ const PARTS = ['ActionDialog', 'Builder', 'CheckDialog', 'CheckMenu', 'ContextVi
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
 /** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. */
-const COPY_PARTS = ['ActionDialog', 'CheckDialog', 'CheckMenu', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
+const COPY_PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
 
 /**
  * The parts heavy enough that they must wait for a script of their own (`onShow`), by their modules:
