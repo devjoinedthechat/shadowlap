@@ -1,5 +1,4 @@
-import { JOB_KINDS } from '../api.js';
-import type { Client } from '../api.js';
+import { JOB_KINDS, type Client } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { useBilledPress } from '../components/JobButton.js';
 import { stepCard } from '../run/next-step.js';
