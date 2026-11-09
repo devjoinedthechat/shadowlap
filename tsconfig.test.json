@@ -61,6 +61,7 @@
     "packages/dashboard/test/ui-dialog-anatomy.test.ts",
     "packages/dashboard/test/ui-job-end.test.ts",
     "packages/dashboard/test/ui-route-helpers.ts",
+    "packages/dashboard/test/ui-served-now.ts",
     "packages/dashboard/test/ui-list-keys.test.ts",
     "packages/dashboard/test/ui-row-step.test.ts",
     "packages/dashboard/test/ui-row-replay.test.ts",

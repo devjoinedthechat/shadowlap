@@ -165,7 +165,7 @@ week on a phone, its days picked by `day-picks.ts`) and the calendar it opens (`
 logic in `calendar-model.ts`), the table (`RunsTable.tsx`, `RunsTableEmpty` the line an empty list
 says), the bulk bar (`BulkBar.tsx`, on `ActionButton`, Pack and Export dataset… saying why they wait;
 `bulk.ts`: its toasts, Dataset's limit, ids sent in batches, the Delete command, `labelSuggestions`
-for Label), the import dialog (`imports.ts` reads a file's first
+for Label, the toast and the suggestions in `bulk-said.ts`, which the run page reads alone), the import dialog (`imports.ts` reads a file's first
 bytes for the engine's `guessImportFormat`, and dates the sample trace in `sample-otel.ts` to end now), Find the commit (`find-commit.ts`, what it asks bisect
 for) and authors. The bulk bar's Delete waits out its toast with Undo (`delete-runs.ts`); meanwhile
 `ui/pending-delete.ts` keeps the runs off every list and sends the delete as the page or the

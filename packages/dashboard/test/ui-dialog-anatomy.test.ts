@@ -34,6 +34,7 @@ import { packRunCommand } from '../ui/run/share.js';
 import { importWords } from '../ui/runspage/imports.js';
 import { ApiError, type BisectOffer, type TestsView } from '../ui/api.js';
 import { render, type Rendered } from './ui-render.js';
+import { withStepDialogs } from './ui-served-now.js';
 import { resetSpending } from '../ui/spending.js';
 import { maskFirst } from '../ui/update-plan.js';
 
@@ -141,7 +142,7 @@ function holds(page: Rendered, want: Expect): void {
 }
 
 async function open(element: ReactElement, app: AppState = appWith()): Promise<Rendered> {
-  r = await render(createElement(AppContext.Provider, { value: app }, element));
+  r = await render(withStepDialogs(createElement(AppContext.Provider, { value: app }, element)));
   return r;
 }
 

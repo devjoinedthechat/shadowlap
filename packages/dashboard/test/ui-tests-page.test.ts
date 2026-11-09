@@ -11,6 +11,7 @@ import { goldenRowScope } from '../ui/tests/row-scope.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { sheet } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withStepDialogs } from './ui-served-now.js';
 
 /**
  * Tests tells the truth about checks, CI and judges: each check is marked by how the golden's last
@@ -78,7 +79,7 @@ function page(started: Array<{ kind: string; fields: Record<string, unknown> }>,
     toast: () => undefined,
     ...over.app,
   };
-  return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage), over.beside ?? null);
+  return withStepDialogs(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage), over.beside ?? null));
 }
 
 const g = globalThis as { location?: unknown };

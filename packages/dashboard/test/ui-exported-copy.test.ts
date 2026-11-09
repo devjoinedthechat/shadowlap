@@ -118,6 +118,15 @@ describe('an exported copy', () => {
     expect(r!.all('[role="menu"]')).toHaveLength(0);
   });
 
+  it('draws no step that asks, so nothing there opens the dialogs the served dashboard alone hands in', async () => {
+    await open([forkId, runId], `#/run/${runId}`);
+    await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
+    // What reads stays: the id to copy, and the link to compare.
+    expect(r!.all('.rhead button').map((b) => b.textContent)).toEqual(['Copy ID']);
+    expect(r!.all('.rhead button[data-next], .rhead button[data-fold]')).toHaveLength(0);
+    expect(r!.all('.dialog')).toHaveLength(0);
+  });
+
   it('lists its runs, and only those', async () => {
     await open([forkId, runId], '#/runs');
     await r!.until('the runs', () => r!.all('table.runst tbody tr').length === 2);

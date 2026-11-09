@@ -9,6 +9,7 @@ import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import type { NextStep, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
 import { render, shownText, type Rendered } from './ui-render.js';
+import { withStepDialogs } from './ui-served-now.js';
 import { resetSpending } from '../ui/spending.js';
 
 /**
@@ -75,7 +76,7 @@ const lime = (p: Rendered) => p.all('.rhead .actions .lime').map((b) => b.textCo
 const tip = (el: { props: Record<string, unknown> }) => JSON.parse(String(el.props['data-tip'])) as { t: string; s?: string; rows?: string[][]; cmd?: string };
 
 /** The header and the banner, as the page draws them, with the question a Tests job waits on. */
-const both = (run: RunDetail, offers: RunOffers | null = null, a: AppState = app(), more: Parameters<typeof header>[2] = {}) => createElement(AppContext.Provider, { value: a }, createElement('div', null, createElement(RunHeader, header(run, offers, more)), createElement(Banner, bannerProps(run, offers)), createElement(TestsAskHost)));
+const both = (run: RunDetail, offers: RunOffers | null = null, a: AppState = app(), more: Parameters<typeof header>[2] = {}) => withStepDialogs(createElement(AppContext.Provider, { value: a }, createElement('div', null, createElement(RunHeader, header(run, offers, more)), createElement(Banner, bannerProps(run, offers)), createElement(TestsAskHost))));
 
 /** An app that records the jobs it is asked to start. */
 function jobs(o: Partial<AppState> = {}) {

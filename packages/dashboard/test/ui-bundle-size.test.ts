@@ -41,7 +41,7 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
  * The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land.
  * The dialogs a list row's step asks in load as the step first asks: a fix's lead's (LeadDialog, on Fixes and Needs a look), and Needs a look's Find breaking commit's and Update golden's.
  */
-const PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'InjectionResults', 'LeadDialog', 'Palette', 'ProvenanceView', 'RemoveProject', 'ResultsMatrix', 'RevisionPage', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
+const PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'InjectionResults', 'LeadDialog', 'Palette', 'ProvenanceView', 'RemoveProject', 'ResultsMatrix', 'RevisionPage', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
 /** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset… it opens; an injection test's results, and the matrix they draw. */
@@ -177,9 +177,11 @@ describe('the dashboard’s scripts', () => {
     // Not the dashboard's page list, which would bring every page with it.
     expect(held.has('ui/pages/lazy.tsx')).toBe(false);
     expect(held.has('ui/main.tsx')).toBe(false);
-    // Nor what only the served dashboard draws, which it hands in (ui/served-parts.ts): a copy draws no Share.
+    // Nor what only the served dashboard draws, which it hands in (ui/served-parts.ts): a copy draws no
+    // Share, and its actions wait, so no step asks in a dialog there.
     expect(held.has('ui/pages/served.tsx')).toBe(false);
     expect(held.has('ui/run/ShareMenu.tsx')).toBe(false);
+    expect(held.has('ui/run/StepDialogs.tsx')).toBe(false);
     // The parts its pages show are in its one script: a file has no server to load them from.
     const shown = dynamicImports(metafile).filter((d) => held.has(d.by));
     for (const part of COPY_PARTS) expect(PARTS).toContain(part);
