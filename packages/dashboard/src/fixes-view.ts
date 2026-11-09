@@ -179,7 +179,8 @@ export function fixesView(store: Store, o: FixesViewOptions = {}): FixesView {
   const n = store.changeCounts();
   const changes = n.fixes === undefined || n.runs === undefined ? null : `${n.fixes}:${n.runs}`;
   const index = loadRunIndex(store);
-  const all = viewRows(store, index, records, changes, o);
+  // A test's result can fix a failed replay, which leaves the runs that failed a fix's check (`failedCheck`).
+  const all = viewRows(store, index, records, changes === null ? null : `${changes}:${n.tests ?? 0}`, o);
   const count = (bucket: FixBucket) => all.filter((f) => f.bucket === bucket).length;
   const open = count('open');
   const cost = fixCost(records);
