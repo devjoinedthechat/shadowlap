@@ -7,6 +7,7 @@ import { Icon } from '../components/Icon.js';
 import { onShow } from '../components/OnShow.js';
 import { BuilderFailed, builderTitle, CheckBuilderPart, removeTitle, type RemoveProps } from '../run/check-part.js';
 import { useApp } from '../state.js';
+import type { LeadPress } from './Verdict.js';
 
 /**
  * A golden's checks on Tests, each changed where it stands: where a pointer hovers, Edit and Remove
@@ -52,14 +53,17 @@ function shownAdd(golden: string): HTMLElement | null {
  * Tests' entries and what they open. A dialog gives the focus back to what opened it as it closes;
  * where that went with the check (a check removed, or changed by the builder), the view read again
  * hands it to the golden's Add check…, in the copy that shows. Tests reads its view again after the
- * builder closes, and after each write of Remove's or its Undo's.
+ * builder closes, and after each write of Remove's or its Undo's. `edit` opens the builder at a check
+ * for the verdict's Edit check, wherever the page has the builder: the step's button says why it
+ * waits on a dashboard that can't act.
  */
-export function useCheckEntries(view: TestsView | null, reload: () => void): { entries: CheckEntries | null; node: ReactNode } {
+export function useCheckEntries(view: TestsView | null, reload: () => void): { entries: CheckEntries | null; edit: LeadPress['edit']; node: ReactNode } {
   const { actionsOff } = useApp();
   const Builder = useContext(CheckBuilderPart);
   const [open, setOpen] = useState<CheckOpen | null>(null);
   const back = useRef<{ golden: string; until: number } | null>(null);
   const entries = useMemo<CheckEntries | null>(() => (Builder && !actionsOff ? { open: setOpen, preload: (act) => (act === 'remove' ? RemoveDialog.preload() : Builder.preload()) } : null), [Builder, actionsOff]);
+  const edit = useMemo<LeadPress['edit']>(() => (Builder ? { open: (golden, check) => setOpen({ act: 'builder', golden, check }), preload: () => Builder.preload() } : null), [Builder]);
   const golden = open?.golden;
   const close = useCallback(() => {
     if (golden !== undefined) back.current = { golden, until: Date.now() + BACK_MS };
@@ -77,10 +81,11 @@ export function useCheckEntries(view: TestsView | null, reload: () => void): { e
     if (a && a !== document.body && a.isConnected) return;
     shownAdd(b.golden)?.focus({ preventScroll: true });
   }, [view]);
-  if (!open || !Builder) return { entries, node: null };
+  if (!open || !Builder) return { entries, edit, node: null };
   if (open.act === 'remove') {
     return {
       entries,
+      edit,
       node: (
         <RemoveFailed.Provider value={<NoPart title={removeTitle(open.golden)} what="dialog" onClose={close} />}>
           <RemoveDialog golden={open.golden} check={open.check} onClose={close} onChanged={reload} />
@@ -90,6 +95,7 @@ export function useCheckEntries(view: TestsView | null, reload: () => void): { e
   }
   return {
     entries,
+    edit,
     node: (
       <BuilderFailed.Provider value={<NoPart title={builderTitle(open.golden, { edit: open.check !== null, fromCall: false })} what="check builder" onClose={closeBuilder} />}>
         {/* eslint-disable-next-line react-hooks/static-components -- the one part the served dashboard hands the page (App.tsx), the same on every render */}

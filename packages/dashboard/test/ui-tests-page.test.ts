@@ -5,6 +5,7 @@ import { testsView, type GoldenSource } from '../src/tests.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { pageUp } from '../ui/focus-manager.js';
 import { ApiError, JOB_KINDS, type Client, type TestsView } from '../ui/api.js';
+import type { InconclusiveView } from '../ui/types.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { goldenRowScope } from '../ui/tests/row-scope.js';
@@ -294,6 +295,32 @@ describe('a gated golden’s evidence', () => {
     expect([page.one('button.gev').getAttribute('aria-expanded'), page.all('table.gt tbody tr.open').length]).toEqual(['false', 0]);
     expect(page.focused()).toBe(page.one("button.gev"));
     expect(pageUp.current?.()).toBe(false);
+  });
+
+  it('ends an inconclusive one on its step: Run more attempts, or Run tests as the header runs it where its checks changed since', async () => {
+    const decided = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, Array<boolean>(12).fill(true));
+    const gate = { ...decided, tally: '12 of 12', perAttempt: null, more: null, words: evidenceWords(decided, 3) };
+    const more = { args: ['test', 'goldens/passes', '--max-attempts', '160', '--continue'], job: { golden: 'goldens/passes', maxAttempts: 160, continue: true as const }, attempts: 160, most: 80, expected: 20, settles: 0.9, cost: null };
+    const stale = { key: 'run-tests' as const, label: 'Run tests', golden: 'goldens/passes', gone: ['escalate called 1 time'], sub: 'Its checks changed since its last test: the session judges them as they are now' };
+    const shape = (step: boolean) => (v: TestsView): TestsView => ({
+      ...v,
+      rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, last: { ...row.last, gate } } : row)),
+      inconclusive: [{ golden: 'goldens/passes', name: 'passes', gate: { more } } as unknown as InconclusiveView],
+      ...(step ? { steps: { 'goldens/passes': stale } } : {}),
+    });
+    const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
+    const step = async (page: Rendered) => {
+      await page.click(page.one('button.gev'));
+      await page.until('the evidence', () => page.all('tr.gevrow .gevact button').length > 0);
+      return page.all('tr.gevrow .gevact button');
+    };
+    expect((await step(await open(started, GOLDENS.slice(0, 3), shape(false)))).map((b) => b.textContent)).toEqual(['Run more attempts']);
+    await r!.unmount();
+    const [run, ...rest] = await step(await open(started, GOLDENS.slice(0, 3), shape(true)));
+    expect([run.textContent, run.className.includes('lime'), rest.length]).toEqual(['Run tests', false, 0]);
+    expect((JSON.parse(run.getAttribute('data-tip')!) as { s: string }).s).toBe(stale.sub);
+    await r!.click(run);
+    expect(started).toEqual([{ kind: JOB_KINDS.tests, fields: {} }]);
   });
 });
 

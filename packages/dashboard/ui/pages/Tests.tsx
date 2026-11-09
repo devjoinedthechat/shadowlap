@@ -24,7 +24,7 @@ import { CiSections } from '../tests/Sections.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
 import type { GoodCommitsOf } from '../tests/good-commits.js';
 import { GoldensTable } from '../tests/Table.js';
-import { leadStep } from '../tests/lead.js';
+import { leadStep, staleSub } from '../tests/lead.js';
 import { Verdict, type LeadPress } from '../tests/Verdict.js';
 import { bisectLive, runTestsCard, testsJob, updatesCard } from './tests-cards.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
@@ -111,8 +111,11 @@ export function TestsPage() {
   }
 
   const [runWait, updateWait, updateGoldenWait, findWait] = ['run the tests', 'update them', 'update it', 'find the breaking commit'].map((verb) => wait(verb));
-  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every golden.
-  const lead = leadStep(view, hasKind, !!view.following?.whole);
+  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every
+  // golden. Where that step is Run tests (its checks changed since), the header's own is lime and says so.
+  const whole = !!view.following?.whole;
+  const lead = leadStep(view, hasKind, whole, !!checks.edit);
+  const runTests = hasKind(JOB_KINDS.tests) ? testsJob(runTestsCard(view, staleSub(view, whole)), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e)) : null;
   // Settings → CI by the name the mock links it by, its tab opening; Update goldens only for several,
   // as each has its own in its report.
   const actions = (
@@ -126,8 +129,8 @@ export function TestsPage() {
           {ACTIONS.updateGoldens.label}
         </JobButton>
       ) : null}
-      {hasKind(JOB_KINDS.tests) ? (
-        <JobButton className={lead ? 'btn' : 'btn lime'} why={runWait} {...testsJob(runTestsCard(view), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e))}>
+      {runTests ? (
+        <JobButton className={lead ? 'btn' : 'btn lime'} why={runWait} {...runTests}>
           {ACTIONS.runTests.label}
         </JobButton>
       ) : null}
@@ -158,6 +161,8 @@ export function TestsPage() {
     onUpdate: (golden, e) => guard(() => setOpen({ kind: 'update', paths: [golden], estimate: e })),
     onFind: findCommit,
     onMore: (v, e) => v.gate?.more && start(JOB_KINDS.tests, v.gate.more.job, moreAttemptsAsk(v.name, v.gate.more), e),
+    runTests,
+    edit: checks.edit,
   };
 
   return (

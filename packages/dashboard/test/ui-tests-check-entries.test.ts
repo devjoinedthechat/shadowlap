@@ -188,6 +188,50 @@ describe('a golden’s checks on Tests', () => {
   });
 });
 
+describe('the step a golden’s checks lead Tests with', () => {
+  const EDIT = 'It fails refunds’s own recording: edit the check, or update the golden if the agent should now do this';
+  const STALE = 'Its checks changed since its last test: the session judges them as they are now';
+  const stepped = (step: NonNullable<TestsView['steps']>[string]) => {
+    const v = view(BEFORE);
+    return () => Promise.resolve({ ...v, steps: { 'goldens/refunds': step } });
+  };
+  const editStep = stepped({ key: 'edit-check', label: 'Edit check…', golden: 'goldens/refunds', check: ISSUE, sub: EDIT });
+  const card = (b: FakeElement) => JSON.parse(b.getAttribute('data-tip') ?? '{}') as { t?: string; s?: string };
+  const runTests = (page: Rendered) => page.byText('button', 'Run tests');
+
+  it('is Edit check, lime in the verdict, opening the builder at the check, with Run tests plain', async () => {
+    const b = fakeBuilder();
+    const page = await openTests({ builder: b.Part, tests: editStep });
+    const step = page.one('.tv .actions button');
+    expect([step.textContent, step.className.includes('lime'), card(step)]).toEqual(['Edit check…', true, { t: 'Edit check…', s: EDIT, rows: [] }]);
+    expect(runTests(page).className.includes('lime')).toBe(false);
+    await page.hover(step);
+    expect(b.Part.preload).toHaveBeenCalled();
+    await page.click(step);
+    expect(b.opened.at(-1)).toMatchObject({ golden: 'goldens/refunds', edit: ISSUE });
+  });
+
+  it('keeps Edit check on a dashboard that can’t act, saying why, and draws none where nothing hands the page the builder', async () => {
+    const b = fakeBuilder();
+    let page = await openTests({ builder: b.Part, tests: editStep, actionsOff: 'This dashboard is read-only: it was started with --read-only.' });
+    const step = page.one('.tv .actions button');
+    expect([step.textContent, step.getAttribute('aria-disabled'), step.className.includes('lime')]).toEqual(['Edit check…', 'true', false]);
+    await page.click(step);
+    expect(b.opened).toEqual([]);
+    await r!.unmount();
+    page = await openTests({ builder: null, tests: editStep });
+    expect(page.all('.tv .actions button')).toEqual([]);
+    expect(runTests(page).className.includes('lime')).toBe(true);
+  });
+
+  it('is Run tests where its checks changed since: the header’s own, lime, saying so on its card, and none in the verdict', async () => {
+    const page = await openTests({ tests: stepped({ key: 'run-tests', label: 'Run tests', golden: 'goldens/refunds', gone: [ISSUE], sub: STALE }) });
+    expect(page.all('.tv .actions button')).toEqual([]);
+    const run = runTests(page);
+    expect([run.className.includes('lime'), card(run)]).toEqual([true, expect.objectContaining({ t: 'Run tests', s: STALE })]);
+  });
+});
+
 async function openRemove(o: { checks?: ReturnType<typeof checksStub>; check?: string } = {}) {
   const checks = o.checks ?? checksStub();
   const toast = vi.fn();

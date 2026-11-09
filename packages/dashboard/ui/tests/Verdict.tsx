@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { DivergenceView, FailureView, InconclusiveView, TestsSessionView, TestsView } from '../api.js';
+import { ActionButton } from '../components/ActionButton.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import { VerdictLine } from '../components/VerdictLine.js';
@@ -22,6 +23,10 @@ export interface LeadPress {
   onUpdate: (golden: string, e: Price) => void;
   onFind: (f: DivergenceView | FailureView) => void;
   onMore: (v: InconclusiveView, e: Price) => void;
+  /** Run tests as the page's header runs it, the whole session: null where the server runs no tests. */
+  runTests: ReturnType<typeof testsJob> | null;
+  /** The check builder on a golden at a check, by its label, and its script asked for ahead: null where the page has no builder. */
+  edit: { open: (golden: string, check: string) => void; preload: () => void } | null;
 }
 
 /** The verdict's step, lime: the page's one lime button while it leads (`leadStep`). */
@@ -55,6 +60,14 @@ function LeadButton({ lead, p }: { lead: Lead; p: LeadPress }) {
           {lead.label}
         </a>
       );
+    case 'edit': {
+      const ahead = () => p.edit?.preload();
+      return (
+        <ActionButton className="btn lime" data-step="edit-check" data-g={lead.golden} tip={lead.label} sub={lead.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => p.edit?.open(lead.golden, lead.check)}>
+          {lead.label}
+        </ActionButton>
+      );
+    }
     case 'blame':
       return <RunBlameButton runId={lead.runId} offer={lead.step.offer} className="btn lime" lead {...(lead.step.capture ? { capture: true } : {})} {...(lead.step.command ? { line: lead.step.command } : {})} />;
   }

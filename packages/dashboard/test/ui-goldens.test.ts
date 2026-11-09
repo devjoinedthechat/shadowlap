@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cellNote, cellShare, historyKey, KEY_WORDS, revisionTip } from '../ui/tests/cells.js';
-import { leadStep } from '../ui/tests/lead.js';
+import { leadStep, staleSub } from '../ui/tests/lead.js';
+import { runTestsCard } from '../ui/pages/tests-cards.js';
 import { asksUpdate, changedLine, checkMark, checkReportLine, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
 import { goodCommits } from '../ui/tests/good-commits.js';
 import { updatePlan } from '../ui/update-plan.js';
@@ -162,6 +163,22 @@ describe('the verdict\'s step', () => {
     expect(led({ key: 'compare', label: 'Compare with parent', parent: 'R1' })).toBeNull();
     expect(led(step, {}, (kind) => kind !== 'test-update')).toBeNull();
     expect(led({ key: 'bisect', label: 'Find breaking commit…', golden: GOLDEN, starts: false, blame: null }, { divergences: [divergence('refund-in-limit', { unreadable: 'no run.json' })] })).toBeNull();
+  });
+
+  it('leads with Edit check where the page has the builder, and never with Run tests, whose line the header\'s own button says', () => {
+    const sub = 'It fails refund-in-limit’s own recording: edit the check, or update the golden if the agent should now do this';
+    const edit = { key: 'edit-check' as const, label: 'Edit check…', golden: GOLDEN, check: 'escalate called 1 time', sub };
+    expect(leadStep(view({ steps: { [GOLDEN]: edit } }), all, false, true)).toEqual({ kind: 'edit', label: 'Edit check…', golden: GOLDEN, check: 'escalate called 1 time', sub });
+    // No builder (a stand-in page), or a session running every golden: no step, so Run tests is lime.
+    expect(led(edit)).toBeNull();
+    expect(leadStep(view({ steps: { [GOLDEN]: edit } }), all, true, true)).toBeNull();
+    const stale = { key: 'run-tests' as const, label: 'Run tests', golden: GOLDEN, gone: ['issue_refund called 0 times'], sub: 'Its checks changed since its last test: the session judges them as they are now' };
+    const v = view({ steps: { [GOLDEN]: stale } });
+    expect(leadStep(v, all, false, true)).toBeNull();
+    expect(staleSub(v)).toBe(stale.sub);
+    expect(runTestsCard({ ...v, rows: [] }, staleSub(v))).toMatchObject({ tip: 'Run tests', sub: stale.sub });
+    expect([staleSub(v, true), staleSub(view({ steps: { [GOLDEN]: edit } }))]).toEqual([undefined, undefined]);
+    expect(runTestsCard({ ...v, rows: [] }, staleSub(v, true)).sub).toBe('Replays every golden offline');
   });
 });
 
