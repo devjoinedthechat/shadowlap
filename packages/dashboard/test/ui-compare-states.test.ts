@@ -7,7 +7,7 @@ import { ComparePage } from '../ui/pages/Compare.js';
 import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CallDetail, CompareView, RunDetail, RunListItem } from '../ui/types.js';
-import { render, type Rendered } from './ui-render.js';
+import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
  * Every address Compare takes says what it holds: one run is paired with its newest fork, else its
@@ -431,6 +431,25 @@ describe('the whole comparison', () => {
     // Its run, its call, what it cost and took, then its arguments and result, then the way to its run.
     const order = [...page.all('#cmpd .cmpdc')[0].children].filter((e) => e.tagName === 'P' || e.tagName === 'A').map((e) => e.className);
     expect(order).toEqual(['cmpwho', 'cmptool', 'cmpmeta', 'cmpk', 'cmpk', 'more']);
+  });
+
+  it('marks each tool an opened decision calls by what the other side does: the very call, its keys in any order, the tool called otherwise, one it doesn’t call', async () => {
+    const recorded = { ...refund, tools: [{ name: 'lookup_order', args: { order: 'A-1', fields: ['total', 'items'] }, effect: 'read' }, { name: 'issue_refund', args: { order: 'A-1', amount: 240 }, effect: 'write' }, { name: 'add_note', args: { text: 'refunded' }, effect: 'write' }] };
+    const changed = { ...refund, tools: [{ name: 'lookup_order', args: { fields: ['total', 'items'], order: 'A-1' }, effect: 'read' }, { name: 'issue_refund', args: { order: 'A-1', amount: 120 }, effect: 'write' }, { name: 'escalate', args: { team: 'billing' }, effect: 'write' }] };
+    const decided = { ...pair, rows: [{ n: 19, a: call(19, { decision: recorded }), b: call(19, { decision: changed }), alike: false, similar: false }] };
+    const page = await shown({ ...client, compare: compared(decided) }, `#/compare/${REC}/${FORK}/19`, (r) => r.all('#cmpd .dtool').length === 6);
+    const marks = (side: FakeElement) => side.querySelectorAll('.dtool').map((t) => [t.querySelector('b')!.textContent, t.className, t.querySelector('.ar')!.textContent]);
+    const [a, b] = page.all('#cmpd .cmpdc');
+    expect(marks(a)).toEqual([
+      ['lookup_order', 'dtool', '→'],
+      ['issue_refund', 'dtool diff w', '→'],
+      ['add_note', 'dtool gone w', '−'],
+    ]);
+    expect(marks(b)).toEqual([
+      ['lookup_order', 'dtool', '→'],
+      ['issue_refund', 'dtool diff w', '→'],
+      ['escalate', 'dtool new w', '+'],
+    ]);
   });
 
   it('says how many more tool calls a decision made than its row lists, after those it lists', async () => {

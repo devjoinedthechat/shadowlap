@@ -1,4 +1,4 @@
-import { canonicalize } from './canonical.js';
+import { canonicalize, canonicallySame } from './canonical.js';
 import { isFailedOutcome, outcomeLabel, type RunOutcome } from './classify.js';
 import { lostWords } from './run-verdicts.js';
 import { clipText, compareDecisions, decisionOfResponse, decisionView, effectsOf, isHandover, STOP_WORDS, type DecisionCall, type DecisionChangeKind, type DecisionRank, type DecisionView, type EffectOf, type ModelDecision } from './decisions.js';
@@ -536,7 +536,7 @@ function likeness(x: ReturnType<typeof rowCall>, y: ReturnType<typeof rowCall>, 
   const a = x.call;
   const b = y.call;
   if (a.kind !== b.kind) return { alike: false, similar: false };
-  if (a.kind !== 'api') return { alike: a.name === b.name && canonicalize(x.args ?? null) === canonicalize(y.args ?? null), similar: a.name === b.name };
+  if (a.kind !== 'api') return { alike: a.name === b.name && canonicallySame(x.args ?? null, y.args ?? null), similar: a.name === b.name };
   if (a.failure || b.failure) return { alike: !!a.failure && !!b.failure && a.failure.status === b.failure.status, similar: !!a.failure && !!b.failure };
   if (!x.decision || !y.decision) return { alike: false, similar: false };
   const names = (d: ModelDecision) => d.tools.map((t) => t.name).join('\u0000');

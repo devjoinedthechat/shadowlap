@@ -287,4 +287,10 @@ describe("Compare's rows", () => {
     expect(pathRows(store, calls(x), calls(y), 0, masking).rows[0]).toMatchObject({ alike: true, similar: false });
     expect(pathRows(store, calls(x), calls(z), 0, masking).rows[0]).toMatchObject({ alike: false, similar: true });
   });
+
+  it('tells two tool calls alike by their arguments as one JSON value, whatever order their keys come in', () => {
+    const read = (args: Record<string, unknown>): ToolCall => ({ kind: 'tool', name: 'lookup_order', args, effect: 'read' });
+    const p = decide({ a: [read({ order_id: 'A-1042', fields: ['total', 'items'] })], b: [read({ fields: ['total', 'items'], order_id: 'A-1042' })] }, 0);
+    expect(p.rows[0]).toMatchObject({ alike: true, similar: false });
+  });
 });
