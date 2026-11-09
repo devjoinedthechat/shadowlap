@@ -339,8 +339,6 @@ function changeOf(f: AboutFacts): RunAbout {
     const callNo = isObject(m.probe) ? int(m.probe.callNo) : null;
     return { text: `rescued${callNo ? ` #${callNo}` : ''}`, from: 'change', change: { flag: '--diverge-at', callNo, forkAt } };
   }
-  const injection = injectionWords(m.injection);
-  if (injection) return { text: injection, from: 'change', change: null };
   const task = taskWords(m.task);
   if (task) return { text: task, from: 'change', change: null };
   const list = Array.isArray(m.interventions) ? (m.interventions as unknown[]).filter(isObject) : [];
@@ -365,6 +363,9 @@ function commandWords(argv: readonly string[]): string | null {
 export function aboutOf(f: AboutFacts): RunAbout {
   const m = f.meta ?? {};
   const command = commandWords(f.argv);
+  // An injection test's replay is one of its test's attempts too (`meta.repeat`), and says what it planted where.
+  const injection = injectionWords(m.injection);
+  if (injection) return { text: injection, from: 'change', change: null };
   if (f.attempt) {
     const words = attemptWords(f);
     if (words) return { text: words, from: f.attempt.kind === 'test' ? 'golden' : 'change', change: null };
