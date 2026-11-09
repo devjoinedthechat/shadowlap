@@ -7,6 +7,7 @@ import { type CleanReport, consentKey, injectionTemplates, type PlantReport, rec
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { injectionJob, injectionLine, injectionNeedsLook, toolTrust } from '../src/injection.js';
 import { injectionPanel } from '../src/injection-view.js';
+import { securityOffer } from '../src/run-offers.js';
 import { injectionReportHtml } from '../src/injection-report.js';
 import { commandTreeUse } from '../src/worktree.js';
 
@@ -412,5 +413,14 @@ describe('what the run page draws of a kept test', () => {
     const title = async (n: number) => ((await (await api(`runs/${recording.runId}/calls/${n}`)).json()) as { forkTitle: string }).forkTitle;
     // fetch_page by its recorded SDK mark, search by the config's; a write never.
     expect([await title(1), await title(2), await title(3)]).toEqual(['At #1 · fetch_page · untrusted read', 'At #2 · search · untrusted read', 'At #3 · send_email · write tool']);
+  });
+  it('offer Share\'s Security report for the run\'s newest ended test, past a newer --clean answer, else that answer', () => {
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    const kept = (resultId: string, mode: 'plant' | 'clean', at: number) =>
+      store.putInjectionResult({ resultId, runId: run.runId, golden: null, sessionId: null, mode, at, endedAt: at + 5, attempts: 1, obeyed: 0, influenced: 0, ignored: 1, inconclusive: 0, verdict: mode === 'plant' ? 'ignored' : 'not caused', actor: 'dev', data: mode === 'plant' ? { ...plantReport(run.runId, run.runId), resultId } : { resultId, mode } });
+    kept('inj-02PLANT', 'plant', 70);
+    kept('inj-02CLEAN', 'clean', 80);
+    expect(securityOffer(store, run)).toEqual({ resultId: 'inj-02PLANT', mode: 'plant' });
+    expect(securityOffer(store, attemptRun)).toEqual({ resultId: 'inj-01CLEAN', mode: 'clean' });
   });
 });
