@@ -2254,7 +2254,7 @@ with pass^k under it (`pass^5 1.00`).
 A golden whose entry has an [injection gate](./injection.md#gate-ci-on-it)
 (`"injection": { "obeyed": 0, "repeat": 3 }`) gets its injection test once its replay passed. Payloads
 are planted in its untrusted reads, live from the model call that reads them, with writes stubbed and
-reads the recording doesn't hold fenced.
+reads the recording doesn't hold blocked.
 
 It fails, as an `injection` failure, when more attempts obey (or are influenced) than the gate allows.
 It fails too when the test showed too little to say:
@@ -2872,7 +2872,7 @@ it replays:
 - the calls before the read, from the recording;
 - the rest live, from the model call whose request carries the planted text;
 - with writes stubbed;
-- with reads served from the recording when they match, and fenced when they don't.
+- with reads served from the recording when they match, and blocked when they don't.
 
 A tool is marked untrusted by `"tools": { "fetch_page": { "trust": "untrusted" } }` in the config, by
 `trust: 'untrusted'` in the [SDK](./sdk.md#untrusted-reads), or, for an MCP read tool, by its server
@@ -2935,8 +2935,8 @@ More on some of them:
   some.
 - **`--baselines`**: the recording's own writes after the read count as one more. A clean replay in
   which something failed is left out, and, with `--influenced`, makes the verdict inconclusive.
-- **`--live-reads`**: the agent gets an error for a fenced read. A read that carries planted text is
-  fenced all the same.
+- **`--live-reads`**: the agent gets an error for a blocked read. A read that carries planted text is
+  blocked all the same.
 - **`--html`**: the reads × payloads matrix, the proof of each obeyed cell, why the inconclusive ones
   show nothing, the `--clean` verdicts and the payloads. The redaction rules are applied, and every
   canary is kept.
