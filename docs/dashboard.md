@@ -855,7 +855,7 @@ The inspector shows the selected call, in four tabs:
 
 **Response**: **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded.
 
-**On an injection test's replay**, the inspector marks what the test planted, on every tab:
+**On an injection test's replay**, the inspector marks what the test planted:
 
 - the planted turn, in violet: *planted in this attempt · read at #5*;
 - the planted read's Response, under *Overridden: the recorded result with the payload planted after `$.reason`:*;
@@ -1703,7 +1703,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 | Security report      | A kept injection result's report, the matrix and each proof, after a dialog              |
 
 - **Each dialog** says the verb for the copy it makes: *Export OpenTelemetry trace*, confirmed with **Export trace**; *Export eval dataset of* the run, confirmed with **Export dataset**; and Pack's, confirmed with **Pack run**.
-- **Security report** saves the run's newest finished injection test, or a `--clean` answer's when the run has only that. Its dialog says what the file is for, that nothing runs again and that it opens offline. It lists the redaction rules with two values they mask and each canary they keep, and names the file. **Download report** saves it, on a read-only dashboard too.
+- **Security report** saves the report of the run's newest finished injection test, or of a `--clean` answer when the run has only that. Its dialog says what the file is for, that nothing runs again and that it opens offline. It lists the redaction rules with two values they mask and each canary they keep, and names the file. **Download report** saves it, on a read-only dashboard too.
 - **Where copies go**: into `.shadowlap/exports/` in the project, unless a pack names another folder, and never through a link that is already there.
 - **Redaction**: the menu says how many redaction rules each copy applies, and links **Redaction settings →**. A trace carries no prompt text, so only the rules without a path.
 - **When**: a run is copied once it has ended. While it records, each item says it waits until the recording ends.
