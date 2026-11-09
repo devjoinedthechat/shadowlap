@@ -41,7 +41,7 @@ import {
   type StoreLocation,
 } from '@shadowlap/remote';
 import { specFor, type TestEntry } from './checks.js';
-import { CONFIG_FILE, configPath, defaultDbPath, loadConfig, loadTests, type ShadowlapConfig } from './config.js';
+import { CONFIG_FILE, configPath, copyNormalizers, defaultDbPath, loadConfig, loadTests, type ShadowlapConfig } from './config.js';
 import { expandRecordings, goldenMode, goldenName } from './goldens.js';
 import { emitJobEvent, inDashboardJob } from './job-events.js';
 import type { TestReport } from './test-report.js';
@@ -789,6 +789,9 @@ export async function teamShare(t: TeamEnv, runArg: string, flags: { lineage?: b
   const target = writeTarget(t, loc);
   const remote = openRemote(t, target.loc);
   const cfg = config(t);
+  // A broken redaction rule stops the share, naming it; a broken normalizer leaves its Show diff none, with a warning.
+  const redact = cfg.redact;
+  const normalize = copyNormalizers(cfg, (w) => note(t, p.yellow(`! ${w}`)));
   const { exportHtml, withAncestors } = await import('@shadowlap/dashboard');
   const store = Store.open(t.dbPath);
   let html: string;
@@ -802,8 +805,8 @@ export async function teamShare(t: TeamEnv, runArg: string, flags: { lineage?: b
       runIds: flags.lineage ? [run.runId, ...ids.filter((id: string) => id !== run.runId)] : ids,
       version: flags.version ?? null,
       ...(cfg.prices ? { prices: cfg.prices } : {}),
-      ...(cfg.redact.length ? { redact: cfg.redact } : {}),
-      ...(cfg.normalize.length ? { normalize: cfg.normalize } : {}),
+      ...(redact.length ? { redact } : {}),
+      ...(normalize.length ? { normalize } : {}),
       ...(flags.uiDir ? { uiDir: flags.uiDir } : {}),
     });
     html = result.html;

@@ -194,6 +194,23 @@ describe('a broken or long rule in the file', () => {
   });
 });
 
+describe('a copy with a broken rule', () => {
+  it('exports a run as HTML past a broken normalizer, named once, and stops on a broken redaction rule, naming it', async () => {
+    const { done } = seedRuns();
+    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ pattern: 'uuidd', replace: '<U>' }], redact: [{ pattern: 'email', replace: '<E>' }] }));
+    const made = await shadowlap(['export', 'html', done, join(cwd, 'page.html')]);
+    expect(made.code, made.err).toBe(0);
+    expect(made.err.match(/normalizer #1: unknown pattern "uuidd"/g)).toHaveLength(1);
+    expect(made.err).toContain("the copy's Show diff applies no normalizers");
+    expect(existsSync(join(cwd, 'page.html'))).toBe(true);
+    writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ pattern: 'uuidd', replace: '<U>' }], redact: [{ pattern: 'emial', replace: '<E>' }] }));
+    const stopped = await shadowlap(['export', 'html', done, join(cwd, 'other.html')]);
+    expect(stopped.code).not.toBe(0);
+    expect(stopped.err).toContain('redaction rule #1: unknown pattern "emial"');
+    expect(existsSync(join(cwd, 'other.html'))).toBe(false);
+  });
+});
+
 /** A finished run with an email in its prompt and a key in a tool's arguments, and one still recording. */
 /** The dry run's JSON, as these tests read it. */
 interface GcPlan {
