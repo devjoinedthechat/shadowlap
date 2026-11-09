@@ -385,6 +385,18 @@ describe('what the run page draws of a kept test', () => {
     expect(page.attempt.path === null || page.attempt.path.startsWith('$')).toBe(true);
   });
 
+  it('say what the security report masks and keeps before it downloads', async () => {
+    const res = await api('injection/inj-01PLANT/report?preview=1');
+    expect(res.status).toBe(200);
+    const p = (await res.json()) as { rules: number; masks: Array<{ at: string; before: string; after: string }>; canaries: Array<{ at: string; value: string }>; file: string };
+    expect(p.rules).toBe(2);
+    expect(p.masks.map((x) => [x.at, x.before])).toEqual([['fetch_page.url', 'https://example.com/a']]);
+    expect(p.masks[0].after).not.toContain('example.com');
+    // The canary is the proof: no rule touches it, though the email rule would match it.
+    expect(p.canaries).toEqual([{ at: 'send_email.to', value: CANARY.address }]);
+    expect(p.file).toBe(`shadowlap-injection-${recording.runId.slice(0, 10).toLowerCase()}.html`);
+  });
+
   it('file each attempt under its test in the lineage, and name an untrusted read in the fork menu\'s header', async () => {
     const { nodes } = (await (await api(`runs/${recording.runId}/lineage`)).json()) as { nodes: Array<{ runId: string; injection?: unknown }> };
     expect(nodes.find((n) => n.runId === attemptRun.runId)?.injection).toEqual({ result: 'inj-01PLANT', role: 'attempt', attempt: 1, of: 1, verdict: 'obeyed' });

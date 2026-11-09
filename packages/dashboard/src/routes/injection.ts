@@ -1,7 +1,7 @@
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView } from '../injection.js';
-import { injectionReportHtml } from '../injection-report.js';
+import { injectionReportHtml, reportFile, reportPreview } from '../injection-report.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { runAffinity } from '../run-index.js';
@@ -17,7 +17,8 @@ import { namesTeamStore } from './verdicts.js';
  *   GET /api/injection/needs-look         { items }: runs and goldens whose newest test obeyed, was influenced or is inconclusive
  *   GET /api/injection/runs/:id           { untrusted, results, attempt }: a run's untrusted reads, its tests, and the test it is an attempt of
  *   GET /api/injection/:id                { row, report, gone, view }: one result, as --json printed it, and a plant's panel
- *   GET /api/injection/:id/report         the security report (HTML), the project's redaction rules applied
+ *   GET /api/injection/:id/report         the security report (HTML), the project's redaction rules applied;
+ *                                         ?preview=1: { rules, masks, canaries, file }, what its dialog says first
  *
  *   job injection  { runId | golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }
  */
@@ -63,10 +64,12 @@ export function register(router: Router, ctx: RouteContext): void {
     const found = injectionResult(store, r.params.id!);
     if (!found) throw new HttpError(404, `no injection result ${r.params.id!}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
+    // ?preview=1: what the dialog says before the download, from the same masks.
+    if (r.query.get('preview') === '1') return r.tagged(reportPreview(found.report, redact));
     const html = injectionReportHtml([found.report], { redact, version: ctx.options.version ?? null });
     r.res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
-      'content-disposition': `attachment; filename="shadowlap-injection-${found.row.runId.slice(0, 10).toLowerCase()}.html"`,
+      'content-disposition': `attachment; filename="${reportFile(found.row.runId)}"`,
       'x-shadowlap-redacted': redact.length ? 'yes' : 'no',
       'cache-control': 'no-store',
     });

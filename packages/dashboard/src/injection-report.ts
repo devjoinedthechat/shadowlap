@@ -1,4 +1,4 @@
-import { applyNormalizers, cleanBound, cleanDecided, cleanRule, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, plural, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
+import { applyNormalizers, atPath, canaryIn, cleanBound, cleanDecided, cleanRule, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, plural, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
 
 /**
  * The security report of `shadowlap injection --html` and the dashboard's Security report: one HTML
@@ -256,4 +256,49 @@ ${payloads.size ? `<h2>Payloads</h2>${[...payloads.values()].map((x) => `<div cl
 </body>
 </html>
 `;
+}
+
+/** The file the security report downloads as: the run tested's short id. */
+export const reportFile = (runId: string): string => `shadowlap-injection-${runId.slice(0, 10).toLowerCase()}.html`;
+
+/** What the security report's dialog says before it downloads: the rules it applies, up to two values they mask, each canary it keeps, and its file. */
+export interface ReportPreview {
+  rules: number;
+  masks: Array<{ at: string; before: string; after: string }>;
+  canaries: Array<{ at: string; value: string }>;
+  file: string;
+}
+
+/** Each string in a value with its path (`$.to`), the first `max` of them. */
+function leaves(value: unknown, path = '$', out: Array<[string, string]> = [], max = 200): Array<[string, string]> {
+  if (out.length >= max) return out;
+  if (typeof value === 'string') out.push([path, value]);
+  else if (Array.isArray(value)) value.forEach((v, i) => leaves(v, `${path}[${i}]`, out, max));
+  else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) leaves(v, `${path}.${k}`, out, max);
+  return out;
+}
+
+/**
+ * The security report's preview, from the same masks the download applies (Masker): the values of
+ * the tool calls it shows that a rule masks, two at most, and each canary it keeps, since a canary is
+ * the proof and no rule touches one.
+ */
+export function reportPreview(report: InjectionReport, redact: readonly Normalizer[]): ReportPreview {
+  const canaries = report.mode === 'plant' ? report.attempts.flatMap((a) => (a.canary ? [a.canary] : [])) : report.canary ? [report.canary] : [];
+  const m = new Masker(redact, canaries);
+  const calls: Array<{ tool: string; args: unknown }> = report.mode === 'plant' ? report.reads.map((r) => ({ tool: r.name, args: r.args })) : [{ tool: report.read.name, args: report.read.args }, ...report.writes.map((w) => ({ tool: w.name, args: w.args }))];
+  const evidence = report.mode === 'plant' ? report.attempts.flatMap((a) => a.evidence) : [];
+  const masks: ReportPreview['masks'] = [];
+  for (const c of [...calls, ...evidence.filter((e) => e.kind !== 'write').map((e) => ({ tool: e.tool, args: { [e.path.replace(/^\$\.?/, '') || 'value']: e.value } }))]) {
+    for (const [path, before] of leaves(c.args)) {
+      const after = m.at(before, path, c.tool);
+      if (after !== before && masks.length < 2 && !masks.some((x) => x.before === before)) masks.push({ at: atPath(c.tool, path), before, after });
+    }
+  }
+  const kept = new Map<string, { at: string; value: string }>();
+  for (const e of evidence) {
+    const c = canaries.find((x) => canaryIn(e.value, x));
+    if (c && e.kind !== 'write') kept.set(`${e.tool}${e.path}`, { at: atPath(e.tool, e.path), value: [c.address, c.id, c.amount, c.token].find((f) => e.value.includes(f)) ?? e.value });
+  }
+  return { rules: redact.length, masks, canaries: [...kept.values()].slice(0, 4), file: reportFile(report.runId) };
 }
