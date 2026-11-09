@@ -208,7 +208,7 @@ One cause is one row. A golden an open fix holds is named on the fix's row (*ref
 
 What the rows mean:
 
-- **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own, and says its test's line, as Tests does (*send_email obeyed a planted instruction · 5 of 5*).
+- **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own: it says its test's line, as Tests does (*send_email obeyed a planted instruction · 5 of 5*), and leads with **Open proof**.
 - **Injection tests**: a row says the test's line (*send_email obeyed a planted instruction · 8 of 72*) and where the planted text was read (*injection test of 01K5CQ4N7G · at #4 get_ticket, #14 get_shipping and 12 more*). It opens the run tested. **Open proof** opens the first attempt with the row's verdict, at the call that shows it. One that showed too little to say has no step.
 - **Inconclusive goldens**: **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection gate showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
 - **Failed runs nobody has blamed**: a fork that failed counts as much as a recording, and so does a capture its import judged failed. The row names the newest by its id, with what it was about on hover, and opens Runs on the week's failed runs. A capture's **Run blame** opens its page, which asks for the command that starts your agent first.

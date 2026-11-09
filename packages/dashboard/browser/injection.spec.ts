@@ -168,7 +168,7 @@ test('the Forks view files both tests under the run they tested, their attempts 
   await expectAccessible(page);
 });
 
-test("Tests draws the golden's injection gate under its checks, and Needs a look the run's Security row, whose Open proof opens the attempt", async ({ page }) => {
+test("Tests draws the golden's injection gate under its checks, and Needs a look the golden and the run's Security row, whose Open proof opens the attempt", async ({ page }) => {
   await openPage(page, '/tests', 'main#view table tbody tr', here());
   // The checks draw under the golden's name too, for a narrower panel: one shows at a width.
   const gate = page.locator('main#view .ck.injck:visible');
@@ -177,6 +177,8 @@ test("Tests draws the golden's injection gate under its checks, and Needs a look
   await expectAccessible(page);
 
   await openPage(page, '/', 'overview', here());
+  // The golden its gate failed leads with the gate's proof, as Tests does.
+  await expect(page.locator('main#view .arow[data-agrp="failing"] .ast .btn')).toHaveText('Open proof');
   const row = page.locator('main#view .arow[data-agrp="security"]');
   await expect(row).toHaveCount(1);
   await expect(row.locator('.at .t')).toHaveText('send_email obeyed a planted instruction · 10 of 10');

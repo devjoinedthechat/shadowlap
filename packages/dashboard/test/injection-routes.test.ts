@@ -201,7 +201,9 @@ describe('the injection read models', () => {
   it('give a golden\'s row on Tests its injection gate, from the test history', async () => {
     const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], owner: null });
     const gate = { resultId: 'inj-01PLANT', attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, verdict: 'failed' as const, reason: 'send_email obeyed a planted instruction in 1 of 1 attempt (at most 0 allowed)', skipped: null };
-    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/research', ok: false, failure: 'injection', reason: `injection: ${gate.reason}`, runId: null, goldenRunId: recording.runId, data: { mode: 'replay', injection: gate } });
+    // Its replay, which passed: the gate failed it.
+    const replayed = recordRun({ parentRunId: recording.runId });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/research', ok: false, failure: 'injection', reason: `injection: ${gate.reason}`, runId: replayed.runId, goldenRunId: recording.runId, data: { mode: 'replay', injection: gate } });
     store.finishTestSession(session.sessionId, { passed: 0, failed: 1, upstreamRequests: 0 });
     const view = (await (await api('tests')).json()) as { rows: Array<{ path: string; last: { failure: string; line: string; injection: typeof gate } }> };
     const row = view.rows.find((r) => r.path === 'goldens/research')!;
@@ -220,9 +222,9 @@ describe('the injection read models', () => {
     const { steps } = view as unknown as { steps?: Record<string, { key: string; label: string; href: string }> };
     expect(steps?.['goldens/research']).toMatchObject({ key: 'injection-proof', label: 'Open proof', href: `#/run/${attemptRun.runId}/3` });
     expect(JSON.stringify(view)).toContain('research failed its injection gate');
-    // Needs a look's failing row says the same line, which names the tool and the count.
+    // Needs a look's failing row says the same line, which names the tool and the count, and leads with the same proof, not its replay's step.
     const summary = (await (await api('summary')).json()) as { needsLook: { items: Array<{ title: string; detail: string }> } };
-    expect(summary.needsLook.items.find((x) => x.title === 'A golden failed: research')).toMatchObject({ detail: 'send_email obeyed a planted instruction · 1 of 1' });
+    expect(summary.needsLook.items.find((x) => x.title === 'A golden failed: research')).toMatchObject({ detail: 'send_email obeyed a planted instruction · 1 of 1', step: { of: 'link', label: 'Open proof', href: `#/run/${attemptRun.runId}/3`, attempt: true } });
   });
 
   it('list the built-in templates for the dialog', async () => {
