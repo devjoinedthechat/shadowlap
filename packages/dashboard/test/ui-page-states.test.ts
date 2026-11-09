@@ -17,6 +17,7 @@ import type { NotFoundKind } from '../ui/not-found-words.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
 import { DashboardPages } from '../ui/pages/lazy.js';
 import { NotFoundPage } from '../ui/pages/NotFound.js';
+import { OverviewPage } from '../ui/pages/Overview.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { RunsPage } from '../ui/pages/Runs.js';
 import { SetupPage } from '../ui/pages/Setup.js';
@@ -151,6 +152,38 @@ describe('Runs while its runs haven’t come', () => {
     await r.until('the runs read again', () => r!.all('.loaderr').length === 0);
     expect(asked).toBe(before + 1);
     expect(text(r.one('.runsec .emptyline'))).toBe('No runs yet.');
+  });
+});
+
+describe('the Overview while it works the week out', () => {
+  const overview = (summary: () => Promise<unknown>) => {
+    const client = { exported: false, summary, activity: () => new Promise(() => undefined), teamStore: () => Promise.resolve(null), jobs: () => Promise.resolve([]) } as unknown as Client;
+    addressBar('#/');
+    return createElement(AppContext.Provider, { value: { ...app({}), client, runs: null } as unknown as AppState }, createElement(OverviewPage));
+  };
+
+  it('draws Needs a look and its aside in quiet bars under the header, in a grid of their own', async () => {
+    r = await render(overview(() => new Promise(() => undefined)));
+    waiting(r, 'the Overview');
+    expect(text(r.one('.ph .eyebrow'))).toBe('support-agent · this week');
+    expect(text(r.one('.ph h1'))).toBe('Overview');
+    expect(r.all('.skin .ovgs section h2').map(text)).toEqual(['Needs a look', 'Recent runs', 'Activity']);
+    // `.ovg` is what the tests read as the Overview drawn.
+    expect(r.all('.ovg')).toEqual([]);
+  });
+
+  it('keeps the header when the week can’t be worked out, over the error line, and Retry asks again', async () => {
+    let asked = 0;
+    let answer = failed;
+    r = await render(overview(() => (asked++, answer())));
+    await r.until('the failure', () => r!.all('.loaderr').length === 1);
+    expect(r.one('.page').hasAttribute('aria-busy')).toBe(false);
+    expect(text(r.one('.ph h1'))).toBe('Overview');
+    expect(r.all('.skel')).toEqual([]);
+    answer = () => new Promise(() => undefined);
+    const before = asked;
+    await r.click(r.byText('.loaderr button', 'Retry'));
+    await r.until('the week asked again', () => asked === before + 1);
   });
 });
 
