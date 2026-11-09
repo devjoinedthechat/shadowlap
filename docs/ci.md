@@ -187,6 +187,8 @@ What isn't a secret still has to be there: an Azure OpenAI client built the defa
 
 Without its key such a golden fails, even when its replay would be clean. Clients that sign in with a token need one of their own: Vertex AI's, and Azure OpenAI's on Microsoft Entra ID. Pass keys to the step as environment variables, as [below](#github-actions).
 
+The Action's `decisions: true` asks every golden's models again for the [pull request comment](#decisions-in-the-comment), so it needs each golden's provider keys too. Without them the comment has no decisions, and the job's log says why.
+
 ## Outcome checks
 
 A clean replay proves the agent still sends the same requests. Sometimes you want to prove something about what it does instead: that a write never happens, that a tool is called with the right arguments, that the answer mentions the refund. Checks say that, per recording, under `tests` in `shadowlap.config.json`:
@@ -520,6 +522,7 @@ The action reads `tests` from `shadowlap.config.json` in the working directory. 
 | `repairer` | The model that proposes fixes, as for `shadowlap repair --repairer`; empty uses `repair.repairer` in the config | empty |
 | `github-token` | The token a fix's branch is pushed, its pull request opened and the comment kept with ([below](#permissions-and-tokens)) | empty |
 | `comment` | On a pull request, keep one [comment](#the-pull-request-comment) on it with each golden's verdict | `true` |
+| `decisions` | On a pull request, add to the comment the [decisions](#decisions-in-the-comment) the branch changes at rank 1 and 2; it asks the goldens' models | `false` |
 
 Some inputs need more than a line:
 
@@ -655,7 +658,7 @@ On a pull request, the action keeps one comment with each golden's verdict on on
 
 ```markdown
 <!-- shadowlap-test-comment 0123456789ab -->
-### Shadowlap: 1 of 3 goldens failed
+### Shadowlap: 2 of 3 goldens passed · 1 failed
 
 | | Golden | Verdict | On `main` |
 |---|---|---|---|
@@ -664,7 +667,37 @@ On a pull request, the action keeps one comment with each golden's verdict on on
 | ✅ | `goldens/refund-gated` | passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts | not tested |
 
 Compared with `main` as the test history last tested it, at `e5f6a7b`.
+
+Cost per run: ≈$0.041 → ≈$0.043 (+5%)
+
+#### Injection
+
+✅ `goldens/triage-inbox` · passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored
 ```
+
+The goldens that failed come first, then those that are inconclusive, then those that passed.
+
+**What a run costs.** `Cost per run` compares each golden's recording with this job's replay of it, both priced as they would run live, as the mean over the goldens whose replay ran whole. The before side is the recordings, not the base branch. It shows when there is a price for the goldens' models, Shadowlap's own or one under [`prices`](./cli.md#the-configuration-file) in the config.
+
+**Injection.** Each golden whose [injection gate](#injection-gates) ran gets a line: its verdict, its attempts, what they did and what the gate allows. A gate with no attempts says its verdict alone, and the golden's row says why. One that didn't run, since its golden failed first, gets none.
+
+#### Decisions in the comment
+
+With `decisions: true`, the job runs [`shadowlap decisions --from-code`](./decisions.md#in-ci) on the goldens it tested, and the comment says what the pull request's prompt and tools change at rank 1 and 2:
+
+```markdown
+#### Decisions
+
+❌ 1 of 3 goldens decides a write or when to stop differently, under the prompt and tools this pull request sends
+
+- rank 1 · `goldens/refund-flow` #11 · add_note is no longer called; issue_refund is called
+  - recorded `add_note({"ticket":"T-8812"})`
+  - now `issue_refund({"order_id":"A-1042","amount":240})`
+
+Later steps are judged in the recorded run's state: shadowlap verify runs it end to end.
+```
+
+It asks the goldens' models on every push, so the step needs their providers' [keys](#keys). It runs only for a pull request the action comments on, never a fork's, and the store keeps it with the test session. It never fails the job: what went wrong is a line in the log, and the comment goes up without it.
 
 **One comment per pull request.** The comment is found again by a hidden marker, one per workflow, job, working directory and set of recordings, and edited in place on every run. So a pull request carries one, however often it is pushed and however long its thread grows: the action reads the thread's first page, then the rest newest first.
 

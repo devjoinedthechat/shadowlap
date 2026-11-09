@@ -519,7 +519,7 @@ describe('the pull request comment the GitHub Action keeps', () => {
     expect(first.out).toContain('the pull request comment is posted: https://github.test/northwind/agent/pull/12#issuecomment-1');
     expect(comments).toHaveLength(1);
     const body = comments[0].body;
-    expect(body).toMatch(/^<!-- shadowlap-test-comment [0-9a-f]{12} -->\n### Shadowlap: 1 golden passed\n/);
+    expect(body).toMatch(/^<!-- shadowlap-test-comment [0-9a-f]{12} -->\n### Shadowlap: 1 of 1 golden passed\n/);
     expect(body).toContain('| | Golden | Verdict | On `main` |');
     expect(body).toContain('| ✅ | `testing/golden/reference-agent` | passed · replayed clean | ❌ failed |');
     expect(body).toContain('Compared with `main` as the test history last tested it, at `e5f6a7b`.');
@@ -572,6 +572,58 @@ describe('the pull request comment the GitHub Action keeps', () => {
     // It commented with the token it was given.
     expect(calls.at(-1)?.authorization).toBe('Bearer github_pat_secret');
   }, 60_000);
+
+  it("adds a run's cost and each injection gate to the comment, and with decisions: true asks decisions --from-code for the pull request it comments on alone", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-decisions-'));
+    dirs.push(dir);
+    const cli = join(dir, 'fake-cli.mjs');
+    const log = join(dir, 'seen.jsonl');
+    const injection = { resultId: 'inj-1', attempts: 6, obeyed: 0, influenced: 0, ignored: 6, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, verdict: 'passed', reason: null, skipped: null };
+    const result = { name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'replay', ok: true, verdict: 'passed', failure: null, message: null, runs: [], injection };
+    const change = { rank: 1, kind: 'write-added', tool: 'issue_refund', effect: 'write', before: null, after: {}, detail: 'issue_refund is called' };
+    const asked = { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'issue_refund', args: { order_id: 'A-1042' }, effect: 'write' }], text: '' };
+    const decided = { counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 4, notAsked: 0, untouched: 0 }, flagged: ['run-1'], runs: [{ runId: 'run-1', golden: 'testing/golden/reference-agent', refused: null, decisions: [{ callNo: 2, majority: 1, changes: [change], recorded: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'Let me ask a lead.' }, now: asked }] }] };
+    writeFileSync(
+      cli,
+      [
+        "import { appendFileSync, writeFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        'const at = (flag) => args[args.indexOf(flag) + 1];',
+        `appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');`,
+        `if (args.includes('decisions')) { process.stdout.write(JSON.stringify(${JSON.stringify(decided)})); process.exit(0); }`,
+        `writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S-PR', revision: null, passed: 1, failed: 0, inconclusive: 0, interrupted: false, costPerRun: { before: 0.041, after: 0.043 }, results: [${JSON.stringify(result)}] }));`,
+        "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 golden passed\\n');",
+      ].join('\n'),
+    );
+    const seen = () => readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as string[]);
+    const store = join(dir, 'ci.db');
+    const inputs = { RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, STORE: store, DECISIONS: 'true' };
+    comments.length = 0;
+    const r = await onPullRequest(inputs, 'northwind/agent', { SHADOWLAP_CLI: cli });
+    expect(r.code, r.out).toBe(0);
+    const body = comments[0].body;
+    expect(body).toContain('\n#### Decisions\n\n❌ 1 of 1 golden decides a write or when to stop differently, under the prompt and tools this pull request sends\n\n- rank 1 · `testing/golden/reference-agent` #2 · issue_refund is called\n  - recorded `answers and stops: "Let me ask a lead."`\n  - now `issue_refund({"order_id":"A-1042"})`\n');
+    expect(body).toContain('\nCost per run: ≈$0.041 → ≈$0.043 (+5%)\n\n#### Injection\n\n✅ `testing/golden/reference-agent` · passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored\n');
+    // It asks with the store the test ran with, keeping the part with the test session, an inconclusive step a warning.
+    expect(seen()[1]).toEqual(['--db', store, 'decisions', 'testing/golden/reference-agent', '--from-code', '--json', '--inconclusive', 'warn', '--test-session', 'S-PR']);
+    expect(r.out).toContain('shadowlap decisions testing/golden/reference-agent --from-code');
+
+    // Never off a pull request, nor on a fork's, which gets no comment, nor with the input off: the test alone runs.
+    for (const [why, head, extra, given] of [
+      ['a push', 'northwind/agent', { GITHUB_EVENT_NAME: 'push' }, inputs],
+      ["a fork's pull request", 'someone/agent', {}, inputs],
+      ['decisions off', 'northwind/agent', {}, { ...inputs, DECISIONS: 'false' }],
+    ] as const) {
+      rmSync(log, { force: true });
+      comments.length = 0;
+      const off = await onPullRequest(given, head, { SHADOWLAP_CLI: cli, ...extra });
+      expect(off.code, `${why}: ${off.out}`).toBe(0);
+      expect(seen().map((args) => args.includes('decisions')), why).toEqual([false]);
+    }
+    // Without decisions, the comment carries the cost and the injection gates alone.
+    expect(comments[0].body).not.toContain('#### Decisions');
+    expect(comments[0].body).toContain('#### Injection');
+  }, 120_000);
 });
 
 describe("the GitHub Action, fix on failure and the job's tokens", () => {

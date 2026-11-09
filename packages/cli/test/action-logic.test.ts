@@ -7,9 +7,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { afterAll, describe, expect, it } from 'vitest';
-import { markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store, titleText as engineTitle } from '@shadowlap/engine';
+import { commentMarkdown as engineComment, emptyCounts, markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store, titleText as engineTitle, type CommentDecisionsSource, type CommentParts, type DecisionStep } from '@shadowlap/engine';
 import { HOSTILE, HOSTILE_TITLES } from '../../engine/test/markdown-cases.js';
-import { baseSession, commentBody, commentMarker, commentNote, postComment, readHistory, verdictLine } from '../../../action/comment.mjs';
+import { baseSession, commentBody, commentMarker, commentMarkdown, commentNote, commentVerdictLine, postComment, readHistory } from '../../../action/comment.mjs';
 import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, pushLine, pushTarget, repairArgs, repairPlan } from '../../../action/fix.mjs';
 import { annotation, commandText, logLine, logLines } from '../../../action/log.mjs';
 import { markdownCode, markdownFence, markdownText, titleText } from '../../../action/markdown.mjs';
@@ -325,14 +325,14 @@ describe('the pull request comment', () => {
   const gated = (verdict: 'passed' | 'failed' | 'inconclusive') => ({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80, sentence: `${verdict} · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts` });
 
   it('says each golden\'s verdict in one line, as every report says it: the verdict word first, a gate\'s tally, bound and rule', () => {
-    expect(verdictLine(result({}))).toBe('passed · replayed clean');
-    expect(verdictLine(result({ mode: 'fork', divergence: { type: 'request_changed', callNo: 3 }, checks: [{ ok: true, label: 'a', detail: null, status: 'passed' }, { ok: true, label: 'b', detail: null, status: 'passed' }] }))).toBe('passed · forked at call 3 · 2 checks passed');
-    expect(verdictLine(result({ gate: gated('passed') }))).toBe('passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
-    expect(verdictLine(result({ ok: false, verdict: 'failed', gate: gated('failed'), message: 'failed · 3 of 12 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts' }))).toBe('failed · 3 of 12 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
-    expect(verdictLine(result({ ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time' }))).toBe('failed · check failed: issue_refund called 0 times, but called 1 time');
-    expect(verdictLine(result({ ok: false, verdict: 'inconclusive', failure: 'injection', message: 'injection inconclusive: 5 of 5 attempts could not be judged' }))).toBe('inconclusive · injection inconclusive: 5 of 5 attempts could not be judged');
+    expect(commentVerdictLine(result({}))).toBe('passed · replayed clean');
+    expect(commentVerdictLine(result({ mode: 'fork', divergence: { type: 'request_changed', callNo: 3 }, checks: [{ ok: true, label: 'a', detail: null, status: 'passed' }, { ok: true, label: 'b', detail: null, status: 'passed' }] }))).toBe('passed · forked at call 3 · 2 checks passed');
+    expect(commentVerdictLine(result({ gate: gated('passed') }))).toBe('passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
+    expect(commentVerdictLine(result({ ok: false, verdict: 'failed', gate: gated('failed'), message: 'failed · 3 of 12 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts' }))).toBe('failed · 3 of 12 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
+    expect(commentVerdictLine(result({ ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time' }))).toBe('failed · check failed: issue_refund called 0 times, but called 1 time');
+    expect(commentVerdictLine(result({ ok: false, verdict: 'inconclusive', failure: 'injection', message: 'injection inconclusive: 5 of 5 attempts could not be judged' }))).toBe('inconclusive · injection inconclusive: 5 of 5 attempts could not be judged');
     // A report from before results had a verdict reads as ok says.
-    expect(verdictLine({ name: 'x', ok: false, message: 'diverged at call 1 (api POST /v1/messages)' })).toBe('failed · diverged at call 1 (api POST /v1/messages)');
+    expect(commentVerdictLine({ name: 'x', ok: false, message: 'diverged at call 1 (api POST /v1/messages)' })).toBe('failed · diverged at call 1 (api POST /v1/messages)');
   });
 
   const session = (sessionId: string, revision: string | null, results: StoredSession['results'], endedAt: number | null = 2): StoredSession => ({ sessionId, startedAt: 1, endedAt, revision, results });
@@ -382,7 +382,7 @@ describe('the pull request comment', () => {
     const body = commentBody({ report, marker, base, baseRef: 'main', fixes: [{ name: 'refund|flow', golden: 'goldens/refund|flow', outcome: 'opened', pr: 'https://github.test/northwind/agent/pull/13', title: 'Escalate refunds above the policy limit', why: null, spent: 1 }], runUrl: 'https://github.test/northwind/agent/actions/runs/7' });
     expect(body.split('\n')).toEqual([
       marker,
-      '### Shadowlap: 1 of 3 goldens failed',
+      '### Shadowlap: 2 of 3 goldens passed · 1 failed',
       '',
       '| | Golden | Verdict | On `main` |',
       '|---|---|---|---|',
@@ -433,12 +433,76 @@ describe('the pull request comment', () => {
       session: 'S',
       results: [
         result({ name: 'refund-flow', golden: 'goldens/refund-flow', ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time' }),
-        result({ name: 'triage-inbox', golden: 'goldens/triage-inbox' }),
+        result({ name: 'triage-inbox', golden: 'goldens/triage-inbox', injection: injectionGate() }),
         result({ name: 'refund-gated', golden: 'goldens/refund-gated', gate: gated('passed') }),
       ],
+      costPerRun: { before: 0.041, after: 0.043 },
     };
     const base = baseSession([session('M', 'e5f6a7b', [stored('goldens/refund-flow', 'passed', { branch: 'main' }), stored('goldens/triage-inbox', 'passed')])], { baseRef: 'main', baseSha: null, current: 'S' });
     expect(commentBody({ report: sample, marker: shown!.split('\n')[0], base, baseRef: 'main' })).toBe(shown);
+  });
+
+  /** A golden's injection gate as its result keeps it: six attempts, none obeyed. */
+  const injectionGate = (over: Record<string, unknown> = {}) => ({ resultId: 'inj-1', attempts: 6, obeyed: 0, influenced: 0, ignored: 6, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, verdict: 'passed', reason: null, skipped: null, ...over });
+  /** A step a flagged golden decides differently, as decisions --from-code reports it: it refunds where the recording asked first. */
+  const step = (over: Partial<DecisionStep> = {}): DecisionStep => ({
+    callNo: 11,
+    step: 4,
+    scope: null,
+    rank: 1,
+    majority: 1,
+    changes: [
+      { rank: 1, kind: 'write-added', tool: 'issue_refund', effect: 'write', before: null, after: {}, detail: 'issue_refund is called' },
+      { rank: 3, kind: 'read-added', tool: 'get_policy', effect: 'read', before: null, after: {}, detail: 'get_policy is called' },
+    ],
+    recorded: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'Let me check with a lead\u202e first.\nThanks' },
+    now: { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'issue_refund', args: { order_id: 'A-1042', amount: 240 }, effect: 'write' }, { name: 'send_email', args: { to: '@alice', body: 'x'.repeat(1_500) }, effect: 'write' }], text: '' },
+    samples: { asked: 1, answered: 1, changed: 1, ranks: [1] },
+    model: { recorded: null, asked: null },
+    tokens: { before: null, after: null },
+    cost: { before: null, after: null, spent: 0 },
+    thinkingStripped: 0,
+    error: null,
+    ...over,
+  });
+  /** A decisions --from-code report over `n` goldens: its counts, the runs it flags, and each run's steps. */
+  const decided = (counts: Partial<CommentDecisionsSource['counts']>, runs: Array<Partial<CommentDecisionsSource['runs'][number]>>, flagged: string[] = []): CommentDecisionsSource => ({
+    counts: { ...emptyCounts(), ...counts },
+    flagged,
+    runs: runs.map((r, i) => ({ runId: `run-${i}`, golden: `goldens/${HOSTILE[i % HOSTILE.length]}`, refused: null, decisions: [], ...r })),
+  });
+
+  it("is the engine's comment as plain JavaScript: the same Markdown from the same parts, which Settings → CI previews", () => {
+    const judge = { rank: 2 as const, kind: 'judge' as const, tool: null, effect: null, before: null, after: null, detail: 'a judge check comes out failed: tells the customer #12 is refunded' };
+    const results: ReportResult[] = [
+      result({}),
+      result({ name: 'u', golden: 'goldens/up|dated', updated: true }),
+      result({ name: 'f', golden: 'goldens/forked`x', divergence: { type: 'ended_early', callNo: 4 }, attempts: { total: 3, passed: 3 }, checks: [{ ok: true, label: 'a', detail: null, status: 'passed' }, { ok: false, label: 'b', detail: null, status: 'inconclusive' }, { ok: true, label: 'c', detail: null, status: 'not-applicable' }] }),
+      result({ name: 'g', golden: 'goldens/gated', ok: false, verdict: 'failed', gate: gated('failed'), message: null, injection: injectionGate({ verdict: null, skipped: 'the golden failed first, so its injection gate did not run' }) }),
+      ...HOSTILE.map((text, i) => result({ name: `h${i}`, golden: `goldens/${text}`, ok: false, verdict: i % 3 ? 'inconclusive' : 'failed', message: i % 2 ? text : null, injection: injectionGate({ verdict: i % 2 ? 'failed' : 'inconclusive', obeyed: i, attempts: i % 4 ? 6 : 0, inconclusive: i % 3, allowed: { obeyed: 0, influenced: i % 2 ? 1 : null } }) })),
+      { name: 'old', ok: false, message: 'diverged at call 1 (api POST /v1/messages)' },
+    ];
+    const base = baseSession([session('M', null, [stored('goldens/refund-flow', 'passed', { branch: 'rel|ease' }), { ...stored('goldens/gated', 'passed'), data: { verdict: '@octocat ![x](https://evil.example/t.png)' } }])], { baseRef: 'rel|ease', baseSha: null, current: 'S' });
+    const fixes = [
+      { name: 'a, b', golden: 'goldens/a, goldens/b`c', outcome: 'opened' as const, pr: 'https://github.test/northwind/agent/pull/14', title: HOSTILE_TITLES[0], why: null, spent: 1 },
+      { name: 'z', outcome: 'no-fix' as const, pr: null, why: 'the gate accepted none', spent: 0 },
+    ];
+    const flagged = decided({ 1: 1, 2: 1, 3: 2, same: 9 }, [{ decisions: [step(), step({ callNo: 12, majority: 2, changes: [judge] }), step({ callNo: 13, majority: null }), step({ callNo: 14, majority: 3 })] }, { decisions: [step({ changes: [judge] })] }, {}], ['run-0', 'run-1']);
+    const cases: CommentParts[] = [
+      { marker, results, base, baseRef: 'rel|ease', decisions: flagged, costPerRun: { before: 0.041, after: 0.043 }, fixes, runUrl: 'https://github.test/northwind/agent/actions/runs/7' },
+      { results, decisions: decided({ 2: 1, same: 3 }, [{ decisions: [step({ majority: 2, changes: [judge] })] }, {}], ['run-0']), costPerRun: { before: 0, after: 0 } },
+      { results, decisions: decided({ 1: 1, same: 3 }, [{ decisions: [step()] }, {}], ['run-0']), costPerRun: { before: 0, after: 0.0004 } },
+      { results: results.slice(0, 2), decisions: decided({}, [{ refused: 'its change is more than its prompt and tools' }, {}]), costPerRun: { before: 150, after: 0.5 } },
+      { results: [], decisions: decided({ notAsked: 2 }, [{}, {}]), costPerRun: { before: 0.002, after: null } },
+      { results, decisions: decided({ untouched: 3 }, [{}]) },
+      { results, decisions: decided({}, []) },
+      { results, decisions: decided({ 3: 2, 4: 1, same: 5 }, [{}, {}]) },
+      { results, decisions: decided({ same: 5 }, [{ refused: 'refused' }, {}]), longest: 2_000 },
+      { results: Array.from({ length: 400 }, (_, i) => result({ name: `g${i}`, golden: `goldens/golden-number-${i}`, ...(i % 7 ? {} : { ok: false, verdict: 'failed', message: 'diverged at call 3' }) })), base, baseRef: 'main', costPerRun: { before: 0.041, after: 0.043 }, longest: 5_000, runUrl: 'https://github.test/x' },
+    ];
+    for (const parts of cases) expect(commentMarkdown(parts)).toBe(engineComment(parts));
+    // The comment on a test report is that Markdown, with the report's own cost per run.
+    expect(commentBody({ report: { session: 'S', results, costPerRun: { before: 0.041, after: 0.043 } }, marker, decisions: flagged })).toBe(engineComment({ marker, results, decisions: flagged, costPerRun: { before: 0.041, after: 0.043 } }));
   });
 
   it('is posted on the pull request the job runs for, compared with the base branch from the store, and never on a fork\'s, which may not comment', async () => {
@@ -624,8 +688,8 @@ describe("the step's outputs", () => {
 describe('the inputs in action.yml', () => {
   const yml = readFileSync(join(ROOT, 'action.yml'), 'utf8');
 
-  it('declares github-token, comment, build-from-source and fix-build, and passes the tokens to the step that keeps them from the CLI', () => {
-    for (const input of ['github-token:', 'comment:', 'build-from-source:', 'fix-build:']) expect(yml).toContain(`\n  ${input}\n    description:`);
+  it('declares github-token, comment, decisions, build-from-source and fix-build, and passes the tokens to the step that keeps them from the CLI', () => {
+    for (const input of ['github-token:', 'comment:', 'decisions:', 'build-from-source:', 'fix-build:']) expect(yml).toContain(`\n  ${input}\n    description:`);
     expect(yml).toContain('INPUT_FIX_BUILD: ${{ inputs.fix-build }}');
     expect(yml).not.toMatch(/GH_TOKEN/);
     expect(yml).toContain("\n  comment:\n    description: On a pull request, keep one comment on it with each golden's verdict line");
@@ -633,6 +697,9 @@ describe('the inputs in action.yml', () => {
     expect(yml).toContain('INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}');
     expect(yml).toContain('SHADOWLAP_JOB_TOKEN: ${{ github.token }}');
     expect(yml).toContain('INPUT_COMMENT: ${{ inputs.comment }}');
+    // The comment's decisions ask the goldens' models on every push: off unless the step asks.
+    expect(yml).toMatch(/\n {2}decisions:\n {4}description: On a pull request, add to the comment the decisions the branch changes[^\n]*\n {4}default: 'false'\n/);
+    expect(yml).toContain('INPUT_DECISIONS: ${{ inputs.decisions }}');
     // The CLI comes from npm unless the step asks for a source build.
     expect(yml).toContain("id: install\n      if: inputs.build-from-source != 'true'");
     expect(yml).toContain("id: build\n      if: inputs.build-from-source == 'true'");
