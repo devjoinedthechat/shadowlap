@@ -1,8 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { act, createElement } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { gateResult, Store, type StoredCheck } from '@shadowlap/engine';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
+import { goldenReports, type TestsAnswer } from '../src/golden-report.js';
 import { links } from '../src/links.js';
-import { askedReport, reportOpen, setReportOpen } from '../ui/tests/report-open.js';
+import type { NextStep } from '../src/next-step.js';
+import { testsView, type GoldenSource } from '../src/tests.js';
+import type { Client } from '../ui/api.js';
+import { pageUp } from '../ui/focus-manager.js';
+import { moreCard, updateCard } from '../ui/pages/tests-cards.js';
+import { TestsPage } from '../ui/pages/Tests.js';
+import { AppContext, type AppState } from '../ui/state.js';
+import { askedReport, openReports, reportOpen, setReportOpen } from '../ui/tests/report-open.js';
 import { hintWords, reportHint } from '../ui/tests/report-words.js';
+import { render, shownText, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
  * A golden's report as Tests draws it under its row: the one sentence of why under its next steps,
@@ -69,5 +80,207 @@ describe('a report asked for by a link', () => {
     expect(reportOpen('refund')).toBe(true);
     setReportOpen('refund', false);
     expect(reportOpen('refund')).toBe(false);
+  });
+});
+
+describe('what moved from a report’s hint to its buttons’ hovers', () => {
+  it('says what Run more attempts settles, and that Update golden asks a judge once and keeps its verdict', () => {
+    const more = { args: ['test', 'goldens/flaky', '--max-attempts', '40', '--continue'], attempts: 40, most: 20, expected: 17.17, settles: 0.378 };
+    expect(moreCard(more).sub).toBe('Raises its limit to 40 for this session only and carries its 20 attempts over. That settles it 38% of the time, in about 17 more.');
+    expect(updateCard('goldens/judged', ['test', 'goldens/judged', '--update']).sub).toBe('Asks the judge once, live, and keeps its verdict in the pack: every test after judges from the recording, free');
+    for (const held of ['older', 'material'] as const) expect(hintWords({ key: 'judge', held, name: 'polite' })).not.toContain('holds no verdict');
+  });
+});
+
+const T0 = Date.UTC(2026, 9, 20, 10, 0);
+const JUDGE = 'judge "polite" answers yes';
+const TWICE = 'send_email called at most 1 time';
+const PY_TAIL = ['Traceback (most recent call last):', '  File "/work/shop/refund_agent.py", line 141, in issue_refund', '    log.info("refund %s of %s", refund["refund_id"], order["total"])', "KeyError: 'total'"].join('\n');
+const check = (label: string, status: StoredCheck['status'], detail?: string, extra: Partial<StoredCheck> = {}): StoredCheck => ({ label, ok: status === 'passed', status, ...(detail ? { detail } : {}), ...extra }) as StoredCheck;
+const calls = (replayed: number, total = replayed) => ({ total, replayed, live: 0, blocked: 0, stubbed: 0 });
+
+/**
+ * Tests' answer over a store of four goldens that didn't pass, as GET /api/tests sends it: a crash
+ * at call 19 of 30 (a Python tail), a divergence at call 1 a normalizer masks, a judge check a
+ * replay couldn't ask offline, and a fork golden whose gate ran out; each with its report.
+ */
+function answer(steps: Record<string, NextStep> = {}): TestsAnswer {
+  const store = Store.open(':memory:');
+  const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'abc1234', startedAt: T0 });
+  const goldens: GoldenSource[] = [];
+  const add = (name: string, checks: string[], result: Omit<Parameters<Store['addTestResult']>[0], 'sessionId' | 'golden' | 'runId'>, o: { mode?: 'replay' | 'fork'; divergence?: Parameters<Store['setDivergence']>[1] } = {}) => {
+    const command = { argv: ['python', 'refund_agent.py'], cwd: '/work/shop' };
+    const recording = store.createRun({ mode: 'record', command });
+    const replay = store.createRun({ mode: 'replay', command, meta: { test: { golden: `goldens/${name}`, session: s.sessionId } } });
+    if (o.divergence) store.setDivergence(replay.runId, o.divergence);
+    store.addTestResult({ sessionId: s.sessionId, golden: `goldens/${name}`, runId: replay.runId, at: T0, ...result });
+    goldens.push({ path: `goldens/${name}`, runId: recording.runId, packedAt: T0, mode: o.mode ?? 'replay', repeat: 1, passes: 1, checks });
+  };
+  add('refund', ['issue_refund called 1 time'], { ok: false, failure: 'exit', reason: 'the agent exited with code 1', data: { mode: 'replay', calls: calls(18), upstreamRequests: 0, checks: [check('issue_refund called 1 time', 'failed', 'called 0 times')], output: PY_TAIL } }, { divergence: { type: 'ended_early', callNo: 19, kind: 'api', name: 'POST /v1/messages', replayedBefore: 18, recorded: 30 } });
+  const divergence = { type: 'request_changed' as const, callNo: 1, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 0 };
+  const volatile = { values: [{ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed' as const, certain: true, normalizer: { path: '$.metadata.user_id', replace: '<uuid>' } }], explainsAll: true };
+  add('drift', [], { ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', data: { mode: 'replay', calls: calls(0, 1), upstreamRequests: 0, divergence: { ...divergence, diff: [{ path: '$.metadata.user_id', op: 'changed', before: 'a', after: 'b' }], cause: '$.metadata.user_id', volatile, text: '✗ Request changed at call 1' }, details: '✗ Request changed at call 1\n  - "a"\n  + "b"' } }, { divergence: { ...divergence, recorded: 30 } });
+  const judge = { name: 'polite', model: 'claude-x', of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0, cut: 0 } as unknown as NonNullable<StoredCheck['judge']>;
+  add('judged', [JUDGE], { ok: false, failure: 'inconclusive', reason: 'check inconclusive: judge "polite" answers yes: its pack holds no verdict', data: { mode: 'replay', verdict: 'inconclusive', calls: calls(7), upstreamRequests: 0, checks: [check(JUDGE, 'inconclusive', 'not judged: no recorded verdict and the test runs offline', { judge })] } });
+  const outcomes = [...Array<boolean>(67).fill(true), ...Array<boolean>(16).fill(false)];
+  const gate = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 83 }, outcomes, { decision: 'inconclusive' });
+  add('flaky', [TWICE], { ok: false, failure: 'inconclusive', reason: 'inconclusive after 83 attempts', data: { mode: 'fork', verdict: 'inconclusive', upstreamRequests: 6, gate, attempts: { total: 83, passed: 67, required: null, runs: [] }, checks: [check(TWICE, 'failed', 'called 2 times')] } }, { mode: 'fork' });
+  store.finishTestSession(s.sessionId, { passed: 0, failed: 4, upstreamRequests: 6, endedAt: T0 + 100 });
+  const view = testsView(store, goldens, { folder: 'goldens' });
+  const reports = goldenReports(view, { store, goldens, normalizers: [], project: '/work/shop' });
+  store.close();
+  return { ...view, reports, steps };
+}
+
+const g = globalThis as { location?: { hash: string; pathname: string; search: string } };
+const asked: string[] = [];
+const said: string[] = [];
+let r: Rendered | null = null;
+afterEach(async () => {
+  await r?.unmount();
+  r = null;
+  delete g.location;
+  vi.unstubAllGlobals();
+  for (const name of openReports()) setReportOpen(name, false);
+  asked.length = 0;
+  said.length = 0;
+});
+
+/** Tests over `view`, arrived at by `hash`: the attempts it reads counted in `asked`, its toasts in `said`. */
+async function draw(view: TestsAnswer, hash = '#/tests'): Promise<Rendered> {
+  const location = { hash, pathname: '/', search: '' };
+  vi.stubGlobal('location', location);
+  vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (location.hash = url.slice(url.indexOf('#'))) });
+  const client = {
+    tests: () => Promise.resolve(view),
+    testEvidence: (golden: string) => {
+      asked.push(golden);
+      return Promise.resolve({ attempts: [{ runId: 'run-a1', href: '#/run/run-a1', outcome: 'failed', note: 'called 2 times' }], carried: 0, gone: 0 });
+    },
+    jobs: () => Promise.resolve([]),
+    offers: () => Promise.resolve(null),
+    startJob: () => Promise.resolve({ id: 'j1' }),
+  } as unknown as Client;
+  const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: (words: string) => void said.push(words) };
+  r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage)));
+  await r.until('the goldens to load', () => r!.all('table.gt tbody tr[data-rowkey]').length === view.rows.length);
+  return r;
+}
+
+const one = (el: FakeElement, selector: string): FakeElement => {
+  const found = el.querySelectorAll(selector);
+  if (found.length !== 1) throw new Error(`${found.length} elements match ${selector}`);
+  return found[0];
+};
+const report = (page: Rendered, name: string) => page.one(`section[id="report-${name}"]`);
+const wrap = (page: Rendered, name: string) => page.one(`div.grpw[id="grp-${name}"]`);
+const toggle = (page: Rendered, name: string) => page.one(`button.grptog[aria-controls="grp-${name}"]`);
+
+describe('a golden’s report under its row', () => {
+  it('folds each report under its row, hidden until found, its row no row of the table’s own', async () => {
+    const page = await draw(answer());
+    expect(page.all('table.gt tbody tr[data-rowkey]').map((tr) => one(tr, 'code.gn').textContent)).toEqual(['refund', 'drift', 'judged', 'flaky']);
+    expect(page.all('table.gt tbody tr.grprow').map((tr) => [tr.getAttribute('data-rowkey'), one(tr, 'section.gpanel').getAttribute('id')])).toEqual([[null, 'report-refund'], [null, 'report-drift'], [null, 'report-judged'], [null, 'report-flaky']]);
+    for (const name of ['refund', 'drift', 'judged', 'flaky']) {
+      expect([toggle(page, name).textContent, toggle(page, name).getAttribute('aria-expanded')]).toEqual(['Show report', 'false']);
+      expect(wrap(page, name).getAttribute('hidden')).toBe('until-found');
+    }
+  });
+
+  it('says each kind in one sentence, names its parts in the margin, and ends with its hint and its lines as printed', async () => {
+    const page = await draw(answer());
+    const drawn = (name: string) => {
+      const s = report(page, name);
+      return { head: one(s, '.verdict').textContent.replace(/\u00a0/g, ' '), parts: s.querySelectorAll('dl.rpx > dt').map((dt) => dt.textContent), hint: s.querySelectorAll('p.hintx').map((p) => p.textContent) };
+    };
+    expect(drawn('refund')).toEqual({ head: expect.stringContaining('The agent exited with code 1 at call 19'), parts: ['Replay', 'Error', 'Checks'], hint: ['The agent stopped part way, so its checks say little.'] });
+    expect(drawn('drift')).toEqual({ head: expect.stringContaining('Diverged at call 1: $.metadata.user_id changed, a UUID'), parts: [], hint: ['Normalizers apply at match time, so older goldens keep working.'] });
+    expect(drawn('judged')).toEqual({ head: expect.stringContaining('Replayed clean, but its judge check wasn’t judged'), parts: ['Checks'], hint: [hintWords({ key: 'judge', held: 'none', name: 'polite' })] });
+    expect(drawn('flaky')).toEqual({ head: expect.stringContaining('and its gate ran out before deciding'), parts: ['Gate', 'Attempts'], hint: [hintWords({ key: 'gate' })] });
+    // The lines as printed, the CLI's, under Show as printed: the golden's line red, a crash's tail dim.
+    const printed = one(report(page, 'refund'), 'pre.report[role="log"]');
+    expect([printed.getAttribute('aria-label'), printed.querySelectorAll('span')[0].textContent.trim(), printed.querySelectorAll('span')[0].className]).toEqual(['refund as printed', '✗ refund: the agent exited with code 1', 'no']);
+    expect(printed.querySelectorAll('span.dim').map((x) => x.textContent.trim())).toContain("│ KeyError: 'total'");
+  });
+
+  it('opens one report from Show report and every one from Show every report, each control saying which', async () => {
+    const page = await draw(answer());
+    await page.click(toggle(page, 'refund'));
+    expect([toggle(page, 'refund').textContent, toggle(page, 'refund').getAttribute('aria-expanded'), wrap(page, 'refund').hasAttribute('hidden')]).toEqual(['Hide report', 'true', false]);
+    expect(page.all('table.gt tbody tr.grprow.shut')).toHaveLength(3);
+    const every = page.one('div.gtop button.linkbtn');
+    expect([every.textContent, every.getAttribute('aria-expanded')]).toEqual(['Show every report', 'false']);
+    await page.click(every);
+    expect([page.one('div.gtop button.linkbtn').textContent, page.one('div.gtop button.linkbtn').getAttribute('aria-expanded')]).toEqual(['Hide every report', 'true']);
+    expect(page.all('div.grpw').map((w) => w.getAttribute('hidden'))).toEqual([null, null, null, null]);
+    await page.click(page.one('div.gtop button.linkbtn'));
+    expect(page.all('div.grpw').map((w) => w.getAttribute('hidden'))).toEqual(['until-found', 'until-found', 'until-found', 'until-found']);
+  });
+
+  it('opens the report a link names, then drops it from the address, and the one find in page matches', async () => {
+    const page = await draw(answer(), links.tests({ report: 'judged' }));
+    await page.until('the asked report to open', () => !wrap(page, 'judged').hasAttribute('hidden'));
+    expect(g.location?.hash).toBe('#/tests');
+    expect(wrap(page, 'refund').getAttribute('hidden')).toBe('until-found');
+    // Find in page matching a word inside it: the browser fires beforematch on the folded part, then shows it.
+    await act(async () => {
+      for (const fn of wrap(page, 'refund').heard('beforematch')) fn({ type: 'beforematch' } as never);
+    });
+    expect([wrap(page, 'refund').hasAttribute('hidden'), toggle(page, 'refund').getAttribute('aria-expanded')]).toEqual([false, 'true']);
+  });
+
+  it('draws a crash’s exception where its own code raised it, and its whole tail under Show traceback, folded until found', async () => {
+    const page = await draw(answer());
+    const s = report(page, 'refund');
+    expect(one(s, 'p.rperr').textContent).toMatch(/^KeyError: 'total' in refund_agent\.py, line 141, in issue_refund/);
+    expect(one(s, 'code.rpsrc').textContent).toBe('log.info("refund %s of %s", refund["refund_id"], order["total"])');
+    const show = one(s, 'p.rperr button.rptog');
+    const tail = page.one(`pre.report.tail[id="${show.getAttribute('aria-controls')!}"]`);
+    expect([show.textContent, show.getAttribute('aria-expanded'), tail.getAttribute('hidden')]).toEqual(['Show traceback', 'false', 'until-found']);
+    await page.click(show);
+    expect([one(s, 'p.rperr button.rptog').textContent, tail.hasAttribute('hidden'), shownText(tail)]).toEqual(['Hide traceback', false, PY_TAIL]);
+  });
+
+  it('copies the report as printed with its box’s Copy, and says so', async () => {
+    const writes: string[] = [];
+    const page = await draw(answer());
+    vi.stubGlobal('navigator', { clipboard: { writeText: (t: string) => (writes.push(t), Promise.resolve()) } });
+    const s = report(page, 'drift');
+    const show = one(s, 'div.rpp > button.rptog');
+    expect([show.textContent, page.one(`div.rbox[id="${show.getAttribute('aria-controls')!}"]`).getAttribute('hidden')]).toEqual(['Show as printed', 'until-found']);
+    const copy = one(s, 'div.rbox button.boxcopy');
+    expect(copy.getAttribute('aria-label')).toBe('Copy report');
+    await page.click(copy);
+    await page.wait(0);
+    expect(writes).toEqual([['✗ drift: diverged at call 1 (api POST /v1/messages)', '    ✗ Request changed at call 1', '      - "a"', '      + "b"'].join('\n')]);
+    expect(said).toEqual(['Copied the report']);
+  });
+
+  it('leads each report with its own step, plain, then what else it offers', async () => {
+    const steps: Record<string, NextStep> = {
+      'goldens/drift': { key: 'normalizer', label: 'Add normalizer', golden: 'goldens/drift', test: null },
+      'goldens/judged': { key: 'update-golden', label: 'Update golden', golden: 'goldens/judged', test: null },
+    };
+    const page = await draw(answer(steps));
+    const buttons = (name: string) => report(page, name).querySelectorAll('div.actions .btn').map((b) => [b.textContent, b.className]);
+    expect(buttons('drift')).toEqual([['Add normalizer', 'btn'], ['Update golden', 'btn'], ['Find breaking commit…', 'btn']]);
+    expect(buttons('judged')).toEqual([['Update golden', 'btn']]);
+    // No step of its own: Run more attempts, which carries its attempts over, as its siblings offer it.
+    expect(buttons('flaky')).toEqual([['Run more attempts', 'btn']]);
+  });
+
+  it('folds no report on Esc, leaving Esc to the evidence, and asks a report’s attempts only once it is open', async () => {
+    let page = await draw(answer());
+    expect(asked).toEqual([]);
+    await page.click(toggle(page, 'flaky'));
+    await page.until('the attempts', () => asked.length === 1);
+    expect(asked).toEqual(['goldens/flaky']);
+    await page.press('Escape');
+    expect([toggle(page, 'flaky').getAttribute('aria-expanded'), pageUp.current?.() ?? false]).toEqual(['true', false]);
+    // The open set outlives the page: drawn again, the report is open.
+    await page.unmount();
+    r = null;
+    page = await draw(answer());
+    expect([toggle(page, 'flaky').getAttribute('aria-expanded'), wrap(page, 'flaky').hasAttribute('hidden')]).toEqual(['true', false]);
   });
 });
