@@ -496,7 +496,7 @@ describe('removeDialog', () => {
       { key: 'cfg', label: 'Its settings', path: 'shadowlap.config.json' },
       { key: 'gold', label: 'Its 2 goldens', path: 'goldens/' },
     ]);
-    expect(v.keep).toEqual({ text: 'Takes support-agent off the dashboard; nothing on disk changes.', note: null, button: { label: 'Remove project', style: 'plain' }, crossedOut: null, done: 'Removed support-agent · its folder and recordings are untouched' });
+    expect(v.keep).toEqual({ text: 'Takes support-agent off the dashboard; nothing on disk changes.', note: null, button: { label: 'Remove project', style: 'plain' }, crossedOut: null, done: 'Removed support-agent · nothing on disk changed' });
     expect(v.deleteZone).toEqual({
       label: 'Also delete its recordings',
       detail: '12 runs and their attempts. The goldens are in your repository and stay.',

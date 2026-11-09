@@ -793,7 +793,7 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
       note: stats.missing ? 'Put the folder back and add it again to bring it all back.' : null,
       button: { label: 'Remove project', style: 'plain' },
       crossedOut: stats.missing ? 'code' : null,
-      done: `Removed ${project.name} · its folder and recordings are untouched`,
+      done: removedToast(project.name, { deleted: false, missing: !!stats.missing }).message,
     },
     deleteZone: stats.runs
       ? {
@@ -807,13 +807,22 @@ export function removeDialog(input: { project: ProjectEntry; stats: ProjectStats
             note: null,
             button: { label: 'Remove and delete recordings', style: 'danger' },
             crossedOut: 'rec',
-            done: `Removed ${project.name} and deleted its recordings`,
+            done: removedToast(project.name, { deleted: true, missing: false }).message,
           },
         }
       : null,
     canRemove,
     why: canRemove ? null : 'The only project can’t be removed',
   };
+}
+
+/**
+ * What removing a project answers for its toast: what was done, and whether the toast's Undo can
+ * put the project back (`POST /api/projects/:id/restore`): never once its recordings are deleted,
+ * nor with its folder gone, which the Undo would refuse.
+ */
+export function removedToast(name: string, o: { deleted: boolean; missing: boolean }): { message: string; undo: boolean } {
+  return { message: o.deleted ? `Removed ${name} and deleted its recordings` : `Removed ${name} · nothing on disk changed`, undo: !o.deleted && !o.missing };
 }
 
 /** The typed name confirms deleting the recordings once it matches the project's name: the server's rule, so the button and the check agree. */

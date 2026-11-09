@@ -4,9 +4,11 @@ import { ApiError } from '../../api.js';
 import { PAUSED } from '../../connection.js';
 import { useLoad, type Loaded } from '../../hooks.js';
 import { messageOf } from '../../../../engine/src/message-of.js';
+import { ErrorState, Skeleton } from '../../components/States.js';
+import { VerdictLine } from '../../components/VerdictLine.js';
 import { useApp, type AppState } from '../../state.js';
-import { sentence } from '../../toast.js';
-import { onSettingsChanged } from './events.js';
+import { sentence, type ToastAction } from '../../toast.js';
+import { onSettingsChanged, settingsChanged } from './events.js';
 import { runListKey } from './logic.js';
 
 /**
@@ -49,9 +51,10 @@ export function useSettingsData<T>(load: () => Promise<T>, key: string): Loaded<
 /**
  * Runs an edit and says how it went: `ok` words the toast after it, and the tab reads the file again
  * either way. A file changed on disk since the tab read it (409) is shown as it is now, with nothing
- * changed; anything else refused says why. Offline, it says actions are paused.
+ * changed; anything else refused says why. Offline, it says actions are paused. `undo`, when it
+ * gives one, puts the toast's Undo on it.
  */
-export async function runEdit<T>(app: AppState, edit: () => Promise<T>, o: { ok: (result: T) => string; reload: () => void }): Promise<T | null> {
+export async function runEdit<T>(app: AppState, edit: () => Promise<T>, o: { ok: (result: T) => string; reload: () => void; undo?: ((result: T) => ToastAction | null) | undefined }): Promise<T | null> {
   if (app.actionsOff) {
     app.toast(app.actionsOff);
     return null;
@@ -63,7 +66,7 @@ export async function runEdit<T>(app: AppState, edit: () => Promise<T>, o: { ok:
   try {
     const result = await edit();
     o.reload();
-    app.toast(o.ok(result));
+    app.toast(o.ok(result), 'notice', o.undo?.(result) ?? undefined);
     return result;
   } catch (err) {
     o.reload();
@@ -110,44 +113,98 @@ export function rulesUnreadable(configError: string | null | undefined, gone: st
 }
 
 /**
+ * What puts an edit back: the edit that does, sent against the version the edit wrote (from its
+ * answer, never the tab's, which may not show that file yet), the words after it, and what to do
+ * once it has landed (the focus on a rule put back).
+ */
+export interface EditUndo {
+  edit: () => Promise<{ version?: string }>;
+  ok: string;
+  /** The control the change was made with, or what took its place: the focus goes back there once the toast is done. */
+  returnTo?: HTMLElement | null | undefined;
+  then?: (() => void) | undefined;
+}
+
+/** How long an Undo waits for the edit it undoes to land before it is sent: as long as the editor waits. */
+const LAND_MS = 4000;
+
+/**
  * A tab's edits, one at a time: from the click until the tab shows the file the edit wrote, `busy`
  * is true and another edit is not sent, so a double click removes one rule rather than sending a
  * second edit against the file the first one just changed. Never longer than a few seconds.
+ *
+ * `run`'s `undo` gives the toast an Undo (⌘Z, the undo key): it waits for the edit it undoes to
+ * land rather than being dropped, then goes through the editor like any edit, so a second press
+ * sends nothing more. Pressed once the tab has gone (⌘Z from another page), it is sent at once, and
+ * whichever tab opens reads the file again.
  */
 export function useEditor(
   version: string | null,
   reload: () => void,
 ): {
   busy: boolean;
-  run: <T extends { version?: string }>(edit: () => Promise<T>, ok: (result: T) => string) => Promise<T | null>;
+  run: <T extends { version?: string }>(edit: () => Promise<T>, ok: (result: T) => string, undo?: (result: T) => EditUndo | null) => Promise<T | null>;
   /** An edit made elsewhere on the tab (the Add dialog) wrote the file's version `to`: wait for the tab to show it. */
   landed: (to: string) => void;
 } {
   const app = useApp();
   const [waiting, setWaiting] = useState<{ from: string | null } | null>(null);
-  const sending = useRef(false);
+  // Refs, so an Undo pressed from a toast made several renders ago reads the editor as it is now.
+  const live = useRef({ sending: false, waiting: false, version, mounted: true, app, reload });
+  Object.assign(live.current, { waiting: waiting !== null, version, app, reload });
+  useEffect(() => {
+    const now = live.current;
+    now.mounted = true;
+    return () => {
+      now.mounted = false;
+    };
+  }, []);
   // The tab shows another file than the one the edit started from: the edit has landed.
   useEffect(() => {
     if (waiting && version !== waiting.from) setWaiting(null);
   }, [version, waiting]);
   useEffect(() => {
     if (!waiting) return;
-    const t = setTimeout(() => setWaiting(null), 4000);
+    const t = setTimeout(() => setWaiting(null), LAND_MS);
     return () => clearTimeout(t);
   }, [waiting]);
-  const run = async <T extends { version?: string }>(edit: () => Promise<T>, ok: (result: T) => string): Promise<T | null> => {
-    if (sending.current || waiting) return null;
-    sending.current = true;
-    const from = version;
+  const run = async <T extends { version?: string }>(edit: () => Promise<T>, ok: (result: T) => string, undo?: (result: T) => EditUndo | null): Promise<T | null> => {
+    const now = live.current;
+    if (now.sending || now.waiting) return null;
+    now.sending = true;
+    const from = now.version;
     setWaiting({ from });
     try {
-      const result = await runEdit(app, edit, { ok, reload });
+      const result = await runEdit(now.app, edit, { ok, reload: now.reload, undo: undo ? (r) => undoAction(undo(r)) : undefined });
       // Refused, or nothing changed: there is no new file to wait for.
-      if (!result || result.version === from) setWaiting(null);
+      if (!result || result.version === from) {
+        now.waiting = false;
+        setWaiting(null);
+      }
       return result;
     } finally {
-      sending.current = false;
+      now.sending = false;
     }
+  };
+  // The toast's Undo: once the edit it undoes has landed, through the editor while the tab shows; else at once.
+  const undoAction = (u: EditUndo | null): ToastAction | null => {
+    if (!u) return null;
+    let sent = false;
+    return {
+      label: 'Undo',
+      undo: true,
+      returnTo: u.returnTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null),
+      run: () => {
+        if (sent) return;
+        sent = true;
+        void (async () => {
+          for (let waited = 0; live.current.mounted && (live.current.sending || live.current.waiting) && waited < LAND_MS + 1000; waited += 50) await new Promise((done) => setTimeout(done, 50));
+          const ok = () => u.ok;
+          const back = live.current.mounted ? await run(u.edit, ok) : await runEdit(live.current.app, u.edit, { ok, reload: settingsChanged });
+          if (back) u.then?.();
+        })();
+      },
+    };
   };
   const landed = (to: string) => {
     if (to !== version) setWaiting({ from: version });
@@ -161,41 +218,34 @@ export function editErrorText(err: unknown): string {
   return messageOf(err);
 }
 
-/** The config can't be read: what the loader says, and that Settings shows it again once it is fixed. */
+/**
+ * The config can't be read: a verdict line, its word first in the error tone, what the loader says
+ * under it, and that Settings shows it again once it is fixed.
+ */
 export function ConfigProblem({ error }: { error: string }) {
   return (
-    <div className="verdict no">
-      <span className="badge no">can’t read</span>
-      <div>
-        <h2>Fix {CONFIG_FILE} to change these settings</h2>
-        <p>{error.replace(/\.$/, '')}. Every command refuses the file until it is fixed; Settings reads it again when you come back.</p>
-      </div>
-    </div>
+    <VerdictLine word="can’t read" tone="err" facts={`${error.replace(/\.$/, '')}. Every command refuses the file until it is fixed; Settings reads it again when you come back.`}>
+      {`Fix ${CONFIG_FILE} to change these settings`}
+    </VerdictLine>
   );
 }
 
-/** A tab whose read failed: what the server said. */
-export function LoadProblem({ error, children }: { error: Error; children?: ReactNode }) {
+/** A tab whose read failed, under the header and the tabs: one line in the error tone, what the server said, and Retry, which reads the tab again. */
+export function LoadProblem({ error, retry, children }: { error: Error; retry?: (() => void) | undefined; children?: ReactNode }) {
   return (
-    <section className="panel stepempty">
-      <h3>This tab didn’t load</h3>
-      <p>{error.message}</p>
+    <ErrorState retry={retry}>
+      {error.message}
       {children}
-    </section>
+    </ErrorState>
   );
 }
 
-/** While a tab loads for the first time: its panel's frame, so the page doesn't jump when it arrives. */
-export function Loading({ title }: { title: string }) {
+/** While a tab loads for the first time: its section in quiet bars under its title, so the page doesn't jump when it arrives. */
+export function Loading({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <section className="panel set">
-      <header>
-        <h2>{title}</h2>
-      </header>
-      <div className="pbody">
-        <p className="muted">Loading…</p>
-      </div>
-    </section>
+    <Skeleton what={title} title={title}>
+      {children}
+    </Skeleton>
   );
 }
 

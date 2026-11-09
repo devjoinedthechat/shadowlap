@@ -144,7 +144,6 @@ ol.setup .sb > p.fieldnote.warn { color: var(--warn); }
 .recline > .rtext { flex: 1 1 16em; min-width: 0; }
 
 /* the team store's setup (Settings → Store): the access to ask for, the CI step's notes, credentials not found */
-.stepempty.nostore .cli { margin-top: 0; }
 ol.setup.storesetup .foundsum .policypart { margin-top: 10px; }
 ol.setup.storesetup .foundsum .policypart p.muted { margin: 0; font-size: 12.5px; }
 ol.setup.storesetup .foundsum .policypart .codebox { margin: 6px 0 8px; max-height: 320px; overflow-y: auto; }

@@ -188,7 +188,7 @@
       "testsView": 55
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 83
+      "trainingView": 81
     },
     "packages/dashboard/test/static.test.ts": {
       "scriptEnd": 56
@@ -213,9 +213,6 @@
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
-    },
-    "packages/dashboard/ui/pages/settings/Store.tsx": {
-      "StoreTab": 32
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
       "StoreSetup": 65
@@ -416,22 +413,16 @@
       "fixBundles": 180
     },
     "packages/dashboard/src/routes/projects.ts": {
-      "register": 221
-    },
-    "packages/dashboard/src/routes/settings.ts": {
-      "register": 206
+      "register": 216
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 168
+      "trainingView": 166
     },
     "packages/dashboard/ui/api.ts": {
       "createClient": 167
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 158
-    },
-    "packages/dashboard/ui/pages/Training.tsx": {
-      "TasksTab": 163
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
       "StoreSetup": 284

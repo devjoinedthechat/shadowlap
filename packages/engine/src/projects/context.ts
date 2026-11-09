@@ -209,6 +209,8 @@ export class ProjectHost<C = unknown> {
   private currentId: string;
   /** The store `--db` named, by project id, with the folder it was named for. */
   private readonly customDb = new Map<string, { path: string; dbPath: string }>();
+  /** What {@link customDb} held for a project removed here, for its Undo ({@link restore}) while this host runs. */
+  private readonly removedDb = new Map<string, { path: string; dbPath: string }>();
   /** What else holds the projects' stores, each to let go of one as its project is removed ({@link holdStores}). */
   private readonly holders = new Set<(dbPath: string) => Promise<void>>();
 
@@ -467,9 +469,25 @@ export class ProjectHost<C = unknown> {
     this.contexts.get(id)?.retire();
     this.contexts.delete(id);
     this.customDb.delete(id);
+    if (custom) this.removedDb.set(id, custom);
     // One that fails to let go still has the recordings deleted, and a file that can't be says so.
     if (dbPath) await Promise.allSettled([...this.holders].map((letGo) => letGo(dbPath)));
     return { project, deleted: options.deleteRecordings ? this.options.registry.deleteRecordingsOf(project) : [], current: this.currentProject() };
+  }
+
+  /**
+   * The Undo of {@link remove} without the recordings (see `ProjectRegistry.restore`): the project
+   * back at the place it left, reading the store `--db` named for it before. The current project
+   * stays current.
+   */
+  restore(id: string): AddedProject & { current: string } {
+    // Settled first, so a project removed while current doesn't become current again as it comes back.
+    const current = this.currentProject();
+    const kept = this.removedDb.get(id);
+    const added = this.options.registry.restore(id, kept ? { store: kept } : {});
+    this.removedDb.delete(id);
+    if (kept?.path === added.project.path) this.customDb.set(added.project.id, kept);
+    return { ...added, current };
   }
 
   /** Closes every store, for good. */

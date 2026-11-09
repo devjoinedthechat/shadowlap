@@ -124,7 +124,7 @@ describe('the setup read model', () => {
     // On GitHub Actions, your workflow on Settings → CI runs the goldens and pushes: the setup gives its job the credentials alone,
     // and says that store ci prints them in a job of its own, which would run the goldens again.
     expect(view.ci![0].workflow).toEqual({
-      href: '#/settings/alerts',
+      href: '#/settings/ci',
       credentials: expect.stringMatching(/^- if: .*\n {2}uses: aws-actions\/configure-aws-credentials/),
       printed: 'shadowlap store ci --provider github prints these two steps in a job of its own, which would run your goldens a second time: copy only the two steps.',
     });
@@ -133,7 +133,7 @@ describe('the setup read model', () => {
     // With R2 the keys are secrets and your workflow's step is the rest: nothing store ci prints goes in, so no command is offered.
     const r2 = storeSetupView(s, { store: 'r2://0123456789abcdef0123456789abcdef/northwind-agent-runs/support-agent' });
     expect(r2.ci!.map((c) => [c.ci, c.command, c.workflow])).toEqual([
-      ['github', null, { href: '#/settings/alerts', credentials: null, printed: null }],
+      ['github', null, { href: '#/settings/ci', credentials: null, printed: null }],
       ['gitlab', 'shadowlap store ci --provider gitlab', null],
       ['other', 'shadowlap store ci --provider other', null],
     ]);
@@ -285,5 +285,24 @@ describe('the setup routes', () => {
     expect(view).toMatchObject({ active: false, setup: { ci: 'added', ciProvider: 'gitlab' } });
     expect(view.setup.finishedAt).toBeGreaterThan(0);
     expect((await post(ro, 'store/setup', { finished: true })).status).toBe(403);
+  });
+
+  it('checks the store again with store check, which writes nothing and leaves a finished setup finished', async () => {
+    setConfig({ store: URL_ });
+    await post(dash, 'store/setup', { finished: true });
+    const before = setupRecord(store, KEY);
+    expect(before.finishedAt).toBeGreaterThan(0);
+    const res = await post(dash, 'jobs', { kind: 'store-check' });
+    expect(res.status, await res.clone().text()).toBe(202);
+    const job = await finished((await res.json()) as JobView);
+    expect(spawned.at(-1)).toEqual(['store', 'check']);
+    expect(job).toMatchObject({ kind: 'store-check', title: 'Checking store', code: 0 });
+    // Not store set --check: the setup isn't reopened.
+    expect(setupRecord(store, KEY)).toMatchObject({ startedAt: before.startedAt, finishedAt: before.finishedAt });
+    setConfig(null);
+    const none = await post(dash, 'jobs', { kind: 'store-check' });
+    expect(none.status).toBe(409);
+    expect(await errorOf(none)).toMatch(/no team store yet/);
+    expect((await post(ro, 'jobs', { kind: 'store-check' })).status).toBe(403);
   });
 });
