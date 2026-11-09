@@ -2463,8 +2463,9 @@ The check builder reads a golden's checks from `shadowlap.config.json`, judges a
 - **Reads beside the server.** The context and the preview are worked out beside the server, as they read the run's calls or every recording of the agent. The preview changes nothing. A golden whose recording is only in its pack is read from the pack there.
 - **A write** names the `version` it read and sends back `read`. A file changed since is a 409 that names what changed, such as `"prices" added`. A check `shadowlap test` would refuse is a 400 in its words. As the whole of `tests` is checked, that can name another golden's entry.
 - **A golden that follows a pattern**, such as `goldens/refund-*`, gets an entry of its own with the pattern's other keys. The pattern stays for its other goldens.
-- **The answer** is `{ key, version, added, removed, changed, was }`: the key written, the file's version after, and the labels of the checks added and removed. A write that changes the file lands in the activity feed.
+- **The answer** is `{ key, version, added, removed, changed, was }`: the key written, the file's version after, and the labels of the checks added and removed. Only a write that changed the file has a `was`, and it lands in the activity feed.
 - **Undo** sends the write's `was`. The server holds the entry as the write found it and puts it back, deleting an entry the write gave a pattern's golden. It writes only against the version the write left, so a file changed since is a 409 and the edit there stays.
+- **What Undo holds** is in the server's memory, the newest 20 writes. An older `was`, or one from before the server restarted, is a 404 that says to edit `shadowlap.config.json` instead.
 
 ### Projects and setup
 
