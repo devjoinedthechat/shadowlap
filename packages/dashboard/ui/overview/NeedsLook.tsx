@@ -64,7 +64,7 @@ const LookRow = memo(function LookRow({ x, off, wait, version, aboutOf, focused,
 
 /** A drawn control as ⌘K offers it: waiting as it waits (`data-why`), and pressed as it is. */
 function pressOf(b: HTMLElement, label: string, hint: string): Omit<PaletteCommand, 'group'> {
-  const why = b.dataset.why ?? null;
+  const why = b.getAttribute('data-why');
   return { label, hint: why ?? hint, ...(b.tagName === 'BUTTON' ? { job: true } : {}), ...(why ? { wait: why } : {}), run: () => b.click() };
 }
 
@@ -72,7 +72,7 @@ function pressOf(b: HTMLElement, label: string, hint: string): Omit<PaletteComma
 function stepOf(b: HTMLElement): Omit<PaletteCommand, 'group'> {
   let tip: { s?: string; cmd?: string } = {};
   try {
-    tip = JSON.parse(b.dataset.tip ?? '{}') as typeof tip;
+    tip = JSON.parse(b.getAttribute('data-tip') ?? '{}') as typeof tip;
   } catch {
     tip = {};
   }
