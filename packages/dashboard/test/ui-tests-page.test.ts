@@ -128,8 +128,17 @@ describe('the Tests page', () => {
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, checks: [...x.checks, 'send_email called 0 times'] } : x)));
     expect(checks(page, 'passes')).toEqual([
       { cls: 'ck passed', mark: '✓', words: 'escalate called 1 time' },
-      { cls: 'ck', mark: null, words: 'send_email called 0 timesadded since its last test' },
+      { cls: 'ck', mark: null, words: 'send_email called 0 timesadded since its last test\u00a0· not tested yet' },
     ]);
+  });
+
+  it('says under the last result of a golden whose checks changed since that they did, with the checks gone on its card', async () => {
+    const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, changed: [{ label: 'issue_refund called 0 times', status: 'failed' as const }] } : row)) }));
+    const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'passes')!;
+    const st = one(tr, 'td.glast .glastw .ckst');
+    expect(st.textContent).toBe('checks changed since · not tested yet');
+    expect(JSON.parse(st.getAttribute('data-tip')!)).toMatchObject({ t: 'checks changed since · not tested yet', s: 'Its last test judged issue_refund called 0 times, no longer in shadowlap.config.json: Run tests judges its checks as they are now' });
+    expect(page.all('.ckst')).toHaveLength(1);
   });
 
   it('says CI runs replay goldens offline and fork goldens live, with the one command docs/gating.md has, to copy', async () => {
@@ -410,7 +419,7 @@ describe('the Tests page\'s styles', () => {
     expect(css).toMatch(/\.gtw \.tscroll table\.gt \{ min-width: 0; \}/);
     expect(css).toMatch(/\.gtw table\.gt th\.glast \{ width: 250px; \}/);
     expect(css).toMatch(/@container \(max-width: 1000px\) \{\s*\.gtw table\.gt \.hist \.r3, \.gtw table\.gt \.hist \.r4, \.gtw table\.gt \.hist \.r5 \{ display: none; \}/);
-    expect(css).toMatch(/@container \(max-width: 820px\) \{\s*\.gtw table\.gt th\.gck, \.gtw table\.gt td\.gck \{ display: none; \}\s*\.gtw table\.gt \.chk\.gin \{ display: block; \}/);
+    expect(css).toMatch(/@container \(max-width: 840px\) \{\s*\.gtw table\.gt th\.gck, \.gtw table\.gt td\.gck \{ display: none; \}\s*\.gtw table\.gt \.chk\.gin \{ display: block; \}/);
     expect(css).toMatch(/@container \(max-width: 640px\) \{\s*\.gtw table\.gt th\.hist, \.gtw table\.gt td\.hist \{ display: none; \}\s*\.gtw table\.gt \.gstrip \{ display: inline-flex; \}\s*\.gtw table\.gt td\.glast \{ min-width: 0; width: 46%; \}/);
     // The viewport rule that hid revisions by the window's width, not the table's, is gone.
     expect(css).not.toMatch(/td\.hist i:nth-last-child/);

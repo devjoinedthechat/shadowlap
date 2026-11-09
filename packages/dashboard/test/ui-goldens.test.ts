@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cellNote, cellShare, historyKey, KEY_WORDS, revisionTip } from '../ui/tests/cells.js';
 import { leadStep } from '../ui/tests/lead.js';
-import { asksUpdate, checkMark, checkReportLine, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
+import { asksUpdate, changedLine, checkMark, checkReportLine, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
 import { goodCommits } from '../ui/tests/good-commits.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { jobStatus } from '../ui/jobs.js';
@@ -249,6 +249,15 @@ describe('the goldens table', () => {
     for (const hint of [older, material]) expect(hint).not.toContain('holds no verdict');
   });
 
+  it('says under the last result of a golden whose checks changed since that they did, the checks its last test judged that are gone on its card', () => {
+    const changed = [
+      { label: 'issue_refund called 0 times', status: 'failed' as const },
+      { label: 'judge "calm" answers yes', status: 'inconclusive' as const },
+    ];
+    expect(changedLine({ changed })).toEqual({ text: 'checks changed since · not tested yet', why: 'Its last test judged issue_refund called 0 times; judge "calm" answers yes, no longer in shadowlap.config.json: Run tests judges its checks as they are now' });
+    expect(changedLine({ changed: null })).toBeNull();
+  });
+
   it('marks each check by its last status, as the CLI does, with no mark before a result, and names it by the CLI\'s label', () => {
     const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null, judge: null, ...over });
     expect(checkMark(c({}), true)).toMatchObject({ mark: '✓', status: 'passed', word: 'passed', text: 'issue_refund called 0 times', sub: null, tip: { title: 'passed · issue_refund called 0 times', color: 'var(--ok)' } });
@@ -274,7 +283,10 @@ describe('the goldens table', () => {
     // Not tested yet: no mark, never a tick, and the hover says why: no result yet, a golden its last test couldn't run, or a check added since.
     expect(checkMark(c({ status: null }), false)).toMatchObject({ mark: null, word: 'not tested yet', sub: null, tip: { title: 'not tested yet · issue_refund called 0 times', value: 'its golden hasn’t run yet' } });
     expect(checkMark(c({ status: null }), true)).toMatchObject({ mark: null, word: 'not tested yet', sub: null, tip: { value: 'its last test couldn’t run the golden, so no check has a result' } });
-    expect(checkMark(c({ status: null, added: true }), true)).toMatchObject({ mark: null, word: 'not tested yet', sub: 'added since its last test', tip: { value: 'Added to shadowlap.config.json since its last test: its next test judges it' } });
+    expect(checkMark(c({ status: null, added: true }), true)).toMatchObject({ mark: null, word: 'not tested yet', sub: 'added since its last test · not tested yet', tip: { value: 'Added to shadowlap.config.json since its last test: its next test judges it' } });
+    // One the builder added within the minute reads just now.
+    expect(checkMark(c({ status: null, added: true, addedAt: Date.now() - 5_000 }), true).sub).toBe('added just now · not tested yet');
+    expect(checkMark(c({ status: null, added: true, addedAt: Date.now() - 120_000 }), true).sub).toBe('added since its last test · not tested yet');
     // "not judged" is the CLI's word for a judge check that couldn't be decided, never for one not tested.
     for (const ran of [false, true]) expect(checkMark(c({ status: null }), ran).tip.title).not.toContain('not judged');
   });

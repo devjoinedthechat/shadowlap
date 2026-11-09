@@ -137,6 +137,14 @@ export interface CheckMarkView {
   tip: { title: string; label: string; value: string; color: string; rows?: { label: string; value: string }[]; note?: string };
 }
 
+/** A check with no status: added since (`just now` within the minute the builder added it), its golden's last test couldn't run it, or it hasn't run yet. */
+function untested(c: GoldenCheck, ran: boolean): CheckMarkView {
+  const word = 'not tested yet';
+  const value = c.added ? 'Added to shadowlap.config.json since its last test: its next test judges it' : ran ? 'its last test couldn’t run the golden, so no check has a result' : 'its golden hasn’t run yet';
+  const sub = c.added ? `added ${c.addedAt !== null && justNow(c.addedAt) ? 'just now' : 'since its last test'} · ${word}` : null;
+  return { mark: null, status: null, word, text: c.label, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' } };
+}
+
 /**
  * A check in the table, marked by how the golden's last result came out on it: ✓ passed (a judge's,
  * where its verdict came from: the recording, free, or live, at what cost), ✗ failed (for a golden
@@ -149,11 +157,7 @@ export interface CheckMarkView {
 export function checkMark(c: GoldenCheck, ran: boolean, cell = false): CheckMarkView {
   const text = c.label;
   const t = c.attempts;
-  if (!c.status) {
-    const word = 'not tested yet';
-    const value = c.added ? 'Added to shadowlap.config.json since its last test: its next test judges it' : ran ? 'its last test couldn’t run the golden, so no check has a result' : 'its golden hasn’t run yet';
-    return { mark: null, status: null, word, text, sub: c.added ? 'added since its last test' : null, tip: { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' } };
-  }
+  if (!c.status) return untested(c, ran);
   const word = STATUS_WORDS[c.status];
   const detail = c.detail ?? '';
   let sub: string | null;
@@ -202,6 +206,16 @@ function judgedLine(c: GoldenCheck): string | null {
   if (!s) return null;
   const how = c.live && c.live.asked > 1 ? `${s.how} in ${c.live.asked} attempts` : s.how;
   return [how, s.cost, ...s.read].filter((x) => x !== null).join(' · ');
+}
+
+/**
+ * A golden whose checks changed since its last test, under that result, which stays its last test's:
+ * the line, and its card's why, the checks it judged that the config no longer holds. Null for one
+ * whose checks didn't change (src/tests-checks.ts' `checksChanged`).
+ */
+export function changedLine(row: Pick<GoldenRow, 'changed'>): { text: string; why: string } | null {
+  if (!row.changed?.length) return null;
+  return { text: 'checks changed since · not tested yet', why: `Its last test judged ${row.changed.map((c) => c.label).join('; ')}, no longer in shadowlap.config.json: Run tests judges its checks as they are now` };
 }
 
 /** Where a golden came from: a run in this store, or a pack made elsewhere. */

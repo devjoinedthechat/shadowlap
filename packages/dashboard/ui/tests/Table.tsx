@@ -5,7 +5,7 @@ import { rowOpen } from '../components/Table.js';
 import { glossed } from '../components/Term.js';
 import { dotParts, RuleText } from '../components/Verdict.js';
 import { glued } from '../format.js';
-import { checkMark, sourceText } from '../goldens.js';
+import { changedLine, checkMark, sourceText } from '../goldens.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
@@ -21,7 +21,7 @@ import type { LeadPress } from './Verdict.js';
 
 /**
  * The goldens' table. It fits its panel at every width, as the mock's .gtw container queries fit it:
- * below 1000px of room the oldest revisions give way, below 820px the checks go under the golden's
+ * below 1000px of room the oldest revisions give way, below 840px the checks go under the golden's
  * name, and on a phone the revisions become a strip there too. Last result keeps its width.
  */
 export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPress }) {
@@ -75,6 +75,7 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
 function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { row: GoldenRow; rowKey: string; focused: boolean; showHistory: boolean; open: boolean; onToggle: () => void; now: FollowedGolden | undefined }) {
   const source = sourceText(row);
   const last = row.last;
+  const stale = changedLine(row);
   return (
     <tr className={[row.runId ? '' : 'still', focused ? 'krow' : '', open ? 'open' : ''].filter(Boolean).join(' ') || undefined} data-rowkey={rowKey} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
       <td className="gg">
@@ -113,6 +114,11 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { 
           {last.result !== null || row.error ? (
             <span className="rsub">
               <LastLine text={last.line} />
+            </span>
+          ) : null}
+          {stale ? (
+            <span className="ckst" data-tip={tipCard(stale.text, [], stale.why)}>
+              {stale.text}
             </span>
           ) : null}
         </span>
