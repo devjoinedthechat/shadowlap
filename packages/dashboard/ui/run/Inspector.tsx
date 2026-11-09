@@ -1,12 +1,15 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { applyDeltas } from '../../../engine/src/deltas.js';
 import { INPUT_PARTS } from '../../../engine/src/tokens.js';
 import type { Block, CallDetail, CallRow, Delta, RunNote, Turn, TurnBlock } from '../api.js';
+import type { RunInjection } from '../types.js';
 import { Org, Seg } from '../components/bits.js';
 import { Tabs } from '../components/Tabs.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
+import { MarksContext } from '../components/marks.js';
+import { attemptMarks } from '../injection/marks.js';
 import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { agentOf } from '../scopes.js';
@@ -59,9 +62,12 @@ export interface InspectorProps {
   flag?: string | null;
   /** Selects another call: a tool call's Conversation tab leads to the model call of its own conversation. */
   onSelect?: (n: number) => void;
+  /** An injection attempt's planted read, its planted text and its canary, which the tabs mark (injection/marks.tsx); none on any other run, nor in a copy. */
+  injection?: RunInjection['attempt'] | undefined;
 }
 
-export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect }: InspectorProps) {
+export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect, injection }: InspectorProps) {
+  const marks = useMemo(() => attemptMarks(injection), [injection]);
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;
@@ -106,7 +112,9 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
       </div>
       <Tabs label="The selected call" idPrefix="itab" panelId="ibody" items={TAB_ITEMS()} value={tab} onChange={onTab} />
       <div className="ibody" id="ibody" key={`${runId}:${call.callNo}:${tab}`} role="tabpanel" aria-labelledby={`itab-${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} flag={flag ?? null} />}
+        <MarksContext.Provider value={marks}>
+          {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} flag={flag ?? null} />}
+        </MarksContext.Provider>
       </div>
     </section>
   );
@@ -149,6 +157,7 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
     setFormatState(v);
   };
   const [expanded, setExpanded] = useState(false);
+  const { mark } = useContext(MarksContext);
   const changedRef = useRef<HTMLDivElement>(null);
   const [jump, setJump] = useState(false);
   useEffect(() => {
@@ -160,8 +169,8 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
     return (
       <>
         <div className="ibar">Its arguments, then its result:</div>
-        <div className="jbox">{jsonText(args ?? {}, format)}</div>
-        <div className="jbox">{result ? jsonText(result.error ?? result.result ?? null, format) : c.outcome === null ? 'no result yet' : 'no result'}</div>
+        <div className="jbox">{mark(jsonText(args ?? {}, format))}</div>
+        <div className="jbox">{result ? mark(jsonText(result.error ?? result.result ?? null, format)) : c.outcome === null ? 'no result yet' : 'no result'}</div>
         <ConversationLink detail={detail} calls={calls} onSelect={onSelect} />
       </>
     );
@@ -292,8 +301,9 @@ function ConversationLink({ detail, calls, onSelect }: { detail: CallDetail; cal
 
 function Message({ turn, callNo, format, names, changed, changedBy = 'fork', firstAt, innerRef }: { turn: Turn; callNo: number | null; format: boolean; names: Map<string, string>; changed: boolean; changedBy?: 'fork' | 'replay'; firstAt: number | null; innerRef?: React.RefObject<HTMLDivElement | null> | undefined }) {
   const role = turn.role;
+  const words = useContext(MarksContext).changed;
   return (
-    <div className={`msg ${role}${changed ? ' changed' : ''}`} ref={innerRef}>
+    <div className={`msg ${role}${changed ? ' changed' : ''}${changed && words ? ' ov' : ''}`} ref={innerRef}>
       <div className="role">
         {role}
         {callNo !== null ? <small>#{callNo}</small> : null}
@@ -303,16 +313,17 @@ function Message({ turn, callNo, format, names, changed, changedBy = 'fork', fir
         {turn.blocks.map((b, i) => (
           <MessageBlock key={i} block={b} format={format} names={names} />
         ))}
-        {changed ? <span className="chg">changed in this {changedBy}{firstAt ? ` · first sent at #${firstAt}` : ''}</span> : null}
+        {changed ? <span className="chg">{words ?? `changed in this ${changedBy}${firstAt ? ` · first sent at #${firstAt}` : ''}`}</span> : null}
       </div>
     </div>
   );
 }
 
 function MessageBlock({ block, format, names }: { block: TurnBlock; format: boolean; names: Map<string, string> }) {
+  const { mark } = useContext(MarksContext);
   switch (block.type) {
     case 'text':
-      return <div className="txt">{block.text}</div>;
+      return <div className="txt">{mark(block.text)}</div>;
     case 'thinking':
       return (
         <div className="think">
@@ -323,7 +334,7 @@ function MessageBlock({ block, format, names }: { block: TurnBlock; format: bool
     case 'tool_call':
       return (
         <div className="tu">
-          <span className="ar">→</span> <b>{block.name}</b> {JSON.stringify(block.input)}
+          <span className="ar">→</span> <b>{block.name}</b> {mark(JSON.stringify(block.input))}
         </div>
       );
     case 'tool_result': {
@@ -333,7 +344,7 @@ function MessageBlock({ block, format, names }: { block: TurnBlock; format: bool
           <div className="tu">
             <span className="ar">←</span> {block.isError ? 'error' : null} <b>{name ?? 'result'}</b>
           </div>
-          <div className="jbox">{shown(block.content, format)}</div>
+          <div className="jbox">{mark(shown(block.content, format))}</div>
         </>
       );
     }
@@ -359,15 +370,16 @@ const SPEEDS = [1, 2, 4, 0] as const;
 function ResponseTab({ detail }: { detail: CallDetail }) {
   const c = detail.call;
   const [raw, setRaw] = useState(false);
+  const marks = useContext(MarksContext);
   if (c.kind !== 'api') {
     const result = detail.result as { result?: unknown; error?: { name?: string; message?: string } } | null;
-    const head = c.origin === 'blocked' ? (c.effect === 'read' ? 'Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:' : 'Blocked: a write tool after the fork, so the agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:';
+    const head = marks.head(c.callNo) ?? (c.origin === 'blocked' ? (c.effect === 'read' ? 'Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:' : 'Blocked: a write tool after the fork, so the agent got this instead of the real result:') : c.origin === 'stubbed' ? 'Stubbed: a write tool after the fork answered with a stand-in:' : c.origin === 'replayed' ? 'Served from the recording:' : result?.error ? 'The call threw:' : 'The recorded result:');
     return (
       <>
         <div className="ibar">
           <span>{head}</span>
         </div>
-        <div className="jbox">{result ? jsonText(result.error ?? result.result ?? null) : c.outcome === null ? 'no result yet' : 'no result'}</div>
+        <div className="jbox">{result ? marks.mark(jsonText(result.error ?? result.result ?? null)) : c.outcome === null ? 'no result yet' : 'no result'}</div>
       </>
     );
   }
@@ -409,7 +421,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
     return (
       <>
         {mode}
-        <div className="resp">{r.raw}</div>
+        <div className="resp">{marks.mark(r.raw)}</div>
       </>
     );
   if (raw)

@@ -25,6 +25,7 @@ import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
 import { InspectorPlace, useFindingPanel, usePickInView, useResultsBodies } from '../run/InspectorPanel.js';
+import { useInjectionArrival } from '../injection/arrival.js';
 import { byKind } from '../run/kinds.js';
 import { useStripCalls } from '../run/RunStrip.js';
 import { StripBar } from '../run/StripKey.js';
@@ -315,6 +316,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const select = useCallback((n: number) => (closePanel(), navigate(href.run(runId, n, v), true)), [runId, v, closePanel]);
   // A row picked below 1160px brings the inspector, under the calls, into view.
   const pickRow = usePickInView(select, selected, detail);
+  // An attempt opened on a call its proof names shows it on the tab that does, as the proof's picks do (injection/arrival.ts).
+  const pickProof = useInjectionArrival({ runId, attempt: injection.attempt, call, detail: detail.data, select, setTab });
   const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));
   // A pick in the key, or a word typed in Filter calls, shows Calls from another view.
   const toCalls = () => (v === 'calls' ? undefined : setView('calls'));
@@ -361,7 +364,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   return (
     <div className="rv">
       <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} injection={injection.attempt} />} judged={judged} />
-      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} injection={injection.finding} attempt={injection.attempt} onPick={(n, t) => (select(n), setTab(t))} />
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} injection={injection.finding} attempt={injection.attempt} onPick={pickProof} />
       <StripBar strip={{ calls: stripCalls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: inScopeFn, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
@@ -389,7 +392,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           </div>
         </section>
         <InspectorPlace panel={panel} run={run} test={offers?.test ?? null} onClose={closePanel} onPick={select} results={results}>
-          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
+          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} injection={injection.attempt} />
         </InspectorPlace>
       </div>
       {actions.dialog}
