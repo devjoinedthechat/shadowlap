@@ -59,7 +59,7 @@ const client = {
   offers: () => Promise.resolve(null),
   runChaos: () => Promise.resolve(null),
   forkDifferences: () => Promise.resolve(null),
-  unrecorded: () => Promise.resolve(null),
+  injectionRun: () => Promise.resolve({ untrusted: [], results: [], attempt: null }), injectionResults: () => Promise.resolve({ results: [] }), unrecorded: () => Promise.resolve(null),
   lineage: () => Promise.resolve([]),
   fixBundles: () => Promise.resolve([]),
   provenance: () => Promise.resolve(null),

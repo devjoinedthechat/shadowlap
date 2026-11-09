@@ -53,7 +53,7 @@ const client = {
   offers: () => Promise.resolve(null),
   runChaos: () => Promise.resolve(null),
   forkDifferences: () => Promise.resolve(null),
-  unrecorded: () => Promise.resolve({ runId: RUN, partial: false, tools: [{ name: 'Bash', count: 3, firstCallNo: 5, effect: 'write', why: 'a Claude Code built-in that runs a command', fix: 'fence' }] }),
+  injectionRun: () => Promise.resolve({ untrusted: [], results: [], attempt: null }), injectionResults: () => Promise.resolve({ results: [] }), unrecorded: () => Promise.resolve({ runId: RUN, partial: false, tools: [{ name: 'Bash', count: 3, firstCallNo: 5, effect: 'write', why: 'a Claude Code built-in that runs a command', fix: 'fence' }] }),
   lineage: () => Promise.resolve([]),
   jobs: () => Promise.resolve([]),
   provenance: () => Promise.resolve({ providers: [{ provider: 'openai', calls: 3, via: 'openrouter.ai' }], preloads: { guard: 'warn', hellos: {}, missing: 'No Shadowlap preload loaded.' } }),
