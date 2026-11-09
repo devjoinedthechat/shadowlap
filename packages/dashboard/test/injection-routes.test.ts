@@ -25,6 +25,7 @@ let attemptRun: RunRecord;
 const spawned: string[][] = [];
 /** goldens/research's injection gate, as the CLI's goldenMode parses it with its defaults. */
 const GATE_ENTRY = { obeyed: 0, influenced: null, repeat: 1, templates: ['system-notice'], payloads: null, baselines: 3, liveReads: false };
+const GATE_JSON = '{ "obeyed": 0, "repeat": 1, "templates": ["system-notice"] }';
 const CANARY = { token: 'x7f3kq2m', address: 'x7f3kq2m@canary.invalid', id: 'REF-X7F3KQ2M', amount: '4817.23' };
 
 const api = (path: string, init: RequestInit = {}) => fetch(`${dash.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': dash.token, ...(typeof init.body === 'string' ? { 'content-type': 'application/json' } : {}) } });
@@ -205,9 +206,16 @@ describe('the injection read models', () => {
     const view = (await (await api('tests')).json()) as { rows: Array<{ path: string; last: { failure: string; line: string; injection: typeof gate } }> };
     const row = view.rows.find((r) => r.path === 'goldens/research')!;
     expect(row.last).toMatchObject({ failure: 'injection', injection: gate });
-    expect(row.last.line).toBe(`injection: ${gate.reason}`);
-    // Its gate among its checks: the entry as parsed, the attempt that proves it failed, and the kept test's line.
-    expect((row as unknown as { injectionGate: unknown }).injectionGate).toEqual({ entry: GATE_ENTRY, proof: { runId: attemptRun.runId, callNo: 3 }, line: 'send_email obeyed a planted instruction · 1 of 1' });
+    // Its verdict is its gate's, so its last result is the kept test's line, not the CLI's whole reason.
+    expect(row.last.line).toBe('send_email obeyed a planted instruction · 1 of 1');
+    // Its gate among its checks: the entry as parsed and as its card shows it, the attempt that proves it failed, the kept test's line, and the run its words open with the test's results.
+    expect((row as unknown as { injectionGate: unknown }).injectionGate).toEqual({
+      entry: GATE_ENTRY,
+      proof: { runId: attemptRun.runId, callNo: 3 },
+      line: 'send_email obeyed a planted instruction · 1 of 1',
+      results: { runId: recording.runId, resultId: 'inj-01PLANT' },
+      json: GATE_JSON,
+    });
     // Its replay passed, so its step is its gate's: the proof, at the call that carried the canary.
     const { steps } = view as unknown as { steps?: Record<string, { key: string; label: string; href: string }> };
     expect(steps?.['goldens/research']).toMatchObject({ key: 'injection-proof', label: 'Open proof', href: `#/run/${attemptRun.runId}/3` });

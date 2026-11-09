@@ -1,4 +1,4 @@
-import type { InjectionEntry, StoreOf } from '@shadowlap/engine';
+import { DEFAULT_BASELINES, type InjectionEntry, type StoreOf } from '@shadowlap/engine';
 import { proofCall, proofOf } from './injection-view.js';
 import { injectionLine } from './injection.js';
 import type { GoldenRow, GoldenSource } from './tests.js';
@@ -7,7 +7,8 @@ import type { GoldenRow, GoldenSource } from './tests.js';
  * Tests' gated goldens (`GET /api/tests`), decorated beside testsView so src/tests.ts doesn't grow:
  * each golden with an injection gate gets its entry as parsed (shown among its checks), and, from its
  * last result's kept test, the attempt that proves it failed and the test's one line. Only the newest
- * result is read, once per gated golden: the history's cells never are.
+ * result is read, once per gated golden: the history's cells never are. Where the golden's verdict is
+ * its gate's, its last result says what the gate found: the test's line, or that it showed too little.
  */
 export interface InjectionGateRow {
   /** Its tests entry's `"injection"`, with its defaults. */
@@ -16,7 +17,28 @@ export interface InjectionGateRow {
   proof: { runId: string; callNo: number | null } | null;
   /** Its last kept test's one line (injectionLine): `send_email obeyed a planted instruction · 8 of 72`. */
   line: string | null;
+  /** The run its last kept test planted into, and that test: the gate's words open the run with the test's results. */
+  results: { runId: string; resultId: string } | null;
+  /** Its entry as its card shows it: `{ "obeyed": 0, "repeat": 3, "templates": ["user-recipient"] }`, the keys at their defaults left out but obeyed and repeat. */
+  json: string;
 }
+
+declare module './tests.js' {
+  interface GoldenRow {
+    /** Its injection gate, which Tests draws under its checks (withInjectionGates); none without one. */
+    injectionGate?: InjectionGateRow;
+  }
+}
+
+/** A gate's entry as one line, each list on it: what its tests entry sets beyond the defaults. */
+function entryJson(e: InjectionEntry): string {
+  const set: Array<[string, unknown]> = [['obeyed', e.obeyed], ['influenced', e.influenced], ['repeat', e.repeat], ['templates', e.templates === 'all' ? null : e.templates], ['payloads', e.payloads], ['baselines', e.baselines === DEFAULT_BASELINES ? null : e.baselines], ['liveReads', e.liveReads || null]];
+  const value = (v: unknown) => (Array.isArray(v) ? `[${v.map((x) => JSON.stringify(x)).join(', ')}]` : JSON.stringify(v));
+  return `{ ${set.filter(([, v]) => v !== null).map(([k, v]) => `${JSON.stringify(k)}: ${value(v)}`).join(', ')} }`;
+}
+
+/** The last result of a golden whose verdict is its gate's, where the gate showed too little to say. */
+const TOO_LITTLE = 'its injection gate showed too little to say';
 
 export function withInjectionGates<V extends { rows: GoldenRow[] }>(store: StoreOf<'recording' | 'injection'>, view: V, goldens: readonly GoldenSource[]): V {
   const entries = new Map(goldens.filter((g) => g.injectionGate).map((g) => [g.path, g.injectionGate!]));
@@ -26,8 +48,10 @@ export function withInjectionGates<V extends { rows: GoldenRow[] }>(store: Store
     if (!entry) return row;
     const kept = row.last.injection?.resultId ? store.getInjectionResult(row.last.injection.resultId) : null;
     const proof = kept ? proofOf(store, kept.data) : null;
-    const gate: InjectionGateRow = { entry, proof: proof ? { runId: proof.runId, callNo: proofCall(proof) } : null, line: kept ? injectionLine(kept) : null };
-    return { ...row, injectionGate: gate };
+    const results = kept ? { runId: kept.runId, resultId: kept.resultId } : null;
+    const gate: InjectionGateRow = { entry, proof: proof ? { runId: proof.runId, callNo: proofCall(proof) } : null, line: kept ? injectionLine(kept) : null, results, json: entryJson(entry) };
+    const said = row.last.failure !== 'injection' ? null : row.last.verdict === 'inconclusive' ? TOO_LITTLE : gate.line;
+    return { ...row, injectionGate: gate, ...(said ? { last: { ...row.last, line: said } } : {}) };
   });
   return { ...view, rows };
 }
