@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 import { JOB_KINDS } from '../api.js';
-import { ActionButton } from '../components/ActionButton.js';
+import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { Command } from '../components/Copy.js';
 import type { CalibrateStep, InspectStep, RecordStep, SetupView, TestStep } from '../projects-api.js';
@@ -21,7 +21,7 @@ export function SetupSteps({ view, jobs, off, treeBusy, testsWait }: { view: Set
       <InspectBody step={view.inspect} off={off} canInspect={hasKind(JOB_KINDS.inspect)} onInspect={jobs.inspect} />
       <RecordBody step={view.record} off={off} tree={treeBusy} canRecord={hasKind(JOB_KINDS.record)} live={live} command={jobs.command} setCommand={jobs.setCommand} error={jobs.recordError} onRecord={jobs.record} />
       <CalibrateBody step={view.calibrate} off={off} tree={treeBusy} busy={jobs.running(JOB_KINDS.calibrate)} canCalibrate={hasKind(JOB_KINDS.calibrate)} runId={view.record.recorded?.runId ?? null} onCalibrate={jobs.calibrate} />
-      <TestBody step={view.test} off={off} tree={testsWait} busy={jobs.running(JOB_KINDS.keepGolden)} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={jobs.golden} setGolden={jobs.setGolden} error={jobs.goldenError} onPack={jobs.pack} onTest={jobs.testGolden} />
+      <TestBody step={view.test} wait={view.wait} off={off} tree={testsWait} busy={jobs.running(JOB_KINDS.keepGolden)} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={jobs.golden} setGolden={jobs.setGolden} error={jobs.goldenError} onPack={jobs.pack} onTest={jobs.testGolden} />
     </ol>
   );
 }
@@ -99,7 +99,7 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
       {step.text ? <p>{step.text}</p> : null}
       {step.button ? (
         <div className="actions">
-          <ActionButton className="btn lime" why={why} onClick={() => onInspect(false)}>
+          <ActionButton className={limeIf(step.button.lime)} why={why} onClick={() => onInspect(false)}>
             {step.button.label}
           </ActionButton>
         </div>
@@ -185,13 +185,14 @@ function FoundRow({ label, value, code, small }: { label: string; value: string;
   );
 }
 
-function CommandField({ value, enabled, onChange, onEnter }: { value: string; enabled: boolean; onChange: (v: string) => void; onEnter: () => void }) {
+/** A step's one-line field: Record's command (`$`), or Pack's golden (`→`); Enter runs the step. */
+function CommandField({ value, enabled, onChange, onEnter, id = 'recCmd', label = 'Command', mark = '$' }: { value: string; enabled: boolean; onChange: (v: string) => void; onEnter: () => void; id?: string; label?: string; mark?: string }) {
   return (
     <label className="cmdin">
-      <span className="sr">Command</span>
-      <b>$</b>
+      <span className="sr">{label}</span>
+      <b>{mark}</b>
       <input
-        id="recCmd"
+        id={id}
         type="text"
         spellCheck={false}
         autoComplete="off"
@@ -280,7 +281,7 @@ function RecordBody({
         {step.button ? (
           <div className="actions">
             {/* The first recording in a folder asks on every setting, as no estimate prices what a command does. */}
-            <ActionButton className="btn lime" disabled={!step.button.enabled || !value.trim()} why={why} tip={step.button.label} est={tipEst(null)} onClick={go}>
+            <ActionButton className={limeIf(step.button.lime)} disabled={!step.button.enabled || !value.trim()} why={why} tip={step.button.label} est={tipEst(null)} onClick={go}>
               {step.button.label}
             </ActionButton>
           </div>
@@ -303,7 +304,7 @@ function RecordBody({
         <div className="again">
           <CommandField value={value} enabled={step.again.command.enabled} onChange={setCommand} onEnter={go} />
           <div className="actions">
-            <ActionButton className="btn" disabled={!step.again.command.enabled || !value.trim()} why={why} tip={step.again.label} est={tipEst(null, true)} onClick={go}>
+            <ActionButton className={limeIf(step.again.lime)} disabled={!step.again.command.enabled || !value.trim()} why={why} tip={step.again.label} est={tipEst(null, true)} onClick={go}>
               {step.again.label}
             </ActionButton>
           </div>
@@ -325,17 +326,48 @@ function CalibrateBody({ step, off, tree, busy, canCalibrate, runId, onCalibrate
       </p>
       {button ? (
         <div className="actions">
-          <ActionButton className="btn lime" disabled={!button.enabled || !runId} why={why} onClick={() => runId && onCalibrate(runId, button.action === 'calibratewrite')}>
+          <ActionButton className={limeIf(button.lime)} disabled={!button.enabled || !runId} why={why} onClick={() => runId && onCalibrate(runId, button.action === 'calibratewrite')}>
             {button.label}
           </ActionButton>
+          {/* Beside a proposal: calibrate once more, the proposal left as it is. */}
+          {step.again ? (
+            <ActionButton className="btn" disabled={!runId} why={why} onClick={() => runId && onCalibrate(runId, false)}>
+              {step.again.label}
+            </ActionButton>
+          ) : null}
         </div>
       ) : null}
     </SetupStep>
   );
 }
 
+/** What Pack does, before it is packed, and what the copy holds: the redaction rules, or a way to Settings to add some. */
+function PackLead({ step }: { step: TestStep }) {
+  const { text, redaction } = step;
+  if (!text && !redaction) return null;
+  const settings = redaction ? aroundWord(redaction.text, 'Settings') : null;
+  return (
+    <p>
+      {text}
+      {redaction ? ' ' : null}
+      {redaction && settings ? (
+        <>
+          {settings.before}
+          <a className="more" href={redaction.href}>
+            {settings.word}
+          </a>
+          {settings.after}
+        </>
+      ) : (
+        redaction?.text
+      )}
+    </p>
+  );
+}
+
 function TestBody({
   step,
+  wait,
   off,
   tree,
   busy,
@@ -347,6 +379,8 @@ function TestBody({
   onTest,
 }: {
   step: TestStep;
+  /** Why Pack, or once packed its test, waits (`SetupView.wait`): it reads plain, says why under it and on a press, and the server refuses meanwhile. */
+  wait: SetupView['wait'];
   off: string | null;
   tree: string | null;
   busy: boolean;
@@ -359,55 +393,19 @@ function TestBody({
 }) {
   const value = golden ?? step.golden?.value ?? '';
   const enabled = !!step.golden?.enabled;
-  const why = notHere(off, canKeep, step.cli) ?? (busy ? 'Packing and testing: the step moves on when it is done.' : tree);
+  const why = wait?.text ?? notHere(off, canKeep, step.cli) ?? (busy ? 'Packing and testing: the step moves on when it is done.' : tree);
   const testing = step.button?.action === 'testgolden';
+  // The field's Enter runs it, else says why it waits, as a press of the button does.
+  const whenFree = useWhenFree(why);
   const go = () => {
-    if (why) return;
     if (testing) onTest();
     else if (enabled && value.trim()) onPack(value.trim());
   };
-  const settings = step.redaction ? aroundWord(step.redaction.text, 'Settings') : null;
   const goldenNames = step.result ? (step.result.text.match(/goldens\/[\w./-]*[\w-]/g) ?? []) : [];
   return (
     <SetupStep step={step} cli={step.cli}>
-      {step.text || step.redaction ? (
-        <p>
-          {step.text}
-          {step.redaction ? ' ' : null}
-          {step.redaction && settings ? (
-            <>
-              {settings.before}
-              <a className="more" href={step.redaction.href}>
-                {settings.word}
-              </a>
-              {settings.after}
-            </>
-          ) : (
-            step.redaction?.text
-          )}
-        </p>
-      ) : null}
-      {step.golden ? (
-        <label className="cmdin">
-          <span className="sr">Golden</span>
-          <b>→</b>
-          <input
-            id="goldName"
-            type="text"
-            spellCheck={false}
-            autoComplete="off"
-            value={value}
-            disabled={!enabled}
-            onChange={(e) => setGolden(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                go();
-              }
-            }}
-          />
-        </label>
-      ) : null}
+      <PackLead step={step} />
+      {step.golden ? <CommandField id="goldName" label="Golden" mark="→" value={value} enabled={enabled} onChange={setGolden} onEnter={() => whenFree(go)} /> : null}
       {step.packed ? (
         <p className={step.packed.failed ? 'fieldnote err' : undefined}>
           <Coded text={step.packed.text} names={[step.packed.golden]} />
@@ -423,10 +421,16 @@ function TestBody({
       ) : null}
       {step.button ? (
         <div className="actions">
-          <ActionButton className="btn lime" disabled={!step.button.enabled || (!testing && !value.trim())} why={why} onClick={go}>
+          {/* Not disabled while it waits: a plain disabled would win over the reason, which it says on a press. */}
+          <ActionButton className={limeIf(step.button.lime)} disabled={!wait && (!step.button.enabled || (!testing && !value.trim()))} why={why} onClick={go}>
             {step.button.label}
           </ActionButton>
         </div>
+      ) : null}
+      {wait && step.button ? (
+        <p className="fieldnote warn">
+          <Coded text={wait.text} names={wait.tools} />
+        </p>
       ) : null}
       {step.result ? (
         <div className="recline ok">
