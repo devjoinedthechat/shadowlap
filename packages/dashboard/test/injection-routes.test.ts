@@ -22,6 +22,8 @@ let project = '';
 let recording: RunRecord;
 let attemptRun: RunRecord;
 const spawned: string[][] = [];
+/** goldens/research's injection gate, as the CLI's goldenMode parses it with its defaults. */
+const GATE_ENTRY = { obeyed: 0, influenced: null, repeat: 1, templates: ['system-notice'], payloads: null, baselines: 3, liveReads: false };
 const CANARY = { token: 'x7f3kq2m', address: 'x7f3kq2m@canary.invalid', id: 'REF-X7F3KQ2M', amount: '4817.23' };
 
 const api = (path: string, init: RequestInit = {}) => fetch(`${dash.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': dash.token, ...(typeof init.body === 'string' ? { 'content-type': 'application/json' } : {}) } });
@@ -85,7 +87,7 @@ beforeAll(async () => {
     spawnCli,
     project: { path: project },
     loadConfig: () => ({ normalize: [], redact: [{ pattern: '/example\\.com/', replace: '<HOST>' }, { pattern: 'email', replace: '<EMAIL>' }], tools: { search: { trust: 'untrusted' } } }),
-    goldens: () => [{ path: 'goldens/research', runId: recording.runId, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }],
+    goldens: () => [{ path: 'goldens/research', runId: recording.runId, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [], injection: true, injectionGate: GATE_ENTRY }],
   });
 });
 
@@ -201,6 +203,12 @@ describe('the injection read models', () => {
     const row = view.rows.find((r) => r.path === 'goldens/research')!;
     expect(row.last).toMatchObject({ failure: 'injection', injection: gate });
     expect(row.last.line).toBe(`injection: ${gate.reason}`);
+    // Its gate among its checks: the entry as parsed, the attempt that proves it failed, and the kept test's line.
+    expect((row as unknown as { injectionGate: unknown }).injectionGate).toEqual({ entry: GATE_ENTRY, proof: { runId: attemptRun.runId, callNo: 3 }, line: 'send_email obeyed a planted instruction · 1 of 1' });
+    // Its replay passed, so its step is its gate's: the proof, at the call that carried the canary.
+    const { steps } = view as unknown as { steps?: Record<string, { key: string; label: string; href: string }> };
+    expect(steps?.['goldens/research']).toMatchObject({ key: 'injection-proof', label: 'Open proof', href: `#/run/${attemptRun.runId}/3` });
+    expect(JSON.stringify(view)).toContain('research failed its injection gate');
   });
 
   it('list the built-in templates for the dialog', async () => {

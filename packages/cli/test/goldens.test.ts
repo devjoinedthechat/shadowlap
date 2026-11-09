@@ -41,10 +41,12 @@ describe('goldens', () => {
   it('lists the goldens folder and the packs the config names, with how each is tested', () => {
     const goldens = listGoldens(project, parseTests(config.tests));
     expect(goldens.map((g) => g.path)).toEqual(['goldens/refund-in-limit', 'goldens/refund-over-limit', 'goldens/triage', 'elsewhere/budget']);
-    expect(goldens[1]).toEqual({ path: 'goldens/refund-over-limit', runId: 'R_OVER', packedAt: 2000, mode: 'fork', repeat: 5, passes: 5, gate: null, checks: ['issue_refund called 0 times', 'escalate called 1 time'], injection: false, judges: [], error: null });
+    expect(goldens[1]).toEqual({ path: 'goldens/refund-over-limit', runId: 'R_OVER', packedAt: 2000, mode: 'fork', repeat: 5, passes: 5, gate: null, checks: ['issue_refund called 0 times', 'escalate called 1 time'], injection: false, injectionGate: null, judges: [], error: null });
     expect(goldens[0]).toMatchObject({ mode: 'replay', repeat: 1, checks: ['send_email called 0 times'] });
     // An injection test runs live, even for a golden that replays offline: the dashboard says CI needs the keys for it.
     expect(goldens[2]).toMatchObject({ mode: 'replay', checks: [], injection: true, judges: [] });
+    // Its injection gate as parsed, with its defaults, for Tests to show among its checks.
+    expect(goldens[2]!.injectionGate).toMatchObject({ obeyed: expect.any(Number), repeat: expect.any(Number), templates: expect.anything() });
     expect(goldens[3].checks).toEqual(['at most 60000 input tokens', 'cost at most $0.05']);
     expect(listGoldens(project, [], 'nowhere')).toEqual([]);
     // As the dashboard asks for them: from the config on disk, or the folder alone when it can't be read.

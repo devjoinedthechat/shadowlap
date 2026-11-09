@@ -14,6 +14,7 @@ import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
 import { namesTeamStore } from './verdicts.js';
+import { withInjectionGates } from '../injection-gates.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { liveAsk } from '../tests-live.js';
 import { bisectChoices, bisectJob, checkedRevision, gatePreview, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource, type TestsJob, type TestsView, type UntestedCommit } from '../tests.js';
@@ -253,7 +254,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/tests', async (r) => {
     const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
-    r.tagged(await withSteps(await revisionsInCheckout(view, ctx.project?.path)));
+    r.tagged(withInjectionGates(ctx.store, await withSteps(await revisionsInCheckout(view, ctx.project?.path)), goldens()));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's

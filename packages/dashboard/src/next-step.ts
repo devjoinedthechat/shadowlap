@@ -809,9 +809,25 @@ export function stepCalls(store: StoreOf<'readModels'>, run: Pick<RunRecord, 'ru
 export function goldenStep(store: Store, golden: string, work: NextStepWork | null, reads: StepReads): NextStep | null {
   const result = reads.results(golden)[0];
   if (!result || verdictOfResult(result) === 'passed') return null;
+  const gate = gateStep(store, golden, result);
+  if (gate !== undefined) return gate;
   const more = verdictOfResult(result) === 'inconclusive' ? gateResultView(result, golden)?.more : null;
   if (more) return { key: 'more-attempts', label: ACTIONS.runMoreAttempts.label, golden, command: commandLine(more.args) };
   return (result.runId ? listedStep(store, result.runId, work, { reads }) : null) ?? null;
+}
+
+/**
+ * A golden whose verdict is its injection gate's (its replay passed): a failed gate leads with its
+ * proof, the first attempt that obeyed (else influenced) that the store still has; one that showed too
+ * little to say runs the golden and its gate again. Undefined for a golden whose verdict is not its gate's.
+ */
+function gateStep(store: Store, golden: string, result: TestResult): NextStep | null | undefined {
+  const gate = result.failure === 'injection' ? result.data?.injection : null;
+  if (!gate) return undefined;
+  if (gate.verdict === 'inconclusive') return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden, command: commandLine(['test', golden]), sub: gateAgainSub(gate.reason) };
+  const kept = gate.resultId ? store.getInjectionResult(gate.resultId) : null;
+  const proof = kept ? proofOf(store, kept.data) : null;
+  return proof ? { key: 'injection-proof', label: ACTIONS.openProof.label, runId: proof.runId, href: links.run(proof.runId, proofCall(proof)), title: `Opens ${short(proof.runId)}`, sub: `${injectionLine(kept!)} · ${proof.payload} at #${proof.read}` } : null;
 }
 
 /** Tests' steps (`GET /api/tests`): of the goldens named, each that leads with one, by its path. */
