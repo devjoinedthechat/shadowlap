@@ -313,10 +313,10 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const ids = dash().runs;
   const id = (name: string) => ids[name] as string;
   // A row or a button that isn't there says so soon: there is no waiting it out.
-  const button = (where: string, text: string) => async () => {
+  const button = (where: string, text: string, shows = DIALOG) => async () => {
     apiRequests(page);
     await page.locator(where, { hasText: text }).first().click({ timeout: 20_000 });
-    await settled(page, { shows: DIALOG });
+    await settled(page, { shows });
   };
   // Its page again is the page as it was: what is ticked stays ticked.
   const tick = async () => {
@@ -336,7 +336,9 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const onPage = (name: string, path: string, text: string) => opened(name, at(page, path), button('main#view button', text));
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
-  const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule));
+  // The builder from a call of the refund bug, a failed recording: swept once Suggested has drawn the rules the demo's
+  // good run gives, which it asks for after the builder settles, so the read can come after the dialog's own.
+  const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule, `${DIALOG} .cb-sug`));
   const states = (): Array<[string, () => Promise<void>]> => [
     ...opened('Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
     ...onRun('The consent question', 'packed', 'Replay'),
