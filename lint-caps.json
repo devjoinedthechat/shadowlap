@@ -30,7 +30,7 @@
       "runPresets": 92
     },
     "packages/cli/src/commands/changes.ts": {
-      "register > action(\"decisions\")": 44
+      "register > action(\"decisions\")": 42
     },
     "packages/cli/src/commands/coverage.ts": {
       "register > action(\"coverage\")": 46
@@ -377,7 +377,7 @@
       "runPresets": 156
     },
     "packages/cli/src/commands/changes.ts": {
-      "register": 186
+      "register": 176
     },
     "packages/cli/src/commands/data.ts": {
       "register": 207
