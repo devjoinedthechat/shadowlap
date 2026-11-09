@@ -116,12 +116,14 @@ describe('the Training read model', () => {
       source: { kind: 'blame', label: 'blame · refund-bug', href: '#/fixes/fx-refund-limit/blame' },
       from: 'from blame',
       count: 2,
-      chosenLabel: 'chosen · 2 attempts that passed',
       rejected: { what: 'the recording', text: '"Issuing the refund.", issue_refund({"order_id":"A-1042","amount":240})' },
     });
+    expect(blame.chosen.map((c) => c.what)).toEqual(['blame attempt, passed', 'blame attempt, passed']);
     expect(blame.chosen.map((c) => c.text)).toEqual(['"Above the limit.", escalate({"reason":"refund of $240 is above $100"})', '"$240 is over the $100 limit, so this needs approval.", escalate({"reason":"above the refund limit"})']);
     expect(blame.context).toContain('read_policy returned');
-    expect(verify).toMatchObject({ confidence: 'medium', runId: target.runId, about: target.runId, attemptOf: null, fix: null, from: 'from verify', count: 1, chosenLabel: 'chosen · verify attempt, passed' });
+    expect(verify).toMatchObject({ confidence: 'medium', runId: target.runId, about: target.runId, attemptOf: null, fix: null, from: 'from verify', count: 1 });
+    // Each answer says what it was, at its row's end on the page.
+    expect(verify.chosen.map((c) => c.what)).toEqual(['verify attempt, passed']);
     expect(verify.source.href).toBe(`#/run/${target.runId}/5/forks`);
     // The group opens the run verify replayed, at the call; the rejected answer opens its own attempt.
     expect(verify.href).toBe(`#/run/${target.runId}/5`);

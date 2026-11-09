@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { CopyButton } from '../../components/bits.js';
+import { CodeBox } from '../../components/CodeBox.js';
 import { ConfirmDialog } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
 import type { CodingAgentsSettings } from '../../settings-api.js';
@@ -7,6 +7,7 @@ import { useApp } from '../../state.js';
 import { CommandLine, FILES_GONE, LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
 import { agentFileWords, orList, sharedSkillsWords, SKILL_INSTALL_KIND, skillWords, type AgentAction } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { Section } from '../../components/Section.js';
 
 /**
  * Coding agents, as the design has it (codingAgentsPanel): coding agents need no MCP server, the CLI
@@ -23,11 +24,11 @@ import { ActionButton } from '../../components/ActionButton.js';
  */
 export function AgentsTab() {
   const { client } = useApp();
-  const { data, error } = useSettingsData(() => client.settings.agents(), 'settings:agents');
+  const { data, error, reload } = useSettingsData(() => client.settings.agents(), 'settings:agents');
   const gone = useFolderGone();
   const [asking, setAsking] = useState<{ install: Install; title: string; lead: string; path: string; others: boolean } | null>(null);
   const start = useInstall();
-  if (error && !data) return <LoadProblem error={error} />;
+  if (error && !data) return <LoadProblem error={error} retry={reload} />;
   if (!data) return <Loading title="Coding agents" />;
   const skill = data.skill;
   const found = data.files.filter((f) => f.found);
@@ -75,15 +76,9 @@ export function AgentsTab() {
       )}
       {data.section ? (
         <>
-          <pre className="codebox md" tabIndex={0}>
-            {data.section}
-          </pre>
-          <div className="actions">
-            <CopyButton text={data.section} label="the section" className="btn">
-              Copy the section
-            </CopyButton>
-            <span className="hintx">Paste it into {!gone && found.length && !found.some((f) => f.mentions) ? orList(found.map((f) => f.path)) : 'CLAUDE.md, AGENTS.md or your rules file'}.</span>
-          </div>
+          {/* Its Copy in the box's corner, Copy section. */}
+          <CodeBox code={data.section} what="the section" className="md" />
+          <p className="hintx">Paste it into {!gone && found.length && !found.some((f) => f.mentions) ? orList(found.map((f) => f.path)) : 'CLAUDE.md, AGENTS.md or your rules file'}.</p>
         </>
       ) : (
         <p className="muted">
@@ -93,11 +88,7 @@ export function AgentsTab() {
     </>
   );
   return (
-    <section className="panel set">
-      <header>
-        <h2>Coding agents</h2>
-        <span className="sub">Claude Code, Codex, Cursor and others</span>
-      </header>
+    <Section className="set" title="Coding agents" sub="Claude Code, Codex, Cursor and others">
       {/* The skills' row only once the owner has published the plugin: before that, no install it can't complete, and nothing said about one. */}
       {skill?.published ? (
         <>
@@ -112,7 +103,7 @@ export function AgentsTab() {
         </div>
       )}
       {asking ? <ReplaceSkillsDialog {...asking} command={asking.install.command} onClose={() => setAsking(null)} onOk={() => start(asking.install)} /> : null}
-    </section>
+    </Section>
   );
 }
 
@@ -147,8 +138,8 @@ function InstallButton({ action, command, sub, small = false, lime = false, onCl
 /**
  * The skills, once the owner has published the Claude Code plugin (the design's skillPanelRows):
  * they package the section below for Claude Code; its command and Install the skills in lime,
- * or where it is installed, with Commit it; and the commands that install it in every project on
- * this machine, with Copy. Another version's copy offers Update to this one; one edited here,
+ * or where it is installed, with Commit it; and Show commands for every project, the commands that
+ * install it in every project on this machine, in a box with its Copy. Another version's copy offers Update to this one; one edited here,
  * Replace…, which asks first; a way that is blocked says why. With the folder gone, what the project
  * has can't be read.
  */
@@ -196,26 +187,12 @@ function SkillRow({ skill, gone, onAct }: { skill: NonNullable<CodingAgentsSetti
         )}
         {every ? (
           <>
-            <button className="linkbtn skall" type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            <button className="linkbtn skall" type="button" aria-expanded={open} aria-controls="skall" onClick={() => setOpen((o) => !o)}>
               <Icon name="caret" />
-              In every project on this machine
+              {open ? 'Hide' : 'Show'} commands for every project
             </button>
-            {open ? (
-              <>
-                <div className="cmdline skcmd">
-                  {every.map((c, i) => (
-                    <Fragment key={c}>
-                      {i ? <br /> : null}
-                      <b>$</b>
-                      <span>{c}</span>
-                    </Fragment>
-                  ))}
-                </div>
-                <CopyButton text={every.join('\n')} label="Claude Code’s install commands">
-                  Copy
-                </CopyButton>
-              </>
-            ) : null}
+            {/* Its Copy, Copy commands. */}
+            {open ? <CodeBox id="skall" command={every} className="skcmd" /> : null}
           </>
         ) : null}
       </div>

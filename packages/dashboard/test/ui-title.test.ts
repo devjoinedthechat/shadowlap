@@ -25,10 +25,12 @@ describe('a tab’s title', () => {
     expect(title('#/nothing-here')).toBe('Not found — shadowlap');
   });
 
-  it('names a Settings tab, CI by the label its address has kept since Alerts', () => {
+  it('names a Settings tab, and the tab an older name opens: CI for alerts, Project for plan', () => {
     expect(title('#/settings')).toBe('Matching · Settings — shadowlap');
     expect(title('#/settings/redaction')).toBe('Redaction · Settings — shadowlap');
+    expect(title('#/settings/ci')).toBe('CI · Settings — shadowlap');
     expect(title('#/settings/alerts')).toBe('CI · Settings — shadowlap');
+    expect(title('#/settings/plan')).toBe('Project · Settings — shadowlap');
     expect(title('#/settings/agents')).toBe('Coding agents · Settings — shadowlap');
     expect(title('#/settings/store')).toBe('Store · Settings — shadowlap');
   });

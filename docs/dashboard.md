@@ -1261,6 +1261,8 @@ Training shows:
 - **The goldens as tasks**: where a model takes over, what scores it, and whether it can be scored.
 - **Each scored model's mean**, with a pip per attempt that opens its run.
 
+Its header's facts count the pairs, the tasks ready of all of them, the best mean score once a model is scored, and the pairs the last export wrote (*Exported*). Each says its makeup on hover.
+
 **Export pairs…** and **Score model…** run [`export pairs` and `tasks score`](./training.md#in-the-dashboard) as jobs.
 
 - **Score model…** offers only the models that can answer a ready task, and names the ones it leaves out, with why. A recording on Bedrock, Vertex AI, Azure OpenAI or the Gemini API is translated for another provider's model.
@@ -1271,7 +1273,7 @@ A task whose test forks before its takeover opens that test's run where it forke
 
 ## Settings
 
-Settings (`#/settings/<tab>`) is the one page a project with no runs opens too. It has a tab for each part of the project's setup:
+Settings (`#/settings/<tab>`) is the one page a project with no runs opens too. Its header names the project, as *support-agent · project settings*. It has a tab for each part of the project's setup:
 
 | Tab | What it holds |
 | --- | --- |
@@ -1280,7 +1282,7 @@ Settings (`#/settings/<tab>`) is the one page a project with no runs opens too. 
 | [CI](#ci) | Your CI workflow, built from its switches |
 | [Coding agents](#coding-agents) | Which instruction files mention Shadowlap, and the skills |
 | [Tools](#tools) | Every tool the recordings called, and the MCP servers |
-| [Project](#project) | The project's store, runs, size and address |
+| [Project](#project) | The Shadowlap version, the project's store, runs, size and address, and Spending |
 | [Store](#store) | The [team store](./team.md) |
 
 How Settings writes the config, and what its buttons run, is under [Actions in Settings](#actions-in-settings).
@@ -1290,14 +1292,16 @@ How Settings writes the config, and what its buttons run, is under [Actions in S
 *Matching* holds:
 
 - **The normalizers**, with **Add normalizer…** and **Remove**. **Add normalizer…** takes a scope, a path, a named pattern, or under Advanced a regex, a tool or call name, or the whole value.
-- **The clock.**
-- **Calibrate**, which names the run it replays: the setup's, else the newest recording made here.
+- **The clock**, *auto* or *exact*.
+- **Calibrate**, with a picker of the recordings it can replay beside it. It starts on the setup's run, else the newest recording made here, and keeps the one you pick until the page reloads.
+
+A rule's row says its scope in words, as *every call*, *API calls* or *tool calls to send_email*. **Remove** takes it out with **Undo** in its toast, which puts it back at its number. A rule that can't be used is removed without one.
 
 A regex the [pattern check](./normalizers-and-redaction.md#patterns-that-could-take-too-long) refuses, as `(a+)+`, which can take minutes on some text, is named with why before it is added.
 
 ### Redaction
 
-*Redaction* holds the rules, where each kind of copy applies them, and what they would mask in a run you pick. The [picker](#menus-pickers-and-dialogs) starts on the newest recording made here, and names each run by its id and its about line, as Compare's do.
+*Redaction* holds the rules, where each kind of copy applies them, and what they would mask in a run you pick. The [picker](#menus-pickers-and-dialogs) starts on the newest recording made here, and names each run by its id and its about line, as Compare's do. **Remove** offers **Undo**, as on Matching.
 
 What the rules would mask is counted per rule, path rules included, with up to two samples before and after, exactly as a pack masks them. A long run is read up to 2,000 calls, 64 MB or 5 seconds, and the page says how far it got; `shadowlap redact preview` reads it all.
 
@@ -1314,7 +1318,7 @@ For values a pack leaves as they are, the lines then give:
 
 ### CI
 
-*CI* (`#/settings/alerts`) builds [your workflow](./ci.md#one-job-for-all-of-it): one job, in which the action runs the goldens once (`id: goldens`) and the parts you turn on follow it. It is built from its switches, **Fix pull requests** and **Tell Slack**.
+*CI* (`#/settings/ci`, which `#/settings/alerts` opens too) builds [your workflow](./ci.md#one-job-for-all-of-it): one job, in which the action runs the goldens once (`id: goldens`) and the parts you turn on follow it. It is built from its switches, **Fix pull requests** and **Tell Slack**.
 
 The workflow has the checkout, Node 22 and a line for the agent's dependencies before the action. With a fix pull request on, the checkout is of the branch its pull request goes into. The tab shows what the workflow needs for what is on, and what fails a golden in it. Then comes a panel for each part, its settings and what lands, for the repository's default branch, dimmed while it is off.
 
@@ -1349,11 +1353,11 @@ The `.agents/skills` row offers [the skills for Codex, Cursor, Copilot and the o
 - **Over one edited here**, **Replace with** puts the CLI's own copy in its place. It asks first, confirmed with **Replace skills**, since that replaces it.
 - **Where the skills can't go in**, the row says why.
 
-The tab also gives the section to paste.
+The tab also gives the section to paste, in a box with **Copy section** in its corner, and says which file to paste it into.
 
 ### Tools
 
-*Tools* lists every tool the recordings called, by what happens to it after a fork. It also lists the MCP servers the project's client configs list, each with the `shadowlap mcp` line that records it. Each config comes with `shadowlap mcp` in front of its servers, to copy.
+*Tools* lists every tool the recordings called, by what happens to it after a fork. It also lists the MCP servers the project's client configs list, each with the `shadowlap mcp` line that records it. **Show the client’s config** unfolds each config with `shadowlap mcp` in front of its servers, and **Copy MCP config** copies it.
 
 Credentials in a copied config:
 
@@ -1365,7 +1369,7 @@ Credentials in a copied config:
 
 ### Project
 
-*Project* shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove project…**. Beside the store's size, it shows any unused space that runs deleted since left in the store.
+*Project* starts with the Shadowlap version: *open source, Apache-2.0 · no account, no limits on runs*. It shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove project…**. Beside the store's size, it shows any unused space that runs deleted since left in the store.
 
 **Spending** is the row that sets when a billed job asks first: **Always ask**, **$0.50**, **$2** or **Never ask**, or an amount typed in dollars, kept once you press Enter or leave the field. See [Spending](#spending).
 
@@ -1378,18 +1382,28 @@ Credentials in a copied config:
 
 *Store* is the [team store](./team.md). It shows:
 
-- the bucket;
+- the bucket, with its region and provider;
+- who has access, with **Copy access policy**, which copies what [`shadowlap store policy`](./team.md#access) prints, to ask your cloud admin for;
+- your access, with **Check again**;
 - the last sync, with the runs in the store and only on this machine, by run (attempts filed under their run);
+- the last check, once there is one;
 - **Push local runs** and **Pull**;
-- Push from CI (every test run, its report and each fix CI opens), with its step to copy; the Fix on failure step on the CI tab follows it;
-- while a setup is under way, the step that is next, with **Continue the setup**.
+- Push from CI (every test run, its report and each fix CI opens), a switch with its step to copy; the Fix on failure step on the CI tab follows it;
+- while a setup is under way, the step that is next, with **Continue setup**.
+
+One button is lime, the next step: **Push local runs** while finished runs are only on this machine, else **Continue setup** while a setup is under way.
+
+**Check again** runs [`shadowlap store check`](./team.md#check-access) as a job. It writes nothing to `shadowlap.config.json`, and a finished setup stays finished. Its result shows as the last check, and in the [activity feed](#activity).
 
 With no team store, **Set up team store** opens the store's setup page.
 
 ### When the config or the folder can't be read
 
+While a tab loads, its section shows as quiet bars. A tab whose read fails says *couldn’t load* under the tabs, with the server's words and **Retry**.
+
 While `shadowlap.config.json` can't be read:
 
+- Matching, Redaction, CI and Store lead with *can’t read*: *Fix shadowlap.config.json to change these settings*, and why;
 - the tabs say so where their rules would be;
 - they offer neither **Calibrate** nor **Set up team store**, which would read or write the same file;
 - *CI* says so too, and each step says in its `env` what it leaves out until the file is fixed, as an amber row of what it needs does;
@@ -1573,6 +1587,8 @@ The first time a command runs in a folder, the dashboard asks before running it.
 - **It never touches the goldens** in your repository.
 
 Repair reports, exports and files sent to jobs, in `.shadowlap/repairs`, `.shadowlap/exports` and `.shadowlap/uploads`, are copies of their own and stay too. The dialog names the ones there, so delete them yourself if they hold what you mean to delete. With a [team store](./team.md), the dialog says how many of the runs are in it too, which stay there, and how many exist only here.
+
+**Undo**, on the toast that says *Removed support-agent · nothing on disk changed*, puts the project back on the list where it was: *support-agent is back on the dashboard*. The project you are on stays current. A removal that deleted the recordings has no Undo, nor has one whose folder is gone.
 
 The only project can't be removed.
 
@@ -1803,8 +1819,9 @@ Settings changes `shadowlap.config.json` as `shadowlap normalize add` and `rm`, 
 - **No lost edits**: each change names the version of the file the page read, so one made in an editor or a terminal since is never overwritten. The page says so, and shows the file as it stands.
 - **The CLI's words**: a rule the CLI would refuse is refused with the same words.
 - **The activity feed**: every change lands in it.
+- **Undo**: removing a rule, picking the clock, turning Push from CI on or off, and Calibrate's **Add normalizer** each offer **Undo** in their toast. It puts the file back as it was before the change, and is refused, as any change is, once the file changed since.
 
-**Calibrate** is a job that runs `shadowlap calibrate <run>`, with each round in the drawer. When it proposes normalizers, **Add normalizer** adds exactly those, without replaying again.
+**Calibrate** is a job that runs `shadowlap calibrate <run>` on the recording its picker shows, with each round in the drawer. When it proposes normalizers, **Add normalizer** adds exactly those, without replaying again.
 
 **Clean up old runs** runs `shadowlap gc --older-than 30 --dry-run`. When it finds runs, **Delete N runs** asks first (Cancel has the focus), naming the attempts bundled under them, which go too. It then deletes exactly the runs the dry run listed, or nothing if others match by then.
 
@@ -1939,6 +1956,8 @@ These keys work in a list: Runs, Changes' verdicts and a revision's goldens, Fix
 | `x`          | Select the row, on Runs                                  |
 | `+` / `-`    | Label it good or bad, on Runs                            |
 | Esc          | Clear the selection, then let go of the row              |
+
+Settings' rules and MCP servers, and Training's pairs, where they come from and its tasks, are lists too. On a rule, Enter or ⌘K offers its **Remove**; on a server, **Copy the line**. Enter on one of Training's rows opens what it links to.
 
 These keys go to a page, in the order they are listed:
 
@@ -2433,11 +2452,14 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | --- | --- |
 | `GET /api/settings/matching`, `/redaction[?run=]`, `/redaction/preview?run=`, `/agents`, `/tools`, `/tools/mcp?command=\|url=`, `/project`, `/store` | Settings, one read per tab; a tab that edits the config also gets its `version` |
 | `POST /api/settings/rules/normalize\|redact`, `DELETE /api/settings/rules/:list/:n?expect=`, `PUT /api/settings/clock`, `PUT /api/settings/store/ci-push`, `POST /api/settings/calibrate/write` | Changes to `shadowlap.config.json`, each with the `version` it read as `expect`; the last adds what a calibrate job proposed |
+| `POST /api/settings/rules/:list/:n/restore { rule, expect }` | A removed rule's Undo: the rule back at its number, as the file held it |
 | `GET /api/user/spending`, `PUT /api/user/spending { askAbove }` | Spending, yours on every project: the amount above which a billed job asks first; a change answers what it was (`was`), for Undo |
 
 - **`/agents`** also carries `skill`: the [skills](./agents.md#the-skills) with their commands, and what the project has of the Claude Code plugin and of the skills in `.agents/skills`. Each has its `state`, its `installedVersion` and the `install` a click runs (`null` where there is nothing to install). It also says which of Claude Code's settings files turns on the plugin installed from its marketplace.
 - **The preview** masks one run as a pack would (`redact preview --json`, each rule's `returned` and `unmasked` included), read on a thread of its own within limits. A rule that takes too long on one call is a 422; other previews being read, or a store another command holds, a 503.
 - **A change** to a file changed since is a 409, and a rule the CLI refuses a 400.
+- **An Undo** names the `version` the change it undoes wrote. The clock and Push from CI answer what they replaced (`was`), and `null` takes the key out of the file again.
+- **`/store`** also carries `policy`: what `shadowlap store policy` prints, which Copy access policy copies.
 - **Spending** (`askAbove`) is in dollars: a billed job asks first when its estimate is above it, so 0 asks of every job that bills. With `null`, Never ask, no amount asks. A job with no estimate still asks, as do a form, a price per unit and a job that asks for what it does, such as Run repair.
 - **Where it is kept**: it is kept in `settings.json` under `SHADOWLAP_HOME` (else `~/.shadowlap`), never in `shadowlap.config.json`, so CI and teammates never take it on. A page showing another project may change it. An amount that isn't whole cents is a 400, and a file it would lose something of, such as a newer Shadowlap's, a 409.
 
@@ -2447,11 +2469,14 @@ A gate against history is figured at seven pass rates against the baseline `hist
 | --- | --- |
 | `GET /api/projects`; `POST /api/projects/:id/select` | The switcher: every project with its path, runs and setup; switch to one |
 | `GET /api/projects/folders?q=&pick=`; `POST /api/projects { path }` | Folder suggestions for a typed path, the picked one checked; add a folder and switch to it |
+| `POST /api/projects/:id/restore` | A removal's Undo: the project back on the list where it was, the current one left current |
 | `GET /api/projects/:id/remove`; `POST /api/projects/:id/remove { deleteRecordings?, name? }` | What the Remove dialog shows; remove the project, deleting its store only when `name` matches |
 | `GET /api/projects/holding?what=&id=` | Which other project's store holds a run, fix, preview or migration this one doesn't: read-only, beside the server |
 | `GET /api/setup`; `POST /api/setup/record { command }`, `/golden { golden }`, `/finish` | The current project's setup; what recording a command runs and whether it asks first; where a golden would go; finish the setup |
 
 `/api/setup/record` and `/golden` change nothing.
+
+A removal answers `undo`: whether its toast's Undo can put the project back, which it can't once the recordings are deleted or with the folder gone. A restore with nothing to put back is a 404, and one whose folder isn't on disk a 400.
 
 ### Team store and imports
 
@@ -2468,7 +2493,7 @@ A gate against history is figured at seven pass rates against the baseline `hist
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /api/training?filter=all\|high\|medium` | Training: the strip, the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
+| `GET /api/training?filter=all\|high\|medium` | Training: the header's facts (`strip`), the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
 | `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a run's decisions, and the retirement notices |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
@@ -2563,6 +2588,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `score { model, baseUrl?, attempts?, goldens? }` | 5 or 10 attempts a task, 5 unless given; every ready task unless some are named |
 | `share { runId }` | A share link |
 | `skill-install { agent, replace? }` | [`skill install`](./cli.md#skill), `--force` with `replace` |
+| `store-check` | Check again, from Settings → Store: `store check`, which writes nothing to the config |
 | `store-set { url, provider }` | `store set --check` |
 | `task-update { golden, yes? }` | Update golden, from Training |
 | `test { golden?, maxAttempts?, continue?, yes? }` | A test session |
@@ -2612,6 +2638,8 @@ Outside a dashboard job the variable is unset, and nothing is written.
 It also checks the contrast of text and of a field's edge, the focus order, the skip link, the focus rings and every overlay's focus. It checks 24 px targets, a phone's width with no label under 11 px, and that every link the server writes opens a page. A page whose code couldn't be loaded must draw once **Retry** loads it again. An exported copy, opened from a file, must draw its run's every view, its runs and Compare without loading a thing or logging an error.
 
 A second dashboard, started in the demo's triage-bot, checks [a link into another project](#a-link-into-another-project). Every run, fix and pair the server's links name is found in support-agent from there, and **Switch to support-agent** opens the run at the same call, its heading taking the focus.
+
+Settings is checked at a phone's width too: no tab scrolls sideways, each row's words sit over its control, and a redaction rule removed there comes back from its toast's Undo with `shadowlap.config.json` as it was, byte for byte.
 
 **A large store.** `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds a large store and times what a browser asks for on it; see [Large stores and long runs](#large-stores-and-long-runs).
 

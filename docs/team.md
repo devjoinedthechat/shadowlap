@@ -49,7 +49,7 @@ In the dashboard each step shows its command:
 Until **Finish**, the store works already, and the dashboard leads back to the setup:
 
 - it is first in the Overview's Needs a look;
-- Settings → Store names the step that is next, with **Continue the setup**;
+- Settings → Store names the step that is next, with **Continue setup**;
 - the palette offers **Continue team store setup**;
 - the status bar says *setting up*.
 
@@ -135,6 +135,8 @@ Per cloud:
 - **Azure Blob.** Storage Blob Delegator lets `shadowlap share` sign links from an Entra sign-in. Azure hands out the user delegation key those links are signed with per account, never per container, and a link still reads only what the first role allows.
 - **Cloudflare R2.** An R2 token can't be kept to a folder, so pull requests get Object Read only, if anything, and run their tests without pushing.
 
+In the dashboard, Settings → Store's **Copy access policy** copies what `shadowlap store policy` prints, to send your cloud admin.
+
 ### Check access
 
 `shadowlap store check` proves this machine's credentials can list, write, read and delete a test object in the folder. Then it reports how the bucket keeps what is written to it: encryption at rest, versioning, and an object lock.
@@ -146,6 +148,8 @@ Per cloud:
 | Azure | an immutability policy |
 
 Anyone allowed to write to the bucket can change a run's record there: versions keep its earlier state, and a lock keeps those versions from being deleted. The check warns when either is off, and says how to turn it on. R2 keeps no versions.
+
+In the dashboard, Settings → Store's **Check again** runs `shadowlap store check` as a job. It writes nothing to `shadowlap.config.json`, and a finished setup stays finished. Its result shows as the store's *Last check*, and in the activity feed (*Store checked*, or *Store check failed*).
 
 ## Push and pull
 

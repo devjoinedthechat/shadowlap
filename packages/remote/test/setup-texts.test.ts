@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accessPolicy, ciStep, formatStoreUrl, HttpError, objectKey, objectLockHint, parseStoreUrl, pullRequestLocation, schemeHint, shortStoreName, storeKey, StoreUrlError, credentialsMayGoTo, transportError, versioningHint } from '@shadowlap/remote';
+import { accessPolicy, ciStep, formatStoreUrl, HttpError, objectKey, objectLockHint, parseStoreUrl, policyLines, pullRequestLocation, schemeHint, shortStoreName, storeKey, StoreUrlError, credentialsMayGoTo, transportError, versioningHint } from '@shadowlap/remote';
 
 /**
  * What store setup reads and prints: store URLs checked against each provider's scheme, the access
@@ -170,6 +170,16 @@ describe('the access to ask the cloud admin for', () => {
     expect(text).toContain('--condition "$(cat shadowlap-pull-requests-condition.txt)"');
     expect(text).toContain('/blobServices/default/containers/agent-runs"');
     expect(text).not.toContain('Storage Blob Delegator');
+  });
+
+  it('lays out what store policy prints and Settings copies: each policy after who it is for, every note a # line', () => {
+    const p = accessPolicy('s3', parseStoreUrl('s3://northwind-agent-runs/support-agent'));
+    const lines = policyLines(p);
+    expect(lines[0]).toEqual({ text: '# The access to ask your cloud admin for (Amazon S3): one policy for people and protected branches, one for pull requests', comment: true });
+    expect(lines.filter((l) => !l.comment).map((l) => l.text)).toEqual([p.writer.text, p.pullRequest.text]);
+    expect(lines[lines.findIndex((l) => l.text === p.pullRequest.text) - 1].text).toBe("#\n# 2. For pull requests' CI jobs: an IAM policy that reads the store and writes only under support-agent/pr/");
+    expect(lines.filter((l) => l.comment).flatMap((l) => l.text.split('\n')).every((x) => x.startsWith('#'))).toBe(true);
+    expect(lines.at(-1)).toEqual({ text: `# ${p.notes.at(-1)!}`, comment: true });
   });
 
   it('gives pull requests a read-only R2 token, since an R2 token cannot be kept to a folder', () => {

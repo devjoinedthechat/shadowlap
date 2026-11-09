@@ -149,7 +149,7 @@ describe('GET /api/training', () => {
     // The blame's pairs open its fix at the Blame step; the verify's open the verify it was.
     const [blame, verify] = view.pairs.groups;
     expect(blame).toMatchObject({ confidence: 'high', count: 2, fix: { label: 'refund-bug', href: `#/fixes/${fixId}/blame` }, source: { kind: 'blame', href: `#/fixes/${fixId}/blame` } });
-    expect(verify).toMatchObject({ confidence: 'medium', count: 1, fix: { label: 'refund-bug', href: `#/fixes/${fixId}/verify/${verifyId}` }, from: 'from verify', chosenLabel: 'chosen · verify attempt, passed' });
+    expect(verify).toMatchObject({ confidence: 'medium', count: 1, fix: { label: 'refund-bug', href: `#/fixes/${fixId}/verify/${verifyId}` }, from: 'from verify', chosen: [expect.objectContaining({ what: 'verify attempt, passed' })] });
     expect(view.pairs.sources.map((s) => [s.label, s.made, s.href])).toEqual([
       ['blame · refund-bug', 2, `#/fixes/${fixId}/blame`],
       ['verify · c91d0f4', 1, `#/fixes/${fixId}/verify/${verifyId}`],

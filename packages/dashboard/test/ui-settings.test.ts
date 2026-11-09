@@ -82,16 +82,18 @@ describe('when a tab reads again', () => {
 });
 
 describe('the Settings tabs', () => {
-  it('opens Matching without a tab, keeps CI at its old address, and knows no other tab', () => {
+  it('opens Matching without a tab, CI at ci and its older name alerts, Project at plan, and knows no other tab', () => {
     expect(SETTINGS_TABS.map((t) => t.label)).toEqual(['Matching', 'Redaction', 'CI', 'Coding agents', 'Tools', 'Project', 'Store']);
+    expect(SETTINGS_TABS.map((t) => t.key)).toEqual(['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store']);
     expect(settingsTab(null)).toBe('matching');
-    expect(settingsTab('alerts')).toBe('alerts');
-    expect(settingsTab('ci')).toBe('alerts');
+    expect(settingsTab('ci')).toBe('ci');
+    expect(settingsTab('alerts')).toBe('ci');
+    expect(settingsTab('plan')).toBe('project');
     expect(settingsTab('store')).toBe('store');
-    expect(settingsTab('plan')).toBeNull();
     expect(settingsTab('members')).toBeNull();
+    expect(settingsTab('toString')).toBeNull();
     // The breadcrumb names the tab shown, whatever the address said.
-    expect(['alerts', 'ci', null, 'tools', 'plan'].map(settingsTabLabel)).toEqual(['CI', 'CI', 'Matching', 'Tools', 'Matching']);
+    expect(['alerts', 'ci', null, 'tools', 'plan', 'members'].map(settingsTabLabel)).toEqual(['CI', 'CI', 'Matching', 'Tools', 'Project', 'Matching']);
   });
 });
 
