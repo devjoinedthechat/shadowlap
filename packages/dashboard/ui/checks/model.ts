@@ -651,11 +651,8 @@ export function checkCommand(ids: readonly string[], expect: Fragment): { view: 
 
 // ---- The builder's head and the list's actions --------------------------------------------------
 
-/** The builder's title: from a call, `Add check`; on a golden, adding to it or changing its check. */
-export function titleOf(golden: string | null, o: { edit: boolean; fromCall: boolean }): string {
-  if (golden && o.edit) return `Edit check of ${goldenName(golden)}`;
-  return golden && !o.fromCall ? `Add check to ${goldenName(golden)}` : 'Add check';
-}
+/** The builder's title, beside its served part (run/check-part.tsx), whose entries title their own dialogs by it. */
+export { builderTitle as titleOf } from '../run/check-part.js';
 
 /** The lead under it, where the check isn't made from a call (that lead names the call in code). */
 export function goldenLead(golden: string | null, edit: boolean): string {

@@ -19,6 +19,7 @@ import { divergedAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk
 import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
+import { CheckEntriesOf, useCheckEntries } from '../tests/check-entries.js';
 import { CiSections } from '../tests/Sections.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
 import type { GoodCommitsOf } from '../tests/good-commits.js';
@@ -54,6 +55,8 @@ export function TestsPage() {
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
   const loaded = useLoad(() => client.tests(), 'tests', `${tick}:${feeds.chaos ?? 0}:${running}`);
   const view = loaded.data;
+  // Edit, Remove and Add check… on a golden's checks, and what they open.
+  const checks = useCheckEntries(view, loaded.reload);
   const prices = useTestsEstimates(view ? estimatesKey(view) : null, view?.diverged);
   const [open, setOpen] = useState<Open | null>(null);
   // What the server is running, from every tab and terminal dashboard: a test job (Find breaking commit
@@ -161,7 +164,10 @@ export function TestsPage() {
     <Page>
       {header(actions)}
       <Verdict view={view} running={running} lead={lead} press={press} />
-      <GoldensTable view={view} press={press} />
+      <CheckEntriesOf.Provider value={checks.entries}>
+        <GoldensTable view={view} press={press} />
+      </CheckEntriesOf.Provider>
+      {checks.node}
       {view.divergences.map((d) => (
         <DivergencePanel key={d.golden} d={d} has={hasKind} updateLeads={view.steps?.[d.golden]?.key === 'update-golden'} wait={wait} live={bisectLive(view, d)} prices={prices} onNormalize={(e) => guard(() => normalize(d, e))} onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e }))} onFind={() => findCommit(d)} />
       ))}

@@ -23,7 +23,8 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * dialog (run/EditDialog.tsx), Run blame's check (fixes/RunBlame.tsx), and Find breaking commit's
  * and Delete run's (run/RunDialogs.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
- * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
+ * and Remove check's dialog on Tests (checks/, the dialog declared in tests/check-entries.tsx) and
+ * each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
  * the parts they show and none of the dashboard's other pages. A part a copy never draws stays out of

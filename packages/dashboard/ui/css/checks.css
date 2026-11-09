@@ -81,6 +81,12 @@
 .dialog .cmdline.cb-cmd { margin-top: 10px; font-size: var(--fs-label); }
 .cb-cmdn { margin: 6px 0 0; color: var(--faint); font-size: var(--fs-small); }
 
+/* Remove check's lead sets the check as code in prose: it breaks only between its phrases, each whole where its line holds
+   it and one wider than its line at its spaces (an inline block, laid out on a line of its own where it doesn't fit the
+   rest of one), the first kept with "Removes" by a no-break space. */
+code.ckl { white-space: normal; }
+code.ckl .ckp { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
+
 /* The change: the golden's entry as the file will hold it, its kept lines faint, the version at the header's right. */
 .cb-file { margin-top: 2px; }
 .cb-file .codehead { gap: 10px; }

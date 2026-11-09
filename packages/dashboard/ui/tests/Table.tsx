@@ -9,6 +9,7 @@ import { changedLine, checkMark, sourceText } from '../goldens.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
+import { CheckActs, CheckTail } from './check-entries.js';
 import { EvidenceRow, EvidenceToggle, gated, useEvidenceOpen } from './Evidence.js';
 import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History.js';
 import { goldenKeys, goldenRowScope } from './row-scope.js';
@@ -228,14 +229,18 @@ function LastResult({ row }: { row: GoldenRow }) {
 /**
  * A golden's checks, each marked by how its last result came out on it (✓ passed, ✗ failed, ? in
  * amber when it couldn't be decided, – when it didn't apply; no mark before a result), with what
- * failed, in how many attempts, or why, under it and on hover.
+ * failed, in how many attempts, or why, under it and on hover; and what changes them, where the page
+ * offers it (check-entries.tsx).
  */
 function Checks({ row }: { row: GoldenRow }) {
   if (!row.checks.length) {
     return (
-      <em className="nil" data-tip={tipText('No checks in shadowlap.config.json: it passes when it replays and the agent exits 0')}>
-        exit status only
-      </em>
+      <>
+        <em className="nil" data-tip={tipText('No checks in shadowlap.config.json: it passes when it replays and the agent exits 0')}>
+          exit status only
+        </em>
+        <CheckTail row={row} />
+      </>
     );
   }
   const ran = row.last.result !== null;
@@ -254,9 +259,11 @@ function Checks({ row }: { row: GoldenRow }) {
               {m.text}
               {m.sub ? <small>{glued(m.sub)}</small> : null}
             </span>
+            <CheckActs row={row} check={c.label} last={i === row.checkResults.length - 1} />
           </span>
         );
       })}
+      <CheckTail row={row} />
     </>
   );
 }
