@@ -1271,7 +1271,7 @@ A task whose test forks before its takeover opens that test's run where it forke
 
 ## Settings
 
-Settings (`#/settings/<tab>`) is the one page a project with no runs opens too. It has a tab for each part of the project's setup:
+Settings (`#/settings/<tab>`) has a tab for each part of the project's setup:
 
 | Tab | What it holds |
 | --- | --- |
@@ -1448,7 +1448,7 @@ Switching is for every tab at once: the dashboard serves one project at a time. 
 
 ### A link into another project
 
-A link to a run, a fix or a pair of runs that another project's store holds opens a page that says which: *In support-agent*, and *The run 01M64J32D4 is in support-agent’s store, not triage-bot’s.* **Switch to support-agent** switches to that project and opens the link there, at the same call, view, step or pair. The crumbs name only the section, and the tab's title names the project. A project with no runs shows this page in its setup's place.
+A link to a run, a fix or a pair of runs that another project's store holds opens a page that says which: *In support-agent*, and *The run 01M64J32D4 is in support-agent’s store, not triage-bot’s.* **Switch to support-agent** switches to that project and opens the link there, at the same call, view, step or pair. The crumbs name only the section, and the tab's title names the project.
 
 - **Read, never changed.** The other projects' stores are read beside the server. Nothing is created, migrated or written in them, no connection stays open, and removing a project waits for the read.
 - **Only the list.** The projects on the list are looked in, in its order. A project you removed, one whose folder is gone, a newer Shadowlap's store and a store in a folder you can't write to aren't, though the switcher lists that last one. The page then says the item isn't here.
@@ -1500,45 +1500,50 @@ Suggesting folders means the dashboard lists directories, so it does that within
 
 Adding a project opens its setup.
 
-- **A project with no runs** shows it on every page but Settings.
-- **One that is partway through** shows it on the Overview (and at `#/setup`).
-- **Skip the rest**, or, once its golden's test passes, **Go to the overview**, finishes it.
+- **The Overview** shows it until it is finished, and so does `#/setup`.
+- **Runs, Fixes and Tests** each say what they will hold, with **Set up** and the project's name, as in **Set up triage-bot**, which opens it. The other pages show as before.
+- **A project that can't be opened**, its folder or its store gone, says so on every page but Settings, and offers to remove it.
+- **Skip setup**, or, once its golden's test passes, **Go to Overview**, finishes it.
 
 The setup has four steps. Each runs the command beside it in the project's folder, the same one you could type in a terminal:
 
-| Step | What it does          | Command                                                                     |
-| ---: | --------------------- | --------------------------------------------------------------------------- |
-|    1 | Inspect the folder    | `shadowlap init`                                                            |
-|    2 | Record a first run    | `shadowlap run -- <command>`                                                |
-|    3 | Make the replay clean | `shadowlap calibrate <run> --write`                                         |
-|    4 | Keep it as a test     | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
+| Step | What it does | Command |
+| --- | --- | --- |
+| 1. Inspect | Reads the folder for SDKs, the start command and tools | `shadowlap init` |
+| 2. Record | Runs your command once, after you confirm it | `shadowlap run -- <command>` |
+| 3. Calibrate | Replays offline until the replay is clean | `shadowlap calibrate <run> --write` |
+| 4. Pack | Keeps the run as a test, and runs it | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
 
-**1. Inspect the folder.** Inspecting finds the SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged, with the code to wrap them. The dashboard reads what [`init --json`](./cli.md#init) prints, from the job, and the job's drawer shows what `init` found, a line each.
+**1. Inspect.** Inspecting finds the SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged, with the code to wrap them. The dashboard reads what [`init --json`](./cli.md#init) prints, from the job, and the job's drawer shows what `init` found, a line each.
 
-- Inspecting is done once `init` has run in the folder. A project recorded in a terminal first shows it as skipped, and can still be inspected.
+- Inspecting is done once `init` has run in the folder. The step then folds to one line: what it found, then the command. A project recorded in a terminal first shows it as skipped, and can still be inspected.
 - A Node the project pins before 18.18 (`.nvmrc` or `.node-version`) is flagged there: an agent on it never starts under Shadowlap. So **Record run** stays off until the pin is raised and the folder checked again.
+- **Check again** leads while a write tool isn't wrapped, since packing waits for it.
 
-**2. Record a first run.** A recording counts once it holds calls. One whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so.
+**2. Record.** A recording counts once it holds calls. One whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so.
 
-- When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, check again, and **Record again**.
+- When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, **Check again**, then **Record again**. It shows once they are wrapped, also after the replay was made clean, while packing waits.
 - Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
 
-**3. Make the replay clean.** This replays the recording offline. When it replays clean as it is, the step is done by itself. When calibrate proposes normalizers for values the agent makes anew on every run, **Add it** writes them to `shadowlap.config.json`.
+**3. Calibrate.** This replays the recording offline. When it replays clean as it is, the step is done by itself. When calibrate proposes normalizers for values the agent makes anew on every run, **Add normalizer** writes them to `shadowlap.config.json`, and **Calibrate again** asks again.
 
-**4. Keep it as a test.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
+**4. Pack.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
 
 - **Pack as golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
+- **Packing waits** while a write tool isn't wrapped, as a replay of the golden would run it for real. Once it is wrapped, it waits for a recording made since. The button stays plain, with why under it.
 - **A golden its tests entry runs live** (marked `fork`, or with an injection gate) asks first before its test runs, whatever [Spending](#spending) says, as nothing prices it here.
-- **A golden whose test failed** keeps the step open, with why and **Run the test again**. Fix what changed (or record again), then run it.
+- **A golden whose test failed** keeps the step open, with why and **Re-run test**. Fix what changed (or record again), then run it.
 
-**Skip the rest** appears after the first recording. Finishing before the test passed counts the last step as skipped.
+**Skip setup** appears after the first recording. Finishing before the test passed counts the last step as skipped. Once the golden's test passes, one line says *set up · triage-bot replays exactly.*, with **Go to Overview**.
+
+As a step ends, the page scrolls to the next one and moves the focus to its button, unless you have moved it elsewhere.
 
 The same commands typed in a terminal move the setup on:
 
 - `init` records what it finds.
 - A recording counts once it holds calls.
 - A clean replay of it (`shadowlap replay <run>`) completes step 3, and a pack of it under `goldens/` whose test passed (`shadowlap test`, which keeps each golden's result in the store) completes step 4.
-- Packed but not yet tested, the step offers **Run the test**.
+- Packed but not yet tested, the step offers **Run test**.
 
 One step is current at a time. Once a golden is packed, making the replay clean shows as passed by (it can still be run), and a test of the golden that passed counts as a clean replay too. `calibrate --write` in a terminal leaves nothing behind by itself; the setup's **Calibrate** then finds the replay clean as it is.
 
@@ -2180,6 +2185,13 @@ A recording's page is read the same way, following its newest call:
 
 An exported copy holds every call.
 
+### While a page's data loads
+
+While their data loads, the Overview, Runs, Tests, a run, a fix and the setup draw their final layout, its text as quiet bars, so nothing moves when the data comes. Nothing under the bars can be pressed, and a screen reader hears what is loading.
+
+- **A read that fails** keeps the page's header, over one line that says why, with **Retry**.
+- **A link that names nothing** opens *Nothing here* under the page's header, with the way back: **Open Runs** for a run, **Open Fixes** for a fix, and **Back to Overview** for a page or a setup.
+
 ### Each page's code loads when it opens
 
 The dashboard's first script holds the shell and what the pages share. The rest loads the first time it is needed:
@@ -2580,6 +2592,7 @@ What some of them do:
 - **`chaos` on a golden** is refused with a 409 while a test session, an update or a pack runs, as they are while it runs, or while presets run on goldens, wherever they were started: a terminal, another dashboard or a job.
 - **`chaos` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only `confirmed`. That is the `confirm` of the 409 that named both its command and the presets' own line, so a yes to one preset runs no other, and none an injection test.
 - **`check`** without run ids, a label or the goldens tries every recording; its result is the report.
+- **`pack-test`** without `runId` packs the setup's recording. It is refused with a 409 while packing waits: a write tool isn't wrapped, or the recording was made before it was.
 - **`coverage-pack`** packs a golden of the behaviour `key` names, or of each no golden covers, reproduced with the agent's command a run here gives or the one typed, which runs only once confirmed. With `fork` and `expect`, it packs a golden that forks. It is refused with a 409 while a test session, an update or another pack runs.
 - **`decisions`**: `samples` as [`--samples`](./cli.md#decisions) takes it, 1 included. Without it, each step is asked 3 times under the change and 3 times as recorded, six requests a step.
 - **`decisions-verify`** verifies each run the session could not clear under its own checks (its golden's, or for a run named by id, those of the recording it comes from). It runs one verify per set of checks, in the role its recording plays under them, and keeps the result in the session.
@@ -2648,6 +2661,7 @@ A button that is off keeps its place, dimmed. It says why on its card, and in a 
 | Repair: `claude` can't be found | Install Claude Code, or set `SHADOWLAP_CLAUDE` to its path |
 | Find breaking commit, on a run from someone else's pack | Replay it with your own command first, and find the breaking commit from that run |
 | The project's folder is gone | Put the folder back, or remove the project |
+| Pack as golden, in a project's setup, while a write tool isn't wrapped | Wrap it, **Check again**, then **Record again** |
 
 ### A page took too long
 
