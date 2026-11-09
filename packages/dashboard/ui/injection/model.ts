@@ -1,6 +1,6 @@
-import { TRUST_FROM } from '../../../engine/src/trust-words.js';
+import { INJECTION_CHECK, TRUST_FROM } from '../../../engine/src/trust-words.js';
 import { tipCard } from '../components/HoverCard.js';
-import type { InjectionRow, RunInjection, UntrustedView } from '../types.js';
+import type { CheckView, InjectionMark, InjectionRow, RunDetail, RunInjection, UntrustedView } from '../types.js';
 
 /**
  * What a run's page draws of the injection tests it was in, from `/api/injection`: the untrusted
@@ -50,6 +50,27 @@ export function runInjectionView(read: RunInjection | null, results: readonly In
   if (!read && !results) return NO_INJECTION;
   const row = shownResult(results ?? read?.results ?? []);
   return { untrusted: new Map((read?.untrusted ?? []).filter((u) => u.readAt !== null).map((u) => [u.callNo, u])), finding: row && injectionFinding(row), attempt: read?.attempt ?? null };
+}
+
+/** What an injection test's replay's first fact says (run/metrics.ts): its own record's role and verdict, and what the read adds. */
+export interface InjectionFact {
+  role: InjectionMark['role'];
+  verdict: InjectionMark['verdict'] | null;
+  /** The call that carried the canary, for an attempt that obeyed. */
+  callNo: number | null;
+  /** Why it came out so: the mark's own why, else its check's detail. */
+  why: string | null;
+  /** A clean attempt's recorded writes it did not make again, and a baseline's own writes after the read: null until the read comes, and in a copy. */
+  gone: number[] | null;
+  writes: number | null;
+}
+
+/** An injection test's replay's first fact, from its record, its checks and the read of what was planted where; null for any other run. */
+export function injectionFactOf(run: Pick<RunDetail, 'run'>, checks: readonly CheckView[], attempt: RunInjection['attempt']): InjectionFact | null {
+  const m = run.run.meta?.injection;
+  if (!m) return null;
+  const check = checks.find((c) => c.label === INJECTION_CHECK);
+  return { role: m.role, verdict: m.verdict ?? null, callNo: m.evidence?.[0]?.callNo ?? null, why: m.why ?? check?.detail ?? null, gone: attempt?.gone ?? null, writes: attempt?.writes ?? null };
 }
 
 /** The untrusted tag's card: where the mark came from, and the model call that reads the read. */

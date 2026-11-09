@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import type { RunDetail } from '../api.js';
+import { injectionFactOf } from '../injection/model.js';
+import type { RunInjection } from '../types.js';
 import { num, shortId } from '../format.js';
 import { countOrigins, parseOrigins } from '../origins.js';
 import { href } from '../route.js';
@@ -26,7 +28,7 @@ export function RunLoading() {
 }
 
 /** The run's numbers, led by its outcome by checks: the payload's, or the one asked for alone (useJudgedAt), pending until it comes. */
-export function RunMetrics(props: { run: RunDetail; judged: RunDetail['judged']; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean }) {
+export function RunMetrics(props: { run: RunDetail; judged: RunDetail['judged']; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean; injection?: RunInjection['attempt'] }) {
   return <Metrics {...props} judged={props.judged ?? null} pending={props.judged === undefined} />;
 }
 
@@ -51,7 +53,7 @@ function attemptVerdictOf(run: RunDetail, checks: ReturnType<typeof checksOf>) {
  * unless given; `pending` while a long run's analysis is yet to judge it); the counts follow; what
  * replaying saved comes last, as a quieter receipt.
  */
-export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false, preset = null, rescued = false }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean }) {
+export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false, preset = null, rescued = false, injection = null }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; injection?: RunInjection['attempt'] }) {
   const s = run.summary;
   const items = metricItems({
     // A recording's count as the poll says it, as its list has it: its page is asked for again only
@@ -72,7 +74,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
-  const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: s.byKind.tool, pending, preset, rescued, attempt: attemptVerdictOf(run, checksOf(run)) });
+  const fact = outcomeFact({ ...runLikeOf(run), judged: judged ?? null }, { tools: s.byKind.tool, pending, preset, rescued, attempt: attemptVerdictOf(run, checksOf(run)), injection: injectionFactOf(run, checksOf(run), injection) });
   return (
     <section className="metrics" aria-label="How it went">
       <Outcome fact={fact} runId={run.run.runId} />
