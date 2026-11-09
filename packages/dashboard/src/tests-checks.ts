@@ -1,4 +1,5 @@
-import { checkStatus, testResultVerdict, type CheckStatus, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { checkStatus, judgeLabel, judgeSourceParts, parseExpect, testResultVerdict, type CheckStatus, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import type { TestsView } from './tests.js';
 
 /*
  * A golden's checks on Tests: how its last result came out on each, and what changed in its entry
@@ -47,6 +48,20 @@ export interface GoldenCheck {
    * result carried attempts over from an earlier session (`test --continue`), whose runs pruning thins.
    */
   attempts: { passed: number; of: number } | null;
+  /**
+   * A judge check: what it asks and the model it names, as the golden's entry holds them (null where
+   * the entry names no such judge or can't be read: `withJudgeAsks`), the verdict its last result
+   * kept, and where that verdict came from and what it cost in the engine's words, at the cost `live`
+   * gives (null before it was judged). Null for any other check.
+   */
+  judge: { question: string | null; model: string | null; verdict: 'yes' | 'no' | null; judged: JudgedParts | null } | null;
+}
+
+/** Where a judge's verdict came from (`judged live`), what that cost (null where the result doesn't say) and what was done to what it read, as the engine words them: a page joins them with ` · `. */
+export interface JudgedParts {
+  how: string;
+  cost: string | null;
+  read: string[];
 }
 
 
@@ -95,6 +110,18 @@ function judgeLive(r: TestResult, c: StoredCheck): GoldenCheck['live'] {
 }
 
 /**
+ * A judged check's judge, as its result kept it: the model that answered, its verdict, and where that
+ * came from and what it cost by the engine's words, at the cost Tests gives (`live`), which for a
+ * verdict asked over several attempts beside other judges the result doesn't say.
+ */
+function judgeOf(c: StoredCheck, live: GoldenCheck['live']): GoldenCheck['judge'] {
+  if (!c.judge) return null;
+  const parts = judgeSourceParts(live ? { ...c.judge, cost: live.cost } : c.judge);
+  const judged = parts && c.judge.source === 'live' && !live && c.judge.cost !== null ? { ...parts, cost: null } : parts;
+  return { question: null, model: c.judge.model, verdict: c.judge.verdict, judged };
+}
+
+/**
  * A golden's checks with how its last result came out on each: the status the attempt it shows kept
  * for it (the CLI judges a diverged replay's checks too, and fails what it didn't do), where a judge's
  * verdict came from and what asking it live cost, and over several attempts, how many passed it. A
@@ -111,12 +138,13 @@ export function goldenChecks(store: StoreOf<'recording'>, labels: readonly strin
     const i = kept.findIndex((c, j) => !used.has(j) && c.label === label);
     if (i < 0) {
       const at = ran ? addedAt(label) : null;
-      return { label, status: null, added: ran, addedAt: at !== null && at > r!.at ? at : null, detail: null, reason: null, source: null, live: null, attempts: null };
+      return { label, status: null, added: ran, addedAt: at !== null && at > r!.at ? at : null, detail: null, reason: null, source: null, live: null, attempts: null, judge: null };
     }
     used.add(i);
     const c = kept[i]!;
     const tally = tallies?.get(label);
-    return { label, status: checkStatus(c), added: false, addedAt: null, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live: judgeLive(r!, c), attempts: tally && tally.of > 1 ? tally : null };
+    const live = judgeLive(r!, c);
+    return { label, status: checkStatus(c), added: false, addedAt: null, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live, attempts: tally && tally.of > 1 ? tally : null, judge: judgeOf(c, live) };
   });
 }
 
@@ -179,4 +207,33 @@ export function changedReason(r: Pick<TestResult, 'ok' | 'failure' | 'data'>, ga
   const n = r.data?.attempts?.total ?? 1;
   const base = gated ?? (testResultVerdict(r) === 'inconclusive' ? `inconclusive${n > 1 ? ` after ${n} attempts` : ''}` : 'failed its check');
   return `${base}, its checks changed since`;
+}
+
+/** A golden's judge checks by label, with what each asks and its model, as the engine reads the entry's `expect`; none for an entry that can't be read. */
+function judgeAsks(expect: unknown): Map<string, { question: string; model: string }> {
+  if (expect === undefined) return new Map();
+  try {
+    return new Map((parseExpect(expect, 'expect').judge ?? []).map((j) => [judgeLabel(j), { question: j.question, model: j.model }]));
+  } catch {
+    // An entry that can't be read asks nothing here: the golden's checks say why.
+    return new Map();
+  }
+}
+
+/**
+ * Tests' judge cards: each judge check's question and model as the golden's entry in the config holds
+ * them now (`expectOf`, the entry's `expect`), on the rows of the view. A check not judged yet gets its
+ * card here; a judged one keeps the model its result names, the one that answered.
+ */
+export function withJudgeAsks(view: TestsView, expectOf: (golden: string) => unknown): TestsView {
+  const rows = view.rows.map((row) => {
+    const asks = judgeAsks(expectOf(row.path));
+    if (!asks.size) return row;
+    const checkResults = row.checkResults.map((c): GoldenCheck => {
+      const ask = asks.get(c.label);
+      return ask ? { ...c, judge: { verdict: null, judged: null, ...c.judge, question: ask.question, model: c.judge?.model ?? ask.model } } : c;
+    });
+    return { ...row, checkResults };
+  });
+  return { ...view, rows };
 }

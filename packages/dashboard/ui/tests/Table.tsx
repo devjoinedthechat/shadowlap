@@ -236,9 +236,9 @@ function Checks({ row }: { row: GoldenRow }) {
   return (
     <>
       {row.checkResults.map((c, i) => {
-        const m = checkMark(c, ran);
+        const m = checkMark(c, ran, true);
         return (
-          <span key={`${c.label}:${i}`} className={`ck${m.status ? ` ${m.status}` : ''}`} data-tip={tipCard(m.tip.title, [{ label: m.tip.label, value: m.tip.value, color: m.tip.color }])}>
+          <span key={`${c.label}:${i}`} className={`ck${m.status ? ` ${m.status}` : ''}`} data-tip={tipCard(m.tip.title, m.tip.rows ?? [{ label: m.tip.label, value: m.tip.value, color: m.tip.color }], m.tip.note)}>
             {m.mark ? (
               <b className="cm" role="img" aria-label={m.word}>
                 {m.mark}

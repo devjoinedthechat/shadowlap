@@ -24,7 +24,7 @@ const row = (name: string, over: Partial<GoldenRow> = {}): GoldenRow => ({
   modeHint: 'must send exactly the requests it recorded',
   gate: null,
   checks: ['issue_refund called 1 time', 'send_email called 1 time'],
-  checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null })),
+  checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null, judge: null })),
   changed: null,
   injection: false,
   history: [],
@@ -250,7 +250,7 @@ describe('the goldens table', () => {
   });
 
   it('marks each check by its last status, as the CLI does, with no mark before a result, and names it by the CLI\'s label', () => {
-    const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null, ...over });
+    const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null, judge: null, ...over });
     expect(checkMark(c({}), true)).toMatchObject({ mark: '✓', status: 'passed', word: 'passed', text: 'issue_refund called 0 times', sub: null, tip: { title: 'passed · issue_refund called 0 times', color: 'var(--ok)' } });
     // Failed: what it found, and over several attempts how many passed it.
     expect(checkMark(c({ status: 'failed', detail: 'called 1 time (1 blocked or stubbed)' }), true)).toMatchObject({ mark: '✗', sub: 'called 1 time (1 blocked or stubbed)', tip: { label: 'failed', value: 'called 1 time (1 blocked or stubbed)', color: 'var(--err)' } });
@@ -260,12 +260,14 @@ describe('the goldens table', () => {
     expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held' }), true)).toMatchObject({ mark: '–', word: 'not applicable', sub: 'not applicable · the condition never held', tip: { value: 'its condition never held' } });
     // The engine's detail says what the calls had instead: the line says why, the hover the values.
     expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held: lookup_order #2: result.amount 45 <= 100' }), true)).toMatchObject({ sub: 'not applicable · the condition never held', tip: { title: 'not applicable · issue_refund called 0 times', value: 'lookup_order #2: result.amount 45 <= 100', color: 'var(--faint)' } });
-    // A judge's verdict says where it came from, as the CLI's check line does: free from the recording, and live at what it cost, in the CLI's form.
-    expect(checkMark(c({ source: 'recording', reason: 'It names the limit.' }), true)).toMatchObject({ sub: 'judged from the recording · free', tip: { value: '“It names the limit.”' } });
-    expect(checkMark(c({ source: 'live', live: { cost: 0.00043, asked: 1 } }), true).sub).toBe('judged live · <$0.001');
-    expect(checkMark(c({ source: 'live', live: { cost: 0.0021, asked: 5 }, attempts: { passed: 5, of: 5 } }), true).sub).toBe('judged live in 5 attempts · ≈$0.0021');
-    // A model with no price: where it came from, and no figure.
-    expect(checkMark(c({ source: 'live' }), true).sub).toBe('judged live');
+    // A judge's verdict says where it came from, in the engine's words as a page joins them: free from the recording, and live at what it cost.
+    const judged = (how: string, cost: string | null): Partial<GoldenCheck> => ({ judge: { question: null, model: 'claude-haiku-4-5', verdict: 'yes', judged: { how, cost, read: [] } } });
+    expect(checkMark(c({ ...judged('judged from the recording', 'free'), source: 'recording' }), true).sub).toBe('judged from the recording · free');
+    expect(checkMark(c({ ...judged('judged live', '<$0.001'), source: 'live', live: { cost: 0.00043, asked: 1 } }), true).sub).toBe('judged live · <$0.001');
+    expect(checkMark(c({ ...judged('judged live', '≈$0.0021'), source: 'live', live: { cost: 0.0021, asked: 5 }, attempts: { passed: 5, of: 5 } }), true).sub).toBe('judged live in 5 attempts · ≈$0.0021');
+    // A model with no price: where it came from, and that it has none; a cost the result doesn't say: no figure.
+    expect(checkMark(c({ ...judged('judged live', 'no price for claude-haiku-4-5'), source: 'live' }), true).sub).toBe('judged live · no price for claude-haiku-4-5');
+    expect(checkMark(c({ ...judged('judged live', null), source: 'live' }), true).sub).toBe('judged live');
     // A pass over attempts that weren't all passes says so.
     expect(checkMark(c({ attempts: { passed: 17, of: 18 } }), true)).toMatchObject({ sub: '17 of 18 attempts passed', tip: { value: 'passed in 17 of 18 attempts' } });
     expect(checkMark(c({ attempts: { passed: 12, of: 12 } }), true)).toMatchObject({ sub: null, tip: { value: 'passed in every attempt, 12 of 12' } });

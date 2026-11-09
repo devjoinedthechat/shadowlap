@@ -2,7 +2,6 @@ import { justNow } from './format.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import { STATUS_WORDS } from '../../engine/src/check-status.js';
 import { CHECK_MARKS, checkLine } from '../../engine/src/checks/labels.js';
-import { aboutUsd } from '../../engine/src/prices.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
@@ -130,8 +129,12 @@ export interface CheckMarkView {
   text: string;
   /** A line under it: what failed and in how many attempts, why it couldn't be decided, where a judge's verdict came from, or that it was added since. */
   sub: string | null;
-  /** The hover: the status and the check, and one row saying why. */
-  tip: { title: string; label: string; value: string; color: string };
+  /**
+   * The hover: the status and the check, and one row saying why. A judge's card has rows of its own
+   * (`rows`: what it asks, then what it answered and the model where it was asked), with why, or where
+   * a verdict in Tests' cell came from, in a line under them (`note`).
+   */
+  tip: { title: string; label: string; value: string; color: string; rows?: { label: string; value: string }[]; note?: string };
 }
 
 /**
@@ -140,9 +143,10 @@ export interface CheckMarkView {
  * run more than once, how many attempts passed it and what the others did), ? in amber when it
  * couldn't be decided (and why), – when it didn't apply, and no mark on a check not tested yet: before
  * a result exists, when the last test couldn't run the golden, or when it was added since, as the mock
- * says it. `ran`: the golden has a last result.
+ * says it. `ran`: the golden has a last result. `cell`: Tests' Checks column, where a passed judge's
+ * source moves onto its hover, as a line under every passed check would crowd the column.
  */
-export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
+export function checkMark(c: GoldenCheck, ran: boolean, cell = false): CheckMarkView {
   const text = c.label;
   const t = c.attempts;
   if (!c.status) {
@@ -167,21 +171,37 @@ export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
     value = at < 0 ? 'its condition never held' : detail.slice(at + 2);
   } else {
     // A check over several attempts says how many passed it; a judge's verdict, where it came from.
-    sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : judgedLine(c);
+    sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : cell ? null : judgedLine(c);
     value = [c.reason ? `“${c.reason}”` : null, t ? (t.passed === t.of ? `passed in every attempt, ${t.of} of ${t.of}` : `passed in ${t.passed} of ${t.of} attempts`) : null].filter(Boolean).join(' · ') || 'passed';
   }
-  return { mark: CHECK_MARKS[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
+  const m = { mark: CHECK_MARKS[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
+  return c.judge ? judgeCard(m, c, cell) : m;
 }
 
 /**
- * Where a judge check's verdict came from, as the CLI's check line says it: from the recording, free,
- * or live, with what asking it cost when that is known (`judged live in 5 attempts · ≈$0.0021`). Null
- * for any other check.
+ * A judge check's card: what it asks, then, where the judge was asked, what it answered and why, and
+ * its model. Under them, why it has no verdict, or in Tests' cell where a passed verdict came from.
+ */
+function judgeCard(m: CheckMarkView, c: GoldenCheck, cell: boolean): CheckMarkView {
+  const j = c.judge!;
+  const verdict = c.status === 'passed' || c.status === 'failed' ? j.verdict : null;
+  const answered = verdict ? [{ label: 'Answered', value: c.reason ? `${verdict}: ${c.reason}` : verdict }, ...(j.model ? [{ label: 'Model', value: j.model }] : [])] : [];
+  const rows = [...(j.question ? [{ label: 'Asks', value: j.question }] : []), ...answered];
+  if (!rows.length) return m;
+  const note = c.status === 'passed' ? (cell ? judgedLine(c) : null) : c.status === 'failed' ? null : m.tip.value;
+  return { ...m, tip: { ...m.tip, rows, ...(note ? { note } : {}) } };
+}
+
+/**
+ * Where a judge check's verdict came from and what it cost, in the engine's words (as the CLI's check
+ * line says them), joined as a page joins them, with how many attempts asked it live: `judged live in
+ * 5 attempts · ≈$0.0021`, `judged from the recording · free`. Null for any other check.
  */
 function judgedLine(c: GoldenCheck): string | null {
-  if (c.source === 'recording') return 'judged from the recording · free';
-  if (c.source !== 'live') return null;
-  return c.live ? `judged live${c.live.asked > 1 ? ` in ${c.live.asked} attempts` : ''} · ${aboutUsd(c.live.cost)}` : 'judged live';
+  const s = c.judge?.judged;
+  if (!s) return null;
+  const how = c.live && c.live.asked > 1 ? `${s.how} in ${c.live.asked} attempts` : s.how;
+  return [how, s.cost, ...s.read].filter((x) => x !== null).join(' · ');
 }
 
 /** Where a golden came from: a run in this store, or a pack made elsewhere. */
