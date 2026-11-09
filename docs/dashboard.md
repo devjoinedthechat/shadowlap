@@ -514,7 +514,7 @@ A finding never says what the header's first fact already does, but for the run 
 | A test replay its golden passed since | What it failed, muted, with nothing to mend | *fixed by 01K5CQ7A3M*, as Runs' Status says it |
 | A golden's last test replay, its checks changed since | What it failed | *checks changed since: …, no longer in shadowlap.config.json · not tested yet*, and nothing to mend |
 
-**A judge's verdict** is a finding of its own for each judge check that gave one, among the rest, in ink. Its label is *verdict*. It leads with ✓ or ✗ and the check, then **#15**, which opens the judge's call. Then come the judge's reason and where the verdict came from, as in *The reply names the escalation · judged live · <$0.001*. Where the run's own finding lists its checks, a judge check's line there carries the same instead.
+**A judge's verdict** is a finding of its own for each judge check that gave one, among the rest, in ink. Its label is *verdict*, then **#15**, which opens the judge's call. It goes on with ✓ or ✗ and the check, then the judge's reason and where the verdict came from, as in *The reply names the escalation · judged live · <$0.001*. Where the run's own finding lists its checks, a judge check's line there carries the same instead.
 
 A blame that placed the failure on no call says how it stands as the finding's label instead: *stopped* or *inconclusive* in amber, *not rescued* in red. A blame that found the call says *lost at #17*, with **Rescued fork →** where the fork that rescued the run is kept. Words the glossary defines, such as *lost*, *stubbed* and *fenced*, are underlined, with their meaning on hover.
 

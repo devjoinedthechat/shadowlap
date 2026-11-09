@@ -80,12 +80,14 @@ describe('a judge’s verdict on a run', () => {
     expect(runFindings({ own: { kind: 'checks', checks: [], why: null }, judges: verdicts, differences: null, notRecorded: null, notes: [] }).map((f) => f.kind)).toEqual(['checks']);
   });
 
-  it('draws each verdict untinted: verdict, ✓ or ✗ and the check, its reason and source, and its call, which selects it', async () => {
+  it('draws each verdict untinted, as the design does: verdict, its call, which selects it, ✓ or ✗ and the check, then its reason and source', async () => {
     const selected: number[] = [];
     const p = await findings(runOf(true), [refund, passedJudge, failedJudge], selected);
     const jv = p.all('#findings > section.jv');
     expect(jv.map((s) => s.className)).toEqual(['banner jv fx', 'banner jv fx']);
-    expect(jv.map((s) => text(s.textContent))).toEqual([`verdict✓ ${JUDGE}#15The reply names the escalation · judged live · <$0.001`, `verdict✗ ${JUDGE}: the judge answered no#16It never says who handles it · judged live · <$0.001`]);
+    expect(jv.map((s) => text(s.textContent))).toEqual([`verdict#15✓ ${JUDGE}The reply names the escalation · judged live · <$0.001`, `verdict#16✗ ${JUDGE}: the judge answered noIt never says who handles it · judged live · <$0.001`]);
+    // The call comes right after the finding's label, before the check.
+    expect(jv.map((s) => s.children.map((c) => c.className.split(' ')[0]))).toEqual([['bk', 'bn', 'jvw', 'why'], ['bk', 'bn', 'jvw', 'why']]);
     expect(jv.map((s) => s.querySelectorAll('.jvw b')[0].className)).toEqual(['ok', 'no']);
     const call = jv[0].querySelectorAll('button.bn')[0];
     expect(JSON.parse(call.getAttribute('data-tip')!)).toMatchObject({ t: 'Open the judge’s call' });

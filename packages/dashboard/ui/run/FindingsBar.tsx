@@ -384,15 +384,16 @@ function JudgeWhy({ callNo, why, x }: { callNo: number | null; why: string | nul
   );
 }
 
-/** A judge's verdict on the run, never tinted: its call, ✓ or ✗ and the check as the CLI labels it, then its reason and where it came from. */
+/** A judge's verdict on the run, never tinted: its call first, as the design draws it, then ✓ or ✗ and the check as the CLI labels it, then its reason and where it came from. */
 function JudgeFinding({ j, x, s }: { j: JudgeVerdict; x: Draw; s: Slot }) {
   return (
     <section className={cls('jv', s)}>
       <span className="bk">verdict</span>
+      {j.callNo === null ? null : x.call(j.callNo, 'Open the judge’s call')}
       <span className="jvw">
         <b className={j.passed ? 'ok' : 'no'}>{j.passed ? '✓' : '✗'}</b> {j.line}
       </span>
-      <JudgeWhy callNo={j.callNo} why={j.why} x={x} />
+      <JudgeWhy callNo={null} why={j.why} x={x} />
       {s.more}
     </section>
   );
