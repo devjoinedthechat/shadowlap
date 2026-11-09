@@ -2424,9 +2424,11 @@ The check builder reads a golden's checks from `shadowlap.config.json`, judges a
 | `GET /api/checks/goldens?run=<id>\|golden=<path>` | The agent's goldens with their tests entries as written, the file's `version`, `read` and whether a write lays out other lines anew (`relaid`) |
 | `GET /api/checks/context?run=<id>&at=<n>` | What the run offers a check made from call `n`: each tool by its first call, the tools before it, the results' number fields |
 | `POST /api/checks/preview { expect, run \| golden }` | The draft judged on the agent's 200 newest recordings, its goldens' and the run's, as [`shadowlap check`](./cli.md#check) judges them |
+| `POST /api/checks/suggestions { run, at, have, fix }` | At most three rules that fail the recording `run` and none of its good runs, leaving out those labelled in `have` |
 | `PUT /api/checks/tests { golden, version, read, entry }` | The golden's checks: `entry.expect` set, or taken out with `null` |
 
-- **Reads beside the server.** The context and the preview are worked out beside the server, as they read the run's calls or every recording of the agent. The preview changes nothing. A golden whose recording is only in its pack is read from the pack there.
+- **Reads beside the server.** The context, the preview and the suggestions are worked out beside the server, as they read the run's calls or every recording of the agent. The preview and the suggestions change nothing. A golden whose recording is only in its pack is read from the pack there.
+- **Suggestions** compare `run` with the good runs of its fix, the one `fix` names in a fix's builder, then the agent's recordings labelled `good`. Each rule is judged by its own result, never the exit code, and one that doesn't apply to a good run doesn't fail it.
 - **A write** names the `version` it read and sends back `read`. A file changed since is a 409 that names what changed, such as `"prices" added`. A check `shadowlap test` would refuse is a 400 in its words. As the whole of `tests` is checked, that can name another golden's entry.
 - **A golden that follows a pattern**, such as `goldens/refund-*`, gets an entry of its own with the pattern's other keys. The pattern stays for its other goldens.
 - **The answer** is `{ key, version, added, removed, changed }`: the key written, the file's version after, and the labels of the checks added and removed. A write that changes the file lands in the activity feed.

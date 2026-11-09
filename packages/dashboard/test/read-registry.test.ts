@@ -63,6 +63,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'held-by': { kind: 'held-by', what: 'run', ids: [REC], stores: [] },
   'check-context': { kind: 'check-context', runId: REC, at: 3 },
   'check-preview': { kind: 'check-preview', expect: { tools: { issue_refund: 0 } }, agent: 'node refund_agent.mjs', madeFrom: REC, goldens: [{ path: 'goldens/refund', runId: REC, pack: null }], limit: 200 },
+  'check-suggestions': { kind: 'check-suggestions', runId: REC, at: 3, have: [], max: 3, fix: null },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };
