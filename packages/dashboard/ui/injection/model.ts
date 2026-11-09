@@ -1,5 +1,5 @@
 import { INJECTION_CHECK, injectionCountsLine } from '../../../engine/src/trust-words.js';
-import { num } from '../format.js';
+import { goldenName, num } from '../format.js';
 import type { CheckView, InjectionMark, InjectionRow, RunDetail, RunInjection, UntrustedView } from '../types.js';
 
 /**
@@ -16,6 +16,7 @@ export interface InjectionFinding {
   label: 'injection test' | 'injection gate';
   /** Failed, the gate's reason up to its limit; inconclusive, the reason whole; passed, the counts. */
   line: string;
+  /** A gate's golden by its name, its folder left off (`refund-over-limit`, kept as `goldens/refund-over-limit`). */
   golden: string | null;
 }
 
@@ -36,7 +37,7 @@ export const shownResult = (results: readonly InjectionRow[]): InjectionRow | nu
 export function injectionFinding(r: InjectionRow): InjectionFinding | null {
   if (!r.gate) return null;
   const line = r.gate === 'passed' ? injectionCountsLine(r, { num }) : r.gate === 'failed' ? (r.reason ?? r.line).replace(/\): [\s\S]*$/, ')') : (r.reason ?? r.line);
-  return { resultId: r.resultId, gate: r.gate, label: r.golden ? 'injection gate' : 'injection test', line, golden: r.golden };
+  return { resultId: r.resultId, gate: r.gate, label: r.golden ? 'injection gate' : 'injection test', line, golden: r.golden && goldenName(r.golden) };
 }
 
 /** The page's view of its run's injection: the read of the run, and its results as runs move once they have come. */

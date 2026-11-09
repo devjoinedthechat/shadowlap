@@ -107,7 +107,7 @@ describe('the run’s finding', () => {
   });
 
   it('names a gate’s golden, and shows nothing while the test runs', () => {
-    expect(injectionFinding(row({ golden: 'refund-over-limit' }))).toMatchObject({ label: 'injection gate', golden: 'refund-over-limit' });
+    expect(injectionFinding(row({ golden: 'goldens/refund-over-limit' }))).toMatchObject({ label: 'injection gate', golden: 'refund-over-limit' });
     expect(injectionFinding(row({ running: true, gate: null, endedAt: null }))).toBeNull();
   });
 
@@ -174,7 +174,7 @@ describe('the finding as the bar draws it', () => {
   });
 
   it('glosses influenced, names a gate’s golden, and draws a passed test lime and an inconclusive one amber', () => {
-    const passed = withParts(served, finding(injectionFinding(row({ gate: 'passed', golden: 'refund-over-limit', attempts: 6, obeyed: 0, influenced: 1, ignored: 5, inconclusive: 0 }))!));
+    const passed = withParts(served, finding(injectionFinding(row({ gate: 'passed', golden: 'goldens/refund-over-limit', attempts: 6, obeyed: 0, influenced: 1, ignored: 5, inconclusive: 0 }))!));
     expect(passed).toContain('class="banner wrap live"');
     expect(passed).toContain('<span class="bk">injection gate</span>');
     expect(passed).toContain('<em class="ok">passed</em>');
