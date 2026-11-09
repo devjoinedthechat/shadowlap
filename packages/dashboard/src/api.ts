@@ -1,4 +1,4 @@
-import { askConsent, type CallRecord, checksOf, cleanLabel, compareRuns, type Conversation, describeGate, displayOrigin, estimateCost, gateOf, loadApiRequest, messageOf, normalizeConversation, type NormalizedResponse, normalizeResponse, ORIGIN_CODE, type Price, type RunAbout, type RunComparison, type RunKind, type RunNote, type RunOutcome, type RunRecord, type RunSummary, saidYes, shortModel, type Store, type StoreOf, summarizeRun, type ToolTrust, verdictLine, withLabels, withNote } from '@shadowlap/engine';
+import { askConsent, type CallRecord, checksOf, cleanLabel, compareRuns, type Conversation, describeGate, displayOrigin, estimateCost, gateOf, loadApiRequest, messageOf, normalizeConversation, type NormalizedResponse, normalizeResponse, ORIGIN_CODE, type Price, type RunAbout, type RunComparison, type RunKind, type RunNote, type RunOutcome, type RunRecord, type RunSummary, saidYes, shortModel, type Store, type StoreOf, summarizeRun, type ToolTrust, trustOf, verdictLine, withLabels, withNote } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, importedTrace, notRun, quoteArgv, type ActionContext, type ImportedTrace } from '@shadowlap/engine';
 import { kindFacts, lookupRun, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
@@ -263,7 +263,16 @@ export interface ActionItem {
 
 export interface ReadOptions {
   prices?: Record<string, Price>;
+  /** The config's trust marks, for a call's fork menu header (`untrusted read`); an exported copy passes none, so its header keeps `read tool`. */
+  tools?: ToolTrust;
 }
+
+/**
+ * Whether a call is a read of a tool marked untrusted, where `shadowlap injection` plants, from the
+ * call alone: a page of a long run may not hold the model call that reads it. So a read no model
+ * call follows still says `untrusted read` in the fork menu's header, where Calls leaves its tag out.
+ */
+const untrustedFlag = (c: CallRecord, tools: ToolTrust | undefined): { untrusted?: boolean } => (tools && c.kind === 'tool' && c.effect === 'read' && trustOf(c, tools).trust === 'untrusted' ? { untrusted: true } : {});
 
 const ONE_LINE = 240;
 
@@ -712,7 +721,7 @@ export function callDetailFrom(store: Store, run: RunRecord, calls: readonly Cal
     result,
     notes: (run.meta?.notes ?? []).filter((n) => n.callNo === c.callNo),
     actions: actionsFor(run, c, actionContext(store, c)),
-    forkTitle: forkMenuTitle(c),
+    forkTitle: forkMenuTitle(c, untrustedFlag(c, options.tools)),
   };
 }
 
@@ -850,7 +859,15 @@ export interface LineageNode {
    * session that decided it (chaos.ts `presetMarks`), since the run alone reads as a healthy fork.
    */
   preset?: PresetMark;
+  /** A replay `shadowlap injection` made: its result, its role in it, which of how many, and its verdict (`meta.injection`), so the Forks view files it under its test. */
+  injection?: { result: string; role: 'attempt' | 'baseline' | 'clean'; attempt: number; of: number; verdict: string | null };
 }
+
+/** A replay's injection mark as the lineage carries it. */
+const injectionNode = (r: RunRecord): LineageNode['injection'] => {
+  const m = r.meta?.injection;
+  return m ? { result: m.result, role: m.role, attempt: m.attempt, of: m.of, verdict: m.verdict ?? null } : undefined;
+};
 
 /**
  * Every run in the family of a run: its root recording and all that descends from it, depth first,
@@ -907,6 +924,8 @@ export function lineage(store: Store, idOrPrefix: string, options: ReadOptions =
       test: withGate(testOf(r), sessionGateOf),
       about: null,
     });
+    const injection = injectionNode(r);
+    if (injection) out[out.length - 1]!.injection = injection;
     for (const child of store.childRuns(r.runId).sort((a, b) => a.startedAt - b.startedAt)) walk(child, depth + 1);
   };
   walk(root, 0);

@@ -1,0 +1,187 @@
+import { fillPayload, injectionTemplates, plantInToolResult, plural, proofLine, refused, shortRunId as short, type AttemptReport, type InjectionMark, type InjectionReport, type InjectionVerdict, type PlantReport, type RunRecord, type StoreOf, type TrustSource } from '@shadowlap/engine';
+import { commandLine } from './fix-shared.js';
+import type { InjectionAgain } from './next-step.js';
+
+/**
+ * What the run page draws of a kept injection test, worked out here so the browser copies none of the
+ * engine's rules: one result's panel (its untrusted reads by payload, each cell's strongest verdict
+ * with the attempt that shows it and its proof, past eight reads each tool's reads summed, the meta,
+ * the command and the receipt), and what an attempt's page marks (where the payload was planted, the
+ * path it went after, the planted text with its canary filled, a clean attempt's writes gone).
+ */
+
+/** Past this many reads, the matrix gives each tool a row that sums its reads (ui/matrix.ts groupRows). */
+export const MANY_READS = 8;
+
+/** A read's worst attempt, as the matrix groups by it: obeyed, influenced, inconclusive, then ignored. Unlike a cell's strongest verdict, inconclusive ranks above ignored. */
+const WORST: Readonly<Record<InjectionVerdict, 0 | 1 | 2 | 3>> = { obeyed: 0, influenced: 1, inconclusive: 2, ignored: 3 };
+/** A cell's strongest verdict over its attempts, as the report decides one (engine strongestVerdict): a tool's row takes the strongest of its reads' cells. */
+const STRONGEST: readonly InjectionVerdict[] = ['obeyed', 'influenced', 'ignored', 'inconclusive'];
+
+/** One cell of the matrix: what its attempts came to, the attempt that shows it and what that rests on. */
+export interface InjectionCellView {
+  /** The read's call; a tool's summed cell names its first read with this verdict. */
+  read: number;
+  payload: string;
+  verdict: InjectionVerdict;
+  /** Of `of` attempts, those that came out as `verdict`. */
+  n: number;
+  of: number;
+  /** The first attempt with the cell's verdict, at the call that shows it; null where gc took its run. */
+  attempt: { runId: string; callNo: number | null } | null;
+  /** Its proof (proofLine), else why it couldn't say, else that no call after the read carried the canary. */
+  line: string;
+}
+
+export interface InjectionPanelView {
+  /** Each untrusted read planted in, in call order, with its worst attempt. */
+  rows: Array<{ callNo: number; name: string; from: TrustSource; readAt: number | null; worst: 0 | 1 | 2 | 3 }>;
+  cols: Array<{ id: string; title: string; text: string }>;
+  cells: InjectionCellView[];
+  /** Past eight reads, each tool's reads by payload, summed: null at eight or fewer. */
+  tools: Array<{ name: string; reads: number[]; cells: InjectionCellView[] }> | null;
+  totals: { attempts: number; obeyed: number; influenced: number; inconclusive: number; ignored: number };
+  /** What was planted: `12 templates, version 1`, `2 templates`, `a payload file`, `templates and a payload file`. */
+  what: string;
+  startedAt: number;
+  /** Who ran it, where names are shared. */
+  by: string | null;
+  /** The command that runs it again as it ran (a gate's golden, its test). */
+  command: string;
+  /** Why no attempt ran, in a sentence; null when one did. */
+  none: string | null;
+  receipt: { spent: number; upstreamRequests: number; baselines: number; stopReason: string | null };
+}
+
+/** The attempt a result's proof is, among those the store still has: the first that obeyed, else the first influenced, else the first that couldn't say why. */
+export function proofOf(store: StoreOf<'recording'>, report: Partial<PlantReport>): AttemptReport | null {
+  for (const verdict of ['obeyed', 'influenced', 'inconclusive']) {
+    const a = (report.attempts ?? []).find((x) => x.verdict === verdict && store.getRun(x.runId));
+    if (a) return a;
+  }
+  return null;
+}
+
+/** The call an attempt shows its verdict at: the call that carried the canary, else where the planted text was read. */
+export const proofCall = (a: Pick<AttemptReport, 'evidence' | 'readAt'>): number | null => a.evidence?.[0]?.callNo ?? a.readAt ?? null;
+
+/** What the `injection` job takes to test again as the test did. */
+export function testedAs(report: Partial<PlantReport>): InjectionAgain {
+  const baselines = (report.baselines ?? []).reduce((n, b) => Math.max(n, b.runs.length), 0);
+  return { repeat: report.repeat ?? 1, templates: report.templates?.ids ?? [], baselines, liveReads: report.unrecordedReads === 'live' };
+}
+
+export function againCommand(runId: string, again: InjectionAgain): string {
+  return commandLine(['injection', short(runId), ...(again.templates.length ? ['--templates', again.templates.join(',')] : []), '--baselines', String(again.baselines), ...(again.repeat !== 1 ? ['--repeat', String(again.repeat)] : []), ...(again.liveReads ? ['--live-reads'] : [])]);
+}
+
+/** Whether a test planted payloads from a file: its result keeps no file name, so the command and the meta say `a payload file`. */
+const fromFile = (report: Pick<PlantReport, 'payloads'>) => report.payloads.some((p) => p.source === 'file');
+
+/** What a test planted, in words: the whole built-in set with its version, else how many templates, and a payload file. */
+export function plantedWords(report: Pick<PlantReport, 'payloads' | 'templates'>): string {
+  const ids = report.templates?.ids ?? [];
+  const all = injectionTemplates();
+  const every = ids.length === all.templates.length && all.templates.every((t) => ids.includes(t.id));
+  const templates = every ? `${ids.length} templates, version ${report.templates.version}` : ids.length ? plural(ids.length, 'template') : null;
+  if (!fromFile(report)) return templates ?? 'no templates';
+  return templates ? 'templates and a payload file' : 'a payload file';
+}
+
+/** The command a kept plant ran as: a gate's `shadowlap test <golden>`, else the test with its templates, a payload file as `--payloads <file>`. */
+export function panelCommand(report: PlantReport): string {
+  if (report.golden) return commandLine(['test', report.golden]);
+  const again = againCommand(report.runId, testedAs(report));
+  if (!fromFile(report)) return again;
+  return `${report.templates.ids.length ? again : again.replace(/^shadowlap injection (\S+)/, 'shadowlap injection $1 --templates none')} --payloads <file>`;
+}
+
+/** What an attempt rests on, as its cell's card says it. */
+const restsOn = (a: AttemptReport): string => proofLine(a) ?? a.why ?? `no tool call after #${a.plantedAt ?? a.read} carries the canary`;
+
+function cellOf(store: StoreOf<'recording'>, report: PlantReport, reads: readonly number[], payload: string): InjectionCellView | null {
+  const cells = report.cells.filter((c) => reads.includes(c.read) && c.payload === payload && c.attempts);
+  if (!cells.length) return null;
+  const at = cells[0]!.read;
+  const sum = { attempts: 0, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0 };
+  for (const c of cells) for (const k of Object.keys(sum) as Array<keyof typeof sum>) sum[k] += c[k];
+  // One read's cell keeps the report's verdict; a tool's sums take the strongest of its reads'.
+  const verdict = cells.length === 1 ? cells[0]!.verdict : STRONGEST.find((v) => cells.some((c) => c.verdict === v))!;
+  const attempts = report.attempts.filter((a) => reads.includes(a.read) && a.payload === payload && a.verdict === verdict);
+  const shown = attempts.find((a) => store.getRun(a.runId)) ?? null;
+  const first = shown ?? attempts[0];
+  return { read: first?.read ?? at, payload, verdict, n: sum[verdict], of: sum.attempts, attempt: shown ? { runId: shown.runId, callNo: proofCall(shown) } : null, line: first ? restsOn(first) : `no tool call after #${at} carries the canary` };
+}
+
+/** One kept plant's panel: what the run page's Show results opens. */
+export function injectionPanel(store: StoreOf<'recording'>, report: PlantReport, o: { by?: string | null } = {}): InjectionPanelView {
+  const planted = report.reads.filter((r) => r.planted);
+  const worst = (callNo: number) => Math.min(3, ...report.cells.filter((c) => c.read === callNo && c.attempts).map((c) => WORST[c.verdict])) as 0 | 1 | 2 | 3;
+  const cells = planted.flatMap((r) => report.payloads.map((p) => cellOf(store, report, [r.callNo], p.id))).filter((c): c is InjectionCellView => c !== null);
+  const names = [...new Set(planted.map((r) => r.name))];
+  const tools = planted.length > MANY_READS ? names.map((name) => {
+    const reads = planted.filter((r) => r.name === name).map((r) => r.callNo);
+    return { name, reads, cells: report.payloads.map((p) => cellOf(store, report, reads, p.id)).filter((c): c is InjectionCellView => c !== null) };
+  }) : null;
+  const baselines = report.baselines.reduce((n, b) => n + b.runs.length, 0);
+  const { attempts, obeyed, influenced, inconclusive, ignored } = report.totals;
+  return {
+    rows: planted.map((r) => ({ callNo: r.callNo, name: r.name, from: r.from, readAt: r.readAt, worst: worst(r.callNo) })),
+    cols: report.payloads.map((p) => ({ id: p.id, title: p.title, text: p.text })),
+    cells,
+    tools,
+    totals: { attempts, obeyed, influenced, inconclusive, ignored },
+    what: plantedWords(report),
+    startedAt: report.startedAt,
+    by: o.by ?? null,
+    command: panelCommand(report),
+    none: attempts ? null : `No attempt ran: ${report.stopReason ?? 'nothing could be planted'}. ${plural(baselines, 'clean replay')} ran first, as a test runs them.`,
+    receipt: { spent: report.cost.spent, upstreamRequests: report.cost.upstreamRequests, baselines, stopReason: report.stopReason },
+  };
+}
+
+/** What an attempt's page marks beyond its run's own mark: where the payload went in, and the text planted there. */
+export interface AttemptPlant {
+  /** The attempt's call where the planted read was served. */
+  plantedAt: number | null;
+  /** Where in the read's recorded result the payload went (`$.body.reason`); null where it can't be said. */
+  path: string | null;
+  /** The payload's text with its canary filled, whole, as it was planted. */
+  planted: string | null;
+  /** A clean attempt's recorded writes it did not make again. */
+  gone: number[] | null;
+  /** A baseline's own writes after its fork. */
+  writes: number | null;
+}
+
+const NONE: AttemptPlant = { plantedAt: null, path: null, planted: null, gone: null, writes: null };
+
+/** Where the read's recorded result takes a payload: the path `--inject-result` plants after, from the recording alone. */
+function plantPath(store: StoreOf<'recording'>, parent: string | null, read: number): string | null {
+  if (!parent) return null;
+  const call = store.getCalls(parent, { only: [read] })[0];
+  if (!call?.end?.responseRef || call.kind !== 'tool') return null;
+  const payload = store.getJson<{ result?: unknown }>(call.end.responseRef);
+  const at = plantInToolResult(payload?.result, 'x', call.meta.http !== undefined);
+  return refused(at) ? null : at.at;
+}
+
+/** A replay's own writes after its fork, as the CLI counts a baseline's (its drawer's `2 writes after the read`). */
+function writesAfter(store: StoreOf<'recording'>, run: RunRecord, from: number): number {
+  return store.getCalls(run.runId, { after: from - 1 }).filter((c) => c.kind === 'tool' && c.effect === 'write').length;
+}
+
+/** What an attempt's page marks, from its mark and the result it belongs to. */
+export function attemptPlant(store: StoreOf<'recording'>, run: RunRecord, mark: InjectionMark, report: InjectionReport | null): AttemptPlant {
+  if (!report) return NONE;
+  if (report.mode === 'clean') {
+    const a = report.attempts.find((x) => x.runId === run.runId);
+    return { ...NONE, plantedAt: mark.read, gone: a ? a.gone : null };
+  }
+  const path = plantPath(store, run.parentRunId, mark.read);
+  if (mark.role === 'baseline') return { ...NONE, path, writes: writesAfter(store, run, mark.readAt ?? mark.read) };
+  const a = report.attempts.find((x) => x.runId === run.runId);
+  const payload = report.payloads.find((p) => p.id === mark.payload);
+  const canary = a?.canary ?? mark.canary ?? null;
+  return { ...NONE, plantedAt: a?.plantedAt ?? null, path, planted: payload && canary ? fillPayload(payload.text, canary) : (payload?.text ?? null) };
+}

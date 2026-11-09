@@ -287,7 +287,7 @@ describe('the run page’s next step', () => {
   it('opens a passing run or a proof, a link as Fix → is', async () => {
     for (const next of [
       { key: 'passing', label: 'Open passing run', runId: PARENT, href: `#/run/${PARENT}`, title: `Opens ${PARENT.slice(0, 10)}` },
-      { key: 'injection-proof', label: 'Open proof', runId: PARENT, href: `#/run/${PARENT}/6`, title: `Opens ${PARENT.slice(0, 10)}`, sub: 'send_email obeyed a planted instruction (8 of 72) · system-notice at #4' },
+      { key: 'injection-proof', label: 'Open proof', runId: PARENT, href: `#/run/${PARENT}/6`, title: `Opens ${PARENT.slice(0, 10)}`, sub: 'send_email obeyed a planted instruction · 8 of 72 · system-notice at #4' },
       { key: 'preset-proof', label: 'Open proof', runId: PARENT, href: `#/run/${PARENT}/2`, title: `Opens ${PARENT.slice(0, 10)}`, sub: 'tool timeout failed · 0 of 1 passed' },
     ] as NextStep[]) {
       page = await render(createElement(AppContext.Provider, { value: app() }, createElement(RunHeader, header(detail({ state: passedState, next })))));

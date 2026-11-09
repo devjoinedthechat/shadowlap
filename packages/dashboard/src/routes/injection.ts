@@ -5,6 +5,7 @@ import { injectionReportHtml } from '../injection-report.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { runAffinity } from '../run-index.js';
+import { namesTeamStore } from './verdicts.js';
 
 /**
  * Injection tests: what `shadowlap injection` kept, for the pages that show it, and the job that
@@ -15,7 +16,7 @@ import { runAffinity } from '../run-index.js';
  *   GET /api/injection/tools              { tools }: every recorded tool with its trust, for Settings → Tools
  *   GET /api/injection/needs-look         { items }: runs and goldens whose newest test obeyed, was influenced or is inconclusive
  *   GET /api/injection/runs/:id           { untrusted, results, attempt }: a run's untrusted reads, its tests, and the test it is an attempt of
- *   GET /api/injection/:id                { row, report, gone }: one result, as --json printed it
+ *   GET /api/injection/:id                { row, report, gone, view }: one result, as --json printed it, and a plant's panel
  *   GET /api/injection/:id/report         the security report (HTML), the project's redaction rules applied
  *
  *   job injection  { runId | golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }
@@ -54,7 +55,7 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, await ctx.reads.run({ kind: 'injection-run', runId: r.params.id!, ...(trust ? { tools: trust } : {}) }, runAffinity(ctx.store, r.params.id!)));
   });
   router.get('/injection/:id', (r) => {
-    const found = injectionResult(store, r.params.id!);
+    const found = injectionResult(store, r.params.id!, { shared: namesTeamStore(ctx.project?.path) });
     if (!found) throw new HttpError(404, `no injection result ${r.params.id!}`);
     r.tagged(found);
   });
