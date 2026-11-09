@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { JOB_KINDS } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { Command } from '../components/Copy.js';
 import { copyText } from '../dom.js';
 import type { CalibrateStep, InspectStep, RecordStep, SetupView, TestStep } from '../projects-api.js';
 import { aroundRunId, aroundWord, codeParts, liveCalls, recordingLine, stepClass, terminalLine } from '../projects.js';
@@ -105,9 +106,7 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
       {found && step.folded ? (
         <details className="foundsum">
           <summary>
-            <span className="sumtext">
-              <Coded text={[...(step.summaryFacts ?? []), ...(step.summaryCommand ? [step.summaryCommand] : [])].join(' · ')} names={[...(step.findings?.rows.filter((r) => r.code).map((r) => r.value) ?? []), ...(step.summaryCommand ? [step.summaryCommand] : [])]} />
-            </span>
+            <FoldSum facts={step.summaryFacts ?? []} command={step.summaryCommand} />
           </summary>
           {found}
         </details>
@@ -145,6 +144,32 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
         </div>
       ) : null}
     </SetupStep>
+  );
+}
+
+/**
+ * A done step folded to its one line: what it found, each fact whole so the line breaks only after a
+ * " · ", then the command, broken only between its arguments. Where the command doesn't fit beside
+ * the facts it takes a line of its own, and the " · " before it, drawn in the gap (`.fsc::before`),
+ * goes with the line it would have ended.
+ */
+function FoldSum({ facts, command }: { facts: readonly string[]; command: string | null }) {
+  return (
+    <span className="fsl">
+      <span className="fsf">
+        {facts.map((f, i) => (
+          <Fragment key={i}>
+            {i ? ' ' : null}
+            <span className="nw">{i < facts.length - 1 ? `${f} ·` : f}</span>
+          </Fragment>
+        ))}
+      </span>
+      {command ? (
+        <span className="fsc">
+          <Command cmd={command} inline />
+        </span>
+      ) : null}
+    </span>
   );
 }
 

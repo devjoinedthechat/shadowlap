@@ -92,10 +92,19 @@ dl.found dd small { color: var(--faint); font-size: 12px; margin-left: 4px; }
 }
 
 details.foundsum { margin-top: 8px; }
-details.foundsum > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; color: var(--dim); font-size: 13px; }
+/* the marker keeps to the first line, centred on it, and what follows wraps beside it, each line starting under the first's words */
+details.foundsum > summary { cursor: pointer; list-style: none; display: flex; align-items: flex-start; gap: 6px; color: var(--dim); font-size: 13.5px; line-height: 1.5; }
 details.foundsum > summary::-webkit-details-marker { display: none; }
-details.foundsum > summary::before { content: ""; align-self: center; width: 0; height: 0; border-left: 5px solid var(--faint); border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin-right: 2px; transition: transform .15s; }
+details.foundsum > summary::before { content: ""; flex: none; width: 0; height: 0; border-left: 5px solid var(--faint); border-top: 4px solid transparent; border-bottom: 4px solid transparent; margin: calc(.75em - 4px) 2px 0 0; transition: transform .15s; }
 details.foundsum[open] > summary::before { transform: rotate(90deg); }
+/* a done step's line (FoldSum): its facts, each whole, then the command; the " · " before the command is drawn in the gap, so
+   where the command starts a line of its own the dot is clipped with the gap and no line ends on it */
+.fsl { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .76em; overflow: clip; }
+.fsl > .fsf, .fsl > .fsc { min-width: 0; }
+.fsl > .fsc { position: relative; }
+.fsl > .fsc::before { content: "·"; content: "·" / ""; position: absolute; right: 100%; width: .76em; text-align: center; }
+/* a long argument goes to a line of its own whole where it fits one, and breaks between its words only where it doesn't */
+.fsc .carg { display: inline-block; }
 
 /* Getting started (#/setup): the switches, files, forms and notes inside a step, checklists with a line under each choice, and a table with a select per row. */
 ol.setup .seg { flex-wrap: wrap; max-width: 100%; margin: 2px 0 12px; }
@@ -120,9 +129,6 @@ ol.setup .warnbox .actions { margin-top: 2px; }
 /* a step's warning and error keep their colour against the step's own text colour */
 ol.setup .sb > p.fieldnote.err { color: var(--err); }
 ol.setup .sb > p.fieldnote.warn { color: var(--warn); }
-/* a finished step's summary: the marker, then the words, which wrap beside it and never leave it alone on a line */
-details.foundsum > summary { flex-wrap: nowrap; }
-details.foundsum > summary > .sumtext { min-width: 0; }
 /* a step's result: the dot stays with its words; when they need the room, the button goes below */
 .recline > .ic, .recline > .dotlive { flex: none; }
 .recline > .rtext { flex: 1 1 16em; min-width: 0; }
