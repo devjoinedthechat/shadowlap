@@ -775,7 +775,7 @@ The same engine decides `verify`'s runs and `blame`'s probes. Each run's and eac
 | *not fixed*    | The gate failed it, telling it from one at 90% or more                                            |
 | *inconclusive* | The run is still between the bounds after 80 attempts, which keeps the change from being accepted |
 
-Its line shows its tally and bound (`fixed · 12 of 12 · rate >= 0.73 (95%)`), under the rule stated once. A run that passes 90% of the time ends inconclusive 1.0% of the time at 80 attempts, where 40 left it so 12%.
+Its line shows its tally and bound (`fixed · 12 of 12 passed · rate >= 0.73 (95%)`), under the rule stated once. A run that passes 90% of the time ends inconclusive 1.0% of the time at 80 attempts, where 40 left it so 12%.
 
 ### A good run
 

@@ -12,6 +12,7 @@ import { recentRuns, type RunRow } from './runs-list.js';
 import { analysisFor, blameAt, conversationSource, modelName, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_BEFORE, READ_PAST, runPageFacts, runProvenance, runShowJson, windowAnalysis, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
 import { keptCalls, runCalls } from './run-calls.js';
 import { blameStep, runWholeFacts } from './run-summary.js';
+import { kindCode } from './call-kinds.js';
 // How a run stands, as the run list works it out: a run's page and its family read the same state.
 import { bundleOf, runState, runStates, type RunState } from './runs-list.js';
 
@@ -100,6 +101,8 @@ export interface CallRow extends CallFacts {
   resultShort: string | null;
   /** A recorded user input: a person's answer the agent read, recorded like a read tool (`user_input`). */
   input?: true;
+  /** A call made in one of Shadowlap's own scopes, such as its judge's (`shadowlap:judge`): none of the agent's. */
+  reserved?: true;
   /**
    * While its run records, a call answered with a failure the agent may retry (a 429, a 5xx, a
    * connection that broke): the retry answers it again under its number, also after calls made since
@@ -133,6 +136,12 @@ export interface RunDetail extends RunPageFacts {
    * from it before their pages have come. Absent when `calls` holds every call.
    */
   origins?: string;
+  /**
+   * Beside `origins`, one character per call by what it was (m a model call, r a read, w a write, e an
+   * error, call-kinds.ts): a recording's strip, its key and its filter draw every call by it before
+   * their pages have come. Absent when `calls` holds every call.
+   */
+  kinds?: string;
   /**
    * Set while the run is too long to analyse whole for a first answer and the whole of it is being
    * analysed beside the server: what the page reads of its conversations, the prompt cache and the
@@ -366,6 +375,11 @@ function originCodes(calls: readonly CallRecord[]): string {
   return calls.map((c) => ORIGIN_CODE[displayOrigin(c.origin, c.end ? { outcome: c.end.outcome, injected: c.end.meta.injected } : null)]).join('');
 }
 
+/** One character per call by what it was, in the same order (call-kinds.ts). */
+function kindCodes(calls: readonly CallRecord[]): string {
+  return calls.map((c) => kindCode({ kind: c.kind, effect: c.effect, origin: c.origin, outcome: c.end?.outcome })).join('');
+}
+
 /**
  * What a page of a run's calls (or one call's details) is drawn from: the calls it shows (from `at`,
  * at most `limit`), where the next page starts, and the analysis of the run that gives their facts,
@@ -450,6 +464,7 @@ function firstPageOfLongRun(store: Store, run: RunRecord, shown: RunRecord, stat
     callsTotal: whole.calls,
     callsNext: head[limit]?.callNo ?? null,
     origins: whole.origins,
+    kinds: whole.kinds,
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
     children: childRows(store, runId),
     attempts: bundleOf(loadRunIndex(store), runId).length,
@@ -496,7 +511,7 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     calls: page.map((c) => row(store, c, options, analysis.facts(c.callNo), shown.status === 'running')),
     callsTotal: calls.length,
     callsNext: next,
-    ...(next !== null ? { origins: originCodes(calls) } : {}),
+    ...(next !== null ? { origins: originCodes(calls), kinds: kindCodes(calls) } : {}),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
     children: childRows(store, runId),
     attempts: bundleOf(loadRunIndex(store), runId).length,

@@ -265,7 +265,8 @@ export function describeRule(rule: Normalizer): string {
   return `${scope}  ${rule.path ?? 'any string'}  ${rule.pattern ?? 'whole value'} → ${rule.replace}`;
 }
 
-const sameRule = (a: unknown, b: Normalizer): boolean => isObject(a) && FIELDS.every((k) => (a[k] ?? undefined) === b[k]);
+/** Whether a rule (as the file holds it, so of any shape) is `b`: the same fields, whatever their order. A list holds each rule once. */
+export const sameRule = (a: unknown, b: Normalizer): boolean => isObject(a) && FIELDS.every((k) => (a[k] ?? undefined) === b[k]);
 
 /**
  * The position (from 0) of the rule `which` names: its number as `ls` shows it (`2` or `#2`), or a

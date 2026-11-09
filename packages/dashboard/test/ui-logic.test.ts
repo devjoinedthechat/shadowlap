@@ -13,7 +13,7 @@ import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../u
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
 import { bundlesAttempts, compareTarget, defaultComparePair, familyLine, isFailed, kindWord, matchesChip, matchesText, runOutcome, runSpent, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
 import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
-import { binCalls, gridCells, miniCells, stripCells, type StripItem } from '../ui/strip.js';
+import { binCalls, miniCells, stripCells, type StripItem } from '../ui/strip.js';
 
 describe('routes', () => {
   it('reads every page, a run at a call in a view, and the old call links', () => {
@@ -214,9 +214,9 @@ describe('strip', () => {
   it('ranks the rarest origin highest and leaves short runs alone', () => {
     expect(binCalls(calls('rl'), 360)).toBeNull();
     expect(binCalls(calls('rlsboif'), 1)![0]).toMatchObject({ origin: 'fail', notable: 7, size: 7 });
-    expect(miniCells(parseOrigins('rrrr')!, 60)).toEqual(['rep', 'rep', 'rep', 'rep']);
+    expect(miniCells(parseOrigins('rrrr')!, 60).map((c) => c.origin)).toEqual(['rep', 'rep', 'rep', 'rep']);
     expect(miniCells(parseOrigins('r'.repeat(119) + 'b')!, 60)).toHaveLength(60);
-    expect(miniCells(parseOrigins('r'.repeat(119) + 'b')!, 60).at(-1)).toBe('block');
+    expect(miniCells(parseOrigins('r'.repeat(179) + 'b')!, 60).at(-1)).toEqual({ origin: 'rep', tick: 'block', tickAt: 1 });
   });
 
   it('reads origins as a compact string or as names, and refuses anything else', () => {
@@ -802,19 +802,6 @@ describe('job drawer', () => {
   });
 });
 
-describe('overview grid', () => {
-  it('draws a family on one scale: the run’s calls, then empty cells, the fork outlined', () => {
-    const cells = gridCells(parseOrigins('rrrl')!, 30, 4);
-    expect(cells).toHaveLength(30);
-    expect(cells.slice(0, 4).map((c) => c.origin)).toEqual(['rep', 'rep', 'rep', 'live']);
-    expect(cells[3].fork).toBe(true);
-    expect(cells[4]).toEqual({ origin: null, fork: false });
-    const long = gridCells(parseOrigins('r'.repeat(119) + 'b')!, 120);
-    expect(long).toHaveLength(60);
-    expect(long.at(-1)!.origin).toBe('block');
-  });
-});
-
 describe('strip origins of failed and fenced calls', () => {
   it('marks a live call that errored as failed, and a fenced write by its fence, not as a failure', () => {
     const calls = [
@@ -937,7 +924,7 @@ describe('a run’s calls in the views', () => {
   it('says what a call did on its line, and a replayed call’s time as recorded', () => {
     expect(callDetail(call(1, 'api'))).toEqual({ text: 'sonnet-5 · tool_use', err: false });
     expect(callDetail(call(1, 'api', { outcome: 'error', status: 529, attempts: 2 }))).toEqual({ text: 'HTTP 529 · 3 attempts', err: true });
-    expect(resultLine(call(3, 'tool', { origin: 'blocked', outcome: 'error' }))).toEqual({ text: 'blocked', err: true });
+    expect(resultLine(call(3, 'tool', { origin: 'blocked', outcome: 'error' }))).toEqual({ text: 'blocked', err: false, blocked: true });
     // The server's line (the engine's toolResultLine) says it was stubbed; the page doesn't say it twice.
     expect(resultLine(call(3, 'tool', { origin: 'stubbed', resultShort: 'stubbed {"sent":true}' }))).toEqual({ text: 'stubbed {"sent":true}', err: false });
     expect(resultLine(call(3, 'tool', { outcome: 'error', error: 'TimeoutError: 30 s' }))).toEqual({ text: 'TimeoutError: 30 s', err: true });

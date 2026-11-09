@@ -1254,6 +1254,24 @@ function baselineWords(e: BaselineEvidence): string {
   return `against ${rate(e.baseline)} over ${over} (${e.history.passes} of ${e.history.attempts})`;
 }
 
+/** What a tally says apart, as `apartWords` words each kind. */
+export type ApartKind = 'carried' | 'cutShort' | 'unavailable';
+
+/**
+ * How a tally says what it left out or took in apart: `4 carried over`, `2 cut short by the provider,
+ * counted against either verdict`, `2 unavailable, not counted`. Without a count, the words alone, as
+ * one attempt's note says them of itself.
+ */
+export function apartWords(kind: ApartKind, n?: number): string {
+  const words = kind === 'carried' ? 'carried over' : kind === 'cutShort' ? 'cut short by the provider, counted against either verdict' : 'unavailable, not counted';
+  return n === undefined ? words : `${n} ${words}`;
+}
+
+/** The clauses a tally says apart, in that order, one for each count above 0 (`apartWords`). */
+export function tallyApart(r: Partial<Record<ApartKind, number | undefined>>): string[] {
+  return (['carried', 'cutShort', 'unavailable'] as const).flatMap((k) => (r[k] ? [apartWords(k, r[k])] : []));
+}
+
 /**
  * A gate's verdict without its rule, for a report that states the rule once above its lines: the
  * verdict word, the tally and the bound, `passed · 12 of 12 · rate >= 0.73 (95%)`; against history,
@@ -1264,8 +1282,7 @@ function baselineWords(e: BaselineEvidence): string {
  * unavailable for before then, never counted (`12 of 12 (2 unavailable, not counted)`).
  */
 export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined; unavailable?: number | undefined; cutShort?: number | undefined; unavailableAt?: readonly number[] | undefined }): string {
-  const cut = r.cutShort ?? r.unavailableAt?.length ?? 0;
-  const apart = [r.carried ? `${r.carried} carried over` : null, cut ? `${cut} cut short by the provider, counted against either verdict` : null, r.unavailable ? `${r.unavailable} unavailable, not counted` : null].filter(Boolean).join('; ');
+  const apart = tallyApart({ carried: r.carried, cutShort: r.cutShort ?? r.unavailableAt?.length, unavailable: r.unavailable }).join('; ');
   const tally = `${r.passes} of ${r.attempts}${apart ? ` (${apart})` : ''}`;
   if (r.clean) return `${decisionWord(r.decision)} · ${tally} · a clean replay, the same every time`;
   const parts = [decisionWord(r.decision), tally, rateBound(r)];

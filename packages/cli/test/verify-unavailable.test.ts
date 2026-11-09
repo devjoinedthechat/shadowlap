@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 
 /**
@@ -70,6 +71,13 @@ describe('shadowlap verify while the provider is unavailable', () => {
     expect(report.stopReason).toMatch(/^provider unavailable: /);
     expect(report.reasons[0]).toMatch(/^target run \w{10} inconclusive: provider unavailable: /);
     expect(report.cost.unavailable).toBe(3);
+    // Kept, and in the activity feed as a verify that settled nothing.
+    const store = Store.open(db);
+    try {
+      expect(store.listEvents({ kinds: ['verify.incomplete'] })).toEqual([expect.objectContaining({ data: expect.objectContaining({ reasons: [expect.stringMatching(/^target run \w{10} inconclusive: provider unavailable: /)] }) })]);
+    } finally {
+      store.close();
+    }
   }, 180_000);
 
   it('leaves a good run inconclusive, never broken, and pairs no baseline with what the provider never answered', async () => {

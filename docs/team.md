@@ -250,7 +250,7 @@ No request is ever made for a key with a `.` or `..` part, so `index/../../other
 
 - **Counted as the dashboard counts them.** Attempts (`--repeat`, blame's probes, verify's attempts) are filed under the run they came from. A run is only here while it, or an attempt filed under it, isn't in the store, as the Runs page's `local` tag marks it.
 - **The same numbers** show in Settings → Store and the Overview's Needs a look. Needs a look's row opens Runs, where the runs only here carry the `local` tag.
-- **Pushing from the dashboard.** Push in the bulk bar sends the ones picked, with their attempts; Runs' and Settings → Store's **Push local runs** sends them all.
+- **Pushing from the dashboard.** Push in the bulk bar sends the ones picked, with their attempts. **Push local runs**, on Runs, Settings → Store and Needs a look's row, sends them all.
 - **A run in the store whose attempts aren't** (a `replay --repeat` since the push) has **Push** on its own page, which sends the attempts.
 
 ## A teammate's runs and fixes

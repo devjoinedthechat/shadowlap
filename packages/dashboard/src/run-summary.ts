@@ -1,4 +1,4 @@
-import { estimateCost, importedRecording, JUDGE_SCOPE, shortModel, type CallRecord, type JudgeSummary, type ModelResolver, type Origin, type Price, type RunRecord, type RunSummary, type StoreOf, type Usage } from '@shadowlap/engine';
+import { estimateCost, importedRecording, JUDGE_SCOPE, RESERVED_SCOPE_PREFIX, shortModel, type CallRecord, type JudgeSummary, type ModelResolver, type Origin, type Price, type RunRecord, type RunSummary, type StoreOf, type Usage } from '@shadowlap/engine';
 
 /**
  * What a run's page says of the whole run, worked out in SQL over its call events without reading
@@ -24,7 +24,7 @@ const truthy = (col: string, path: string) =>
  * a provider: neither refused offline, nor injected, nor refused.
  */
 const CALLS = `
-SELECT s.call_no AS n, s.kind AS kind, s.origin AS origin, s.name AS name, s.request_ref AS req,
+SELECT s.call_no AS n, s.kind AS kind, s.origin AS origin, s.effect AS effect, s.name AS name, s.request_ref AS req,
        CASE WHEN json_extract(s.meta, '$.scope') = '${JUDGE_SCOPE}' THEN 1 ELSE 0 END AS judge,
        CASE WHEN json_type(s.meta, '$.extraRead') = 'true' THEN 1 ELSE 0 END AS extra,
        TOTAL(CASE WHEN e.attempt IS NOT NULL AND NOT ${truthy('e.meta', '$.injected')} AND NOT ${truthy('e.meta', '$.refused')} AND NOT ${truthy('e.meta', '$.offline')} THEN 1 ELSE 0 END) AS clean,
@@ -44,31 +44,36 @@ GROUP BY s.call_no`;
 const CODE = `CASE WHEN strict = 1 THEN 'i' WHEN outcome = 'error' AND origin NOT IN ('blocked', 'stubbed') THEN 'f'
   ELSE CASE origin WHEN 'replayed' THEN 'r' WHEN 'live' THEN 'l' WHEN 'overridden' THEN 'o' WHEN 'blocked' THEN 'b' WHEN 'stubbed' THEN 's' END END`;
 
+/** A call's character by what it was (call-kinds.ts `kindCode`). */
+const KIND = `CASE WHEN outcome = 'error' AND origin NOT IN ('blocked', 'stubbed') THEN 'e' WHEN kind = 'api' THEN 'm'
+  WHEN kind = 'tool' AND effect = 'write' THEN 'w' ELSE 'r' END`;
+
 /**
  * The calls grouped by what the summary tells apart, in one statement over the calls read once: the
- * strip's characters (`origins`), the groups of calls that name a model or need none, the model
+ * strip's characters (`origins`, and `kinds` by what each call was), the groups of calls that name a model or need none, the model
  * calls that name none, one each, whose model is read from their request, and the agent's extra
  * reads, one each (a replay's plain read answered live, `meta.extraRead`).
  */
 const FACTS_SQL = `
 WITH calls AS MATERIALIZED (${CALLS})
-SELECT 'origins' AS what, group_concat(${CODE}, '' ORDER BY n) AS origins, NULL AS kind, NULL AS origin, NULL AS judge, NULL AS model,
+SELECT 'origins' AS what, group_concat(${CODE}, '' ORDER BY n) AS origins, group_concat(${KIND}, '' ORDER BY n) AS kinds, NULL AS kind, NULL AS origin, NULL AS judge, NULL AS model,
        NULL AS injected, NULL AS refused, NULL AS offline, NULL AS used, NULL AS calls, NULL AS clean, NULL AS first,
        NULL AS ti, NULL AS tout, NULL AS tcr, NULL AS tcw, NULL AS name, NULL AS req FROM calls
 UNION ALL
-SELECT 'group', NULL, kind, origin, judge, model, injected, refused, offline, used, COUNT(*), TOTAL(clean), MIN(n),
+SELECT 'group', NULL, NULL, kind, origin, judge, model, injected, refused, offline, used, COUNT(*), TOTAL(clean), MIN(n),
        TOTAL(ti), TOTAL(tout), TOTAL(tcr), TOTAL(tcw), NULL, NULL
 FROM calls WHERE model IS NOT NULL OR kind != 'api'
 GROUP BY kind, origin, judge, model, injected, refused, offline, used
 UNION ALL
-SELECT 'unnamed', NULL, kind, origin, judge, NULL, injected, refused, offline, used, 1, clean, n, ti, tout, tcr, tcw, name, req
+SELECT 'unnamed', NULL, NULL, kind, origin, judge, NULL, injected, refused, offline, used, 1, clean, n, ti, tout, tcr, tcw, name, req
 FROM calls WHERE model IS NULL AND kind = 'api'
 UNION ALL
-SELECT 'extra', NULL, kind, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, n, NULL, NULL, NULL, NULL, name, NULL
+SELECT 'extra', NULL, NULL, kind, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, n, NULL, NULL, NULL, NULL, name, NULL
 FROM calls WHERE extra = 1 AND judge = 0`;
 
 /**
- * The agent's model calls that were answered in a blame's scope: how many, how many come up to the
+ * The agent's model calls that were answered in a blame's scope, as the engine's blameSteps finds
+ * them (none in one of Shadowlap's own scopes, probedInScope): how many, how many come up to the
  * blamed call (it included), and whether it is one of them. Bound, in order: the blamed call twice,
  * the run, then the scope four times (null for every scope).
  */
@@ -77,7 +82,7 @@ SELECT COUNT(*) AS m, TOTAL(s.call_no <= ?) AS k, TOTAL(s.call_no = ?) AS hit
 FROM call_events s
 WHERE s.run_id = ? AND s.phase = 'start' AND s.kind = 'api'
   AND EXISTS (SELECT 1 FROM call_events e WHERE e.run_id = s.run_id AND e.call_no = s.call_no AND e.phase = 'end')
-  AND (json_extract(s.meta, '$.scope') IS NULL OR json_extract(s.meta, '$.scope') != '${JUDGE_SCOPE}')
+  AND (json_type(s.meta, '$.scope') IS NOT 'text' OR substr(json_extract(s.meta, '$.scope'), 1, ${RESERVED_SCOPE_PREFIX.length}) != '${RESERVED_SCOPE_PREFIX}')
   AND (? IS NULL OR (json_type(s.meta, '$.scope') = 'text' AND (json_extract(s.meta, '$.scope') = ? OR substr(json_extract(s.meta, '$.scope'), 1, length(?) + 1) = ? || '/')))`;
 
 /** Calls alike in all the summary reads of them: how many, how many of their answers reached a provider, their final answers' usage summed. */
@@ -130,12 +135,19 @@ function unknownIn(groups: readonly Group[], prices: Record<string, Price> | und
   return [...firsts].sort((a, b) => a[1] - b[1]).map(([m]) => m);
 }
 
+/** The strip's two strings, a character a call: each call's origin and what it was. */
+function stripStrings(r: Record<string, unknown>): { origins: string; kinds: string } {
+  return { origins: typeof r.origins === 'string' ? r.origins : '', kinds: typeof r.kinds === 'string' ? r.kinds : '' };
+}
+
 export interface RunWholeFacts {
   summary: RunSummary;
   /** Every call the run has, the judge's among them. */
   calls: number;
   /** One character per call, in call order (r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed). */
   origins: string;
+  /** One character per call, in call order, by what it was (m a model call, r a read, w a write, e an error). */
+  kinds: string;
   /** Each model the run's model calls name, by the short name their rows carry, as the run page names it. */
   models: Record<string, string>;
 }
@@ -145,11 +157,11 @@ export interface RunWholeFacts {
  * from every call, read in SQL. `name` gives a model as the page names it (run-page.ts `modelName`).
  */
 export function runWholeFacts(store: StoreOf<'readModels'>, run: RunRecord, o: { prices?: Record<string, Price>; modelOf: ModelResolver; name: (model: string) => string }): RunWholeFacts {
-  let origins = '';
+  let strings = { origins: '', kinds: '' };
   const groups: Group[] = [];
   const extraReads: RunSummary['extraReads'] = [];
   for (const r of store.query(FACTS_SQL, run.runId)) {
-    if (r.what === 'origins') origins = typeof r.origins === 'string' ? r.origins : '';
+    if (r.what === 'origins') strings = stripStrings(r);
     else if (r.what === 'extra') extraReads.push({ callNo: Number(r.first), kind: r.kind as CallRecord['kind'], name: String(r.name) });
     else if (r.what === 'group') groups.push(groupOf(r, typeof r.model === 'string' || typeof r.model === 'number' ? String(r.model) : null));
     else {
@@ -212,7 +224,7 @@ export function runWholeFacts(store: StoreOf<'readModels'>, run: RunRecord, o: {
     const short = shortModel(g.model);
     if (short && !(short in models)) models[short] = o.name(g.model!);
   }
-  return { summary, calls: groups.reduce((n, g) => n + g.calls, 0), origins, models };
+  return { summary, calls: groups.reduce((n, g) => n + g.calls, 0), ...strings, models };
 }
 
 function judgeOf(groups: readonly Group[], imported: boolean, prices: Record<string, Price> | undefined): JudgeSummary {

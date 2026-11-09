@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Store } from '../src/index.js';
 import { ProjectHost, ProjectRegistry, projectDbPath } from '../src/projects/index.js';
@@ -108,6 +108,49 @@ describe('ProjectHost.restore', () => {
     expect(events(custom, 'project.added').map((e) => e.data?.again)).toContain(true);
     expect(existsSync(projectDbPath(support))).toBe(false);
     expect(() => host.restore('support-agent')).toThrow(expect.objectContaining({ code: 'not-found' }));
+    host.close();
+  });
+
+  it('is refused in the list’s own words when the list can’t be used, and leaves the file as it is', async () => {
+    const w = world();
+    const support = w.agent('support-agent');
+    const host = ProjectHost.open(support, { registry: w.registry, loadConfig: () => ({}) });
+    w.registry.add(w.agent('triage-bot'));
+    await host.remove('support-agent');
+    const file = w.registry.file;
+    const list = readFileSync(file, 'utf8');
+    // The host asks nothing of the list before it puts a project back: the registry refuses a list
+    // that isn't valid JSON as it reads it, and one a newer Shadowlap wrote as it changes it.
+    const newer = `${JSON.stringify({ ...(JSON.parse(list) as object), version: 2 }, null, 2)}\n`;
+    for (const [text, words] of [
+      ['{ not json', `${file} isn’t valid JSON. Fix it, or move it away to start a new list; Shadowlap won’t overwrite it.`],
+      [newer, `${file} was written by a newer Shadowlap. Upgrade Shadowlap to change the project list.`],
+    ] as const) {
+      writeFileSync(file, text);
+      expect(() => host.restore('support-agent')).toThrow(expect.objectContaining({ code: 'registry', message: words }));
+      expect(readFileSync(file, 'utf8')).toBe(text);
+    }
+    // A list it can use again: the Undo puts the project back.
+    writeFileSync(file, list);
+    expect(host.restore('support-agent')).toMatchObject({ project: { id: 'support-agent' }, current: 'triage-bot' });
+    host.close();
+  });
+
+  it('puts back the folder it stood in for while the list was unusable, once the list held it', async () => {
+    const w = world();
+    const support = w.agent('support-agent');
+    mkdirSync(dirname(w.registry.file), { recursive: true });
+    writeFileSync(w.registry.file, '{ not json');
+    const host = ProjectHost.open(support, { registry: w.registry, loadConfig: () => ({}) });
+    expect(host.notice).toMatch(/isn’t valid JSON/);
+    // Fixed, with the folder on it and another beside it: removed, it comes back, never refused in
+    // the words of the list it opened on.
+    rmSync(w.registry.file);
+    w.registry.add(support);
+    w.registry.add(w.agent('triage-bot'));
+    await host.remove('support-agent');
+    expect(host.restore('support-agent')).toMatchObject({ project: { id: 'support-agent', path: support } });
+    expect(w.ids()).toEqual(['support-agent', 'triage-bot']);
     host.close();
   });
 });

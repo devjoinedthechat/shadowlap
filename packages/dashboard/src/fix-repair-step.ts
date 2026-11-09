@@ -1,5 +1,7 @@
-import { commitTitle, eachRun, noRepairerOf, patchFiles, repairMarkdown, targetWhere, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type StoreOf, type StoredRepair, unrescuedWords } from '@shadowlap/engine';
-import { acceptedCandidate, fixHref, repairerLabel, ROLE, s, sprtGate } from './fix-shared.js';
+import { commitTitle, eachRun, fixVerifyHead, noRepairerOf, patchFiles, repairMarkdown, repairOutcomeWord, targetWhere, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type RepairReport, type StoreOf, type StoredRepair, unrescuedWords } from '@shadowlap/engine';
+import { repairSpent } from './fix-lead.js';
+import { acceptedCandidate, fixHref, repairerLabel, ROLE, runHref, s, short, sprtGate, type StepLine } from './fix-shared.js';
+import { verdictHeadline } from './fix-verify-step.js';
 
 /** A fix's Repair step: the change repair proposed, every candidate it tried, and why each was kept or dropped. */
 
@@ -14,6 +16,15 @@ export interface RepairStep {
   accepted: boolean;
   /** The accepted change in a few words (the commit title), or "No change yet". */
   title: string;
+  /**
+   * Its verdict line: `accepted` in lime, headed by its verdict's heading (`fixVerifyHead`), as the
+   * Verify step heads the same verdict. One that accepted nothing: `rejected` in red where the gate
+   * rejected the candidates it tried, else the engine's outcome word (`not fixed` red, `no fix to
+   * try` and `stopped` amber), headed by why (`report.why`) and saying what is left to do.
+   */
+  line: StepLine;
+  /** How the accepted change was checked beyond its rule: `verified twice, the second time with fresh attempts`; null for one that accepted nothing. */
+  again: string | null;
   /** Why nothing was accepted. */
   why: string | null;
   /** Who proposed the candidates: `claude-code`, `anthropic:claude-opus-5-5`; null when no repairer answered. */
@@ -34,12 +45,23 @@ export interface RepairStep {
   roles: Array<{ role: 'target' | 'held-out' | 'good'; held: number; of: number }>;
   needed: number | null;
   attemptsPerRun: number | null;
-  /** How each run was decided: `each at 4 of 5 attempts`, or `each by its gate, which tells 90%+ from 70%- at <= 5% risk`, with the good runs' baseline rule after it when they were kept against one (verify's `eachRun`); null without a verification. */
+  /**
+   * How each run was decided: `each at 4 of 5 attempts`, or `each by its gate, which tells 90%+ from
+   * 70%- at <= 5% risk`, with the good runs' baseline rule after it when they were kept against one
+   * (verify's `eachRun`): the accepted candidate's verification, or for a repair that accepted
+   * nothing the first candidate's that ran one; null when none did.
+   */
   rule: string | null;
   /** Where each failing run was lost, from its blame. */
   lost: Array<{ runId: string; at: string; href: string }>;
   diagnosis: string | null;
   candidates: Array<{ id: number; text: string; surface: string; file: string; source: 'repairer' | 'model'; verdict: CandidateVerdict; why: string }>;
+  /**
+   * The runs the candidates' whys name, by the short id they say them in (`target run 01M3RZ4XKN
+   * not fixed: 0 of 3 passed`): each a link to its run, with its about line on hover, which only the
+   * fix's pooled read fills (`withAbouts`), null elsewhere.
+   */
+  named: Array<{ id: string; runId: string; href: string; about: string | null }>;
   files: Array<{ name: string; note: string }>;
   /** report.md: the pull request body. */
   prBody: string;
@@ -88,6 +110,17 @@ function candidateVerdict(c: RepairCandidate, r: StoredRepair): { verdict: Candi
   }
 }
 
+/** The runs the candidates' whys name (`RepairStep['named']`): any failing run it blamed or run a candidate was verified on, the first of any two that share a short id. */
+function namedRuns(rep: RepairReport, whys: readonly string[]): RepairStep['named'] {
+  const text = whys.join('\n');
+  const named = new Map<string, string>();
+  for (const runId of [...rep.targets.map((t) => t.runId), ...rep.candidates.flatMap((c) => c.verify?.runs.map((x) => x.runId) ?? [])]) {
+    const id = short(runId);
+    if (!named.has(id) && text.includes(id)) named.set(id, runId);
+  }
+  return [...named].map(([id, runId]) => ({ id, runId, href: runHref(runId), about: null }));
+}
+
 /** `1 file · +1 −1` for a patch. */
 function patchNote(patch: string | null): string {
   if (!patch) return 'no patch';
@@ -115,6 +148,44 @@ function repairAttempts(store: StoreOf<'fixes'>, r: StoredRepair): number {
   return verify + blame;
 }
 
+/** How the repair's gate decided each run (`RepairStep['rule']`), said once: the accepted candidate's verification, else the first candidate's that ran one, as it ran on every candidate it tried. */
+function repairRule(candidates: readonly RepairCandidate[], v: RepairCandidate['verify'] | null): string | null {
+  const ruled = v ?? candidates.find((x) => x.verify)?.verify ?? null;
+  return ruled ? eachRun({ ...ruled, gate: sprtGate(ruled.gate) }) : null;
+}
+
+/** The accepted change's result per role (`RepairStep['roles']`): target 1 of 1. */
+function rolesOf(runs: ReadonlyArray<{ role: 'target' | 'holdout' | 'good'; verdict: string }>): RepairStep['roles'] {
+  return (['target', 'holdout', 'good'] as const).flatMap((role) => {
+    const of = runs.filter((x) => x.role === role);
+    return of.length ? [{ role: ROLE[role], held: of.filter((x) => x.verdict === 'pass').length, of: of.length }] : [];
+  });
+}
+
+/**
+ * A repair's verdict line (`RepairStep['line']`): one that accepted nothing never says repaired.
+ * Its finding says what is left: each candidate and why it was dropped, and, once a repair would
+ * only try the same again (`repairSpent`), to change the prompt by hand.
+ */
+function repairLine(rec: FixRecords, r: StoredRepair, why: string | null): StepLine {
+  const c = acceptedCandidate(r);
+  if (c) {
+    const verdict = rec.verdicts.find((x) => x.repairId === r.repairId);
+    const head = verdict ? verdictHeadline(rec, verdict) : c.verify ? fixVerifyHead('accepted', c.verify.runs, rec.failing) : commitTitle(c);
+    return { word: 'accepted', tone: 'ok', head: [head], finding: null };
+  }
+  const rejected = r.outcome === 'not-fixed' && r.report.candidates.some((x) => x.state === 'rejected');
+  const spent = repairSpent(rec) && rec.repairs.at(-1)?.repairId === r.repairId;
+  const next = spent ? 'Repairing again would try the same: change the prompt yourself and verify it.' : 'Repair again, or verify a fix of your own.';
+  const text = why ?? 'No candidate was accepted';
+  return {
+    word: rejected ? 'rejected' : repairOutcomeWord(r.outcome),
+    tone: r.outcome === 'no-diagnosis' || r.outcome === 'stopped' ? 'warn' : 'err',
+    head: [text.charAt(0).toUpperCase() + text.slice(1)],
+    finding: r.report.candidates.length ? `The fix stays open, with each candidate and why it was dropped. ${next}` : 'The fix stays open. Repair again, or verify a fix of your own.',
+  };
+}
+
 /**
  * A repair as the Repair step shows it. A teammate's (`pulled`) shows `fallback`, the fix's own
  * repair command, in place of the command line it ran on their machine, which is never offered to
@@ -125,18 +196,12 @@ export function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRe
   const c = acceptedCandidate(r);
   const v = c?.verify ?? null;
   const verdict = rec.verdicts.find((x) => x.repairId === r.repairId) ?? null;
-  const roles: RepairStep['roles'] = [];
-  if (v) {
-    for (const role of ['target', 'holdout', 'good'] as const) {
-      const of = v.runs.filter((x) => x.role === role);
-      if (of.length) roles.push({ role: ROLE[role], held: of.filter((x) => x.verdict === 'pass').length, of: of.length });
-    }
-  }
   const dir = r.dir.replace(/\/+$/, '');
   const goldens = rep.output.goldens.length;
   const none = noRepairerOf(rep);
   // A report kept before it said why no repairer proposed anything only says there was nothing to try: that is why.
   const why = none && !rep.candidates.length && rep.why === 'there was no candidate to try' ? none.text : rep.why;
+  const candidates = rep.candidates.map((x) => ({ id: x.id, text: x.after, surface: x.surface, file: x.file, source: x.source, ...candidateVerdict(x, r) }));
   return {
     repairId: r.repairId,
     at: r.at,
@@ -144,16 +209,18 @@ export function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRe
     outcome: r.outcome,
     accepted: r.accepted,
     title: c ? commitTitle(c) : 'No change yet',
+    line: repairLine(rec, r, why),
+    again: v ? 'verified twice, the second time with fresh attempts' : null,
     why: c ? null : why,
     repairer: repairerLabel(r),
     noRepairer: none,
     served: rep.repairer?.served && rep.repairer.served !== rep.repairer.model ? rep.repairer.served : null,
     verify: v ? { verifyId: verdict?.verifyId ?? null, attempts: v.attempts, spent: v.spent, counts: verdict ? verdictCounts(rec, verdict) : false } : null,
     change: c ? { file: c.file, anchor: c.surface, before: c.before, after: c.after, ...addedText(c.before, c.after) } : null,
-    roles,
+    roles: v ? rolesOf(v.runs) : [],
     needed: v?.needed ?? null,
     attemptsPerRun: v?.attemptsPerRun ?? null,
-    rule: v ? eachRun({ ...v, gate: sprtGate(v.gate) }) : null,
+    rule: repairRule(rep.candidates, v),
     lost: rep.targets.map((t) => ({
       runId: t.runId,
       // As repair's report and its pull request say it: at a model call, or gradually around (or between) two.
@@ -161,7 +228,8 @@ export function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRe
       href: fixHref(fixId, 'blame'),
     })),
     diagnosis: rep.diagnosis,
-    candidates: rep.candidates.map((x) => ({ id: x.id, text: x.after, surface: x.surface, file: x.file, source: x.source, ...candidateVerdict(x, r) })),
+    candidates,
+    named: namedRuns(rep, candidates.map((x) => x.why)),
     files: [
       ...(rep.patch ? [{ name: 'fix.patch', note: patchNote(rep.patch) }] : []),
       { name: 'report.md', note: 'the pull request body' },

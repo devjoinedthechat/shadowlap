@@ -44,6 +44,13 @@ import { countsOf, readTeamStoreInput } from '../team-store.js';
 
 export const ONE_STORE = 'this dashboard serves one store: start shadowlap dashboard to add and switch projects';
 
+/** A message with paths under the home folder written as the rest of these screens write them: `~/x`. */
+export function homeAsTilde(h: ProjectHost<ProjectConfig>, text: string): string {
+  let out = text;
+  for (const home of new Set([h.registry.realHome, h.registry.home])) out = out.split(`${home}${sep}`).join(`~${sep}`);
+  return out;
+}
+
 /**
  * How a project's runs here stand with the team store its config names, for the Remove dialog: how
  * many of them the store's index lists too, which deleting the recordings here leaves there. Null
@@ -90,12 +97,6 @@ export function register(router: Router, ctx: RouteContext): void {
   };
   /** The last calibrate job's outcome per project, for its setup's third step (until the replay is clean). */
   const calibrations = new Map<string, { runId: string; outcome: CalibrationOutcome }>();
-  /** A message with paths under the home folder written as the rest of these screens write them: `~/x`. */
-  const homeAsTilde = (h: ProjectHost<ProjectConfig>, text: string): string => {
-    let out = text;
-    for (const home of new Set([h.registry.realHome, h.registry.home])) out = out.split(`${home}${sep}`).join(`~${sep}`);
-    return out;
-  };
 
   // ---- the switcher
 

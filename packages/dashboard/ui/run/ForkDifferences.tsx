@@ -1,9 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import type { ForkChange, ForkDifferences as Differences, ForkEnd, ForkWrite } from '../../src/fork-differences.js';
 import { shortId } from '../format.js';
-import { useLoad } from '../hooks.js';
+import { useForkDifferences } from './fork-differences-load.js';
 import { href } from '../route.js';
-import { useApp } from '../state.js';
 
 /**
  * What the fork did differently from its parent, one of its findings: from the call it left its parent
@@ -38,12 +37,6 @@ export function writeGroups(writes: readonly ForkWrite[]): Array<{ tool: string;
 const RANK_WORDS: Record<number, string> = { 1: 'a write', 2: 'how it ends', 3: 'a read', 4: 'a read asked', 5: 'its words' };
 
 const FATE_WORDS: Record<string, string> = { blocked: 'blocked', stubbed: 'stubbed', live: 'ran live', overridden: 'overridden', replayed: 'replayed', failed: 'failed' };
-
-/** What the fork did differently, read once `want` says the run is a fork that has ended; null until it comes, or with none to say. */
-export function useForkDifferences(runId: string, want: boolean): Differences | null {
-  const { client } = useApp();
-  return useLoad(() => (want ? client.forkDifferences(runId) : null), `differences:${runId}:${want ? 'fork' : 'none'}`).data;
-}
 
 export function ForkDifferences({ runId }: { runId: string }) {
   const d = useForkDifferences(runId, true);

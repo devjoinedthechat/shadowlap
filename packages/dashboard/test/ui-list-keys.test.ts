@@ -35,10 +35,14 @@ interface Item {
 const ITEMS: Item[] = [{ id: 'A' }, { id: 'B' }, { id: 'C' }];
 const keyOf = (x: Item) => `#/run/${x.id}`;
 
-/** A list as a page draws one: its rows, each keyed by where it leads (a run, unless `to` says), the one in focus `.krow`, a checkbox in each where it picks. */
-function List({ rows = ITEMS, to = keyOf, picks, drawn, show, actions }: { rows?: Item[]; to?: (x: Item) => string; picks?: (x: Item) => void; drawn?: number; show?: (i: number) => void; actions?: (x: Item) => { name: string; items: () => Array<{ label: string; hint: string; run: () => void }> } | null }) {
+/** A list as a page draws one: its rows, each keyed by where it leads (a run, unless `to` says; nowhere where `leads` says not), the one in focus `.krow`, a checkbox in each where it picks. */
+function List({ rows = ITEMS, to = keyOf, picks, drawn, show, actions, leads }: { rows?: Item[]; to?: (x: Item) => string; picks?: (x: Item) => void; drawn?: number; show?: (i: number) => void; actions?: (x: Item) => { name: string; items: () => Array<{ label: string; hint: string; run: () => void }> } | null; leads?: (x: Item) => boolean }) {
   const root = useRef<HTMLUListElement>(null);
-  const at = useListKeys({ rows, keyOf: to, root, open: (x) => (location.hash = to(x)), pick: picks ?? null, actions: actions ?? null, show: show ?? null });
+  const open = (x: Item) => {
+    if (leads && !leads(x)) return false;
+    location.hash = to(x);
+  };
+  const at = useListKeys({ rows, keyOf: to, root, open, pick: picks ?? null, actions: actions ?? null, show: show ?? null });
   return createElement(
     'ul',
     { ref: root },
@@ -221,9 +225,9 @@ describe('⌘K on a row', () => {
     ],
   });
 
-  function Opener() {
+  function Opener({ leads }: { leads?: (x: Item) => boolean }) {
     const [open, setOpen] = useState(false);
-    return createElement(AppContext.Provider, { value: app({ palette: open, setPalette: setOpen }) }, createElement('main', { id: 'view' }, createElement('button', { type: 'button', id: 'other' }, 'Other'), createElement(List, { actions })), createElement(Keyboard), createElement(Palette, { route: { page: 'runs' } }));
+    return createElement(AppContext.Provider, { value: app({ palette: open, setPalette: setOpen }) }, createElement('main', { id: 'view' }, createElement('button', { type: 'button', id: 'other' }, 'Other'), createElement(List, { actions, ...(leads ? { leads } : {}) })), createElement(Keyboard), createElement(Palette, { route: { page: 'runs' } }));
   }
   const labels = () => r!.all('.palit .pl').map((x) => x.textContent);
 
@@ -247,6 +251,21 @@ describe('⌘K on a row', () => {
     await r.press('Escape', {}, field);
     await r.until('it to close', () => r!.all('.palette').length === 0);
     expect(rowInFocus()).toBe('#/run/A');
+  });
+
+  it('opens on the row’s actions on Enter where the row leads nowhere of its own, and opens one that does', async () => {
+    const before = location.hash;
+    r = await render(createElement(Opener, { leads: (x: Item) => x.id !== 'B' }));
+    await r.press('j');
+    await r.press('j');
+    await r.press('Enter');
+    await r.until('the palette', () => r!.all('.palette').length === 1);
+    expect([r.one('.palg code').textContent, labels(), location.hash]).toEqual(['B', ['Open run', 'Copy ID'], before]);
+    await r.press('Escape', {}, r.one('.palin input'));
+    await r.until('it to close', () => r!.all('.palette').length === 0);
+    await r.press('j');
+    await r.press('Enter');
+    expect([location.hash, r.all('.palette').length]).toEqual(['#/run/C', 0]);
   });
 
   it('opens the whole palette with the focus outside a row', async () => {

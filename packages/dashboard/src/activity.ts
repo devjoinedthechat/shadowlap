@@ -1,12 +1,13 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
 import { num } from './fields.js';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
 import { shortReason, verdictOfResult } from './tests.js';
 import { gateLine, gateRuleOf as ruleOf } from './verdict.js';
-import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
+import { FEATURE_EVENT_TEXT, type Describe, type EventText } from './activity-events.js';
+import type { ActivityItem, ActivityPage } from './views.js';
 
 /**
  * The activity feed: what happened in this project, newest first. Most of it is read from the runs
@@ -19,15 +20,7 @@ import type { ActivityIcon, ActivityItem, ActivityPage } from './views.js';
 export const ACTIVITY_LIMIT = 50;
 export const ACTIVITY_MAX = 200;
 
-/** How a stored event reads in the feed. */
-export interface EventText {
-  kind: ActivityIcon;
-  text: string;
-  /** Where it opens; defaults to its run, if it has one. */
-  href?: string;
-}
-
-type Describe = (event: StoredEvent, data: Record<string, unknown>) => EventText;
+export type { EventText } from './activity-events.js';
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : typeof v === 'number' ? String(v) : null);
 /** A time from run meta, which a pack someone else made can carry as anything. */
@@ -70,10 +63,11 @@ function rejection(d: Record<string, unknown>): string | null {
 
 /**
  * The wording of every stored event kind, read from the fields each command records (documented in
- * packages/engine/src/events.ts). A feature that records a new kind adds its wording with
- * `describeEvent`; an unknown kind reads as its name and its ref.
+ * packages/engine/src/events.ts), the features' own kinds among them (activity-events.ts), so every
+ * thread that reads the feed has them all; an unknown kind reads as its name and its ref.
  */
 const EVENT_TEXT = new Map<string, Describe>([
+  ...FEATURE_EVENT_TEXT,
   ['normalizer.added', (e, d) => ({ kind: 'setting', text: `Normalizer added · ${str(d.path) ?? e.ref ?? 'every string'}`, href: links.settings('matching') })],
   ['normalizer.removed', (e, d) => ({ kind: 'setting', text: `Normalizer removed · ${str(d.path) ?? e.ref ?? 'every string'}`, href: links.settings('matching') })],
   // A redaction rule reads by what it puts in place and where, never by its pattern: a pattern can
@@ -96,8 +90,10 @@ const EVENT_TEXT = new Map<string, Describe>([
       // Inconclusive goldens are counted apart: neither passed nor failed.
       const inconclusive = num(d.inconclusive) ?? 0;
       const counts = `${num(d.passed) ?? 0} passed, ${failed} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
-      if (d.interrupted === true) return { kind: 'fail', text: `Tests stopped · ${counts}${notRun ? `, ${notRun} not run` : ''}`, href: links.tests() };
-      return { kind: failed ? 'fail' : inconclusive ? 'warn' : 'test', text: `Tests ran · ${counts}`, href: links.tests() };
+      // The tests' shape, coloured by how they came out: red with a failure, amber inconclusive or stopped.
+      const outcome = failed ? ('err' as const) : inconclusive || d.interrupted === true ? ('warn' as const) : null;
+      const head = d.interrupted === true ? `Tests stopped · ${counts}${notRun ? `, ${notRun} not run` : ''}` : `Tests ran · ${counts}`;
+      return { kind: 'test', ...(outcome ? { outcome } : {}), text: head, href: links.tests() };
     },
   ],
   // A golden's answer opens Tests, where it shows above the golden's buttons; a run's, the run.
@@ -108,10 +104,10 @@ const EVENT_TEXT = new Map<string, Describe>([
       const href = fixHref(e.ref, 'blame');
       const title = str(d.title);
       const callNo = num(d.callNo);
-      if (d.outcome === 'stopped') return { kind: 'blame', text: parts('Blame stopped', title), href };
+      if (d.outcome === 'stopped') return { kind: 'blame', outcome: 'warn', text: parts('Blame stopped', title), href };
       // Its first probe couldn't tell: inconclusive, which is no finding that no call rescues it.
-      if (d.outcome === 'unrescuable' && d.unsettled === true) return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}${INCONCLUSIVE_FIRST}`, href };
-      if (callNo === null || d.outcome === 'unrescuable') return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}no single call rescued the run`, href };
+      if (d.outcome === 'unrescuable' && d.unsettled === true) return { kind: 'blame', outcome: 'warn', text: `Blamed · ${title ? `${title}, ` : ''}${INCONCLUSIVE_FIRST}`, href };
+      if (callNo === null || d.outcome === 'unrescuable') return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}${unrescuedWords(false)}`, href };
       // Lost around or between two calls, when no one call is pinned (lostRange).
       // The mock's two lines: with the failure's title when the fix has one, else with the confidence.
       if (title) return { kind: 'blame', text: `Blamed · ${title}, ${lostWords(callNo, d.range, 'calls')}`, href };
@@ -122,6 +118,8 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['repair.empty', (e, d) => ({ kind: 'fixbad', text: `Repair found no fix · ${str(d.why) ?? str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
   ['verify.accepted', (e, d) => ({ kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
   ['verify.rejected', (e, d) => ({ kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
+  // A verify that settled nothing: why, by its first reason (a run left inconclusive, the provider gone).
+  ['verify.incomplete', (e, d) => ({ kind: 'fixinc', outcome: 'warn', text: `Verify inconclusive · ${strings(d.reasons)[0] ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
   // A fix with no patch (verified on the working tree, or with a change of request fields) was only marked applied, as its page says.
   ['fix.applied', (e, d) => ({ kind: 'fixok', text: `${d.patch === 'none' ? 'Marked applied' : 'Patch applied'} · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
   ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: links.training() })],
@@ -190,7 +188,11 @@ function importText(name: string, runs: number, modelCalls: number | null): stri
   return parts(`Imported ${name}`, runs > 1 && plural(runs, 'run'), modelCalls !== null && plural(modelCalls, 'model call'));
 }
 
-/** Sets how a stored event kind reads in the feed: a feature that records a new kind calls this from its route module. */
+/**
+ * Sets how a stored event kind reads in the feed, for an embedder. A feature's own kinds go in
+ * activity-events.ts instead: a describer registered from a route module never reaches the read
+ * threads, which load no route module, and the feed is read there.
+ */
 export function describeEvent(kind: string, describe: Describe): void {
   EVENT_TEXT.set(kind, describe);
 }
@@ -219,7 +221,7 @@ function storedItem(store: StoreOf<'recording'>, e: StoredEvent): ActivityItem {
   // The team store's entries open Settings → Store, whichever run one names.
   const href = t.href ?? (e.kind.startsWith('store.') ? STORE_TAB : e.runId ? links.run(e.runId) : undefined);
   const ref = e.ref ?? (e.runId ? short(e.runId) : undefined);
-  return { id: `e:${e.eventId}`, at: e.at, kind: t.kind, text: t.text, ...(e.runId ? { runId: e.runId } : {}), ...(href ? { href } : {}), ...(e.actor ? { actor: e.actor } : {}), ...(ref ? { ref } : {}) };
+  return { id: `e:${e.eventId}`, at: e.at, kind: t.kind, ...(t.outcome ? { outcome: t.outcome } : {}), text: t.text, ...(e.runId ? { runId: e.runId } : {}), ...(href ? { href } : {}), ...(e.actor ? { actor: e.actor } : {}), ...(ref ? { ref } : {}) };
 }
 
 function fallback(e: StoredEvent): EventText {
@@ -346,7 +348,7 @@ function recordingEnd(store: StoreOf<'recording'>, run: RunRecord): ActivityItem
   const item = base(run, `r:${run.runId}:end`, run.endedAt ?? run.startedAt);
   if (run.status === 'failed') return { ...item, kind: 'fail', text: `Recording failed · ${calls} · ${command(run)}` };
   if (checks?.failed) return { ...item, kind: 'fail', text: `Recorded ${calls} · check failed: ${checks.failed}` };
-  if (checks?.inconclusive) return { ...item, kind: 'rec', text: `Recorded ${calls} · check inconclusive: ${checks.inconclusive}` };
+  if (checks?.inconclusive) return { ...item, kind: 'rec', outcome: 'warn', text: `Recorded ${calls} · check inconclusive: ${checks.inconclusive}` };
   if (run.status === 'crashed') return { ...item, kind: 'rec', text: `Recording interrupted · ${calls} · ${command(run)}` };
   return { ...item, kind: 'rec', text: `Recorded ${calls} · ${command(run)}` };
 }
@@ -418,6 +420,15 @@ function testEnd(store: StoreOf<'recording' | 'tests'>, run: RunRecord, test: { 
   if (checks?.inconclusive) return { ...item, kind: 'warn', text: `Test inconclusive · ${golden} · check inconclusive: ${checks.inconclusive}` };
   const detail = checks ? checks.text : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
   return { ...item, kind: 'test', text: `Test passed · ${golden} · ${detail}` };
+}
+
+/**
+ * A replay a check couldn't decide reads amber on its own shape (clean, forked or plain). One that
+ * failed stays red, and a test's attempt is told by its test's result.
+ */
+function unsure(entry: ActivityItem, run: RunRecord): ActivityItem {
+  const checks = checksOutcome(run);
+  return run.meta?.test || entry.kind === 'fail' || checks?.failed || !checks?.inconclusive ? entry : { ...entry, outcome: 'warn' };
 }
 
 function replayEnd(store: StoreOf<'recording' | 'tests'>, run: RunRecord): ActivityItem {
@@ -540,10 +551,11 @@ function blamed(run: RunRecord): ActivityItem {
   const b = run.meta!.blame!;
   const item = { ...base(run, `r:${run.runId}:blame`, time(b.at, run.endedAt ?? run.startedAt)), href: links.fixes() };
   if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `${lostRange(b.range) ? `Blamed · ${lostWords(b.callNo, b.range, 'calls')}` : `Blamed model call #${b.callNo}`} · confidence ${b.confidence}` };
-  if (b.outcome === 'stopped') return { ...item, kind: 'blame', text: `Blame stopped · ${plural(Array.isArray(b.probes) ? b.probes.length : 0, 'call')} probed` };
+  if (b.outcome === 'stopped') return { ...item, kind: 'blame', outcome: 'warn', text: `Blame stopped · ${plural(Array.isArray(b.probes) ? b.probes.length : 0, 'call')} probed` };
   // Its first probe couldn't tell: inconclusive, which is no finding that no call rescues it.
-  if (b.unsettled === true) return { ...item, kind: 'blame', text: `Blamed · ${INCONCLUSIVE_FIRST}` };
-  return { ...item, kind: 'blame', text: 'Blamed · no single call rescued the run' };
+  if (b.unsettled === true) return { ...item, kind: 'blame', outcome: 'warn', text: `Blamed · ${INCONCLUSIVE_FIRST}` };
+  // In the words every other place says it (`unrescuedWords`).
+  return { ...item, kind: 'blame', text: `Blamed · ${unrescuedWords(false)}` };
 }
 
 function repeated(store: StoreOf<'recording'>, attempts: RunRecord[], parent: RunRecord | undefined): ActivityItem {
@@ -682,7 +694,7 @@ function derived(store: StoreOf<'recording' | 'activity' | 'tests'>, runs: RunRe
         else tested.set(key, [run]);
         continue;
       }
-      stubs.push({ id: `r:${run.runId}:end`, at: run.endedAt ?? run.startedAt, render: () => replayEnd(store, run) });
+      stubs.push({ id: `r:${run.runId}:end`, at: run.endedAt ?? run.startedAt, render: () => unsure(replayEnd(store, run), run) });
     }
   }
   for (const attempts of tested.values()) {

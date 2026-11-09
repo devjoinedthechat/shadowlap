@@ -277,7 +277,7 @@ describe('setupView', () => {
       state: 'current',
       cli: ['shadowlap pack 01K5CQ7A3M goldens/research-agent', 'shadowlap test goldens/research-agent'],
       golden: { value: 'goldens/research-agent', enabled: true },
-      button: { label: 'Pack as a golden', action: 'packgolden', enabled: true },
+      button: { label: 'Pack as golden', action: 'packgolden', enabled: true },
       redaction: { rules: 0, text: 'There are no redaction rules yet, so the copy holds what was recorded. Add some in Settings before you commit runs with user data.', href: '#/settings/redaction' },
     });
     expect(view(p, facts({ runs: 1, recordings: [run()] }), { redactRules: 2 }).test.redaction!.text).toBe('Your redaction rules apply to the copy.');

@@ -56,7 +56,7 @@ import { callTotals, priced as pricedTotals } from './run-stats.js';
 import { fixedBy } from './runs-filter.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
 import { liveReasons } from './tests-live.js';
-import { bisectAnswers, bisectChoices, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
+import { bisectAnswers, bisectChoices, gateResultView, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
 
 /**
  * The one next step of a run (A12): what its page's lime button leads with, worked out here from how
@@ -109,7 +109,7 @@ export interface NextStepWork {
   prices?: Record<string, Price>;
 }
 
-export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'bisect' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
+export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'more-attempts' | 'bisect' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
 
 /** A step as a list's row carries it: which one, its words, where it opens when it is a link, why it can't start when it can't, and what it says it does: none of which reads a call. */
 export interface NextStepRow {
@@ -125,6 +125,8 @@ export interface NextStepRow {
   capture?: true;
   /** Replay's run: the recording a clean or a test replay came from, else the run itself. */
   runId?: string;
+  /** Pack as golden…'s folder, the goldens' named for the run: Tests with no golden yet offers it. */
+  folder?: string;
 }
 
 /** A step on a run's page: the row's, and the rest of what its hover says, what it bills. */
@@ -146,10 +148,11 @@ export type NextStep = StepWords &
     | { key: 'replay'; runId: string; action?: ActionItem }
     | { key: 'passing' | 'injection-proof' | 'preset-proof'; runId: string }
     | { key: 'compare'; parent: string }
-    | { key: 'fix'; fixId: string; status: FixStatus }
+    | { key: 'fix'; fixId: string; status: FixStatus; /** The fix's check, as its page states it. */ check: string }
     | { key: 'blame'; offer: BlameOffer }
     | { key: 'normalizer' | 'update-golden'; golden: string; test: TestOffer | null }
     | { key: 'rerun-test' | 'gate-again'; golden: string }
+    | { key: 'more-attempts'; golden: string }
     | { key: 'bisect'; golden: string; starts: boolean; blame: BlameBeside | null }
     | { key: 'rule' }
     | { key: 'injection-test'; runId: string }
@@ -288,8 +291,8 @@ function compareStep(parent: string, runId: string): Decided {
   return { key: 'compare', label: ACTIONS.compareWithParent.label, parent, href: links.compare(parent, runId), title: `Against ${short(parent)}`, about: parent, command: commandLine(['diff', short(parent), short(runId)]) };
 }
 
-function fixStep(fix: { fixId: string; title: string; status: FixStatus }, href = links.fixes(fix.fixId)): Decided {
-  return { key: 'fix', label: ACTIONS.openFix.label, fixId: fix.fixId, status: fix.status, href, title: `“${fix.title}”` };
+function fixStep(fix: { fixId: string; title: string; status: FixStatus }, check: string, href = links.fixes(fix.fixId)): Decided {
+  return { key: 'fix', label: ACTIONS.openFix.label, fixId: fix.fixId, status: fix.status, check, href, title: `“${fix.title}”` };
 }
 
 function blameCommand(runId: string, offer: BlameOffer, capture: boolean): string {
@@ -547,6 +550,9 @@ function againCommand(runId: string, again: InjectionAgain): string {
 /** Why a test stopped short and what to do about it: its budget's the advice to spend it better, any other stop in its own words. */
 const stopWords = (reason: string): string => (/\bbudget\b/.test(reason) ? 'It stopped at its budget: test with fewer templates, or a higher budget' : `It stopped early (${reason}): test it again`);
 
+/** Re-run test's card, where a golden's injection gate showed too little to say: on its run's page and on Needs a look's row. */
+export const gateAgainSub = (why: string | null | undefined): string => `Its injection gate showed too little to say: ${why ?? 'no attempt decided'}`;
+
 /** What a recording's newest finished plant leads with: its proof when it failed, running again when it showed too little; null when it says nothing to do. */
 function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const { row, store } = f;
@@ -561,7 +567,7 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const ownFile = report.payloads?.some((x) => x.source === 'file');
   const stopped = report.stopReason ? stopWords(report.stopReason) : null;
   if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
-  if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: `Its injection gate showed too little to say: ${why}`, price: again };
+  if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: gateAgainSub(why), price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };
 }
@@ -636,7 +642,7 @@ function captureStep(f: Facts): Decided | null {
   if (f.row.kind !== 'capture' || j?.by !== 'import' || j.verdict !== 'failed') return null;
   const first = j.first?.label;
   const fix = first ? fixByFailure(f.reads.fixes(), first) : null;
-  if (fix) return fixStep(fix);
+  if (fix) return fixStep(fix, fix.check.text);
   const failed = (j.checks ?? []).filter((c) => c.status === 'failed').map((c) => c.label);
   const expect = captureExpect(f.record, f.work?.tests);
   return blameStep(f.row.runId, expect ? { from: 'golden', expect, failed: failed.length ? failed : first ? [first] : [] } : { from: 'ask', failed: failed.length ? failed : first ? [first] : [] }, true);
@@ -659,7 +665,7 @@ function attemptStep(f: Facts): Decided | null {
 function coveredStep(f: Facts): Decided | null {
   if (!f.row.failed) return null;
   const fix = f.fix()?.fix;
-  return fix ? fixStep(fix, fix.href) : null;
+  return fix ? fixStep(fix, fix.check, fix.href) : null;
 }
 
 /** Failed, and nobody blamed it: blame, where blame can take it. */
@@ -812,8 +818,33 @@ export function stepCalls(store: StoreOf<'readModels'>, run: Pick<RunRecord, 'ru
   return [run.runId, run.parentRunId, source].reduce((n, id) => n + (id ? (byId.get(id)?.calls ?? 0) : 0), 0);
 }
 
-/** The job this module's table answers: one run's next step, whole, with what it bills, however long the runs it reads. */
-export type NextStepJob = { kind: 'next'; runId: string; outcome: OutcomeWork | null; next: NextStepWork | null };
+/**
+ * What a golden that didn't pass leads Tests with, by its newest result: Run more attempts where its
+ * gate ran out of attempts between its bounds, which only Tests runs; else its replay's own step, as
+ * the replay's page leads with it, in the light form a list's row has. Null for a golden that passed,
+ * has no result yet, or whose replay the store doesn't hold or can't read.
+ */
+export function goldenStep(store: Store, golden: string, work: NextStepWork | null, reads: StepReads): NextStep | null {
+  const result = reads.results(golden)[0];
+  if (!result || verdictOfResult(result) === 'passed') return null;
+  const more = verdictOfResult(result) === 'inconclusive' ? gateResultView(result, golden)?.more : null;
+  if (more) return { key: 'more-attempts', label: ACTIONS.runMoreAttempts.label, golden, command: commandLine(more.args) };
+  return (result.runId ? listedStep(store, result.runId, work, { reads }) : null) ?? null;
+}
+
+/** Tests' steps (`GET /api/tests`): of the goldens named, each that leads with one, by its path. */
+export function goldenSteps(store: Store, goldens: readonly string[], work: NextStepWork | null): Record<string, NextStep> {
+  const reads = stepReads(store);
+  const steps: Record<string, NextStep> = {};
+  for (const golden of goldens) {
+    const step = goldenStep(store, golden, work, reads);
+    if (step) steps[golden] = step;
+  }
+  return steps;
+}
+
+/** The jobs this module's table answers: one run's next step, whole, with what it bills, however long the runs it reads; and Tests' goldens' steps, in their light form. */
+export type NextStepJob = { kind: 'next'; runId: string; outcome: OutcomeWork | null; next: NextStepWork | null } | { kind: 'tests-steps'; goldens: string[]; next: NextStepWork | null };
 
 export const NEXT_STEP_READS: ReadTable<NextStepJob> = {
   next: async (store, job) => {
@@ -826,6 +857,7 @@ export const NEXT_STEP_READS: ReadTable<NextStepJob> = {
     const { next } = await pageSteps(store, run.runId, job.next, { judged: judged ?? null, kept: () => true });
     return answer({ runId: run.runId, next: next ?? null }, { tagged: true });
   },
+  'tests-steps': (store, job) => answer(goldenSteps(store, job.goldens, job.next)),
 };
 
 /**
@@ -840,7 +872,7 @@ export function copyNextStep(store: Store, runId: string, held: readonly string[
 
 /** A step as a list's row carries it. */
 export function stepRow(step: NextStep): NextStepRow {
-  return { key: step.key, label: step.label, ...(step.href ? { href: step.href } : {}), ...(step.off ? { off: step.off } : {}), ...(step.title ? { title: step.title } : {}), ...(step.command ? { command: step.command } : {}), ...(step.capture ? { capture: true as const } : {}), ...(step.key === 'replay' ? { runId: step.runId } : {}) };
+  return { key: step.key, label: step.label, ...(step.href ? { href: step.href } : {}), ...(step.off ? { off: step.off } : {}), ...(step.title ? { title: step.title } : {}), ...(step.command ? { command: step.command } : {}), ...(step.capture ? { capture: true as const } : {}), ...(step.key === 'replay' ? { runId: step.runId } : {}), ...(step.key === 'pack' ? { folder: step.folder } : {}) };
 }
 
 /**
@@ -854,6 +886,18 @@ export function listedStep(store: Store, runId: string, work: NextStepWork | nul
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The newest run's step on the row of failed runs nobody has blamed (Fixes, Needs a look): its listed
+ * step, a capture's by the verdict its import kept, as the lists count it failed (fix-shared.ts
+ * `capturedFailure`): the fix that holds the same failure, else Run blame, which asks for your
+ * command on the capture's page. No call is read for it.
+ */
+export function unblamedListedStep(store: Store, runId: string, work: NextStepWork | null, o: { reads: StepReads }): NextStep | null | undefined {
+  const capture = o.reads.index.byId.get(runId)?.kind === 'capture';
+  const judged = capture ? runJudged(store, o.reads.index, runId, null, { quick: true }) : undefined;
+  return listedStep(store, runId, work, judged === undefined ? o : { ...o, judged });
 }
 
 /** A run's Replay for a list, as its page keeps it beside its next step: undefined for a record it can't be read from. */
