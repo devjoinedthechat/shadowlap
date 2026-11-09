@@ -80,8 +80,8 @@ a.kpi { display: block; text-decoration: none; color: inherit; }
 .kpi .kv b { margin-top: 0; }
 .kv .vs { color: var(--faint); font-size: 12px; white-space: nowrap; }
 /* every overview row sits on the same three columns, so gutters line up from top to bottom */
-.ovg { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 36px 48px; align-items: start; }
-.ovg > .panel.sec, .ovside > .panel.sec { margin-top: 0; }
+.ovg, .ovgs { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 36px 48px; align-items: start; }
+.ovg > .panel.sec, .ovgs > .panel.sec, .ovside > .panel.sec { margin-top: 0; }
 .panel.sec.ovuse { margin-top: 40px; }
 .panel.sec .feed a, .panel.sec .feed > .plain { padding-left: 0; padding-right: 0; }
 .panel.sec .feed a:hover { box-shadow: -12px 0 0 var(--hover), 12px 0 0 var(--hover); }
@@ -131,7 +131,7 @@ a.kcell:hover { background: var(--hover); }
 .leaknote .ln { display: inline-block; text-wrap: balance; }
 
 @media (max-width: 1180px) {
-  .ovg { grid-template-columns: minmax(0, 1fr); }
+  .ovg, .ovgs { grid-template-columns: minmax(0, 1fr); }
   .ovside { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 40px; }
 }
 

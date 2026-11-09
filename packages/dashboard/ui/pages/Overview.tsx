@@ -4,7 +4,7 @@ import { PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { viewerTimeZone } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { ErrorState } from '../components/States.js';
+import { ErrorState, Skeleton } from '../components/States.js';
 import { overviewFacts } from '../overview/model.js';
 import { NeedsLook } from '../overview/NeedsLook.js';
 import { ActivityCard, RecentRuns, WatchLive } from '../overview/panels.js';
@@ -65,7 +65,7 @@ export function OverviewPage() {
             Adding up what each run did: {warming.done.toLocaleString('en-US')} of {warming.total.toLocaleString('en-US')} runs so far. The Overview shows once they all are; every other page works meanwhile.
           </div>
         ) : (
-          <div className="empty tall">Working out this week…</div>
+          <OverviewLoading />
         )}
       </Page>
     );
@@ -94,5 +94,36 @@ export function OverviewPage() {
       </div>
       <Usage s={s} />
     </Page>
+  );
+}
+
+/** A section's lines while the Overview loads: placeholder words the skeleton draws as quiet bars. */
+const SKEL_LINES = ['A failure nobody has looked at yet, and its step', 'A golden that diverged at a call', 'A fix to prove, and its run', 'A run that needs a look'];
+
+/**
+ * The Overview still being worked out: Needs a look and the aside in their places as quiet bars,
+ * under the header. Its grid is `.ovgs`, never `.ovg`, which the tests read as the Overview drawn.
+ */
+function OverviewLoading() {
+  const part = (title: string, lines: number) => (
+    <section className="panel sec">
+      <header>
+        <h2>{title}</h2>
+      </header>
+      {SKEL_LINES.slice(0, lines).map((l) => (
+        <p key={l}>{l}</p>
+      ))}
+    </section>
+  );
+  return (
+    <Skeleton what="the Overview">
+      <div className="ovgs">
+        {part('Needs a look', 4)}
+        <div className="ovside">
+          {part('Recent runs', 3)}
+          {part('Activity', 2)}
+        </div>
+      </div>
+    </Skeleton>
   );
 }
