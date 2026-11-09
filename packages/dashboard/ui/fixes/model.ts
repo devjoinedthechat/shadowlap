@@ -143,6 +143,9 @@ export function blameNextStep(f: Pick<FixDetail, 'status' | 'actions'>): { kind:
   return null;
 }
 
+/** The blame-next button a fix's head draws beside Run repair (`blameNextStep`): none after a repair whose gate rejected every candidate, which waits (`repair.spent`). */
+export const headBlameNext = (f: Pick<FixDetail, 'status' | 'actions'>): ReturnType<typeof blameNextStep> => (f.actions.repair?.spent ? null : blameNextStep(f));
+
 /**
  * What Run more attempts or Verify again will do, after the id of the run it names, as the Verify
  * step says it under the verdict: why the run is open, then what settles it and what that takes

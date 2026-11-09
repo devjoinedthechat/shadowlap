@@ -1,6 +1,7 @@
 import { act, createElement, useState, type ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { type BlameReport, Store } from '@shadowlap/engine';
+import { blameReport } from '../../engine/test/fix-fixtures.js';
 import { fixesView } from '../src/fixes-view.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
@@ -44,8 +45,8 @@ const { named, blamed, detail } = crashFixtures(() => store);
 const text = (el: FakeElement) => el.textContent.replace(/\s+/g, ' ').trim();
 
 /** The fix of a crash, as the server serves it, its found change's path worked out as a project's would be. */
-function crashFix(o: { named?: boolean; stronger?: boolean; live?: boolean } = {}): FixDetail {
-  const { rec, fixId } = blamed('crashed', { stronger: !!o.stronger });
+function crashFix(o: { named?: boolean; stronger?: boolean; live?: boolean; rerun?: boolean; report?: Partial<BlameReport> } = {}): FixDetail {
+  const { rec, fixId } = blamed('crashed', { stronger: !!o.stronger, rerun: !!o.rerun, ...(o.report ? { report: o.report } : {}) });
   if (o.named) named(T0 + 2 * MIN, CHANGE);
   const d = detail(fixId, work([source(rec, o.live ? { mode: 'fork' } : {})]));
   const change = d.blame?.crash?.commit?.change;
@@ -100,8 +101,8 @@ describe('a crash’s Blame step', () => {
     expect(text(r!.one('.fxnote'))).toBe('The agent stopped part way from ccccccc on, so the code broke the run, not an answer of the model’s. Revert the commit or fix the code, then run the tests.');
   });
 
-  it('says to look at the code first, the search offline and free only where its golden replays so', async () => {
-    await fixPage(crashFix(), 'blame');
+  it('says to look at the code first, the search offline and free only where its golden replays so, and the stronger model only where the head offers it', async () => {
+    await fixPage(crashFix({ rerun: true }), 'blame');
     expect(r!.all('.bisect.fxbis')).toEqual([]);
     const say = 'The agent stopped part way, so look at the code first. Find breaking commit replays it offline and free, and names the commit that broke it. If none did, Run blame with stronger model says whether the model’s capability is the problem.';
     expect(text(r!.one('.fxnote'))).toBe(say);
@@ -109,13 +110,44 @@ describe('a crash’s Blame step', () => {
     await r!.unmount();
     store.close();
     store = Store.open(':memory:');
-    await fixPage(crashFix({ live: true }), 'blame');
+    await fixPage(crashFix({ rerun: true, live: true }), 'blame');
     expect(text(r!.one('.fxnote'))).toBe(say.replace(' offline and free,', ''));
+    // A blame kept before its flags offers no stronger model: the note names none.
+    await r!.unmount();
+    store.close();
+    store = Store.open(':memory:');
+    await fixPage(crashFix(), 'blame');
+    expect(text(r!.one('.fxnote'))).toBe(say.replace(/ If none did.*$/, ''));
   });
 
-  it('says neither model rescues it once a stronger model was asked too', async () => {
+  it('says neither model rescues it once a stronger model was asked too, and that every attempt ended as the recording did only where none passed', async () => {
     await fixPage(crashFix({ stronger: true }), 'blame');
-    expect(text(r!.one('.fxnote'))).toBe('Neither model rescues it, so look at the code and the tools: every attempt ended as the recording did. Find breaking commit replays it offline and free, and names the commit that broke it.');
+    const find = 'Find breaking commit replays it offline and free, and names the commit that broke it.';
+    // One attempt of four passed, below the bar.
+    expect(text(r!.one('.fxnote'))).toBe(`Neither model rescues it, so look at the code and the tools. ${find}`);
+    await r!.unmount();
+    store.close();
+    store = Store.open(':memory:');
+    const failedAll = { probes: blameReport('x', 'unrescuable').probes.map((p) => ({ ...p, passes: 0, attempts: p.attempts.map((a) => ({ ...a, passed: false })) })) };
+    await fixPage(crashFix({ stronger: true, report: failedAll }), 'blame');
+    expect(text(r!.one('.fxnote'))).toBe(`Neither model rescues it, so look at the code and the tools: every attempt ended as the recording did. ${find}`);
+  });
+
+  it('keeps blame’s own finding where no answer of the model’s lost the run, then names Find breaking commit, which leads, and no stronger model', async () => {
+    const fix = crashFix({ rerun: true, report: { failedWrite: { name: 'write_file', message: 'EACCES: permission denied', callNo: 1 } } });
+    await fixPage(fix, 'blame');
+    expect(text(r!.one('.fxnote'))).toBe("No answer of the model's lost this run: look at the tools, the harness or the command. Find breaking commit replays it offline and free, and names the commit that broke it.");
+    expect(head().map(([t, c]) => `${t}:${c}`)).toEqual(['Run repair:btn', 'Find breaking commit:btn lime']);
+  });
+
+  it('leads with Run blame again where its first probe couldn’t tell, showing neither the commit nor a crash’s note', async () => {
+    const unsettled = { probes: blameReport('x', 'unrescuable').probes.map((p) => ({ ...p, decision: 'inconclusive' as const })) };
+    const fix = crashFix({ rerun: true, named: true, report: unsettled });
+    await fixPage(fix, 'blame');
+    expect(fix.lead?.key).toBe('blame-again');
+    expect(r!.all('.bisect.fxbis')).toEqual([]);
+    expect(text(r!.one('.fxnote'))).toBe(fix.blame!.look!.replace(/\s+/g, ' '));
+    expect(head().map(([t]) => t)).toEqual(['Run repair', 'Run blame again']);
   });
 });
 
@@ -136,6 +168,16 @@ describe('a crash’s fix head', () => {
     await r!.click(r!.byText('.ph .actions button', 'Find breaking commit'));
     await r!.until('the search', () => calls.started.length === 1);
     expect(calls.started[0]).toEqual(['bisect', { runId: fix.blame!.runId, good: 'aaaaaaa', estimate: { usd: 0, ceiling: 0 } }]);
+  });
+
+  it('has four buttons once the commit is named where the stronger model is offered: Run repair, the stronger model, Open in editor, then Revert, lime and last', async () => {
+    await fixPage(crashFix({ named: true, rerun: true }), null);
+    expect(head()).toEqual([
+      ['Run repair', 'btn'],
+      ['Run blame with stronger model…', 'btn'],
+      ['Open in editor', 'btn'],
+      ['Revert', 'btn lime'],
+    ]);
   });
 
   it('leads with Revert once the commit is named, Open in editor beside it, Find breaking commit gone, the lead the drawer presses', async () => {

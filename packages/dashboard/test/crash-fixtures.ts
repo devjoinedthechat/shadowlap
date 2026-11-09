@@ -1,4 +1,4 @@
-import { recordBlame, recordEvent, type Store, type StoredBlame } from '@shadowlap/engine';
+import { type BlameReport, recordBlame, recordEvent, type Store, type StoredBlame } from '@shadowlap/engine';
 import { blameReport } from '../../engine/test/fix-fixtures.js';
 import { fixCrash } from '../src/fix-crash.js';
 import { fixDetail } from '../src/fixes.js';
@@ -38,13 +38,17 @@ export function crashFixtures(of: () => Store) {
     recordEvent(of(), { kind: 'bisect.found', ref: GOLDEN, at: at + 30_000, data: { commit: 'ccccccc', first: { rev: 'ccccccc', subject: 'Log the total', author: 'Ravi', date: '2026-09-30T10:00:00Z', ...(change ? { change } : {}) }, why: 'the agent exited with code 1', untested: [], replays: 3, tokens: 0, answered: { at, ok: false } } });
   }
 
-  /** The crash, blamed with no call that rescues it (`stronger`: by a stronger model), and its fix. */
-  function blamed(how: 'crashed' | 'diverged' = 'crashed', o: { stronger?: boolean } = {}) {
+  /**
+   * The crash, blamed with no call that rescues it (`stronger`: by a stronger model; `report`: what
+   * else its report found), and its fix. With `rerun`, the blame kept its flags, so the fix offers
+   * blame's next step (Run blame again, or with a stronger model) where blame's rules do.
+   */
+  function blamed(how: 'crashed' | 'diverged' = 'crashed', o: { stronger?: boolean; rerun?: boolean; report?: Partial<BlameReport> } = {}) {
     const rec = addRun(of(), { startedAt: T0, calls: 'lll' });
     tested(rec, T0 + MIN, 'passed');
     const run = tested(rec, T0 + 2 * MIN, how);
-    const report = { ...blameReport(run, 'unrescuable'), ...(o.stronger ? { rescue: { fields: { model: 'claude-opus-5-5' } } } : {}) };
-    const { fix } = recordBlame(of(), { runId: run, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'The agent exited', checkText: 'issue_refund never called', at: T0 + 3 * MIN });
+    const report = { ...blameReport(run, 'unrescuable'), ...(o.stronger ? { rescue: { fields: { model: 'claude-opus-5-5' } } } : {}), ...o.report };
+    const { fix } = recordBlame(of(), { runId: run, report, expect: EXPECT, scope: null, command: 'shadowlap blame', ...(o.rerun ? { rerun: { flags: [], command: null } } : {}), title: 'The agent exited', checkText: 'issue_refund never called', at: T0 + 3 * MIN });
     return { rec, run, fixId: fix.fixId };
   }
 

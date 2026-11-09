@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
+import { blameReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
 import { crashFixtures, GOLDEN, MIN, source, T0, work } from './crash-fixtures.js';
@@ -58,5 +59,39 @@ describe('a fix whose crash no model rescued', () => {
     expect(fixDetail(store, fixId)!.blame!.crash).toBeNull();
     tested(rec, T0 + 4 * MIN, 'passed');
     expect(detail(fixId, work([source(rec)])).lead?.key).not.toMatch(/^(bisect|revert)$/);
+  });
+});
+
+describe('a crash whose blame found something of its own', () => {
+  /** The crash's blame, inconclusive at its first model call: its first probe couldn't tell. */
+  const unsettled = { probes: blameReport('x', 'unrescuable').probes.map((p) => ({ ...p, decision: 'inconclusive' as const })) };
+  const failedWrite = { failedWrite: { name: 'write_file', message: 'EACCES: permission denied', callNo: 1 } };
+
+  it('leads with Run blame again where its first probe couldn’t tell, with no crash path on its page or its row, even once the commit is named', () => {
+    const { rec, fixId } = blamed('crashed', { rerun: true, report: unsettled });
+    named(T0 + 2 * MIN);
+    const w = work([source(rec)]);
+    const d = detail(fixId, w);
+    expect(d.lead?.key).toBe('blame-again');
+    expect(d.blame!.crash).toBeNull();
+    // Blame's own words on what settles it, as `shadowlap blame` prints them.
+    expect(d.blame!.look).not.toBeNull();
+    expect(fixesView(store, { next: w }).fixes[0].next?.key).toBe('blame-again');
+  });
+
+  it('leads with Find breaking commit where no answer of the model’s lost the run, offering no stronger model, its Blame step keeping blame’s own finding', () => {
+    const { rec, fixId } = blamed('crashed', { rerun: true, report: failedWrite });
+    const d = detail(fixId, work([source(rec)]));
+    expect(d.lead?.key).toBe('bisect');
+    expect(d.actions.blameStronger).toBeNull();
+    expect(d.blame!.look).toBe("No answer of the model's lost this run: look at the tools, the harness or the command.");
+    expect(d.blame!.crash).toEqual({ commit: null, offline: true, stronger: false });
+  });
+
+  it('offers the stronger model beside Find breaking commit where its blame kept its flags, and leads with the search', () => {
+    const { rec, fixId } = blamed('crashed', { rerun: true });
+    const d = detail(fixId, work([source(rec)]));
+    expect(d.lead?.key).toBe('bisect');
+    expect(d.actions.blameStronger).not.toBeNull();
   });
 });

@@ -23,7 +23,7 @@ import { rememberFix } from './data.js';
 import { blameNextAsk } from './BlameAgain.js';
 import { blameNextPrice, repairCard, useFixEstimates, verifyPrice } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
-import { appliedButton, blameNextStep, failingLine, fixAction, fixName, fixStamp, laterStamp, leadingVerdict, repairAside, shortFixId, stepFor } from './model.js';
+import { appliedButton, failingLine, fixAction, fixName, fixStamp, headBlameNext, laterStamp, leadingVerdict, repairAside, shortFixId, stepFor } from './model.js';
 import { FixStepper, REPAIR_SPENT, showPatchCard, useFitFixHead } from './head.js';
 import { failingCard, leadCard, rungStatus } from './list.js';
 import { useFixRead, useFollowJobs } from './page-fix.js';
@@ -322,7 +322,7 @@ function OpenButtons({ fix, prices, lime, why, ask, shown }: ButtonsProps & { sh
   const repair = fix.actions.repair;
   const spent = !!repair?.spent;
   const aside = repairAside(fix);
-  const blameNext = spent ? null : blameNextStep(fix);
+  const blameNext = headBlameNext(fix);
   const left = spent && !shown && (lime?.key === 'more' || lime?.key === 'again') ? fix.verify.find((v) => v.verifyId === lime.verifyId) : undefined;
   const none = fixAction(fix);
   return (
