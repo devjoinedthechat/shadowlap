@@ -60,7 +60,7 @@ export interface BannerInput {
   spent?: number;
   /** A capture its import judged failed, by the rules on calls: the check that failed, in its words. */
   judged?: string | null;
-  /** A test replay whose agent crashed (`offers.crash`): its last line, and the call it stopped at of the recorded ones. */
+  /** A test replay whose agent crashed (`offers.crash`): the exception it died of, else its last line that says something, and the call it stopped at of the recorded ones. */
   crash?: { line: string; at: number | null; of: number | null } | null;
   /** A test replay whose golden diverged on a value made anew on every run: what it looks like. */
   volatile?: { looks: string } | null;
@@ -637,7 +637,7 @@ function failedBanner(i: BannerInput): Banner | null {
   }
   // Blame needs a run that fails again as recorded: one with no model call, or one stopped, never does.
   const unblamable = i.modelCalls === 0 ? 'no model call to blame' : i.status === 'crashed' && !i.checks.some(checkFailed) ? 'blame needs a run that ended on its own' : null;
-  // A test replay whose agent crashed leads with the last line it printed, then where it stopped.
+  // A test replay whose agent crashed leads with the exception it died of (else its last line that says something), then where it stopped.
   const crash = i.crash && failure === FAILURE_WORDS.exit ? i.crash : null;
   const stopped = crash && crash.at !== null && crash.of !== null ? `at call ${crash.at}, ${crash.at - 1} of ${crash.of} recorded calls replayed` : null;
   return { kind: 'failed', lead: crash?.line ?? failure.replace(/^check failed: /, ''), why: stopped ?? fixState(i.fix) ?? unblamable ?? 'not blamed yet', fix: i.fix, blamed: !!b };

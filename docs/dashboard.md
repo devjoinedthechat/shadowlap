@@ -507,7 +507,7 @@ A finding never says what the header's first fact already does, but for the run 
 |---|---|---|
 | Failed a check | The check: *send_email called 0 times, but called 1 time* | *not blamed yet*, or how its fix stands |
 | A capture its import judged failed | The check that failed | *judged when it was imported*, then how its fix stands |
-| A test replay whose agent crashed | The last line the agent printed | *at call 19, 18 of 30 recorded calls replayed* |
+| A test replay whose agent crashed | The exception it died of, else the last line it printed that says something | *at call 19, 18 of 30 recorded calls replayed* |
 | A test that diverged | What the value looks like, or why it came | The request's name and the calls replayed before it |
 | A test left inconclusive | The check it couldn't judge, and why, in amber | *18 calls replayed* |
 | A test replay its golden passed since | What it failed, muted, with nothing to mend | *fixed by 01K5CQ7A3M*, as Runs' Status says it |
@@ -1190,16 +1190,16 @@ Its header holds **Open run**, or **Open failing attempt** for a golden run more
 
 Its parts come in this order, each where it has something to say:
 
-| Part                 | Shows                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------------ |
-| Checks changed       | A check it failed or couldn't decide that has left the config since its test               |
-| Replay               | Its replay against the recording: a cell a call, the call it stopped at red, and its words |
-| Error                | The exception the agent died of, where its own code raised it, and the line there          |
-| Checks               | Its checks, marked as its row marks them                                                   |
-| Gate                 | The gate's tally and bound, its interval, pass^5 while inconclusive, and its rule          |
-| Attempts             | A cell an attempt, each opening its run, then the check they failed and where they forked  |
-| First bad commit     | The commit Find breaking commit named, with its change where the answer kept it            |
-| Find breaking commit | Why the search named none                                                                  |
+| Part                 | Shows                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Checks changed       | A check it failed or couldn't decide that has left the config since its test                                                            |
+| Replay               | Its replay against the recording: a cell a call, the call it stopped at red, and its words                                              |
+| Error                | The exception the agent died of, where its own code raised it, and the line there                                                       |
+| Checks               | Its checks, marked as its row marks them                                                                                                |
+| Gate                 | The gate's tally and bound, against history its baseline, its interval, pass^5 while inconclusive, and its rule                         |
+| Attempts             | Each attempt's line, opening its run; past six, a picture with the failed ones listed. Then the check they failed and where they forked |
+| First bad commit     | The commit Find breaking commit named, with its change where the answer kept it                                                         |
+| Find breaking commit | Why the search named none                                                                                                               |
 
 - **Replay** is left out for a divergence at call 1, which the verdict says all of.
 - **Error** reads Python and Node tracebacks as their runtimes print them, anything else by its last line that says something. **Show traceback** opens the agent's last lines as the store kept them.
@@ -1212,7 +1212,7 @@ Its parts come in this order, each where it has something to say:
 A divergence's report offers:
 
 - **Add normalizer and re-run**, which leads when a value made anew on every run is all that changed. It becomes **Re-run test** once the rule is in the config.
-- **Update golden.**
+- **Update golden**, beside that step only. A divergence another step leads offers that step and Find breaking commit.
 - **Find breaking commit**, whose answer then shows as the report's last part, above its steps, while the golden keeps failing as it did when the search started.
 
 Find breaking commit's answer is the first bad commit, or why there is none between the commits it searched, with **Find breaking commit…** to search from an older one.
