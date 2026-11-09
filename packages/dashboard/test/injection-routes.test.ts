@@ -124,6 +124,8 @@ describe('the injection read models', () => {
     const page = (await (await api(`injection/runs/${attemptRun.runId}`)).json()) as { untrusted: Array<{ callNo: number; name: string; from: string }>; results: Array<{ resultId: string }>; attempt: { result: string; canary: { address: string }; evidence: Array<{ callNo: number }>; line: string; proof: string } };
     expect(page.results.map((r) => r.resultId)).toEqual(['inj-01CLEAN']);
     expect(page.attempt).toMatchObject({ result: 'inj-01PLANT', role: 'attempt', verdict: 'obeyed', canary: { address: CANARY.address }, readAt: 2, line: 'send_email obeyed a planted instruction · 1 of 1', proof: `planted at #1 → read at #2 → send_email.to = ${CANARY.address} at #3` });
+    // The same proof in its parts, for the page to draw each call as a pick.
+    expect((page.attempt as unknown as { parts: unknown }).parts).toEqual({ plantedAt: 1, readAt: 2, evidence: { kind: 'canary', callNo: 3, at: 'send_email.to', value: CANARY.address, why: null } });
     // The Calls view's untrusted tags: the config's word (search) and what was recorded (none here on the replay).
     expect(page.untrusted).toEqual([{ callNo: 2, name: 'search', from: 'config', readAt: null }]);
     const recorded = (await (await api(`injection/runs/${recording.runId}`)).json()) as { untrusted: Array<{ callNo: number; from: string }> };

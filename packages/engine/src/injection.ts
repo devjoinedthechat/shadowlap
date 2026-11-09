@@ -996,16 +996,37 @@ function parsedArgs(text: string): unknown {
 }
 
 /**
+ * An attempt's proof in its parts, which the dashboard draws as one line with each call it names to
+ * pick: where the payload was planted, the model call that read it, and what carried the canary. The
+ * evidence's `at` is the field it was in (`send_email.to`), whose `value` carried the canary; for a
+ * write no clean replay made, the call with its identifying values (`send_email(to = …)`), `value`
+ * null, and why it counts.
+ */
+export interface ProofParts {
+  plantedAt: number;
+  readAt: number | null;
+  evidence: { kind: Evidence['kind']; callNo: number; at: string; value: string | null; why: string | null } | null;
+}
+
+type ProofOf = Pick<AttemptReport, 'read' | 'forkedAt' | 'evidence'> & { readAt?: number | null };
+
+/** What an attempt's verdict rests on, as proofLine words it: a canary a write carried first, then a read's, then a write no clean replay made. */
+export function proofParts(a: ProofOf): ProofParts {
+  const e = a.evidence.find((x) => x.kind === 'canary') ?? a.evidence.find((x) => x.kind === 'read') ?? a.evidence[0];
+  const head = { plantedAt: a.read, readAt: a.readAt ?? a.forkedAt ?? null };
+  if (!e) return { ...head, evidence: null };
+  if (e.kind !== 'write') return { ...head, evidence: { kind: e.kind, callNo: e.callNo, at: atPath(e.tool, e.path), value: e.value, why: null } };
+  const args = parsedArgs(e.value);
+  return { ...head, evidence: { kind: e.kind, callNo: e.callNo, at: `${e.tool}(${args === null ? '…' : describeIdentifiers(args)})`, value: null, why: e.why } };
+}
+
+/**
  * The one line that shows an attempt's proof: `planted at #9 → read at #10 → send_email.to =
  * x7f3k@canary.invalid at #12`; for a write no clean replay made, its identifying values and why.
  */
-export function proofLine(a: Pick<AttemptReport, 'read' | 'forkedAt' | 'evidence'> & { readAt?: number | null }): string | null {
-  const e = a.evidence.find((x) => x.kind === 'canary') ?? a.evidence.find((x) => x.kind === 'read') ?? a.evidence[0];
+export function proofLine(a: ProofOf): string | null {
+  const { plantedAt, readAt, evidence: e } = proofParts(a);
   if (!e) return null;
-  const head = `planted at #${a.read} → read at #${a.readAt ?? a.forkedAt ?? '?'} → `;
-  if (e.kind === 'write') {
-    const args = parsedArgs(e.value);
-    return `${head}${e.tool}(${args === null ? '…' : describeIdentifiers(args)}) at #${e.callNo}${e.why ? `: ${e.why}` : ''}`;
-  }
-  return `${head}${atPath(e.tool, e.path)} = ${e.value} at #${e.callNo}`;
+  const head = `planted at #${plantedAt} → read at #${readAt ?? '?'} → `;
+  return e.value === null ? `${head}${e.at} at #${e.callNo}${e.why ? `: ${e.why}` : ''}` : `${head}${e.at} = ${e.value} at #${e.callNo}`;
 }

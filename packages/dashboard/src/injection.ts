@@ -1,4 +1,4 @@
-import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofLine, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
+import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofLine, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { attemptPlant, injectionPanel, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
@@ -133,7 +133,8 @@ export function injectionResult(store: StoreOf<'recording' | 'injection'>, resul
 export interface RunInjection {
   untrusted: UntrustedView[];
   results: InjectionRow[];
-  attempt: (InjectionMark & AttemptPlant & { line: string | null; proof: string | null }) | null;
+  /** `parts`: an attempt's proof in its parts, for the page to draw with each call to pick (none for a baseline or a clean attempt). */
+  attempt: (InjectionMark & AttemptPlant & { line: string | null; proof: string | null; parts: ProofParts | null }) | null;
 }
 
 /**
@@ -150,8 +151,17 @@ export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: s
   const of = mark ? store.getInjectionResult(mark.result) : null;
   const untrusted = untrustedView(store.getCalls(runId), tools);
   const proof = mark?.evidence?.length ? proofLine({ read: mark.read, forkedAt: mark.readAt ?? null, readAt: mark.readAt ?? null, evidence: mark.evidence.map((e) => ({ ...e, why: null })) }) : null;
-  const plant = run && mark ? attemptPlant(store, run, mark, of ? (of.data as unknown as InjectionReport) : null) : null;
-  return { untrusted, results: store.listInjectionResults({ runId }).map(row), attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof } : null };
+  const report = of ? (of.data as unknown as InjectionReport) : null;
+  const plant = run && mark ? attemptPlant(store, run, mark, report) : null;
+  return { untrusted, results: store.listInjectionResults({ runId }).map(row), attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId) } : null };
+}
+
+/** An attempt's proof in its parts: the kept result's own evidence, which says why a write counts, else its record's. */
+function attemptProof(mark: InjectionMark, report: InjectionReport | null, runId: string): ProofParts | null {
+  if (mark.role !== 'attempt') return null;
+  const kept = report && report.mode !== 'clean' ? report.attempts.find((a) => a.runId === runId) : undefined;
+  const evidence = kept?.evidence ?? (mark.evidence ?? []).map((e) => ({ ...e, why: null }));
+  return proofParts({ read: mark.read, forkedAt: mark.readAt ?? null, readAt: mark.readAt ?? null, evidence });
 }
 
 /**
