@@ -213,6 +213,10 @@ describe('what each colour may mean', () => {
     expect(value('.navlist a[aria-current="page"] svg', 'color')).toBe('var(--ink)');
     for (const s of ['.run[aria-current="true"]::before', '.tabs [aria-selected="true"]::after', '.stabs a[aria-current="page"]::after', '.stepper a[aria-current="step"]::after']) expect(value(s, 'background'), s).toBe('var(--ink)');
     expect(value('table.calls tr[aria-selected="true"] td:first-child', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
+    // Under the pointer too, as a held row: the hover's ground is no more specific than the selection's, which comes after it.
+    const at = (s: string) => rules().findIndex((r) => r.selectors.includes(s));
+    expect(value('table.calls tr:hover td', 'background')).toBe('var(--hover)');
+    expect(at('table.calls tr:hover td')).toBeLessThan(at('table.calls tr[aria-selected="true"] td'));
     expect(value('.turn.sel', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
     expect(value('ol.setup .cur .sn', 'box-shadow')).toBe('inset 0 0 0 2px var(--ink)');
     expect(value('table.runst tr.picked td', 'background')).toBe('var(--sel)');
