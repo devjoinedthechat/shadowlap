@@ -296,7 +296,7 @@ function failureParts(r: TestResult, f: FailureView, row: GoldenRow, i: ReportIn
     if (row.checks.length) parts.push({ kind: 'checks', labels: row.checks });
     return { head: c ? ['Check failed: ', { code: c.label }, `, but ${c.detail ?? 'failed'}`] : [asSentence(f.reason)], sub: parts.length && parts[0]!.kind === 'replay' ? [] : [upstream(r)], parts, hint: { key: 'check' } };
   }
-  const hint: HintKey = f.blocked?.length ? { key: 'blocked', hosts: f.blocked } : f.failure === 'no-calls' ? { key: 'no-calls' } : f.failure === 'guard' ? (/^The network guard could not watch every process of the agent/.test(f.reason) ? { key: 'unguarded' } : { key: 'no-preload' }) : { key: 'error' };
+  const hint: HintKey = f.failure === 'no-calls' ? { key: 'no-calls' } : f.failure === 'guard' ? (/^The network guard could not watch every process of the agent/.test(f.reason) ? { key: 'unguarded' } : { key: 'no-preload' }) : { key: 'error' };
   return { head: [asSentence(f.reason)], sub: [upstream(r)], parts: row.checks.length && f.checks?.length ? [{ kind: 'checks', labels: row.checks }] : [], hint };
 }
 
@@ -380,6 +380,13 @@ function openOf(store: StoreOf<'recording'>, r: TestResult): GoldenReport['open'
 export type Listed = { kind: 'divergence'; view: DivergenceView } | { kind: 'failure'; view: FailureView } | { kind: 'inconclusive'; view: InconclusiveView };
 
 function partsOf(r: TestResult, row: GoldenRow, listed: Listed, i: ReportInput, recording: string | null): Built {
+  const built = builtOf(r, row, listed, i, recording);
+  // A connection the guard blocked is what the agent tripped on, whatever failed after it.
+  const blocked = listed.kind === 'failure' ? listed.view.blocked : null;
+  return blocked?.length ? { ...built, hint: { key: 'blocked', hosts: blocked } } : built;
+}
+
+function builtOf(r: TestResult, row: GoldenRow, listed: Listed, i: ReportInput, recording: string | null): Built {
   if (listed.kind === 'divergence') return divergenceParts(r, listed.view, i, recording);
   if (r.failure === 'injection') return injectionParts(r, i, row.path);
   if (r.failure === 'exit') return crashParts(r, i, row, recording);
