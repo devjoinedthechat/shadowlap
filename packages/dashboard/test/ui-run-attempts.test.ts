@@ -340,7 +340,7 @@ describe('the Forks view', () => {
       // The same golden replayed once in a session is a test of its own.
       forked('0OTHER'.padEnd(26, '0'), null, 30, 'S2'),
     ];
-    const client = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]) };
+    const client = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]), injectionResults: () => Promise.resolve({ results: [] }) };
     page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ForksView, { runId: '0TEST3'.padEnd(26, '0') })));
     await page.until('the family to load', () => page!.all('.fnode').length > 0);
     const titles = page.all('.fnode .f1 code').map((c) => c.textContent);
@@ -362,7 +362,7 @@ describe('the Forks view', () => {
         return { ...n, checks: { passed: k <= 3 ? 1 : 0, total: 1 }, test: { ...n.test!, gate } };
       }),
     ];
-    const client = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]) };
+    const client = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]), injectionResults: () => Promise.resolve({ results: [] }) };
     page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ForksView, { runId: '0GATE2'.padEnd(26, '0') })));
     await page.until('the family to load', () => page!.all('.fnode').length > 0);
     const bundle = page.all('.fnode').find((n) => n.textContent.includes('test · refund-over-limit'))!;

@@ -40,8 +40,18 @@ export interface TestNodeView {
   runs: ReadonlySet<string>;
 }
 
-/** The runs a family's injection replays tested, whose kept tests the Forks view reads. */
-export const testedRuns = (nodes: readonly LineageNode[] | null): string[] => [...new Set((nodes ?? []).flatMap((n) => (n.injection && n.parentRunId ? [n.parentRunId] : [])))].sort();
+/**
+ * The runs whose kept tests the Forks view reads: each run the family's injection replays tested, the
+ * page's run, and each run the family starts from. Their tests draw though no replay of theirs is in
+ * the list (gc took them, or they are past its first 1,000 runs), saying how many attempts aren't drawn.
+ */
+export function testedRuns(nodes: readonly LineageNode[] | null, runId: string): string[] {
+  if (!nodes) return [];
+  const ids = new Set(nodes.map((n) => n.runId));
+  const first = nodes.filter((n) => !n.parentRunId || !ids.has(n.parentRunId)).map((n) => n.runId);
+  const page = nodes.filter((n) => n.runId === runId || n.runId.startsWith(runId)).map((n) => n.runId);
+  return [...new Set([...nodes.flatMap((n) => (n.injection && n.parentRunId ? [n.parentRunId] : [])), ...first, ...page])].sort();
+}
 
 /** The family's injection replays by the result they belong to. */
 export function byResult(nodes: readonly LineageNode[]): Map<string, LineageNode[]> {

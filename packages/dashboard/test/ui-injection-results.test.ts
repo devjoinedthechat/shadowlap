@@ -472,10 +472,10 @@ describe('the Forks view', () => {
   const within = (el: El, selector: string): El[] => el.querySelectorAll(selector);
   const nodeOf = (page: Rendered, title: string): El => page.all('.fnode.fb').find((n) => inside(n, '.f1 code').textContent === title)!;
 
-  it('files each kept test under the run it tested, its replays in it, oldest first, and reads the tests of only the runs replays tested', async () => {
+  it('files each kept test under the run it tested, its replays in it, oldest first, and reads the tests of only the runs replays tested, the page’s run and the recording', async () => {
     const page = await view(id(3));
     await page.until('the family to load', () => page.all('.fnode').length > 0);
-    expect(asked).toEqual([REC]);
+    expect(asked).toEqual([id(3), REC].sort());
     expect(page.all('.fnode.fb .f1 code').map((c) => c.textContent)).toEqual(['injection test', 'injection --clean 4']);
     // No replay of a kept test is a fork of its own; one whose result is gone stays a bundle.
     expect(page.all('.fnode .fid').map((c) => c.textContent)).toEqual([REC.slice(0, 10)]);
@@ -547,6 +547,24 @@ describe('the Forks view', () => {
     // An attempt opens as every attempt link does: while the server is out of reach it says so.
     await page.click(inside(test, '.alist .al a'));
     expect(said).toEqual([PAUSED]);
+    await page.unmount();
+  });
+
+  it('draws a test of the recording or of the page’s run whose replays are all gone, saying its attempts aren’t drawn', async () => {
+    const FORK = id(20);
+    const family = [...lineage.slice(0, 1), node(FORK, { startedAt: 30 })];
+    const tests: Record<string, InjectionRow[]> = { [REC]: [row({ resultId: 'inj-01LOST', runId: REC, attempts: 6 })], [FORK]: [row({ resultId: 'inj-01FORK', runId: FORK, attempts: 2, at: 4_000 })] };
+    const lost = { lineage: () => Promise.resolve(family), fixBundles: () => Promise.resolve([]), injectionResults: (runId: string) => (asked.push(runId), Promise.resolve({ results: tests[runId] ?? [] })) };
+    asked.length = 0;
+    const page = await render(createElement(AppContext.Provider, { value: { client: lost, runs: [], runsTick: 0, live: [], feeds: {}, conn: 'offline', toast: () => undefined, exported: false } as never }, createElement(ForksView, { runId: FORK })));
+    await page.until('the family to load', () => page.all('.fnode.fb').length === 2);
+    expect(asked).toEqual([FORK, REC].sort());
+    expect(page.all('.fnode.fb').map((n) => [inside(n, '.fbt').getAttribute('href'), within(n, '.astrip').length, inside(n, '.more2').textContent])).toEqual([
+      [`#/run/${FORK}`, 0, '2 attempts not drawn: gone from the store, or past the family’s first 1,000 runs'],
+      [`#/run/${REC}`, 0, '6 attempts not drawn: gone from the store, or past the family’s first 1,000 runs'],
+    ]);
+    // Each under the run it tested, after that run's forks.
+    expect(page.all('.fnode').map((n) => n.querySelector('.fid')?.textContent ?? inside(n, '.fbt').getAttribute('href'))).toEqual([REC.slice(0, 10), FORK.slice(0, 10), `#/run/${FORK}`, `#/run/${REC}`]);
     await page.unmount();
   });
 });

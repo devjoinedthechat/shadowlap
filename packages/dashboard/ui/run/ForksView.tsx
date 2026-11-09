@@ -32,7 +32,7 @@ import type { InjectionRow } from '../types.js';
  */
 const sessionKey = (n: LineageNode): string | null => (n.test && n.test.attempt !== null ? `test:${n.test.session}\n${n.test.golden}` : null);
 
-/** The injection tests kept for each run the family's injection replays tested. */
+/** The injection tests kept for each of the runs `testedRuns` names. */
 async function keptTests(client: Client, runs: readonly string[]): Promise<InjectionRow[]> {
   const kept = await Promise.all(runs.map((id) => client.injectionResults(id)));
   return kept.flatMap((k) => k.results);
@@ -49,8 +49,9 @@ export function ForksView({ runId }: { runId: string }) {
   const byId = useMemo(() => new Map((runs ?? []).map((r) => [r.runId, r])), [runs]);
   // Blame's and verify's attempts, bundled by the fixes read model under the run they replayed.
   const fixes = useFixBundles(runId);
-  // The tests the family's injection replays belong to, read as runs move, as the family is.
-  const tested = testedRuns(lineage.data);
+  // The tests the family's injection replays belong to, and the page's run's and the recording's, whose
+  // replays may all be gone, read as runs move, as the family is.
+  const tested = testedRuns(lineage.data, runId);
   const tests = useLoad(() => (tested.length ? keptTests(client, tested) : null), tested.join(' '), runsTick);
   const box = useRef<HTMLDivElement>(null);
   useFitAbouts(box);

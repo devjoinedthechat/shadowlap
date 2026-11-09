@@ -811,7 +811,7 @@ Each rule they were decided by is stated once in the family. Each bundle opens i
 
 **An [injection test](./injection.md)** is filed under the run it tested, after its forks: *injection test*, *injection gate* or *injection --clean 4*, then its verdict and counts (*failed · 72 attempts · 8 obeyed · 2 influenced · 59 ignored · 3 inconclusive · ≈$3.11*), a gate's golden before what it spent. Its title opens the run it tested, a planting test's results open. Its replays aren't drawn as forks.
 
-Its attempts are one picture named by its counts: a cell each, in its verdict's colour, the clean replays it compares with muted after a hairline. Under it, up to three lines open the attempts its verdict rests on, at the call their proof names, and a line says what is left out. An attempt gone from the store, or past the family's first 1,000 runs, isn't drawn, and a line counts them.
+Its attempts are one picture named by its counts: a cell each, in its verdict's colour, the clean replays it compares with muted after a hairline. Under it, up to three lines open the attempts its verdict rests on, at the call their proof names, and a line says what is left out. An attempt gone from the store, or past the family's first 1,000 runs, isn't drawn, and a line counts them. A test of the recording, or of this page's run, shows even with every attempt gone.
 
 ### Provenance view
 
