@@ -1,6 +1,6 @@
-import { ApiError, type TestsView } from '../api.js';
+import type { TestsView } from '../api.js';
 import { tipCard } from '../components/HoverCard.js';
-import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
+import { EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -51,9 +51,9 @@ export function TestsLoading() {
   );
 }
 
-/** A read that failed: the server's status where it answered, else what went wrong, and Retry. */
+/** A read that failed: the server's sentence or status where it answered, else what went wrong, and Retry (`failedRead`). */
 export function TestsFailed({ error, retry }: { error: Error; retry: () => void }) {
-  return <ErrorState retry={retry}>{error instanceof ApiError ? `The dashboard server answered ${error.status} for this page’s data.` : error.message}</ErrorState>;
+  return <ErrorState retry={retry}>{failedRead(error)}</ErrorState>;
 }
 
 /**
