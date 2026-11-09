@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { dialogFocus } from '../ui/focus.js';
 import { heldAsk } from '../ui/held.js';
 import { elsewhereWords, lineText } from '../ui/held-words.js';
-import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, keepsPageOnSwitch, liveCalls, nameMatches, noRunsYet, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, switchToLabel, terminalLine } from '../ui/projects.js';
+import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, followKey, type FollowView, keepsPageOnSwitch, liveCalls, nameMatches, noRunsYet, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, switchToLabel, terminalLine } from '../ui/projects.js';
 import { dialogOnSwitch, expectProject, noteDialogDropped, noteRefusal, onProjectSwitched, onShownProject, projectHeader, showProject, shownProject, takeDialogDropped, takeLanding } from '../ui/projects-api.js';
 import { parseRoute } from '../ui/route.js';
 import type { RunLike } from '../ui/runs.js';
@@ -181,6 +181,27 @@ describe('the setup’s words', () => {
   it('links Settings in the golden’s redaction note', () => {
     expect(aroundWord('Add some in Settings before you commit runs with user data.', 'Settings')).toEqual({ before: 'Add some in ', word: 'Settings', after: ' before you commit runs with user data.' });
     expect(aroundWord('Your redaction rules apply to the copy.', 'Settings')).toBeNull();
+  });
+
+  it('follows the step at hand, and what leads in it', () => {
+    const view = (at: string, o: { live?: boolean; wrap?: boolean; node?: boolean; again?: boolean; done?: boolean } = {}): FollowView => ({
+      done: o.done ? {} : null,
+      steps: ['inspect', 'record', 'calibrate', 'test'].map((key) => ({ key, state: key === at ? 'current' : 'todo' })),
+      inspect: { warning: o.wrap === undefined ? null : { recheck: { lime: o.wrap } }, node: o.node ? { recheck: { lime: true } } : null },
+      record: { live: o.live ? {} : null, again: o.again === undefined ? null : { lime: o.again } },
+    });
+    expect(followKey(view('inspect'))).toBe('inspect');
+    expect(followKey(view('record', { wrap: true }))).toBe('record:wrap');
+    // Reads alone not wrapped: the warning shows, and Record run leads.
+    expect(followKey(view('record', { wrap: false }))).toBe('record');
+    expect(followKey(view('record', { node: true }))).toBe('record:node');
+    expect(followKey(view('record', { live: true, wrap: true }))).toBe('record:live');
+    expect(followKey(view('calibrate', { again: true }))).toBe('calibrate:again');
+    expect(followKey(view('calibrate', { again: false }))).toBe('calibrate');
+    expect(followKey(view('test'))).toBe('test');
+    expect(followKey(view('test', { done: true }))).toBe('done');
+    // Recording before the folder was inspected: no step is at hand but the recording's.
+    expect(followKey(view('none', { live: true }))).toBe('record:live');
   });
 
   it('keeps the terminal line in step with the command as typed', () => {

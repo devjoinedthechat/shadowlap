@@ -14,7 +14,7 @@ import { NotFoundPage } from './NotFound.js';
 import { NoRunsSteps } from './no-runs.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { VerdictLine } from '../components/VerdictLine.js';
-import { useSetupJobs, useSetupView } from './setup-jobs.js';
+import { useSetupFollow, useSetupJobs, useSetupView } from './setup-jobs.js';
 import { SetupSteps } from './setup-steps.js';
 
 export { keepAsk } from './setup-jobs.js';
@@ -35,6 +35,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   const { meta, runs, actionsOff } = useApp();
   const { view, failed, start } = useSetupView();
   const jobs = useSetupJobs(view, start);
+  useSetupFollow(view);
   // Recording, calibrating and testing run the agent from the project's working tree: not while a repair or an apply changes it.
   const treeBusy = useTreeBusy('reads', 'run this step');
   // Keeping it as a test replays a golden as well: not while another test job runs here either, as the server refuses it.
@@ -68,22 +69,25 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   return (
     <Page>
       <SetupHeader view={view} onSkip={off ? null : jobs.finish} />
-      <SetupSteps view={view} jobs={jobs} off={off} treeBusy={treeBusy} testsWait={testsWait} />
-      {view.done ? (
-        <VerdictLine
-          word={view.done.word}
-          tone="ok"
-          className="sdone"
-          facts={view.done.text}
-          actions={
-            <ActionButton className="btn lime" why={off} onClick={jobs.finish}>
-              {view.done.button.label}
-            </ActionButton>
-          }
-        >
-          {view.done.title}
-        </VerdictLine>
-      ) : null}
+      {/* One part of the page (a section with an id): a step's job hands the focus on inside it, as the page follows. */}
+      <section id="setup" aria-label="Steps">
+        <SetupSteps view={view} jobs={jobs} off={off} treeBusy={treeBusy} testsWait={testsWait} />
+        {view.done ? (
+          <VerdictLine
+            word={view.done.word}
+            tone="ok"
+            className="sdone"
+            facts={view.done.text}
+            actions={
+              <ActionButton className="btn lime" why={off} onClick={jobs.finish}>
+                {view.done.button.label}
+              </ActionButton>
+            }
+          >
+            {view.done.title}
+          </VerdictLine>
+        ) : null}
+      </section>
       {jobs.asking ? <RecordRunDialog confirm={jobs.asking.confirm} onClose={jobs.closeAsking} onOk={jobs.confirmAsking} /> : null}
     </Page>
   );

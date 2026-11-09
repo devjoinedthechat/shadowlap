@@ -3,7 +3,8 @@ import { JOB_KINDS, type JobView } from '../api.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { commandText } from '../goldens.js';
 import type { RecordConfirmation, SetupView } from '../projects-api.js';
-import { asksForSetup, confirmedRecording } from '../projects.js';
+import { focusQuiet } from '../focus-manager.js';
+import { asksForSetup, confirmedRecording, followKey } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
@@ -12,8 +13,9 @@ import { errorText } from '../toast.js';
 
 /**
  * What the setup page (Setup.tsx) runs: its read model, read again as the project moves on
- * (`useSetupView`), and the steps' jobs with what they were given (`useSetupJobs`). The page draws
- * them; the steps' bodies are in setup-steps.tsx.
+ * (`useSetupView`), the steps' jobs with what they were given (`useSetupJobs`), and the way the page
+ * goes on to the next step (`useSetupFollow`). The page draws them; the steps' bodies are in
+ * setup-steps.tsx.
  */
 
 /**
@@ -186,4 +188,47 @@ export function useSetupJobs(view: SetupView | null | undefined, start: SetupRea
   const running = (kind: string) => jobs.some((w) => !w.job.done && !w.lost && w.job.kind === kind);
 
   return { command, setCommand, golden, setGolden, recordError, goldenError, asking, closeAsking: () => setAsking(null), confirmAsking, inspect, record, calibrate, pack, testGolden, finish, running };
+}
+
+/** How long the page lets a step's change be drawn before it goes on: the mock's 60 ms, the job hand-on's first look too. */
+const FOLLOW_MS = 60;
+
+/** A button the page can go on to: neither `disabled` nor waiting (`aria-disabled`), nor in a part that is inert or hidden. */
+const pressable = (b: HTMLElement) => !(b as HTMLButtonElement).disabled && b.getAttribute('aria-disabled') !== 'true' && !b.closest('[inert], [hidden]');
+
+/**
+ * When the setup moves on (a step finishes, a recording starts or ends, the writes are found
+ * wrapped), the page scrolls to where the next step's button is: the warning while it leads, else
+ * the step at hand, the verdict line once every step is done, and while a recording runs the Record
+ * step. The focus goes on with it, from the step that ended, to that button (Check again, Record
+ * run or Record again, Calibrate, Pack as golden, Go to Overview) or, while a recording runs, to
+ * Watch live; focus moved elsewhere stays where it is. Nothing moves on the first draw, nor when
+ * the project changes. The button is the section's first lime that can be pressed, the one the job
+ * hand-on (focus-manager.ts, `section#setup`) gives the focus to as well, so the two agree.
+ */
+export function useSetupFollow(view: SetupView | null | undefined): void {
+  const was = useRef<{ project: string; key: string } | null>(null);
+  const project = view?.project.id ?? null;
+  const key = view ? followKey(view) : null;
+  useEffect(() => {
+    if (project === null || key === null) return;
+    const before = was.current;
+    was.current = { project, key };
+    if (!before || before.project !== project || before.key === key) return;
+    // The focus still in the step that ended, or fallen from a button that went with it, goes on with the page.
+    const from = before.key.split(':')[0] ?? '';
+    const a = document.activeElement;
+    const held = !!a?.closest?.(`ol.setup > li[data-step="${from}"]`);
+    const t = setTimeout(() => {
+      const section = document.querySelector('section#setup');
+      if (!section) return;
+      const rec = key === 'record:live' ? section.querySelector<HTMLElement>('ol.setup > li[data-step="record"]') : null;
+      const b = rec ? rec.querySelector<HTMLElement>('a.btn') : ([...section.querySelectorAll<HTMLElement>('.btn.lime')].find(pressable) ?? null);
+      const at = rec ?? b?.closest<HTMLElement>('.warnline, ol.setup > li, .verdict') ?? section.querySelector<HTMLElement>('ol.setup > li.cur, .verdict.sdone');
+      const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      at?.scrollIntoView?.({ block: 'start', behavior: still ? 'auto' : 'smooth' });
+      if (b && (document.activeElement === document.body || !document.activeElement || held)) focusQuiet(b);
+    }, FOLLOW_MS);
+    return () => clearTimeout(t);
+  }, [project, key]);
 }
