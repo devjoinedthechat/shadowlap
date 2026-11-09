@@ -28,6 +28,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { FixesView, FixesViewRow, JobListItem, UnblamedRow } from '../types.js';
 import { unblamedBlameCard, unblamedTitle } from '../../src/unblamed-words.js';
+import { SetUpStep, useNoRunsYet } from './set-up-step.js';
 
 /**
  * Fixes (#/fixes): a to-do list of failures, the failing runs nobody has blamed first, then each fix,
@@ -50,6 +51,8 @@ const FAILED = href.runs({ types: 'failed' });
 
 function FixList() {
   const { client, tick, feeds, meta } = useApp();
+  // With no run, blame has nothing to start from: the step is the setup.
+  const none = useNoRunsYet();
   const [chip, setChipState] = useState<FixChip>(() => chipShown);
   const setChip = (c: FixChip) => {
     chipShown = c;
@@ -81,7 +84,7 @@ function FixList() {
     return (
       <Page>
         {header}
-        <EmptyState title="No fixes yet" text="A fix starts from a run that failed its check: blame finds the model call that lost it, repair proposes a change, and verify proves the change before it ships." command={BLAME} />
+        <EmptyState title="No fixes yet" text="A fix starts from a run that failed its check: blame finds the model call that lost it, repair proposes a change, and verify proves the change before it ships." step={none ? <SetUpStep /> : undefined} command={none ? undefined : BLAME} />
       </Page>
     );
   return (

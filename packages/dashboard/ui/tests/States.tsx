@@ -7,6 +7,7 @@ import { useLoad } from '../hooks.js';
 import { usePendingHidden } from '../pending-delete.js';
 import { PackAsGolden } from '../run/PackAsGolden.js';
 import { packRunCommand } from '../run/share.js';
+import { SetUpStep, useNoRunsYet } from '../pages/set-up-step.js';
 import { useApp } from '../state.js';
 import type { NextStepRow, RunListItem } from '../types.js';
 
@@ -59,15 +60,16 @@ export function TestsFailed({ error, retry }: { error: Error; retry: () => void 
  * No golden yet: what the page will hold and the step that gets there, Pack <id> as golden… for the
  * newest run whose listed step is to pack it, with its command for a terminal under it; with none,
  * the command that packs one. The command names a run, so a project with no run yet is offered
- * none: recording one comes first.
+ * none, and Set up <project> instead: recording one comes first.
  */
 export function TestsEmpty({ view, runs }: { view: Pick<TestsView, 'commands'>; runs: readonly RunListItem[] | null }) {
   const hidden = usePendingHidden();
+  const none = useNoRunsYet();
   const run = runs ? newestToPack(runs, hidden) : null;
   const own = run ? (run.next.command ?? packRunCommand(run.runId, run.next.folder)) : null;
   // The project's runs not yet listed: the command, as it may well have one.
-  const command = own ?? (runs?.length !== 0 ? view.commands.pack : undefined);
-  return <EmptyState title="No goldens yet" text="Pack a run you consider correct into the repository, and CI replays it offline on every commit." step={run && own ? <PackRun run={run} command={own} /> : undefined} command={command} />;
+  const command = own ?? (none ? undefined : view.commands.pack);
+  return <EmptyState title="No goldens yet" text="Pack a run you consider correct into the repository, and CI replays it offline on every commit." step={run && own ? <PackRun run={run} command={own} /> : none ? <SetUpStep /> : undefined} command={command} />;
 }
 
 type ToPack = RunListItem & { next: NextStepRow & { folder: string } };

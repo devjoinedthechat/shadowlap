@@ -310,6 +310,8 @@ describe('Tests\' states, parts and keys', () => {
     const none = await drawn({ app: { runs: [] } });
     await none.until('the empty state', () => none.all('.stepempty').length === 1);
     expect(none.all('.stepempty .cmdline')).toHaveLength(0);
+    // Recording one comes first: the step is the setup, on the Overview.
+    expect([none.one('.stepempty .actions a.btn.lime').textContent, none.one('.stepempty .actions a').getAttribute('href')]).toEqual(['Set up this project', '#/']);
   });
 
   it('offers the newest run its listed step says to pack as Pack <id> as golden…, lime, its command under it, packing it and its test as the run page does', async () => {

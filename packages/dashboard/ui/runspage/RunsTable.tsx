@@ -232,8 +232,9 @@ function RowStatus({ r }: { r: RunLike }) {
 
 /**
  * What the table says in place of its rows: why they could not be read, that they are being read, or
- * why none show, as a line from the left (`No runs match.`, `No runs on the days picked.`). A store with
- * no runs keeps its step.
+ * why none show, as a line from the left (`No runs match.`, `No runs on the days picked.`). A project
+ * with no runs draws its own page (pages/Runs.tsx `NoRuns`), so `No runs yet.` shows only for the
+ * moment the shell's run list and the table disagree.
  */
 export function RunsTableEmpty({ error, loaded, shown, counts, days }: { error: Error | null; loaded: boolean; shown: number; counts: ChipCounts | null; days: unknown }) {
   if (error && !shown) return <div className="empty">The runs could not be read: {error.message}</div>;
@@ -241,7 +242,7 @@ export function RunsTableEmpty({ error, loaded, shown, counts, days }: { error: 
   if (shown) return null;
   if (counts?.all) return <EmptyLine>No runs match.</EmptyLine>;
   if (days) return <EmptyLine>No runs on the days picked.</EmptyLine>;
-  return <div className="empty">{'No runs yet. Record one with shadowlap run -- <command>.'}</div>;
+  return <EmptyLine>No runs yet.</EmptyLine>;
 }
 
 /** The height of the rows not drawn, above or below those that are. */

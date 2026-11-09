@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type Client } from '../api.js';
 import { Chips, PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
-import { EmptyLine } from '../components/States.js';
+import { EmptyLine, EmptyState } from '../components/States.js';
 import { ShowMore } from '../components/Table.js';
 import { pageUp } from '../focus-manager.js';
 import { viewerTimeZone } from '../format.js';
@@ -33,6 +33,7 @@ import { projectOf } from '../shell/ProjectBlock.js';
 import { keyColumn } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { useTeamStoreState } from '../teamstore.js';
+import { SetUpStep, useNoRunsYet } from './set-up-step.js';
 import { errorText } from '../toast.js';
 import type { BisectChoices, ChipCounts, RunsByDay, RunsPage as RunsPageView, RunsPageRow, RunsQuery, TeamStoreView } from '../types.js';
 
@@ -78,7 +79,30 @@ function useRunsFilter(filter: RunsFilterRead | undefined): RunsFilterRead {
 
 export function RunsPage({ filter }: { filter?: RunsFilterRead | undefined }) {
   const { exported } = useApp();
-  return exported ? <ExportedRuns filter={filter} /> : <ServerRuns filter={filter} />;
+  const none = useNoRunsYet();
+  return exported ? <ExportedRuns filter={filter} /> : none ? <NoRuns /> : <ServerRuns filter={filter} />;
+}
+
+/** Runs' line where there are no attempts to bundle: an exported copy that holds none, a project with no runs yet. */
+const RUNS_LINE = 'Recordings, and the replays and forks made from them.';
+
+/**
+ * Runs in a project with no runs yet: its header, with Import capture…, then what the page will hold,
+ * with Set up <project> and the command quiet under it. No calendar, chips or filter: nothing to
+ * pick from. The first run recorded turns it into the list.
+ */
+function NoRuns() {
+  const { meta } = useApp();
+  const { store, known } = useTeamStoreState();
+  const [importing, setImporting] = useState(() => IMPORT_ASK.take());
+  useImportAsked(useCallback(() => setImporting(true), []));
+  return (
+    <Page>
+      <PageHeader eyebrow={runsEyebrow(projectOf(meta), store, known)} title="Runs" text={RUNS_LINE} actions={<RunsActions store={store} onImport={() => setImporting(true)} />} />
+      <EmptyState title="No runs yet" text="Every recording shows here with its replays and forks: record the agent once, or import a capture another tool made." copy step={<SetUpStep />} command="shadowlap run -- <command>" />
+      {importing ? <ImportDialog onClose={() => setImporting(false)} /> : null}
+    </Page>
+  );
 }
 
 /**
@@ -535,7 +559,7 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
       <PageHeader
         eyebrow="exported copy"
         title="Runs"
-        text={bundlesAttempts(runs ?? []) ? RUNS_TEXT : 'Recordings, and the replays and forks made from them.'}
+        text={bundlesAttempts(runs ?? []) ? RUNS_TEXT : RUNS_LINE}
       />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />

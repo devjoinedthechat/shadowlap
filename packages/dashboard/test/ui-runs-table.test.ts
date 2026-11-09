@@ -74,7 +74,7 @@ describe('a list with nothing to show', () => {
     const base = { error: null, loaded: true, shown: 0, counts, days: null };
     expect(await said(base)).toEqual(['P', 'No runs match.']);
     expect(await said({ ...base, counts: { all: 0 } as ChipCounts, days: { from: '2026-10-20', to: '2026-10-22' } })).toEqual(['P', 'No runs on the days picked.']);
-    expect(await said({ ...base, counts: { all: 0 } as ChipCounts })).toEqual(['DIV', 'No runs yet. Record one with shadowlap run -- <command>.']);
+    expect(await said({ ...base, counts: { all: 0 } as ChipCounts })).toEqual(['P', 'No runs yet.']);
     expect(await said({ ...base, loaded: false })).toEqual(['DIV', 'Loading runs…']);
     expect(await said({ ...base, error: new Error('the store is busy') })).toEqual(['DIV', 'The runs could not be read: the store is busy']);
     // Rows still shown while another page fails say nothing over them.

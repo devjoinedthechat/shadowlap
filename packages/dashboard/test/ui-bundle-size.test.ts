@@ -139,7 +139,7 @@ describe('the dashboard’s scripts', () => {
     expect(names(parts)).toEqual(PARTS);
     for (const p of parts) expect(firstInputs.has(p.entry) || p.shownWith.has(p.entry), `${p.name} waits for its own script`).toBe(false);
     // The page list declares no part, and shows one part itself: the In page, which a link into a
-    // project with no runs yet shows in the setup's place, declared in a module the pages showing it
+    // project that can't be opened shows in the setup's place, declared in a module the pages showing it
     // import too, so an exported copy takes it with its pages and not the page list (OnShow.tsx).
     const listed = new Set(metafile.inputs['ui/pages/lazy.tsx'].imports.filter((i) => i.kind === 'import-statement').map((i) => i.path));
     const listShows = dynamicImports(metafile).filter((d) => listed.has(d.by) && d.by.startsWith('ui/pages/'));

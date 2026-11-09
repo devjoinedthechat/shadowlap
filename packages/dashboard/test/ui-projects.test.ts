@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { dialogFocus } from '../ui/focus.js';
 import { heldAsk } from '../ui/held.js';
 import { elsewhereWords, lineText } from '../ui/held-words.js';
-import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, keepsPageOnSwitch, liveCalls, nameMatches, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, switchToLabel, terminalLine } from '../ui/projects.js';
+import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, keepsPageOnSwitch, liveCalls, nameMatches, noRunsYet, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, switchToLabel, terminalLine } from '../ui/projects.js';
 import { dialogOnSwitch, expectProject, noteDialogDropped, noteRefusal, onProjectSwitched, onShownProject, projectHeader, showProject, shownProject, takeDialogDropped, takeLanding } from '../ui/projects-api.js';
 import { parseRoute } from '../ui/route.js';
 import type { RunLike } from '../ui/runs.js';
@@ -36,14 +36,24 @@ describe('where the setup shows', () => {
   const at = (hash: string) => parseRoute(hash);
   const project = (settingUp: boolean) => meta({ project: { id: 'agent', name: 'agent', path: '/home/dana/agent', settingUp } });
 
-  it('takes every page but Settings while the project has no runs, and #/setup always', () => {
+  it('takes the Overview while the project has no runs, and #/setup always', () => {
     const none = { exported: false, meta: project(true), runs: [] };
-    for (const hash of ['#/', '#/runs', '#/compare', '#/changes', '#/fixes', '#/tests', '#/training', '#/run/01M50Y3WTS']) expect(setupShowsOn(at(hash), none), hash).toBe(true);
+    expect(setupShowsOn(at('#/'), none)).toBe(true);
+    // Every other page opens on its own and says in its empty state what it will hold.
+    for (const hash of ['#/runs', '#/compare', '#/changes', '#/fixes', '#/tests', '#/training', '#/run/01M50Y3WTS']) expect(setupShowsOn(at(hash), none), hash).toBe(false);
     expect(setupShowsOn(at('#/settings/matching'), none)).toBe(false);
     expect(setupShowsOn(at('#/new'), none)).toBe(false);
     expect(setupShowsOn(at('#/setup'), { ...none, runs: [run()], meta: project(false) })).toBe(true);
     // Attempts alone are no runs to show.
-    expect(setupShowsOn(at('#/runs'), { ...none, runs: [run({ attemptKind: 'repeat', attemptOf: 'x' } as Partial<RunLike>)] })).toBe(true);
+    const attempts = [run({ attemptKind: 'repeat', attemptOf: 'x' } as Partial<RunLike>)];
+    expect(setupShowsOn(at('#/'), { ...none, meta: project(false), runs: attempts })).toBe(true);
+    expect(noRunsYet({ meta: null, runs: attempts })).toBe(true);
+  });
+
+  it('takes every page but Settings of a project that can’t be opened, which says so there', () => {
+    const gone = { exported: false, meta: meta({ project: { id: 'agent', name: 'agent', path: '/home/dana/agent', problem: 'Its folder is gone.', missing: true } }), runs: [] };
+    for (const hash of ['#/', '#/runs', '#/fixes', '#/tests', '#/training', '#/run/01M50Y3WTS']) expect(setupShowsOn(at(hash), gone), hash).toBe(true);
+    for (const hash of ['#/settings/matching', '#/new', '#/setup/store']) expect(setupShowsOn(at(hash), gone), hash).toBe(false);
   });
 
   it('takes the Overview of a project partway through its setup, and nothing else', () => {
@@ -58,6 +68,10 @@ describe('where the setup shows', () => {
     // The meta's count tells before the run list arrives.
     expect(setupShowsOn(at('#/'), { exported: false, meta: meta({ counts: { runs: 0, attempts: 0 } }), runs: null })).toBe(true);
     expect(setupShowsOn(at('#/run/01M50Y3WTS'), { exported: false, meta: null, runs: null })).toBe(false);
+    // Any other page waits for the meta, which is what says a project can't be opened.
+    expect(setupShowsOn(at('#/runs'), { exported: false, meta: null, runs: [] })).toBeNull();
+    expect(noRunsYet({ meta: null, runs: null })).toBeNull();
+    expect(noRunsYet({ meta: meta({ counts: { runs: 2, attempts: 0 } }), runs: null })).toBe(false);
     expect(setupShowsOn(at('#/'), { exported: true, meta: null, runs: [] })).toBe(false);
     expect(setupShowsOn(at('#/'), { exported: false, meta: meta({ static: true }), runs: [] })).toBe(false);
   });
