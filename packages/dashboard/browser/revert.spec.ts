@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import type { FailureView, FoundCommit, NextStep, TestsView } from '../ui/types.js';
+import type { FailureView, FixDetail, FoundCommit, NextStep, TestsView } from '../ui/types.js';
 import { demoId, openPage, seriousViolations } from './dashboard.js';
 
 /**
@@ -7,7 +7,9 @@ import { demoId, openPage, seriousViolations } from './dashboard.js';
  * demo's answers (the demo store has no crashed golden): on a crash's run page the commit's finding
  * leads, Show change opens the change in the inspector's place, and Revert leads the header with Open
  * in editor and Run blame plain; on Tests the change sits under the commit's card and Revert leads the
- * verdict. Each has no serious axe violation at 1440 and 390 with the change open, nor has Revert's
+ * verdict; on the crash's fix its Blame step shows the commit, its change and where to look, and
+ * Revert leads its head with Open in editor beside it and no Find breaking commit. Each has no
+ * serious axe violation at 1440 and 390 with the change open, nor has Revert's
  * dialog, whose code box of the change undone keeps to its width. A revert's drawer reads Reverting,
  * then Reverted where git reverted, its status not saying reverted again, or Tried reverting where
  * git refused.
@@ -65,6 +67,22 @@ async function routeCrash(page: Page): Promise<string> {
   await page.route(new RegExp(`/api/runs/${run}/offers(\\?.*)?$`), (route) => patched<object>(route, (offers) => ({ ...offers, commit: FOUND })));
   await page.route(new RegExp(`/api/runs/${run}(\\?.*)?$`), (route) => patched<object>(route, (detail) => ({ ...detail, next: step(run) })));
   return run;
+}
+
+/** The demo's fix as a crash no model rescued, whose run's search named the commit: Revert leads it, and its Blame step shows the commit. */
+async function routeCrashFix(page: Page): Promise<string> {
+  const fix = demoId('refundFix');
+  const run = await routeCrash(page);
+  await page.route(new RegExp(`/api/runs/${run}/next(\\?.*)?$`), (route) => route.fulfill({ json: { next: step(run) } }));
+  await page.route(new RegExp(`/api/fixes/${fix}(\\?.*)?$`), (route) =>
+    patched<FixDetail>(route, (d) => ({
+      ...d,
+      status: 'open',
+      lead: { key: 'revert', label: 'Revert', command: `git revert --no-commit ${REV} && shadowlap test ${GOLDEN}`, use: 'writes', runId: run, step: step(run) },
+      blame: d.blame && { ...d.blame, outcome: 'unrescuable', answers: null, crash: { commit: FOUND, offline: true, stronger: false } },
+    })),
+  );
+  return fix;
 }
 
 /** Tests with the demo's first golden crashed at the commit, its failure leading the verdict. */
@@ -137,6 +155,31 @@ for (const [width, height] of [
     await page.keyboard.press('Escape');
     await expect(page.locator('#insp.fpanel')).toHaveCount(0);
     await expect(toggle).toBeFocused();
+  });
+
+  test(`at ${width}×${height} a named crash's fix shows the commit and its change on its Blame step and leads with Revert, passing axe`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    const fix = await routeCrashFix(page);
+    await openPage(page, `/fixes/${fix}/blame`, 'fix');
+    const line = page.locator('#view .bisect.fxbis');
+    await expect(line.locator('code')).toHaveText(REV);
+    await expect(line.locator('b')).toHaveText(FOUND.subject);
+    await expect(page.locator('#view .bisect.fxbis + .codewrap.bisectdiff')).toContainText('agent/refund.py');
+    await expect(page.locator('#view .fxnote')).toHaveText(`The agent stopped part way from ${REV} on, so the code broke the run, not an answer of the model’s. Revert the commit or fix the code, then run the tests.`);
+    const lead = page.locator('.ph .actions .btn.lime[data-next="revert"]');
+    await expect(lead).toHaveText('Revert');
+    await expect(lead).toHaveAttribute('data-at', String(FOUND.at));
+    expect(await seriousViolations(page)).toEqual([]);
+    if (width === 1440) {
+      // At most four, Revert lime and last with Open in editor before it; Find breaking commit stays on the run's page.
+      const names = (await page.locator('.ph .actions button:visible').allTextContents()).map((n) => n.trim());
+      console.log(`a named crash's fix head at 1440: ${names.join(' | ')}`);
+      expect(names.slice(-2)).toEqual(['Open in editor', 'Revert']);
+      expect(names.length).toBeLessThanOrEqual(4);
+      expect(names.some((n) => n.startsWith('Find breaking commit'))).toBe(false);
+      const title = await page.locator('.ph h1').evaluate((h) => h.getBoundingClientRect().width);
+      expect(title).toBeGreaterThanOrEqual(520);
+    }
   });
 
   test(`at ${width}×${height} Revert's dialog shows the change it undoes in a code box that keeps to its width, passing axe`, async ({ page }) => {
