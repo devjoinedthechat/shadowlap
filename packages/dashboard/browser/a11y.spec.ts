@@ -27,6 +27,26 @@ for (const p of PAGES) {
   });
 }
 
+test('the Overview has no serious or critical axe violation on a laptop or a phone, Usage folded or open, a phone never scrolls it sideways, and no row runs past its panel', async ({ page }) => {
+  const usage = page.locator('main#view .ovuse > header button.linkbtn');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await openPage(page, '/', 'main#view .ovg');
+    // Usage is kept open for the session once asked for: each width starts it folded.
+    if ((await usage.getAttribute('aria-expanded')) === 'true') await usage.click();
+    await expect(usage).toHaveText('Show');
+    expect(await seriousViolations(page)).toEqual([]);
+    await usage.click();
+    await page.waitForSelector('main#view .ovuse .ugrid');
+    expect(await usage.getAttribute('aria-expanded')).toBe('true');
+    expect(await seriousViolations(page)).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `at ${width}px`).toBe(0);
+    // A piece too long for any line, as the demo project's path in its Project added entry, breaks where it must.
+    const past = await page.evaluate(() => [...document.querySelectorAll('main#view .feed .w, main#view .arow .at')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
+    expect(past, `at ${width}px`).toEqual([]);
+  }
+});
+
 /** The run's findings bar opened, as `N findings` (or `Details`) opens it: the findings it folds, a note's tools and hint, and the fork's changes show. */
 async function openFindings(page: Page) {
   const more = page.locator('main#view .findings .fmore');
@@ -57,14 +77,22 @@ test('a fork’s writes and a kept run’s baseline wrap: a phone shows the fork
   expect(await table.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(0);
 });
 
-test('the fix’s steps group their attempts by what each did, with no serious or critical axe violation', async ({ page }) => {
-  await openPage(page, `/fixes/${demoId('refundFix')}/verify`, 'fix');
-  await page.waitForSelector('main#view table.t tbody tr');
-  expect(await seriousViolations(page)).toEqual([]);
-  await openPage(page, `/fixes/${demoId('refundFix')}/blame`, 'fix');
-  await page.waitForSelector('main#view table.probes tbody tr');
-  expect(await seriousViolations(page)).toEqual([]);
-});
+for (const width of [1440, 390])
+  test(`the fix’s steps show a row’s attempts under it on request, grouped by what each did, with no serious or critical axe violation, at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    // A verified run's attempts, then the blamed probe's: each row's Attempts cell opens them under it.
+    for (const [step, table] of [['verify', 'table.vruns'], ['blame', 'table.probes']] as const) {
+      await openPage(page, `/fixes/${demoId('refundFix')}/${step}`, 'fix');
+      const toggle = page.locator(`main#view ${table} tbody tr:not(.sub) button.xbtn`).first();
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const under = page.locator(`main#view ${table} tr.sub`).first();
+      await expect(under.locator('.alist > .al').first()).toBeVisible();
+      await expect(under.locator('.agroups li').first()).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+      expect(await seriousViolations(page)).toEqual([]);
+    }
+  });
 
 /** Text tokens, and the surfaces text is drawn on, as the browser computed them on the page. */
 const TEXT = ['--ink', '--dim', '--faint', '--err', '--warn', '--accent', '--o-rep', '--o-over', '--o-stub', '--o-block', '--k-write', '--c-write', '--del', '--add'];

@@ -5,6 +5,7 @@ import { overviewOptions } from '../overview.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { readTeamStoreInput } from '../team-store.js';
+import { configuredRepairer } from './fixes.js';
 
 /**
  * `GET /api/summary?tz=`: the Overview, worked out in the viewer's days (their IANA time zone, UTC
@@ -23,7 +24,7 @@ export function register(router: Router, ctx: RouteContext): void {
     // The team store as the project's config names it: runs only here are the store status's count,
     // the one Settings → Store and the CLI give, and a setup left unfinished leads back to its page.
     const team = project ? readTeamStoreInput({ cwd: project }) : null;
-    const a = await ctx.reads.run({ kind: 'summary', work: { ...o, ...ctx.read, goldens: goldensOf(ctx), team: team?.store ? team : null, project, next: nextStepWork(ctx) } });
+    const a = await ctx.reads.run({ kind: 'summary', work: { ...o, ...ctx.read, goldens: goldensOf(ctx), team: team?.store ? team : null, project, next: nextStepWork(ctx), repairer: configuredRepairer(ctx) } });
     if (a.warming) ctx.reads.warm();
     sendAnswer(r, a);
   });

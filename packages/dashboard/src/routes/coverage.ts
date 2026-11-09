@@ -1,7 +1,5 @@
-import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
 import { coveragePackArgs, coverageView } from '../coverage.js';
-import { links } from '../links.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
 
@@ -23,16 +21,6 @@ import { sessionBusy, testsBusy } from './tests.js';
  * an update or another pack to finish, as they wait for it.
  */
 export const COVERAGE_JOB_KINDS = { scan: 'coverage', pack: 'coverage-pack' } as const;
-
-// The activity feed: a scan, by what it found no golden covers, and what it packed.
-describeEvent('coverage.scanned', (_e, d) => {
-  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-  const uncovered = n(d.uncovered);
-  const packed = n(d.packed);
-  const notPacked = n(d.notPacked);
-  const found = uncovered ? `${uncovered} behaviour${uncovered === 1 ? '' : 's'} without a golden` : 'every behaviour has a golden';
-  return { kind: 'test', text: `Coverage read · ${found}${packed ? ` · ${packed} golden${packed === 1 ? '' : 's'} packed` : ''}${notPacked ? ` · ${notPacked} not packed` : ''}`, href: links.tests() };
-});
 
 const sameArgv = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 

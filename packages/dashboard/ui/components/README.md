@@ -15,7 +15,7 @@ that comes from data goes there, everything else is a class.
 Every page speaks the run page's language: it opens quietly, with a muted kind, its title and its
 facts, and lays its parts out as full-width sections between hairlines. These are its parts, built
 once; a page draws them and never its own. Pages move onto them one by one: `Badge`, `Tag`, `Kpi`,
-`DeltaPill`, `CmdLine`, `CommandLine`, `CodeBlock` and `CopyButton` below stay until the last page
+`CmdLine`, `CommandLine`, `CodeBlock` and `CopyButton` below stay until the last page
 that draws one has.
 
 | Component | File | Use it for |
@@ -25,7 +25,7 @@ that draws one has.
 | `Facts`, `Fact` | `Facts.tsx` | A page's facts under its header (`.metrics.pfacts`): each figure in the display face, its words muted, money last and quieter (`money`), a figure that leads somewhere a link in ink (`href`). What it is made of and what it was before (`tip`, `was`) are on its hover, never beside it. Three across on a phone, two when there are two or four. |
 | `Row` | `Row.tsx` | A row of a list in a section (`.srow`): its hover 12px past its text on both sides, and where you are (`sel`) on the selected ground, which wins over the pointer's; a link with `href`. A table's row takes the same with `className="sel"`. |
 | `Section` | `Section.tsx` | A part of a page in place of a card (`.panel.sec`): a hairline above, its heading (14px, 600) and a muted sub, its rows full width between hairlines, a row's hover 12px past its text on both sides (`--bleed`). Sections are 32px apart, two side by side (`.grid2.secs`) 40px. Only what is not the page keeps a box: a dialog, a drawer, a menu, code. |
-| `Status`, `statusTone` | `Status.tsx` | Every status: a 7px dot and a word in the word's colour, passed included (`.st`): `ok` passed, `err` failed, `warn` inconclusive or a look needed, `mu` not applicable, `done` a finished step (ink, no verdict), `live`, and a fork's `stub` and `block`. `statusTone(word)` gives a verdict word's tone (not `fixes/model.ts`'s `verdictTone`, a fix step's). Nothing else draws a status. |
+| `Status`, `statusTone` | `Status.tsx` | Every status: a 7px dot and a word in the word's colour, passed included (`.st`): `ok` passed, `err` failed, `warn` inconclusive or a look needed, `mu` not applicable, `done` a finished step (ink, no verdict), `live`, and a fork's `stub` and `block`. `statusTone(word)` gives a verdict word's tone, an injection test's too (obeyed and caused `err`, influenced `warn`, ignored and not caused `mu`), not `fixes/model.ts`'s `verdictTone`, a fix step's. Nothing else draws a status. |
 | `VerdictLine` | `VerdictLine.tsx` | A verdict as a plain line, never a tinted box (`.verdict`): its word in its colour, what it says in ink at 17/600 (its heading names the word too, for a screen reader), its facts muted under it, its next step at the right, 24px under it; a report's own a step smaller (`report`). |
 | `SegmentedControl` (`Seg`) | `Segmented.tsx` | A choice of a few (Chart or Table, a transport, a provider): plain options, the chosen one ink on a raised ground with a hairline ring, no panel and no ink pill (`.seg`). |
 | `Switch` | `Switch.tsx` | On and off, never two options: a button with the switch role (`.switch`), its track 28 by 16, its taps 44 by 24; the page toasts what changed. |
@@ -46,14 +46,14 @@ that draws one has.
 |---|---|---|
 | `Page` | `Page.tsx` | Every scrolling page. Gives back the scrollbar's width (`--sbw`) so the content's right edge stays under the top bar's. |
 | `useActiveTabInView` | `hooks.ts` | A ref for a strip of tabs that scrolls sideways on a phone (Settings' tabs, a run's views): it shows the active tab on mount and when the tab shown changes, scrolling the strip alone (`stripScroll` in `place.ts`). |
-| `useScrollStop` | `hooks.ts` | A ref for a pane that scrolls and holds no control of its own (a dialog's body, the shortcuts on a phone): it takes the focus while it scrolls, so the keyboard can scroll it too. |
+| `useScrollStop` | `hooks.ts` | A ref for a pane that scrolls and holds no control of its own (a dialog's body, the shortcuts on a phone): it takes the focus while it scrolls, so the keyboard can scroll it too. Its `axis`, `'x'`, is for one that scrolls sideways (a results matrix's band). |
 | `StepList` | `bits.tsx` | Numbered setup steps, each with the CLI command that does it (`ol.setup`); a step is `done`, `cur` or `todo`. |
 
 ## Code that waits until it shows
 
 | Component | File | Use it for |
 |---|---|---|
-| `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. Declare a part beside the page that shows it, never in `pages/lazy.tsx`: the one part the page list shows itself, the page that says another project holds what a link names, is declared in `pages/held-elsewhere.tsx`, which the pages showing it import too, and the bundle test pins it. `preload()` a part on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
+| `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. Declare a part beside the page that shows it, never in `pages/lazy.tsx`: the one part the page list shows itself, the page that says another project holds what a link names, is declared in `pages/held-elsewhere.tsx`, which the pages showing it import too, and the bundle test pins it. A part an exported copy never draws, such as Share's menu, is handed in by the served entry instead (`ui/served-parts.ts`, from `ui/pages/served.tsx`), so a copy's script holds none of it, and `test/ui-exported-copy.test.ts` pins what keeps it undrawn there. `preload()` a part on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
 | `LoadFailed` | `bits.tsx` | What a part shows where its script didn't come (`onShow`'s `failed`; a page's in `pages/lazy.tsx`, under its title): an `ErrorState` whose Retry loads the page again, since a browser never asks twice for a script that failed. Retry waits while the server can't be reached (`guard`). |
 
 ## Overlays
@@ -92,19 +92,22 @@ project in the job, so a server switched since refuses it.
 |---|---|---|
 | `RunStrip`, `StripKey`, `StripBar` | `../run/RunStrip.tsx`, `../run/StripKey.tsx` | The run page's strip: a recording's or a capture's calls by kind (`../run/kinds.ts`), any other run's by origin. Where the calls don't fit a cell of 6px (24px to a finger), a cell is a range, by the strip's measured width, in what most of its calls are, with a notch at its rarer notable call; hovering it counts each kind or origin. Flags the fork and the lost call; a live run grows a pending cell. One Tab stop, a listbox: ← → select at once, a range at a time where grouped. Its key is the call filter (`../run/call-filter.ts`), with counts and rows balanced where it wraps, beside Filter calls. |
 | `MiniStrip` | `Strip.tsx` | The small strip in tables (`.ms`): past 60 calls a cell is a range, in the origin most of its calls have, with a notch at its rarer notable call, as the run page's strip draws it. |
-| `GridStrip` | `Strip.tsx` | A row of a family on one scale (`.gs`), for the Overview's grid. |
 | `RunIcon`, `EventIcon`, `Glyph` | `RunIcon.tsx` | One set of icons, each with its words on hover: recording now (pulsing), recording, failed, replay, fork, capture, test, and for events Fixes, project, settings and training. |
 | `Icon`, `Sprite`, `Brand`, `Tile` | `Icon.tsx` | The icon sprite (drawn once by the app) and the logo. |
 | `Org`, `Legend`, `SrSpace` | `bits.tsx` | An origin's colour and word; a legend of the origins present; a space a screen reader says between two words a margin draws apart, as a chip's word and its count (`.srsp`). |
-| `Tag`, `Badge`, `Pips`, `Kbd` | `bits.tsx` | A run's kind beside its id; a tinted status badge, until its pages draw `Status`; one square per attempt; a key. |
+| `Tag`, `Badge`, `Kbd` | `bits.tsx` | A run's kind beside its id; a tinted status badge, until its pages draw `Status`; a key. |
 | `Chips` | `bits.tsx` | Filter chips with counts (empty ones can hide). |
 | `Tabs` | `Tabs.tsx` | Underlined tabs with counts, as the pattern has them: one Tab stop, ← → round the ends, Home and End, a count read apart. `idPrefix` and `panelId` tie them to their `tabpanel`; each tab takes a card (`tip`) and a key (`mark`, `shortcut(id)`). Pages switched with links stay `nav.stabs`. |
 | `shortcut(id)` | `../shortcuts.ts` | What a control spreads to say its key: `aria-keyshortcuts`, which its hover card reads, and `data-shortcut`, by which the key finds it. Gone while single keys are off. Every key is in that one table, which the shortcuts sheet draws. |
 | `useListKeys` | `../list-keys.ts` | One hook for every list: hand it the rows as data, `keyOf`, `root`, `open`, and `pick`, `actions` or `show` where they apply; spread `data-rowkey` on each row and draw the one it returns `.krow`. j and k, ↓ ↑, Enter, x, ⌘K and Esc follow, a page's lists as one sequence. |
-| `Kpi`, `DeltaPill` | `bits.tsx` | A number with its label and a line, with its change against last week, until the Overview's facts are its header's. |
+| `Kpi` | `bits.tsx` | A number with its label and a line, as Training draws its scores. |
 | `CmdLine`, `CommandLine`, `CodeBlock`, `CopyButton` | `bits.tsx` | A shell command; one long enough to wrap, which breaks only between its words (`shellWords` in `format.ts`); a file with Copy in its header; copy and say so (`CodeBox.tsx`'s, the one copy button, its icon alone where `name` names it). Each page moves its boxes to `CodeBox` as it ports. |
 | `SortTh`, `ShowMore`, `rowOpen` | `Table.tsx` | A sorting header for `table.t`, "Show 50 more", and what a row spreads to open a page unless a control inside it was clicked. |
 | `JsonTree` | `Json.tsx` | A JSON value as a folding tree that draws a branch only when it is opened. |
+| `ResultsMatrix` | `ResultsMatrix.tsx` | The results matrix (`../matrix.ts`), one design for an injection test (its untrusted reads by payload) and the error-path presets (a run by preset): each cell a bar in its tone, the word, the tally with its noun and the bound kept whole. Fitted to its room (`../matrix-fit.ts`): balanced bands where it has one row, one band that scrolls under heads that stay put where it has several, turned under 560px where turned it fits. Past eight reads, a row for each tool (`groupRows`). Its script loads on its own: draw it through `FindingPanel` or `ResultsMatrixPart`, never by importing it. |
+| `FindingPanel`, `ResultsToggle` | `FindingPanel.tsx` | What a finding's Show results opens in the inspector's place (the `results` a page gives `../run/InspectorPanel.tsx`): the matrix's name, what was tried, where and when, and the command; the matrix with its key, or a sentence where no attempt ran; the rule and the checks on one line; the receipt. `ResultsToggle` is the finding's Show results, its `which` naming them (`../run/panel-state.ts`). |
+| `MatrixKey`, `toneSwatch` | `MatrixKey.tsx` | One key for every matrix: what matters first, its figures in the stat style; what showed nothing quieter, on a line of its own unless it is one entry; a count of zero left out (`keyLines`, and `resultsKey` for a results matrix's counts). An entry with a card takes the focus. |
+| `Receipt` | `Receipt.tsx` | The receipt at a matrix's foot, under a hairline: what it cost, then, quieter, what it asked, each line of parts joined by dots. |
 | `RunKey`, `useMarkRun`, `useRunLabels` | `RunKey.tsx` | The good/bad key (`runkey.ts`): two toggles that label a run `good` or `bad` in one press, never both, with the change said in a toast with Undo; and a run's labels as a page shows them while the server catches up. |
 
 ## State and logic
@@ -152,7 +155,8 @@ page and asks there (`page-ask.ts`; Apply fix asks by the fix's id). A source ru
 with what it has and calls `paletteSourcesChanged()` when more arrives, and an open palette reads
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
-The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`;
+The Overview's sections are in `overview/` (`NeedsLook.tsx` with its rows' steps in `steps.tsx`, `panels.tsx` and
+`Usage.tsx`, their words kept whole where a line wraps by `words.tsx`, with what they say in `overview/model.ts`;
 a person's name, which every page says, in `person.ts`), and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
 capture… and Push local runs while runs are only here), the filter field (`FilterField.tsx`: its
 terms on hover, how many runs match, `onCommit` for Enter), the row of days (`DaysRow.tsx`, a bar a
@@ -189,7 +193,10 @@ the server keeps for its drawer.
 
 Fixes keeps its parts in `fixes/`: a fix's page and its Blame, Repair and Verify steps, the Forks
 view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, which asks for the check
-when the server can't find it), what the breadcrumb and the palette know about fixes (`data.ts`),
+when the server can't find it), a fix's step on a list row (`RowStep.tsx`, on Fixes and Needs a look:
+its words in `lead.ts`, its dialogs in `LeadDialog.tsx`, loaded as one first shows, which reads
+`FixDialogs.tsx` and `verify-asks.tsx` and none of the fix's page), what the breadcrumb and the
+palette know about fixes (`data.ts`),
 why an action can't start while a repair or an apply holds the project's working tree
 (`tree.ts`: `useTreeBusy(use, verb)` gives the reason, or null; any button that runs the agent can
 read it as Run blame, Run repair, Apply fix and the Tests actions do, and

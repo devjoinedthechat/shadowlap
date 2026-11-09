@@ -9,6 +9,7 @@ import { RevertButton } from '../ui/revert/RevertButton.js';
 import { RevertDialog } from '../ui/revert/RevertDialog.js';
 import { Banner, forgetOpenFindings } from '../ui/run/FindingsBar.js';
 import { InspectorPlace, panelToggle, useFindingPanel } from '../ui/run/InspectorPanel.js';
+import { panelOn, resetPanel } from '../ui/run/panel-state.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
 import { resetSpending } from '../ui/spending.js';
@@ -44,6 +45,7 @@ afterEach(async () => {
   await page?.unmount();
   page = null;
   forgetOpenFindings();
+  resetPanel();
   resetSpending();
 });
 
@@ -106,7 +108,7 @@ const header = (run: RunDetail, offers: RunOffers | null) => ({ run, judged: nul
 function Place({ run, offers }: { run: RunDetail; offers: RunOffers }) {
   const p = useFindingPanel(run.run.runId);
   const inspector = createElement('section', { className: 'insp', id: 'insp' }, createElement('div', { className: 'ibody', id: 'ibody', role: 'tabpanel' }));
-  return createElement('div', null, createElement(Banner, { ...bannerProps(run, offers), showChange: p.showChange, onToggleChange: p.onToggleChange }), createElement(InspectorPlace, { kind: p.kind, run, test: null, offers, onClose: p.close, children: inspector }));
+  return createElement('div', null, createElement(Banner, { ...bannerProps(run, offers), showChange: p.showChange, onToggleChange: p.onToggleChange }), createElement(InspectorPlace, { panel: p.panel, run, test: null, offers, onClose: p.close, onPick: () => undefined, children: inspector }));
 }
 
 const lead = (a: AppState, o: { parts?: ServedParts; lead?: boolean } = {}) => within(a, createElement(RevertButton, { step: STEP, found: FOUND, estimate: FREE, runId: REC, lead: o.lead ?? true }), o.parts);
@@ -215,7 +217,7 @@ describe('a named crash on its run’s page', () => {
     expect(page.one('#ibody .bisectdiff').textContent).toContain('agent/refund.py');
     expect(page.all('#ibody .bisectdiff .cdacts button').map((b) => b.textContent)).toEqual(['Open in editor', 'Copy git revert']);
     // Esc hands the focus to the toggle that opened it, as Hide does.
-    expect(panelToggle()).toBe(page.one('[data-act="change"]'));
+    expect(panelToggle(panelOn(REC))).toBe(page.one('[data-act="change"]'));
     await page.click(page.one('.fhead .nav button'));
     expect(page.all('.fpanel')).toHaveLength(0);
     expect(page.focused()).toBe(page.one('[data-act="change"]'));

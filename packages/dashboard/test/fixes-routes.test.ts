@@ -298,8 +298,8 @@ describe('the Forks view’s bundles', () => {
     const verifies = bundles.filter((b) => b.kind === 'verify');
     expect(verifies.map((b) => [b.change, b.verdictLine, b.tone, b.rule])).toEqual(
       expect.arrayContaining([
-        ['370712a+dirty', 'not fixed · 0 of 2', 'no', 'a run passes when 4 of 5 attempts pass'],
-        ['repair candidate 3', 'fixed · 4 of 4', 'ok', 'a run passes when 4 of 5 attempts pass'],
+        ['370712a+dirty', 'not fixed · 0 of 2 passed', 'no', 'a run passes when 4 of 5 attempts pass'],
+        ['repair candidate 3', 'fixed · 4 of 4 passed', 'ok', 'a run passes when 4 of 5 attempts pass'],
       ]),
     );
     expect(report.probes).toHaveLength(3);

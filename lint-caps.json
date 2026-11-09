@@ -124,7 +124,7 @@
     },
     "packages/cli/src/verify.ts": {
       "runVerify": 58,
-      "runVerify > verifyOne": 46,
+      "runVerify > verifyOne": 35,
       "runVerify > verifyOne > againstPaired": 32
     },
     "packages/cli/test/checks-schema.test.ts": {
@@ -150,9 +150,6 @@
     },
     "packages/dashboard/src/ci-yaml.ts": {
       "workflowYaml": 31
-    },
-    "packages/dashboard/src/fix-blame-step.ts": {
-      "blameStep": 40
     },
     "packages/dashboard/src/fix-bundles.ts": {
       "fixBundles": 82
@@ -195,9 +192,6 @@
     },
     "packages/dashboard/ui/compare/model.ts": {
       "changeCards": 33
-    },
-    "packages/dashboard/ui/fixes/FixPage.tsx": {
-      "FixActions": 34
     },
     "packages/dashboard/ui/fixes/model.ts": {
       "fixJobStatus": 37
@@ -409,8 +403,8 @@
       "startMcpListener": 228
     },
     "packages/cli/src/verify.ts": {
-      "runVerify": 289,
-      "runVerify > verifyOne": 185
+      "runVerify": 286,
+      "runVerify > verifyOne": 182
     },
     "packages/dashboard/src/fix-bundles.ts": {
       "fixBundles": 180
@@ -426,9 +420,6 @@
     },
     "packages/dashboard/ui/api.ts": {
       "createClient": 167
-    },
-    "packages/dashboard/ui/fixes/BlameStep.tsx": {
-      "BlameStepView": 193
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 162
@@ -500,14 +491,14 @@
     }
   },
   "max-lines": {
-    "packages/cli/src/decisions.ts": 1086,
+    "packages/cli/src/decisions.ts": 1083,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
     "packages/dashboard/src/tests.ts": 1005,
-    "packages/dashboard/test/fixes.test.ts": 871,
+    "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
-    "packages/dashboard/test/ui-logic.test.ts": 822,
+    "packages/dashboard/test/ui-logic.test.ts": 810,
     "packages/engine/src/pairs.ts": 819,
     "packages/engine/src/redact.ts": 983,
     "packages/remote/test/sync.test.ts": 1059,

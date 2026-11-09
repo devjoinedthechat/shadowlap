@@ -88,6 +88,8 @@ beforeAll(() => {
     // A preview that couldn't clear the recording.
     const decided = { runId: REC, golden: null, steps: 2, asked: 2, rank: 1, majority: 1, counts: {}, cost: { before: 0.004, after: 0.002, spent: 0.001 }, tokens: {}, thinkingStripped: 0, refused: null, decisions: [], warnings: [] };
     store.putDecisionSession({ sessionId: SESSION, kind: 'decisions', at: NOW - HOUR, change: 'the model claude-haiku-4-5', actor: null, revision: null, data: { change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' }, flagged: [REC], toVerify: [REC], verify: null }, runs: [{ runId: REC, golden: null, rank: 1, changed: 1, data: decided }] });
+    // Its event, worded by the feed on whichever thread reads it.
+    store.addEvent({ eventId: '01K8RG00000000000000000005', kind: 'decisions.done', ref: SESSION, data: { change: 'the model claude-haiku-4-5', runs: 1, flagged: 1, spent: 0.001 }, at: NOW - HOUR });
     // A gated golden's last result, for its evidence: one session, its attempt the fork.
     const tested = store.startTestSession({ sessionId: 'ts-registry', command: ['shadowlap', 'test', 'goldens/refund'], startedAt: NOW - HOUR }).sessionId;
     store.addTestResult({ sessionId: tested, golden: 'goldens/refund', ok: true, runId: FORK, goldenRunId: REC, revision: null, at: NOW - HOUR, data: { attempts: { total: 1, passed: 1, required: null, runs: [FORK] }, gate: gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, Array<boolean>(12).fill(true)) } });
@@ -116,6 +118,9 @@ describe('the pooled reads by kind', () => {
       expect(here.status, job.kind).toBe(200);
       expect({ status: there.status, body: JSON.parse(there.body) as unknown }, job.kind).toEqual({ status: here.status, body: JSON.parse(here.body) as unknown });
     }
+    // A feature's events read in its own words on a thread too, though the thread loads no route module.
+    const feed = JSON.parse((await pool.run(JOBS.activity)).body) as { items: Array<{ text: string }> };
+    expect(feed.items.map((i) => i.text)).toContain('Previewed the model claude-haiku-4-5 on 1 run · 1 with a write, stop or judged change');
   });
 
   it('answer each kind by the handler its table registers it with', () => {

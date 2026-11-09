@@ -143,13 +143,13 @@ export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat }
 export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';
 export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-notes.js';
 export { formatRepeats, pathOf, summarizeRepeats } from './repeat.js';
-export { blameStateWord, describeBlocks, describeRescue, formatBlame, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, lostWhere, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
+export { blameStateWord, describeBlocks, describeRescue, formatBlame, INCONCLUSIVE_FIRST, INCONCLUSIVE_FIRST_HEAD, lostWhere, maxProbes, notTheAnswer, probeBound, probeFinding, probeInterval, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, PinCheck, ProbeVerdict } from './blame.js';
 // The blame a repair reuses on a failing run rather than search again, as the CLI and Run repair's estimate read it.
 export { reusedBlame, type ReusedBlame } from './blame-reuse.js';
-export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
+export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule, verifyTally, verifyTallyLine } from './verify.js';
 // What answered an attempt's tool calls after its fork: verify's line on it and its warnings.
-export { afterForkLines, afterForkOf, afterForkWarnings, type AfterFork } from './after-fork.js';
+export { afterForkLines, afterForkOf, afterForkSentence, afterForkWarnings, type AfterFork } from './after-fork.js';
 // Blame's calibrated search (the risk spent across its probes, the range it reports and its bound),
 // verify's test of a good run against its own baseline, and the isotonic fit both read rates with.
 export { blameSpan, confidenceOf, confidenceWhy, decidePin, pinRisk, pinRule, pinWords, pooledRates, probeClaim, probeGate, probeRisk, unrescuedHead } from './blame.js';
@@ -181,7 +181,7 @@ export { fileThatRuns, modelSwitch, patchFiles, repairNeverRewrites, repairNever
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).
 export { CHARS_PER_TOKEN, placeholders, rewriteGrowth, templateSyntax } from './repair.js';
 export type { Placeholder, TemplateSyntax } from './repair.js';
-export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole } from './verify.js';
+export type { Footprint, RunVerdict, VerifiedRun, VerifyAttempt, VerifyDecision, VerifyOutcome, VerifyReport, VerifyRole, VerifyTally } from './verify.js';
 export type { RepeatAttempt, RepeatAttemptInput, RepeatReport } from './repeat.js';
 export { parseSse } from './sse.js';
 export { encodeEventStreamFrame, eventStreamFrames, eventStreamMessages, type EventStreamFrame } from './eventstream.js';
@@ -195,6 +195,7 @@ export { goldenNeedsConsent, goldensNeedingConsent, packHeadRun, packTracked, tr
 export type { Palette } from './report.js';
 export { conversationRequest, conversationRequestFor, LiveConversations, Lru, responseInfo, runConversations, runStamp } from './conversations.js';
 export type { CallConversation, ConversationOptions, ConversationSpan, RequestedTool, RunConversations } from './conversations.js';
+export { handoverTarget, ownAgent, roleName, RunAgents, runAgents, spawnedName, type CallAgent } from './agents.js';
 export { CACHE_MISS_MIN_TOKENS, cacheMisses, cacheRead, cacheUse, importedRecording, runCache, runCacheUse, sumCacheUse } from './cache.js';
 export { INPUT_PARTS, wholeInput } from './tokens.js';
 export type { CacheMiss, CacheUse, CacheUseMiss, CacheUseOptions, RunCache, RunCacheUse } from './cache.js';
@@ -273,7 +274,7 @@ export { parseSpending, SPENDING_PICKS, SPENDING_REFUSED, spendingField, spendin
 export { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES, type ForkEstimateChange } from './estimates/fork.js';
 export { BLAME_SCAN, blameBound, blameEstimate, blameRules, blameSteps, probedCalls, probedInScope, type BlameBound, type BlameEstimateOptions, type BlameRule, type BlameRules } from './estimates/blame.js';
 export { keptMaxOf, lastVerify, VERIFY_LIVE, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type LastVerify, type VerifyEstimateOptions, type VerifyLimits, type VerifyRule, type VerifyRunCost } from './estimates/verify.js';
-export { REPAIR_CANDIDATES, REPAIR_VERIFIES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
+export { REPAIR_CANDIDATES, REPAIR_VERIFIES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, wholeRun, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
 export { bisectCommits, bisectEstimate, goldenLiveParts, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
 export { CLEAN_GATE, causeEstimate, GATE_REPEAT, injectionAgainEstimate, injectionEstimate, injectionGateEstimate, presetsEstimate, type InjectionPlan } from './estimates/injection.js';
 export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';

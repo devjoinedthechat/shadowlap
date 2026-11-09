@@ -8,6 +8,7 @@ import type { ServedParts } from '../served-parts.js';
  * (main-copy.tsx) holds none of them.
  */
 export const SERVED_PARTS: ServedParts = {
+  ShareMenu: onShow(() => import('../run/ShareMenu.js').then((m) => m.ShareMenu)),
   RevertDialog: onShow(() => import('../revert/RevertDialog.js').then((m) => m.RevertDialog)),
   ChangeBox: onShow(() => import('../revert/ChangeBox.js').then((m) => m.ChangeBox), { failed: <LoadFailed what="change" /> }),
 };

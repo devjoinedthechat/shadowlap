@@ -4,7 +4,8 @@ import { gateResult, Store, type TestResultData } from '@shadowlap/engine';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import type { Client, TestsView } from '../ui/api.js';
 import { dotParts, IntervalBar } from '../ui/components/Verdict.js';
-import { ActivityCard, NeedsLook } from '../ui/overview/panels.js';
+import { NeedsLook } from '../ui/overview/NeedsLook.js';
+import { ActivityCard } from '../ui/overview/panels.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -68,19 +69,20 @@ describe('the interval’s bar', () => {
 });
 
 describe('Needs a look and Activity', () => {
-  const gated: NeedsLookRow = { kind: 'test', icon: 'fail', title: 'A test failed: eval-pushy', detail: 'failed · 4 of 8 · rate <= 0.78 (95%)', rule: RULE, action: 'Fix', href: '#/tests', runId: null, fixId: null, at: 1 };
-  const plain: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5GRZKRY', detail: 'Write this week’s refund digest · not blamed yet', action: 'Run blame', href: '#/run/01M5GRZKRY', runId: '01M5GRZKRY', fixId: null, at: 2 };
+  const gated: NeedsLookRow = { kind: 'test', icon: 'fail', title: 'A golden failed: eval-pushy', name: 'eval-pushy', detail: 'failed · 4 of 8 · rate <= 0.78 (95%)', rule: RULE, key: 'attn:failed:goldens/eval-pushy', group: 'failing', step: null, href: '#/tests', runId: null, fixId: null, at: 1 };
+  const plain: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5GRZKRY', detail: 'Write this week’s refund digest · not blamed yet', key: 'attn:unblamed:01M5GRZKRY', group: 'failing', step: null, href: '#/run/01M5GRZKRYAAAAAAAAAAAAAAAA', runId: '01M5GRZKRYAAAAAAAAAAAAAAAA', fixId: null, at: 0 };
 
-  // Needs a look reads whether actions run here (a read-only dashboard's lines say Open): here they do.
+  // Needs a look reads whether actions run here (a read-only dashboard's steps say Open): here they do, and no row has a job.
   const inApp = (el: ReturnType<typeof createElement>) => createElement(AppContext.Provider, { value: { actionsOff: null } as unknown as AppState }, el);
+  const words = (t: string | null | undefined) => (t ?? '').replace(/\u00a0/g, ' ');
 
   it('says a gate’s verdict whole, each figure unbroken, with its rule on the row’s hover', async () => {
     r = await render(inApp(createElement(NeedsLook, { items: [gated, plain], total: 2 })));
-    const [row, other] = r.all('.attn a');
+    const [row, other] = r.all('.attn a.at');
     const d = row.querySelector('.d')!;
     expect(d.className).toBe('d gv');
-    expect(d.textContent).toBe('failed · 4 of 8 · rate <= 0.78 (95%)');
-    expect(d.querySelectorAll('.nw').map((s) => s.textContent)).toEqual(['failed ·', '4 of 8 ·', 'rate <= 0.78 (95%)']);
+    expect(words(d.textContent)).toBe('failed · 4 of 8 · rate <= 0.78 (95%)');
+    expect(d.querySelectorAll('.nw').map((s) => words(s.textContent))).toEqual(['failed ·', '4 of 8 ·', 'rate <= 0.78 (95%)']);
     // The rule is on the hover, under the golden, and in no line.
     expect(tip(row)?.t).toBe('eval-pushy');
     expect(tip(row)?.s?.replace(/\u00a0/g, ' ')).toBe(RULE);
@@ -90,34 +92,41 @@ describe('Needs a look and Activity', () => {
     expect(tip(other)).toBeNull();
   });
 
-  it('fits a failed run’s about line to one line before what is left to do, never clamping it mid-word', async () => {
+  it('names a run by its short id, with its about line on hover, never cut', async () => {
     const about = { text: 'Write this week’s refund digest, grouped by region, and post it to #refunds before the Monday review with the leads', from: 'user' as const };
-    r = await render(inApp(createElement(NeedsLook, { items: [{ ...plain, detail: 'not blamed yet', about }], total: 1 })));
-    const d = r.one('.attn a .d');
-    expect(d.className).toBe('d ab');
-    // The about line is a line the fitter fits at whole words (about.ts), with all of it on hover.
-    const line = d.querySelector('.rab')!;
-    expect([line.getAttribute('data-about'), line.getAttribute('data-from'), line.getAttribute('title')]).toEqual([about.text, 'user', about.text]);
-    // Then what is left to do, whole, after its dot.
-    expect(d.querySelector('.abs')!.textContent).toBe('·not blamed yet');
-    expect(d.children.map((c) => c.className)).toEqual(['rab', 'abs']);
+    r = await render(inApp(createElement(NeedsLook, { items: [{ ...plain, title: '3 failing runs nobody has blamed', detail: 'newest 01M5GRZKRY · failed', about }], total: 1 })));
+    const d = r.one('.attn a.at .d');
+    expect(d.className).toBe('d');
+    const id = d.querySelector('code.rnm')!;
+    expect([id.textContent, id.getAttribute('title')]).toEqual(['01M5GRZKRY', about.text]);
+    expect(words(d.textContent)).toBe('newest 01M5GRZKRY · failed');
   });
 
-  it('gives a gate’s entry its rule on hover, and leaves an entry with nowhere to go a plain row', async () => {
+  it('gives a gate’s entry its rule on hover, names a run by its id with its about line, keeps a tally whole, and leaves an entry with nowhere to go a plain row', async () => {
     const items: ActivityItem[] = [
       { id: 'a', at: 3, kind: 'fail', text: 'Test failed · eval-pushy: failed · 4 of 8 · rate <= 0.78 (95%)', runId: '01M5GRZKRYAAAAAAAAAAAAAAAA', href: '#/run/01M5GRZKRYAAAAAAAAAAAAAAAA', rule: RULE },
       // A preview of a change: no page shows it, so it links nowhere, not back to the Overview.
       { id: 'b', at: 2, kind: 'fork', text: 'Previewed the model claude-haiku-4-5 on 1 run · 1 with a write, stop or judged change' },
       { id: 'c', at: 1, kind: 'rec', text: 'Recorded 9 calls', runId: '01M5GRZK3PG7SR16CB2T3CFE21' },
     ];
-    r = await render(createElement(ActivityCard, { items, now: 10, byPerson: false, live: [] }));
+    const app = { actionsOff: null, runs: [{ runId: '01M5GRZK3PG7SR16CB2T3CFE21', about: { text: 'Refund order 1042', from: 'user' } }] };
+    r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ActivityCard, { items, now: 10, byPerson: false, live: [] })));
     const links = r.all('.feed a');
     expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/run/01M5GRZKRYAAAAAAAAAAAAAAAA', '#/run/01M5GRZK3PG7SR16CB2T3CFE21']);
     expect(tip(links[0])?.t).toBe('Test failed · eval-pushy');
     expect(tip(links[0])?.s?.replace(/\u00a0/g, ' ')).toBe(RULE);
     expect(links[0].querySelector('.w')!.className).toBe('w gv');
+    // What an entry happened to ends it: a run by its id, its about line on hover, after a space it can wrap at.
+    expect(links.map((a) => [a.querySelector('code.rnm')?.textContent, a.querySelector('code.rnm')?.getAttribute('title') ?? null])).toEqual([
+      ['01M5GRZKRY', null],
+      ['01M5GRZK3P', 'Refund order 1042'],
+    ]);
+    expect(links[1].querySelector('.w')!.textContent).toBe('Recorded 9\u00a0calls 01M5GRZK3P');
     const rows = r.all('.feed .plain');
-    expect(rows.map((x) => x.textContent)).toEqual([expect.stringContaining('Previewed the model claude-haiku-4-5 on 1 run')]);
+    expect(rows.map((x) => words(x.textContent))).toEqual([expect.stringContaining('Previewed the model claude-haiku-4-5 on 1 run')]);
+    // A tally and what it counts stay one piece where the line wraps, and so does a hyphenated name.
+    expect(rows[0].textContent).toContain('1\u00a0run\u00a0· 1\u00a0with\u00a0a\u00a0write, stop or judged\u00a0change');
+    expect(rows[0].querySelectorAll('.nw').map((x) => x.textContent)).toContain('claude-haiku-4-5');
     expect(r.all('.feed a[href="#/"]')).toEqual([]);
   });
 });
@@ -222,9 +231,9 @@ describe('the Forks view’s bundles', () => {
       bundle({ key: 'b:1', title: 'blame · probe #1', verdictLine: 'rescued · 2 of 2 · rate >= 0.34 (95%)', tone: 'ok', rule: BLAME }),
       bundle({ key: 'b:5', title: 'blame · probe #5', blamed: true, verdictLine: 'rescued · 3 of 4 · rate >= 0.30 (95%)', tone: 'ok', rule: BLAME }),
       bundle({ key: 'b:7', title: 'blame · probe #7', verdictLine: 'lost · 0 of 4 · rate <= 0.49 (95%)', tone: 'no', rule: BLAME }),
-      bundle({ kind: 'verify', key: 'v:1', title: 'verify · target', verdict: 'accepted', change: 'repair candidate 3', verdictLine: 'fixed · 12 of 12 · rate >= 0.76 (95%)', tone: 'ok', rule: VERIFY, spent: 0.2, at: 3 }),
+      bundle({ kind: 'verify', key: 'v:1', title: 'verify · target', verdict: 'accepted', change: 'repair candidate 3', verdictLine: 'fixed · 12 of 12 passed · rate >= 0.76 (95%)', tone: 'ok', rule: VERIFY, spent: 0.2, at: 3 }),
       // Another verdict decided by the same rule: stated once in the family.
-      bundle({ kind: 'verify', key: 'v:2', title: 'verify · target', verdict: 'rejected', change: 'repair candidate 2', verdictLine: 'not fixed · 0 of 3 · rate <= 0.56 (95%)', tone: 'no', rule: VERIFY, spent: 0.03, at: 4 }),
+      bundle({ kind: 'verify', key: 'v:2', title: 'verify · target', verdict: 'rejected', change: 'repair candidate 2', verdictLine: 'not fixed · 0 of 3 passed · rate <= 0.56 (95%)', tone: 'no', rule: VERIFY, spent: 0.03, at: 4 }),
     ];
     const client = { lineage: () => Promise.resolve([node(REC, null)]), fixBundles: () => Promise.resolve(bundles), runChaos: () => Promise.resolve(null) } as unknown as Client;
     const app = { client, exported: false, meta: null, runs: [], live: [], feeds: {}, tick: 0, runsTick: 0, jobs: [], hasKind: () => true };
@@ -237,8 +246,8 @@ describe('the Forks view’s bundles', () => {
       ['rescued ·', '3 of 4 ·', 'rate >= 0.30 (95%) ·', '≈$0.020'],
       ['lost ·', '0 of 4 ·', 'rate <= 0.49 (95%) ·', '≈$0.020'],
       // A verify's names the change it checked and how that came out.
-      ['fixed ·', '12 of 12 ·', 'rate >= 0.76 (95%) ·', '≈$0.200 ·', 'repair candidate 3 ·', 'accepted'],
-      ['not fixed ·', '0 of 3 ·', 'rate <= 0.56 (95%) ·', '≈$0.030 ·', 'repair candidate 2 ·', 'rejected'],
+      ['fixed ·', '12 of 12 passed ·', 'rate >= 0.76 (95%) ·', '≈$0.200 ·', 'repair candidate 3 ·', 'accepted'],
+      ['not fixed ·', '0 of 3 passed ·', 'rate <= 0.56 (95%) ·', '≈$0.030 ·', 'repair candidate 2 ·', 'rejected'],
     ]);
     // Blame's rule under the first of its probes alone, verify's under the first run it decided.
     expect(f2.map((x) => x.querySelector('.frule')?.textContent.replace(/\u00a0/g, ' ') ?? null)).toEqual([null, BLAME, null, null, VERIFY, null]);

@@ -75,10 +75,13 @@
     // These render the Runs page's bulk bar, the Overview's panels and the lists of runs.
     "packages/dashboard/test/ui-runs-bulk.test.ts",
     "packages/dashboard/test/ui-overview-lists.test.ts",
+    "packages/dashboard/test/ui-overview-page.test.ts",
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
     "packages/dashboard/test/ui-runs-status.test.ts",
     // These render a fix's page, and the list of fixes.
     "packages/dashboard/test/ui-fix-page.test.ts",
+    "packages/dashboard/test/ui-fix-head.test.ts",
+    "packages/dashboard/test/ui-fix-steps.test.ts",
     "packages/dashboard/test/ui-fixes-list.test.ts",
     // This drives the fork menu's actions, with their confirmation of someone else's command.
     "packages/dashboard/test/ui-action-consent.test.ts",
@@ -161,6 +164,10 @@
     // and this is the page of them browser/primitives.spec.ts measures in a real browser.
     "packages/dashboard/test/ui-primitives.test.ts",
     "packages/dashboard/test/primitives-page.tsx",
+    // This renders the results matrix, its key, its receipt and the panel they open in, and this is
+    // the page of them browser/matrix.spec.ts measures in a real browser.
+    "packages/dashboard/test/ui-matrix.test.ts",
+    "packages/dashboard/test/matrix-page.tsx",
     // This renders the status bar, which measures what fits it.
     "packages/dashboard/test/ui-status-bar.test.ts",
     // This renders Changes: its head, Verdicts, a revision's page and Compare under its tab.

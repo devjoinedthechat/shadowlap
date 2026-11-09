@@ -1299,7 +1299,7 @@ export function overviewTests(store: StoreOf<'tests'>, asOf: { now: number; week
 
 export interface FailingTest {
   golden: string;
-  /** For Needs a look: `A test failed: refund-in-limit`, or `A test is inconclusive: refund-over-limit`. */
+  /** For Needs a look: `A golden failed: refund-in-limit`, or `A golden is inconclusive: refund-over-limit`. */
   title: string;
   /** Failed, or inconclusive: Needs a look lists both, told apart. */
   verdict: 'failed' | 'inconclusive';
@@ -1366,7 +1366,7 @@ export function failingTests(store: StoreOf<'recording' | 'fixes' | 'tests'>, op
       // A gate's verdict says its word, tally and bound; the rule goes on the line's hover.
       const gate = decidedByGate(r) ? r.data!.gate! : null;
       const line = gate ? gateLine(gate) : lineOf(store, r, sources.get(r.golden)?.checks ?? [], options.normalizers ?? []);
-      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line, rule: gateRuleOf(gate), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
+      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A golden is inconclusive' : 'A golden failed'}: ${nameOf(r.golden, folder)}`, verdict, line, rule: gateRuleOf(gate), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
     });
 }
 

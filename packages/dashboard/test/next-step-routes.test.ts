@@ -155,8 +155,10 @@ describe('Needs a look', () => {
     const can = addRun(store, { startedAt: Date.now() - 2000, status: 'failed', calls: 'l' });
     const cannot = makeRun(store, { startedAt: Date.now() - 1000, status: 'failed' });
     const items = (await get<OverviewSummary>('summary?tz=UTC')).needsLook.items.filter((i) => i.kind === 'unblamed');
-    expect(items.find((i) => i.runId === can)?.action).toBe('Run blame');
-    expect(items.find((i) => i.runId === cannot)?.action).toBe('Open');
+    // One row stands for both, naming the newest, which made no model call: it opens Runs, with no step.
+    expect(items.map((i) => [i.runId, i.step])).toEqual([[cannot, null]]);
+    expect(items[0].title).toMatch(/^\d+ failing runs nobody has blamed$/);
+    expect(can).not.toBe(cannot);
   });
 });
 

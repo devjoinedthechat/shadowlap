@@ -595,6 +595,9 @@ function againCommand(runId: string, again: InjectionAgain): string {
 /** Why a test stopped short and what to do about it: its budget's the advice to spend it better, any other stop in its own words. */
 const stopWords = (reason: string): string => (/\bbudget\b/.test(reason) ? 'It stopped at its budget: test with fewer templates, or a higher budget' : `It stopped early (${reason}): test it again`);
 
+/** Re-run test's card, where a golden's injection gate showed too little to say: on its run's page and on Needs a look's row. */
+export const gateAgainSub = (why: string | null | undefined): string => `Its injection gate showed too little to say: ${why ?? 'no attempt decided'}`;
+
 /** What a recording's newest finished plant leads with: its proof when it failed, running again when it showed too little; null when it says nothing to do. */
 function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const { row, store } = f;
@@ -609,7 +612,7 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const ownFile = report.payloads?.some((x) => x.source === 'file');
   const stopped = report.stopReason ? stopWords(report.stopReason) : null;
   if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
-  if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: `Its injection gate showed too little to say: ${why}`, price: again };
+  if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: gateAgainSub(why), price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };
 }
@@ -928,6 +931,18 @@ export function listedStep(store: Store, runId: string, work: NextStepWork | nul
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The newest run's step on the row of failed runs nobody has blamed (Fixes, Needs a look): its listed
+ * step, a capture's by the verdict its import kept, as the lists count it failed (fix-shared.ts
+ * `capturedFailure`): the fix that holds the same failure, else Run blame, which asks for your
+ * command on the capture's page. No call is read for it.
+ */
+export function unblamedListedStep(store: Store, runId: string, work: NextStepWork | null, o: { reads: StepReads }): NextStep | null | undefined {
+  const capture = o.reads.index.byId.get(runId)?.kind === 'capture';
+  const judged = capture ? runJudged(store, o.reads.index, runId, null, { quick: true }) : undefined;
+  return listedStep(store, runId, work, judged === undefined ? o : { ...o, judged });
 }
 
 /** A run's Replay for a list, as its page keeps it beside its next step: undefined for a record it can't be read from. */

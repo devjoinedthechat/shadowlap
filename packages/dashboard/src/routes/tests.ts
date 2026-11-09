@@ -1,5 +1,4 @@
 import { ACTIONS, confirmWords, messageOf, noEstimate, normalizeAddArgs, type Normalizer, type StoreOf } from '@shadowlap/engine';
-import { describeEvent } from '../activity.js';
 import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
@@ -8,7 +7,6 @@ import type { RouteContext } from '../context.js';
 import { foundsHere, servesFound } from '../found-here.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
-import { links } from '../links.js';
 import { searchedCommits, type NextStep } from '../next-step.js';
 import { nextStepWork } from '../outcome-work.js';
 import { answerData, sendAnswer } from '../read-pool.js';
@@ -205,10 +203,6 @@ async function foundInCheckout(view: TestsView, root: string | null | undefined)
   const [divergences, failures] = await Promise.all([foundsHere(view.divergences, serve), foundsHere(view.failures, serve)]);
   return { ...view, divergences, failures };
 }
-
-// Find breaking commit that named no first bad commit, in the activity feed: why, so the next search
-// starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
-describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
 
 /**
  * Find breaking commit's job as `req` asks it: whether this checkout has the commit a run's search

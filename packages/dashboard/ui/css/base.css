@@ -1,6 +1,9 @@
 /* What every page shares: the page itself (its ground, focus rings, scrollbars, line breaks) and the parts several
    pages draw (a page's header, buttons, links, panels, tables, statuses, chips and tags, code boxes, fields). */
 * { box-sizing: border-box; }
+/* the hidden attribute always hides, whatever a part's own rule for its spans or divs sets: a glossary term's definition,
+   kept for its hover card and a screen reader, never shows in a key or a cell */
+[hidden]:not([hidden="until-found"]) { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13.5px/1.5 var(--body); -webkit-font-smoothing: antialiased; overflow: hidden; }
 button { font: inherit; color: inherit; }
@@ -17,10 +20,10 @@ b, strong { font-weight: 600; }
 /* Chrome makes a scrolling pane focusable on its own; the selected row already shows where you are, so the pane draws no ring */
 main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .pklist:focus-visible, .rawsse:focus-visible { outline: none; }
 /* A pane that takes the focus to be scrolled by keyboard (it holds no control of its own) says it has it. */
-.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .rmx-in[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
-:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
+:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .rmx-in, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
 /* Skip to content: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
    own ground set apart by an edge and a shadow, never lime, which means the primary action and passed. */
 .skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border: 1px solid transparent; border-radius: var(--r-control); color: var(--ink); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
@@ -56,7 +59,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph.fork, .glyph.blame { color: var(--dim); }
 .glyph.cap { color: var(--dim); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
-.glyph.warn, .glyph.fixinc { color: var(--cq-amber); }
+.glyph.warn, .glyph.fixinc, .glyph.retire { color: var(--cq-amber); }
 /* An event that came out inconclusive, stopped or needing a look is amber whatever its shape, one that failed red. */
 .glyph.amb { color: var(--cq-amber); }
 .glyph.err { color: var(--err); }
@@ -260,13 +263,13 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .legend i.lg.fail { background: var(--o-fail-fill); box-shadow: inset 0 0 0 1.5px var(--o-fail); }
 .legend i.lg.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
 .legend i.lg.stub { background: var(--o-stub); }
-/* A blocked mark that may be narrower than the hatch can draw (a mini strip's cells, a binned range, the Overview's
-   grid on a phone, a share of a bar, a timeline bar) is the hatch's tone as a solid under 6px; a failed one is its tint
+/* A blocked mark that may be narrower than the hatch can draw (a mini strip's cells, a binned range, a share of a
+   bar, a timeline bar) is the hatch's tone as a solid under 6px; a failed one is its tint
    ringed in the one red from 6px, the tint alone below. */
-:is(.ms i, .gs i, .segbar i):is(.block, .fail) { position: relative; }
-:is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar):is(.block, .fail) { container-type: inline-size; }
-@container (max-width: 5.99px) { :is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar).block::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--o-block-solid); } }
-@container (min-width: 6px) { :is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar).fail::before { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1.5px var(--o-fail); } }
+:is(.ms i, .segbar i):is(.block, .fail) { position: relative; }
+:is(.cells button, .ms i, .segbar i, .tl-row .bar):is(.block, .fail) { container-type: inline-size; }
+@container (max-width: 5.99px) { :is(.cells button, .ms i, .segbar i, .tl-row .bar).block::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--o-block-solid); } }
+@container (min-width: 6px) { :is(.cells button, .ms i, .segbar i, .tl-row .bar).fail::before { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1.5px var(--o-fail); } }
 
 .muted { color: var(--faint); font-size: 12.5px; }
 p.muted { margin: 0 0 12px; }
@@ -341,7 +344,7 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 .stabs a[aria-current="page"]::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); }
 
 /* no stubs: short multi-line text splits evenly, and labels never break inside */
-.attn .d, .verdict p, .ph p.pmeta, .kvs dd, .stepper b, .stepper .m, .nextsteps span, .ans code, .pdiff p, .prbody li, .egrp p.muted, .rule span, .sh p, .inote { text-wrap: balance; }
+.attn .d, .verdict p, .ph p.pmeta, .kvs dd, .stepper b, .stepper .m, .nextsteps span, .pdiff p, .prbody li, .egrp p.muted, .rule span, .sh p, .inote { text-wrap: balance; }
 .ph p.pmeta { max-width: none; }
 .ph p.pmeta > span { white-space: nowrap; }
 .panel > header { flex-wrap: wrap; row-gap: 2px; }
@@ -463,7 +466,7 @@ code.rnm { white-space: nowrap; }
 
 /* Decision 9 on every page: a gate's verdict is its word, its tally and its Wilson bound, broken only after a dot (each short
    part whole), its rule stated once; figures read as the CLI prints them, so ">=" never becomes the mono font's ligature */
-.vline .nw, .attn .d .nw, .feed .w .nw, table.gt td.glast .nw, .fnode .f2 .nw { white-space: nowrap; }
+.vline .nw, .attn .d .nw, .attn .t .nw, .feed .w .nw, table.gt td.glast .nw, .fnode .f2 .nw { white-space: nowrap; }
 
 
 .rab:empty + .abs .dot { display: none; }
@@ -475,13 +478,13 @@ code.rnm { white-space: nowrap; }
    flags, key hints and chart axes keep their case and tracking and rise from 9 to 10.5px to --fs-label. An avatar's initials
    keep their size, which their circle sets. Scoped by :is(#root, body), which weighs as an id wherever it matches, so it
    outranks each label's own rule, in a dialog drawn over the page too; a column head larger already (a model's) is left
-   as it is. Labels that fill a line or size a column keep the width they had: tighter tracking gives back what the larger
-   size adds. */
+   as it is, and so is a fix's stepper's key, a word at the quiet size. Labels that fill a line or size a column keep the
+   width they had: tighter tracking gives back what the larger size adds. */
 @media (max-width: 640px) {
   :is(#root, body) :is(
-    .eyebrow, .k, .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
-    .tchip em, .bmk, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
-    .fxtable th, .msg .role small, .callrow .pl, .diffpanel h4,
+    .eyebrow, .k:not(.stepper>a>.k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
+    .tchip em, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
+    .fxtable th, .msg .role small, .callrow .pp, .callrow .pl, .diffpanel h4,
     .paths h4, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,
     .hkey .hkh, .evl .ev
   ) { font-size: var(--fs-label); }

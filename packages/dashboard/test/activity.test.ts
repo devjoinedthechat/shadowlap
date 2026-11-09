@@ -5,8 +5,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { gateResult, packRun, recordEvent, Store, unpackRun, type CallKind, type CreateRunInput, type Origin, type RunMeta } from '@shadowlap/engine';
 import { activity, describeEvent, type ActivityItem } from '../src/index.js';
-// Tests registers the wording of what Find the commit answers with no commit.
-import '../src/routes/tests.js';
 
 /** The activity feed: what runs tell by themselves, merged with what commands recorded, newest first. */
 
@@ -422,8 +420,8 @@ describe('a test session', () => {
     expect([stopped, planted, plain].map((id) => byId(items, `r:${id}:end`)?.rule)).toEqual([undefined, undefined, undefined]);
     expect(JSON.stringify(items)).not.toContain('needed');
     expect(JSON.stringify(items)).not.toContain('null');
-    expect(items.find((i) => i.at === 210)).toMatchObject({ kind: 'fail', text: 'Tests ran · 2 passed, 2 failed, 1 inconclusive' });
-    expect(items.find((i) => i.at === 220)).toMatchObject({ kind: 'warn', text: 'Tests ran · 4 passed, 0 failed, 1 inconclusive' });
+    expect(items.find((i) => i.at === 210)).toMatchObject({ kind: 'test', outcome: 'err', text: 'Tests ran · 2 passed, 2 failed, 1 inconclusive' });
+    expect(items.find((i) => i.at === 220)).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Tests ran · 4 passed, 0 failed, 1 inconclusive' });
     expect(items.find((i) => i.at === 230)).toMatchObject({ kind: 'blame', text: 'Blamed · Refunds above the limit, inconclusive at the first model call' });
     store.close();
   });
@@ -535,6 +533,25 @@ describe('an outcome that is inconclusive', () => {
     expect(items.find((i) => i.id === `r:${rec}:blame`)).toMatchObject({ kind: 'blame', text: 'Blamed · inconclusive at the first model call' });
     store.close();
   });
+
+  it('colours a recording or a replay a check could not decide amber on its own shape, and one that failed red', () => {
+    const store = Store.open(':memory:');
+    const judge = 'judge "calm" answers yes';
+    const unsure = { ok: false, status: 'inconclusive' as const, label: judge, detail: "not judged: the judge's call failed: HTTP 400" };
+    const rec = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 100, meta: { checks: [unsure] } }).runId;
+    store.endRun(rec, 'completed', 200);
+    const replay = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 300, meta: { checks: [unsure] } }).runId;
+    store.endRun(replay, 'completed', 400);
+    const failed = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 500, meta: { checks: [unsure, { ok: false, status: 'failed', label: 'exits 0', detail: 'exit 1' }] } }).runId;
+    store.endRun(failed, 'completed', 600);
+    const items = activity(store).items;
+    expect(items.find((i) => i.id === `r:${rec}:end`)).toMatchObject({ kind: 'rec', outcome: 'warn', text: `Recorded 0 calls · check inconclusive: ${judge}` });
+    expect(items.find((i) => i.id === `r:${replay}:end`)).toMatchObject({ kind: 'rec', outcome: 'warn', text: `Replay finished · no calls · check inconclusive: ${judge}` });
+    const red = items.find((i) => i.id === `r:${failed}:end`);
+    expect(red).toMatchObject({ kind: 'fail', text: 'Replay finished · no calls · check failed: exits 0' });
+    expect(red?.outcome).toBeUndefined();
+    store.close();
+  });
 });
 
 describe('events as each feature records them', () => {
@@ -581,6 +598,7 @@ describe('events as each feature records them', () => {
     recordEvent(store, { kind: 'repair.empty', ref: 'fx-budget', data: { repairId: 'r-2', outcome: 'empty', fixes: ['fx-budget'], why: 'no candidate passed its replays', candidates: 3 }, at: 3110 });
     recordEvent(store, { kind: 'verify.rejected', ref: 'fx-refund-limit', data: { verifyId: 'v-370712a', fixes: ['fx-refund-limit'], counts: [], code: 'c91d0f4', reasons: ['good run 01K5CQ4N9A broken: 2 of 5 passed (refund issued twice)'] }, at: 3200 });
     recordEvent(store, { kind: 'verify.rejected', ref: 'fx-budget', data: { verifyId: 'v-2', fixes: ['fx-budget'], counts: [], code: 'c91d0f4', reasons: ['failing run 01K5CQ2E8M not fixed: 1 of 5 passed'] }, at: 3210 });
+    recordEvent(store, { kind: 'verify.incomplete', ref: 'fx-lost', data: { verifyId: 'v-3', fixes: ['fx-lost'], counts: [], code: 'c91d0f4', reasons: ['target run 01K5CQ2E8M inconclusive: provider unavailable: 3 attempts in a row ended on HTTP 529'] }, at: 3220 });
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-refund-limit', data: { title: 'Escalate refunds above the policy limit', repairId: 'r-munzln2i', patch: 'applied', goldens: 1, tests: 'passed' }, at: 3300 });
     // A fix with no patch, verified with temperature=1: only marked applied.
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-double-email', data: { title: 'Confirmation email sent twice', repairId: null, patch: 'none', goldens: 0, tests: 'skipped' }, at: 3310 });
@@ -618,15 +636,17 @@ describe('events as each feature records them', () => {
     expect(at(3000)).toMatchObject({ kind: 'blame', text: 'Blamed · confirmation email sent twice, lost at model call #9', href: '#/fixes/fx-double-email/blame', runId: run });
     expect(at(3010)?.text).toBe('Blamed model call #5 · confidence high');
     expect(at(3020)?.text).toBe('Blame stopped · refund over the limit');
-    expect(at(3030)?.text).toBe('Blamed · wrong ticket closed, no single call rescued the run');
+    expect(at(3030)?.text).toBe('Blamed · wrong ticket closed, not rescued from any model call');
     expect(at(3100)).toMatchObject({ kind: 'fixok', text: 'Repair accepted · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit/repair' });
     expect(at(3110)).toMatchObject({ kind: 'fixbad', text: 'Repair found no fix · no candidate passed its replays' });
     expect(at(3200)).toMatchObject({ kind: 'fixbad', text: 'Verify rejected · breaks a good run', href: '#/fixes/fx-refund-limit/verify/v-370712a' });
     expect(at(3210)?.text).toBe('Verify rejected · failing run 01K5CQ2E8M not fixed: 1 of 5 passed');
+    // One that settled nothing says why, in the shape of an inconclusive fix.
+    expect(at(3220)).toMatchObject({ kind: 'fixinc', outcome: 'warn', text: 'Verify inconclusive · target run 01K5CQ2E8M inconclusive: provider unavailable: 3 attempts in a row ended on HTTP 529', href: '#/fixes/fx-lost/verify/v-3' });
     expect(at(3300)).toMatchObject({ kind: 'fixok', text: 'Patch applied · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit' });
     expect(at(3310)).toMatchObject({ kind: 'fixok', text: 'Marked applied · Confirmation email sent twice', href: '#/fixes/fx-double-email' });
-    expect(at(4000)).toMatchObject({ kind: 'fail', text: 'Tests ran · 3 passed, 1 failed', actor: 'ci' });
-    expect(at(4010)).toMatchObject({ kind: 'fail', text: 'Tests stopped · 1 passed, 0 failed, 3 not run' });
+    expect(at(4000)).toMatchObject({ kind: 'test', outcome: 'err', text: 'Tests ran · 3 passed, 1 failed', actor: 'ci' });
+    expect(at(4010)).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Tests stopped · 1 passed, 0 failed, 3 not run' });
     expect(at(4100)).toMatchObject({ kind: 'test', text: 'Golden updated · goldens/refund-flow re-recorded · 31 calls' });
     expect(at(5000)?.text).toBe('Exported 4 preference pairs');
     expect(at(5100)).toMatchObject({ kind: 'train', text: 'Scored qwen3-8b on 12 tasks · mean 0.83' });

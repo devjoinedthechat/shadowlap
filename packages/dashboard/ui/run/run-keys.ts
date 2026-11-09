@@ -11,13 +11,15 @@ import { pressShortcut, useSingleKeys, type ShortcutId } from '../shortcuts.js';
 import { errorText, type ToastKind } from '../toast.js';
 import type { CallTree } from './groups.js';
 import { panelToggle } from './InspectorPanel.js';
+import { closePanelOn, panelOn } from './panel-state.js';
 
 /**
  * A run's keys, while its page is open, as `shell/Keyboard.tsx` hands them on: j and k from anywhere
  * on the page, ↓ and ↑ in the views, the selected call taking the focus so they go on from it; 1 to
  * 4, v, n, p; [ and ] through the list you came from; +, - and ← → as they are; and r, c, b and f,
  * which press the header's buttons, so a key does what its button does and waits as it waits. A run
- * without the button has no key. Esc closes the diff panel before it leaves the page.
+ * without the button has no key. Esc closes a finding's panel (its diff, its change, its results)
+ * before it leaves the page.
  */
 
 export interface RunKeyState<C extends { callNo: number }> {
@@ -41,8 +43,6 @@ export interface RunKeyState<C extends { callNo: number }> {
   folded: ReadonlySet<number>;
   listed: readonly C[];
   fold: (callNo: number) => void;
-  showDiff: boolean;
-  setShowDiff: (on: boolean) => void;
   runs: readonly RunLike[] | null;
   toast: (text: string, kind?: ToastKind) => void;
 }
@@ -88,17 +88,18 @@ async function stepRun(runId: string, d: 1 | -1, runs: readonly RunLike[] | null
 }
 
 /**
- * Esc on a run: the panel in the inspector's place (a diff or a change, `showDiff` for either) closes
- * first, the finding's toggle taking the focus
- * if the focus was inside it (InspectorPanel.tsx). The panel is open once its frame shows, whether the
- * diff in it has come, is on its way or failed to come (it loads the first time it opens).
+ * Esc on a run: the diff, the change or the results in the inspector's place close first, the
+ * finding's toggle taking the focus if the focus was inside them (InspectorPanel.tsx). The panel is
+ * open once its frame shows, whether what it holds has come, is on its way or failed to come (it loads
+ * the first time it opens).
  */
-function closeDiff(k: { showDiff: boolean; setShowDiff: (on: boolean) => void }): boolean {
-  if (!k.showDiff || !document.querySelector('#insp.fpanel')) return false;
+export function closePanel(runId: string): boolean {
+  const panel = panelOn(runId);
+  if (!panel || !document.querySelector('#insp.fpanel')) return false;
   const a = document.activeElement;
   const lost = !a || a === document.body || !!a.closest('.fpanel');
-  const toggle = lost ? panelToggle() : null;
-  k.setShowDiff(false);
+  const toggle = lost ? panelToggle(panel) : null;
+  closePanelOn(runId);
   if (toggle) focusQuiet(toggle);
   return true;
 }
@@ -116,7 +117,7 @@ export function useRunKeys<C extends { callNo: number }>(runKeys: RefObject<((e:
       if (e.key === 'j' || (e.key === 'ArrowDown' && inViews)) return wantCallFocus(k.step(1)), true;
       if (e.key === 'k' || (e.key === 'ArrowUp' && inViews)) return wantCallFocus(k.step(-1)), true;
       // The inspector's tabs, which give it back from a panel in its place.
-      if (/^[1-4]$/.test(e.key)) return k.setShowDiff(false), k.setTab(Number(e.key) - 1), true;
+      if (/^[1-4]$/.test(e.key)) return closePanelOn(k.runId), k.setTab(Number(e.key) - 1), true;
       const jumpTo = k.forkAt ?? k.lostAt ?? k.failedAt;
       if (e.key === 'n' && jumpTo !== null) return k.select(jumpTo), true;
       if (e.key === 'p' && k.parentId) return navigate(href.run(k.parentId)), true;
@@ -134,7 +135,7 @@ export function useRunKeys<C extends { callNo: number }>(runKeys: RefObject<((e:
       }
       return false;
     };
-    pageUp.current = () => closeDiff(now.current);
+    pageUp.current = () => closePanel(now.current.runId);
     return () => {
       runKeys.current = null;
       pageUp.current = null;

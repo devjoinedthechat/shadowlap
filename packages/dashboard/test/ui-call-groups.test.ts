@@ -67,6 +67,34 @@ describe('a sub-agent', () => {
   });
 });
 
+describe('the agents of a run without scopes', () => {
+  // Claude Code's main session (#1) starts its Explore subagent with the Task tool; the server names both.
+  const main = { agent: 'claude-code', conversation: 1 };
+  const sub = { agent: 'claude-code/Explore', conversation: 2, spawnedBy: 1 };
+
+  it('put a subagent under the model call whose tool started it, though no scope says so', () => {
+    const calls = [api(1, main), api(2, sub), tool(3, 2, sub), api(4, sub), tool(5, 1, main), api(6, main)];
+    expect(shape(calls)).toEqual(['1:0+4', '2:1+1', '3:2', '4:1', '5:1', '6:0']);
+    // Its conversation is no batch item, though the run holds two.
+    expect(callTree(calls).items.size).toBe(0);
+  });
+
+  it('count a batch among one agent’s conversations, never across agents', () => {
+    const planner = (callNo: number, conversation: number) => api(callNo, { agent: 'planner', conversation });
+    const calls = [planner(1, 1), api(2, { agent: 'executor', conversation: 2 }), planner(3, 3)];
+    expect([...callTree(calls).items]).toEqual([
+      [1, { n: 1, of: 2 }],
+      [3, { n: 2, of: 2 }],
+    ]);
+    // Two agents with one conversation each: no batch, where a run grouped by scope alone made one.
+    expect(callTree([api(1, { agent: 'triage-agent', conversation: 1 }), api(2, { agent: 'summarizer', conversation: 2 })]).items.size).toBe(0);
+  });
+
+  it('put a call no agent is named for under its scope’s latest model call, as before', () => {
+    expect(shape([api(1, main), read(2, 'clock', { conversation: null })])).toEqual(['1:0+1', '2:1']);
+  });
+});
+
 describe('a batch', () => {
   it('puts each conversation under its first call, its model calls and their tools under that', () => {
     const one = [read(1, 'clock', { conversation: 1 }), read(2, 'random', { conversation: 1 }), api(3, { conversation: 1 }), tool(4, 3, { conversation: 1 }), api(5, { conversation: 1 })];
