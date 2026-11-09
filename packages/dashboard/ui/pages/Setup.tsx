@@ -23,13 +23,13 @@ import { startTestsJob, type TestsAsk } from '../tests-ask.js';
 import { commandText } from '../goldens.js';
 
 /**
- * Setting a project up (#/setup, and in place of the pages of a project with no runs, or of the
- * Overview mid-setup): four steps, each with the CLI command it runs. Inspect runs `init` and shows
- * what it found, flagging tools that aren't wrapped with the code to wrap them; Record runs the
- * editable command after asking the first time, then streams the run in; Make the replay clean runs
- * calibrate and adds what it proposes; Keep it as a test packs the run as a golden and tests it, in
- * one job (`pack-test`), and runs the test again once it is packed. The server's read model
- * (`setupView`) says what each step shows; this page runs the jobs and follows them. A step whose
+ * Setting a project up (#/setup, and in place of the Overview of a project with no runs or
+ * mid-setup, and of every page of one that can't be opened): four steps, each with the CLI command
+ * it runs. Inspect runs `init` and shows what it found, flagging tools that aren't wrapped with the
+ * code to wrap them; Record runs the editable command after asking the first time, then streams the
+ * run in; Calibrate runs calibrate and adds what it proposes; Pack packs the run as a golden and
+ * tests it, in one job (`pack-test`), and runs the test again once it is packed. The server's read
+ * model (`setupView`) says what each step shows; this page runs the jobs and follows them. A step whose
  * job kind this dashboard doesn't run says so and keeps its command.
  */
 
@@ -66,8 +66,8 @@ function SetupStep({ n, state, title, cli, children }: { n: number; state: Inspe
 }
 
 /**
- * Keep it as a test's question, where the golden's tests entry runs it live: Pack as golden (it
- * packs the run, then tests it) or, once it is packed, Run the test, titled by the step's button.
+ * Pack's question, where the golden's tests entry runs it live: Pack as golden (it packs the run,
+ * then tests it) or, once it is packed, Run test, titled by the step's button.
  * The shell asks it, as it asks a Tests session's; this page's chunk holds its words.
  */
 export function keepAsk(label: string | undefined, golden: string, packs: boolean): TestsAsk {
@@ -198,7 +198,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
       setGoldenError(null);
       client.projects.checkGolden(id, value).then(
         ({ path, runId }) => {
-          if (!runId) return setGoldenError('Record a first run before you keep it as a test.');
+          if (!runId) return setGoldenError('Record a run before you pack it as a golden.');
           setGolden(path);
           startTestsJob(keep, JOB_KINDS.keepGolden, { project: id, golden: path }, keepAsk(view.test.button?.label, path, true));
         },
@@ -371,7 +371,7 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
         <details className="foundsum">
           <summary>
             <span className="sumtext">
-              <Coded text={step.summary ?? ''} names={[...(step.findings?.rows.filter((r) => r.code).map((r) => r.value) ?? []), ...(step.summaryCommand ? [step.summaryCommand] : [])]} />
+              <Coded text={[...(step.summaryFacts ?? []), ...(step.summaryCommand ? [step.summaryCommand] : [])].join(' · ')} names={[...(step.findings?.rows.filter((r) => r.code).map((r) => r.value) ?? []), ...(step.summaryCommand ? [step.summaryCommand] : [])]} />
             </span>
           </summary>
           {found}
@@ -390,7 +390,7 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
           <div className="actions">
             {code ? (
               <button className="btn" type="button" onClick={() => void copyText(code).then((ok) => toast(ok ? 'Copied the code' : 'Copying was refused by the browser'))}>
-                {step.warning.copy}
+                Copy wrappers
               </button>
             ) : null}
             <ActionButton className="btn" why={why} onClick={() => onInspect(true)}>

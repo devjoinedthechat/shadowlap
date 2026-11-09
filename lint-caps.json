@@ -170,10 +170,6 @@
     "packages/dashboard/src/jobs.ts": {
       "JobManager.start": 35
     },
-    "packages/dashboard/src/projects.ts": {
-      "calibrateStep": 32,
-      "recordStep": 52
-    },
     "packages/dashboard/src/routes/imports.ts": {
       "register > build": 35
     },
