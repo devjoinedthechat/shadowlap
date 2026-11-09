@@ -4,6 +4,7 @@ import { Chips } from '../ui/components/bits.js';
 import { COPY_FILTER_PLACEHOLDER, FILTER_PLACEHOLDER, matchWords, RunsFilterField } from '../ui/runspage/FilterField.js';
 import { RunsTable, RunsTableEmpty, type TableRun } from '../ui/runspage/RunsTable.js';
 import { RUN_CHIPS, type RunChip } from '../ui/runs.js';
+import { AppContext, type AppState } from '../ui/state.js';
 import type { ChipCounts } from '../ui/types.js';
 import { styleRules } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
@@ -62,21 +63,29 @@ describe('a run’s row', () => {
 describe('a list with nothing to show', () => {
   const counts = { all: 3 } as ChipCounts;
   const said = async (props: Parameters<typeof RunsTableEmpty>[0]) => {
-    r = await render(createElement('div', null, createElement(RunsTableEmpty, props)));
-    const el = r.all('p.emptyline, div.empty')[0];
-    const out = el ? [el.tagName, el.textContent] : null;
+    let retried = 0;
+    const app = { guard: (fn: () => void) => fn() } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement('div', null, createElement(RunsTableEmpty, { ...props, retry: () => void retried++ }))));
+    const el = r.all('p.emptyline, div.empty, section.skel, section.loaderr')[0];
+    let out: unknown[] | null = el ? [el.tagName, el.textContent] : null;
+    // Reading: rows of quiet bars that are no table rows, which the tests read as the runs drawn.
+    if (el?.className === 'skel') out = ['bars', r.one('[role="status"]').textContent, r.all('.skin .rskrun').length, r.all('tr').length];
+    if (el?.className === 'loaderr') {
+      await r.click(r.byText('.loaderr button', 'Retry'));
+      out = ['error', r.one('.loaderr p').textContent, retried];
+    }
     await r.unmount();
     r = null;
     return out;
   };
 
-  it('says why in a line from the left, and keeps the reading and the failing in the table’s box', async () => {
+  it('says why in a line from the left, draws the rows read in bars, and a failed read with Retry, in the table’s box', async () => {
     const base = { error: null, loaded: true, shown: 0, counts, days: null };
     expect(await said(base)).toEqual(['P', 'No runs match.']);
     expect(await said({ ...base, counts: { all: 0 } as ChipCounts, days: { from: '2026-10-20', to: '2026-10-22' } })).toEqual(['P', 'No runs on the days picked.']);
     expect(await said({ ...base, counts: { all: 0 } as ChipCounts })).toEqual(['P', 'No runs yet.']);
-    expect(await said({ ...base, loaded: false })).toEqual(['DIV', 'Loading runs…']);
-    expect(await said({ ...base, error: new Error('the store is busy') })).toEqual(['DIV', 'The runs could not be read: the store is busy']);
+    expect(await said({ ...base, loaded: false })).toEqual(['bars', 'Loading the runs…', 8, 0]);
+    expect(await said({ ...base, error: new Error('the store is busy') })).toEqual(['error', 'couldn’t loadthe store is busy', 1]);
     // Rows still shown while another page fails say nothing over them.
     expect(await said({ ...base, shown: 2, error: new Error('the store is busy') })).toBeNull();
   });

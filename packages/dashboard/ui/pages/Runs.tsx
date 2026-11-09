@@ -24,7 +24,7 @@ import { useKeptScroll } from '../runspage/scroll.js';
 import type { RunsFilterRead } from '../../src/links.js';
 import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
-import { RunsTable, RunsTableEmpty, type TableRun } from '../runspage/RunsTable.js';
+import { RunsLoading, RunsTable, RunsTableEmpty, type TableRun } from '../runspage/RunsTable.js';
 import { noteShownRuns } from '../runspage/shown-runs.js';
 import { goneFromCounts, lessChips, tableNote, withFirstPage } from '../runspage/rows.js';
 import { lessPending, usePendingHidden, useStillCounted, withoutPending } from '../pending-delete.js';
@@ -194,7 +194,7 @@ const asError = (err: unknown) => (err instanceof Error ? err : new Error(String
  * says it is still working out what the filter or the sort reads (`warming`), the first page is read
  * again every second and a half.
  */
-function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: string, limit: number): TableState {
+function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: string, limit: number): TableState & { retry: () => void } {
   const [state, setState] = useState<TableState>(() => emptyTable(key));
   const queryNow = useLatest(query);
   const limitNow = useLatest(limit);
@@ -257,7 +257,9 @@ function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: st
     const t = setTimeout(() => setNudge((n) => n + 1), ASK_AGAIN_MS);
     return () => clearTimeout(t);
   }, [state.warming, state.indexing]);
-  return state;
+  // Retry, where the first page could not be read: it is read again as a change of runs reads it.
+  const retry = useCallback(() => setNudge((n) => n + 1), []);
+  return useMemo(() => ({ ...state, retry }), [state, retry]);
 }
 
 /** While the server is still working out what the filter reads, or the search index is behind: how often what is shown is asked for again. */
@@ -322,7 +324,7 @@ function pickedRun(r: TableRun): PickedRun {
  * takes, its total and its chips' counts less them (`goneFromCounts`) until the table is read again
  * after the delete lands. The days above aren't adjusted: they catch up once the delete lands.
  */
-function useShownTable(table: TableState, o: { chip: RunChip; q: string; times: { from: number; to: number } | null }): TableState {
+function useShownTable<T extends TableState>(table: T, o: { chip: RunChip; q: string; times: { from: number; to: number } | null }): T {
   const hidden = usePendingHidden();
   const counted = useStillCounted(table.chipCounts);
   const { chip, q } = o;
@@ -521,7 +523,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
       ) : null}
       <section className="panel sec tscroll runsec">
         <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} rowActions={(r) => runRowScope(r, { runs: appRuns ?? [], toast, pick: () => onPick(r, !picked.has(r.runId)), picked: picked.has(r.runId), pickKey: keyColumn('rowPick') })} />
-        <RunsTableEmpty error={table.error} loaded={table.loaded} shown={rows.length} counts={counts} days={days} />
+        <RunsTableEmpty error={table.error} loaded={table.loaded} shown={rows.length} counts={counts} days={days} retry={table.retry} />
         <ShowMore shown={rows.length} total={table.total} onMore={() => setLimit(limit + PAGE)} />
       </section>
       {runs.length ? (
@@ -567,7 +569,7 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
       </div>
       <section className="panel sec tscroll runsec">
         <RunsTable rows={shown} picked={new Set()} selectable={false} byColumn={false} sort={sort} onSort={setSort} onPick={() => undefined} onPickAll={() => undefined} now={Date.now()} />
-        {runs === null ? <div className="empty">Loading runs…</div> : shown.length === 0 ? <EmptyLine>No runs match.</EmptyLine> : null}
+        {runs === null ? <RunsLoading /> : shown.length === 0 ? <EmptyLine>No runs match.</EmptyLine> : null}
         <ShowMore shown={shown.length} total={matched.length} onMore={() => setLimit(limit + PAGE)} />
       </section>
     </Page>
