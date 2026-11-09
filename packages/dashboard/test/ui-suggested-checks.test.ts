@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { checkLabels } from '../../engine/src/checks/labels.js';
 import { parseExpect } from '../../engine/src/checks/parse.js';
 import type { CallDetail, RunDetail } from '../ui/api.js';
-import type { CheckContext, CheckPreview, CheckSuggestions, ChecksConfig } from '../ui/checks-api.js';
+import type { CheckContext, CheckPreview, CheckSuggestions, ChecksConfig, SuggestionsAsk } from '../ui/checks-api.js';
 import { Builder } from '../ui/checks/Builder.js';
 import { blankUnit, fileUnit, fragmentOf, haveOf, ruleOf, settle, suggestVerb, withRule, withSuggestion, type Fragment, type Units } from '../ui/checks/model.js';
 import type { BuilderProps } from '../ui/run/check-part.js';
@@ -90,12 +90,16 @@ const context: CheckContext = { runId: RUN, at: { callNo: 3, tool: 'issue_refund
 const preview: CheckPreview = { total: 1, judged: [{ runId: GOOD, labels: ['good'], outcome: 'passed', na: false, why: [], checks: [] }], counts: { passed: 1, failed: 0, inconclusive: 0, notApplicable: 0 }, notes: [], tools: ['issue_refund'], goldens: [], madeFrom: null };
 const suggestion = (expect: Fragment) => ({ shape: 'value' as const, expect, label: labels(expect)[0] });
 
-function stub(answer: (ask: unknown) => Promise<CheckSuggestions>) {
+function stub(answer: (ask: SuggestionsAsk) => Promise<CheckSuggestions>) {
   return { goldens: vi.fn(async () => config), context: vi.fn(async () => context), preview: vi.fn(async () => preview), suggestions: vi.fn(answer), save: vi.fn() };
 }
-async function open(checks: ReturnType<typeof stub>, run = detail('failed')): Promise<Rendered> {
-  r = await render(shell({ client: { checks } as never, toast: vi.fn(), refresh: vi.fn(), guard: (fn: () => void) => (fn(), true) }, createElement(Builder, { run, call, kind: 'never', onClose: vi.fn() } as unknown as BuilderProps)));
-  await r.until('the recordings judged', () => r!.all('.cb-count').length > 0);
+/** The builder made from the call of `run`. */
+const fromCall = (run: RunDetail) => ({ run, call, kind: 'never' });
+/** The builder drawn: from a call once the recordings are judged, on a golden once its checks are listed (with none being built, nothing is judged). */
+async function open(checks: ReturnType<typeof stub>, props: object = fromCall(detail('failed'))): Promise<Rendered> {
+  r = await render(shell({ client: { checks } as never, toast: vi.fn(), refresh: vi.fn(), guard: (fn: () => void) => (fn(), true) }, createElement(Builder, { ...props, onClose: vi.fn() } as unknown as BuilderProps)));
+  const drawn = 'golden' in props ? '.cb-units li' : '.cb-count';
+  await r.until('the builder drawn', () => r!.all(drawn).length > 0);
   return r;
 }
 const said = (el: { textContent: string }) => el.textContent.replace(/\s+/g, ' ').trim();
@@ -137,10 +141,28 @@ describe('Suggested in the builder', () => {
     expect(r!.focused()).toBe(r!.one('.cb-kinds [aria-pressed="true"]'));
   });
 
-  it('asks nothing on a recording that didn’t fail, or a replay', async () => {
-    for (const run of [detail('completed'), detail('failed', 'replay')]) {
+  it('moves the focus on when a later answer drops the row that has it', async () => {
+    const used = labels(VALUE)[0];
+    // Once the first is used, the next answer no longer holds the one the focus went on to.
+    const checks = stub(async (ask) => ({ runId: RUN, goods: [GOOD], suggestions: ask.have.includes(used) ? [suggestion(ORDER)] : [suggestion(VALUE), suggestion(WHEN), suggestion(ORDER)] }));
+    await open(checks);
+    await r!.until('the suggestions', () => r!.all('.cb-sug').length === 3);
+    const [first] = r!.all('.cb-sug button');
+    first.focus();
+    await r!.click(first);
+    expect(said(r!.focused().closest('.cb-sug')!)).toBe(`${labels(WHEN)[0]}Use rule`);
+    await r!.until('the next answer', () => r!.all('.cb-sug').length === 1);
+    expect(said(r!.one('.cb-sug'))).toBe(`${labels(ORDER)[0]}Use rule`);
+    expect(r!.focused()).toBe(r!.one('.cb-sug button'));
+  });
+
+  it('asks nothing on a recording that didn’t fail, a replay, a capture, or a golden', async () => {
+    // The capture failed and was recorded, not replayed: only that it was imported leaves it out.
+    const capture: RunDetail = { ...detail('failed'), source: 'traffic.har' };
+    const golden = (edit: number | null) => ({ golden: 'goldens/refund-flow', edit });
+    for (const props of [fromCall(detail('completed')), fromCall(detail('failed', 'replay')), fromCall(capture), golden(null), golden(0)]) {
       const checks = stub(async () => ({ runId: RUN, goods: [GOOD], suggestions: [suggestion(VALUE)] }));
-      await open(checks, run);
+      await open(checks, props);
       await new Promise((done) => setTimeout(done, 400));
       expect(checks.suggestions).not.toHaveBeenCalled();
       expect(r!.all('.cb-sug')).toEqual([]);
