@@ -24,7 +24,8 @@ const row = (name: string, over: Partial<GoldenRow> = {}): GoldenRow => ({
   modeHint: 'must send exactly the requests it recorded',
   gate: null,
   checks: ['issue_refund called 1 time', 'send_email called 1 time'],
-  checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', added: false, detail: null, reason: null, source: null, live: null, attempts: null })),
+  checkResults: ['issue_refund called 1 time', 'send_email called 1 time'].map((label) => ({ label, status: 'passed', added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null })),
+  changed: null,
   injection: false,
   history: [],
   last: { result: 'pass', verdict: 'passed', failure: null, line: '8/8 replayed · checks passed', at: T, updated: false, gate: null },
@@ -249,7 +250,7 @@ describe('the goldens table', () => {
   });
 
   it('marks each check by its last status, as the CLI does, with no mark before a result, and names it by the CLI\'s label', () => {
-    const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', added: false, detail: null, reason: null, source: null, live: null, attempts: null, ...over });
+    const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null, ...over });
     expect(checkMark(c({}), true)).toMatchObject({ mark: '✓', status: 'passed', word: 'passed', text: 'issue_refund called 0 times', sub: null, tip: { title: 'passed · issue_refund called 0 times', color: 'var(--ok)' } });
     // Failed: what it found, and over several attempts how many passed it.
     expect(checkMark(c({ status: 'failed', detail: 'called 1 time (1 blocked or stubbed)' }), true)).toMatchObject({ mark: '✗', sub: 'called 1 time (1 blocked or stubbed)', tip: { label: 'failed', value: 'called 1 time (1 blocked or stubbed)', color: 'var(--err)' } });

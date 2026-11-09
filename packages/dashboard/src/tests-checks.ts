@@ -23,6 +23,12 @@ export interface GoldenCheck {
    * reads as a new check). Its next test judges it.
    */
   added: boolean;
+  /**
+   * When the check builder added it (ms): the newest `checks.changed` event for its golden that added
+   * its label, after the last result. Null for one added in an editor, before the last result, or
+   * with no last result.
+   */
+  addedAt: number | null;
   /** The result's words for it: what it found when it failed, why it couldn't be decided or didn't apply. */
   detail: string | null;
   /** A judge check: its reason for the verdict, and where the verdict came from (the recording, or the judge asked live). */
@@ -95,7 +101,7 @@ function judgeLive(r: TestResult, c: StoredCheck): GoldenCheck['live'] {
  * check the result didn't judge has no status, as none has before the golden's first result: one added
  * since (the result judged the golden's checks of then), or one whose golden couldn't run.
  */
-export function goldenChecks(store: StoreOf<'recording'>, labels: readonly string[], r: TestResult | null): GoldenCheck[] {
+export function goldenChecks(store: StoreOf<'recording'>, labels: readonly string[], r: TestResult | null, addedAt: (label: string) => number | null = () => null): GoldenCheck[] {
   const kept = r?.data?.checks ?? [];
   // The golden ran, and its checks of then were judged (none, if it had none): a check it lacks is newer.
   const ran = !!r && (r.data?.checks !== undefined || r.data?.calls !== undefined);
@@ -103,10 +109,62 @@ export function goldenChecks(store: StoreOf<'recording'>, labels: readonly strin
   const tallies = r && labels.length ? checkTallies(store, r) : null;
   return labels.map((label) => {
     const i = kept.findIndex((c, j) => !used.has(j) && c.label === label);
-    if (i < 0) return { label, status: null, added: ran, detail: null, reason: null, source: null, live: null, attempts: null };
+    if (i < 0) {
+      const at = ran ? addedAt(label) : null;
+      return { label, status: null, added: ran, addedAt: at !== null && at > r!.at ? at : null, detail: null, reason: null, source: null, live: null, attempts: null };
+    }
     used.add(i);
     const c = kept[i]!;
     const tally = tallies?.get(label);
-    return { label, status: checkStatus(c), added: false, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live: judgeLive(r!, c), attempts: tally && tally.of > 1 ? tally : null };
+    return { label, status: checkStatus(c), added: false, addedAt: null, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live: judgeLive(r!, c), attempts: tally && tally.of > 1 ? tally : null };
   });
+}
+
+/**
+ * When the check builder added each of a golden's checks, as `added(golden, label)`: the time of the
+ * newest `checks.changed` event for the golden whose `added` holds the label. Its events are read
+ * once, for every golden, and only when a golden has a check added since its last result.
+ */
+export function addedTimes(store: StoreOf<'activity'>): (golden: string, label: string) => number | null {
+  let byGolden: Map<string, Map<string, number>> | null = null;
+  return (golden, label) => {
+    if (!byGolden) {
+      byGolden = new Map();
+      // Newest first: the first event to add a label is when it was last added.
+      for (const e of store.listEvents({ kinds: ['checks.changed'], limit: 500 })) {
+        const added = (e.data as { added?: unknown } | null)?.added;
+        if (!e.ref || !Array.isArray(added)) continue;
+        const of = byGolden.get(e.ref) ?? new Map<string, number>();
+        for (const l of added) if (typeof l === 'string' && !of.has(l)) of.set(l, e.at);
+        byGolden.set(e.ref, of);
+      }
+    }
+    return byGolden.get(golden)?.get(label) ?? null;
+  };
+}
+
+/** A check a golden's last result failed or couldn't decide, which its checks no longer hold. */
+export interface ChangedCheck {
+  label: string;
+  status: 'failed' | 'inconclusive';
+}
+
+/**
+ * The checks changed since a golden's last test: those its last result failed or couldn't decide
+ * that the golden's checks (`labels`, as the CLI labels them) no longer hold, removed or changed (a
+ * changed check reads as another). Then that result stands on checks the config no longer has, and
+ * only a test judges the checks as they are now. Null when none left, and for a result that passed,
+ * or that failed or was undecided for a reason other than its checks (diverged, exit, no calls,
+ * guard, injection, error), which keeps its own step: a check it passed changes nothing when it goes.
+ * The one rule for the row's line, the step on Tests, a run's page and Needs a look, and the report.
+ */
+export function checksChanged(r: Pick<TestResult, 'ok' | 'failure' | 'data'> | null, labels: readonly string[]): ChangedCheck[] | null {
+  if (!r || r.ok || (r.failure !== 'check' && r.failure !== 'inconclusive')) return null;
+  const now = new Set(labels);
+  const out: ChangedCheck[] = [];
+  for (const c of r.data?.checks ?? []) {
+    const status = checkStatus(c);
+    if ((status === 'failed' || status === 'inconclusive') && !now.has(c.label) && !out.some((x) => x.label === c.label)) out.push({ label: c.label, status });
+  }
+  return out.length ? out : null;
 }

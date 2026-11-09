@@ -3,7 +3,7 @@ import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResu
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
 import { evidenceWords, type EvidenceWords } from './tests-evidence.js';
-import { goldenChecks, type GoldenCheck } from './tests-checks.js';
+import { addedTimes, checksChanged, goldenChecks, type ChangedCheck, type GoldenCheck } from './tests-checks.js';
 import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-normalize.js';
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
@@ -171,7 +171,7 @@ export interface TestsVerdict {
 
 export type { FollowedGolden, HistoryCell, HistoryDrop, RevisionFact, SessionFollowing } from './tests-history.js';
 
-export type { GoldenCheck } from './tests-checks.js';
+export type { ChangedCheck, GoldenCheck } from './tests-checks.js';
 /** Whether a result was judged by the checks a golden has now: the engine's rule, under the name this module's callers use. */
 export { underChecks };
 
@@ -194,6 +194,8 @@ export interface GoldenRow {
   checks: string[];
   /** Each of `checks`, in their order, with how its last result came out on it. */
   checkResults: GoldenCheck[];
+  /** The checks its last result failed or couldn't decide that its checks no longer hold, when that result failed or was undecided by them (tests-checks.ts); null for none. */
+  changed: ChangedCheck[] | null;
   /** It has an injection test, which runs live, so CI needs the providers' keys for it whatever its mode. */
   injection: boolean;
   history: HistoryCell[];
@@ -1077,6 +1079,7 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
   const columns = new Set(revisions);
   const sessionIds = new Set(sessionsView.columnOf.keys());
   const columnOf = (x: TestResult) => (sessionsView.columnOf.has(x.sessionId) ? sessionsView.columnOf.get(x.sessionId) : columnOfRevision(x.revision, columns));
+  const added = addedTimes(store);
 
   const rows: GoldenRow[] = goldens.map((g) => {
     const list = history.get(g.path) ?? [];
@@ -1094,7 +1097,8 @@ export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'c
       modeHint: mode.hint,
       gate: gateView(g.gate),
       checks: g.checks,
-      checkResults: goldenChecks(store, g.checks, latest),
+      checkResults: goldenChecks(store, g.checks, latest, (label) => added(g.path, label)),
+      changed: checksChanged(latest, g.checks),
       injection: !!g.injection,
       history: historyCells(store, list, revisions, { columnOf, columns: sessionIds, note: (r) => cellNote(store, r, g.checks, rules), runId: (r) => runIfKept(store, r.runId) }),
       last: latest

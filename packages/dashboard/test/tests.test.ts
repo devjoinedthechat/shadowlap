@@ -1195,7 +1195,7 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
       [judgeLabel, 'inconclusive', 'not judged: no recorded verdict and the test runs offline'],
     ]);
     // Not run yet: no status, and nothing added since.
-    expect(rows.get('new')!.checkResults).toEqual([{ label: 'escalate called 1 time', status: null, added: false, detail: null, reason: null, source: null, live: null, attempts: null }]);
+    expect(rows.get('new')!.checkResults).toEqual([{ label: 'escalate called 1 time', status: null, added: false, addedAt: null, detail: null, reason: null, source: null, live: null, attempts: null }]);
     s.close();
   });
 
@@ -1216,7 +1216,7 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
 
   it('counts the attempts of a golden run more than once that passed each check, and none when an attempt\'s run is gone', () => {
     const s = store();
-    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: { passed: 3, of: 4 } }]);
+    expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, addedAt: null, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: { passed: 3, of: 4 } }]);
     s.deleteRun('A3');
     expect(testsView(s, GOLDENS).rows.find((r) => r.name === 'flaky')!.checkResults[0].attempts).toBeNull();
     s.close();
@@ -1249,7 +1249,7 @@ describe('each golden\'s checks, by how its last result came out on them', () =>
     const first = s.listTestResults({ golden: 'goldens/gated', limit: 1 })[0];
     session(s, 'd2e8a1f', T0 + DAY, [{ golden: 'goldens/gated', ok: false, failure: 'check', runId: 'N3', data: { mode: 'fork', verdict: 'failed', checks: [check(false)], attempts: { total: 3, passed: 2, required: null, runs: own }, continued: { sessions: [first.sessionId], attempts: 12 } } }]);
     // Its own runs alone would say 2 of 3 beside a result of 10 of 15: no tally, only what the check found.
-    expect(testsView(s, list).rows[0].checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: null }]);
+    expect(testsView(s, list).rows[0].checkResults).toEqual([{ label: 'issue_refund called 0 times', status: 'failed', added: false, addedAt: null, detail: 'called 1 time (1 blocked or stubbed)', reason: null, source: null, live: null, attempts: null }]);
     s.close();
   });
 
