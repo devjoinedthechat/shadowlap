@@ -3,6 +3,8 @@
  * line is worked out from the run and never edited, so it is never a second name. The first that
  * applies:
  *
+ *   - an injection test's replay: what it planted, or left out, at which read, and which attempt it
+ *     was (`planted #4, attempt 1 of 3`), though it is one of its test's attempts too;
  *   - a test replay: the golden it replays (`refund-in-limit`);
  *   - an attempt bundled under another run (blame's, verify's, a test's, `--repeat`'s, an error-path
  *     preset's): what it asked again, and which attempt it was (`resampled #5, attempt 2`);
