@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -271,6 +271,7 @@ describe('the setup routes', () => {
       [{ ci: 'maybe' }, /ci is added or skipped/],
       [{ ciProvider: 'jenkins' }, /ciProvider is github, gitlab or other/],
       [{ finished: 'yes' }, /finished is true/],
+      [{ ci: 'added', ciPush: 'yes' }, /ciPush is true or false/],
       [{}, /say what was done/],
     ] as const) {
       const refused = await post(dash, 'store/setup', body);
@@ -285,6 +286,21 @@ describe('the setup routes', () => {
     expect(view).toMatchObject({ active: false, setup: { ci: 'added', ciProvider: 'gitlab' } });
     expect(view.setup.finishedAt).toBeGreaterThan(0);
     expect((await post(ro, 'store/setup', { finished: true })).status).toBe(403);
+  });
+
+  it('turns Push from CI on or off with step 3 on GitHub, written to the config as Settings → Store’s switch writes it', async () => {
+    setConfig({ store: URL_ });
+    const config = () => JSON.parse(readFileSync(join(project, 'shadowlap.config.json'), 'utf8')) as Record<string, unknown>;
+    // Skip for now: off, which the file then says.
+    const skipped = await post(dash, 'store/setup', { ci: 'skipped', ciProvider: 'github', ciPush: false });
+    expect(skipped.status).toBe(200);
+    expect((await skipped.json())).toMatchObject({ setup: { ci: 'skipped', ciProvider: 'github' }, ciPush: { ciPush: false, previous: true, was: null, changed: true } });
+    expect(config()).toEqual({ store: URL_, ciPush: false });
+    // Turn on Push from CI: on, and the store's activity says so as the switch's does.
+    const on = await post(dash, 'store/setup', { ci: 'added', ciProvider: 'github', ciPush: true });
+    expect((await on.json())).toMatchObject({ setup: { ci: 'added' }, ciPush: { ciPush: true, previous: false, was: false, changed: true } });
+    expect(config()).toEqual({ store: URL_, ciPush: true });
+    expect(store.listEvents({ kinds: ['store.ci'] }).map((e) => (e.data as { push: boolean }).push)).toEqual([true, false]);
   });
 
   it('checks the store again with store check, which writes nothing and leaves a finished setup finished', async () => {

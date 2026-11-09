@@ -205,7 +205,8 @@ table.calls { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.calls th { position: sticky; top: 0; z-index: 1; background: var(--bg); text-align: left; font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 8px 10px; border-bottom: 1px solid var(--line); }
 table.calls td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.calls tbody tr { cursor: pointer; }
-table.calls tbody tr:hover td { background: var(--hover); }
+/* the selected call keeps the selection's ground under the pointer too: this rule is no more specific than the next */
+table.calls tr:hover td { background: var(--hover); }
 table.calls tr[aria-selected="true"] td { background: var(--sel); }
 table.calls tr[aria-selected="true"] td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
 /* a folded row that holds the selected call carries the selection, under the pointer too */

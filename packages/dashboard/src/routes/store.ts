@@ -7,6 +7,7 @@ import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { loadRunIndex } from '../run-index.js';
 import { checkSetupUrl, isProvider, recordSetup, storeSetupView } from '../store-setup.js';
+import { editFolder, failed, writeCiPush, type CiPushWrite } from './settings-edits.js';
 import { readTeamStoreInput, teamStoreStatus, type TeamStoreStatus } from '../team-store.js';
 
 /**
@@ -95,7 +96,9 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   // The steps the CLI leaves no trace of: Push from CI added or skipped (and for which CI), and the
-  // setup finished. Kept with what this machine knows of the store the config names.
+  // setup finished. Kept with what this machine knows of the store the config names. Step 3 on
+  // GitHub turns Push from CI on or off with it (`ciPush`), written to the config as Settings →
+  // Store's switch writes it.
   router.post('/store/setup', async (r) => {
     const body = await r.body();
     const team = teamStoreFor(ctx);
@@ -113,8 +116,18 @@ export function register(router: Router, ctx: RouteContext): void {
       if (body.finished !== true) throw new HttpError(400, 'finished is true');
       patch.finishedAt = Date.now();
     }
-    if (!Object.keys(patch).length) throw new HttpError(400, 'say what was done: ci, ciProvider or finished');
-    r.json({ setup: recordSetup(ctx.store, team.key, patch) });
+    if (body.ciPush !== undefined && typeof body.ciPush !== 'boolean') throw new HttpError(400, 'ciPush is true or false');
+    if (!Object.keys(patch).length && body.ciPush === undefined) throw new HttpError(400, 'say what was done: ci, ciProvider, ciPush or finished');
+    let ciPush: CiPushWrite | null = null;
+    if (typeof body.ciPush === 'boolean') {
+      const cwd = editFolder(ctx);
+      try {
+        ciPush = await writeCiPush(ctx, cwd, body.ciPush);
+      } catch (err) {
+        failed(ctx, err, cwd);
+      }
+    }
+    r.json({ setup: recordSetup(ctx.store, team.key, patch), ...(ciPush ? { ciPush } : {}) });
   });
 
   // Check access and connect: `store set <url> --provider <p> --check`, which checks the bucket with
