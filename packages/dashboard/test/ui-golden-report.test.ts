@@ -11,7 +11,10 @@ import { pageUp } from '../ui/focus-manager.js';
 import { moreCard, updateCard } from '../ui/pages/tests-cards.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { askedReport, openReports, reportOpen, setReportOpen } from '../ui/tests/report-open.js';
+import { failedRunsWords } from '../ui/failed-runs.js';
+import type { DivergenceView } from '../ui/types.js';
+import { drawsFindCommit, stepFor } from '../ui/tests/lead.js';
+import { askedReport, openReports, reportOpen, setAttemptsShown, setReportOpen, shownAttempts } from '../ui/tests/report-open.js';
 import { hintWords, reportHint } from '../ui/tests/report-words.js';
 import { render, shownText, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -62,6 +65,36 @@ describe('a report’s hint', () => {
   it('says a normalizer already in the config needs a re-run, or an update where the request carries more', () => {
     expect(hintWords({ key: 'rules-added', path: '$.metadata.user_id', update: false })).toBe('The normalizer for $.metadata.user_id is in shadowlap.config.json now: run the golden again to see it pass.');
     expect(hintWords({ key: 'rules-added', path: '$.metadata.user_id', update: true })).toMatch(/: update the golden\.$/);
+  });
+});
+
+describe('Find breaking commit in a report’s hint', () => {
+  const GOLDEN = 'goldens/drift';
+  const diverged = (o: Partial<DivergenceView> = {}) => ({ golden: GOLDEN, found: null, missed: null, bisect: { good: 'c91d0f4', live: false }, unreadable: false, ...o }) as unknown as DivergenceView;
+  const view = (d: DivergenceView, step?: NextStep) => ({ divergences: [d], failures: [], inconclusive: [], steps: step ? { [GOLDEN]: step } : {} }) as unknown as TestsAnswer;
+  const has = () => true;
+
+  it('names it only where the report draws it: never beside Update golden’s lead, after a search that found it passing, or once a commit is named', () => {
+    // A divergence at $.system, $.model or $.tools: no commit explains it, so Update golden leads.
+    expect(drawsFindCommit(view(diverged(), { key: 'update-golden', label: 'Update golden', golden: GOLDEN, test: null }), GOLDEN, has)).toBe(false);
+    expect(drawsFindCommit(view(diverged({ missed: { why: '', good: 'c91d0f4', bad: 'd2e8a1f', outcome: 'passes-at-bad', at: 5 } })), GOLDEN, has)).toBe(false);
+    expect(drawsFindCommit(view(diverged({ found: {} as DivergenceView['found'] })), GOLDEN, has)).toBe(false);
+    expect(drawsFindCommit(view(diverged()), GOLDEN, () => false)).toBe(false);
+    // With no passing revision known it asks for one, and is drawn.
+    expect(drawsFindCommit(view(diverged({ bisect: null })), GOLDEN, has)).toBe(true);
+    expect(drawsFindCommit(view(diverged(), { key: 'bisect', label: 'Find breaking commit', golden: GOLDEN } as NextStep), GOLDEN, has)).toBe(true);
+    expect(reportHint({ hint: { key: 'bisect' }, parts: [] }, { findsCommit: false })).toBeNull();
+    expect(reportHint({ hint: { key: 'bisect' }, parts: [] }, { findsCommit: true })).toBe('Find breaking commit names the one where it started.');
+  });
+
+  it('hovers Re-run test of an injection gate with the server’s words for its step', () => {
+    const v = { divergences: [], failures: [], inconclusive: [], steps: { 'goldens/research': { key: 'gate-again', label: 'Re-run test', golden: 'goldens/research', command: 'shadowlap test goldens/research', sub: 'Its injection gate showed too little to say: a model call got no answer' } } } as unknown as TestsAnswer;
+    expect(stepFor(v, 'goldens/research', has, null)).toEqual({ kind: 'rerun', label: 'Re-run test', golden: 'goldens/research', sub: 'Its injection gate showed too little to say: a model call got no answer', command: 'shadowlap test goldens/research' });
+  });
+
+  it('says what a link to failed runs opens as Fixes says it', () => {
+    expect(failedRunsWords(['01K8RG01', '01K8RG02'], 7)).toBe('01K8RG01, 01K8RG02 and 5 more. Opens them on Runs, under Failed');
+    expect(failedRunsWords(['01K8RG01'], 1)).toBe('01K8RG01. Opens it on Runs, under Failed');
   });
 });
 
@@ -142,6 +175,7 @@ afterEach(async () => {
   delete g.location;
   vi.unstubAllGlobals();
   for (const name of openReports()) setReportOpen(name, false);
+  for (const name of shownAttempts()) setAttemptsShown(name, false);
   asked.length = 0;
   said.length = 0;
 });
@@ -201,6 +235,17 @@ describe('a golden’s report under its row', () => {
     const printed = one(report(page, 'refund'), 'pre.report[role="log"]');
     expect([printed.getAttribute('aria-label'), printed.querySelectorAll('span')[0].textContent.trim(), printed.querySelectorAll('span')[0].className]).toEqual(['refund as printed', '✗ refund: the agent exited with code 1', 'no']);
     expect(printed.querySelectorAll('span.dim').map((x) => x.textContent.trim())).toContain("│ KeyError: 'total'");
+  });
+
+  it('draws a gate’s figures once each, and the check its attempts failed with its mark and only what the verdict leaves out', async () => {
+    const page = await draw(answer());
+    const s = report(page, 'flaky');
+    const dds = s.querySelectorAll('dl.rpx > dd');
+    const part = (name: string) => dds[s.querySelectorAll('dl.rpx > dt').findIndex((dt) => dt.textContent === name)];
+    const gate = shownText(part('Gate').querySelector('p.rpg')!).replace(/\u00a0/g, ' ').trim();
+    expect(gate).toMatch(/^67 of 83 passed · rate 0\.\d\d to 0\.\d\d \(95%\) · pass\^5 0\.\d\d$/);
+    const mark = one(part('Attempts'), 'span.chk.rpck span.ck.failed');
+    expect([one(mark, 'b.cm').getAttribute('aria-label'), one(mark, 'span.cw').textContent]).toEqual(['failed', TWICE]);
   });
 
   it('opens one report from Show report and every one from Show every report, each control saying which', async () => {
@@ -267,6 +312,11 @@ describe('a golden’s report under its row', () => {
     expect(buttons('judged')).toEqual([['Update golden', 'btn']]);
     // No step of its own: Run more attempts, which carries its attempts over, as its siblings offer it.
     expect(buttons('flaky')).toEqual([['Run more attempts', 'btn']]);
+    // Update golden stands beside the normalizer only: a divergence Find breaking commit leads offers no update beside it.
+    await page.unmount();
+    r = null;
+    const bisect = await draw(answer({ 'goldens/drift': { key: 'bisect', label: 'Find breaking commit…', golden: 'goldens/drift' } as NextStep }));
+    expect(report(bisect, 'drift').querySelectorAll('div.actions .btn').map((b) => b.textContent)).not.toContain('Update golden');
   });
 
   it('folds no report on Esc, leaving Esc to the evidence, and asks a report’s attempts only once it is open', async () => {
@@ -277,10 +327,13 @@ describe('a golden’s report under its row', () => {
     expect(asked).toEqual(['goldens/flaky']);
     await page.press('Escape');
     expect([toggle(page, 'flaky').getAttribute('aria-expanded'), pageUp.current?.() ?? false]).toEqual(['true', false]);
+    // Its 83 attempts fold behind the gate's caret, which stays as it was left.
+    await page.click(one(report(page, 'flaky'), 'p.rpg button.xbtn'));
     // The open set outlives the page: drawn again, the report is open.
     await page.unmount();
     r = null;
     page = await draw(answer());
     expect([toggle(page, 'flaky').getAttribute('aria-expanded'), wrap(page, 'flaky').hasAttribute('hidden')]).toEqual(['true', false]);
+    expect(one(report(page, 'flaky'), 'p.rpg button.xbtn').getAttribute('aria-expanded')).toBe('true');
   });
 });

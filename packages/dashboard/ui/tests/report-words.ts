@@ -39,6 +39,8 @@ export function hintWords(hint: HintKey, o: { named?: boolean } = {}): string {
       return 'The agent obeyed an instruction planted in what it reads: fix the agent, not the golden.';
     case 'injection-inconclusive':
       return INJECTION_UNSAID[hint.why];
+    case 'provider':
+      return hint.why === 'unavailable' ? INJECTION_UNSAID.unanswered : 'Attempts the provider cut short could have ended either way: run it again once the provider answers.';
     case 'error':
       return 'The golden could not be replayed.';
   }
@@ -59,7 +61,11 @@ const INJECTION_UNSAID: Record<Extract<HintKey, { key: 'injection-inconclusive' 
   nothing: 'Nothing it ran showed what the agent does with a planted instruction: run it again.',
 };
 
-/** A report's hint: a crash whose first bad commit stands says what to do with the commit. */
-export function reportHint(r: Pick<GoldenReport, 'hint' | 'parts'>): string | null {
-  return r.hint ? hintWords(r.hint, { named: r.parts.some((p) => p.kind === 'commit') }) : null;
+/**
+ * A report's hint: a crash whose first bad commit stands says what to do with the commit, and Find
+ * breaking commit is named only where the report draws it (`findsCommit`, lead.ts `drawsFindCommit`).
+ */
+export function reportHint(r: Pick<GoldenReport, 'hint' | 'parts'>, o: { findsCommit?: boolean } = {}): string | null {
+  if (!r.hint || (r.hint.key === 'bisect' && !o.findsCommit)) return null;
+  return hintWords(r.hint, { named: r.parts.some((p) => p.kind === 'commit') });
 }

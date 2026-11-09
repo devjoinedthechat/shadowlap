@@ -5,11 +5,13 @@ import { Icon } from '../components/Icon.js';
 import { failedRunsWords } from '../failed-runs.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { plural, shortId } from '../format.js';
+import { useApp } from '../state.js';
 import type { GoldenReport, GoldenRow, Piece, ReportLine, TestsAnswer } from '../types.js';
 import { gated, ReportEvidence } from './Evidence.js';
+import { drawsFindCommit } from './lead.js';
 import { ReportParts } from './ReportParts.js';
 import { ReportSteps } from './ReportSteps.js';
-import { openReports, reportOpen, setReportOpen, useAskedReport } from './report-open.js';
+import { openReports, reportOpen, setAttemptsShown, setReportOpen, shownAttempts, useAskedReport } from './report-open.js';
 import { reportHint } from './report-words.js';
 import { partId, useUntilFound } from './until-found.js';
 import type { LeadPress } from './Verdict.js';
@@ -33,6 +35,7 @@ export function useReportsOpen(reports: TestsAnswer['reports']) {
     if (key === null) return;
     const have = new Set(key.split('\n'));
     for (const n of openReports()) if (!have.has(n)) setReportOpen(n, false);
+    for (const n of shownAttempts()) if (!have.has(n)) setAttemptsShown(n, false);
   }, [key]);
   useAskedReport(
     useCallback(
@@ -102,7 +105,8 @@ function ReportPanel({ report, row, open, asked, onOpen, view, press }: { report
   useEffect(() => {
     if (asked) section.current?.scrollIntoView({ block: 'start' });
   }, [asked]);
-  const hint = reportHint(report);
+  const { hasKind } = useApp();
+  const hint = reportHint(report, { findsCommit: !!press && drawsFindCommit(view, report.golden, hasKind) });
   return (
     <section className="panel sec gpanel" id={`report-${report.name}`} ref={section}>
       <header>

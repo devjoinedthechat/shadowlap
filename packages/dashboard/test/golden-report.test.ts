@@ -9,6 +9,7 @@ import { addRun } from './read-model-store.js';
 const PY_TAIL = ['Traceback (most recent call last):', '  File "/work/shop/refund_agent.py", line 141, in issue_refund', '    log.info("refund %s of %s", refund["refund_id"], order["total"])', "KeyError: 'total'"].join('\n');
 const NODE_TAIL = ["file:///work/shop/agent.mjs:141", '  const total = order.payment.amount;', '                              ^', '', "TypeError: Cannot read properties of undefined (reading 'amount')", '    at issueRefund (file:///work/shop/agent.mjs:141:31)', '', 'Node.js v22.11.0'].join('\n');
 
+const TWICE = 'send_email called at most 1 time';
 const check = (label: string, status: StoredCheck['status'], detail?: string, extra: Partial<StoredCheck> = {}): StoredCheck => ({ label, ok: status === 'passed', status, ...(detail ? { detail } : {}), ...extra }) as StoredCheck;
 
 /** A store with one recording packed as `goldens/<name>`, and a replay of it that came out as `result` says. */
@@ -68,7 +69,7 @@ describe('a divergence', () => {
 describe('a check', () => {
   it('names the check a replay golden failed and what it found, over a clean replay', () => {
     const { report } = world('refund', () => ({ ok: false, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', data: { mode: 'replay', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, checks: [check('send_email called 0 times', 'failed', 'called 1 time'), check('output includes "refund"', 'passed')] } }), { checks: ['send_email called 0 times', 'output includes "refund"'], divergence: { type: 'ended_early', callNo: 8, kind: 'api', name: 'POST /v1/messages', replayedBefore: 7, recorded: 7 } });
-    expect(text(report.head)).toBe('Check failed: `send_email called 0 times`, but called 1 time');
+    expect(text(report.head)).toBe('Check failed: send_email called 0 times, but called 1 time');
     expect(report.parts).toEqual([{ kind: 'replay', recorded: 7, replayed: 7, stop: null, words: '7 of 7 calls replayed, clean · 0 upstream requests' }, { kind: 'checks', labels: ['send_email called 0 times', 'output includes "refund"'] }]);
     expect(report.hint).toEqual({ key: 'check' });
   });
@@ -94,7 +95,8 @@ describe('a golden of several attempts', () => {
     const { report } = world('refund', () => ({ ok: false, failure: 'check', reason: '3 of 5 attempts passed, 5 needed', data: { mode: 'fork', calls: { total: 4, replayed: 2, live: 2, blocked: 0, stubbed: 0 }, upstreamRequests: 10, attempts: { total: 5, passed: 3, required: 5, runs: [] }, checks: [check('send_email called at most 1 time', 'failed', 'called 2 times'), check('output includes "refund"', 'passed')], divergence: { type: 'request_changed', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 1, text: '' } } }), { mode: 'fork', checks: ['send_email called at most 1 time', 'output includes "refund"'] });
     expect(report.head).toEqual(['send_email called twice in 2 of 5 attempts']);
     expect(report.sub).toEqual(['10 upstream requests']);
-    expect(report.parts).toEqual([{ kind: 'attempts', check: { label: 'send_email called at most 1 time', detail: 'called 2 times' }, carried: null, forked: 2 }, { kind: 'checks', labels: ['output includes "refund"'] }]);
+    // The verdict says how often it was called, so the check under the attempts says only what it adds: nothing here.
+    expect(report.parts).toEqual([{ kind: 'attempts', check: { label: 'send_email called at most 1 time', detail: '' }, carried: null, forked: 'forked at call 2, each attempt live from there' }, { kind: 'checks', labels: ['output includes "refund"'] }]);
     expect(report.open?.label).toBe('Open failing attempt');
     expect(report.hint).toEqual({ key: 'check' });
   });
@@ -205,8 +207,8 @@ describe('a gate', () => {
     expect(report.verdict).toBe('inconclusive');
     expect(report.head).toEqual(['send_email called twice in 16 of 83 attempts, and its gate ran out before deciding']);
     expect(report.parts.map((p) => p.kind)).toEqual(['gate', 'attempts', 'checks']);
-    expect(report.parts[0]).toEqual({ kind: 'gate', bound: expect.stringMatching(/^rate /), passK: expect.stringMatching(/^pass\^5 /) });
-    expect(report.parts[1]).toEqual({ kind: 'attempts', check: { label: twice.label, detail: 'called 2 times' }, carried: { count: 80, at: 1_000 }, forked: null });
+    expect(report.parts[0]).toEqual({ kind: 'gate', bound: expect.stringMatching(/^rate /), baseline: null, passK: expect.stringMatching(/^pass\^5 \d\.\d\d$/) });
+    expect(report.parts[1]).toEqual({ kind: 'attempts', check: { label: twice.label, detail: '' }, carried: { count: 80, at: 1_000 }, forked: null });
     expect(report.hint).toEqual({ key: 'gate' });
     store.close();
   });
@@ -216,7 +218,7 @@ describe('a gate', () => {
     const once = check('issue_refund called 1 time', 'failed', 'called 0 times');
     const { report } = world('refund', () => ({ ok: false, failure: 'check', reason: 'its pass rate dropped against its history', data: { mode: 'fork', verdict: 'failed', gate: gateResult(gate, [true, true, true, true, false, false, false, false], { history: { passes: 40, attempts: 40, sessions: 5 }, decision: 'fail' }), attempts: { total: 8, passed: 4, required: null, runs: [] }, checks: [once] } }), { mode: 'fork', checks: [once.label] });
     expect(text(report.head)).toMatch(/^issue_refund .* in 4 of 8 attempts, a drop against its own history$/);
-    expect(report.parts[0]).toEqual({ kind: 'gate', bound: expect.any(String), passK: null });
+    expect(report.parts[0]).toEqual({ kind: 'gate', bound: expect.any(String), baseline: 'against 1.00 over the last 5 sessions (40 of 40)', passK: null });
     expect(report.hint).toEqual({ key: 'check' });
   });
 });
@@ -321,5 +323,82 @@ describe('Failed runs →', () => {
     const report = { golden: 'goldens/refund', name: 'refund', failedRuns: null } as unknown as GoldenReport;
     expect(withFailedRuns({ 'goldens/refund': report }, { 'goldens/refund': { count: 1, ids: ['r'] } }, { 'goldens/refund': { key: 'fix' } })['goldens/refund'].failedRuns).toBeNull();
     expect(failedRunsHref('late refund')).toBe(links.runs({ q: 'type:test "late refund"', types: 'failed' }));
+  });
+});
+
+describe('a golden of several attempts, whatever they failed on', () => {
+  const sprt = (max: number) => ({ kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max });
+  const outcomes = (passed: number, failed: number) => [...Array<boolean>(passed).fill(true), ...Array<boolean>(failed).fill(false)];
+  const once = check('issue_refund called 1 time', 'passed');
+
+  it('reads a failed gate by its attempts where the attempt it shows crashed, with that attempt’s exception after them', () => {
+    const gate = gateResult(sprt(40), outcomes(28, 12), { decision: 'fail' });
+    const { report } = world('refund', () => ({ ok: false, failure: 'exit', reason: `failed · 28 of 40 · rate 0.55 to 0.83 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 40 attempts. Attempt 3: the agent exited with code 1`, data: { mode: 'fork', verdict: 'failed', upstreamRequests: 40, gate, attempts: { total: 40, passed: 28, required: null, runs: [] }, checks: [once], output: PY_TAIL } }), { mode: 'fork', checks: [once.label] });
+    expect(report.head).toEqual(['The agent exited with code 1 in 12 of 40 attempts, too often for its gate']);
+    expect(report.parts.map((p) => p.kind)).toEqual(['gate', 'attempts', 'error', 'checks']);
+    expect(report.parts[2]).toMatchObject({ kind: 'error', file: 'refund_agent.py', error: { exception: "KeyError: 'total'" } });
+    expect(report.hint).toEqual({ key: 'crash' });
+  });
+
+  it('never words a gate’s own sentence as what its attempts did, and says a gate stopped short of its limit stopped', () => {
+    const reason = 'inconclusive · 16 of 20 · rate 0.47 to 0.98 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts';
+    const ranOut = world('flaky', () => ({ ok: false, failure: 'inconclusive', reason, data: { mode: 'fork', verdict: 'inconclusive', gate: gateResult(sprt(20), outcomes(16, 4), { decision: 'inconclusive' }), attempts: { total: 20, passed: 16, required: null, runs: [] }, checks: [once], output: PY_TAIL } }), { mode: 'fork', checks: [once.label] }).report;
+    expect(ranOut.head).toEqual(['Failed in 4 of 20 attempts, and its gate ran out before deciding']);
+    expect(ranOut.parts.map((p) => p.kind)).toEqual(['gate', 'attempts', 'checks']);
+    expect(ranOut.hint).toEqual({ key: 'gate' });
+    const stopped = world('flaky', () => ({ ok: false, failure: 'inconclusive', reason, data: { mode: 'fork', verdict: 'inconclusive', gate: gateResult(sprt(40), outcomes(16, 4), { decision: 'inconclusive' }), attempts: { total: 20, passed: 16, required: null, runs: [] }, checks: [check(TWICE, 'failed', 'called 2 times (1 blocked)')] } }), { mode: 'fork', checks: [TWICE] }).report;
+    expect(stopped.head).toEqual(['send_email called twice in 4 of 20 attempts, and its gate stopped before deciding']);
+    // What the check adds to the verdict's words, which say how often it was called: only what was blocked.
+    expect(stopped.parts[1]).toMatchObject({ kind: 'attempts', check: { label: TWICE, detail: '1 blocked' } });
+  });
+});
+
+describe('the provider', () => {
+  it('says a golden the provider was unavailable for is that, never that its check wasn’t judged', () => {
+    const reason = 'provider unavailable: 3 attempts in a row ended on HTTP 529 (overloaded), so none of them says anything about the agent; run it again once the provider answers';
+    const { report } = world('refund', () => ({ ok: false, failure: 'inconclusive', reason, data: { mode: 'fork', verdict: 'inconclusive', upstreamRequests: 3, attempts: { total: 3, passed: 0, required: null, runs: [] }, checks: [check('send_email called 0 times', 'passed')] } }), { mode: 'fork', checks: ['send_email called 0 times'] });
+    expect(report).toMatchObject({ verdict: 'inconclusive', head: ['Provider unavailable: 3 attempts in a row ended on HTTP 529 (overloaded), so none of them says anything about the agent'], sub: ['3 upstream requests'], hint: { key: 'provider', why: 'unavailable' } });
+    expect(report.parts).toEqual([{ kind: 'checks', labels: ['send_email called 0 times'] }]);
+  });
+
+  it('says attempts the provider cut short decide the count, in the result’s words', () => {
+    const reason = 'inconclusive: 3 of 5 attempts passed, 2 of them cut short by the provider, 5 needed: counted as failures the count is lost, as passes it is met, so it rests on how they would have ended';
+    const { report } = world('refund', () => ({ ok: false, failure: 'inconclusive', reason, data: { mode: 'fork', verdict: 'inconclusive', attempts: { total: 5, passed: 3, required: 5, runs: [] } } }), { mode: 'fork' });
+    expect(report.head).toEqual(['3 of 5 attempts passed, 2 of them cut short by the provider, 5 needed: counted as failures the count is lost, as passes it is met, so it rests on how they would have ended']);
+    expect(report.hint).toEqual({ key: 'provider', why: 'cut' });
+  });
+});
+
+describe('a fork golden of one attempt', () => {
+  const forked = { type: 'request_changed' as const, callNo: 3, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 2, text: '' };
+
+  it('draws its replay up to its fork, live from there, never as replayed clean', () => {
+    const { report } = world('refund', () => ({ ok: false, failure: 'check', reason: 'check failed: send_email called 0 times, but called 1 time', data: { mode: 'fork', calls: { total: 7, replayed: 2, live: 5, blocked: 0, stubbed: 0 }, upstreamRequests: 5, divergence: forked, checks: [check('send_email called 0 times', 'failed', 'called 1 time')] } }), { mode: 'fork', calls: 'rrrrrrr', checks: ['send_email called 0 times'] });
+    expect(report.parts[0]).toEqual({ kind: 'replay', recorded: 7, replayed: 2, stop: null, words: '2 of 7 recorded calls replayed, forked at call 3, live from there · 5 upstream requests' });
+  });
+
+  it('says its judge check wasn’t judged, and where it forked, never that it replayed clean', () => {
+    const judge = check('judge "polite" answers yes', 'inconclusive', 'no key to ask claude-x with', { judge: { name: 'polite', model: 'claude-x', verdict: null, reason: null, cost: null } as unknown as NonNullable<StoredCheck['judge']> });
+    const { report } = world('refund', () => ({ ok: false, failure: 'inconclusive', reason: 'check inconclusive: judge "polite" answers yes: no key to ask claude-x with', data: { mode: 'fork', verdict: 'inconclusive', calls: { total: 7, replayed: 2, live: 5, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: forked, checks: [judge] } }), { mode: 'fork', checks: [judge.label] });
+    expect(report.head).toEqual(['Its judge check wasn’t judged']);
+    expect(report.sub).toEqual(['forked at call 3, live from there', '0 upstream requests']);
+  });
+});
+
+describe('a report that can’t be built', () => {
+  it('is left out, never the page, and the page keeps every report without Runs’ count when that read fails', () => {
+    const { store, reports } = world('refund', () => ({ ok: false, failure: 'exit', reason: 'the agent exited with code 1', data: { mode: 'replay', calls: { total: 1, replayed: 1, live: 0, blocked: 0, stubbed: 0 } } }));
+    const goldens: GoldenSource[] = [{ path: 'goldens/refund', runId: null, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
+    const broken = new Proxy(store, {
+      get: (s, key) => {
+        if (key === 'getRun') throw new Error('the store went away');
+        const v: unknown = Reflect.get(s, key, s);
+        return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(s) : v;
+      },
+    });
+    expect(goldenReports(testsView(store, goldens, { folder: 'goldens' }), { store: broken, goldens, normalizers: [], project: null })).toEqual({});
+    // The pooled count failed: each report stands, with no Failed runs →.
+    expect(withFailedRuns(reports, null, undefined)['goldens/refund']).toEqual({ ...reports['goldens/refund'], failedRuns: null });
+    store.close();
   });
 });

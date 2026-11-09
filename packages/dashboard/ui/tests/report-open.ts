@@ -19,6 +19,22 @@ export function setReportOpen(name: string, on: boolean): void {
   else open.delete(name);
 }
 
+/**
+ * Which reports show a gate's attempts past 24, which fold behind its caret: kept as the reports'
+ * open set is, so Esc's way back from an attempt opened from that list finds its link.
+ */
+const attempts = new Set<string>();
+
+export const attemptsShown = (name: string): boolean => attempts.has(name);
+
+/** The names of the reports whose attempts are shown now. */
+export const shownAttempts = (): string[] => [...attempts];
+
+export function setAttemptsShown(name: string, on: boolean): void {
+  if (on) attempts.add(name);
+  else attempts.delete(name);
+}
+
 /** The golden a link asks Tests to open the report of (`#/tests?report=<name>`, links.ts `links.tests`), by name; null for any other address. */
 export function askedReport(hash: string): string | null {
   const m = /^#\/tests\?(?:[^#]*&)?report=([^&#]*)/.exec(hash);

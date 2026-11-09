@@ -1,11 +1,12 @@
 import { relative, isAbsolute, resolve } from 'node:path';
-import { checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, parseTraceback, plural, proofHead, proofLine, rateBound, safe, safeLines, testResultVerdict, type AttemptReport, type InjectionGateData, type InjectionReport, type ParsedTraceback, type PlantReport, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { baselineWords, checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, outputTail, parseTraceback, plural, proofHead, proofLine, rateBound, safe, safeLines, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type ParsedTraceback, type PlantReport, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
 import { commandLine, shortFailure } from './fix-shared.js';
 import { links } from './links.js';
 import { answer, type ReadTable } from './read-registry.js';
 import { judgeFor, type OutcomeWork } from './run-outcome.js';
 import { matchingRuns } from './runs-list.js';
 import type { BisectMiss, FoundCommit } from './tests-bisect.js';
+import { forkedWords } from './tests-evidence.js';
 import { causeOf, divergenceOf } from './tests-normalize.js';
 import type { DivergenceView, FailureView, GoldenRow, GoldenSource, InconclusiveView, TestsView } from './tests.js';
 
@@ -21,7 +22,7 @@ import type { DivergenceView, FailureView, GoldenRow, GoldenSource, Inconclusive
  * here reads every run or every call: a run, a call and a session by key, and a golden's own results.
  */
 
-/** A sentence in pieces: paths, checks and files are code. */
+/** A sentence in pieces: paths and files are code; a check reads as words, as the table writes it. */
 export type Piece = string | { code: string };
 
 /** How a printed line is coloured: the golden's line red or amber, a value before red, after lime, the agent's lines dim. */
@@ -40,10 +41,10 @@ export type ReportPart =
   | { kind: 'error'; error: ParsedTraceback; file: string | null; lines: string[] }
   /** Which of the row's checks to draw, in the row's order: the row's own component draws them. */
   | { kind: 'checks'; labels: string[] }
-  /** A gate's figures: the row's `last.gate`, with its bound and, where inconclusive, its pass^5, in the engine's words. */
-  | { kind: 'gate'; bound: string | null; passK: string | null }
-  /** The attempts, read when the report opens: the check they failed and only what the verdict doesn't say, the attempts carried over, where they forked. */
-  | { kind: 'attempts'; check: { label: string; detail: string } | null; carried: { count: number; at: number | null } | null; forked: number | null }
+  /** A gate's figures: the row's `last.gate`, with its bound, against history the baseline it compared with, and where inconclusive its pass^5 (`pass^5 0.32`), each in the engine's words. */
+  | { kind: 'gate'; bound: string | null; baseline: string | null; passK: string | null }
+  /** The attempts, read when the report opens: the check they failed and only what the verdict doesn't say of it, the attempts carried over, where a fork golden's forked, in words. */
+  | { kind: 'attempts'; check: { label: string; detail: string } | null; carried: { count: number; at: number | null } | null; forked: string | null }
   | { kind: 'commit'; found: FoundCommit }
   | { kind: 'missed'; missed: BisectMiss }
   /** An injection gate's proof: the attempt it is, the engine's line of it (each `#n` a call of that attempt), and, for an attempt that showed nothing, why. */
@@ -58,6 +59,7 @@ export type ReportPart =
 export type HintKey =
   | { key: 'normalizer' }
   | { key: 'rules-added'; path: string; update: boolean }
+  /** Named only where the report draws Find breaking commit, which its steps decide. */
   | { key: 'bisect' }
   | { key: 'gate' }
   | { key: 'judge'; held: 'none' | 'older' | 'material'; name: string }
@@ -72,6 +74,8 @@ export type HintKey =
   | { key: 'injection' }
   /** Why it showed too little to say: a model call that got no answer, nothing marked untrusted to plant in, attempts cut short, or nothing shown. */
   | { key: 'injection-inconclusive'; why: 'unanswered' | 'no-reads' | 'stopped' | 'nothing' }
+  /** Inconclusive for the provider: unavailable for attempts in a row, or attempts it cut short decide the count. */
+  | { key: 'provider'; why: 'unavailable' | 'cut' }
   | { key: 'error' };
 
 export interface GoldenReport {
@@ -110,12 +114,6 @@ export function judgeAsked(r: TestResult, c: StoredCheck): { cost: number; asked
   return (r.data?.attempts?.total ?? 1) <= 1 && c.judge.cost !== null ? { cost: c.judge.cost, asked: 1 } : null;
 }
 
-/** The lines `shadowlap test` prints of a golden's output: its last 20, as the CLI's outputTail takes them. */
-function outputTail(output: string | undefined): string | null {
-  const t = (output ?? '').trim();
-  return t ? t.split('\n').slice(-20).join('\n') : null;
-}
-
 const lines = (text: string, tone: (line: string) => ReportTone): ReportLine[] =>
   text
     .replace(/\n$/, '')
@@ -140,19 +138,27 @@ export function printedLines(name: string, r: TestResult): ReportLine[] {
     out.push({ text: `    ${safe(checkLine(c))}`, tone: status === 'failed' ? 'no' : status === 'inconclusive' ? 'y' : '' });
   }
   if (data.details) out.push(...lines(safeLines(data.details, '    '), (l) => (/^\s*- /.test(l) ? 'del' : /^\s*\+ /.test(l) ? 'add' : '')));
-  const tail = r.failure === 'injection' || data.injection ? null : outputTail(data.output);
+  const tail = r.failure === 'injection' || data.injection ? null : outputTail(data.output ?? '');
   if (tail) out.push(...lines(safeLines(tail, '    │ '), () => 'dim'));
   return out;
 }
 
 const upstream = (r: TestResult): string | null => (r.data?.upstreamRequests === undefined ? null : plural(r.data.upstreamRequests, 'upstream request'));
 
+/** What a report is built from: the golden's last result and row, the page's inputs, the recording it replays, and the result's own run, read once. */
+interface From {
+  r: TestResult;
+  row: GoldenRow;
+  i: ReportInput;
+  recording: string | null;
+  replay: ReturnType<StoreOf<'recording'>['getRun']>;
+}
+
 /** The calls of the recording a replay ran against: the replay's own count where it kept one, else the recording's last call. */
-function recordedCalls(store: StoreOf<'recording'>, r: TestResult, recording: string | null): number | null {
-  const replay = r.runId ? store.getRun(r.runId) : null;
+function recordedCalls({ i, recording, replay }: From): number | null {
   if (replay?.divergence?.recorded) return replay.divergence.recorded;
-  if (!recording || !store.getRun(recording)) return null;
-  const last = store.nextCallNo(recording) - 1;
+  if (!recording || !i.store.getRun(recording)) return null;
+  const last = i.store.nextCallNo(recording) - 1;
   return last > 0 ? last : null;
 }
 
@@ -184,11 +190,47 @@ const asSentence = (reason: string): string => {
   return one.charAt(0).toUpperCase() + one.slice(1);
 };
 
+/** A sentence that starts with a word of its own capitalised; one that starts with a tool's name keeps it as named. */
+const capitalised = (s: string): string => (/^(the|a|an|no) /.test(s) ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
 /** The failed check of a result's shown attempt, as its attempts failed it. */
 const failedCheck = (r: TestResult): StoredCheck | null => (r.data?.checks ?? []).find((c) => checkStatus(c) === 'failed') ?? null;
 
-/** What its attempts did, in the short words Fixes names them in: `send_email called twice`. */
-const failWords = (c: StoredCheck | null, r: TestResult): string => (c ? shortFailure(c.detail ? `${c.label}, but ${c.detail}` : c.label) : shortFailure(r.reason ?? undefined));
+/** The failure of the attempt a result of several shows, after its reason's `Attempt N:`; the reason itself for a result of one. */
+const ownFailure = (r: TestResult): string => /\bAttempt \d+: ([^]+)$/.exec(r.reason ?? '')?.[1] ?? r.reason ?? '';
+
+/**
+ * What the attempt a result shows did, in the short words Fixes names it by: the check it failed
+ * (`send_email called twice`), else its own failure after the reason's `Attempt N:` (`the agent
+ * exited with code 1`). Null where neither says, as for a gate that ran out, whose reason is the
+ * gate's own sentence: that is never read as an attempt's.
+ */
+function failWords(c: StoredCheck | null, r: TestResult): string | null {
+  if (c) return shortFailure(c.detail ? `${c.label}, but ${c.detail}` : c.label);
+  const own = /\bAttempt \d+: ([^]+)$/.exec(r.reason ?? '')?.[1];
+  return own ? shortFailure(firstSentence(own.replace(/^check failed: /, ''))) : null;
+}
+
+/**
+ * What the check under the attempts adds to the verdict: where the verdict's words already say how
+ * often the tool was called (`send_email called twice`), only what its detail says in brackets (`2
+ * blocked`); else the check's detail as the attempts gave it.
+ */
+function checkDetail(c: StoredCheck, words: string | null): string {
+  const detail = c.detail ?? '';
+  if (!detail || !/\b(once|twice|\d+ times)$/.test(words ?? '')) return detail;
+  const m = /^called \S+ times?(?: \((.+)\))?$/.exec(detail);
+  return m ? (m[1] ?? '') : detail;
+}
+
+/** The hint of a golden that failed, by what its attempt failed on. */
+function failureHint(failure: TestResult['failure'], reason: string): HintKey {
+  if (failure === 'check') return { key: 'check' };
+  if (failure === 'exit') return { key: 'crash' };
+  if (failure === 'no-calls') return { key: 'no-calls' };
+  if (failure === 'guard') return /^The network guard could not watch every process of the agent/.test(reason) ? { key: 'unguarded' } : { key: 'no-preload' };
+  return { key: 'error' };
+}
 
 export interface ReportInput {
   store: StoreOf<'recording' | 'tests' | 'injection'>;
@@ -215,30 +257,44 @@ function fileHere(file: string, project: string | null): string {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : file;
 }
 
-function crashParts(r: TestResult, i: ReportInput, row: GoldenRow, recording: string | null): Built {
+/** The exception the attempt a result shows died of, from the lines it printed last; null where none reads as one. */
+function errorPart({ r, i }: From): ReportPart | null {
+  const output = r.data?.output;
+  const error = output ? parseTraceback(output) : null;
+  return error && output ? { kind: 'error', error, file: error.raised ? fileHere(error.raised.file, i.project) : null, lines: output.split('\n') } : null;
+}
+
+function crashParts(f: From): Built {
+  const { r, row, replay } = f;
   const code = exitCode(r.reason);
-  const replay = r.runId ? i.store.getRun(r.runId) : null;
   const ended = replay?.divergence?.type === 'ended_early' ? replay.divergence : null;
   const head = code === null ? asSentence(r.reason ?? 'the agent exited with an error') : ended ? `The agent exited with code ${code} at call ${ended.callNo}` : `The agent exited with code ${code} after its last call`;
   const parts: ReportPart[] = [];
-  const recorded = ended?.recorded ?? recordedCalls(i.store, r, recording);
+  const recorded = ended ? (ended.recorded ?? recordedCalls(f)) : null;
   if (ended && recorded) parts.push({ kind: 'replay', recorded, replayed: ended.replayedBefore, stop: ended.callNo, words: dot(`${ended.replayedBefore} of ${recorded} recorded calls replayed, then it stopped`, upstream(r)) });
-  const error = r.data?.output ? parseTraceback(r.data.output) : null;
-  if (error) parts.push({ kind: 'error', error, file: error.raised ? fileHere(error.raised.file, i.project) : null, lines: r.data!.output!.split('\n') });
+  const error = errorPart(f);
+  if (error) parts.push(error);
   if (row.checks.length) parts.push({ kind: 'checks', labels: row.checks });
   return { head: [head], sub: parts.some((p) => p.kind === 'replay') ? [] : [upstream(r)], parts, hint: { key: 'crash' } };
 }
 
 const dot = (...words: Array<string | null>): string => words.filter(Boolean).join(' · ');
 
-function divergenceParts(r: TestResult, d: DivergenceView, i: ReportInput, recording: string | null): Built {
+/**
+ * A divergence's hint: its rule in the config already, else a normalizer that leads, else Find
+ * breaking commit's, which the report says only where it draws that button (its steps decide:
+ * ui/tests/report-words.ts `reportHint`).
+ */
+const divergenceHint = (d: DivergenceView): HintKey => (d.rulesAdded && d.volatile ? { key: 'rules-added', path: d.volatile.path, update: !d.normalizerFixes } : d.normalizerFixes && !d.maybeReal ? { key: 'normalizer' } : { key: 'bisect' });
+
+function divergenceParts(f: From, d: DivergenceView): Built {
+  const { r, i } = f;
   const div = divergenceOf(r);
-  if (!div) return { head: [`Diverged at call ${d.callNo}`], sub: [upstream(r)], parts: [], hint: null };
+  if (!div) return { head: [`Diverged at call ${d.callNo}`], sub: [upstream(r)], parts: [], hint: divergenceHint(d) };
   const parts: ReportPart[] = [];
-  const recorded = div.callNo > 1 ? recordedCalls(i.store, r, recording) : null;
+  const recorded = div.callNo > 1 ? recordedCalls(f) : null;
   if (recorded) parts.push({ kind: 'replay', recorded, replayed: div.replayedBefore, stop: div.callNo, words: dot(`${div.replayedBefore} of ${recorded} recorded calls replayed, then call ${div.callNo} diverged`, upstream(r)) });
-  const hint: HintKey | null = d.rulesAdded && d.volatile ? { key: 'rules-added', path: d.volatile.path, update: !d.normalizerFixes } : d.normalizerFixes ? { key: 'normalizer' } : d.bisect && !d.found && !d.unreadable ? { key: 'bisect' } : null;
-  return { head: divergenceHead(r, div, i.normalizers), sub: [recorded ? null : upstream(r)], parts, hint };
+  return { head: divergenceHead(r, div, i.normalizers), sub: [recorded ? null : upstream(r)], parts, hint: divergenceHint(d) };
 }
 
 /** A result's gate, where it decided (or ran out); null where it went on, which decided nothing. */
@@ -247,57 +303,93 @@ const decidedGate = (r: TestResult) => (r.data?.gate && r.data.gate.decision !==
 /** Why a gate's verdict is what it is, after its attempts' count; nothing for a fixed count of attempts. */
 function gateWhy(gate: ReturnType<typeof decidedGate>): string {
   if (!gate) return '';
-  if (gate.decision === 'inconclusive') return ', and its gate ran out before deciding';
+  // Short of its limit, a gate stopped by a signal or the provider didn't run out: its evidence says where it stopped.
+  if (gate.decision === 'inconclusive') return gate.attempts >= gate.max ? ', and its gate ran out before deciding' : ', and its gate stopped before deciding';
   return gate.kind === 'baseline' ? ', a drop against its own history' : ', too often for its gate';
 }
 
-/** The Attempts part's words: the check they failed, the attempts carried over and when that session started, where a fork golden's attempts forked. */
-function attemptsPart(r: TestResult, row: GoldenRow, i: ReportInput, c: StoredCheck | null): ReportPart {
+/** The Attempts part's words: the check they failed and only what the verdict doesn't say, the attempts carried over and when that session started, where a fork golden's attempts forked. */
+function attemptsPart({ r, row, i }: From, c: StoredCheck | null, words: string | null): ReportPart {
   const carried = r.data?.continued;
   const newest = carried?.sessions.at(-1);
   const since = newest ? i.store.getTestSession(newest) : null;
-  const forked = row.mode === 'fork' ? (r.data?.divergence?.callNo ?? null) : null;
-  return { kind: 'attempts', check: c ? { label: c.label, detail: c.detail ?? '' } : null, carried: carried?.attempts ? { count: carried.attempts, at: since?.startedAt ?? null } : null, forked };
+  const at = row.mode === 'fork' ? r.data?.divergence?.callNo : null;
+  return { kind: 'attempts', check: c ? { label: c.label, detail: checkDetail(c, words) } : null, carried: carried?.attempts ? { count: carried.attempts, at: since?.startedAt ?? null } : null, forked: at ? forkedWords(at, true) : null };
 }
 
-/** A golden of several attempts, gated or forked a fixed count of times, whose attempts failed a check or whose gate ran out. */
-function attemptsParts(r: TestResult, row: GoldenRow, i: ReportInput): Built | null {
+/**
+ * A golden of several attempts that failed, whatever its attempt failed on, or whose gate ran out
+ * or stopped: what the attempt it shows did and in how many, its gate, its attempts, the exception
+ * where that attempt crashed, and its other checks. Never the provider's or an undecided check's,
+ * which say why in their own words.
+ */
+function attemptsParts(f: From): Built | null {
+  const { r, row } = f;
   const gate = decidedGate(r);
   const n = gate?.attempts ?? r.data?.attempts?.total ?? 1;
-  const inconclusive = gate?.decision === 'inconclusive';
-  if (n <= 1 || (r.failure !== 'check' && !inconclusive)) return null;
+  const inconclusive = testResultVerdict(r) === 'inconclusive';
+  if (n <= 1 || unavailableStop(r.reason) || (inconclusive && gate?.decision !== 'inconclusive')) return null;
   const passed = gate?.passes ?? r.data?.attempts?.passed ?? 0;
   const c = failedCheck(r);
-  const parts: ReportPart[] = gate ? [{ kind: 'gate', bound: rateBound(gate), passK: inconclusive ? formatPassK(gate) : null }] : [];
-  parts.push(attemptsPart(r, row, i, c));
+  const words = failWords(c, r);
+  const parts: ReportPart[] = gate ? [{ kind: 'gate', bound: rateBound(gate), baseline: gate.evidence.kind === 'baseline' ? baselineWords(gate.evidence) : null, passK: inconclusive ? formatPassK(gate) : null }] : [];
+  parts.push(attemptsPart(f, c, words));
+  const error = r.failure === 'exit' ? errorPart(f) : null;
+  if (error) parts.push(error);
   const others = row.checks.filter((label) => label !== c?.label);
   if (others.length) parts.push({ kind: 'checks', labels: others });
-  return { head: [`${failWords(c, r)} in ${n - passed} of ${plural(n, 'attempt')}${gateWhy(gate)}`], sub: [upstream(r)], parts, hint: inconclusive ? { key: 'gate' } : { key: 'check' } };
+  const many = `in ${n - passed} of ${plural(n, 'attempt')}`;
+  return { head: [`${words ? capitalised(`${words} ${many}`) : `Failed ${many}`}${gateWhy(gate)}`], sub: [upstream(r)], parts, hint: inconclusive ? { key: 'gate' } : failureHint(r.failure, ownFailure(r)) };
 }
 
-/** An inconclusive check its replay couldn't decide, a judge's most often, with no gate to say more. */
-function undecidedParts(r: TestResult, v: InconclusiveView, row: GoldenRow): Built {
+/** The replay of a golden's one attempt that failed a check: clean to its end; a fork golden's up to its fork, live from there. */
+function checkedReplay(f: From): ReportPart | null {
+  const recorded = recordedCalls(f);
+  if (!recorded) return null;
+  const { r, row } = f;
+  if (row.mode !== 'fork') return { kind: 'replay', recorded, replayed: recorded, stop: null, words: dot(`${recorded} of ${recorded} calls replayed, clean`, upstream(r)) };
+  const at = r.data?.divergence?.callNo;
+  const replayed = r.data?.calls?.replayed;
+  if (!at || replayed === undefined) return null;
+  return { kind: 'replay', recorded, replayed: Math.min(replayed, recorded), stop: null, words: dot(`${replayed} of ${recorded} recorded calls replayed, ${forkedWords(at)}`, upstream(r)) };
+}
+
+/**
+ * An inconclusive golden with no gate to say more: a check its replay couldn't decide, a judge's
+ * most often; else what the provider left it, which says nothing about the agent, in the result's
+ * own words. A fork golden's replay ran live from its fork, so it never says it replayed clean.
+ */
+function inconclusiveParts({ r, row }: From, v: InconclusiveView): Built {
   const undecided = (r.data?.checks ?? []).find((c) => checkStatus(c) === 'inconclusive') ?? null;
-  const here = undecided ? row.checks.includes(undecided.label) : true;
+  const parts: ReportPart[] = row.checks.length ? [{ kind: 'checks', labels: row.checks }] : [];
+  if (!undecided || unavailableStop(r.reason)) {
+    const why = unavailableStop(r.reason) ? 'unavailable' : /cut short by the provider/.test(r.reason ?? '') ? 'cut' : null;
+    // What to do about it is the hint's.
+    const reason = (r.reason ?? 'inconclusive').replace(/^inconclusive: /, '').replace(/; run it again once the provider answers$/, '');
+    return { head: [asSentence(reason)], sub: [upstream(r)], parts, hint: why ? { key: 'provider', why } : null };
+  }
+  const fork = row.mode === 'fork';
+  const what = `${undecided.judge ? 'judge check' : 'check'} wasn’t judged`;
+  const head = fork ? `Its ${what}` : `Replayed clean, but its ${what}${row.checks.includes(undecided.label) ? '' : ': the test runs offline'}`;
   const calls = r.data?.calls;
-  const head = `Replayed clean, but its ${undecided?.judge ? 'judge check' : 'check'} wasn’t judged${here ? '' : ': the test runs offline'}`;
+  const at = fork ? r.data?.divergence?.callNo : null;
   const j = v.judge;
   const hint: HintKey = j?.update && j.held ? { key: 'judge', held: j.held, name: j.name } : j?.keys?.length ? { key: 'judge-key', name: j.name, model: j.model, keys: j.keys } : { key: 'undecided' };
-  return { head: [head], sub: [calls ? `${calls.replayed} of ${plural(calls.total, 'call')}` : null, upstream(r)], parts: row.checks.length ? [{ kind: 'checks', labels: row.checks }] : [], hint };
+  return { head: [head], sub: [at ? forkedWords(at) : calls && !fork ? `${calls.replayed} of ${plural(calls.total, 'call')}` : null, upstream(r)], parts, hint };
 }
 
-/** A replay golden that failed a check, made no calls, or was stopped by the guard or an error. */
-function failureParts(r: TestResult, f: FailureView, row: GoldenRow, i: ReportInput, recording: string | null): Built {
-  if (f.failure === 'check') {
+/** A golden of one attempt that failed a check, made no calls, or was stopped by the guard or an error. */
+function failureParts(f: From, v: FailureView): Built {
+  const { r, row } = f;
+  if (v.failure === 'check') {
     const c = failedCheck(r);
-    const recorded = recordedCalls(i.store, r, recording);
     const parts: ReportPart[] = [];
-    if (c && recorded) parts.push({ kind: 'replay', recorded, replayed: recorded, stop: null, words: dot(`${recorded} of ${recorded} calls replayed, clean`, upstream(r)) });
+    const replay = c ? checkedReplay(f) : null;
+    if (replay) parts.push(replay);
     if (row.checks.length) parts.push({ kind: 'checks', labels: row.checks });
-    return { head: c ? ['Check failed: ', { code: c.label }, `, but ${c.detail ?? 'failed'}`] : [asSentence(f.reason)], sub: parts.length && parts[0]!.kind === 'replay' ? [] : [upstream(r)], parts, hint: { key: 'check' } };
+    return { head: c ? [`Check failed: ${c.label}, but ${c.detail ?? 'failed'}`] : [asSentence(v.reason)], sub: replay ? [] : [upstream(r)], parts, hint: { key: 'check' } };
   }
-  const hint: HintKey = f.failure === 'no-calls' ? { key: 'no-calls' } : f.failure === 'guard' ? (/^The network guard could not watch every process of the agent/.test(f.reason) ? { key: 'unguarded' } : { key: 'no-preload' }) : { key: 'error' };
-  return { head: [asSentence(f.reason)], sub: [upstream(r)], parts: row.checks.length && f.checks?.length ? [{ kind: 'checks', labels: row.checks }] : [], hint };
+  return { head: [asSentence(v.reason)], sub: [upstream(r)], parts: row.checks.length && v.checks?.length ? [{ kind: 'checks', labels: row.checks }] : [], hint: failureHint(v.failure, v.reason) };
 }
 
 /** The kept result an injection gate's verdict came from, while the store has it. */
@@ -356,9 +448,7 @@ function injectionParts(r: TestResult, i: ReportInput, golden: string): Built {
   if (gate) parts.push({ kind: 'injection-attempts', totals: { obeyed: gate.obeyed, influenced: gate.influenced, inconclusive: gate.inconclusive, ignored: gate.ignored }, where: where?.where ?? null, each: where?.each ?? null, command: commandLine(['injection', golden, '--html', 'report.html']), resultId: report && gate.resultId ? gate.resultId : null });
   const call = a ? (a.evidence.find((e) => e.kind === 'canary') ?? a.evidence[0])?.callNo ?? a.readAt ?? a.forkedAt : null;
   const open = a && i.store.getRun(a.runId) ? { label: failed ? 'Open proof' : 'Open attempt', href: links.run(a.runId, call) } : null;
-  // A sentence that starts with a tool's name keeps it as named.
-  const lead = /^(no|the) /.test(head) ? head.charAt(0).toUpperCase() + head.slice(1) : head;
-  return { head: [lead], sub: [], parts, hint: failed ? { key: 'injection' } : { key: 'injection-inconclusive', why: injectionWhy(reason) }, open };
+  return { head: [capitalised(head)], sub: [], parts, hint: failed ? { key: 'injection' } : { key: 'injection-inconclusive', why: injectionWhy(reason) }, open };
 }
 
 /** The golden's checks its last result failed or couldn't decide that are no longer in the config. */
@@ -370,39 +460,40 @@ function checksGone(r: TestResult, row: GoldenRow): Array<{ label: string; statu
 }
 
 /** What a report opens: the result's own run while the store keeps it, a golden of several attempts' as its failing attempt. */
-function openOf(store: StoreOf<'recording'>, r: TestResult): GoldenReport['open'] {
-  if (!r.runId || !store.getRun(r.runId)) return null;
+function openOf({ r, replay }: From): GoldenReport['open'] {
+  if (!r.runId || !replay) return null;
   return { label: (r.data?.attempts?.total ?? 1) > 1 ? 'Open failing attempt' : 'Open run', href: links.run(r.runId) };
 }
 
-/** One golden's report, from its last result (read again by key) and the page's view of it. */
 /** Which of Tests' lists a golden that didn't pass is in, with its view there. */
 export type Listed = { kind: 'divergence'; view: DivergenceView } | { kind: 'failure'; view: FailureView } | { kind: 'inconclusive'; view: InconclusiveView };
 
-function partsOf(r: TestResult, row: GoldenRow, listed: Listed, i: ReportInput, recording: string | null): Built {
-  const built = builtOf(r, row, listed, i, recording);
+function partsOf(f: From, listed: Listed): Built {
+  const built = builtOf(f, listed);
   // A connection the guard blocked is what the agent tripped on, whatever failed after it.
   const blocked = listed.kind === 'failure' ? listed.view.blocked : null;
   return blocked?.length ? { ...built, hint: { key: 'blocked', hosts: blocked } } : built;
 }
 
-function builtOf(r: TestResult, row: GoldenRow, listed: Listed, i: ReportInput, recording: string | null): Built {
-  if (listed.kind === 'divergence') return divergenceParts(r, listed.view, i, recording);
-  if (r.failure === 'injection') return injectionParts(r, i, row.path);
-  if (r.failure === 'exit') return crashParts(r, i, row, recording);
-  const attempts = attemptsParts(r, row, i);
+/** A golden of several attempts reads by its attempts whatever they failed on; one attempt, by what it failed on. */
+function builtOf(f: From, listed: Listed): Built {
+  if (listed.kind === 'divergence') return divergenceParts(f, listed.view);
+  if (f.r.failure === 'injection') return injectionParts(f.r, f.i, f.row.path);
+  const attempts = attemptsParts(f);
   if (attempts) return attempts;
-  if (listed.kind === 'failure') return failureParts(r, listed.view, row, i, recording);
-  return undecidedParts(r, listed.view, row);
+  if (f.r.failure === 'exit') return crashParts(f);
+  if (listed.kind === 'failure') return failureParts(f, listed.view);
+  return inconclusiveParts(f, listed.view);
 }
 
+/** One golden's report, from its last result (read again by key, its run once) and the page's view of it. */
 export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput): GoldenReport | null {
   const r = i.store.listTestResults({ golden: row.path, limit: 1 })[0];
   if (!r || r.ok) return null;
   const verdict = testResultVerdict(r);
   if (verdict === 'passed') return null;
-  const recording = i.goldens.find((g) => g.path === row.path)?.runId ?? null;
-  const built = partsOf(r, row, listed, i, recording);
+  const from: From = { r, row, i, recording: i.goldens.find((g) => g.path === row.path)?.runId ?? null, replay: r.runId ? i.store.getRun(r.runId) : null };
+  const built = partsOf(from, listed);
   const gone = checksGone(r, row);
   if (gone.length) {
     // Its hint stays its last test's until Run tests leads such a golden, whose hint says so (port/checks-on-tests).
@@ -413,7 +504,7 @@ export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput): Go
   if (answered?.found) built.parts.push({ kind: 'commit', found: answered.found });
   else if (answered?.missed) built.parts.push({ kind: 'missed', missed: answered.missed });
   const sub = [r.data?.updated ? `updated${r.revision ? ` at ${r.revision}` : ''}` : null, ...built.sub].filter((s): s is string => !!s);
-  return { golden: row.path, name: row.name, verdict, head: built.head, sub, parts: built.parts, open: built.open !== undefined ? built.open : openOf(i.store, r), failedRuns: null, hint: built.hint, printed: printedLines(row.name, r) };
+  return { golden: row.path, name: row.name, verdict, head: built.head, sub, parts: built.parts, open: built.open !== undefined ? built.open : openOf(from), failedRuns: null, hint: built.hint, printed: printedLines(row.name, r) };
 }
 
 /**

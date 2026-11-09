@@ -1,4 +1,4 @@
-import { Fragment, useState, type CSSProperties } from 'react';
+import { Fragment, useReducer, type CSSProperties } from 'react';
 import { UNTESTED_WORDS } from '../../../engine/src/bisect-words.js';
 import { AttemptList } from '../components/AttemptsCell.js';
 import { CodeBox } from '../components/CodeBox.js';
@@ -14,9 +14,10 @@ import { ChangeBox } from '../revert/ChangeBox.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
 import type { FoundCommit, GoldenReport, GoldenRow, ReportPart } from '../types.js';
-import { Checks } from './Checks.js';
+import { Check, Checks } from './Checks.js';
 import { ErrorPart } from './ErrorPart.js';
 import { gated, GateIntervalBar, type GateShown } from './Evidence.js';
+import { attemptsShown, setAttemptsShown } from './report-open.js';
 import { partId } from './until-found.js';
 
 /**
@@ -43,10 +44,16 @@ const NAMES: Record<ReportPart['kind'], string> = {
 const FEW = 24;
 
 export function ReportParts({ report, row, open }: { report: GoldenReport; row: GoldenRow; open: boolean }) {
-  const [shown, setShown] = useState(false);
+  // The fold is kept with the reports' open set (report-open.ts), so it outlives the page.
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
   if (!report.parts.length) return null;
   const g = gated(row.last.gate) ? row.last.gate : null;
-  const fold = { many: !!g && g.attempts > FEW && report.parts.some((p) => p.kind === 'gate'), shown, toggle: () => setShown(!shown), id: partId('rpa', report.name) };
+  const shown = attemptsShown(report.name);
+  const toggle = () => {
+    setAttemptsShown(report.name, !shown);
+    redraw();
+  };
+  const fold = { many: !!g && g.attempts > FEW && report.parts.some((p) => p.kind === 'gate'), shown, toggle, id: partId('rpa', report.name) };
   return (
     <dl className="rpx">
       {report.parts.map((p, i) => (
@@ -70,7 +77,7 @@ function Part({ p, report, row, g, open, fold }: { p: ReportPart; report: Golden
         <>
           {p.gone.map((c) => (
             <p key={c.label} className="rpc">
-              <code>{c.label}</code>
+              <span className="nw">{c.label}</span>
               {`, which it ${c.status === 'failed' ? 'failed' : 'couldn’t decide'}, is no longer in shadowlap.config.json · not tested yet`}
             </p>
           ))}
@@ -87,7 +94,7 @@ function Part({ p, report, row, g, open, fold }: { p: ReportPart; report: Golden
         </span>
       );
     case 'gate':
-      return g ? <GateLine g={g} bound={p.bound} passK={p.passK} fold={fold} /> : null;
+      return g ? <GateLine g={g} p={p} fold={fold} /> : null;
     case 'attempts':
       return <AttemptsPart p={p} row={row} open={open} fold={fold} />;
     case 'commit':
@@ -132,9 +139,10 @@ function ReplayLine({ recorded, replayed, stop, words }: { recorded: number; rep
   );
 }
 
-/** A gate's figures: how many passed and its bound kept whole, its pass^5 and what the provider cut short in grey, its bar, the caret past 24 attempts, then its rule. */
-function GateLine({ g, bound, passK, fold }: { g: GateShown; bound: string | null; passK: string | null; fold: Fold }) {
-  const grey = [passK ? `pass^5 ${passK}` : '', g.words?.provider ?? ''].filter(Boolean).join(' · ');
+/** A gate's figures: how many passed and its bound kept whole; in grey, the baseline it compared with, its pass^5 and what the provider cut short, as the server words them; its bar, the caret past 24 attempts, then its rule. */
+function GateLine({ g, p, fold }: { g: GateShown; p: Extract<ReportPart, { kind: 'gate' }>; fold: Fold }) {
+  const { bound } = p;
+  const grey = [p.baseline, p.passK, g.words?.provider].filter(Boolean).join(' · ');
   return (
     <>
       <p className="rpg">
@@ -198,12 +206,11 @@ function AttemptsPart({ p, row, open, fold }: { p: Extract<ReportPart, { kind: '
       {list()}
       {p.carried ? <p className="rpw">{`${p.carried.count} carried over${p.carried.at !== null ? ` from the session at ${clock(p.carried.at)}` : ''} · ${plural(Math.max(0, total - p.carried.count), 'attempt')} this session`}</p> : null}
       {p.check ? (
-        <p className="rpw">
-          <code>{p.check.label}</code>
-          {p.check.detail ? `, but ${p.check.detail}` : ''}
-        </p>
+        <span className="chk rpck">
+          <Check c={{ label: p.check.label, status: 'failed', added: false, detail: p.check.detail || null, reason: null, source: null, live: null, attempts: null }} ran />
+        </span>
       ) : null}
-      {p.forked !== null ? <p className="rpw rpnote">{`forked at call ${p.forked}, each attempt live from there`}</p> : null}
+      {p.forked ? <p className="rpw rpnote">{p.forked}</p> : null}
     </div>
   );
 }
