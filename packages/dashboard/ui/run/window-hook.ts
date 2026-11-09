@@ -33,6 +33,8 @@ export interface Windowed {
   listRef: (el: HTMLElement | null) => void;
   /** Scrolls the view so row `i` shows: centred, or by as little as it takes, with `head` pixels at the box's top covered. */
   show: (i: number, o?: { centre?: boolean; head?: number }) => void;
+  /** Lets go of the row asked for, as the reader's own scroll does: a fold keeps the list's scroll where it is. */
+  release: () => void;
 }
 
 /**
@@ -192,7 +194,12 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
     [opts, rowsNow, place],
   );
 
+  const release = useCallback(() => {
+    wanted.current = null;
+    placedAt.current = null;
+  }, []);
+
   const { start, end } = view ? windowRange(offsets, view.top, view.height, o.over ?? 600) : { start: 0, end: Math.min(rows.length, FIRST_ROWS) };
   const total = offsets[rows.length]!;
-  return { start, end, before: offsets[start] ?? 0, after: total - (offsets[end] ?? total), listRef, show };
+  return { start, end, before: offsets[start] ?? 0, after: total - (offsets[end] ?? total), listRef, show, release };
 }

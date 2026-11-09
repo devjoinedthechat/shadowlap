@@ -728,20 +728,27 @@ The strip's key and **Filter calls** filter the list. A filter lists what it mat
 
 A call's origin shows in the strip's colors, with an injected or a failed call's swatch drawn as a ring. A tool call's effect shows beside its name: a write in teal.
 
-Each call sits under the call it belongs to, the list still in the run's order:
+The list is the run's trace, in call order, grouped lightly:
 
-- **A tool call** sits under the model call that asked for it.
-- **Any other call** sits under the latest model call of its own agent and conversation.
-- **A sub-agent's calls** sit under the model call whose tool started it: a subagent of Claude Code's `Task` tool, or a scope inside another, as `agent/policy-checker` in `agent`.
-- **In a batch**, a run that works through several conversations of one agent, each conversation sits under its first call, named beside it (*conversation 3 of 40*). A sub-agent's conversations are never a batch's.
+- **A tool call** sits a step in under the model call that asked for it, while nothing else came between them. Any other call stands at its level.
+- **A sub-agent's calls**, one after another, sit under a row that names it, *sub-agent*, with its calls, what it spent and how it ended. The row sits under the model call whose tool started it: a subagent of Claude Code's `Task` tool, or a scope inside another, as `agent/policy-checker` in `agent`.
+- **In a batch**, a run that works through several conversations of one agent, each conversation has a row, the first three open. It shows the first sentence of what the conversation was asked, its calls, its writes and errors (on a replay or a fork, what it changed), and how it ended.
 
-A call with calls under it has a fold mark that hides them and shows them again; folded, it says how many it holds.
+A sub-agent's conversations and Shadowlap's own calls are never a batch's. A call whose page or conversation is still being read stands at the top until it is known.
 
-- **←** folds the selected call's group, or goes to the call it sits under.
-- **→** opens it, or goes to its first call.
-- **`j` and `k`** step over what is folded.
+A model call's caret, before its kind, folds its tool calls. A group's row folds at a click anywhere on it. A fold never moves the selection: the folded row that holds the selected call carries its ground, and the inspector and the address stay on the call.
 
-The groups the selected call sits in never stay folded, so a link, the strip or `n` always shows its call.
+- **←** folds the selected call's group, or goes to the call at its head: the model call it sits under, or its sub-agent's first call.
+- **→** opens what holds it, or its calls, or goes to its first call.
+- **`j` and `k`** go through every call in order, and open the groups they reach. So do a link, the strip and `n`.
+
+The fold buttons are one Tab stop, in the selected call's group. On one:
+
+- **↓** and **↑** move to the next or the previous.
+- **Home** and **End** move to the first and the last.
+- **←** folds and **→** opens.
+
+While the key or a search narrows the list, it is flat. Back to all, it is grouped again, its folds as they were. Folds last the session, for each run.
 
 ### Turns view
 
@@ -875,6 +882,8 @@ Besides each call as recorded, the run's endpoint (`/api/runs/<id>`, which the p
 - **A call no model asked for** goes with the tool that was running when it started (the HTTP request a tool sends). Else it goes with the model call whose tools have not all run yet, else with the next model call (the ticket fetched before it).
 
 A call's *Conversation* is its own conversation as it stood at that call, never another ticket's or another agent's.
+
+**What each conversation was asked.** A top agent's conversation, never a sub-agent's or one of Shadowlap's own, carries the first sentence of its first user message, read from the request that started it. A batch's row in Calls shows it. An exported copy masks it, as it masks the request.
 
 **Where the prompt cache stopped hitting.** A model call misses when its cache read is smaller than the previous model call's whole input (uncached, cache creation and cache read) in the same scope and conversation, by at least 1,024 tokens. The tokens sent again are the difference.
 
@@ -1961,12 +1970,12 @@ These keys work on a run's page:
 | Key             | What it does                                                                                 |
 | --------------- | -------------------------------------------------------------------------------------------- |
 | `j` / `k`       | Next or previous call, from anywhere on the page; the selected call takes the focus          |
-| `↓` / `↑`       | The same, in the view's list                                                                 |
+| `↓` / `↑`       | The same, in the view's list; on a fold button in Calls, the next or previous fold button    |
 | `[` / `]`       | The run before or after this one in the list you came from                                   |
 | `1`–`4`         | Conversation, response, request, details                                                     |
 | `←` / `→`       | In a tab list, the previous or next tab                                                      |
-| `←`             | In Calls, fold the selected call's group, or go to the call it sits under                    |
-| `→`             | In Calls, open the selected call's group, or go to its first call                            |
+| `←`             | In Calls, fold the selected call's group, or go to the call at its head                      |
+| `→`             | In Calls, open what holds the selected call, or its group, or go to its first call           |
 | `v`             | Next view, through all of them                                                               |
 | `n`             | Jump to the call where the run forked, where blame found it lost, or where it first failed   |
 | `p`             | Open the parent run                                                                          |

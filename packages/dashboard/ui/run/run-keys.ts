@@ -9,7 +9,7 @@ import { markKey, type RunMark } from '../runkey.js';
 import { recentRunIds, type RunLike } from '../runs.js';
 import { pressShortcut, useSingleKeys, type ShortcutId } from '../shortcuts.js';
 import { errorText, type ToastKind } from '../toast.js';
-import type { CallTree } from './groups.js';
+import { pathOf, type Trace, type TraceGroup } from './groups.js';
 import { panelToggle } from './InspectorPanel.js';
 import { closePanelOn, panelOn } from './panel-state.js';
 
@@ -39,10 +39,11 @@ export interface RunKeyState<C extends { callNo: number }> {
   parentId: string | null | undefined;
   canMark: boolean;
   mark: (m: RunMark) => void;
-  tree: CallTree | null;
-  folded: ReadonlySet<number>;
+  /** Calls' trace, or null while it lists its calls flat; whether a group is open, and its fold. */
+  trace: Trace<C> | null;
+  shown: (g: TraceGroup) => boolean;
   listed: readonly C[];
-  fold: (callNo: number) => void;
+  fold: (g: TraceGroup) => void;
   runs: readonly RunLike[] | null;
   toast: (text: string, kind?: ToastKind) => void;
 }
@@ -50,21 +51,38 @@ export interface RunKeyState<C extends { callNo: number }> {
 /** The keys that press a button in the run's header. */
 const PRESSES: Readonly<Record<string, ShortcutId>> = { r: 'replay', c: 'compare', b: 'blame', f: 'fork' };
 
-/** ← and → on the selected call in Calls, as in a tree: ← folds its group, or goes to the call it sits under; → opens it, or goes to its first call. False when there is nothing to do. */
+/**
+ * ← and → on the selected call in Calls, on the trace as a tree: a group's head is its model call,
+ * or a sub-agent's stretch's first call; a batch's item has its row alone. ← folds the group the
+ * selected call heads (its tool calls, then its stretch), else goes to the head of the group it sits
+ * in, else folds the item's row that holds it, the selection held; on a held selection it goes on
+ * from the folded row that holds it. → opens the folded group that holds it, else the group it
+ * heads, else goes to the first call under it. False when there is nothing to do.
+ */
 function foldKey<C extends { callNo: number }>(k: RunKeyState<C>, open: boolean): boolean {
-  const { tree, selected, folded, listed } = k;
-  if (!tree || selected === null) return false;
-  const i = tree.index.get(selected);
-  if (i === undefined) return false;
-  const isHead = tree.kids[i]! > 0;
-  if (!open) {
-    if (isHead && !folded.has(selected)) return k.fold(selected), true;
-    const up = tree.parent.get(selected);
-    return up !== undefined ? (k.select(up), true) : false;
+  const { trace, selected, shown } = k;
+  if (!trace || selected === null) return false;
+  const own = trace.heads.get(selected) ?? null;
+  const path = pathOf(trace, selected);
+  const held = path.find((g) => !shown(g));
+  const inner = path.at(-1);
+  const stretch = inner?.kind === 'sub' && inner.first === selected ? inner : null;
+  if (open) {
+    if (held) return k.fold(held), true;
+    if (own && !shown(own)) return k.fold(own), true;
+    const i = own || (stretch && stretch.last > selected) ? k.listed.findIndex((c) => c.callNo === selected) : -1;
+    const next = i < 0 ? undefined : k.listed[i + 1];
+    return next ? (k.select(next.callNo), true) : false;
   }
-  if (isHead && folded.has(selected)) return k.fold(selected), true;
-  const next = isHead ? listed[i + 1] : undefined;
-  return next ? (k.select(next.callNo), true) : false;
+  const mine = held ? null : own && shown(own) ? own : stretch;
+  if (mine) return k.fold(mine), true;
+  // On from what shows the selection: a folded model call's row selects that call; else the group above.
+  if (held?.kind === 'model') return held.head !== null && (k.select(held.head), true);
+  const up = held ? path[path.indexOf(held) - 1] : inner;
+  if (!up) return false;
+  if (up.kind === 'model') return up.head !== null && (k.select(up.head), true);
+  if (up.kind === 'sub' && up.first !== selected) return k.select(up.first), true;
+  return k.fold(up), true;
 }
 
 /** The run before or after this one in the list you came from: Runs as it was last shown, else the sidebar's. */
@@ -125,7 +143,7 @@ export function useRunKeys<C extends { callNo: number }>(runKeys: RefObject<((e:
       if (e.key === '[' || e.key === ']') return void stepRun(k.runId, e.key === ']' ? 1 : -1, k.runs, k.toast).catch((err: unknown) => k.toast(errorText(err), 'error')), true;
       const m = markKey(e.key);
       if (m && k.canMark) return k.mark(m), true;
-      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && k.v === 'calls' && k.tree) return foldKey(k, e.key === 'ArrowRight');
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && k.v === 'calls' && k.trace) return foldKey(k, e.key === 'ArrowRight');
       const button = PRESSES[e.key];
       if (button) return press.current(button);
       if (e.key === '/') {

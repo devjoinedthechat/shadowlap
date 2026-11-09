@@ -1,4 +1,4 @@
-import { estimateCost, importedRecording, JUDGE_SCOPE, shortModel, type CallRecord, type JudgeSummary, type ModelResolver, type Origin, type Price, type RunRecord, type RunSummary, type StoreOf, type Usage } from '@shadowlap/engine';
+import { estimateCost, importedRecording, JUDGE_SCOPE, RESERVED_SCOPE_PREFIX, shortModel, type CallRecord, type JudgeSummary, type ModelResolver, type Origin, type Price, type RunRecord, type RunSummary, type StoreOf, type Usage } from '@shadowlap/engine';
 
 /**
  * What a run's page says of the whole run, worked out in SQL over its call events without reading
@@ -72,7 +72,8 @@ SELECT 'extra', NULL, NULL, kind, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
 FROM calls WHERE extra = 1 AND judge = 0`;
 
 /**
- * The agent's model calls that were answered in a blame's scope: how many, how many come up to the
+ * The agent's model calls that were answered in a blame's scope, as the engine's blameSteps finds
+ * them (none in one of Shadowlap's own scopes, probedInScope): how many, how many come up to the
  * blamed call (it included), and whether it is one of them. Bound, in order: the blamed call twice,
  * the run, then the scope four times (null for every scope).
  */
@@ -81,7 +82,7 @@ SELECT COUNT(*) AS m, TOTAL(s.call_no <= ?) AS k, TOTAL(s.call_no = ?) AS hit
 FROM call_events s
 WHERE s.run_id = ? AND s.phase = 'start' AND s.kind = 'api'
   AND EXISTS (SELECT 1 FROM call_events e WHERE e.run_id = s.run_id AND e.call_no = s.call_no AND e.phase = 'end')
-  AND (json_extract(s.meta, '$.scope') IS NULL OR json_extract(s.meta, '$.scope') != '${JUDGE_SCOPE}')
+  AND (json_type(s.meta, '$.scope') IS NOT 'text' OR substr(json_extract(s.meta, '$.scope'), 1, ${RESERVED_SCOPE_PREFIX.length}) != '${RESERVED_SCOPE_PREFIX}')
   AND (? IS NULL OR (json_type(s.meta, '$.scope') = 'text' AND (json_extract(s.meta, '$.scope') = ? OR substr(json_extract(s.meta, '$.scope'), 1, length(?) + 1) = ? || '/')))`;
 
 /** Calls alike in all the summary reads of them: how many, how many of their answers reached a provider, their final answers' usage summed. */
