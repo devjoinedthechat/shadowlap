@@ -196,7 +196,8 @@ the server keeps for its drawer.
 
 Fixes keeps its parts in `fixes/`: a fix's page and its Blame, Repair and Verify steps, the Forks
 view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, which asks for the check
-when the server can't find it), a fix's step on a list row (`RowStep.tsx`, on Fixes and Needs a look:
+when the server can't find it; its dialogs in `RunBlameAsks.tsx`, a part only the served dashboard
+hands in, loaded the first time one asks), a fix's step on a list row (`RowStep.tsx`, on Fixes and Needs a look:
 its words in `lead.ts`, its dialogs in `LeadDialog.tsx`, loaded as one first shows, which reads
 `FixDialogs.tsx` and `verify-asks.tsx` and none of the fix's page), what the breadcrumb and the
 palette know about fixes (`data.ts`),

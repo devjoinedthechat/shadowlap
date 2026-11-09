@@ -27,6 +27,8 @@ import { BulkBar, PackDialog } from '../ui/runspage/BulkBar.js';
 import { FindCommitDialog as RunsFindCommit } from '../ui/runspage/FindCommit.js';
 import { ImportDialog } from '../ui/runspage/ImportDialog.js';
 import { RemoveProjectDialog } from '../ui/shell/RemoveProject.js';
+import { SERVED_PARTS } from '../ui/pages/served.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { answerTestsQuestion, moreAttemptsAsk, startTestsJob, type TestsAsk } from '../ui/tests-ask.js';
@@ -140,9 +142,15 @@ function holds(page: Rendered, want: Expect): void {
   expect(page.focused(), `${title} starts on ${want.first}`).toBe(page.all(`[role="dialog"] ${want.first}`)[0]);
 }
 
+/** A dialog, or what opens it, on the served dashboard, which hands in what only it draws (Run blame's dialogs among them). */
 async function open(element: ReactElement, app: AppState = appWith()): Promise<Rendered> {
-  r = await render(createElement(AppContext.Provider, { value: app }, element));
+  r = await render(createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, element)));
   return r;
+}
+/** Presses Run blame, then waits for the dialog it asks in: a part of its own, which loads the first time one asks. */
+async function pressBlame(page: Rendered): Promise<void> {
+  await page.click(page.byText('button', 'Run blame'));
+  await page.until('Run blame’s dialog', () => page.all('[role="dialog"]').length === 1);
 }
 
 const closes = { onClose: () => undefined };
@@ -334,7 +342,7 @@ describe('a run’s next steps that ask first', () => {
 
   it('Run blame on a capture asks for your command first', async () => {
     const page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: [], from: 'exit' }, capture: true, line: `shadowlap blame ${RUN.slice(0, 10)} --expect '{"calls":[]}' -- <your command>` }), served());
-    await page.click(page.byText('button', 'Run blame'));
+    await pressBlame(page);
     holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: FIELD, ok: 'Run blame' });
   });
   it('Run blame above Spending, asked on its id with its command, its price and why it asks; one that needs its check asks for it alone', async () => {
@@ -342,7 +350,7 @@ describe('a run’s next steps that ask first', () => {
     const estimate = { kind: 'blame', usd: 10.88, ceiling: true, parts: ['up to 7 probes of 33 attempts and a check of the call found', 'live from each probe, writes stubbed'] } as NonNullable<NextStep['estimate']>;
     let page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: [], from: 'exit' }, estimate }), served());
     expect(JSON.parse(String(page.byText('button', 'Run blame').props['data-tip']))).toMatchObject({ est: { usd: 10.88, ceiling: true } });
-    await page.click(page.byText('button', 'Run blame'));
+    await pressBlame(page);
     holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: OK, ok: 'Run blame' });
     expect(page.one('[role="dialog"] .dcost').textContent).toContain('At most ≈$10.88');
     expect(page.one('[role="dialog"] .dlgcost').textContent).toContain('Asks above $0.50');
@@ -350,6 +358,7 @@ describe('a run’s next steps that ask first', () => {
     await page.unmount();
     page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: ['x'], from: 'ask' }, estimate: { ...estimate, usd: 0.1 } }), served());
     await page.click(page.byText('button', 'Run blame'));
+    await page.until('its check to be asked', () => page.all('[role="dialog"] textarea').length === 1);
     expect([page.all('[role="dialog"]').length, page.all('[role="dialog"] textarea').length, page.all('[role="dialog"] .dlgcost').length]).toEqual([1, 1, 0]);
     expect(page.one('[role="dialog"] .dcost').textContent).toContain('At most ≈$0.100');
     await page.unmount();

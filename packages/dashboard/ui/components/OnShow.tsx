@@ -20,14 +20,14 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * rarely opens, which keeps it within its budget: a diverged test's dialogs (run/diverged.tsx),
  * Share's menu (pages/served.tsx) and its Export dataset… and Export OpenTelemetry trace…
  * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), Edit and fork's dialog
- * (run/EditDialog.tsx), Run blame's check (fixes/RunBlame.tsx), and Find breaking commit's and
- * Delete run's (run/RunDialogs.tsx). So must the structural diff
+ * (run/EditDialog.tsx), Run blame's dialogs and their check (fixes/RunBlameAsks.tsx), and Find
+ * breaking commit's and Delete run's (run/RunDialogs.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
  * the parts they show and none of the dashboard's other pages. A part a copy never draws, such as
- * Share's menu or the check builder (which only Add check… opens, and a copy offers none), is the
+ * Share's menu, Run blame's dialogs or the check builder (which only Add check… opens), is the
  * exception: the served entry hands it in (served-parts.ts, from pages/served.tsx), so a copy's script
  * holds none of it, nor the dialogs it opens (Share's Export dataset… and Export OpenTelemetry
  * trace…), and a test pins what keeps each one undrawn there (test/ui-exported-copy.test.ts).

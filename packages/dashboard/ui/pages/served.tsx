@@ -10,4 +10,5 @@ import type { ServedParts } from '../served-parts.js';
 export const SERVED_PARTS: ServedParts = {
   ShareMenu: onShow(() => import('../run/ShareMenu.js').then((m) => m.ShareMenu)),
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
+  RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks)),
 };

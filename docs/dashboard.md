@@ -2275,7 +2275,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
-- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's check, Share's eval dataset and OpenTelemetry trace dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
+- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's dialogs and the check it asks for, Share's eval dataset and OpenTelemetry trace dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
 - **The structural diff** a finding's diff draws has a script of its own as well. Both scripts, and a finished run's diff, are asked for once the pointer or the focus reaches Show diff, so it opens at once. The diff is kept while the page is open.
 - **The check builder** has a script of its own, asked for as its menu opens, or as the pointer or the focus reaches the inspector's **Add check…**. A builder whose script can't be loaded says so in a small dialog in its place, with **Retry**.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
@@ -2750,7 +2750,7 @@ Settings is checked at a phone's width too: no tab scrolls sideways, each row's 
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
 - **Shared parts**: a page's header and facts, its sections, statuses, verdict lines, switches, pickers, code boxes, run ids and attempts, and its empty, loading and error states are components in `packages/dashboard/ui/components/`, listed in its `README.md`, with their styles in `ui/css/components.css`. `Term` reads its definitions from `ui/glossary.ts`.
 - **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a heavy part it lists loads with a page, not through `onShow`: Compare, the structural diff (`ui/components/JsonDiff.tsx`), the results matrix (`ui/components/ResultsMatrix.tsx`), everything under `ui/changes/` but its head, `Head.tsx`, and the check builder (`ui/checks/`).
-- **Parts only the served dashboard draws**, Share's menu and the check builder, are handed to a run's page by its entry (`ui/served-parts.ts`, from `ui/pages/served.tsx`). An exported copy never offers Share or Add check…, so its one script holds neither.
+- **Parts only the served dashboard draws**, Share's menu, Run blame's dialogs and the check builder, are handed to the pages by its entry (`ui/served-parts.ts`, from `ui/pages/served.tsx`). An exported copy never offers Share, Run blame or Add check…, so its one script holds none of them.
 
 ## Troubleshooting
 

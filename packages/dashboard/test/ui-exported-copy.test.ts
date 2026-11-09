@@ -81,11 +81,11 @@ async function open(runIds: string[], hash: string) {
 
 const runOpen = () => r!.all('.rhead .rnm').map((h) => h.getAttribute('data-run'));
 
-/** The modules of the page's code that load a script whose import matches `module`. */
+/** The modules of the page's code that load a module whose path matches `module`: a type alone loads nothing. */
 function loadersOf(module: RegExp): string[] {
   const ui = fileURLToPath(new URL('../ui/', import.meta.url));
   return readdirSync(ui, { recursive: true, encoding: 'utf8' })
-    .filter((f) => /\.tsx?$/.test(f) && module.test(readFileSync(join(ui, f), 'utf8')))
+    .filter((f) => /\.tsx?$/.test(f) && readFileSync(join(ui, f), 'utf8').split('\n').some((l) => module.test(l) && !/^import type\b/.test(l.trim())))
     .map((f) => f.split(sep).join('/'));
 }
 
@@ -133,10 +133,12 @@ describe('an exported copy', () => {
     expect(loadersOf(/\bOtelDialog\.js['"]/)).toEqual(['run/ShareMenu.tsx']);
   });
 
-  it('never opens the check builder: the served entry alone loads it, and a copy offers no Add check… at a tool call', async () => {
-    // The page's code that loads the builder's script: the parts the served entry hands in, which a
-    // copy's entry never does, so the copy's script holds none of ui/checks/ (HEAVY in test/ui-bundle-size.test.ts).
+  it('never opens the check builder or Run blame’s dialogs: the served entry alone loads them, and a copy offers no Add check… at a tool call', async () => {
+    // The page's code that loads their scripts: the parts the served entry hands in, which a copy's
+    // entry never does, so the copy's script holds none of ui/checks/ (HEAVY in test/ui-bundle-size.test.ts)
+    // nor Run blame's dialogs. A copy draws no Run blame: its one next step is Compare (test/next-step.test.ts).
     expect(loadersOf(/\bchecks\/Builder\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/\bRunBlameAsks\.js['"]/)).toEqual(['pages/served.tsx']);
     // At a tool call of a finished recording, where the served dashboard offers it on the inspector.
     await open([forkId, runId], `#/run/${forkId}/4`);
     await r!.until('the call’s inspector', () => r!.all('.insp').length === 1);
