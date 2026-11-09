@@ -149,12 +149,6 @@
       "callDetailFrom": 39,
       "row": 56
     },
-    "packages/dashboard/src/ci-workflows.ts": {
-      "ciWorkflows": 34
-    },
-    "packages/dashboard/src/ci-yaml.ts": {
-      "workflowYaml": 31
-    },
     "packages/dashboard/src/fix-bundles.ts": {
       "fixBundles": 82
     },
@@ -219,7 +213,7 @@
       "ScoreDialog": 34
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 65
+      "StoreSetup": 50
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 95
@@ -429,7 +423,7 @@
       "NewProjectPage": 162
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 284
+      "StoreSetup": 221
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 267
@@ -496,7 +490,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 1072,
+    "packages/dashboard/src/tests.ts": 1035,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 810,

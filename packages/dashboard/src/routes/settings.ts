@@ -1,5 +1,4 @@
 import { messageOf, setupRunOf } from '@shadowlap/engine';
-import { liveKeys } from '../ci-workflows.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { answerData } from '../read-pool.js';
@@ -124,7 +123,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/settings/store', (r) => {
     const cwd = folder();
     // Copy CI step runs the goldens: the keys of those that run live go with it.
-    r.tagged(storeSettings(settings(), readTeamStoreInput({ cwd }), liveKeys(cwd, ctx.options.goldens?.() ?? [])));
+    r.tagged(storeSettings(settings(), readTeamStoreInput({ cwd })));
   });
 
   // ---- jobs ----

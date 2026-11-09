@@ -613,10 +613,11 @@ export function pasteWhere(files: ReadonlyArray<{ path: string; found: boolean }
 
 /**
  * What the CI tab's controls show: what was changed on the tab, else what the server answered with
- * (its defaults, which the panels' first answer carries), so nothing in the UI repeats them.
+ * (the repository's workflow's switches, else its defaults), so nothing in the UI repeats them.
  */
 export function ciShown(changed: Partial<CiWorkflowOptions>, view: CiWorkflowsView): CiWorkflowOptions {
   return {
+    comment: changed.comment ?? view.comment.on,
     fix: changed.fix ?? view.fixOnFailure.on,
     alerts: changed.alerts ?? view.alerts.on ?? true,
     budget: changed.budget ?? view.fixOnFailure.budget,

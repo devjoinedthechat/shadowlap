@@ -31,7 +31,7 @@ function redaction(error: string | null): RedactionSettings {
   return { config: config(error), rules: [], form, where: [], runs: [{ runId: 'R1', label: '01M5GS3GZR · node agent.mjs' }], previewRunId: 'R1', previewError: error } as unknown as RedactionSettings;
 }
 
-const store = (error: string | null): StoreSettings => ({ config: config(error), configured: null, error, status: null, ciStep: null, policy: null, redactRules: error ? null : 0 });
+const store = (error: string | null): StoreSettings => ({ config: config(error), configured: null, error, status: null, policy: null, redactRules: error ? null : 0 });
 
 const SKILLS: SkillOffer['skills'] = [
   { name: 'setup-agent', command: '/shadowlap:setup-agent', shared: 'shadowlap-setup-agent', does: 'sets Shadowlap up for an agent' },

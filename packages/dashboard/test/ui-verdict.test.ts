@@ -217,6 +217,37 @@ describe('Tests’ Last result', () => {
       delete g.location;
     }
   });
+
+  it('opens Settings → CI’s Gates on each rule’s own kind from its link, saying so on its card', async () => {
+    const g = globalThis as { location?: unknown };
+    g.location = { hash: '#/tests' };
+    const history = { kind: 'baseline' as const, drop: 0.15, risk: 0.05, window: 10, min: 3, max: 40 };
+    const store = Store.open(':memory:');
+    let v: TestsView;
+    try {
+      const t = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'a1b2c3d', startedAt: 100 });
+      store.addTestResult({ sessionId: t.sessionId, golden: 'goldens/escalates', ok: true, runId: null, revision: 'a1b2c3d', at: 101, data: result(Array(12).fill(true)) });
+      const h = gateResult(history, [true, true, true], { history: { passes: 47, attempts: 50, sessions: 5 } });
+      store.addTestResult({ sessionId: t.sessionId, golden: 'goldens/drops', ok: true, runId: null, revision: 'a1b2c3d', at: 102, data: { mode: 'fork', attempts: { total: 3, passed: h.passes, required: null, runs: [] }, verdict: 'passed', gate: h } });
+      store.finishTestSession(t.sessionId, { passed: 2, failed: 0, upstreamRequests: 0, endedAt: 110 });
+      v = testsView(store, [goldens[0], { path: 'goldens/drops', runId: null, packedAt: 1, mode: 'fork', repeat: 1, passes: 1, gate: history, checks: [] }]);
+    } finally {
+      store.close();
+    }
+    try {
+      r = await render(page(v));
+      await r.until('the goldens to load', () => r!.all('td.glast').length === 2);
+      const ruleOf = (name: string) => v.rows.find((x) => x.name === name)!.last.gate!.rule!;
+      const links = r.all('.gfoot p:not(.hkey) a.dlink');
+      expect(links.map((a) => [a.textContent.replace(/\u00a0/g, ' '), a.getAttribute('href')])).toEqual([
+        [RULE, '#/settings/ci?gate=sprt'],
+        [ruleOf('drops').replace(/\u00a0/g, ' '), '#/settings/ci?gate=baseline'],
+      ]);
+      expect(links.map(tip)).toEqual([0, 1].map(() => ({ t: 'What this gate takes', s: 'its figures, the attempts they take and the odds of each verdict, on Settings → CI', rows: [] })));
+    } finally {
+      delete g.location;
+    }
+  });
 });
 
 describe('the Forks view’s bundles', () => {

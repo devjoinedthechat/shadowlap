@@ -86,7 +86,7 @@
 .rule span { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
 .rule .to { margin-top: 6px; }
 .rule .to .chip { display: inline-flex; }
-.alertcard { border: 1px solid var(--line2); border-radius: 12px; background: var(--bg2); padding: 12px 14px; font-size: 13px; }
+.alertcard { border: 1px solid var(--line2); border-radius: 10px; background: var(--bg2); padding: 12px 14px; font-size: 13px; }
 .alertcard .ah { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .alertcard .ah .tile { width: 18px; height: 18px; border-radius: 5px; }
 .alertcard .ah b { font-weight: 600; }
@@ -145,7 +145,11 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .cip .cimain > p.muted { margin: 0 0 6px; }
 .cip .offnote { display: block; margin-top: 6px; font-weight: 500; color: var(--warn); }
 /* What a feature turned off would do: the faint ink, never faded, which fell under AA's contrast (2.0 to 4.0:1). */
-.cip.off :is(.cimain .setrow, .codewrap, .prcard, .slackmsg, .teamside ul), .cip.off :is(.cimain .setrow, .codewrap, .prcard, .slackmsg, .teamside ul) * { color: var(--faint); }
+/* Off, only the pull request's preview goes quiet: its ink words in --dim and its lime marks grey, so every word still reads
+   at 4.5:1. The settings and the lists stay as they are: they apply the moment it's turned on. */
+.cip.off .prcard .ah b, .cip.off .prcard .msgtext code, .cip.off .prcard .prl code { color: var(--dim); }
+.cip.off .prcard .ah .prico { stroke: var(--faint); }
+.cip.off .prcard .prl i.ok { background: var(--line2); }
 .cip .teamside .k { display: block; margin: 0 0 8px; }
 .cip .teamside .alertcard + .k { margin-top: 20px; }
 .setrow select.sel, .setrow input.inp { height: 32px; min-width: 170px; border-radius: 9px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; flex: none; }
@@ -170,16 +174,18 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .cip .cicode .codewrap { margin-top: 0; }
 .cip .alertgrid .cimain { padding-bottom: 8px; }
 .cip .alertgrid .cimain .setrow:last-child { border-bottom: 0; }
-.cilist { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+/* What a step needs, as rows between hairlines on the page: no box. */
+.cilist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 /* The label keeps room for a few words beside a long value, which breaks after a comma, each part whole. */
-.cilist li { display: grid; grid-template-columns: 8px minmax(min(150px, 40%), 1fr) auto; align-items: center; gap: 12px; padding: 9px 12px; font-size: 13px; color: var(--dim); }
+.cilist li { display: grid; grid-template-columns: 8px minmax(min(150px, 40%), 1fr) auto; align-items: center; gap: 12px; padding: 9px 0; font-size: 13px; color: var(--dim); }
 .cilist li + li { border-top: 1px solid var(--line); }
 .cilist li i { width: 8px; height: 8px; border-radius: 50%; background: var(--line2); }
 .cilist li i.err { background: var(--cq-red); }
 .cilist li i.warn { background: var(--cq-amber); }
+.cilist li i.ok { background: var(--cq-lime); }
 .cilist li > span { text-wrap: balance; }
 .cilist li code { font: 11.5px var(--mono); color: var(--faint); }
-.slackmsg { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 12px; background: var(--bg2); }
+.slackmsg { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 10px; background: var(--bg2); }
 .slackmsg .tile { width: 32px; height: 32px; border-radius: 8px; flex: none; }
 .slackmsg .sm { min-width: 0; }
 .slackmsg .sh { display: flex; align-items: baseline; gap: 6px; }
@@ -267,3 +273,48 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .setrow .spendf input.inp:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 18%, transparent); }
 @media (max-width: 640px) { .setrow.spend .spendset { align-self: stretch; justify-content: flex-start; } }
 @media (pointer: coarse) { .setrow.spend .seg button { position: relative; } .setrow.spend .seg button::after { content: ''; position: absolute; inset: -6px 0; } }
+
+/* Your workflow: where the repository's file stands, its counts in amber; the file folded under it, its lines marked. */
+.wfpanel .wfstate { margin: 0 0 4px; color: var(--dim); }
+.wfpanel .wfstate b { font-weight: 600; color: var(--warn); }
+.wfpanel .pbody > p.muted { margin: 0; }
+.wfpanel > .pbody:not(.cicode) { padding-bottom: 14px; }
+.wfpanel .cicode { border-top: 0; padding-top: 0; }
+.wfcode .add { color: var(--add); }
+.wfcode .del { color: var(--del); }
+.prpanel .cimain { padding-bottom: 14px; }
+/* Gates: the figures on the left, the preview of what they do on the right, the golden's entry under both. */
+.gatep .gdef { margin: 10px 0 0; color: var(--faint); font-size: 12.5px; text-wrap: pretty; }
+.gatep .gdef code, .gatep .setrow span code { font-size: 11px; color: var(--dim); }
+.gatep .gdef .linkbtn { margin-left: 2px; vertical-align: baseline; }
+.gatep .setrow > div > span, .gatep .fieldnote { text-wrap: pretty; }
+/* A figure waits in plain ink, never faded: the kind's segments wait as every action does. */
+.gatep select.sel:disabled { color: var(--faint); cursor: not-allowed; }
+.gatep .cicode > .k { display: block; margin: 0 0 8px; }
+.gprev { container-type: inline-size; }
+.gprev .gsays { margin: 0 0 20px; color: var(--dim); font-size: 12.5px; text-wrap: pretty; }
+.gprev .cilist + .godw { margin-top: 20px; }
+.gprev .godh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px; }
+.gprev .godh .k { margin: 0; }
+.gprev .godh .xbtn { display: none; margin: -4px -4px -4px 0; }
+.gprev .godh .xbtn[aria-expanded="true"] svg { transform: rotate(180deg); }
+/* A narrow column puts each verdict line under what it is about, as a phone does. */
+@container (max-width: 520px) { .gprev .cilist li { grid-template-columns: 8px minmax(0, 1fr); } .gprev .cilist li code { grid-column: 2; } }
+.gprev .cilist code, .godds, .gdef code { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+.gprev .cilist code { white-space: normal; }
+.gotw { overflow-x: auto; }
+.godds { width: 100%; border-collapse: collapse; font: 12.5px var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); }
+.godds th { padding: 0 0 6px 12px; text-align: right; font: 500 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.godds td { padding: 6px 0 6px 12px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.godds th:first-child, .godds td:first-child { padding-left: 0; text-align: left; }
+.godds td small { margin-left: 4px; font-size: 11px; color: var(--faint); }
+.gprev .gnote { margin: 12px 0 0; color: var(--faint); font-size: 12.5px; text-wrap: pretty; }
+@media (max-width: 640px) {
+  .godds th { letter-spacing: .04em; }
+  .godds th, .godds td { padding-left: 8px; }
+  /* The odds fold away behind their toggle; the note under them stays. */
+  .gprev .godh .xbtn { display: inline-grid; }
+  .gprev .godw:not(.open) .gotw { display: none; }
+}
+/* A narrow phone's column: the odds keep inside it rather than scroll. */
+@container (max-width: 320px) { .godds { font-size: 11px; } .godds th { letter-spacing: 0; } .godds th, .godds td { padding-left: 5px; } }

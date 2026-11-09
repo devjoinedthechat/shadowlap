@@ -96,20 +96,18 @@ describe('reading the tabs', () => {
     expect(await get('settings/agents')).toMatchObject({ files: expect.arrayContaining([expect.objectContaining({ path: 'CLAUDE.md', found: false })]) });
     expect(await get('settings/tools')).toMatchObject({ live: [], fenced: [], http: [] });
     expect(await get('settings/project')).toMatchObject({ name: project.split(/[\\/]/).pop(), runs: 0, attempts: 0, store: { path: dbPath }, cleanup: { olderThanDays: 30 } });
-    expect(await get('settings/store')).toMatchObject({ configured: null, status: null, ciStep: null, policy: null, error: null });
+    expect(await get('settings/store')).toMatchObject({ configured: null, status: null, policy: null, error: null });
     // The CI tab reads the tests feature's endpoint; Settings serves nothing of its own for it.
     expect((await api('settings/ci')).status).toBe(404);
   });
 
-  it('sends the team store, its CI step, and why a store that is not a URL cannot be used', async () => {
+  it('sends the team store, its access policy, and why a store that is not a URL cannot be used', async () => {
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1', ciPush: false }));
-    const s = await get<{ configured: string; status: { bucket: string; region: string; ciPush: boolean; inStore: number }; ciStep: { file: string; text: string }; policy: { text: string; command: string } }>('settings/store');
+    const s = await get<{ configured: string; status: { bucket: string; region: string; ciPush: boolean; inStore: number }; policy: { text: string; command: string } }>('settings/store');
     expect(s.configured).toBe('s3://northwind-agent-runs/support-agent?region=eu-central-1');
     expect(s.status).toMatchObject({ bucket: 'northwind-agent-runs', region: 'eu-central-1', ciPush: false, inStore: 0 });
-    expect(s.ciStep.file).toMatch(/^\.github\/workflows\//);
-    // At the release Settings → CI pins, with Node and the agent's dependencies before it.
-    expect(s.ciStep.text).toContain(`npx shadowlap@${VERSION} test goldens/* --push`);
-    expect(s.ciStep.text).toContain('  - uses: actions/setup-node@v7\n    with:\n      node-version: 22\n');
+    // GitHub's step is Settings → CI's to write, in Your workflow: Store sends none of its own.
+    expect(s).not.toHaveProperty('ciStep');
     // Copy access policy: what shadowlap store policy prints for the store's cloud, # lines and all.
     expect(s.policy.command).toBe('shadowlap store policy');
     expect(s.policy.text).toMatch(/^# The access to ask your cloud admin for \(Amazon S3\)/);
@@ -118,7 +116,7 @@ describe('reading the tabs', () => {
     expect(await get('settings/store')).toMatchObject({ configured: 'ftp://nope', status: null, policy: null, error: expect.stringMatching(/names a store that can't be used/) });
   });
 
-  it('gives the CI step the keys of the providers its goldens that run live call, as Settings → CI does', async () => {
+  it('gives the setup’s CI steps the keys of the providers its goldens that run live call, as Settings → CI does', async () => {
     // A golden marked fork runs live in CI: the agent calls Anthropic, so the step that runs it needs that key.
     const pack = join(project, 'goldens', 'refund-over-limit');
     mkdirSync(pack, { recursive: true });
@@ -129,17 +127,16 @@ describe('reading the tabs', () => {
     const withGoldens = await startDashboard({ store, dbPath, spawnCli: cliSpawner({ command: [process.execPath, FAKE], dbPath, cwd: project }), project: { path: project }, goldens });
     try {
       const read = async <T,>(path: string) => (await (await api(path, {}, withGoldens)).json()) as T;
-      const s = await read<{ ciStep: { text: string } }>('settings/store');
-      expect(s.ciStep.text).toContain(`  - run: npx shadowlap@${VERSION} test goldens/* --push\n    env:\n      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}`);
-      // The store's setup page hands over the same step, and each CI says where the key goes.
+      // The store's setup page hands over each CI's step, at the release Settings → CI pins, and each CI says where the key goes.
       const setup = await read<{ ci: Array<{ ci: string; text: string; notes: string[] }> }>('store/setup');
-      expect(setup.ci[0].text).toBe(s.ciStep.text);
+      expect(setup.ci[0].text).toContain(`  - run: npx shadowlap@${VERSION} test goldens/* --push\n    env:\n      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}`);
+      expect(setup.ci[0].text).toContain('  - uses: actions/setup-node@v7\n    with:\n      node-version: 22\n');
       expect(setup.ci.find((c) => c.ci === 'gitlab')!.notes.at(-1)).toBe("The goldens that run live (marked fork, or with an injection gate) call your agent's providers: add ANTHROPIC_API_KEY as a masked CI/CD variable, which the job gets in its environment.");
     } finally {
       await withGoldens.close();
     }
     // Without goldens that run live, the step is the one it was.
-    expect((await get<{ ciStep: { text: string } }>('settings/store')).ciStep.text).not.toContain('ANTHROPIC_API_KEY');
+    expect((await get<{ ci: Array<{ text: string }> }>('store/setup')).ci[0].text).not.toContain('ANTHROPIC_API_KEY');
   });
 
   it('counts the redaction rules a share link applies, and says when they can’t be read', async () => {

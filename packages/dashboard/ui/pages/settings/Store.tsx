@@ -2,11 +2,13 @@ import { JOB_KINDS } from '../../api.js';
 import { CopyButton } from '../../components/CodeBox.js';
 import { EmptyState } from '../../components/States.js';
 import { num } from '../../format.js';
+import { commandText } from '../../goldens.js';
 import { ACTIONS, PUSH_LOCAL } from '../../labels.js';
 import { href } from '../../route.js';
 import type { StoreSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import type { StoreSetupView } from '../../store-api.js';
+import { AGAIN, CHANGES, keptFor } from './ci-kept.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { stepWords } from '../../../src/store-steps.js';
 import { shareLinksLine, syncText } from './logic.js';
@@ -45,7 +47,7 @@ export function StoreTab() {
     );
   }
   const s = data.status;
-  const ci = ciStepOf(data, view);
+  const ci = ciStepOf(view);
   const share = shareLinksLine(data.redactRules);
   const underWay = view?.active && view.next ? view.next : null;
   // One lime: the next step, what is left of it.
@@ -186,14 +188,27 @@ function AccessWords({ access }: { access: string }) {
 }
 
 /**
- * Push from CI: its Switch, with Undo, and Copy CI step beside it for the CI the setup added. Copy
- * CI step holds the place of the design's link to the workflow (`.wflink`), so on a phone it comes
- * after the Switch, which sits right under what it turns on.
+ * Push from CI: its Switch, with Undo, and Open Your workflow beside it (`.wflink`), the design's
+ * link to Settings → CI, which builds the one workflow, this step with it. For GitLab CI or other CI
+ * the setup added, Copy CI step takes the link's place. On a phone either comes after the Switch,
+ * which sits right under what it turns on.
  */
 function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; version: string; ci: CopiedStep | null; editor: ReturnType<typeof useEditor>; gone: string | null }) {
   const app = useApp();
   const { client } = app;
   const off = app.actionsOff ?? gone ?? (editor.busy ? SAVING : null);
+  // Whether Your workflow, as Settings → CI's switches build it, equals the repository's file now: its toast says so.
+  const same = async () => {
+    try {
+      return (await client.ciWorkflows(keptFor(app.meta?.project?.id))).workflow.same;
+    } catch {
+      return false;
+    }
+  };
+  const write = async (on: boolean | null, at: string) => {
+    const r = await client.settings.setCiPush(on, at);
+    return { ...r, same: await same() };
+  };
   return (
     <div className="setrow">
       <div>
@@ -204,20 +219,35 @@ function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; ver
         <CopyButton className="linkbtn wflink" text={ci.text} label={`the ${ci.name} step`} name="Copy CI step" sub={`${ci.name}, ${ci.file}${ci.oidc ? ' · short-lived credentials, no stored keys' : ''}`}>
           Copy CI step
         </CopyButton>
-      ) : null}
+      ) : (
+        <a className="more wflink" href={href.settings('ci')} title="Settings → CI builds the one workflow, this step with it">
+          Open Your workflow
+        </a>
+      )}
       <Switch
         action
         why={off}
         on={ciPush}
         labelledBy="ciPush-name"
         describedBy="ciPush-help"
-        title={`shadowlap store push-from-ci ${ciPush ? 'off' : 'on'}`}
+        title={commandText(['store', 'push-from-ci', ciPush ? 'off' : 'on'])}
         onChange={(on) =>
           void editor.run(
-            () => client.settings.setCiPush(on, version),
-            (r) => ciPushText(r.ciPush),
+            () => write(on, version),
+            (r) => ciPushText(r.ciPush, r.same),
             // Back to what the file said, or to saying nothing, which is on.
-            (r) => (r.changed ? { edit: () => client.settings.setCiPush(r.was, r.version), ok: ciPushText(r.was !== false) } : null),
+            (r) => {
+              if (!r.changed) return null;
+              let back: { ciPush: boolean; same: boolean; version?: string } = { ciPush: r.was !== false, same: false };
+              return {
+                edit: async () => {
+                  back = await write(r.was, r.version);
+                  return back;
+                },
+                // Worded once it has answered: whether the file is the repository's again.
+                ok: () => ciPushText(back.ciPush, back.same),
+              };
+            },
           )
         }
       />
@@ -225,8 +255,11 @@ function CiPushRow({ ciPush, version, ci, editor, gone }: { ciPush: boolean; ver
   );
 }
 
-/** A Push from CI write's toast, for the value now in force. */
-const ciPushText = (on: boolean) => `Push from CI ${on ? 'on' : 'off'} · written to ${CONFIG_FILE}; commit it for CI to see it`;
+/**
+ * A Push from CI write's toast, for the value now in force, as Settings → CI's switches word theirs:
+ * Your workflow's step follows it, and `same` once the file the switches build equals the repository's.
+ */
+const ciPushText = (on: boolean, same: boolean) => `Push from CI is ${on ? 'on' : 'off'} · ${same ? AGAIN : CHANGES}`;
 
 /** Why a store job's button can't run here, or null: actions off, or a dashboard that doesn't run it yet. */
 function jobButton(app: ReturnType<typeof useApp>, kind: string, command: string): string | null {
@@ -248,11 +281,10 @@ interface CopiedStep {
   oidc: boolean;
 }
 
-/** Copy CI step: the step for the CI the setup added (or skipped) it for, else GitHub Actions'. */
-function ciStepOf(data: StoreSettings, view: StoreSetupView | null): CopiedStep | null {
-  const chosen = view?.ci?.find((x) => x.ci === (view.setup.ciProvider ?? 'github'));
-  if (chosen) return chosen;
-  return data.ciStep ? { name: 'GitHub Actions', ...data.ciStep } : null;
+/** Copy CI step: the step for GitLab CI or other CI, when the setup added (or skipped) it for one; null for GitHub Actions, whose step is Your workflow's. */
+function ciStepOf(view: StoreSetupView | null): CopiedStep | null {
+  const provider = view?.setup.ciProvider ?? 'github';
+  return provider === 'github' ? null : (view?.ci?.find((x) => x.ci === provider) ?? null);
 }
 
 /**

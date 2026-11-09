@@ -115,6 +115,7 @@
     "packages/dashboard/test/ui-settings-lists.test.ts",
     "packages/dashboard/test/ui-settings-calibrate.test.ts",
     "packages/dashboard/test/ui-ci-tab.test.ts",
+    "packages/dashboard/test/ui-store-setup-ci.test.ts",
     // This fits run names' about lines, which measures the page.
     "packages/dashboard/test/ui-about.test.ts",
     // This renders the places that name a run.
