@@ -80,4 +80,21 @@ describe('a golden row on Tests', () => {
     expect(testsView(s, same).verdict!.title).not.toContain('changed since');
     expect(failingTests(s, { goldens: same })[0].next).not.toBe('run-tests');
   });
+
+  it('has every mark again once a session judged its checks as they are now: nothing added, nothing changed since', () => {
+    const s = store([failed('issue_refund called 0 times'), passed('escalate called 1 time')], 'check');
+    const now = [golden(['escalate called 1 time', 'send_email called 0 times'])];
+    expect(testsView(s, now).rows[0]).toMatchObject({ changed: [{ label: 'issue_refund called 0 times', status: 'failed' }], checkResults: [{ status: 'passed', added: false }, { status: null, added: true }] });
+    // The next session judges the checks the entry holds now, as `shadowlap test` reads each entry when it runs it.
+    const again = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'e3f9b20', actor: 'ci', startedAt: T0 + 10 * 60_000 });
+    s.addTestResult({ sessionId: again.sessionId, golden: 'goldens/refund-flow', ok: true, reason: null, runId: 'R2', revision: 'e3f9b20', at: T0 + 10 * 60_000 + 1, data: { mode: 'replay', calls: { total: 4, replayed: 4, live: 0, blocked: 0, stubbed: 0 }, checks: [passed('escalate called 1 time'), passed('send_email called 0 times')] } });
+    s.finishTestSession(again.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: T0 + 10 * 60_000 + 100 });
+    const row = testsView(s, now).rows[0];
+    expect(row.changed).toBeNull();
+    expect(row.checkResults.map((c) => [c.label, c.status, c.added, c.addedAt])).toEqual([
+      ['escalate called 1 time', 'passed', false, null],
+      ['send_email called 0 times', 'passed', false, null],
+    ]);
+    expect(failingTests(s, { goldens: now })).toEqual([]);
+  });
 });
