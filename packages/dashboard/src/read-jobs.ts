@@ -177,7 +177,7 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   // A pulled patch `fix apply` refuses here gets no step on Needs a look, as its fix's page applies none.
   const rewriteHere = w.project ? await rewritesHere(w.project, pulledPatchesToCheck(store)) : null;
   // It names the time it was worked out at, so it is never the same twice: no ETag.
-  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(rewriteHere ? { rewriteHere } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}) }));
+  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, localRuns: [...localRunSet(store, status.key)].sort(), setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(rewriteHere ? { rewriteHere } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}) }));
 }
 
 function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'judge'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {

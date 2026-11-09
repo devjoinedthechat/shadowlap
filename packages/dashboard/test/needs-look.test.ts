@@ -143,6 +143,12 @@ describe('Needs a look: a model the goldens use that retires', () => {
       });
       // Nothing to migrate to: no step.
       expect(rows[2]?.step).toBeNull();
+      // Advice, keyed by the model: the day it retires (or deprecated, with none) and each golden that calls it.
+      expect(rows.map((r) => r.advice)).toEqual([
+        { key: 'retire claude-3-7-sonnet-20250219', facts: ['goldens/digest', 'retires 2026-02-19'], until: 'Until a new date or golden', dismissed: false },
+        { key: 'retire claude-sonnet-4-5', facts: ['goldens/refund-flow', 'goldens/refund-in-limit', 'retires 2026-11-30'], until: 'Until a new date or golden', dismissed: false },
+        { key: 'retire claude-mythos-preview', facts: ['deprecated', 'goldens/mythos'], until: 'Until a new date or golden', dismissed: false },
+      ]);
     } finally {
       store.close();
     }
@@ -158,6 +164,7 @@ describe('Needs a look: a model the goldens use that retires', () => {
       const rows = overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.items.filter((r) => r.kind === 'retire');
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ key: 'attn:retire:gemini-2.0-flash', title: expect.stringMatching(/^gemini-2\.0-flash, used by 2 goldens, /) });
+      expect(rows[0]?.advice).toMatchObject({ key: 'retire gemini-2.0-flash', facts: expect.arrayContaining(['goldens/digest', 'goldens/forecast']) });
     } finally {
       store.close();
     }

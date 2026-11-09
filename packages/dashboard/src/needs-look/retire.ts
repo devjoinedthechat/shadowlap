@@ -3,6 +3,7 @@ import { commandLine } from '../fix-shared.js';
 import { links } from '../links.js';
 import { type RetiringModel, retiringModels, soonestFirst } from '../retirements.js';
 import type { GoldenSource } from '../tests.js';
+import { adviceOf } from './advice.js';
 import { type LookSource, type NeedsLookRow, plural } from './row.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -18,6 +19,16 @@ function when(n: RetirementNotice): string {
   if (!n.retires) return 'is deprecated';
   if (n.state === 'retired') return `retired on ${shortDate(n.retires)}`;
   return n.earliest ? `may shut down from ${shortDate(n.retires)}` : `retires on ${shortDate(n.retires)}`;
+}
+
+/**
+ * What a retire row's advice states: the day the model retires (`retires 2026-11-30`), or that it is
+ * deprecated with no day, then each golden that calls it, then, once a migration has checked it, what
+ * that found (`checked · …`). The day passing is no fact, so a model that retired stays put away; a
+ * migration applied is none either, so updating one golden brings no row back.
+ */
+export function retireFacts(n: Pick<RetiringModel, 'retires' | 'goldens'>, checked: string | null = null): string[] {
+  return [n.retires ? `retires ${n.retires}` : 'deprecated', ...n.goldens, ...(checked ? [checked] : [])];
 }
 
 /**
@@ -58,6 +69,7 @@ export const retire: LookSource = {
           runId: null,
           fixId: null,
           at: 0,
+          advice: adviceOf(`retire ${n.model}`, retireFacts(n)),
         };
       });
   },

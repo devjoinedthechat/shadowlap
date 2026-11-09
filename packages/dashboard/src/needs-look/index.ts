@@ -13,7 +13,7 @@ import { retire } from './retire.js';
 import { goldenName, type HeldGolden, type LookSource, type LookWork, type NeedsLook, type NeedsLookRow, plural } from './row.js';
 import { local, setup } from './store.js';
 
-export type { HeldGolden, LookSource, LookStep, LookWork, NeedsLook, NeedsLookRow } from './row.js';
+export type { HeldGolden, LookAdvice, LookSource, LookStep, LookWork, NeedsLook, NeedsLookRow } from './row.js';
 
 /**
  * Needs a look, as a registry of the places its rows come from, each with its group, its order in
@@ -39,8 +39,12 @@ export function ordered(sources: readonly LookSource[]): LookSource[] {
 
 const ORDERED = ordered(SOURCES);
 
-/** Every row, by group, then by its source's order, each source's rows in its own order: past the cap, one line for the rest. */
-export function needsLook(w: LookWork, sources: readonly LookSource[] = ORDERED): NeedsLook {
+/**
+ * Every row, by group, then by its source's order, each source's rows in its own order: past the cap,
+ * one line for the rest, which is no advice. Nothing here is put away yet: withDismissals
+ * (dismissals.ts) reads what was, and gives the list its stamp.
+ */
+export function needsLook(w: LookWork, sources: readonly LookSource[] = ORDERED): Omit<NeedsLook, 'dismissals'> {
   const items: NeedsLookRow[] = [];
   for (const s of sources) {
     const rows = s.rows(w);

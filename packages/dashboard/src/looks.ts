@@ -4,6 +4,7 @@ import { chaosMatrices, presetsSummary } from './chaos.js';
 import { coverageNewest } from './coverage.js';
 import { injectionNeedsLook } from './injection.js';
 import { links } from './links.js';
+import { adviceOf } from './needs-look/advice.js';
 import type { LookSource, LookWork, NeedsLookRow } from './needs-look/row.js';
 import type { GoldenList, GoldenSource } from './tests.js';
 
@@ -174,7 +175,11 @@ export const presetsUnsure: LookSource = {
   rest: (n) => ({ icon: 'warn', title: `${plural(n, 'more error-path test')} inconclusive`, detail: 'each on its run, under Runs', href: links.runs() }),
 };
 
-/** `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it, keyed by the newest behaviour no golden covers. */
+/**
+ * `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it,
+ * keyed by the newest behaviour no golden covers. Advice: it states every uncovered behaviour, so a
+ * golden packed for one keeps it put away, and a behaviour seen since brings it back.
+ */
 export const coverage: LookSource = {
   id: 'coverage',
   group: 'tests',
@@ -183,7 +188,7 @@ export const coverage: LookSource = {
     const newest = coverageNewest(w.store);
     if (!newest) return [];
     const { kind, icon, title, detail, href, runId, fixId, at } = newest.look;
-    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at }];
+    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at, advice: adviceOf('coverage', newest.uncovered) }];
   },
 };
 
