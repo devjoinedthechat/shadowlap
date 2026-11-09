@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { judgeCapture, NO_COMMAND, parseTests, rulesOnCalls, Store } from '@shadowlap/engine';
+import { judgeCapture, NO_COMMAND, parseTests, recordEvent, rulesOnCalls, Store } from '@shadowlap/engine';
 import { fixesView } from '../src/fixes-view.js';
 import { startDashboard } from '../src/index.js';
 import { type Issue, type IssueRunsPage, type IssuesPage, ISSUE_RUNS, ISSUES_READS, issueKeyOf, issueRunsByFix, type RunsIssuesJob } from '../src/issues.js';
@@ -127,6 +127,34 @@ describe('what an issue leads with', () => {
   });
 });
 
+describe('what a fix’s issue failed', () => {
+  it('says it as Fixes’ row of the fix does, else by the fix’s check, where its newest run kept no check of its own: never what blame confirmed', () => {
+    const s = Store.open(':memory:');
+    try {
+      const fix = (fixId: string, title: string, data: Record<string, unknown>) => s.insertFix({ fixId, title, labels: [], check: { expect: {}, key: `check:${fixId}`, oracle: [LIMIT(240)], text: LIMIT(240) }, status: 'open', openedAt: NOW - 9 * HOUR, verifiedAt: null, appliedAt: null, data });
+      // Blame found each lost at a model call, and none kept a check of its own.
+      const lost = (fixId: string, at: number) => {
+        const runId = addRun(s, { startedAt: at, status: 'completed', calls: 'llll', meta: { blame: { outcome: 'blamed', callNo: 3 } } as never });
+        s.addFixLink(fixId, 'failing', runId, at);
+      };
+      // One renamed since blame opened it: its row says what failed in the title blame gave it.
+      fix(FIX_A, 'Refunds above the limit issued without approval', { titleEdited: true });
+      recordEvent(s, { kind: 'blame.done', ref: FIX_A, data: { opened: true, outcome: 'blamed', callNo: 3, title: 'issue_refund called with amount 240' }, at: NOW - 9 * HOUR });
+      lost(FIX_A, NOW - HOUR);
+      // One that keeps blame's title, which its row doesn't say twice: the fix's check says it.
+      fix(FIX_B, 'Refund issued above the limit', {});
+      lost(FIX_B, NOW - 2 * HOUR);
+      const page = JSON.parse((ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome: null, next: null }, { whole: true }) as { body: string }).body) as IssuesPage;
+      const rows = fixesView(s).fixes;
+      expect(rows.find((f) => f.fixId === FIX_A)?.failed).toBe('issue_refund called with amount 240');
+      expect(issueOf(page, issueKey.fix(FIX_A)).failed).toBe('issue_refund called with amount 240');
+      expect(issueOf(page, issueKey.fix(FIX_B)).failed).toBe(LIMIT(240));
+    } finally {
+      s.close();
+    }
+  });
+});
+
 describe('narrowing', () => {
   it('counts only the runs the days and the words keep', () => {
     const days = read({ options: { from: NOW - DAY, to: NOW } });
@@ -136,6 +164,14 @@ describe('narrowing', () => {
     expect(eu.total).toBe(1);
     // A golden's replays by its name, as Tests' Failed runs → asks for them.
     expect(read({ options: { q: 'type:test refund-in-limit' } }).issues.map((x) => [x.key, runsOf(x)])).toEqual([[issueKey.golden('goldens/refund-in-limit'), [id.t3]]]);
+  });
+
+  it("answers an issue's runs after where its page's last run was once that run left it, and refuses a run the store no longer holds", () => {
+    // b1 is the applied fix's: FIX_A's runs older than it are a1's alone.
+    expect(read({ issue: issueKey.fix(FIX_A), cursor: id.b1 }).runs.map((r) => r.runId)).toEqual([id.a1]);
+    const gone = ISSUES_READS['runs-issues'](store, { kind: 'runs-issues', options: {}, outcome: null, next: null, issue: issueKey.fix(FIX_A), cursor: '01K8RG00000000000000000GNE' }, { whole: true }) as { status?: number; body: string };
+    expect(gone.status).toBe(409);
+    expect(JSON.parse(gone.body)).toEqual({ error: 'The run the last page ended on is gone: read the issues again' });
   });
 
   it("answers an issue's runs after the one its page ended on", () => {
