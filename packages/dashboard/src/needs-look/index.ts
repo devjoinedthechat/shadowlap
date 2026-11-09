@@ -1,6 +1,7 @@
 import type { Store } from '@shadowlap/engine';
 import { needsLookFixes } from '../fix-summary.js';
 import type { PatchCheck, RewriteCheck } from '../fix-shared.js';
+import { withGateLines } from '../injection-gates.js';
 import { coverage, decisions, presetsFailed, presetsUnsure } from '../looks.js';
 import { listedStep, type NextStep, type NextStepWork, type StepReads, stepReads } from '../next-step.js';
 import type { StoreNote } from '../overview.js';
@@ -66,7 +67,7 @@ export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: Stor
   let reads: StepReads | null = null;
   const readsOnce = () => (reads ??= stepReads(store, o.index));
   const fixes = needsLookFixes(store, o.patchInTree ? { patchInTree: o.patchInTree } : {});
-  const failing = o.goldens.length ? failingTests(store, { goldens: o.goldens }) : [];
+  const failing = o.goldens.length ? withGateLines(store, failingTests(store, { goldens: o.goldens })) : [];
   const steps = new Map<string, NextStep | null | undefined>();
   for (const t of failing) if (t.verdict === 'failed' && t.runId) steps.set(t.golden, listedStep(store, t.runId, o.next, { reads: readsOnce() }));
   const open = new Set(fixes.filter((f) => f.kind === 'open').map((f) => f.fixId));

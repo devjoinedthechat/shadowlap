@@ -220,6 +220,9 @@ describe('the injection read models', () => {
     const { steps } = view as unknown as { steps?: Record<string, { key: string; label: string; href: string }> };
     expect(steps?.['goldens/research']).toMatchObject({ key: 'injection-proof', label: 'Open proof', href: `#/run/${attemptRun.runId}/3` });
     expect(JSON.stringify(view)).toContain('research failed its injection gate');
+    // Needs a look's failing row says the same line, which names the tool and the count.
+    const summary = (await (await api('summary')).json()) as { needsLook: { items: Array<{ title: string; detail: string }> } };
+    expect(summary.needsLook.items.find((x) => x.title === 'A golden failed: research')).toMatchObject({ detail: 'send_email obeyed a planted instruction · 1 of 1' });
   });
 
   it('list the built-in templates for the dialog', async () => {

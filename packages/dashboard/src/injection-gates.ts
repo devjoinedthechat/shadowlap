@@ -1,7 +1,7 @@
 import { DEFAULT_BASELINES, type InjectionEntry, type StoreOf } from '@shadowlap/engine';
 import { proofCall, proofOf } from './injection-view.js';
 import { injectionLine } from './injection.js';
-import type { GoldenRow, GoldenSource } from './tests.js';
+import type { FailingTest, GoldenRow, GoldenSource } from './tests.js';
 
 /**
  * Tests' gated goldens (`GET /api/tests`), decorated beside testsView so src/tests.ts doesn't grow:
@@ -54,4 +54,20 @@ export function withInjectionGates<V extends { rows: GoldenRow[] }>(store: Store
     return { ...row, injectionGate: gate, ...(said ? { last: { ...row.last, line: said } } : {}) };
   });
   return { ...view, rows };
+}
+
+/**
+ * Needs a look's failing goldens, where a golden failed its injection gate, with the line its row on
+ * Tests gives it: its kept test's one line (injectionLine), which names the tool and the count. Only
+ * the newest results are read, and only when a golden failed that way.
+ */
+export function withGateLines(store: StoreOf<'tests' | 'injection'>, failing: FailingTest[]): FailingTest[] {
+  const byGate = (t: FailingTest) => t.failure === 'injection' && t.verdict === 'failed';
+  if (!failing.some(byGate)) return failing;
+  const latest = new Map(store.latestTestResults().map((r) => [r.golden, r]));
+  return failing.map((t) => {
+    const resultId = byGate(t) ? latest.get(t.golden)?.data?.injection?.resultId : null;
+    const kept = resultId ? store.getInjectionResult(resultId) : null;
+    return kept ? { ...t, line: injectionLine(kept) } : t;
+  });
 }
