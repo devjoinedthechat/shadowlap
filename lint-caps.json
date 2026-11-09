@@ -428,7 +428,7 @@
       "createClient": 167
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
-      "NewProjectPage": 162
+      "NewProjectPage": 158
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "TasksTab": 163

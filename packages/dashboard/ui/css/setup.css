@@ -23,9 +23,10 @@
 .newgrid .fieldnote { overflow-wrap: anywhere; }
 
 .pfoot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
-.nextsteps ol { list-style: none; counter-reset: ns; margin: 0; padding: 14px 18px 8px; }
-.nextsteps li { counter-increment: ns; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 2px 8px; padding: 6px 0; }
-.nextsteps li::before { content: counter(ns, decimal-leading-zero); grid-row: span 2; font: 700 11px var(--disp); color: var(--faint); padding-top: 2px; }
+.nextsteps ol { list-style: none; counter-reset: ns; margin: 0; padding: 14px 0 8px; }
+.nextsteps li { counter-increment: ns; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 2px 12px; padding: 6px 0; }
+/* What happens next: its steps numbered with plain numerals, grey, no ring */
+.nextsteps li::before { content: counter(ns); grid-row: span 2; width: 24px; text-align: right; font: 500 12.5px/1.5 var(--mono); color: var(--faint); }
 .nextsteps b { font-weight: 500; }
 .nextsteps span { color: var(--faint); font-size: 12.5px; }
 /* setting a project up */
@@ -130,7 +131,7 @@ ol.setup .form { margin-top: 12px; }
 dl.kvs.onbkv { margin: 12px 0 0; padding: 0; }
 
 /* projects: the switcher, Add a project, the setup and the Remove dialog (what the mock drew inline) */
-.nextsteps .nextnote { padding: 0 18px 16px; margin: 0; }
+.nextsteps .nextnote { padding: 0 0 16px; margin: 0; }
 ol.setup .again { margin-top: 14px; }
 ol.setup .again .cmdin { margin: 0 0 12px; }
 ol.setup .fieldnote a.more { margin-left: 2px; }
