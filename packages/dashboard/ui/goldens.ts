@@ -1,5 +1,8 @@
-import { approx, justNow } from './format.js';
+import { justNow } from './format.js';
 import { ACTIONS, confirmWords } from './labels.js';
+import { STATUS_WORDS } from '../../engine/src/check-status.js';
+import { CHECK_MARKS, checkLine } from '../../engine/src/checks/labels.js';
+import { aboutUsd } from '../../engine/src/prices.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
@@ -114,29 +117,6 @@ export function revLabel(rev: string | null): string {
   return `${/^[0-9a-f]{8,}$/.test(base) ? base.slice(0, 7) : base.slice(0, 8)}${dirty ? '+' : ''}`;
 }
 
-/**
- * A check as the table names it, in the screen's words: `issue_refund never called`, `send_email
- * called once`, `input tokens ≤ 6,000`, `cost ≤ $0.02`. Any other label stays as the CLI wrote it,
- * as the reports under the table print them.
- */
-export function checkWords(label: string): string {
-  let m = /^(.+) called 0 times$/.exec(label);
-  if (m) return `${m[1]!} never called`;
-  m = /^(.+) called 1 time$/.exec(label);
-  if (m) return `${m[1]!} called once`;
-  m = /^at (most|least) (\d+) (input|output) tokens?$/.exec(label);
-  if (m) return `${m[3]!} tokens ${m[1] === 'most' ? '≤' : '≥'} ${Number(m[2]).toLocaleString('en-US')}`;
-  m = /^cost at (most|least) (\$[\d.]+)$/.exec(label);
-  if (m) return `cost ${m[1] === 'most' ? '≤' : '≥'} ${m[2]!}`;
-  return label;
-}
-
-/** Each status's mark, as the CLI's reports draw them: passed, failed, inconclusive, not applicable. */
-export const CHECK_MARK: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: '✓', failed: '✗', inconclusive: '?', 'not-applicable': '–' };
-
-/** A status as words: the four verdict words. */
-const STATUS_WORD: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', 'not-applicable': 'not applicable' };
-
 /** The colour of each status's mark, as the history's cells and the verdict use them. */
 const STATUS_COLOR: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: 'var(--ok)', failed: 'var(--err)', inconclusive: 'var(--warn)', 'not-applicable': 'var(--faint)' };
 
@@ -146,7 +126,7 @@ export interface CheckMarkView {
   status: GoldenCheck['status'];
   /** The status in words, for a screen reader and the hover: `failed`, `not tested yet`. */
   word: string;
-  /** The check, as the table names it. */
+  /** The check, as the CLI labels it. */
   text: string;
   /** A line under it: what failed and in how many attempts, why it couldn't be decided, where a judge's verdict came from, or that it was added since. */
   sub: string | null;
@@ -163,14 +143,14 @@ export interface CheckMarkView {
  * says it. `ran`: the golden has a last result.
  */
 export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
-  const text = checkWords(c.label);
+  const text = c.label;
   const t = c.attempts;
   if (!c.status) {
     const word = 'not tested yet';
     const value = c.added ? 'Added to shadowlap.config.json since its last test: its next test judges it' : ran ? 'its last test couldn’t run the golden, so no check has a result' : 'its golden hasn’t run yet';
     return { mark: null, status: null, word, text, sub: c.added ? 'added since its last test' : null, tip: { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' } };
   }
-  const word = STATUS_WORD[c.status];
+  const word = STATUS_WORDS[c.status];
   const detail = c.detail ?? '';
   let sub: string | null;
   let value: string;
@@ -181,14 +161,16 @@ export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
     sub = detail || null;
     value = detail || 'it could not be decided';
   } else if (c.status === 'not-applicable') {
-    sub = 'not applicable';
-    value = detail || 'its condition never held';
+    // The engine's detail is why, then what the calls had instead: the line says why, the hover the values.
+    const at = detail.indexOf(': ');
+    sub = `not applicable${detail ? ` · ${at < 0 ? detail : detail.slice(0, at)}` : ''}`;
+    value = at < 0 ? 'its condition never held' : detail.slice(at + 2);
   } else {
     // A check over several attempts says how many passed it; a judge's verdict, where it came from.
     sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : judgedLine(c);
     value = [c.reason ? `“${c.reason}”` : null, t ? (t.passed === t.of ? `passed in every attempt, ${t.of} of ${t.of}` : `passed in ${t.passed} of ${t.of} attempts`) : null].filter(Boolean).join(' · ') || 'passed';
   }
-  return { mark: CHECK_MARK[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
+  return { mark: CHECK_MARKS[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
 }
 
 /**
@@ -199,7 +181,7 @@ export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
 function judgedLine(c: GoldenCheck): string | null {
   if (c.source === 'recording') return 'judged from the recording · free';
   if (c.source !== 'live') return null;
-  return c.live ? `judged live${c.live.asked > 1 ? ` in ${c.live.asked} attempts` : ''} · ${approx(c.live.cost)}` : 'judged live';
+  return c.live ? `judged live${c.live.asked > 1 ? ` in ${c.live.asked} attempts` : ''} · ${aboutUsd(c.live.cost)}` : 'judged live';
 }
 
 /** Where a golden came from: a run in this store, or a pack made elsewhere. */
@@ -244,23 +226,15 @@ export function failureLines(f: FailureView): ReportLine[] {
 }
 
 /**
- * A check under a golden's line, as the CLI prints it: `✓ label`, `✗ label: detail`, `? label:
- * inconclusive · detail` or `– label: not applicable · detail`, with a judge's reason after it. A
- * result kept before checks had a status reads as its `ok` says.
+ * A check under a golden's line, as `shadowlap test` prints it (the engine's `checkLine`): `✓ label`,
+ * `✗ label: detail`, `? label: inconclusive · detail` or `– label: not applicable · detail`, with a
+ * judge's reason and where its verdict came from. A result kept before checks had a status reads as
+ * its `ok` says.
  */
 export function checkReportLine(c: NonNullable<FailureView['checks']>[number]): ReportLine {
   const status = c.status ?? (c.ok ? 'passed' : 'failed');
-  const reason = c.reason ? ` · ${c.reason}` : '';
-  const text =
-    status === 'passed'
-      ? `✓ ${c.label}${reason}`
-      : status === 'failed'
-        ? `✗ ${c.label}: ${c.detail ?? 'failed'}${reason}`
-        : status === 'inconclusive'
-          ? `? ${c.label}: inconclusive · ${c.detail ?? ''}${reason}`
-          : `– ${c.label}: not applicable · ${c.detail ?? ''}${reason}`;
   // Failed in red, inconclusive in amber, as every report and page colours them.
-  return { text: `    ${text}`, tone: status === 'failed' ? 'no' : status === 'inconclusive' ? 'y' : '' };
+  return { text: `    ${checkLine(c)}`, tone: status === 'failed' ? 'no' : status === 'inconclusive' ? 'y' : '' };
 }
 
 /** An inconclusive golden's report, as the CLI prints it: the line, its gate's evidence, its checks and the attempts. */

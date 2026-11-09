@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cellNote, cellShare, historyKey, KEY_WORDS, revisionTip } from '../ui/tests/cells.js';
 import { leadStep } from '../ui/tests/lead.js';
-import { asksUpdate, checkMark, checkReportLine, checkWords, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
+import { asksUpdate, checkMark, checkReportLine, ciQuery, commandText, dayClock, divergenceButtons, failureHint, failureLines, findCommitButton, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, revLabel, runningTests, sessionLine, sessionWait, shortDate, sourceText, testsBusy, testsPalette, TESTS_UPDATE_HASH } from '../ui/goldens.js';
 import { goodCommits } from '../ui/tests/good-commits.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { jobStatus } from '../ui/jobs.js';
@@ -248,18 +248,20 @@ describe('the goldens table', () => {
     for (const hint of [older, material]) expect(hint).not.toContain('holds no verdict');
   });
 
-  it('marks each check by its last status, as the CLI does, with no mark before a result', () => {
+  it('marks each check by its last status, as the CLI does, with no mark before a result, and names it by the CLI\'s label', () => {
     const c = (over: Partial<GoldenCheck>): GoldenCheck => ({ label: 'issue_refund called 0 times', status: 'passed', added: false, detail: null, reason: null, source: null, live: null, attempts: null, ...over });
-    expect(checkMark(c({}), true)).toMatchObject({ mark: '✓', status: 'passed', word: 'passed', text: 'issue_refund never called', sub: null, tip: { title: 'passed · issue_refund called 0 times', color: 'var(--ok)' } });
+    expect(checkMark(c({}), true)).toMatchObject({ mark: '✓', status: 'passed', word: 'passed', text: 'issue_refund called 0 times', sub: null, tip: { title: 'passed · issue_refund called 0 times', color: 'var(--ok)' } });
     // Failed: what it found, and over several attempts how many passed it.
     expect(checkMark(c({ status: 'failed', detail: 'called 1 time (1 blocked or stubbed)' }), true)).toMatchObject({ mark: '✗', sub: 'called 1 time (1 blocked or stubbed)', tip: { label: 'failed', value: 'called 1 time (1 blocked or stubbed)', color: 'var(--err)' } });
     expect(checkMark(c({ status: 'failed', detail: 'called 1 time (1 blocked or stubbed)', attempts: { passed: 8, of: 12 } }), true).sub).toBe('8 of 12 attempts passed · the others: called 1 time (1 blocked or stubbed)');
     // Inconclusive: a ? with why, in amber; not applicable: a dash, and why on hover.
     expect(checkMark(c({ label: 'judge "calm" answers yes', status: 'inconclusive', detail: 'not judged: no recorded verdict and the test runs offline' }), true)).toMatchObject({ mark: '?', status: 'inconclusive', sub: 'not judged: no recorded verdict and the test runs offline', tip: { color: 'var(--warn)' } });
-    expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held' }), true)).toMatchObject({ mark: '–', word: 'not applicable', sub: 'not applicable', tip: { value: 'the condition never held' } });
-    // A judge's verdict says where it came from, as the CLI's check line does: free from the recording, and live at what it cost.
+    expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held' }), true)).toMatchObject({ mark: '–', word: 'not applicable', sub: 'not applicable · the condition never held', tip: { value: 'its condition never held' } });
+    // The engine's detail says what the calls had instead: the line says why, the hover the values.
+    expect(checkMark(c({ status: 'not-applicable', detail: 'the condition never held: lookup_order #2: result.amount 45 <= 100' }), true)).toMatchObject({ sub: 'not applicable · the condition never held', tip: { title: 'not applicable · issue_refund called 0 times', value: 'lookup_order #2: result.amount 45 <= 100', color: 'var(--faint)' } });
+    // A judge's verdict says where it came from, as the CLI's check line does: free from the recording, and live at what it cost, in the CLI's form.
     expect(checkMark(c({ source: 'recording', reason: 'It names the limit.' }), true)).toMatchObject({ sub: 'judged from the recording · free', tip: { value: '“It names the limit.”' } });
-    expect(checkMark(c({ source: 'live', live: { cost: 0.00043, asked: 1 } }), true).sub).toBe('judged live · ≈$0.0004');
+    expect(checkMark(c({ source: 'live', live: { cost: 0.00043, asked: 1 } }), true).sub).toBe('judged live · <$0.001');
     expect(checkMark(c({ source: 'live', live: { cost: 0.0021, asked: 5 }, attempts: { passed: 5, of: 5 } }), true).sub).toBe('judged live in 5 attempts · ≈$0.0021');
     // A model with no price: where it came from, and no figure.
     expect(checkMark(c({ source: 'live' }), true).sub).toBe('judged live');
@@ -327,6 +329,10 @@ describe('the reports', () => {
     // A result kept before checks had a status reads as its ok says.
     expect(checkReportLine({ ok: true, label: 'exits 0', detail: null })).toEqual({ text: '    ✓ exits 0', tone: '' });
     expect(checkReportLine({ ok: false, label: 'exits 0', detail: 'exited 1' })).toEqual({ text: '    ✗ exits 0: exited 1', tone: 'no' });
+    // The engine's line: no word of its own for an empty detail, no reason after an undecided check, and where a judge's verdict came from.
+    expect(checkReportLine({ status: 'failed', ok: false, label: 'exits 0', detail: null }).text).toBe('    ✗ exits 0: ');
+    expect(checkReportLine({ status: 'inconclusive', ok: false, label: 'judge "explains" answers yes', detail: 'the judge answered no verdict', reason: 'unclear' }).text).toBe('    ? judge "explains" answers yes: inconclusive · the judge answered no verdict');
+    expect(checkReportLine({ status: 'passed', ok: true, label: 'judge "explains" answers yes', detail: null, reason: 'It says why.', judge: { name: 'explains', model: 'gpt-5-mini', of: 'answer', verdict: 'yes', source: 'live', cost: 0.0004, redactions: 0 } as never }).text).toBe('    ✓ judge "explains" answers yes · It says why. (judged live, <$0.001)');
   });
 
   it('says a connection the network guard blocked is what the agent tripped on', () => {
@@ -348,21 +354,6 @@ describe('the reports', () => {
     };
     expect(failureHint(f)).toBe('The agent connected to hooks.example.com:443 directly, past Shadowlap, and CI replays offline, so the network guard blocked it. Wrap the call as a tool so it is recorded, or allow it with SHADOWLAP_GUARD_ALLOW=hooks.example.com:443.');
     expect(failureHint({ ...f, blocked: null })).toBe('The agent exited with an error while it replayed: its last lines of output are above.');
-  });
-
-  it('names checks in the table as the mock does, and leaves any other label as the CLI wrote it', () => {
-    expect(['issue_refund called 0 times', 'escalate called 1 time', 'send_email with {"to":"a@b.c"} called 1 time', 'at most 6000 input tokens', 'at least 1 output token', 'cost at most $0.02', 'issue_refund called 2 times', 'at most 3 model calls', 'cost exactly $0.50', 'final answer includes "refund"'].map(checkWords)).toEqual([
-      'issue_refund never called',
-      'escalate called once',
-      'send_email with {"to":"a@b.c"} called once',
-      'input tokens ≤ 6,000',
-      'output tokens ≥ 1',
-      'cost ≤ $0.02',
-      'issue_refund called 2 times',
-      'at most 3 model calls',
-      'cost exactly $0.50',
-      'final answer includes "refund"',
-    ]);
   });
 
   it('names what Find the commit found, with who, when and its cost', () => {

@@ -113,13 +113,13 @@ function checks(page: Rendered, name: string) {
 describe('the Tests page', () => {
   it('marks each check by its last status: no tick on one that failed or couldn\'t be decided, none before a result', async () => {
     const page = await open();
-    expect(checks(page, 'passes')).toEqual([{ cls: 'ck passed', mark: '✓', words: 'escalate called once' }]);
+    expect(checks(page, 'passes')).toEqual([{ cls: 'ck passed', mark: '✓', words: 'escalate called 1 time' }]);
     expect(checks(page, 'refunds')).toEqual([
-      { cls: 'ck failed', mark: '✗', words: 'issue_refund called oncecalled 0 times; tools called: add_note' },
-      { cls: 'ck failed', mark: '✗', words: 'send_email called oncecalled 0 times; tools called: add_note' },
+      { cls: 'ck failed', mark: '✗', words: 'issue_refund called 1 timecalled 0 times; tools called: add_note' },
+      { cls: 'ck failed', mark: '✗', words: 'send_email called 1 timecalled 0 times; tools called: add_note' },
     ]);
     expect(checks(page, 'judged')[1]).toEqual({ cls: 'ck inconclusive', mark: '?', words: `${JUDGE}not judged: no recorded verdict and the test runs offline` });
-    expect(checks(page, 'budget')).toEqual([{ cls: 'ck', mark: null, words: 'input tokens ≤ 29,000' }]);
+    expect(checks(page, 'budget')).toEqual([{ cls: 'ck', mark: null, words: 'at most 29000 input tokens' }]);
     // Each mark says its status to a screen reader.
     expect(page.all('table.gt td.chk b.cm').map((b) => b.getAttribute('aria-label'))).toEqual(['passed', 'failed', 'failed', 'passed', 'inconclusive']);
   });
@@ -127,8 +127,8 @@ describe('the Tests page', () => {
   it('marks no check added to the config since the last test, and says so under it', async () => {
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, checks: [...x.checks, 'send_email called 0 times'] } : x)));
     expect(checks(page, 'passes')).toEqual([
-      { cls: 'ck passed', mark: '✓', words: 'escalate called once' },
-      { cls: 'ck', mark: null, words: 'send_email never calledadded since its last test' },
+      { cls: 'ck passed', mark: '✓', words: 'escalate called 1 time' },
+      { cls: 'ck', mark: null, words: 'send_email called 0 timesadded since its last test' },
     ]);
   });
 
