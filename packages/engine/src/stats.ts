@@ -1226,8 +1226,8 @@ export function decisionWord(d: GateDecision): 'passed' | 'failed' | 'inconclusi
   return d === 'pass' ? 'passed' : d === 'fail' ? 'failed' : d === 'inconclusive' ? 'inconclusive' : 'undecided';
 }
 
-/** The baseline in words: `against 0.94 over the last 10 sessions (47 of 50)`, or the recording when there is no history yet. */
-function baselineWords(e: BaselineEvidence): string {
+/** The baseline in words: `against 0.94 over the last 10 sessions (47 of 50)`, or the recording when there is no history yet. The verdict line's, and a report's gate part's. */
+export function baselineWords(e: BaselineEvidence): string {
   if (!e.history) return 'against its recording (no history yet)';
   const over = e.history.sessions > 1 ? `the last ${e.history.sessions} sessions` : 'its last session';
   return `against ${rate(e.baseline)} over ${over} (${e.history.passes} of ${e.history.attempts})`;

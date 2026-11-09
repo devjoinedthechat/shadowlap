@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { InvalidArgumentError, type Command } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, messageOf, noVerdicts, proofLine, recordEvent, resolveAuthor, sessionInARow, settleAppliedFixes, statusTally, Store, SUITE_RISK, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type TestSession, type WritePolicy } from '@shadowlap/engine';
+import { endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, messageOf, outputTail, noVerdicts, proofLine, recordEvent, resolveAuthor, sessionInARow, settleAppliedFixes, statusTally, Store, SUITE_RISK, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type TestSession, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from '../agent-signals.js';
 import { sessionSource } from '../baseline-branch.js';
 import { testChaos } from '../chaos-session.js';
@@ -11,7 +11,7 @@ import { codeVersion, defaultDbPath, loadConfig, loadTests, loadTestSettings, ty
 import { EXIT, signalExit, usageError } from '../exit-codes.js';
 import { shortFixId } from '../fix-format.js';
 import { confirmGolden, goldenNeedsConsent } from '../golden-consent.js';
-import { formatChecks, inconclusiveFor, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
+import { formatChecks, inconclusiveFor, junitCase, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, isPack, rawExpectFor } from '../goldens.js';
 import { gateLetsThrough, gateLine, injectionGate } from '../injection.js';

@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { messageOf, UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type StoreOf, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
+import { messageOf, outputTail, UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type StoreOf, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { notRunMessage } from './golden-consent.js';
 import { oracleLabels } from './oracle.js';
@@ -776,12 +776,6 @@ function clipValue(v: unknown): unknown {
     return json.length > 2000 ? `${json.slice(0, 2000)}…` : v;
   }
   return v;
-}
-
-/** The last lines the agent printed, for a failure. */
-export function outputTail(output: string, lines = 20): string | null {
-  const t = output.trim();
-  return t ? t.split('\n').slice(-lines).join('\n') : null;
 }
 
 /**

@@ -58,6 +58,12 @@ export function safeLines(text: string, prefix: string): string {
     .join('\n')}\n`;
 }
 
+/** The last `lines` lines of what an agent printed, as `shadowlap test` prints them under a golden that failed; null for none. */
+export function outputTail(output: string, lines = 20): string | null {
+  const t = output.trim();
+  return t ? t.split('\n').slice(-lines).join('\n') : null;
+}
+
 /** A hidden character as ANSI-C quotes write it: `\x1b` for ASCII, `\u202e` beyond it, `\U` and up to eight digits past U+FFFF. */
 function ansiEscape(ch: string): string {
   const code = ch.codePointAt(0)!;
