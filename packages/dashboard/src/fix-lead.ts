@@ -1,5 +1,6 @@
 import { ACTIONS, checkKey, type FixRecords, type SprtGate } from '@shadowlap/engine';
 import { counting, type FixActions, rungOf } from './fix-shared.js';
+import { FINISH_APPLYING, MARK_APPLIED } from './fix-lead-words.js';
 import { verifyMore } from './fix-verify-step.js';
 
 /**
@@ -67,6 +68,6 @@ export function fixLead(rec: FixRecords, actions: FixActions, o: { repairer: str
   if (left) return { key: 'verify-left', label: (left.runs.length === 1 ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label, command: left.command, use: 'reads', runs: left.runs };
   const apply = actions.apply;
   if (rungOf(rec) === 'merged' || !apply || apply.refused || (actions.applied && !apply.pending)) return null;
-  const label = actions.applied ? 'Finish applying' : apply.kind === 'mark' || apply.inTree ? 'Mark applied' : ACTIONS.applyFix.label;
+  const label = actions.applied ? FINISH_APPLYING : apply.kind === 'mark' || apply.inTree ? MARK_APPLIED : ACTIONS.applyFix.label;
   return { key: 'apply', label, command: apply.command, use: 'writes', pending: actions.applied ? apply.pending : null };
 }

@@ -31,7 +31,8 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  *   'unrescuable' or 'stopped'), callNo, confidence, title, range? { from, to, gradual? }: the calls
  *   it was lost between, two `gradual` ones when it was lost gradually around them }
  * - `repair.accepted`, `repair.empty`: ref the fix; data { repairId, title (accepted), why (empty) }
- * - `verify.accepted`, `verify.rejected`: ref the fix; data { verifyId, reasons }
+ * - `verify.accepted`, `verify.rejected`, `verify.incomplete` (it settled nothing): ref the fix
+ *   (its verdict's id when it is no fix's); data { verifyId, fixes, counts, code, reasons }
  * - `fix.applied`: ref the fix; data { title }
  * - `pairs.exported`: ref the file; data { count }; `model.scored`: ref the model; data { model, tasks, mean }
  * - `project.added`, `project.removed`: ref the project; data { path, name, again? }
@@ -43,8 +44,11 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  *   pullRequest? }, or { pushed, updated, refused, queued: true } for runs pushed when they ended;
  *   `store.pulled`: ref the bucket; data { pulled, merged, failed, byAuthor, pullRequests? }
  * - `run.shared`: runId, ref the report's key in the bucket; data { runs, redacted, expiresAt, pullRequest? }
- * - `decisions.done`, `migrate.done`: ref the session (`dc-…`, `mg-…`); data { change, runs, flagged,
- *   spent }: `shadowlap decisions` or `migrate` asked recorded model calls again under a change
+ * - `decisions.done`, `migrate.done`: ref the session (`dc-…`, `mg-…`); data { change, name, runs,
+ *   flagged, spent, why, exit }: `shadowlap decisions` or `migrate` asked recorded model calls again
+ *   under a change. `name` is `decisionsName`'s; `why` says why it settled nothing (null when it
+ *   settled); `exit` is the status it ends with under the defaults (0, 1 when verify rejected it or
+ *   the switch breaks a run, 3 when it settled nothing). A session kept before has neither.
  * - `injection.tested`: runId the run tested, ref the golden (or the result's `inj-…` id); data
  *   { resultId, mode: 'plant', attempts, obeyed, influenced, ignored, inconclusive, verdict, reads,
  *   payloads, gate: 'passed' | 'failed' | 'inconclusive', session? } from planting, { resultId,

@@ -1,4 +1,3 @@
-import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView } from '../injection.js';
@@ -23,27 +22,6 @@ import { runAffinity } from '../run-index.js';
  */
 
 export const INJECTION_JOB_KIND = 'injection';
-
-// The activity feed: what a test showed, opening the run it tested. One that obeyed or failed its gate
-// reads as a failure, one inconclusive (or influenced) in amber, never as a test that passed.
-describeEvent('injection.tested', (e, d) => {
-  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-  const name = typeof e.ref === 'string' && !e.ref.startsWith('inj-') ? e.ref : e.runId ? e.runId.slice(0, 10) : 'a run';
-  if (d.mode === 'clean') {
-    if (d.verdict === 'inconclusive') return { kind: 'warn', text: `Injection · ${name}: inconclusive, whether #${n(d.read)} caused the writes` };
-    return { kind: d.verdict === 'caused' ? 'fail' : 'test', text: `Injection · ${name}: ${typeof d.verdict === 'string' ? d.verdict : 'tested'} by #${n(d.read)}` };
-  }
-  const text = n(d.obeyed)
-    ? `obeyed a planted instruction in ${n(d.obeyed)} of ${n(d.attempts)} attempts`
-    : n(d.influenced)
-      ? `influenced in ${n(d.influenced)} of ${n(d.attempts)} attempts`
-      : d.gate === 'inconclusive'
-        ? `inconclusive after ${n(d.attempts)} attempts`
-        : n(d.inconclusive)
-          ? `ignored every planted instruction in ${n(d.ignored)} of ${n(d.attempts)} attempt${n(d.attempts) === 1 ? '' : 's'}, ${n(d.inconclusive)} inconclusive`
-          : `ignored every planted instruction (${n(d.attempts)} attempts)`;
-  return { kind: n(d.obeyed) || d.gate === 'failed' ? 'fail' : d.gate === 'inconclusive' || n(d.influenced) ? 'warn' : 'test', text: `Injection · ${name}: ${text}` };
-});
 
 export function register(router: Router, ctx: RouteContext): void {
   const { store } = ctx;

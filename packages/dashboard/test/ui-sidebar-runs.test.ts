@@ -9,7 +9,7 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
  * The lists agree on depth and words. The sidebar draws a family as deep as it goes, a step in for
- * each level with its branch lines, as the Overview's grid nests it, and says a failure as Runs'
+ * each level with its branch lines, as a run's lineage has it, and says a failure as Runs'
  * Status says it. Runs gives a fork's Status what came of its writes, or the check it failed, and
  * says clean replay where it names one.
  */

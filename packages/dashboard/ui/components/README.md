@@ -15,7 +15,7 @@ that comes from data goes there, everything else is a class.
 Every page speaks the run page's language: it opens quietly, with a muted kind, its title and its
 facts, and lays its parts out as full-width sections between hairlines. These are its parts, built
 once; a page draws them and never its own. Pages move onto them one by one: `Badge`, `Tag`, `Kpi`,
-`DeltaPill`, `CmdLine`, `CommandLine`, `CodeBlock` and `CopyButton` below stay until the last page
+`CmdLine`, `CommandLine`, `CodeBlock` and `CopyButton` below stay until the last page
 that draws one has.
 
 | Component | File | Use it for |
@@ -95,7 +95,6 @@ project in the job, so a server switched since refuses it.
 |---|---|---|
 | `RunStrip`, `StripKey`, `StripBar` | `../run/RunStrip.tsx`, `../run/StripKey.tsx` | The run page's strip: a recording's or a capture's calls by kind (`../run/kinds.ts`), any other run's by origin. Where the calls don't fit a cell of 6px (24px to a finger), a cell is a range, by the strip's measured width, in what most of its calls are, with a notch at its rarer notable call; hovering it counts each kind or origin. Flags the fork and the lost call; a live run grows a pending cell. One Tab stop, a listbox: ← → select at once, a range at a time where grouped. Its key is the call filter (`../run/call-filter.ts`), with counts and rows balanced where it wraps, beside Filter calls. |
 | `MiniStrip` | `Strip.tsx` | The small strip in tables (`.ms`): past 60 calls a cell is a range, in the origin most of its calls have, with a notch at its rarer notable call, as the run page's strip draws it. |
-| `GridStrip` | `Strip.tsx` | A row of a family on one scale (`.gs`), for the Overview's grid. |
 | `RunIcon`, `EventIcon`, `Glyph` | `RunIcon.tsx` | One set of icons, each with its words on hover: recording now (pulsing), recording, failed, replay, fork, capture, test, and for events Fixes, project, settings and training. |
 | `Icon`, `Sprite`, `Brand`, `Tile` | `Icon.tsx` | The icon sprite (drawn once by the app) and the logo. |
 | `Org`, `Legend`, `SrSpace` | `bits.tsx` | An origin's colour and word; a legend of the origins present; a space a screen reader says between two words a margin draws apart, as a chip's word and its count (`.srsp`). |
@@ -104,7 +103,7 @@ project in the job, so a server switched since refuses it.
 | `Tabs` | `Tabs.tsx` | Underlined tabs with counts, as the pattern has them: one Tab stop, ← → round the ends, Home and End, a count read apart. `idPrefix` and `panelId` tie them to their `tabpanel`; each tab takes a card (`tip`) and a key (`mark`, `shortcut(id)`). Pages switched with links stay `nav.stabs`. |
 | `shortcut(id)` | `../shortcuts.ts` | What a control spreads to say its key: `aria-keyshortcuts`, which its hover card reads, and `data-shortcut`, by which the key finds it. Gone while single keys are off. Every key is in that one table, which the shortcuts sheet draws. |
 | `useListKeys` | `../list-keys.ts` | One hook for every list: hand it the rows as data, `keyOf`, `root`, `open`, and `pick`, `actions` or `show` where they apply; spread `data-rowkey` on each row and draw the one it returns `.krow`. j and k, ↓ ↑, Enter, x, ⌘K and Esc follow, a page's lists as one sequence. |
-| `Kpi`, `DeltaPill` | `bits.tsx` | A number with its label and a line, with its change against last week, until the Overview's facts are its header's. |
+| `Kpi` | `bits.tsx` | A number with its label and a line, as Training draws its scores. |
 | `CmdLine`, `CommandLine`, `CodeBlock`, `CopyButton` | `bits.tsx` | A shell command; one long enough to wrap, which breaks only between its words (`shellWords` in `format.ts`); a file with Copy in its header; copy and say so (`CodeBox.tsx`'s, the one copy button, its icon alone where `name` names it). Each page moves its boxes to `CodeBox` as it ports. |
 | `SortTh`, `ShowMore`, `rowOpen` | `Table.tsx` | A sorting header for `table.t`, "Show 50 more", and what a row spreads to open a page unless a control inside it was clicked. |
 | `JsonTree` | `Json.tsx` | A JSON value as a folding tree that draws a branch only when it is opened. |
@@ -159,7 +158,8 @@ page and asks there (`page-ask.ts`; Apply fix asks by the fix's id). A source ru
 with what it has and calls `paletteSourcesChanged()` when more arrives, and an open palette reads
 its sources again. Pages a later version fills in each have their own file under `pages/`.
 
-The Overview's panels are in `overview/` (`panels.tsx`, with what they say in `overview/model.ts`;
+The Overview's sections are in `overview/` (`NeedsLook.tsx` with its rows' steps in `steps.tsx`, `panels.tsx` and
+`Usage.tsx`, their words kept whole where a line wraps by `words.tsx`, with what they say in `overview/model.ts`;
 a person's name, which every page says, in `person.ts`), and the Runs page's parts in `runspage/`: the header's actions (`RunsActions.tsx`: Pull, Import
 capture… and Push local runs while runs are only here), the filter field (`FilterField.tsx`: its
 terms on hover, how many runs match, `onCommit` for Enter), the row of days (`DaysRow.tsx`, a bar a
@@ -196,7 +196,10 @@ the server keeps for its drawer.
 
 Fixes keeps its parts in `fixes/`: a fix's page and its Blame, Repair and Verify steps, the Forks
 view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, which asks for the check
-when the server can't find it), what the breadcrumb and the palette know about fixes (`data.ts`),
+when the server can't find it), a fix's step on a list row (`RowStep.tsx`, on Fixes and Needs a look:
+its words in `lead.ts`, its dialogs in `LeadDialog.tsx`, loaded as one first shows, which reads
+`FixDialogs.tsx` and `verify-asks.tsx` and none of the fix's page), what the breadcrumb and the
+palette know about fixes (`data.ts`),
 why an action can't start while a repair or an apply holds the project's working tree
 (`tree.ts`: `useTreeBusy(use, verb)` gives the reason, or null; any button that runs the agent can
 read it as Run blame, Run repair, Apply fix and the Tests actions do, and

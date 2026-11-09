@@ -59,7 +59,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .glyph.fork, .glyph.blame { color: var(--dim); }
 .glyph.cap { color: var(--dim); }
 .glyph.fail, .glyph.fixbad { color: var(--err); }
-.glyph.warn, .glyph.fixinc { color: var(--cq-amber); }
+.glyph.warn, .glyph.fixinc, .glyph.retire { color: var(--cq-amber); }
 /* An event that came out inconclusive, stopped or needing a look is amber whatever its shape, one that failed red. */
 .glyph.amb { color: var(--cq-amber); }
 .glyph.err { color: var(--err); }
@@ -263,13 +263,13 @@ table.t th.num, table.calls th.num, table.calls th.n { font: 500 10px var(--mono
 .legend i.lg.fail { background: var(--o-fail-fill); box-shadow: inset 0 0 0 1.5px var(--o-fail); }
 .legend i.lg.block { background: var(--o-block-fill); box-shadow: inset 0 0 0 1px var(--o-block); }
 .legend i.lg.stub { background: var(--o-stub); }
-/* A blocked mark that may be narrower than the hatch can draw (a mini strip's cells, a binned range, the Overview's
-   grid on a phone, a share of a bar, a timeline bar) is the hatch's tone as a solid under 6px; a failed one is its tint
+/* A blocked mark that may be narrower than the hatch can draw (a mini strip's cells, a binned range, a share of a
+   bar, a timeline bar) is the hatch's tone as a solid under 6px; a failed one is its tint
    ringed in the one red from 6px, the tint alone below. */
-:is(.ms i, .gs i, .segbar i):is(.block, .fail) { position: relative; }
-:is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar):is(.block, .fail) { container-type: inline-size; }
-@container (max-width: 5.99px) { :is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar).block::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--o-block-solid); } }
-@container (min-width: 6px) { :is(.cells button, .ms i, .gs i, .segbar i, .tl-row .bar).fail::before { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1.5px var(--o-fail); } }
+:is(.ms i, .segbar i):is(.block, .fail) { position: relative; }
+:is(.cells button, .ms i, .segbar i, .tl-row .bar):is(.block, .fail) { container-type: inline-size; }
+@container (max-width: 5.99px) { :is(.cells button, .ms i, .segbar i, .tl-row .bar).block::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--o-block-solid); } }
+@container (min-width: 6px) { :is(.cells button, .ms i, .segbar i, .tl-row .bar).fail::before { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1.5px var(--o-fail); } }
 
 .muted { color: var(--faint); font-size: 12.5px; }
 p.muted { margin: 0 0 12px; }
@@ -466,7 +466,7 @@ code.rnm { white-space: nowrap; }
 
 /* Decision 9 on every page: a gate's verdict is its word, its tally and its Wilson bound, broken only after a dot (each short
    part whole), its rule stated once; figures read as the CLI prints them, so ">=" never becomes the mono font's ligature */
-.vline .nw, .attn .d .nw, .feed .w .nw, table.gt td.glast .nw, .fnode .f2 .nw { white-space: nowrap; }
+.vline .nw, .attn .d .nw, .attn .t .nw, .feed .w .nw, table.gt td.glast .nw, .fnode .f2 .nw { white-space: nowrap; }
 
 
 .rab:empty + .abs .dot { display: none; }

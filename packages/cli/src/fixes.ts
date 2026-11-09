@@ -372,15 +372,14 @@ export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: {
   try {
     store = openStore(opts);
     const recorded = recordVerdict(store, { report, expect: input.expect ?? null, command: input.command, ...(input.rerun ? { rerun: input.rerun } : {}) });
-    if (report.verdict !== 'incomplete') {
-      const counted = recorded.fixes.filter((x) => x.standing.counts).map((x) => x.fix.fixId);
-      recordEvent(store, {
-        kind: `verify.${report.verdict}`,
-        actor: actor(),
-        ref: counted[0] ?? recorded.fixes[0]?.fix.fixId ?? recorded.verdict.verifyId,
-        data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3) },
-      });
-    }
+    // Every verdict, an inconclusive one too (`verify.incomplete`): the feed says Verify inconclusive and why.
+    const counted = recorded.fixes.filter((x) => x.standing.counts).map((x) => x.fix.fixId);
+    recordEvent(store, {
+      kind: `verify.${report.verdict}`,
+      actor: actor(),
+      ref: counted[0] ?? recorded.fixes[0]?.fix.fixId ?? recorded.verdict.verifyId,
+      data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3) },
+    });
     return recorded;
   } catch (err) {
     report.warnings.push(`the verdict could not be kept: ${messageOf(err)}`);
