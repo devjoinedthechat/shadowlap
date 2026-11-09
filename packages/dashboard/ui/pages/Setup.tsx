@@ -40,7 +40,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   useSetupFollow(view);
   // Recording, calibrating and testing run the agent from the project's working tree: not while a repair or an apply changes it.
   const treeBusy = useTreeBusy('reads', 'run this step');
-  // Keeping it as a test replays a golden as well: not while another test job runs here either, as the server refuses it.
+  // Pack as golden runs the golden's test as well: not while another test job runs here either, as the server refuses it.
   const testsWait = useTestsWait('run this step');
 
   const problem = meta?.project?.id && meta.project.problem ? meta.project : null;

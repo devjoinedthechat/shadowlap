@@ -60,8 +60,6 @@ export function VerdictsTab() {
   );
 }
 
-/** What the page says when its data couldn't be read: the status the server answered, else what went wrong. */
-
 /** The newest revision's verdict, whatever the chip: its revision and tally, the change, and the way into its page, lime while it failed or couldn't decide. */
 function Lead({ lead }: { lead: SessionVerdict }) {
   return (

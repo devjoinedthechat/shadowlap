@@ -1516,7 +1516,7 @@ Adding a project opens its setup.
 
 - **The Overview** shows it until it is finished, and so does `#/setup`.
 - **Runs, Fixes, Tests and Training** each say what they will hold, with **Set up** and the project's name, as in **Set up triage-bot**, which opens it. None offers a command that needs a run, nor does Compare, which asks you to record one first. The other pages show as before.
-- **A project that can't be opened**, its folder or its store gone, says so on every page but Settings, and offers to remove it.
+- **A project that can't be opened**, its folder or its store gone, says so in place of every page, and in Settings' header above its tabs, and offers to remove it.
 - **Skip setup**, or, once its golden's test passes, **Go to Overview**, finishes it.
 
 The setup has four steps. Each runs the command beside it in the project's folder, the same one you could type in a terminal:

@@ -3,8 +3,8 @@ import type { Route } from './route.js';
 
 /**
  * A link into another project, decided without the DOM: what a route names that another project's
- * store may hold. The page list asks it for a link into a project with no runs yet (pages/lazy.tsx),
- * so it is in the first look, and the words of the page that says which project holds it are in
+ * store may hold. The page list asks it for a link into a project that can't be opened
+ * (pages/lazy.tsx), so it is in the first look, and the words of the page that says which project holds it are in
  * held-words.ts, which only that page loads. The tests import both.
  */
 

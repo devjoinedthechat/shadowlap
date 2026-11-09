@@ -239,7 +239,7 @@ export function addedMessage(added: { project: ProjectEntry; again: boolean; run
 // ---------------------------------------------------------------------------------------------
 // Setting a project up
 
-/** `skipped`: the setup went past this step without it (Skip the rest, or a later step done in a terminal). */
+/** `skipped`: the setup went past this step without it (Skip setup, or a later step done in a terminal). */
 export type StepState = 'done' | 'current' | 'todo' | 'skipped';
 
 interface StepBase {

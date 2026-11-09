@@ -14,10 +14,10 @@ import type { LiveRun, Meta } from './types.js';
  * while the project has no runs or its setup isn't finished, and always at `#/setup`. Every other
  * page opens on its own and says in its own empty state what it will hold, with `Set up <project>`
  * (pages/set-up-step.tsx). A project that can't be opened (its folder is gone, or its store was
- * deleted) says so on every page but Settings, with Remove project…. Null while that can't be told
- * yet (the Overview before the run list or the meta's count, any other page before the meta, which
- * is what says a project can't be opened): the page waits rather than flashing. A run page opens at
- * once. An exported copy never shows it.
+ * deleted) says so in place of every page but Settings, which says so in its header, with Remove
+ * project…. Null while that can't be told yet (the Overview before the run list or the meta's
+ * count, any other page before the meta, which is what says a project can't be opened): the page
+ * waits rather than flashing. A run page opens at once. An exported copy never shows it.
  */
 export function setupShowsOn(route: Route, s: { exported: boolean; meta: Meta | null; runs: readonly RunLike[] | null }): boolean | null {
   if (s.exported || s.meta?.static) return false;
