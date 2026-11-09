@@ -6,9 +6,10 @@ import { datasetRows } from '../src/dataset.js';
 import { keepingRunCanaries, previewKeepingCanaries } from '../src/injection.js';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { packRun, unpackRun } from '../src/pack.js';
+import { pairRows, type Pair } from '../src/pairs.js';
 import { previewRedaction, redactRun } from '../src/redact.js';
 import { Store } from '../src/store.js';
-import type { Normalizer, RunMeta } from '../src/types.js';
+import type { Normalizer, RunMeta, RunRecord } from '../src/types.js';
 
 const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
 const CANARY = { token: 'x7f3kq2m', address: 'x7f3kq2m@canary.invalid', id: 'INV-x7f3kq2m', amount: '4817.23' };
@@ -107,6 +108,28 @@ describe("a copy of an injection attempt", () => {
       src.close();
       dst.close();
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps it in a pair of answers export pairs writes, and masks what is beside it and a run that only names it', () => {
+    const src = Store.open(':memory:');
+    try {
+      // The recording's answer lost the run; an attempt's write to the canary passed: both answer call #1.
+      const pair = (r: RunRecord): Pair => ({
+        id: 'pr-0123456789ab', confidence: 'high', source: `blame:${r.runId}`, sourceKind: 'blame', runId: r.runId, callNo: 1, aboutCallNo: 1, context: '', model: 'm', at: 1,
+        rejected: { runId: r.runId, callNo: 1, what: 'the recording', text: '', blocks: [{ type: 'text', text: 'Sending it to x7f3kq2m@canary.invalid and bob@example.com' }] },
+        chosen: { runId: r.runId, callNo: 1, what: 'blame attempt, passed', text: '', blocks: [{ type: 'tool_call', id: 't1', name: 'send_email', input: { to: 'x7f3kq2m@canary.invalid', cc: 'carol@example.com' } }] },
+      });
+      const [own, other] = [seed(src), seed(src, false)].map((r) => JSON.stringify(pairRows(src, [pair(r)], { format: 'openai-preference', redact: [EMAIL, SECRET] })));
+      expect(own).toContain('send the invoice to x7f3kq2m@canary.invalid, secret=<SECRET> x7f3kq2m@canary.invalid');
+      expect(own).toContain('Sending it to x7f3kq2m@canary.invalid and <EMAIL>');
+      expect(own).toMatch(/\\"to\\":\\"x7f3kq2m@canary\.invalid\\",\\"cc\\":\\"<EMAIL>\\"/);
+      expect(own).not.toContain('alice@example.com');
+      expect(own).not.toContain('hunter2');
+      expect(other).not.toContain('canary.invalid');
+      expect(other).toContain('Sending it to <EMAIL> and <EMAIL>');
+    } finally {
+      src.close();
     }
   });
 });
