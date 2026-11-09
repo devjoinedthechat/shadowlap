@@ -31,7 +31,8 @@ export function keepAsk(label: string | undefined, golden: string, packs: boolea
 /** The setup's read model as it stands (`undefined` until read, `null` for none), why it couldn't be read, and how to start a job it follows. */
 export interface SetupRead {
   view: SetupView | null | undefined;
-  failed: string | null;
+  /** The last read's failure, until a read works: its line is `failedRead`'s. */
+  failed: Error | null;
   load: () => void;
   /** Starts a job this page follows: the setup is read again once it ends. */
   start: (p: Promise<JobView>) => void;
@@ -47,7 +48,7 @@ export function useSetupView(): SetupRead {
   const app = useApp();
   const { client, meta, tick, jobs } = app;
   const [view, setView] = useState<SetupView | null | undefined>(undefined);
-  const [failed, setFailed] = useState<string | null>(null);
+  const [failed, setFailed] = useState<Error | null>(null);
   // The jobs this page started: the setup is read again as each ends.
   const mine = useRef(new Set<string>());
   const projectId = meta?.project?.id ?? null;
@@ -59,7 +60,7 @@ export function useSetupView(): SetupRead {
         setView(v);
         setFailed(null);
       },
-      (err: unknown) => setFailed(messageOf(err)),
+      (err: unknown) => setFailed(err instanceof Error ? err : new Error(messageOf(err))),
     );
   }, [client]);
 

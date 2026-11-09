@@ -1,17 +1,19 @@
 import { useState } from 'react';
 import { ConfirmDialog } from '../components/Dialog.js';
-import { Eyebrow, PageHeader } from '../components/bits.js';
+import { Eyebrow, PageHeader, StepList } from '../components/bits.js';
+import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { Page } from '../components/Page.js';
 import { RECORD_PART } from '../../../engine/src/cost-words.js';
 import { headingRef } from '../focus-manager.js';
 import type { RecordConfirmation, SetupView } from '../projects-api.js';
 import { setupPageShows } from '../projects.js';
-import { href } from '../route.js';
 import { RemoveProjectDialog } from '../shell/RemoveProject.js';
 import { useTestsWait, useTreeBusy } from '../fixes/tree.js';
 import { useApp } from '../state.js';
 import { NotFoundPage } from './NotFound.js';
-import { NoRunsSteps } from './no-runs.js';
+import { NoRunsSteps, setupSteps } from './no-runs.js';
+import { projectOf } from '../shell/ProjectBlock.js';
+import { SETUP_INTRO } from '../../src/setup-words.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { useSetupFollow, useSetupJobs, useSetupView } from './setup-jobs.js';
@@ -33,7 +35,7 @@ export { keepAsk } from './setup-jobs.js';
 /** `asked`: opened at #/setup, rather than shown in place of a page; a project with nothing to set up says so there. */
 export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   const { meta, runs, actionsOff } = useApp();
-  const { view, failed, start } = useSetupView();
+  const { view, failed, load, start } = useSetupView();
   const jobs = useSetupJobs(view, start);
   useSetupFollow(view);
   // Recording, calibrating and testing run the agent from the project's working tree: not while a repair or an apply changes it.
@@ -48,19 +50,7 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
   // No setup to follow (a dashboard that serves one store): with runs, nothing to set up here; without, the steps and their commands.
   if (shows === 'nothing') return <NotFoundPage what="Nothing to set up here." />;
   if (shows === 'steps') return <NoRunsSteps />;
-  if (shows === 'wait' || !view)
-    return (
-      <Page>
-        {failed ? (
-          <div className="empty tall">
-            {failed}{' '}
-            <a className="more" href={href.overview()}>
-              Back to the overview
-            </a>
-          </div>
-        ) : null}
-      </Page>
-    );
+  if (shows === 'wait' || !view) return <SetupWaiting failed={failed} retry={load} />;
 
   // #/setup on a project that is set up: nothing to do here, as the mock says.
   if (asked && view.shows === 'none') return <NotFoundPage what="Nothing to set up here." />;
@@ -89,6 +79,42 @@ export function SetupPage({ asked = false }: { asked?: boolean } = {}) {
         ) : null}
       </section>
       {jobs.asking ? <RecordRunDialog confirm={jobs.asking.confirm} onClose={jobs.closeAsking} onOk={jobs.confirmAsking} /> : null}
+    </Page>
+  );
+}
+
+/**
+ * The setup still loading: its header as the meta gives it, over the four steps in their final
+ * shape as quiet bars; or, where the read failed, the header and the error line with Retry.
+ */
+function SetupWaiting({ failed, retry }: { failed: Error | null; retry: () => void }) {
+  const { meta } = useApp();
+  const name = projectOf(meta)?.name ?? 'this project';
+  const path = meta?.project?.display;
+  return (
+    <Page busy={!failed}>
+      <PageHeader
+        eyebrow={
+          <>
+            {name}
+            {path ? (
+              <>
+                {' · '}
+                <code>{path}</code>
+              </>
+            ) : null}
+          </>
+        }
+        title={`Set up ${name}`}
+        text={SETUP_INTRO}
+      />
+      {failed ? (
+        <ErrorState retry={retry}>{failedRead(failed)}</ErrorState>
+      ) : (
+        <Skeleton what="the setup">
+          <StepList steps={setupSteps()} />
+        </Skeleton>
+      )}
     </Page>
   );
 }
