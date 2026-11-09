@@ -39,6 +39,7 @@
     "packages/dashboard/test/ui-check-builder-dialog.test.ts",
     "packages/dashboard/test/ui-check-builder-view.test.ts",
     "packages/dashboard/test/ui-check-builder.test.ts",
+    "packages/dashboard/test/ui-suggested-checks.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     "packages/dashboard/test/ui-tests-chaos.test.ts",
     "packages/dashboard/test/ui-runs-bulk.test.ts",

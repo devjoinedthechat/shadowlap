@@ -747,3 +747,21 @@ export function previewNotes(p: CheckPreview, o: { golden: string | null; failed
 
 /** A judge added or changed in this session: a replay golden's next offline test reads it inconclusive until Update golden asks it. */
 export const judgeAdded = (units: readonly Unit[]): boolean => units.some((u) => !!u.f && 'judge' in u.f && !same(u.f, u.orig));
+
+// ---- Suggested checks ---------------------------------------------------------------------------
+
+/** The labels of the checks the builder holds, which suggestions leave out: each row's that writes something, a removed one's too, as the golden holds it until Save. */
+export const haveOf = (s: Pick<Settled, 'rows'>): string[] => [...new Set(s.rows.flatMap((r) => (r.f ? r.labels : [])))];
+
+/** What a suggestion's button does: Use rule puts it in place of the rule being built here, Add rule adds it beside a check of the golden's open in the editor. */
+export function suggestVerb(s: Units): 'Use rule' | 'Add rule' {
+  const u = s.units[s.active];
+  return u && !u.orig ? 'Use rule' : 'Add rule';
+}
+
+/** A suggestion taken into the builder, as suggestVerb says: in place of the rule being built, else as a rule of its own, in the editor. Nothing is saved. */
+export function withSuggestion(s: Units, f: Fragment): Units {
+  const rule = ruleOf(f);
+  if (suggestVerb(s) === 'Use rule') return { units: s.units.map((u, j) => (j === s.active ? withRule(u, rule) : u)), active: s.active };
+  return { units: [...s.units, withRule(blankUnit(), rule)], active: s.units.length };
+}
