@@ -620,9 +620,11 @@ function recordedLine(run: NonNullable<SetupFacts['run']>, totals: RunTotals | n
 /**
  * What Record says of the tools its recording missed, and Record again. It is offered once every
  * missed tool is wrapped (`init` checked again since), as a recording made before then misses the
- * same calls. Once the replay is clean, it stays while Pack waits for a recording made since: only a
- * recording started here replaces a clean setup's, so it is the one way on. Lime while it leads,
- * that is while Pack waits for it; missed tools that only read leave it plain, and Calibrate leads.
+ * same calls, and whenever Pack waits for a recording made since: the missed writes are wrapped
+ * then, though a missed read may not be, and a read never holds Pack. Once the replay is clean, it
+ * stays only while Pack waits: only a recording started here replaces a clean setup's, so it is the
+ * one way on. Lime while it leads, that is while Pack waits for it; missed tools that only read
+ * leave it plain, and Calibrate leads.
  */
 function recordLead({ input, findings, run, recorded, clean, tested, finished, commands, unwrapped, wait }: SetupFacts, command: { value: string; enabled: boolean }): Pick<RecordStep, 'warning' | 'again'> {
   const missed = recorded ? input.setup.unwrappedAtRecord : [];
@@ -631,12 +633,21 @@ function recordLead({ input, findings, run, recorded, clean, tested, finished, c
   // Tools wrapped since: `init` checked again after the recording, and finds none of them unwrapped.
   const wrappedSince = !!findings && !!run && findings.at > run.startedAt && missed.every((name) => !unwrapped.some((t) => t.name === name));
   const leads = wait?.since === true;
-  const offered = wrappedSince && !tested && !finished && (!clean || leads);
-  const how = wrappedSince ? `${one ? 'It is' : 'They are'} wrapped now: record again` : `Wrap ${one ? 'it' : 'them'} and record again`;
+  const offered = !tested && !finished && (leads || (wrappedSince && !clean));
   return {
-    warning: `${plural(missed.length, 'tool')} ${one ? 'wasn’t' : 'weren’t'} wrapped, so ${one ? 'its' : 'their'} calls aren’t in this recording. ${how} before you pack it as a golden.`,
+    warning: `${plural(missed.length, 'tool')} ${one ? 'wasn’t' : 'weren’t'} wrapped, so ${one ? 'its' : 'their'} calls aren’t in this recording. ${againHow(one, wrappedSince, leads ? wait : null)} before you pack it as a golden.`,
     again: offered ? { label: 'Record again', action: 'record', lime: leads, command, cli: commands.record } : null,
   };
+}
+
+/**
+ * How Record's warning goes on: every missed tool wrapped now; else the writes among them, which
+ * Pack waits on (`leads`), while a missed read still isn't; else wrap them first.
+ */
+function againHow(one: boolean, wrappedSince: boolean, leads: PackWait | null): string {
+  if (wrappedSince) return `${one ? 'It is' : 'They are'} wrapped now: record again`;
+  if (leads) return `${listed(leads.tools)} ${leads.tools.length === 1 ? 'is' : 'are'} wrapped now: record again`;
+  return `Wrap ${one ? 'it' : 'them'} and record again`;
 }
 
 /** What Calibrate says: what it added once clean, what it proposes, why it stopped, or what it does. */

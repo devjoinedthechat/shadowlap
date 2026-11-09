@@ -36,6 +36,19 @@ function view(project: ProjectEntry, f: StoreFacts, extra: Partial<SetupInput> =
   return setupView({ project, setup: deriveSetup(project.setup, f, { packs }), redactRules: 0, home: HOME, ...extra });
 }
 
+/** The buttons a setup draws lime that can be pressed, as the page draws them: one at a time, the step at hand's. */
+const limes = (v: ReturnType<typeof setupView>): string[] =>
+  [
+    v.inspect.button?.lime && v.inspect.button.label,
+    v.inspect.warning?.recheck.lime && v.inspect.warning.recheck.label,
+    v.inspect.node?.recheck.lime && v.inspect.node.recheck.label,
+    v.record.button?.lime && v.record.button.enabled && v.record.button.label,
+    v.record.again?.lime && v.record.again.command.enabled && v.record.again.label,
+    v.calibrate.button?.lime && v.calibrate.button.enabled && v.calibrate.button.label,
+    v.test.button?.lime && v.test.button.enabled && !v.wait && v.test.button.label,
+    v.done?.button.label,
+  ].filter((label): label is string => typeof label === 'string');
+
 describe('projectSwitcher', () => {
   it('lists each project with its path and runs, the current one, and those still being set up', () => {
     const v = projectSwitcher({
@@ -415,6 +428,29 @@ describe('setupView', () => {
     // Packed in a terminal from the recording that missed them: its test waits in its own words.
     const packs = [{ path: 'goldens/q3', runIds: [RUN] }];
     expect(view(p, facts({ runs: 1, recordings: [run()] }), {}, packs).wait?.text).toBe('Testing waits for a recording made since save_report and notify_slack were wrapped: this golden doesn’t hold their calls.');
+  });
+
+  it('offers Record again, leading, once the missed writes are wrapped though a missed read isn’t, before the replay is clean and after', () => {
+    // Recorded while search_filings (a read) and save_report (a write) weren't wrapped, then the write
+    // alone wrapped and checked again: Pack waits for a recording made since, and nothing else leads.
+    const tools = [{ ...findings().tools[0], wrapped: false, why: 'no hint in the name' }, { ...findings().tools[1], wrapped: true }];
+    const mixed = findings({ at: 50, tools, wrap: [{ language: 'python', tools: ['search_filings'], code: 'from shadowlap import tool\n…' }] });
+    const inspections = [{ at: 1, unwrapped: ['search_filings', 'save_report'] }, { at: 50, unwrapped: ['search_filings'] }];
+    const p = entry('research-agent', { stage: 'recorded', findings: mixed, inspections, runId: RUN, command: ['uv', 'run', 'research-agent'] });
+    const v = view(p, facts({ runs: 1, recordings: [run()] }));
+    expect(v.wait).toEqual({ tools: ['save_report'], since: true, text: 'Packing waits for a recording made since save_report was wrapped: this one doesn’t hold its calls.' });
+    expect(v.record.warning).toBe('2 tools weren’t wrapped, so their calls aren’t in this recording. save_report is wrapped now: record again before you pack it as a golden.');
+    expect(v.record.again).toMatchObject({ label: 'Record again', action: 'record', lime: true, command: { value: 'uv run research-agent', enabled: true } });
+    expect([v.inspect.warning?.title, v.inspect.warning?.recheck.lime]).toEqual(['1 tool isn’t wrapped.', false]);
+    expect(limes(v)).toEqual(['Record again']);
+    // Clean already: a recording made in a terminal no longer becomes the setup's, so the one started here is the way on.
+    const clean = view(entry('research-agent', { ...p.setup, stage: 'clean', calibration: { added: [] } }), facts({ runs: 1, recordings: [run()] }));
+    expect([clean.calibrate.state, clean.wait?.since, clean.record.again?.lime]).toEqual(['done', true, true]);
+    expect(limes(clean)).toEqual(['Record again']);
+    // Recorded again since: the read it still misses holds nothing, and Calibrate leads.
+    const r2 = { ...run('completed', { startedAt: 60 }), runId: '01K5CQ9Z0000000000000000R2' };
+    const again = view(p, facts({ runs: 2, recordings: [r2, run()] }));
+    expect([again.wait, again.record.again, limes(again)]).toEqual([null, null, ['Calibrate']]);
   });
 
   it('says when the last recording held nothing, and asks for the command again', () => {

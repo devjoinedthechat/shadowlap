@@ -19,7 +19,7 @@ export function SetupSteps({ view, jobs, off, treeBusy, testsWait }: { view: Set
   return (
     <ol className="setup">
       <InspectBody step={view.inspect} off={off} canInspect={hasKind(JOB_KINDS.inspect)} onInspect={jobs.inspect} />
-      <RecordBody step={view.record} off={off} tree={treeBusy} canRecord={hasKind(JOB_KINDS.record)} live={live} command={jobs.command} setCommand={jobs.setCommand} error={jobs.recordError} onRecord={jobs.record} />
+      <RecordBody step={view.record} names={view.wait?.tools ?? []} off={off} tree={treeBusy} canRecord={hasKind(JOB_KINDS.record)} live={live} command={jobs.command} setCommand={jobs.setCommand} error={jobs.recordError} onRecord={jobs.record} />
       <CalibrateBody step={view.calibrate} off={off} tree={treeBusy} busy={jobs.running(JOB_KINDS.calibrate)} canCalibrate={hasKind(JOB_KINDS.calibrate)} runId={view.record.recorded?.runId ?? null} onCalibrate={jobs.calibrate} />
       <TestBody step={view.test} wait={view.wait} off={off} tree={testsWait} busy={jobs.running(JOB_KINDS.keepGolden)} canKeep={hasKind(JOB_KINDS.keepGolden)} golden={jobs.golden} setGolden={jobs.setGolden} error={jobs.goldenError} onPack={jobs.pack} onTest={jobs.testGolden} />
     </ol>
@@ -212,6 +212,7 @@ function CommandField({ value, enabled, onChange, onEnter, id = 'recCmd', label 
 
 function RecordBody({
   step,
+  names,
   off,
   tree,
   canRecord,
@@ -222,6 +223,8 @@ function RecordBody({
   onRecord,
 }: {
   step: RecordStep;
+  /** The write tools Pack waits on, shown as code where the warning names them. */
+  names: readonly string[];
   off: string | null;
   /** Why the working tree can't run the agent now (a repair holds it), or null. */
   tree: string | null;
@@ -270,7 +273,11 @@ function RecordBody({
             {at.after}
           </span>
         </div>
-        {step.warning ? <p className="fieldnote warn">{step.warning}</p> : null}
+        {step.warning ? (
+          <p className="fieldnote warn">
+            <Coded text={step.warning} names={names} />
+          </p>
+        ) : null}
       </>
     );
   } else {
