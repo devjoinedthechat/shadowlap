@@ -1,8 +1,8 @@
 import { Fragment, type ReactNode } from 'react';
 import { JOB_KINDS } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { CodeBox } from '../components/CodeBox.js';
 import { Command } from '../components/Copy.js';
-import { copyText } from '../dom.js';
 import type { CalibrateStep, InspectStep, RecordStep, SetupView, TestStep } from '../projects-api.js';
 import { aroundRunId, aroundWord, codeParts, liveCalls, recordingLine, stepClass, terminalLine } from '../projects.js';
 import { tipEst } from '../spending.js';
@@ -61,11 +61,13 @@ function SetupStep({ step, cli, children }: { step: SetupView['steps'][number]; 
   );
 }
 
+/** A step's button: lime where the read model says it is the step at hand's (one lime at a time), else plain. */
+const limeIf = (lime: boolean) => (lime ? 'btn lime' : 'btn');
+
 /** Why a step's button can't run here: the dashboard is read-only, or doesn't run that job kind yet. */
 const notHere = (off: string | null, can: boolean, cli: readonly string[]) => off ?? (can ? null : `This dashboard doesn’t run this step yet: run ${cli.join(' && ') || 'its command'} in a terminal.`);
 
 function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; off: string | null; canInspect: boolean; onInspect: (again: boolean) => void }) {
-  const { toast } = useApp();
   const why = notHere(off, canInspect, ['shadowlap init']);
   const unwrapped = step.findings?.tools.filter((t) => !t.wrapped).map((t) => t.name) ?? [];
   const found = step.findings ? (
@@ -92,7 +94,6 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
       ) : null}
     </>
   ) : null;
-  const code = step.warning ? step.warning.code.map((w) => w.code).join('\n\n') : '';
   return (
     <SetupStep step={step} cli={step.cli}>
       {step.text ? <p>{step.text}</p> : null}
@@ -114,30 +115,27 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
         found
       )}
       {step.warning ? (
-        <div className="warnbox">
-          <b>{step.warning.title}</b> <Coded text={step.warning.text} names={unwrapped} />
+        <div className="warnline">
+          <p>
+            <b>{step.warning.title}</b> <Coded text={step.warning.text} names={unwrapped} />
+          </p>
           {step.warning.code.map((w) => (
-            <pre tabIndex={0} key={w.language + w.tools.join(',')} className="codebox">
-              {w.code}
-            </pre>
+            <CodeBox key={w.language + w.tools.join(',')} code={w.code} what="the wrappers" />
           ))}
           <div className="actions">
-            {code ? (
-              <button className="btn" type="button" onClick={() => void copyText(code).then((ok) => toast(ok ? 'Copied the code' : 'Copying was refused by the browser'))}>
-                Copy wrappers
-              </button>
-            ) : null}
-            <ActionButton className="btn" why={why} onClick={() => onInspect(true)}>
+            <ActionButton className={limeIf(step.warning.recheck.lime)} why={why} onClick={() => onInspect(true)}>
               {step.warning.recheck.label}
             </ActionButton>
           </div>
         </div>
       ) : null}
       {step.node ? (
-        <div className="warnbox">
-          <b>{step.node.title}</b> {step.node.text}
+        <div className="warnline">
+          <p>
+            <b>{step.node.title}</b> {step.node.text}
+          </p>
           <div className="actions">
-            <ActionButton className="btn" why={why} onClick={() => onInspect(true)}>
+            <ActionButton className={limeIf(step.node.recheck.lime)} why={why} onClick={() => onInspect(true)}>
               {step.node.recheck.label}
             </ActionButton>
           </div>
