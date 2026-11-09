@@ -216,7 +216,7 @@ describe('the prefix line', () => {
 });
 
 describe('both paths in one list, a row a call', () => {
-  const model = (o: Partial<PathCall> = {}): PathCall => ({ callNo: 19, kind: 'api', name: 'POST /v1/messages', effect: null, origin: 'replayed', input: false, failure: null, decision: null, args: null, ...o });
+  const model = (o: Partial<PathCall> = {}): PathCall => ({ callNo: 19, kind: 'api', name: 'POST /v1/messages', effect: null, origin: 'replayed', input: false, failure: null, decision: null, ...o });
   const decided = (tools: Array<{ name: string; args: unknown }>, text = '') => ({ stop: 'tools' as const, stopReason: 'tool_use', tools: tools.map((t) => ({ ...t, effect: 'read' as const })), text, stops: 'calls tools' });
 
   it('reads a model call by what it decided, a failure by its status and who refused it, a tool by its name', () => {

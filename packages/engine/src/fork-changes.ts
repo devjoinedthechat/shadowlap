@@ -382,8 +382,6 @@ export interface PathCall {
   failure: { status: number | null; by: 'injected' | 'offline' | 'provider' } | null;
   /** A model call's decision; null for a tool, a failure, or an answer that can't be read. */
   decision: PathDecision | null;
-  /** A tool's arguments, masked by the normalizers, in a line cut past ROW_TEXT. */
-  args: string | null;
 }
 
 /** Both runs' calls at one place after the identical prefix: by position, judge calls left out. */
@@ -412,7 +410,11 @@ function refusedBy(c: CallRecord): NonNullable<PathCall['failure']>['by'] {
   return meta?.offline || (meta?.status === 503 && /\boffline\b/i.test(meta.error?.message ?? '')) ? 'offline' : 'provider';
 }
 
-/** A side's call as its row reads it, with what the comparison needs whole: the decision and the arguments. */
+/**
+ * A side's call as its row reads it, with what the comparison needs whole: the decision, and a
+ * tool's arguments, which `alike` compares and the row leaves out (it names the tool; the opened
+ * row reads them from the call's detail).
+ */
 function rowCall(store: StoreOf<'recording'>, c: CallRecord, normalizers: readonly Normalizer[]): { call: PathCall; decision: ModelDecision | null; args: unknown } {
   const failed = c.kind === 'api' && c.end?.outcome === 'error';
   const decision = c.kind === 'api' ? modelDecision(store, c, normalizers) : null;
@@ -427,7 +429,6 @@ function rowCall(store: StoreOf<'recording'>, c: CallRecord, normalizers: readon
       input: c.meta.input === true,
       failure: failed ? { status: typeof c.end?.meta.status === 'number' ? c.end.meta.status : null, by: refusedBy(c) } : null,
       decision: null,
-      args: c.kind === 'api' ? null : oneLine(args ?? null, ROW_TEXT),
     },
     decision,
     args,

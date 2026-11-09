@@ -160,7 +160,9 @@ describe("Compare's rows", () => {
     ]);
     // A decision as a preview's cell takes it (Decision.tsx), with the words for its stop.
     expect(p.rows[0].a!.decision).toEqual({ stop: 'tools', stopReason: 'tool_use', stops: 'calls tools', tools: [{ name: 'send_email', effect: 'write', args: { to: 'customer@example.com', body: 'Refunded' } }], text: '' });
-    expect(p.rows[1].b).toMatchObject({ kind: 'tool', name: 'send_email', effect: 'write', origin: 'blocked', args: '{"to":"customer@example.com","body":"Escalated"}', decision: null, failure: null });
+    expect(p.rows[1].b).toMatchObject({ kind: 'tool', name: 'send_email', effect: 'write', origin: 'blocked', decision: null, failure: null });
+    // A tool's row names it: its arguments are the opened row's, read from the call's detail.
+    expect(p.rows[1].b).not.toHaveProperty('args');
     expect(p.rows[3]).toMatchObject({ a: null, b: { callNo: 5, failure: { status: 503, by: 'offline' }, decision: null } });
     expect(p.more).toBe(0);
   });
@@ -213,16 +215,18 @@ describe("Compare's rows", () => {
     expect(p.rows[0]).toMatchObject({ n: 1, a: { callNo: 1 }, b: null, alike: false });
   });
 
-  it('masks what the normalizers mask before telling two calls alike, and cuts a long line', () => {
+  it('masks what the normalizers mask before telling two calls alike, from their whole arguments', () => {
     const store = Store.open(':memory:');
-    const x = addRun(store, [{ kind: 'tool', name: 'create_ticket', args: { id: 'T-1', note: 'x'.repeat(500) }, effect: 'write' }]);
-    const y = addRun(store, [{ kind: 'tool', name: 'create_ticket', args: { id: 'T-2', note: 'x'.repeat(500) }, effect: 'write' }]);
+    const ticket = (id: string, note: string) => addRun(store, [{ kind: 'tool', name: 'create_ticket', args: { id, note }, effect: 'write' }]);
+    const x = ticket('T-1', 'x'.repeat(500));
+    const y = ticket('T-2', 'x'.repeat(500));
+    // One character apart, far past a row's worth of them.
+    const z = ticket('T-3', `${'x'.repeat(499)}y`);
     const calls = (id: string) => store.getCalls(id);
     const effectOf = () => null;
+    const masking = { effectOf, normalizers: [{ kind: 'tool' as const, path: '$.args.id', replace: '<id>' }] };
     expect(pathRows(store, calls(x), calls(y), 0, { effectOf }).rows[0]).toMatchObject({ alike: false, similar: true });
-    const masked = pathRows(store, calls(x), calls(y), 0, { effectOf, normalizers: [{ kind: 'tool', path: '$.args.id', replace: '<id>' }] }).rows[0];
-    expect(masked).toMatchObject({ alike: true, similar: false });
-    expect(masked.a!.args).toHaveLength(300);
-    expect(masked.a!.args!.endsWith('…')).toBe(true);
+    expect(pathRows(store, calls(x), calls(y), 0, masking).rows[0]).toMatchObject({ alike: true, similar: false });
+    expect(pathRows(store, calls(x), calls(z), 0, masking).rows[0]).toMatchObject({ alike: false, similar: true });
   });
 });

@@ -91,7 +91,8 @@ describe("Compare's decisions on any two runs", () => {
     expect(comparePairOf(store, id.t1, id.t2)!.pair).toMatchObject({ rank: 1, verdict: { words: 'Different writes', where: 'from #1' } });
     const masked = comparePairOf(store, id.t1, id.t2, [{ kind: 'tool', path: '$.args.id', replace: '<id>' }])!.pair!;
     expect(masked.verdict).toEqual({ words: 'The same decisions', where: 'from #1', tone: 'done' });
-    expect(masked.rows[0]).toMatchObject({ alike: true, a: { args: '{"id":"<id>","subject":"Refund"}' } });
+    expect(masked.rows[0]).toMatchObject({ alike: true, similar: false, a: { kind: 'tool', name: 'create_ticket' } });
+    expect(masked.rows[0].a).not.toHaveProperty('args');
     expect(comparePairOf(store, id.rec, id.rec)!.pair).toMatchObject({ verdict: null, rows: [], more: 0 });
   });
 });

@@ -251,7 +251,7 @@ describe('picking another run', () => {
 describe('the whole comparison', () => {
   // The --fail-at 19=529 fork of the recording: the recording refunded and answered; the fork got HTTP 529 at #19 and stopped.
   const failAt = { run: 'b' as const, kind: 'fail' as const, flag: '--fail-at 19=529', callNo: 19, name: 'POST /v1/messages', before: 'an answer', after: 'HTTP 529', words: '#19 got HTTP 529 instead of an answer' };
-  const call = (callNo: number, o: Record<string, unknown> = {}) => ({ callNo, kind: 'api', name: 'POST /v1/messages', effect: null, origin: 'replayed', input: false, failure: null, decision: null, args: null, ...o });
+  const call = (callNo: number, o: Record<string, unknown> = {}) => ({ callNo, kind: 'api', name: 'POST /v1/messages', effect: null, origin: 'replayed', input: false, failure: null, decision: null, ...o });
   const refund = { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'issue_refund', args: { order: 'A-1', amount: 240 }, effect: 'write' }], text: '', stops: 'calls tools' };
   const pair = {
     from: { a: 19, b: 19 },
@@ -262,7 +262,7 @@ describe('the whole comparison', () => {
     },
     rows: [
       { n: 19, a: call(19, { decision: refund }), b: call(19, { origin: 'injected', failure: { status: 529, by: 'injected' } }), alike: false, similar: false },
-      { n: 20, a: call(20, { kind: 'tool', name: 'issue_refund', effect: 'write', args: '{"order":"A-1","amount":240}' }), b: null, alike: false, similar: false },
+      { n: 20, a: call(20, { kind: 'tool', name: 'issue_refund', effect: 'write' }), b: null, alike: false, similar: false },
     ],
     more: 0,
   };
@@ -389,7 +389,7 @@ describe('the whole comparison', () => {
       ...pair,
       rows: [
         { n: 19, a: call(20, { decision: refund }), b: call(19, { failure: { status: null, by: 'provider' } }), alike: false, similar: false },
-        { n: 20, a: null, b: call(20, { kind: 'tool', name: 'issue_refund', effect: 'write', args: '{"order":"A-1","amount":240}' }), alike: false, similar: false },
+        { n: 20, a: null, b: call(20, { kind: 'tool', name: 'issue_refund', effect: 'write' }), alike: false, similar: false },
       ],
     };
     const asked: string[] = [];
