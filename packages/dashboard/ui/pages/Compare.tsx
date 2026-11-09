@@ -41,13 +41,15 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
   // One run named: it is paired with what it was replayed into, or what it came from.
   if (a && !b) return <OneRun key={a} id={a} />;
   if (runs !== null && listed.length < 2) {
+    // With no run at all, a command that needs one isn't offered: record one first.
+    const one = listed[0] ?? null;
     const page = (
       <Page>
         <CompareTop />
         <section className="panel stepempty">
           <h3>Compare needs two runs</h3>
-          <p>Replay or fork the run you have, and compare the two call by call.</p>
-          <CmdLine>{`shadowlap replay ${listed[0] ? shortId(listed[0].runId) : '<run>'}`}</CmdLine>
+          <p>{one ? 'Replay or fork the run you have, and compare the two call by call.' : 'Record a run, then replay or fork it, and compare the two call by call.'}</p>
+          {one ? <CmdLine>{`shadowlap replay ${shortId(one.runId)}`}</CmdLine> : null}
         </section>
       </Page>
     );

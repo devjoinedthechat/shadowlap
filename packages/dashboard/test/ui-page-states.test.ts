@@ -15,6 +15,7 @@ import { readTraining, trainingView } from '../src/training.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import type { NotFoundKind } from '../ui/not-found-words.js';
+import { ComparePage } from '../ui/pages/Compare.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
 import { DashboardPages } from '../ui/pages/lazy.js';
 import { NotFoundPage } from '../ui/pages/NotFound.js';
@@ -264,6 +265,28 @@ describe('a page of a project with no runs', () => {
     r = await render(createElement(AppContext.Provider, { value: state }, createElement(RunsPage, {})));
     const link = r.one('.stepempty a.btn.lime');
     expect([text(link), link.getAttribute('href'), link.getAttribute('aria-disabled'), link.getAttribute('data-why')]).toEqual(['Set up support-agent', '#/', null, null]);
+  });
+});
+
+describe('Compare in a project with fewer than two runs', () => {
+  const compare = (runs: unknown[]) => {
+    addressBar('#/compare');
+    const client = { exported: false, jobs: () => Promise.resolve([]), compareHead: () => Promise.resolve(null) };
+    return createElement(AppContext.Provider, { value: { ...app({}), runs, client } as unknown as AppState }, createElement(ComparePage, { a: null, b: null }));
+  };
+
+  it('asks for a run first with none at all, and offers no command, as each would need one', async () => {
+    r = await render(compare([]));
+    expect(text(r.one('.stepempty h3'))).toBe('Compare needs two runs');
+    expect(text(r.one('.stepempty p'))).toBe('Record a run, then replay or fork it, and compare the two call by call.');
+    expect(r.all('.stepempty .cmdline')).toEqual([]);
+    expect(text(r.document.body)).not.toContain('shadowlap replay');
+  });
+
+  it('offers to replay the one run there is', async () => {
+    r = await render(compare([{ runId: '01K5CQ7A3M00000000000000AB', parentRunId: null, mode: 'record', status: 'completed', startedAt: 1, calls: 3 }]));
+    expect(text(r.one('.stepempty p'))).toBe('Replay or fork the run you have, and compare the two call by call.');
+    expect(text(r.one('.stepempty .cmdline'))).toContain('shadowlap replay 01K5CQ7A3M');
   });
 });
 
