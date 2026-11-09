@@ -251,8 +251,8 @@ test('a run’s judge verdicts are findings of their own, each its call, the che
   await expect(verdicts.locator('.jvw b')).toHaveText(['✓', '✗']);
   await expect(verdicts.nth(1).locator('.jvw')).toContainText('judge "names-the-date" answers yes: the judge answered no');
   await expect(verdicts.locator('.why').first()).toHaveText(why('The reply says the refund was issued'));
-  // The call first, as the design draws it: verdict, #n, the check, then why.
-  expect(await verdicts.first().evaluate((s) => [...s.children].map((c) => c.classList[0]))).toEqual(['bk', 'bn', 'jvw', 'why']);
+  // The call first, as the design draws it: verdict, #n, the check, then why (and the bar's own link after).
+  expect((await verdicts.first().evaluate((s) => [...s.children].map((c) => c.classList[0]))).slice(0, 4)).toEqual(['bk', 'bn', 'jvw', 'why']);
   const call = verdicts.first().locator('button.bn');
   await expect(call).toHaveText(`#${last}`);
   expect(await card(call)).toMatchObject({ t: 'Open the judge’s call' });
