@@ -417,7 +417,7 @@
       "fixBundles": 180
     },
     "packages/dashboard/src/routes/projects.ts": {
-      "register": 221
+      "register": 216
     },
     "packages/dashboard/src/training.ts": {
       "trainingView": 166

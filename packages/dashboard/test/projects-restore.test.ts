@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -81,6 +81,21 @@ describe('Undo after removing a project', () => {
     expect((await w.api('projects/research-agent/remove', {})).body).toMatchObject({ message: 'Removed research-agent · nothing on disk changed', undo: false });
     expect(await w.api('projects/research-agent/restore', {})).toMatchObject({ status: 400, body: { error: '~/research-agent isn’t on disk any more.' } });
     expect(await w.ids()).toEqual(['support-agent']);
+  });
+
+  it('is refused in the project list’s own words when a newer Shadowlap wrote the list, ~ for the home folder as Remove’s answer writes it', async () => {
+    const w = await world();
+    expect((await w.api('projects/research-agent/remove', {})).body).toMatchObject({ undo: true });
+    const list = readFileSync(w.registry.file, 'utf8');
+    const newer = `${JSON.stringify({ ...(JSON.parse(list) as object), version: 2 }, null, 2)}\n`;
+    writeFileSync(w.registry.file, newer);
+    const refused = { status: 500, body: { error: '~/.sl/projects.json was written by a newer Shadowlap. Upgrade Shadowlap to change the project list.' } };
+    expect(await w.api('projects/research-agent/restore', {})).toEqual(refused);
+    expect(await w.api('projects/triage-bot/remove', {})).toEqual(refused);
+    expect(readFileSync(w.registry.file, 'utf8')).toBe(newer);
+    // A list this Shadowlap can change again: the toast's Undo works.
+    writeFileSync(w.registry.file, list);
+    expect((await w.api('projects/research-agent/restore', {})).body).toMatchObject({ project: { id: 'research-agent' } });
   });
 
   it('needs the session token, as every route does', async () => {
