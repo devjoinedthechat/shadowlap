@@ -42,6 +42,8 @@ import * as attemptGroups from './attempt-groups.js';
 import * as verdicts from './verdicts.js';
 // The person's own settings on this machine, on every project: Spending.
 import * as userSettings from './user-settings.js';
+// Needs a look's advice put away (Dismiss) and brought back (Restore), in this project's store alone.
+import * as dismissals from './dismissals.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {
@@ -91,6 +93,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   verdicts,
   userSettings,
   estimates,
+  dismissals,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

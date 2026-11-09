@@ -2227,6 +2227,8 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/changes?since=<cursor>` | What changed since the cursor: runs, calls, activity, jobs, and the live runs with their call counts and call events (starts and answers) |
 | `GET /api/activity?limit=&before=` | The activity feed, newest first, `limit` entries a page |
 | `GET /api/summary?tz=` | The Overview, in the viewer's time zone (IANA, UTC without one) |
+| `POST /api/needs-look/dismissals { key, facts }` | Puts Needs a look's advice away with the facts its row stated; answers what was kept before (`was`), for Undo |
+| `DELETE /api/needs-look/dismissals/:key` | Brings advice put away back (Restore); `restored` is false when none was |
 | `GET /api/search?q&limit` | What runs recorded that matches every word, at most two hits a run |
 | `GET /api/files/:fileId` | A file a job wrote, as an attachment |
 | `POST /api/uploads` | A file for a job of the current project (raw body, name in `x-filename`); answers its `uploadId` |
