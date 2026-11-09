@@ -1,19 +1,22 @@
-import { Fragment, useId, useRef, type ReactNode } from 'react';
+import { useId, useRef } from 'react';
+import { DotNodes } from '../components/DotParts.js';
+import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
 import { Status } from '../components/Status.js';
 import { ShowMore } from '../components/Table.js';
 import { Whole } from '../fixes/parts.js';
-import { RunBlameButton } from '../fixes/RunBlame.js';
 import { rungStatus } from '../fixes/rung-status.js';
 import { shortId, whenShort } from '../format.js';
 import { useListKeys, type RowScope } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import type { RunLike } from '../runs.js';
+import { useApp } from '../state.js';
+import { type LookWait, RunStep, runStepJob, stepWhy, useLookWaits } from '../steps/RunStep.js';
 import type { Issue, IssueRun } from '../types.js';
-import { countName, firstPart, issueGlyph, issueHref, laterParts } from './issues.js';
+import { countName, issueGlyph, issueHref, type LinePart, lineParts } from './issues.js';
 import { RowStatus } from './RunsTable.js';
 
 /*
@@ -24,28 +27,43 @@ import { RowStatus } from './RunsTable.js';
  * parts goes somewhere of its own. On a phone an issue is a block (runs.css).
  */
 
-/** An issue's runs past those its read carried, and where the next ask starts. */
-export interface MoreRuns {
-  runs: readonly IssueRun[];
-  more: string | null;
-}
-
 /** A run under an issue, as its icon and Status read it: an issue's runs carry no totals, which neither draws. */
 const asRun = (r: IssueRun): RunLike => ({ ...r, spent: 0, saved: 0, captured: 0 });
 
-/** What a step that only opens a page says, where the issue leads with none of its own: Open run, Open Tests. */
+/** What a step that only opens a page says, where the issue leads with none it takes from here: Open run, Open Tests. */
 function openStep(x: Issue): { label: string; to: string } | null {
   if (x.kind === 'test') return { label: 'Open Tests', to: href.tests() };
   return x.stepRun ? { label: 'Open run', to: href.run(x.stepRun) } : null;
 }
 
-/** The step an issue leads with: Run blame on the run it names, a link (Open fix, a capture's Run blame, which only its page can ask), or the page that leads with it. */
-function IssueStep({ x }: { x: Issue }) {
+/** The job an issue's step starts from here, as a list's row takes it (steps/RunStep.tsx); null for one that opens a page. */
+const stepJobOf = (x: Issue) => (x.step && x.stepRun && !x.step.href && !(x.step.key === 'blame' && x.step.capture) ? runStepJob(x.step) : null);
+
+/**
+ * The step an issue leads with, small and plain with no key, as Needs a look draws a run's: a job
+ * its run's page leads with (Run blame, Add normalizer and re-run, Find breaking commit, …), priced
+ * as the pointer or the focus reaches it; a link (Open fix; a capture's Run blame, which only its
+ * page can ask, its card the row's sentence); or the page that leads with it.
+ */
+function IssueStep({ x, wait }: { x: Issue; wait: LookWait | null }) {
+  const app = useApp();
   const s = x.step;
-  if (s?.key === 'blame' && !s.capture && x.stepRun) return <RunBlameButton runId={x.stepRun} offer={s.offer} className="btn sm" {...(s.sub ? { tip: s.sub } : {})} {...(s.command ? { line: s.command } : {})} />;
-  if (s?.key === 'blame' && x.stepRun) return <a className="btn sm" href={href.run(x.stepRun)} title="Its page asks for your command, then blames it">{s.label}</a>;
-  if (s?.href) return <a className="btn sm" href={s.href} {...(s.title ? { title: s.title } : {})}>{s.label}</a>;
-  // A golden's step or a run's (Update golden, Find breaking commit, …) is taken where it leads, on Tests or on the run's page, as is an issue's that leads with none.
+  if (s?.href) {
+    return (
+      <a className="btn sm" href={s.href} {...(s.title ? { title: s.title } : {})}>
+        {s.label}
+      </a>
+    );
+  }
+  if (s?.key === 'blame' && s.capture && x.stepRun) {
+    return (
+      <a className="btn sm" href={href.run(x.stepRun)} {...(s.sub ? { 'data-tip': tipCard(s.label, [], s.sub) } : {})}>
+        {s.label}
+      </a>
+    );
+  }
+  const run = stepJobOf(x);
+  if (s && x.stepRun && run && wait && !app.actionsOff && !app.exported) return <RunStep s={{ runId: x.stepRun, step: s }} why={stepWhy(app.hasKind, run, wait)} />;
   const o = openStep(x);
   return o ? (
     <a className="btn sm" href={o.to}>
@@ -75,56 +93,63 @@ function IssueStatus({ x }: { x: Issue }) {
   return null;
 }
 
-/** The line under the title: what failed or how it was judged, where it was planted or lost, how many came from production, then its newest run. */
+/** A part of the line, drawn: what failed kept whole where it can be, a golden's path or exit line as code, a run by its id. */
+function partNode(p: LinePart) {
+  switch (p.kind) {
+    case 'failed':
+      return (
+        <>
+          Failed: <Whole text={p.failed} />
+        </>
+      );
+    case 'detail':
+      return (
+        <>
+          {p.code ? <code>{p.code}</code> : null}
+          {p.code && p.words ? ' ' : null}
+          {p.words}
+        </>
+      );
+    case 'words':
+      return p.text;
+    case 'newest':
+      return (
+        <>
+          newest <Id id={shortId(p.runId)} about={p.about} />
+        </>
+      );
+  }
+}
+
+/** The line under the title, its parts joined by dots as a receipt's are: each of 36 characters or fewer whole, and a dot never starting a line. */
 function IssueLine({ x }: { x: Issue }) {
-  const first = firstPart(x);
-  const parts: ReactNode[] = [];
-  if (first && 'failed' in first) {
-    parts.push(
-      <>
-        Failed: <Whole text={first.failed} />
-      </>,
-    );
-  } else if (first) parts.push(first.text.length <= 36 ? <span className="nw">{first.text}</span> : first.text);
-  for (const p of laterParts(x)) parts.push(<span className="nw">{p}</span>);
-  parts.push(
-    <span className="nw">
-      newest <Id id={shortId(x.newest.runId)} about={x.newest.about?.text ?? null} />
-    </span>,
-  );
   return (
     <span className="rsub">
-      {parts.map((p, i) => (
-        <Fragment key={i}>
-          {i ? ' · ' : null}
-          {p}
-        </Fragment>
-      ))}
+      <DotNodes parts={lineParts(x).map((p) => ({ text: p.text, node: partNode(p) }))} max={36} />
     </span>
   );
 }
 
-/** An issue's runs, newest first, each a link to its page; past those its read carried, Show more asks for the next. */
-function IssueRuns({ x, id, now, more, onMore }: { x: Issue; id: string; now: number; more: MoreRuns | undefined; onMore: (x: Issue, after: string) => void }) {
-  const runs = more ? [...x.runs, ...more.runs] : x.runs;
-  const next = more ? more.more : x.more;
+/** An issue's runs, newest first, each a link to its page; past those its read carried (and the pages Show more brought), Show more asks for the next. */
+function IssueRuns({ x, id, now, onMore }: { x: Issue; id: string; now: number; onMore: (x: Issue, after: string) => void }) {
+  const next = x.more;
   return (
     <div className="isruns" id={id}>
-      {runs.map((r) => (
+      {x.runs.map((r) => (
         <a key={r.runId} className="isr" href={href.run(r.runId)}>
           <RunIcon run={asRun(r)} />
-          <code>{shortId(r.runId)}</code>
+          <Id id={shortId(r.runId)} list />
           <span className="rab">{r.about?.text ?? r.command}</span>
           <RowStatus r={asRun(r)} />
           <span className="w">{whenShort(r.startedAt, now)}</span>
         </a>
       ))}
-      {next ? <ShowMore shown={runs.length} total={x.count} onMore={() => onMore(x, next)} /> : null}
+      {next ? <ShowMore shown={x.runs.length} total={x.count} onMore={() => onMore(x, next)} /> : null}
     </div>
   );
 }
 
-function IssueRow({ x, open, focused, now, more, onToggle, onMore }: { x: Issue; open: boolean; focused: boolean; now: number; more: MoreRuns | undefined; onToggle: (x: Issue) => void; onMore: (x: Issue, after: string) => void }) {
+function IssueRow({ x, open, focused, now, wait, onToggle, onMore }: { x: Issue; open: boolean; focused: boolean; now: number; wait: LookWait | null; onToggle: (x: Issue) => void; onMore: (x: Issue, after: string) => void }) {
   const runsId = useId();
   const g = issueGlyph(x);
   const n = x.count;
@@ -163,14 +188,14 @@ function IssueRow({ x, open, focused, now, more, onToggle, onMore }: { x: Issue;
         <td className="isfix" role="cell">
           <span className="isfx">
             <IssueStatus x={x} />
-            <IssueStep x={x} />
+            <IssueStep x={x} wait={wait} />
           </span>
         </td>
       </tr>
       {open ? (
         <tr className="sub still" role="row">
           <td colSpan={5} role="cell">
-            <IssueRuns x={x} id={runsId} now={now} more={more} onMore={onMore} />
+            <IssueRuns x={x} id={runsId} now={now} onMore={onMore} />
           </td>
         </tr>
       ) : null}
@@ -192,8 +217,32 @@ function issueScope(x: Issue, open: boolean, toggle: (x: Issue) => void): RowSco
   };
 }
 
-/** The issues, in the order of their newest run, with the keys a list takes: j and k, Enter on a title, ⌘K on a row. */
-export function IssuesTable({ issues, open, now, more, onToggle, onMore }: { issues: readonly Issue[]; open: ReadonlySet<string>; now: number; more: ReadonlyMap<string, MoreRuns>; onToggle: (x: Issue) => void; onMore: (x: Issue, after: string) => void }) {
+interface TableProps {
+  issues: readonly Issue[];
+  open: ReadonlySet<string>;
+  now: number;
+  onToggle: (x: Issue) => void;
+  onMore: (x: Issue, after: string) => void;
+}
+
+/**
+ * The issues, in the order of their newest run. A dashboard that runs jobs reads the server's jobs
+ * once for every row whose step starts one (`useLookWaits`), as Needs a look does; one that runs
+ * none reads none, and its steps open their pages.
+ */
+export function IssuesTable(props: TableProps) {
+  const { actionsOff, exported } = useApp();
+  const jobs = !actionsOff && !exported && props.issues.some((x) => stepJobOf(x));
+  return jobs ? <WaitingTable {...props} /> : <Table {...props} wait={null} />;
+}
+
+function WaitingTable(props: TableProps) {
+  const wait = useLookWaits();
+  return <Table {...props} wait={wait} />;
+}
+
+/** The table, with the keys a list takes: j and k, Enter on a title, ⌘K on a row. */
+function Table({ issues, open, now, wait, onToggle, onMore }: TableProps & { wait: LookWait | null }) {
   const box = useRef<HTMLTableElement | null>(null);
   const inFocus = useListKeys({ rows: issues, keyOf: (x) => x.key, root: box, open: (x) => navigate(issueHref(x)), actions: (x) => issueScope(x, open.has(x.key), onToggle) });
   return (
@@ -218,7 +267,7 @@ export function IssuesTable({ issues, open, now, more, onToggle, onMore }: { iss
       </thead>
       <tbody role="rowgroup">
         {issues.map((x) => (
-          <IssueRow key={x.key} x={x} open={open.has(x.key)} focused={inFocus === x.key} now={now} more={more.get(x.key)} onToggle={onToggle} onMore={onMore} />
+          <IssueRow key={x.key} x={x} open={open.has(x.key)} focused={inFocus === x.key} now={now} wait={wait} onToggle={onToggle} onMore={onMore} />
         ))}
       </tbody>
     </table>

@@ -4,9 +4,10 @@ import { useLatest } from '../hooks.js';
 import { ISSUE_ASK } from '../page-ask.js';
 import { usePendingHidden } from '../pending-delete.js';
 import { useApp } from '../state.js';
+import { errorText } from '../toast.js';
 import type { Issue, IssuesPage, RunsQuery } from '../types.js';
-import { issuesEmpty, issuesLess } from './issues.js';
-import { IssuesTable, type MoreRuns } from './IssuesTable.js';
+import { issuesEmpty, issuesShown, type MoreRuns } from './issues.js';
+import { IssuesTable } from './IssuesTable.js';
 import { useKeptScroll } from './scroll.js';
 
 /*
@@ -14,6 +15,8 @@ import { useKeptScroll } from './scroll.js';
  * Failed as a filter over its runs. Read beside the table's read, with the same words and days, and
  * again on the page's tick as the table is, and every moment while the verdicts Failed counts by are
  * still being worked out. The runs a delete waits to take leave the issues as they leave the table.
+ * The runs Show more brings are kept with the read they came after, and dropped once the issues are
+ * read again, whose first runs may have moved since.
  */
 
 export interface FailedIssuesProps {
@@ -76,14 +79,41 @@ function useAskedIssue(issues: readonly Issue[], open: (key: string) => void): v
   }, [issues, open]);
 }
 
+/** The runs Show more brought for each issue, after the read they came after (`of`). */
+interface Brought {
+  of: IssuesPage | null;
+  runs: ReadonlyMap<string, MoreRuns>;
+}
+
+/** Show more on an issue: its next runs after `after`, kept with the read they followed; why they couldn't be read is said. */
+function useMoreRuns(query: FailedIssuesProps['query'], page: IssuesPage | null): [ReadonlyMap<string, MoreRuns>, (x: Issue, after: string) => void] {
+  const { client, toast } = useApp();
+  const [brought, setBrought] = useState<Brought>({ of: null, runs: NO_MORE });
+  const pageNow = useLatest(page);
+  const onMore = (x: Issue, after: string) => {
+    const of = page;
+    void client.issueRuns(x.key, query, after).then(
+      (p) => {
+        // A read since has its own first runs: these followed the one before it.
+        if (pageNow.current !== of) return;
+        setBrought((b) => {
+          const runs = b.of === of ? b.runs : NO_MORE;
+          return { of, runs: new Map(runs).set(x.key, { runs: [...(runs.get(x.key)?.runs ?? []), ...p.runs], more: p.more }) };
+        });
+      },
+      (err: unknown) => toast(errorText(err), 'error'),
+    );
+  };
+  return [brought.of === page ? brought.runs : NO_MORE, onMore];
+}
+
 /** Failed's issues, their empty line, or why they couldn't be read. */
 export function FailedIssues({ query, refresh, scrollKey, above }: FailedIssuesProps) {
-  const { client } = useApp();
   const read = useIssues(query, refresh);
   const hidden = usePendingHidden();
-  const page = useMemo(() => (read.page ? issuesLess(read.page, hidden) : null), [read.page, hidden]);
+  const [more, onMore] = useMoreRuns(query, read.page);
+  const page = useMemo(() => (read.page ? issuesShown(read.page, hidden, more) : null), [read.page, hidden, more]);
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(opened));
-  const [more, setMore] = useState<ReadonlyMap<string, MoreRuns>>(() => new Map());
   useKeptScroll(scrollKey, above && page !== null);
   const toggle = useCallback((x: Issue | string, to?: boolean) => {
     const key = typeof x === 'string' ? x : x.key;
@@ -93,15 +123,11 @@ export function FailedIssues({ query, refresh, scrollKey, above }: FailedIssuesP
     setOpen(new Set(opened));
   }, []);
   useAskedIssue(page?.issues ?? NO_ISSUES, useCallback((key: string) => toggle(key, true), [toggle]));
-  const onMore = (x: Issue, after: string) =>
-    void client.issueRuns(x.key, query, after).then(
-      (p) => setMore((m) => new Map(m).set(x.key, { runs: [...(m.get(x.key)?.runs ?? []), ...p.runs], more: p.more })),
-      () => undefined,
-    );
   if (read.error && !page) return <div className="empty">The runs could not be read: {read.error.message}</div>;
   if (!page) return <div className="empty">Loading runs…</div>;
   if (!page.issues.length) return <EmptyLine>{issuesEmpty({ q: query.q ?? '', days: query.from != null })}</EmptyLine>;
-  return <IssuesTable issues={page.issues} open={open} now={Date.now()} more={more} onToggle={toggle} onMore={onMore} />;
+  return <IssuesTable issues={page.issues} open={open} now={Date.now()} onToggle={toggle} onMore={onMore} />;
 }
 
 const NO_ISSUES: readonly Issue[] = [];
+const NO_MORE: ReadonlyMap<string, MoreRuns> = new Map();

@@ -91,7 +91,8 @@ describe('the issue a failed run belongs to', () => {
 
   it('keeps a golden and its failed replays, titled by what its newest did as Tests says it', () => {
     const t = issueOf(read(), issueKey.golden('goldens/refund-in-limit'));
-    expect(t).toMatchObject({ kind: 'test', title: null, golden: { path: 'goldens/refund-in-limit', name: 'refund-in-limit', did: 'diverged at call 1', passed: false }, fix: null, stepRun: null });
+    expect(t).toMatchObject({ kind: 'test', title: null, golden: { path: 'goldens/refund-in-limit', name: 'refund-in-limit', did: 'diverged at call 1', passed: false }, fix: null, stepRun: id.t3 });
+    // Its step acts on the replay its newest result made.
     // The replay a later one passed is fixed by it: Failed leaves it out, and so does its issue.
     expect(runsOf(t)).toEqual([id.t3]);
   });
@@ -114,10 +115,10 @@ describe('the issue a failed run belongs to', () => {
 describe('what an issue leads with', () => {
   it('leads a fix with Run blame on its newest run nobody has blamed, its card naming it, else Open fix', () => {
     const a = issueOf(read(), issueKey.fix(FIX_A));
-    // The capture joined by its words too, but the lists' unblamed rule takes failed recordings and forks.
-    expect(a.notBlamed).toBe(1);
+    // The capture joined by its words too: the lists' unblamed rule takes a capture its import judged failed, as Runs counts it.
+    expect(a.notBlamed).toBe(2);
     expect(a).toMatchObject({ step: { key: 'blame', label: 'Run blame' }, stepRun: id.a2 });
-    expect(a.step?.sub).toBe(`Blames ${id.a2.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to`);
+    expect(a.step?.sub).toBe(`Blames the newest, ${id.a2.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to`);
     const b = issueOf(read(), issueKey.fix(FIX_B));
     expect(b).toMatchObject({ notBlamed: 1, fix: { rung: 'applied' }, step: { key: 'blame' }, stepRun: id.b1 });
     // On days that keep only the run the fix lists, nothing is left to blame: Open fix.

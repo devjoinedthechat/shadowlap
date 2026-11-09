@@ -1,9 +1,11 @@
-import { checkStatus, checkWords, fixLabelInfo, type FixRecords, fixRecords, lostWords, outcomeLabel, shownBlame, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { fixLabelInfo, type FixRecords, fixRecords, lostWords, shownBlame, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { failedWords } from '../failed-words.js';
 import { fixActions } from '../fix-actions.js';
 import { fixLead, type FixLead } from '../fix-lead.js';
 import { changeWords } from '../fix-list.js';
-import { checksOf, fixHref, noAnswerLost, short } from '../fix-shared.js';
+import { capturedFailure, fixHref, noAnswerLost, short } from '../fix-shared.js';
 import { type NeedsLookItem, repairLeft } from '../fix-summary.js';
+import { issueKeyOfRun } from '../issues.js';
 import { links } from '../links.js';
 import { unblamedListedStep } from '../next-step.js';
 import { aboutsUpTo } from '../run-about.js';
@@ -40,22 +42,18 @@ export const broken: LookSource = {
 };
 
 /**
- * What a failed run failed on, as its page says it: where it was lost or diverged (`outcomeLabel`),
- * else its first failed check with what it saw (`send_email called at most 1 time, but called 2
- * times`, `checkWords`), a capture's as its import judged it, else that it failed.
+ * What a failed run failed on, in the words Runs' issues and Fixes' row say it (failed-words.ts):
+ * its first failed check with what it saw (`send_email called at most 1 time, but called 2 times`),
+ * a capture's as its import judged it, the agent's exit, else that it failed.
  */
-function failedWords(w: LookWork, runId: string): string {
+function failedOf(w: LookWork, runId: string): string {
   const row = w.index.byId.get(runId);
-  const o = row?.outcome;
-  if (o?.kind === 'lost' || o?.kind === 'diverged') return outcomeLabel(o);
-  const run = w.store.getRun(runId);
-  const check = run ? checksOf(run, row).find((c) => checkStatus(c) === 'failed') : undefined;
-  return check ? checkWords(check, ', but ') : o?.kind === 'check-failed' && o.check ? o.check : 'failed';
+  return row ? failedWords(row, { capture: capturedFailure(row) ? w.store.getRun(runId) : null }) : 'failed';
 }
 
 /**
  * This week's failed runs that no blame and no fix holds, as one row: how many, the newest by its id
- * with what it failed on (`failedWords`), and Run blame on the newest where its page leads with it. It opens Runs on Failed for this week's days. Older ones stay on Runs and on Fixes.
+ * with what it failed on (`failedOf`), and Run blame on the newest where its page leads with it. It opens Runs on Failed for this week's days, with the newest's issue open (`issue`). Older ones stay on Runs and on Fixes.
  */
 export const unblamed: LookSource = {
   id: 'unblamed',
@@ -80,9 +78,10 @@ export const unblamed: LookSource = {
       kind: 'unblamed',
       icon: 'fail',
       title: unblamedTitle(n),
-      detail: `${n > 1 ? 'newest ' : ''}${short(runId)} · ${failedWords(w, runId)}`,
+      detail: `${n > 1 ? 'newest ' : ''}${short(runId)} · ${failedOf(w, runId)}`,
       step,
       href: links.runs({ types: 'failed', from: w.week.first, to: w.week.last }),
+      issue: issueKeyOfRun(w.store, w.index, runId),
       runId,
       fixId: null,
       at: newest.at,

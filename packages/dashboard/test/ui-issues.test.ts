@@ -5,7 +5,7 @@ import { ISSUE_ASK } from '../ui/page-ask.js';
 import { FailedIssues } from '../ui/runspage/FailedIssues.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, shownText, type Rendered } from './ui-render.js';
-import { countName, firstPart, issueGlyph, issueHref, issuesEmpty, issuesLess, laterParts } from '../ui/runspage/issues.js';
+import { countName, issueGlyph, issueHref, issuesEmpty, issuesShown, lineParts } from '../ui/runspage/issues.js';
 import { shownWarming } from '../ui/runspage/rows.js';
 import type { Issue, IssueRun, IssuesPage } from '../ui/types.js';
 
@@ -59,19 +59,24 @@ describe('an issue’s title, icon and line', () => {
   });
 
   it('says what failed for a fix or a planted issue, how the rest were judged, and that nobody has blamed a failure yet', () => {
-    expect(firstPart(issue({ kind: 'fix', fix: FIX }))).toEqual({ failed: 'cost at most $0.05, but cost $0.07' });
-    expect(firstPart(issue({ kind: 'capture' }))).toEqual({ text: 'judged when it was imported' });
-    expect(firstPart(issue({ kind: 'today' }))).toEqual({ text: 'judged from the recording' });
+    const first = (i: Issue) => lineParts(i)[0];
+    expect(first(issue({ kind: 'fix', fix: FIX }))).toEqual({ kind: 'failed', text: 'Failed: cost at most $0.05, but cost $0.07', failed: 'cost at most $0.05, but cost $0.07' });
+    expect(first(issue({ kind: 'capture', blame: null }))).toEqual({ kind: 'words', text: 'judged when it was imported' });
+    // Its last four words kept on one line where the line wraps.
+    expect(first(issue({ kind: 'today' }))).toEqual({ kind: 'words', text: 'judged\u00a0from\u00a0the\u00a0recording' });
     const today = issue({ kind: 'today', runs: [run('01K8RG000000000000000000T1', 1_000, { judged: { today: true } as NonNullable<IssueRun['judged']> })] });
-    expect(firstPart(today)).toEqual({ text: 'by today’s checks, judged from the recording' });
-    expect(firstPart(issue())).toEqual({ text: 'not blamed yet' });
-    expect(firstPart(issue({ kind: 'test', detail: '$.metadata.user_id, a UUID' }))).toEqual({ text: '$.metadata.user_id, a UUID' });
+    expect(first(today)).toEqual({ kind: 'words', text: 'by today’s checks, judged\u00a0from\u00a0the\u00a0recording' });
+    expect(first(issue())).toEqual({ kind: 'words', text: 'not blamed yet' });
+    // A golden's path set as code, then what the value looks like, in Tests' words.
+    expect(first(issue({ kind: 'test', detail: { code: '$.metadata.user_id', text: 'looks like a UUID' } }))).toEqual({ kind: 'detail', text: '$.metadata.user_id looks like a UUID', code: '$.metadata.user_id', words: 'looks like a UUID' });
   });
 
-  it('then where it was planted or lost, and how many of a fix’s runs came from production', () => {
-    expect(laterParts(issue({ kind: 'planted', planted: 'planted in #2 lookup_order’s result', blame: null }))).toEqual(['planted in #2 lookup_order’s result']);
-    expect(laterParts(issue({ kind: 'fix', fix: FIX, lost: 'lost at model call #9', production: 1, blame: null }))).toEqual(['lost at model call #9', '1 from production']);
-    expect(laterParts(issue({ kind: 'capture', production: 2 }))).toEqual(['not blamed yet']);
+  it('then where it was planted or lost, how many of a fix’s runs came from production, and its newest run', () => {
+    const rest = (i: Issue) => lineParts(i).slice(1).map((p) => p.text);
+    expect(rest(issue({ kind: 'planted', planted: 'planted in #2 lookup_order’s result', blame: null }))).toEqual(['planted in #2 lookup_order’s result', 'newest 01K8RG0000']);
+    expect(rest(issue({ kind: 'fix', fix: FIX, lost: 'lost at model call #9', production: 1, blame: null }))).toEqual(['lost at model call #9', '1 from production', 'newest 01K8RG0000']);
+    // A capture's says how its import judged it, and nothing of blame, as the design's does.
+    expect(lineParts(issue({ kind: 'capture', production: 2, blame: null })).map((p) => p.text)).toEqual(['judged when it was imported', 'newest 01K8RG0000']);
   });
 
   it('names its count as it shows or hides its runs', () => {
@@ -91,11 +96,11 @@ describe('Failed with no issue, and a delete that waits', () => {
     const a = issue();
     const b = issue({ key: 'fail:other', runs: [run('01K8RG000000000000000000B1', 500)] });
     const page: IssuesPage = { issues: [a, b], total: 3 };
-    const less = issuesLess(page, new Set(['01K8RG000000000000000000A2', '01K8RG000000000000000000B1']));
+    const less = issuesShown(page, new Set(['01K8RG000000000000000000A2', '01K8RG000000000000000000B1']), new Map());
     expect(less.total).toBe(1);
     expect(less.issues.map((x) => x.key)).toEqual([a.key]);
     expect(less.issues[0]).toMatchObject({ count: 1, last: 1_000, newest: { runId: '01K8RG000000000000000000A1' } });
-    expect(issuesLess(page, new Set())).toBe(page);
+    expect(issuesShown(page, new Set(), new Map())).toBe(page);
   });
 });
 
