@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
-import { Dialog, PromptDialog } from '../components/Dialog.js';
+import { PromptDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -11,12 +11,12 @@ import type { PendingAction } from './actions.js';
 import { namedIn } from '../components/Id.js';
 import { onShow } from '../components/OnShow.js';
 import { redactRuleCount } from './provenance.js';
-import { jobCommand, quoteArg } from '../job-title.js';
-import { defaultPackFolder, EXPORTS, htmlCopyVia, PACK_HOLDS, packRunCommand, REDACTION_SETTINGS, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING_CARD, type ShareKey } from './share.js';
+import { defaultPackFolder, htmlCopyVia, PACK_HOLDS, packRunCommand, REDACTION_SETTINGS, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING_CARD, type ShareKey } from './share.js';
 import { ActionButton } from '../components/ActionButton.js';
 
-/** Export dataset…'s dialog: rarely opened from a run's page, so a part of its own, which loads as it first shows. */
+/** Export dataset…'s and Export OpenTelemetry trace…'s dialogs: rarely opened from a run's page, so each a part of its own, which loads as it first shows. */
 const DatasetDialog = onShow(() => import('../components/DatasetDialog.js').then((m) => m.DatasetDialog));
+const OtelDialog = onShow(() => import('./OtelDialog.js').then((m) => m.OtelDialog));
 
 /**
  * Share: the run as a share link (with a team store), an HTML file (with the runs it came from), a
@@ -118,43 +118,5 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
         </a>
       </div>
     </Popover>
-  );
-}
-
-export function OtelDialog({ runId, rules, onClose, onRun }: { runId: string; rules: number | null; onClose: () => void; onRun: (fields: Record<string, unknown>) => boolean }) {
-  const [to, setTo] = useState<'collector' | 'file'>('collector');
-  const [where, setWhere] = useState('http://localhost:4318');
-  return (
-    <Dialog
-      {...shareDialog('otel', [runId])}
-      lead="Exports the run as one trace: a span for the run and one per call."
-      doc="traces"
-      facts={[redactsFact(rules, true), { label: 'Re-export', value: 'updates the same trace', quiet: 'its ids come from the run’s' }]}
-      command={`${jobCommand(['export', 'otel', shortId(runId)])} ${to === 'file' ? `--out ${where.trim() ? quoteArg(`${EXPORTS}/${where.trim()}`) : `${EXPORTS}/…`}` : `--endpoint ${where.trim() ? quoteArg(where.trim()) : '…'}`}`}
-      okDisabled={!where.trim()}
-      onClose={onClose}
-      onOk={() => onRun({ runId, ...(to === 'file' ? { out: where.trim() } : { endpoint: where.trim() }) })}
-    >
-      <div className="form">
-        <label>
-          Send to
-          <select
-            value={to}
-            onChange={(e) => {
-              const next = e.target.value === 'file' ? 'file' : 'collector';
-              setTo(next);
-              setWhere(next === 'file' ? `${runId.slice(0, 10).toLowerCase()}.otel.json` : 'http://localhost:4318');
-            }}
-          >
-            <option value="collector">a collector</option>
-            <option value="file">a file</option>
-          </select>
-        </label>
-        <label>
-          {to === 'file' ? 'File, in .shadowlap/exports' : 'Endpoint'}
-          <input type="text" spellCheck={false} value={where} onChange={(e) => setWhere(e.target.value)} />
-        </label>
-      </div>
-    </Dialog>
   );
 }
