@@ -1066,7 +1066,13 @@ Needs a look, the activity feed and the Fixes list say *lost gradually around #5
 
 A blame that rescued the run from no call shows the check and how the recording failed it, instead of the answers. It says why when it knows no answer of the model's lost the run: every attempt met the error a write got when it was recorded, or the attempts that passed answered as the recording did ([blame](./blame.md#the-rescue)).
 
-A test replay whose agent exited with an error is the code's to look at before the model's. Once **Find breaking commit** named the first bad commit, the step shows it under its lead as Tests does, then its change in its file's box, with **Open in editor** and **Copy git revert**. The check's note says to revert the commit or fix the code. Before the search, it names **Find breaking commit** first, *offline and free* where the golden replays offline, then **Run blame with stronger model**.
+A test replay whose agent exited with an error is the code's to look at before the model's. Once **Find breaking commit** named the first bad commit, the step shows it under its lead as Tests does, then its change in its file's box, with **Open in editor** and **Copy git revert**. The check's note says to revert the commit or fix the code. Before the search, the note says where to look, then names **Find breaking commit**, *offline and free* where the golden replays offline:
+
+- *look at the code first*, then **Run blame with stronger model** where the page offers it;
+- *Neither model rescues it*, once a stronger model was asked too;
+- blame's own finding, where it knows no answer of the model's lost the run.
+
+A blame inconclusive at its first model call found no such thing: its fix leads with **Run blame again**, and its step shows no commit.
 
 ### Repair step
 
@@ -1811,7 +1817,7 @@ A job only names goldens the project has on disk.
 - **The change reversed**, where the answer kept it, and the command it runs. A warning says how many of the commit's files are outside the project, as git reverts those too.
 - **Its Cost line**: *Free · replays offline*, or what the test bills where the golden runs live, as Re-run test is priced.
 
-git runs first, with no shell, on the commit the store holds for the golden's answer, never one the request names. A merge is reverted against its first parent (`-m 1`). A test that runs live asks as **Run tests** does, and the dialog's **Revert** answers for it. A command someone else recorded asks once more, as [Commands from someone else](#commands-from-someone-else) says.
+git runs first, with no shell, on the commit the store holds for the golden's answer, never one the request names. A merge is reverted against its first parent (`-m 1`). A test that runs live asks as **Run tests** does, and the dialog's **Revert** answers for it. The test is passed no `--yes`, so a golden from a pack your repository doesn't track isn't run, and fails saying why, as [A golden recorded elsewhere](#commands-from-someone-else) says.
 
 Its drawer reads *Reverting 9a3c5e0*. It shows `$ git revert --no-commit 9a3c5e0`, git's lines as git printed them, *reverted 9a3c5e0 in your working tree · not committed*, then the test's command and lines. It ends on one of these, as its toast does when the drawer is hidden:
 
