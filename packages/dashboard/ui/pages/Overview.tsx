@@ -9,10 +9,10 @@ import { overviewFacts } from '../overview/model.js';
 import { NeedsLook } from '../overview/NeedsLook.js';
 import { ActivityCard, RecentRuns, WatchLive } from '../overview/panels.js';
 import { Usage } from '../overview/Usage.js';
-import { isAttempt } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
 import { useTeamStore } from '../teamstore.js';
+import { noRunsYet } from '../projects.js';
 import { NoRunsSteps } from './no-runs.js';
 
 /**
@@ -52,8 +52,8 @@ export function OverviewPage() {
 
   if (!s) {
     // Nothing recorded yet: the steps that make a project replayable, as before the summary loads.
-    const none = runs !== null && !runs.some((r) => !isAttempt(r));
-    if (none) return <NoRunsSteps />;
+    // Not while that can't be told yet: the Overview waits in its own shape meanwhile.
+    if (noRunsYet({ meta, runs }) === true) return <NoRunsSteps />;
     return (
       // Busy while it works the week out; a warming store says how far it has got in a status of its own, read out as it moves.
       <Page busy={!summary.error && !warming}>

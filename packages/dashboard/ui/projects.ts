@@ -60,7 +60,7 @@ export function setupPageShows(s: { meta: Meta | null; view: object | null | und
   if (!s.meta) return 'wait';
   if (asksForSetup(s.meta) && s.view === undefined) return 'wait';
   if (asksForSetup(s.meta) && s.view) return 'project';
-  return (s.runs ?? []).some((r) => !isAttempt(r)) ? 'nothing' : 'steps';
+  return noRunsYet(s) === false ? 'nothing' : 'steps';
 }
 
 /**

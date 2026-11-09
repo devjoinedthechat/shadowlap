@@ -96,6 +96,9 @@ describe('the setup on a dashboard that serves one store', () => {
     expect(setupPageShows({ meta: oneStore, view: undefined, runs: [run()] })).toBe('nothing');
     expect(setupPageShows({ meta: oneStore, view: undefined, runs: [] })).toBe('steps');
     expect(setupPageShows({ meta: oneStore, view: undefined, runs: [run({ attemptKind: 'repeat', attemptOf: 'x' } as Partial<RunLike>)] })).toBe('steps');
+    // Before the run list, the meta's count says it, as on every page.
+    expect(setupPageShows({ meta: meta({ counts: { runs: 3, attempts: 0 } }), view: undefined, runs: null })).toBe('nothing');
+    expect(setupPageShows({ meta: meta({ counts: { runs: 0, attempts: 2 } }), view: undefined, runs: null })).toBe('steps');
     // A project's dashboard waits for its setup, then shows it; one whose server answers none falls back the same way.
     expect(setupPageShows({ meta: project, view: undefined, runs: [] })).toBe('wait');
     expect(setupPageShows({ meta: project, view: { shows: 'setup' }, runs: [] })).toBe('project');
