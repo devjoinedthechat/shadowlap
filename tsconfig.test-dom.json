@@ -52,6 +52,7 @@
     "packages/dashboard/test/ui-tests-page.test.ts",
     "packages/dashboard/test/ui-tests-check-entries.test.ts",
     "packages/dashboard/test/ui-run-check-steps.test.ts",
+    "packages/dashboard/test/ui-judge-findings.test.ts",
     "packages/dashboard/test/ui-tests-ask.test.ts",
     "packages/dashboard/test/ui-job-button.test.ts",
     "packages/dashboard/test/ui-fork-spending.test.ts",

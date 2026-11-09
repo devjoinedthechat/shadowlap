@@ -66,6 +66,16 @@
 .banner code { font-size: 12.5px; }
 .banner .why { color: var(--faint); }
 .banner .path { font: 12.5px var(--mono); color: var(--add); }
+/* A judge's verdict on the run, a finding of its own, never tinted: its ✓ lime, its ✗ red. In the checks finding a
+   judge's line carries its call and where its verdict came from, wrapping rather than pushing the page sideways. */
+.banner.jv .bk { color: var(--faint); }
+.banner.jv .bn, .banner.ck .st.jvc .bn { color: var(--dim); font-size: 12.5px; }
+.banner.jv .jvw { color: var(--ink); }
+.banner.jv .jvw b { font: 600 12.5px var(--mono); }
+.banner.jv .jvw b.ok { color: var(--cq-lime); }
+.banner.jv .jvw b.no { color: var(--cq-red); }
+.banner.ck .st.jvc { flex-wrap: wrap; column-gap: 8px; white-space: normal; }
+.banner.ck .st.jvc .why { white-space: normal; }
 /* A test replay whose golden's checks changed since: the checks gone, on a line of their own under its words. */
 .banner .ckline { flex-basis: 100%; font-size: 12.5px; line-height: 1.6; color: var(--faint); }
 /* A flag and its value (an --override's JSON) or a path has no space to break at: where the banner

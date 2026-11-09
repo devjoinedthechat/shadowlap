@@ -82,7 +82,7 @@ describe('the run page', () => {
         // What could not be decided first, in its own words: the outcome says inconclusive.
         { label: 'judge "j" answers yes', text: 'judge "j" answers yes · not judged', status: 'inconclusive' },
         { label: 'issue_refund called 0 times', text: 'issue_refund called 0 times · 1 of 1', status: 'passed' },
-        { label: checks[1].label, text: `${checks[1].label} · not applicable · the condition never held`, status: 'not-applicable' },
+        { label: checks[1].label, text: `${checks[1].label} · not applicable · the condition never held`, status: 'not-applicable', values: 'lookup_order #2: result.total 180 <= 200' },
       ],
       why: 'replayed offline · 0 upstream',
     });
