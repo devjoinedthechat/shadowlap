@@ -14,6 +14,7 @@ import { RunHeader } from '../ui/run/RunHeader.js';
 import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
 import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { answerTestsQuestion, askQuestion, testsQuestion } from '../ui/tests-ask.js';
 import type { FoundCommit, NextStep, RunDetail, RunOffers } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -47,6 +48,7 @@ afterEach(async () => {
   forgetOpenFindings();
   resetPanel();
   resetSpending();
+  askQuestion(null);
 });
 
 /** An app that records the jobs it is asked to start, as `start` answers them. */
@@ -71,7 +73,7 @@ function app(o: Partial<AppState> = {}, client: Partial<Client> = {}) {
     runs: [],
     actionsOff: null,
     hasKind: () => true,
-    guard: (fn: () => void) => fn(),
+    guard: (fn: () => void) => (fn(), true),
     watchJob: () => undefined,
     toast: () => undefined,
     ...o,
@@ -177,7 +179,7 @@ describe('Revert', () => {
     const started: Array<[string, Record<string, unknown>]> = [];
     const startJob = (kind: string, fields: Record<string, unknown>) => {
       started.push([kind, fields]);
-      return started.length === 1 ? Promise.reject(new ApiError(409, 'goldens/refund is marked fork, so it runs live from where it forks, writes blocked', 'yes-1')) : Promise.resolve({ id: 'j2' });
+      return started.length === 1 ? Promise.reject(new ApiError(409, 'goldens/refund is marked fork, so it runs live from where it forks, writes blocked', 'yes-1', [{ path: GOLDEN, why: live }])) : Promise.resolve({ id: 'j2' });
     };
     const live = [{ kind: 'fork' }, { kind: 'judges', models: ['claude-haiku-4-5'] }, { kind: 'injection' }];
     page = await render(dialog(app({}, { startJob: startJob as never }).a, { ...STEP, live } as typeof STEP, { kind: 'tests', usd: null, ceiling: false, parts: ['live from there, writes blocked'] }));
@@ -193,6 +195,43 @@ describe('Revert', () => {
     await page.click(page.byText('.dialog button', 'Revert'));
     await page.until('the yes', () => started.length === 2);
     expect(started[1]).toEqual(['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, yes: 'yes-1' }]);
+  });
+
+  it('gives way to the dialog that opens on Cancel for a command someone else recorded, whose Run alone sends that yes', async () => {
+    const why = `${REC.slice(0, 10)} came from an imported pack: its test runs the command it was recorded with (python agent.py), under shadowlap test ${GOLDEN}. Confirm it to run it`;
+    for (const press of ['Run command', 'Cancel']) {
+      const started: Array<[string, Record<string, unknown>]> = [];
+      const startJob = (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), started.length === 1 ? Promise.reject(new ApiError(409, why, 'c-1')) : Promise.resolve({ id: 'j2' }));
+      let closed = 0;
+      const a = app({}, { startJob: startJob as never }).a;
+      page = await render(within(a, createElement(RevertDialog, { step: STEP, found: FOUND, estimate: FREE, runId: REC, onClose: () => void (closed += 1) })));
+      await page.click(page.byText('.dialog button', 'Revert'));
+      await page.until('the question', () => page!.one('.dialog h3').textContent === 'Run command from imported pack');
+      expect(page.one('.dwarn').textContent).toBe(why);
+      expect(page.focused()).toBe(page.one('.dlg-cancel'));
+      expect([started.length, closed]).toEqual([1, 0]);
+      await page.click(page.byText('.dialog button', press));
+      if (press === 'Run command') await page.until('the yes', () => started.length === 2);
+      expect(started.slice(1)).toEqual(press === 'Run command' ? [['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, estimate: { usd: 0, ceiling: false }, yes: 'c-1' }]] : []);
+      await page.until('the dialog closed', () => closed === 1);
+      await page.unmount();
+      page = null;
+    }
+  });
+
+  it('asks as Tests does where the server says the test runs live for a reason the dialog didn’t give, sending nothing until it is answered', async () => {
+    const started: Array<[string, Record<string, unknown>]> = [];
+    const live = [{ path: GOLDEN, why: [{ kind: 'fork' }] }];
+    const startJob = (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), started.length === 1 ? Promise.reject(new ApiError(409, 'goldens/refund is marked fork, so it runs live from where it forks, writes blocked', 'yes-2', live)) : Promise.resolve({ id: 'j2' }));
+    const { a } = app({}, { startJob: startJob as never });
+    page = await render(dialog(a));
+    await page.click(page.byText('.dialog button', 'Revert'));
+    await page.until('the question', () => testsQuestion() !== null);
+    expect(testsQuestion()).toMatchObject({ title: 'Revert ccccccc?', name: 'ccccccc', ok: 'Revert', kind: 'revert', confirm: 'yes-2', live });
+    expect(started).toHaveLength(1);
+    answerTestsQuestion(a, true);
+    await page.until('the yes', () => started.length === 2);
+    expect(started[1]).toEqual(['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, estimate: { usd: 0, ceiling: false }, yes: 'yes-2' }]);
   });
 });
 
