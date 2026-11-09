@@ -20,6 +20,7 @@ import {
   parseTests,
   pathSetByCode,
   shortRunId as short,
+  testsEstimate,
   untrustedReads,
   updateEstimate,
   type CleanReport,
@@ -56,8 +57,8 @@ import { callTotals, priced as pricedTotals } from './run-stats.js';
 import { fixedBy } from './runs-filter.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
 import { checksStep, checksStepWords } from './check-steps.js';
-import { liveReasons } from './tests-live.js';
-import { bisectAnswers, bisectChoices, gateResultView, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
+import { liveReasons, sessionLiveGoldens, type LiveReason } from './tests-live.js';
+import { bisectAnswers, bisectChoices, gateResultView, runTestsJob, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
 
 /**
  * The one next step of a run (A12): what its page's lime button leads with, worked out here from how
@@ -418,13 +419,29 @@ function passingStep(f: Facts): Decided | null {
   return passing ? { key: 'passing', label: ACTIONS.openPassingRun.label, runId: passing, href: links.run(passing), title: `Opens ${short(passing)}`, about: passing } : null;
 }
 
+/**
+ * Run tests: what each golden it runs live spent the last time it ran, as the mock adds them up (a
+ * session that re-ran one golden says nothing of the others): the newest test of each that forks,
+ * and each injection gate's newest; none until each has run once, and Free when every golden replays
+ * offline. Tests' header prices it (estimates.ts), and so does a stale golden's step: it reads no call.
+ */
+export function runTestsEstimate(store: Store, goldens: readonly GoldenSource[], folder?: string): Estimate {
+  const live = sessionLiveGoldens(goldens, runTestsJob(goldens, {}, folder ? { folder } : {}));
+  const by = (kind: LiveReason['kind']) => live.filter((g) => g.why.some((w) => w.kind === kind));
+  const results = by('fork').map((g) => store.listTestResults({ golden: g.path, limit: 1 })[0] ?? null);
+  const gates = by('injection').map((g) => newestGate(store, g.path)?.cost ?? null);
+  return testsEstimate(live.length, { results, injection: gates });
+}
+
 /** What the last test replay of a golden leads with by its checks: Run tests once they changed since, Edit check for one added since that its recording fails (check-steps.ts). */
 function checksLead(f: Facts): Decided | null {
   const t = f.tested();
   // Only a result that didn't pass has a step by its checks: one that passed reads no history.
   const results = t?.result && !t.result.ok ? f.reads.results(t.golden) : [];
   const step = t && results[0]?.runId === f.row.runId ? checksStep(t.source, results) : null;
-  return step ? checksStepWords(step, f.work?.goldens ?? [], true) : null;
+  if (!step) return null;
+  const goldens = f.work?.goldens ?? [];
+  return { ...checksStepWords(step, goldens, true), ...(step.key === 'run-tests' ? { reads: [], price: () => runTestsEstimate(f.store, goldens) } : {}) };
 }
 
 /** What a test replay of its own leads with while its golden is on disk: by how it diverged, or its judge's verdict. */

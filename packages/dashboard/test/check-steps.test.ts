@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Store, type StoredCheck, type TestFailure, type TestResult } from '@shadowlap/engine';
 import { checksStep } from '../src/check-steps.js';
-import { goldenSteps, nextStepOf, type NextStepWork } from '../src/next-step.js';
+import { goldenSteps, nextStepOf, pricedNextStep, type NextStepWork } from '../src/next-step.js';
 import type { GoldenSource } from '../src/tests.js';
 import { addRun } from './read-model-store.js';
 
@@ -74,6 +74,13 @@ describe('the step on Tests and on the test replay’s page', () => {
     expect(steps[GOLDEN]).toMatchObject({ key: 'run-tests', label: 'Run tests', gone: ['issue_refund called 0 times'], sub: 'Its checks changed since its last test: the session judges them as they are now', command: "shadowlap test 'goldens/*'" });
     expect(nextStepOf(store, last, work(['escalate called 1 time']))).toMatchObject({ key: 'run-tests', sub: 'Its checks changed since this test: the session judges them as they are now' });
     expect(nextStepOf(store, older, work(['escalate called 1 time']))!.key).not.toBe('run-tests');
+  });
+
+  it('prices Run tests on its last test replay as Tests prices it, reading no call: Free while every golden replays offline', async () => {
+    const last = tested(T0, [failed('issue_refund called 0 times')]);
+    const step = await pricedNextStep(store, last, work(['escalate called 1 time']), { kept: () => false });
+    expect(step).toMatchObject({ key: 'run-tests', estimate: { kind: 'tests', usd: 0, parts: ['every golden replays offline'] } });
+    expect(step).not.toHaveProperty('later');
   });
 
   it('is Edit check for a check added since that the recording fails, and nothing once a session judged it passing', () => {
