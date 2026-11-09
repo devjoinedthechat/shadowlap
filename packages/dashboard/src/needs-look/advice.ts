@@ -9,7 +9,9 @@ import type { LookAdvice } from './row.js';
  * it back. A failure is never advice.
  *
  * A later kind joins with a line in KINDS and `advice: adviceOf(key, facts)` in its source. It
- * states at least one fact: advice stating none would stay put away for good.
+ * states at least one fact: advice stating none would stay put away for good. adviceOf throws on a
+ * key that names no advice, so a key made of what a recording holds (retire's model name) is checked
+ * with isAdviceKey first: nothing recorded may fail the list.
  */
 
 /** Each kind: its key's form, and Dismiss's hover, which says what brings it back. */
