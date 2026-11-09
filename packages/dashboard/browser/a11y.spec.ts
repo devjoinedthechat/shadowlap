@@ -369,8 +369,16 @@ test('a run’s trace: a model call’s caret, a sub-agent’s row, the fold but
   // The eval's policy checker runs under the agent: a row of its own names it.
   await expect(page.locator('main#view table.calls tr.tgr button.tgsum').filter({ hasText: 'policy-checker' }).first()).toHaveAttribute('aria-label', /^policy-checker, sub-agent, \d+ calls?/);
   const rows = await page.locator('main#view table.calls tbody tr[data-wi]').count();
-  await caret.click();
+  // The stop starts in the selected call's group. A press focuses the caret and redraws nothing
+  // until its click, so nothing moves the caret from under the pointer; the click folds and makes it the stop.
+  await expect(caret).toHaveAttribute('tabindex', '-1');
+  await caret.hover();
+  await page.mouse.down();
+  await expect(caret).toBeFocused();
+  await expect(caret).toHaveAttribute('tabindex', '-1');
+  await page.mouse.up();
   await expect(caret).toHaveAttribute('aria-expanded', 'false');
+  await expect(caret).toHaveAttribute('tabindex', '0');
   expect(await page.locator('main#view table.calls tbody tr[data-wi]').count()).toBeLessThan(rows);
   expect(await page.locator('main#view table.calls [data-fold][tabindex="0"]').count()).toBe(1);
   expect(await seriousViolations(page)).toEqual([]);

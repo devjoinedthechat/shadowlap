@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { claimCallFocus } from '../focus-manager.js';
 import type { CallRow } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
@@ -140,7 +140,7 @@ export function CallsTable({
           </th>
         </tr>
       </thead>
-      <tbody ref={win.listRef} onFocus={rove.onFocus} onBlur={rove.onBlur}>
+      <tbody ref={win.listRef} onPointerDown={rove.onPointerDown} onFocus={rove.onFocus} onBlur={rove.onBlur}>
         {win.before ? <Spacer height={win.before} cols={cols} /> : null}
         {lines.slice(win.start, win.end).map((r, j) => {
           const at = win.start + j;
@@ -215,6 +215,9 @@ function firstDrawn(f: FoldIndex, lines: readonly Line[], start: number, end: nu
 /** The fold an element is the button of; null for anything else. */
 const foldButtonKey = (el: EventTarget | null): string | null => (el instanceof HTMLElement && el.matches('button[data-fold]') ? el.getAttribute('data-fold') : null);
 
+/** Whether a press is on a fold button: its caret, its row's words, or the button itself. */
+const onFoldButton = (el: EventTarget | null): boolean => el instanceof Element && el.closest('button[data-fold]') !== null;
+
 /**
  * The fold buttons, every group's row and every model call's caret, as one Tab stop between them:
  * the one with the focus (or moved to with a key), while the selection is the one it had then; else
@@ -241,25 +244,36 @@ function useFoldStop(
   const i = stop === null ? -1 : folds.at.get(stop)!;
   if (i < win.start || i >= win.end) stop = firstDrawn(folds, lines, win.start, win.end);
   const now = useLatest({ lines, folds, selected, shown: o.shown, onFold: o.onFold, show: win.show, release: win.release, head: o.head });
+  // A press focuses its fold button before its click. The stop goes to the button with that click,
+  // once the fold has let go of the row the window keeps in view: a redraw mid-press could scroll
+  // the button out from under the pointer, and the click would land beside it.
+  const pressed = useRef(false);
   const toggle = useCallback(
     (g: TraceGroup) => {
       const n = now.current;
       if (!n.onFold) return;
       n.release();
+      if (pressed.current && foldButtonKey(document.activeElement) === g.key) setMoved({ key: g.key, selected: n.selected });
+      pressed.current = false;
       n.onFold(g);
     },
     [now],
   );
+  const onPointerDown = useCallback((e: PointerEvent<HTMLElement>) => {
+    pressed.current = onFoldButton(e.target);
+  }, []);
   // The fold button that takes the focus is the stop; once the focus leaves the fold buttons, none is.
   const onFocus = useCallback(
     (e: FocusEvent<HTMLElement>) => {
       const key = foldButtonKey(e.target);
-      if (key) setMoved({ key, selected: now.current.selected });
+      if (key && !pressed.current) setMoved({ key, selected: now.current.selected });
     },
     [now],
   );
   const onBlur = useCallback((e: FocusEvent<HTMLElement>) => {
-    if (!foldButtonKey(e.relatedTarget)) setMoved(null);
+    if (foldButtonKey(e.relatedTarget)) return;
+    pressed.current = false;
+    setMoved(null);
   }, []);
   const onKey = useCallback(
     (e: KeyboardEvent<HTMLElement>, g: TraceGroup) => {
@@ -290,7 +304,7 @@ function useFoldStop(
     b.focus({ preventScroll: true });
     want.current = null;
   });
-  return { stop, toggle, onKey, onFocus, onBlur };
+  return { stop, toggle, onKey, onPointerDown, onFocus, onBlur };
 }
 
 /** The height of the rows not drawn, above or below those that are. */
