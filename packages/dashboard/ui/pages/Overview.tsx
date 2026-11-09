@@ -100,9 +100,25 @@ export function OverviewPage() {
 /** A section's lines while the Overview loads: placeholder words the skeleton draws as quiet bars. */
 const SKEL_LINES = ['A failure nobody has looked at yet, and its step', 'A golden that diverged at a call', 'A fix to prove, and its run', 'A run that needs a look'];
 
+/** The header's four facts while the Overview loads, figure then words, as `overviewFacts` gives them. */
+const SKEL_FACTS = [
+  ['0', 'failures reproduced'],
+  ['0', 'fixes verified'],
+  ['0 of 0', 'goldens passing'],
+  ['$0.00', 'spent live'],
+] as const;
+
+/** Needs a look's rows while the Overview loads: a row's title, its line under it, and its step. */
+const SKEL_ROWS = [
+  ['A run failed its check: refund-in-limit', 'its run, and the call it went wrong at', 'Run blame'],
+  ['A golden diverged at a call', 'its test, and what changed', 'Open →'],
+  ['A fix to prove before it ships', 'its repair, and the run it came from', 'Verify'],
+] as const;
+
 /**
- * The Overview still being worked out: Needs a look and the aside in their places as quiet bars,
- * under the header. Its grid is `.ovgs`, never `.ovg`, which the tests read as the Overview drawn.
+ * The Overview still being worked out, in its final layout as quiet bars under the header: the
+ * header's facts, Needs a look's rows in its own markup, and the aside. Its grid is `.ovgs`, never
+ * `.ovg`, which the tests read as the Overview drawn.
  */
 function OverviewLoading() {
   const part = (title: string, lines: number) => (
@@ -117,8 +133,39 @@ function OverviewLoading() {
   );
   return (
     <Skeleton what="the Overview">
+      <div className="metrics pfacts">
+        {SKEL_FACTS.map(([value, words]) => (
+          <span key={words} className="metric">
+            <b>{value}</b>
+            <span>{words}</span>
+          </span>
+        ))}
+      </div>
       <div className="ovgs">
-        {part('Needs a look', 4)}
+        <section className="panel sec">
+          <header>
+            <h2>Needs a look</h2>
+            <span className="sub">0</span>
+          </header>
+          <div className="attn">
+            <h3 className="agrp">
+              Failing<span>0</span>
+            </h3>
+            {SKEL_ROWS.map(([title, line, step]) => (
+              <div key={title} className="arow">
+                <span className="ic" />
+                <span className="at">
+                  <span className="t">{title}</span>
+                  <span className="d">{line}</span>
+                </span>
+                <span className="ast">
+                  <span className="btn sm">{step}</span>
+                </span>
+                <span className="adx" />
+              </div>
+            ))}
+          </div>
+        </section>
         <div className="ovside">
           {part('Recent runs', 3)}
           {part('Activity', 2)}
