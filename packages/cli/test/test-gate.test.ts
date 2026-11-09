@@ -24,7 +24,7 @@ const CHECKS = { tools: { send_email: 0 } };
 /** A push to main in GitHub Actions, whatever CI runs these tests: a session whose results can be a baseline. */
 const ON_MAIN = { GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_REF_NAME: 'main', GITHUB_HEAD_REF: '', GITHUB_BASE_REF: '', GITHUB_EVENT_PATH: '', SHADOWLAP_PR: '', GITLAB_CI: '', BUILDKITE: '' };
 /** A pull request into main: its results are never a baseline. */
-const ON_PR = { ...ON_MAIN, GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/3/merge', GITHUB_REF_NAME: '3/merge', GITHUB_HEAD_REF: 'fix-emails', GITHUB_BASE_REF: 'main' };
+const ON_PR = { ...ON_MAIN, GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/3/merge', GITHUB_REF_NAME: '3/merge', GITHUB_HEAD_REF: 'fix-emails', GITHUB_BASE_REF: 'main', GITHUB_SERVER_URL: 'https://github.test', GITHUB_REPOSITORY: 'northwind/agent' };
 
 /** The report's JSON held to docs/cli.md both ways: every field the shape lists is printed, every field printed is named there. */
 function hold(values: Array<[ShapeName, unknown]>): void {
@@ -325,6 +325,9 @@ describe('shadowlap test with a gate against history', () => {
       ]);
       expect(results[0].data).toMatchObject({ baselineBranch: 'main', revision: results[0].revision });
       expect(results[2].data?.gate).toMatchObject({ kind: 'baseline', decision: 'fail' });
+      // The pull request's session keeps the pull request it ran for, its page included; one on main, none.
+      expect(store.getTestSession(results[1].sessionId)?.pullRequest).toEqual({ number: 3, url: 'https://github.test/northwind/agent/pull/3', source: 'GitHub Actions (pull_request)' });
+      expect(store.getTestSession(results[0].sessionId)?.pullRequest).toBeNull();
     } finally {
       store.close();
     }

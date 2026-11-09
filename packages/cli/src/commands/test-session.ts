@@ -4,7 +4,7 @@ import { InvalidArgumentError, type Command } from 'commander';
 import { links } from '@shadowlap/dashboard';
 import { endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, messageOf, noVerdicts, proofLine, recordEvent, resolveAuthor, sessionInARow, settleAppliedFixes, statusTally, Store, SUITE_RISK, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type TestSession, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from '../agent-signals.js';
-import { sessionSource } from '../baseline-branch.js';
+import { sessionPullRequest, sessionSource } from '../baseline-branch.js';
 import { testChaos } from '../chaos-session.js';
 import { checkLine, specFor, type JudgeCheck, type TestEntry, type TestSpec } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, loadTestSettings, type ShadowlapConfig } from '../config.js';
@@ -236,7 +236,7 @@ class Session {
     const settings = loadTestSettings(projectDir);
     this.source = sessionSource({ cwd, configured: settings.baselineBranch ?? null });
     this.ran = { branch: this.source.branch, revision: this.revision, pullRequest: this.source.pullRequest, baselineBranch: this.source.baselineBranch };
-    this.session = this.store.startTestSession({ command: givenCommand(process.argv, 'test'), revision: this.revision, actor: this.actor });
+    this.session = this.store.startTestSession({ command: givenCommand(process.argv, 'test'), revision: this.revision, actor: this.actor, pullRequest: sessionPullRequest(this.source.job) });
     // One risk for the session, split across its gated goldens before any runs (suite-plan.ts): each gate
     // takes its share, and the forecast says what the session costs.
     this.planned = planSession(packs, { store: this.store, tests, projectDir, prices: config.prices, baselineBranch: this.source.baselineBranch, risk: flags.suiteRisk ?? settings.suiteRisk ?? SUITE_RISK, inconclusive: request.inconclusiveGiven, maxAttempts: flags.maxAttempts });
