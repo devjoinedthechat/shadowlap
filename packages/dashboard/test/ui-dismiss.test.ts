@@ -298,12 +298,17 @@ describe('the keys on Needs a look', () => {
     expect(offKeys()).toEqual([push.key, retire.key]);
   });
 
-  it('offers a waiting Dismiss on ⌘K as it waits, with its reason', async () => {
+  it('offers on ⌘K Open and Dismiss on advice with no step button, a waiting Dismiss waiting with its reason', async () => {
     await look([failing, local], { actionsOff: READ_ONLY });
     await page().press('j');
     await page().press('j');
     await page().press('k', { metaKey: true });
-    expect(rowScopeNow()!.items().at(-1)).toMatchObject({ label: 'Dismiss', hint: READ_ONLY, wait: READ_ONLY });
+    const items = rowScopeNow()!.items();
+    expect(items).toHaveLength(2);
+    expect(items).toMatchObject([
+      { label: 'Open', hint: local.href },
+      { label: 'Dismiss', hint: READ_ONLY, wait: READ_ONLY, job: true },
+    ]);
   });
 });
 
