@@ -10,7 +10,8 @@ import { dash } from './dashboard.js';
 const rule = (field: string): string[] => ['normalize', 'add', '--kind', 'api', '--path', `$.body.${field}`, '--replace', `<${field}>`];
 
 /** The agent's last lines as a crashed replay keeps them: a Python traceback, its frame in the agent's own code. */
-const PY_TAIL = ['Issuing the refund for order 8f3a.', 'Traceback (most recent call last):', '  File "/work/shop/refund_agent.py", line 141, in issue_refund', '    log.info("refund %s of %s", refund["refund_id"], order["total"])', "KeyError: 'total'"].join('\n');
+// A library's frame past the agent's own, its site-packages path a long word, as real tracebacks have: the box wraps it, never scrolls.
+const PY_TAIL = ['Issuing the refund for order 8f3a.', 'Traceback (most recent call last):', '  File "/work/shop/refund_agent.py", line 141, in issue_refund', '    log.info("refund %s of %s", refund["refund_id"], order["total"])', '  File "/work/shop/.venv/lib/python3.12/site-packages/structlog/processors/formatting.py", line 77, in format_order', '    return record["order"]["total"]', "KeyError: 'total'"].join('\n');
 const TWICE = 'send_email called at most 1 time';
 const check = (label: string, status: StoredCheck['status'], detail?: string): StoredCheck => ({ label, ok: status === 'passed', status, ...(detail ? { detail } : {}) }) as StoredCheck;
 
