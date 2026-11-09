@@ -29,8 +29,8 @@ import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
 import { NoteFinding } from './RunNotes.js';
-import { InjectionFinding } from '../injection/Finding.js';
-import { Proof, type ProofTab } from '../injection/Proof.js';
+import type { ProofTab } from '../injection/Proof.js';
+import { useServedParts } from '../served-parts.js';
 import { openResults } from './panel-state.js';
 import type { InjectionFinding as InjectionFindingView } from '../injection/model.js';
 import { warmDiff } from './InspectorPanel.js';
@@ -330,6 +330,8 @@ function AttemptFinding({ b, x, s }: { b: Of<'attempt'>; x: Draw; s: Slot }) {
  */
 function InjectionAttemptFinding({ b, x, s }: { b: Of<'injection-attempt'>; x: Draw; s: Slot }) {
   const tested = x.attempt ? x.run.run.parentRunId : null;
+  // Handed in where the dashboard runs, its script loaded as it first shows: a copy has no attempt's read, so no proof.
+  const { Proof } = useServedParts();
   return (
     <section className={cls('fork wrap', s)}>
       <span className="bk">forked at</span>
@@ -342,7 +344,7 @@ function InjectionAttemptFinding({ b, x, s }: { b: Of<'injection-attempt'>; x: D
           </a>
         </span>
       ) : null}
-      {x.attempt?.parts ? <Proof parts={x.attempt.parts} why={b.proofWhy} onPick={x.pick} /> : null}
+      {x.attempt?.parts && Proof ? <Proof parts={x.attempt.parts} why={b.proofWhy} onPick={x.pick} /> : null}
       {s.more}
     </section>
   );
@@ -515,9 +517,11 @@ function MoreToggle({ findings, open, onToggle }: { findings: readonly Finding[]
 
 /** A finding, as its kind draws it. */
 function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSelect: (n: number) => void }) {
+  // A kept injection test's finding is handed in where the dashboard runs: a copy keeps no results to draw one from.
+  const { InjectionFinding } = useServedParts();
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
   if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
-  if (f.injection) return <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} />;
+  if (f.injection) return InjectionFinding ? <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} /> : null;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
 }
 

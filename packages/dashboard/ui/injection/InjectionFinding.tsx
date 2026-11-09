@@ -13,7 +13,8 @@ const WORD: Readonly<Record<Finding['gate'], string>> = { failed: 'no', inconclu
  * A kept test's finding on the run it tested: `injection test` or `injection gate` in ink, its verdict
  * in its colour, then its line, glossed and wrapping whole (the bar's `.banner.wrap`), a gate's golden
  * after it, and Show results at its end. The results come in a part of their own (served-parts.ts),
- * so where the dashboard handed none in, the finding offers none.
+ * so where the dashboard handed none in, the finding offers none. The finding is one too: a copy
+ * keeps no results, so it never draws one, and a run's page loads it as a test's first shows.
  */
 export function InjectionFinding({ runId, f, fx, more }: { runId: string; f: Finding; fx: boolean; more: ReactNode }) {
   const { InjectionResults } = useServedParts();

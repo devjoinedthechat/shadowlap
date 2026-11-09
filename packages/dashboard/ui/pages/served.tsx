@@ -12,6 +12,9 @@ export const SERVED_PARTS: ServedParts = {
   ShareMenu: onShow(() => import('../run/ShareMenu.js').then((m) => m.ShareMenu)),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog)),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog)),
+  InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding)),
+  Proof: onShow(() => import('../injection/Proof.js').then((m) => m.Proof)),
+  attemptPage: () => import('../injection/AttemptPage.js').then((m) => m.ATTEMPT_PAGE),
   // The matrix's script starts as the panel's comes, so Show results opens on both.
   InjectionResults: onShow(
     () =>

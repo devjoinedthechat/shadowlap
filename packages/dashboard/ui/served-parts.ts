@@ -1,6 +1,9 @@
 import { createContext, useContext, type ComponentProps } from 'react';
 import type { OnShow } from './components/OnShow.js';
+import type { AttemptPage } from './injection/AttemptPage.js';
+import type { InjectionFinding } from './injection/InjectionFinding.js';
 import type { InjectionResults } from './injection/InjectionResults.js';
+import type { Proof } from './injection/Proof.js';
 import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
 import type { ShareMenu } from './run/ShareMenu.js';
 import type { StepDialog } from './run/StepDialogs.js';
@@ -10,6 +13,8 @@ export type ShareMenuProps = ComponentProps<typeof ShareMenu>;
 export type InjectionResultsProps = ComponentProps<typeof InjectionResults>;
 export type StepDialogProps = ComponentProps<typeof StepDialog>;
 export type SecurityReportProps = ComponentProps<typeof SecurityReportDialog>;
+export type ProofProps = ComponentProps<typeof Proof>;
+export type InjectionFindingProps = ComponentProps<typeof InjectionFinding>;
 
 /**
  * The parts a page draws only where the dashboard runs, never in an exported copy, handed in by the
@@ -18,7 +23,8 @@ export type SecurityReportProps = ComponentProps<typeof SecurityReportDialog>;
  * each undrawn in a copy is pinned by a test (test/ui-exported-copy.test.ts: a copy's run page draws
  * no Share, so nothing there opens Share's menu; a copy keeps no injection results, so its run page
  * draws no test's finding to open them from, and no Share to download a report from; a copy's run
- * page draws no step that asks).
+ * page draws no step that asks; a copy keeps no attempt's read, so an attempt's page there draws no
+ * proof and marks nothing, test/ui-injection-results.test.ts).
  */
 export interface ServedParts {
   /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
@@ -29,6 +35,12 @@ export interface ServedParts {
   StepDialog?: OnShow<StepDialogProps>;
   /** A kept injection result's Security report, its masks and canaries read first (injection/SecurityReportDialog.tsx): Share's row opens it. */
   SecurityReportDialog?: OnShow<SecurityReportProps>;
+  /** A kept injection test's finding on the run it tested (injection/InjectionFinding.tsx), with its Show results: loaded as a run's page first draws one. */
+  InjectionFinding?: OnShow<InjectionFindingProps>;
+  /** An injection attempt's proof line in its finding (injection/Proof.tsx): loaded as an attempt's page first draws it. */
+  Proof?: OnShow<ProofProps>;
+  /** What only an injection attempt's page does (injection/AttemptPage.tsx): its inspector's marks, the tab a call its proof names opens on and the scroll to its mark. Loaded once a page reads an attempt (injection/attempt-load.ts). */
+  attemptPage?: () => Promise<AttemptPage>;
 }
 
 export const ServedPartsContext = createContext<ServedParts>({});

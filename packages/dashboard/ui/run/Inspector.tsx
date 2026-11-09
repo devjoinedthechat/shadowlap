@@ -8,8 +8,8 @@ import { Tabs } from '../components/Tabs.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
-import { MarksContext } from '../components/marks.js';
-import { attemptMarks } from '../injection/marks.js';
+import { MarksContext, NO_MARKS } from '../components/marks.js';
+import { useAttemptPage } from '../injection/attempt-load.js';
 import { copyText } from '../dom.js';
 import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { agentOf } from '../scopes.js';
@@ -62,12 +62,13 @@ export interface InspectorProps {
   flag?: string | null;
   /** Selects another call: a tool call's Conversation tab leads to the model call of its own conversation. */
   onSelect?: (n: number) => void;
-  /** An injection attempt's planted read, its planted text and its canary, which the tabs mark (injection/marks.tsx); none on any other run, nor in a copy. */
+  /** An injection attempt's planted read, its planted text and its canary, which the tabs mark (injection/AttemptPage.tsx); none on any other run, nor in a copy. */
   injection?: RunInjection['attempt'] | undefined;
 }
 
 export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect, injection }: InspectorProps) {
-  const marks = useMemo(() => attemptMarks(injection), [injection]);
+  const page = useAttemptPage(injection);
+  const marks = useMemo(() => (page ? page.attemptMarks(injection) : NO_MARKS), [page, injection]);
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
   const c = detail && detail.call.callNo === call.callNo ? detail.call : null;
   const kindName = call.kind === 'api' ? call.name : call.kind === 'tool' ? call.name : `${call.kind}.${call.name}`;

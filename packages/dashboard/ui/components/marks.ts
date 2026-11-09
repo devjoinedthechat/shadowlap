@@ -2,9 +2,9 @@ import { createContext, type ReactNode } from 'react';
 
 /**
  * What the inspector's text goes through as it draws, and what it says of the call a replay changed.
- * An injection attempt's page marks its canary and its planted text (injection/marks.tsx builds them
- * from the attempt's read); on any other run, and in a copy, the text draws as it is and the words
- * stay the inspector's own.
+ * An injection attempt's page marks its canary and its planted text (injection/AttemptPage.tsx
+ * builds them from the attempt's read); on any other run, and in a copy, the text draws as it is and
+ * the words stay the inspector's own.
  */
 export interface Marks {
   /** The text with each thing marked in a `<mark>`. */
