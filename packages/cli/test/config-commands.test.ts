@@ -391,6 +391,22 @@ describe('shadowlap redact', () => {
     expect((await shadowlap(['pack', run.runId, join(cwd, 'packed')])).code).toBe(0);
     expect(readFileSync(join(cwd, 'packed', 'run.json'), 'utf8')).toContain('erin@example.com');
   });
+
+  it("counts an injection attempt's own canaries as kept, as every copy keeps them, and masks an address beside them", async () => {
+    const store = Store.open(dbPath());
+    const canary = { token: 'x7f3kq2m', address: 'x7f3kq2m@canary.invalid', id: 'REF-X7F3KQ2M', amount: '4817.23' };
+    const run = store.createRun({ mode: 'replay', command: { argv: ['node', 'agent.js'], cwd }, meta: { injection: { result: 'inj-01PLANT', role: 'attempt', read: 1, attempt: 1, of: 1, canary } } });
+    const id = { kind: 'tool' as const, name: 'send_email', fingerprint: '1'.padStart(64, 'e'), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...id, origin: 'live', effect: 'write', requestRef: store.putJson({ args: { to: canary.address, cc: 'erin@example.com' } }), meta: {}, at: 1 });
+    store.appendCallEnd(id, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putBlob(Buffer.from('{"result": {"sent": true}}')), outcome: 'ok', meta: {}, at: 1 });
+    store.endRun(run.runId, 'completed');
+    store.close();
+    expect((await shadowlap(['redact', 'add', '--pattern', '/[\\w.]+@[\\w.]+/', '--replace', '<EMAIL>'])).code).toBe(0);
+    let r = await shadowlap(['redact', 'preview', run.runId]);
+    expect(r.out.split('\n')[0]).toBe(`${run.runId.slice(0, 10)} (node agent.js): 1 value would be masked; canaries kept`);
+    r = await shadowlap(['redact', 'preview', run.runId, '--json']);
+    expect(JSON.parse(r.out)).toMatchObject({ total: 1, kept: 1, rules: [{ samples: [{ before: 'erin@example.com', after: '<EMAIL>' }] }] });
+  });
 });
 
 describe('shadowlap gc', () => {

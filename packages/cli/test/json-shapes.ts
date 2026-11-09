@@ -56,7 +56,7 @@ export const SHAPES = {
   importTrace: { section: 'import', list: 'each trace it found, newest first', fields: ['id', 'name', 'startedAt', 'outcome', 'runId', 'reason', 'judged'] },
   calibrate: { section: 'calibrate', fields: ['runId', 'source', 'clean', 'rounds', 'normalizers', 'written', 'added', 'stopped'] },
   rules: { section: 'normalize', fields: ['file', 'exists', 'version', 'error', 'rules'] },
-  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details'] },
+  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details', 'kept'] },
   previewRule: { section: 'normalize', fields: ['n', 'rule', 'count', 'samples', 'reached', 'note', 'returned', 'unmasked'] },
   previewReturned: { section: 'normalize', fields: ['count', 'samples'] },
   previewUnmasked: { section: 'normalize', fields: ['count', 'samples', 'places', 'remedies', 'covered', 'reasons'] },

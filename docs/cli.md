@@ -3598,8 +3598,10 @@ is written. See [Preview](./normalizers-and-redaction.md#preview).
   none can. In what a call got back, that is a path rule that only the copies that are read apply.
 - **`details`**: on a line of its own, what the rules match in the run's command line, labels and
   notes, which `export html`, `dataset` and `otel` mask and `pack` keeps.
+- **Canaries**: an injection attempt's own canaries are kept, as every copy keeps them, so they aren't
+  counted. The first line then ends `canaries kept`.
 
-`--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "returned", "unmasked", "rules", "details" }`:
+`--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "returned", "unmasked", "rules", "details", "kept" }`:
 
 | Field | Meaning |
 | --- | --- |
@@ -3611,6 +3613,7 @@ is written. See [Preview](./normalizers-and-redaction.md#preview).
 | `unmasked` | What is left as it is |
 | `rules` | Each rule (below) |
 | `details` | What the rules match in the run's command line, labels and notes: a `count`, `samples` and the `rules` that match there |
+| `kept` | What the rules would match in an injection attempt's own canaries, which every copy keeps |
 
 `partial` has how many of the run's calls it `read`, `of` how many, and the limit it `stopped` at:
 `calls`, `bytes` or `time`.
