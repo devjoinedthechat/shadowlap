@@ -413,7 +413,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
               HTTP {c.status ?? '?'}
               {RESPONSE_BY[failedBy(c) ?? 'provider']}
             </div>
-            <div className="jbox">{r.raw}</div>
+            <div className="jbox">{marks.mark(r.raw)}</div>
           </>
         )}
       </>
@@ -448,6 +448,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
 }
 
 function Playback({ blocks, deltas, stopReason, replayed, latency }: { blocks: Block[]; deltas: Delta[]; stopReason: string | null; replayed: boolean; latency: number | null }) {
+  const { mark } = useContext(MarksContext);
   const [upto, setUpto] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
@@ -507,7 +508,7 @@ function Playback({ blocks, deltas, stopReason, replayed, latency }: { blocks: B
         </>
       ) : null}
       <div className="resp">
-        {text}
+        {mark(text)}
         {streaming || playing ? <span className="caret-blink" /> : null}
       </div>
       {stopReason && !streaming ? <div className="ibar stopline">stop · {stopReason}</div> : null}
