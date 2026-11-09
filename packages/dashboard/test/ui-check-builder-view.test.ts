@@ -25,7 +25,7 @@ beforeAll(() => {
 
 const RUN = '01K5CQ4V3H8M2XWQH6V3T9RB1D';
 const GOLD = '01K5CQ0F9B7M2XWQH6V3T9RA0Z';
-const run = { run: { runId: RUN, status: 'completed', mode: 'record' }, source: null, judged: null } as unknown as RunDetail;
+const run = { run: { runId: RUN, status: 'completed', mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/work' } }, source: null, judged: null, calls: [], summary: { cost: { spent: 0, saved: 0, captured: 0 }, imported: null } } as unknown as RunDetail;
 const args = { order_id: 'A-1042', amount: 240 };
 const call = { call: { callNo: 3, name: 'issue_refund', kind: 'tool' }, request: { args } } as unknown as CallDetail;
 
@@ -73,6 +73,7 @@ function stub(o: { cfg?: ChecksConfig; save?: ChecksApi['save'] } = {}) {
     goldens: vi.fn(async () => o.cfg ?? config()),
     context: vi.fn(async () => context),
     preview: vi.fn(async () => preview),
+    suggestions: vi.fn(async () => ({ runId: RUN, goods: [], suggestions: [] })),
     save: vi.fn(o.save ?? (async () => ({ key: 'goldens/refund-flow', version: 'b'.repeat(64), added: ['issue_refund called 0 times'], removed: [], changed: true }))),
   };
   return { checks, toast: vi.fn(), refresh: vi.fn(), onClose: vi.fn() };

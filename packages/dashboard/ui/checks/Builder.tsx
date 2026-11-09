@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { ApiError } from '../api.js';
-import type { CheckContext, CheckPreview, ChecksConfig, ChecksOf, GoldenEntry } from '../checks-api.js';
+import type { CheckContext, CheckPreview, ChecksConfig, ChecksOf, GoldenEntry, SuggestionsAsk } from '../checks-api.js';
 import { Dialog } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
 import { ErrorState } from '../components/States.js';
@@ -9,6 +9,8 @@ import { goldenName, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { argsOf } from '../run/check-entry.js';
 import type { BuilderProps } from '../run/check-part.js';
+import { runLikeOf } from '../run/model.js';
+import { isFailed, runType } from '../runs.js';
 import { useApp } from '../state.js';
 import { Change } from './Change.js';
 import { judgeCost } from './Judge.js';
@@ -20,6 +22,7 @@ import {
   fileUnit,
   firstCall,
   goldenLead,
+  haveOf,
   judgeAdded,
   judgesIn,
   jsonFrom,
@@ -33,11 +36,13 @@ import {
   saveWhy,
   settle,
   snapOf,
+  suggestVerb,
   titleOf,
   unitsOf,
   withGolden,
   withoutJudges,
   withRule,
+  withSuggestion,
   type Fragment,
   type Rule,
   type RuleContext,
@@ -50,6 +55,8 @@ import {
 import { Preview } from './Preview.js';
 import { RulePicker } from './RulePicker.js';
 import { Sentence } from './Sentence.js';
+import { useSettledRead } from './settled-read.js';
+import { Suggested } from './Suggested.js';
 
 /**
  * The check builder: a check made from a run's tool call, or added to or changed on a golden, judged
@@ -166,6 +173,13 @@ function notesOf(props: BuilderProps, d: Drawn, golden: string | null, answer: C
  * Save's words, which follow the state: off with why until it can save, plain while a note needs a
  * look, lime once none does. A save the server refused stays off on its words until something changes.
  */
+/** What the builder asks suggestions with: made from a call of a recording that failed, never on a golden; the labels it holds left out. */
+function suggestAsk(props: BuilderProps, have: string[]): SuggestionsAsk | null {
+  if (!('call' in props)) return null;
+  const like = runLikeOf(props.run);
+  return runType(like) === 'recording' && isFailed(like) ? { run: props.run.run.runId, at: props.call.call.callNo, have } : null;
+}
+
 function waysOf(d: Drawn, s: State, o: { amber: boolean; conflict: boolean; edit: boolean; cfgError: string | null; warn: string | null; redactions: number }) {
   return {
     ok: o.conflict ? 'Save again' : o.edit ? 'Save change' : 'Save check',
@@ -273,70 +287,21 @@ function Body(props: BuilderProps & BodyProps) {
         {d.unit && !d.unit.gone ? <Sentence rule={d.rule} ctx={rctx} run={runId ? shortId(runId) : null} models={cfg.models} onRule={setRule} onKind={setKind} /> : null}
       </section>
       <Preview answer={judging.answer} error={judging.error} retry={judging.retry} notes={notes} judged={d.judged} judgesOnly={d.judgesOnly} agent={cfg.agent} />
+      <Suggested ask={suggestAsk(props, haveOf(d.settled))} verb={suggestVerb(s)} onUse={(f) => change((x) => withSuggestion(x, f))} />
       <Change cfg={cfg} error={props.cfgError} retry={props.reread} golden={d.golden} merged={d.settled.merged} changed={d.settled.changed} conflict={conflict} judgeAdded={judgeAdded(s.units)} runId={runId} />
     </Dialog>
   );
 }
 
-/** How long the builder waits after the last change to a draft before it is judged. */
-const SETTLE_MS = 300;
-
-interface Got {
-  /** The draft the answer is to. */
-  key: string | null;
-  answer: CheckPreview | null;
-  error: string | null;
-}
-
 /**
- * The draft judged on the agent's recordings: asked about 300 ms after its last change, at most one
- * read in flight, since the pool can't stop one, and the newest draft sent when the last answers. An
- * answer to an older draft is dropped, so what is drawn is always the draft's own: until it comes,
- * the draft is being judged. A failed read says so and keeps the last answer.
+ * The draft judged on the agent's recordings, read as useSettledRead reads: an answer to an older
+ * draft is dropped, so what is drawn is always the draft's own, and until it comes the draft is being
+ * judged. A failed read says so and keeps the last answer.
  */
 function usePreview(of: ChecksOf, judged: Fragment | null): Judging & { error: string | null; retry: () => void } {
   const { client } = useApp();
-  const [got, setGot] = useState<Got>({ key: null, answer: null, error: null });
-  const [tries, setTries] = useState(0);
-  const flying = useRef(false);
-  const waiting = useRef(false);
-  const want = useRef<string | null>(null);
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-  const key = judged ? JSON.stringify(judged) : null;
-  const whose = JSON.stringify(of);
-  useEffect(() => {
-    want.current = key;
-    const send = () => {
-      const k = want.current;
-      if (k === null || flying.current) return;
-      flying.current = true;
-      const done = (next: (g: Got) => Got) => {
-        flying.current = false;
-        if (!alive.current) return;
-        if (want.current === k) setGot(next);
-        else if (!waiting.current) send();
-      };
-      client.checks.preview(JSON.parse(k) as Fragment, JSON.parse(whose) as ChecksOf).then(
-        (answer) => done(() => ({ key: k, answer, error: null })),
-        (err: unknown) => done((g) => ({ ...g, error: messageOf(err) })),
-      );
-    };
-    waiting.current = true;
-    const t = setTimeout(() => {
-      waiting.current = false;
-      send();
-    }, SETTLE_MS);
-    return () => {
-      clearTimeout(t);
-      waiting.current = false;
-    };
-  }, [client, key, whose, tries]);
-  const own = got.key === key;
-  return { answer: own ? got.answer : null, last: got.answer, pending: key !== null && !own, error: got.error, retry: () => setTries((t) => t + 1) };
+  return useSettledRead<CheckPreview>(judged ? JSON.stringify([of, judged]) : null, (k) => {
+    const [whose, draft] = JSON.parse(k) as [ChecksOf, Fragment];
+    return client.checks.preview(draft, whose);
+  });
 }
