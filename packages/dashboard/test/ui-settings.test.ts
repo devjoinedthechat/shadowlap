@@ -200,6 +200,8 @@ describe('the preview', () => {
     expect(maskedLine(0, 40)).toBe('0 values would be masked, 40 left as they are');
     // What only the copies that are read mask, in what calls got back.
     expect(maskedLine(7, 2, 1)).toBe('7 values would be masked, 2 left as they are, 1 more in HTML, HAR and dataset copies');
+    // An injection attempt's own canaries: a copy keeps them, and the count leaves them out.
+    expect(maskedLine(3, 0, 0, 3)).toBe('3 values would be masked, canaries kept');
   });
 
   it('says under a rule what it matches that a pack leaves as it is, and what masks it, tersely', () => {
