@@ -11,6 +11,7 @@ import { FixPage } from '../ui/fixes/FixPage.js';
 import type { NotFoundKind } from '../ui/not-found-words.js';
 import { NotFoundPage } from '../ui/pages/NotFound.js';
 import { RunPage } from '../ui/pages/Run.js';
+import { RunsPage } from '../ui/pages/Runs.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -106,6 +107,38 @@ describe('a fix page whose fix hasn’t come', () => {
     answer = () => new Promise(() => undefined);
     await r.click(r.byText('.loaderr button', 'Retry'));
     await r.until('the fix read again', () => asked.length === 2);
+  });
+});
+
+describe('Runs while its runs haven’t come', () => {
+  const EMPTY = { runs: [], total: 0, next: null, chipCounts: { all: 0, recording: 0, fork: 0, clean: 0, test: 0, capture: 0, failed: 0, local: 0 } };
+  const runs = (runsPage: () => Promise<unknown>) => {
+    const client = { exported: false, runsPage, runsByDay: () => new Promise(() => undefined), teamStore: () => Promise.resolve(null), knownRuns: (ids: string[]) => Promise.resolve(ids) } as unknown as Client;
+    const state = { ...app({}), client, hasKind: () => false, refresh: () => undefined } as unknown as AppState;
+    return createElement(AppContext.Provider, { value: state }, createElement(RunsPage, {}));
+  };
+
+  it('draws the rows as quiet bars in the table’s place, under its head, with no table row', async () => {
+    r = await render(runs(() => new Promise(() => undefined)));
+    expect(r.all('.runsec [role="status"]').map(text)).toEqual(['Loading the runs…']);
+    expect(r.all('.runsec .skin .rskrun')).toHaveLength(8);
+    expect(r.all('table.runst tbody tr')).toEqual([]);
+    expect(text(r.one('.ph h1'))).toBe('Runs');
+  });
+
+  it('says why the runs couldn’t be read in the table’s place, and Retry reads the first page again', async () => {
+    let asked = 0;
+    let answer: () => Promise<unknown> = failed;
+    r = await render(runs(() => (asked++, answer())));
+    await r.until('the failure', () => r!.all('.runsec .loaderr').length === 1);
+    expect(r.all('.loaderr p > span').map(text)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    expect(text(r.one('.ph h1'))).toBe('Runs');
+    answer = () => Promise.resolve(EMPTY);
+    const before = asked;
+    await r.click(r.byText('.loaderr button', 'Retry'));
+    await r.until('the runs read again', () => r!.all('.loaderr').length === 0);
+    expect(asked).toBe(before + 1);
+    expect(text(r.one('.runsec .emptyline'))).toBe('No runs yet.');
   });
 });
 
