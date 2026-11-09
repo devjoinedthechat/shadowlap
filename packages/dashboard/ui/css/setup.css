@@ -1,17 +1,4 @@
 /* Setting a project up: Add a project (#/new), a project's setup (#/setup) and the team store's (Settings → Store). */
-/* a project with no runs */
-.onboard { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.onboard li { display: flex; gap: 16px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
-.onboard .on { font: 700 13px var(--disp); color: var(--faint); padding-top: 2px; }
-.onboard h3 { margin: 0; font: 600 16px var(--disp); letter-spacing: -.02em; }
-.onboard p { margin: 6px 0 12px; color: var(--dim); font-size: 13px; }
-.onboard > li > div { min-width: 0; flex: 1; }
-.waiting { display: flex; align-items: center; gap: 10px; margin-top: 18px; color: var(--faint); font-size: 13px; }
-
-@media (max-width: 1000px) {
-  .onboard { grid-template-columns: minmax(0, 1fr); }
-}
-
 /* add a project */
 .newgrid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .pathin { display: block; }
@@ -44,24 +31,26 @@
 /* setting a project up */
 ol.setup { list-style: none; margin: 0; padding: 0; position: relative; }
 ol.setup::before { content: ""; position: absolute; left: 15px; top: 18px; bottom: 18px; width: 2px; background: var(--line); }
-ol.setup > li { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 18px; padding: 0 0 22px; }
-ol.setup .sn { position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font: 700 12px var(--disp); background: var(--bg); box-shadow: inset 0 0 0 2px var(--line2); color: var(--faint); }
+ol.setup > li { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 18px; padding: 0; }
+ol.setup .sn { position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font: 600 12px var(--body); background: var(--bg); box-shadow: inset 0 0 0 2px var(--line2); color: var(--faint); }
 /* the step you are on in ink; a finished one is done, not a verdict: grey */
 ol.setup .cur .sn { box-shadow: inset 0 0 0 2px var(--ink); color: var(--ink); }
 ol.setup .done .sn { background: var(--dim); color: var(--bg); box-shadow: none; }
-ol.setup .sb { min-width: 0; padding: 16px 20px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
-ol.setup .todo .sb { background: none; border-style: dashed; }
-ol.setup .todo h3 { color: var(--faint); }
-ol.setup h3 { margin: 0; font: 600 16px var(--disp); letter-spacing: -.02em; }
-ol.setup .sb > p { margin: 6px 0 12px; color: var(--dim); font-size: 13px; max-width: 76ch; }
+/* each step is a section on the page beside its number on the rail, its title an h2: a hairline between steps, no card */
+ol.setup .sb { min-width: 0; padding: 5px 0 24px; }
+ol.setup > li + li .sb { padding-top: 23px; border-top: 1px solid var(--line); }
+ol.setup > li + li .sn { margin-top: 18px; }
+ol.setup .todo h2 { color: var(--faint); }
+ol.setup h2 { margin: 0; font: 600 15px/1.35 var(--body); letter-spacing: -.01em; }
+ol.setup .sb > p { margin: 6px 0 12px; color: var(--dim); font-size: 13.5px; max-width: 76ch; }
 ol.setup .todo .sb > p { color: var(--faint); }
 ol.setup .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .cli { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; font-size: 12px; color: var(--faint); }
-.cli code { color: var(--dim); }
-dl.found { display: grid; grid-template-columns: 110px minmax(0, 1fr); margin: 12px 0 0; font-size: 13px; }
+.cli code { font-size: 11px; color: var(--dim); }
+dl.found { display: grid; grid-template-columns: 110px minmax(0, 1fr); margin: 12px 0 0; font-size: 13.5px; }
 dl.found dt, dl.found dd { margin: 0; padding: 6px 0; border-bottom: 1px solid var(--line); }
 dl.found dt { color: var(--faint); font-size: 12px; }
-dl.found dd small { color: var(--faint); font-size: 11.5px; margin-left: 4px; }
+dl.found dd small { color: var(--faint); font-size: 12px; margin-left: 4px; }
 .tools { margin-top: 14px; }
 .tools .k { display: block; margin-bottom: 4px; }
 .trow { display: grid; grid-template-columns: 170px 54px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--dim); }
@@ -71,11 +60,11 @@ dl.found dd small { color: var(--faint); font-size: 11.5px; margin-left: 4px; }
 .warnbox { margin-top: 14px; padding: 12px 14px; border-radius: 12px; font-size: 13px; line-height: 1.55; background: color-mix(in srgb, var(--warn) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 32%, transparent); }
 
 .cmdin { display: flex; align-items: center; gap: 10px; height: 38px; margin-bottom: 12px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--field); background: var(--bg2); }
-.cmdin b { color: var(--faint); font: 500 13px var(--mono); }
-.cmdin input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: var(--ink); font: 13px var(--mono); outline: none; }
+.cmdin b { color: var(--faint); font: 500 12.5px var(--mono); }
+.cmdin input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: var(--ink); font: 12.5px var(--mono); outline: none; }
 .cmdin:focus-within { border-color: var(--accent-line); }
 .cmdin input:disabled { color: var(--faint); }
-.recline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+.recline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 13.5px; }
 .recline .ic { width: 9px; height: 9px; border-radius: 50%; background: var(--cq-lime); }
 .recline .btn { margin-left: auto; }
 .setupdone { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-left: 50px; padding: 16px 20px; border-radius: 14px; background: color-mix(in srgb, var(--lime) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-line) 45%, transparent); }
@@ -96,7 +85,9 @@ dl.found dd small { color: var(--faint); font-size: 11.5px; margin-left: 4px; }
   ol.setup > li { grid-template-columns: 26px minmax(0, 1fr); gap: 10px; }
   ol.setup::before { left: 12px; }
   ol.setup .sn { width: 26px; height: 26px; }
-  ol.setup .sb { padding: 14px 14px 16px; }
+  ol.setup .sb { padding: 3px 0 20px; }
+  ol.setup > li + li .sb { padding-top: 19px; }
+  ol.setup > li + li .sn { margin-top: 16px; }
   .cli { flex-direction: column; gap: 2px; }
 }
 
@@ -113,18 +104,11 @@ ol.setup .drop { margin-top: 4px; }
 ol.setup .foundsum { margin-top: 14px; }
 ol.setup .foundsum .btn { margin-bottom: 4px; }
 ol.setup .cmdline { margin-bottom: 0; }
+/* the page follows to a step, or to the warning that leads in it: it lands with room above */
+ol.setup > li, ol.setup .warnline, .verdict.sdone { scroll-margin-top: 20px; }
 ol.setup .cmdin { margin: 12px 0; }
 ol.setup .form { margin-top: 12px; }
 dl.kvs.onbkv { margin: 12px 0 0; padding: 0; }
-.onbnote { margin: 8px 0 0; font-size: 12.5px; }
-
-.onbroles { margin-top: 4px; }
-.onbroles select { height: 30px; min-width: 130px; padding: 0 30px 0 10px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel) var(--chev) no-repeat right 10px center / 10px 10px; color: var(--ink); font: 12.5px var(--body); -webkit-appearance: none; appearance: none; cursor: pointer; }
-.onbroles select:hover { border-color: var(--faint); }
-
-.onbnote code { white-space: normal; overflow-wrap: anywhere; }
-
-ol.setup .sb > .plist { margin: 12px 0 0; }
 
 /* projects: the switcher, Add a project, the setup and the Remove dialog (what the mock drew inline) */
 .nextsteps .nextnote { padding: 0 18px 16px; margin: 0; }

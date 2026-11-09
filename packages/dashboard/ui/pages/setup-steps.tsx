@@ -37,14 +37,17 @@ function Coded({ text, names }: { text: string; names: readonly string[] }) {
 /** JSON paths in a sentence (`$.metadata.user_id`): calibrate's words name them. */
 const pathsIn = (text: string) => text.match(/\$\.[^\s:,;]*[^\s:,;.]/g) ?? [];
 
-/** One step: its number (a tick once done), its title, what it shows, and the command beside it. */
-function SetupStep({ n, state, title, cli, children }: { n: number; state: InspectStep['state']; title: string; cli: readonly string[]; children: ReactNode }) {
-  const cls = stepClass(state);
+/**
+ * One step, a section beside its number on the rail (a tick once done): its title, what it shows,
+ * and the command beside it. `data-step` names it, for the page's follow (setup-jobs.ts).
+ */
+function SetupStep({ step, cli, children }: { step: SetupView['steps'][number]; cli: readonly string[]; children: ReactNode }) {
+  const cls = stepClass(step.state);
   return (
-    <li className={cls}>
-      <span className="sn">{cls === 'done' ? '✓' : n}</span>
+    <li className={cls} data-step={step.key}>
+      <span className="sn">{cls === 'done' ? '✓' : step.n}</span>
       <div className="sb">
-        <h3>{title}</h3>
+        <h2>{step.title}</h2>
         {children}
         {cli.length ? (
           <div className="cli">
@@ -90,7 +93,7 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
   ) : null;
   const code = step.warning ? step.warning.code.map((w) => w.code).join('\n\n') : '';
   return (
-    <SetupStep n={1} state={step.state} title={step.title} cli={step.cli}>
+    <SetupStep step={step} cli={step.cli}>
       {step.text ? <p>{step.text}</p> : null}
       {step.button ? (
         <div className="actions">
@@ -263,7 +266,7 @@ function RecordBody({
     );
   }
   return (
-    <SetupStep n={2} state={step.state} title={step.title} cli={terminalLine(step.cli, field?.value ?? '', command)}>
+    <SetupStep step={step} cli={terminalLine(step.cli, field?.value ?? '', command)}>
       {body}
       {step.empty ? (
         <p className="fieldnote warn">
@@ -293,7 +296,7 @@ function CalibrateBody({ step, off, tree, busy, canCalibrate, runId, onCalibrate
   const names = [...step.proposed.map((p) => p.path), ...pathsIn(step.text)];
   const button = step.button;
   return (
-    <SetupStep n={3} state={step.state} title={step.title} cli={step.cli}>
+    <SetupStep step={step} cli={step.cli}>
       <p>
         <Coded text={step.text} names={names} />
       </p>
@@ -343,7 +346,7 @@ function TestBody({
   const settings = step.redaction ? aroundWord(step.redaction.text, 'Settings') : null;
   const goldenNames = step.result ? (step.result.text.match(/goldens\/[\w./-]*[\w-]/g) ?? []) : [];
   return (
-    <SetupStep n={4} state={step.state} title={step.title} cli={step.cli}>
+    <SetupStep step={step} cli={step.cli}>
       {step.text || step.redaction ? (
         <p>
           {step.text}

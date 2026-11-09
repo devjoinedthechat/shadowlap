@@ -35,7 +35,7 @@ function Step({ n, state, title, cli, children }: { n: number; state: SetupStepS
     <li className={state}>
       <span className="sn">{state === 'done' ? '✓' : n}</span>
       <div className="sb">
-        <h3>{title}</h3>
+        <h2>{title}</h2>
         {children}
         {cli && state === 'cur' ? (
           <div className="cli">
