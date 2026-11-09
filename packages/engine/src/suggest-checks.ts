@@ -71,7 +71,7 @@ export interface SuggestChecksOptions {
 }
 
 export interface Suggested {
-  /** The good runs the suggestions pass, the fix's first. */
+  /** The good runs the run is compared with, none of which the suggestions fail, the fix's first. */
   goods: RunRecord[];
   suggestions: CheckSuggestion[];
 }
@@ -169,6 +169,8 @@ function* valueCandidates(m: Mined): Generator<SuggestedRule> {
     const args = m.argsOf(x);
     if (!isObject(args)) continue;
     const numeric = Object.keys(args).filter((a) => asNumber(args[a]) !== null);
+    // A write with no number argument has nothing to hold against a field: the calls go unread.
+    if (!numeric.length) continue;
     const fields = numberFields(
       m.calls.filter((c) => c.callNo < x.callNo && c.name !== t),
       m.resultOf,
@@ -198,15 +200,14 @@ function* orderCandidates(m: Mined): Generator<SuggestedRule> {
 }
 
 /** How often each tool is called, by the agent's own tool calls, in the order first called. */
-function toolCounts(calls: readonly CallRecord[]): Map<string, number> {
+export function toolCounts(calls: readonly CallRecord[]): Map<string, number> {
   const n = new Map<string, number>();
   for (const c of agentToolCalls(calls)) n.set(c.name, (n.get(c.name) ?? 0) + 1);
   return n;
 }
 
-/** How often a tool is called, as every good run calls it: each tool the run calls, then each a good run calls. */
-function* countCandidates(m: Mined, goods: readonly RunCalls[]): Generator<SuggestedRule> {
-  const counts = goods.map((g) => toolCounts(g.calls));
+/** How often a tool is called, as every good run calls it (`counts`, one a good run): each tool the run calls, then each a good run calls. */
+function* countCandidates(m: Mined, counts: ReadonlyArray<ReadonlyMap<string, number>>): Generator<SuggestedRule> {
   const tools = new Set([...m.firsts.keys(), ...counts.flatMap((c) => [...c.keys()])]);
   for (const t of tools) {
     const ns = counts.map((c) => c.get(t) ?? 0);
@@ -227,9 +228,10 @@ function labelOf(rule: SuggestedRule): string | null {
 /**
  * The rules tried on a failed recording, in the order they are offered: each shape in turn, at most
  * CANDIDATES_PER_SHAPE of each, a rule whose label is in `have` or that came already left out.
- * `goods` are the good runs it is compared with, whose counts the count shape takes.
+ * `counts` are how often each good run it is compared with calls each tool (`toolCounts`), one a good
+ * run, which the count shape takes.
  */
-export function checkCandidates(store: Store, run: RunCalls, goods: readonly RunCalls[], o: Pick<SuggestChecksOptions, 'at' | 'have'> = {}): CheckSuggestion[] {
+export function checkCandidates(store: Store, run: RunCalls, counts: ReadonlyArray<ReadonlyMap<string, number>>, o: Pick<SuggestChecksOptions, 'at' | 'have'> = {}): CheckSuggestion[] {
   const m = minedOf(store, run, o.at ?? null);
   const seen = new Set(o.have ?? []);
   const out: CheckSuggestion[] = [];
@@ -237,7 +239,7 @@ export function checkCandidates(store: Store, run: RunCalls, goods: readonly Run
     ['value', valueCandidates(m)],
     ['when', whenCandidates(m)],
     ['order', orderCandidates(m)],
-    ['count', countCandidates(m, goods)],
+    ['count', countCandidates(m, counts)],
   ];
   for (const [shape, rules] of shapes) {
     let n = 0;
@@ -284,13 +286,14 @@ export function suggestChecks(store: Store, run: RunRecord, o: SuggestChecksOpti
   if (!goods.length) return { goods, suggestions: [] };
   const read = (r: RunRecord): RunCalls => ({ run: r, calls: store.getCalls(r.runId) });
   const mine = read(run);
-  const theirs = goods.map(read);
-  const cands = checkCandidates(store, mine, theirs, o);
+  // One good run's calls are held at a time: each is counted as it is read, then read again to be judged.
+  const counts = goods.map((g) => toolCounts(store.getCalls(g.runId)));
+  const cands = checkCandidates(store, mine, counts, o);
   const onRun = cands.length ? resultsOn(store, mine, cands) : new Map<string, CheckStatus>();
   let left = cands.filter((c) => onRun.get(c.label) === 'failed');
-  for (const g of theirs) {
+  for (const g of goods) {
     if (!left.length) break;
-    const onGood = resultsOn(store, g, left);
+    const onGood = resultsOn(store, read(g), left);
     left = left.filter((c) => onGood.get(c.label) === 'passed' || onGood.get(c.label) === 'not-applicable');
   }
   return { goods, suggestions: left.slice(0, o.max ?? SUGGESTED_MAX) };

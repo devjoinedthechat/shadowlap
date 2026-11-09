@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { CANDIDATES_PER_SHAPE, GOOD_RUNS_MAX, SUGGESTED_MAX, checkCandidates, goodRunsOf, judgeRecording, lowerRecorded, parseExpect, suggestChecks, Store, type RunRecord } from '../src/index.js';
+import { CANDIDATES_PER_SHAPE, GOOD_RUNS_MAX, SUGGESTED_MAX, checkCandidates, goodRunsOf, judgeRecording, lowerRecorded, parseExpect, suggestChecks, Store, toolCounts, type RunRecord } from '../src/index.js';
 import { RunBuilder, text, toolUse, user } from './run-fixtures.js';
 
 /**
- * Suggested checks (suggest-checks.ts): rules that fail a failed recording and pass every good run
+ * Suggested checks (suggest-checks.ts): rules that fail a failed recording and none of the good runs
  * it is compared with, mined in four shapes and judged by the engine's evaluator from what the
  * recordings hold.
  */
@@ -22,6 +22,8 @@ interface Refund {
   argv?: string[];
   meta?: RunRecord['meta'];
   startedAt?: number;
+  /** The run it replays, for a replay. */
+  parent?: string;
   end?: 'completed' | 'failed' | null;
   /** What the order's lookup returned, when not the order and its amount. */
   looked?: Record<string, unknown>;
@@ -29,7 +31,7 @@ interface Refund {
 
 /** A refund run in the mock's shape: the order looked up (a read), the policy read, the refund issued (a write), an email sent (a write). */
 function refund(store: Store, o: Refund): { runId: string; calls: Record<string, number> } {
-  const b = RunBuilder.start(store, { argv: o.argv ?? ['node', 'agent.mjs'], ...(o.meta ? { meta: o.meta } : {}), ...(o.startedAt ? { startedAt: o.startedAt } : {}) });
+  const b = RunBuilder.start(store, { argv: o.argv ?? ['node', 'agent.mjs'], ...(o.meta ? { meta: o.meta } : {}), ...(o.startedAt ? { startedAt: o.startedAt } : {}), ...(o.parent ? { parent: o.parent } : {}) });
   const calls: Record<string, number> = {};
   b.model({ messages: ASK }, [toolUse('lookup_order', { order_id: 'A-1042' }, 'toolu_1')]);
   calls.lookup_order = b.tool('lookup_order', { order_id: 'A-1042' }, o.looked ?? { order_id: 'A-1042', amount: o.amount });
@@ -45,6 +47,8 @@ function refund(store: Store, o: Refund): { runId: string; calls: Record<string,
 const GOOD = { meta: { labels: ['good'] } };
 const run = (store: Store, id: string) => store.getRun(id)!;
 const read = (store: Store, id: string) => ({ run: run(store, id), calls: store.getCalls(id) });
+/** How often a good run calls each tool, as the count shape takes it. */
+const counted = (store: Store, id: string) => toolCounts(store.getCalls(id));
 const labels = (s: { suggestions: Array<{ label: string }> }) => s.suggestions.map((x) => x.label);
 
 const VALUE = 'every issue_refund call: amount <= get_policy.result.limit';
@@ -129,7 +133,7 @@ describe('suggested checks', () => {
     const store = Store.open(':memory:');
     const good = refund(store, { amount: 80, ...GOOD });
     const bad = refund(store, { amount: 240, startedAt: 2_000 });
-    const [mine, goods] = [read(store, bad.runId), [read(store, good.runId)]];
+    const [mine, goods] = [read(store, bad.runId), [counted(store, good.runId)]];
     const whenThen = (at: number | null) => checkCandidates(store, mine, goods, { at }).find((c) => c.shape === 'when')!.expect.when![0].then;
     expect(whenThen(null)).toEqual({ tools: { issue_refund: 0 } });
     expect(whenThen(bad.calls.send_email)).toEqual({ tools: { send_email: 0 } });
@@ -165,7 +169,7 @@ describe('suggested checks', () => {
     c.tool('issue_refund', { amount: 240, fee: 1, tax: 2, shipping: 3 }, { ok: true }, { effect: 'write' });
     c.tool('issue_refund', { amount: 240, fee: 1, tax: 2, shipping: 3 }, { ok: true }, { effect: 'write' });
     const bad = c.end();
-    const cands = checkCandidates(store, read(store, bad), [read(store, good)]);
+    const cands = checkCandidates(store, read(store, bad), [counted(store, good)]);
     expect(cands.filter((x) => x.shape === 'value')).toHaveLength(CANDIDATES_PER_SHAPE);
     expect(cands.some((x) => x.shape === 'when')).toBe(true);
     expect(labels(suggestChecks(store, run(store, bad), { max: 60 }))).toContain('issue_refund called 1 time');
@@ -175,6 +179,11 @@ describe('suggested checks', () => {
     const store = Store.open(':memory:');
     const alone = refund(store, { amount: 240 });
     expect(suggestChecks(store, run(store, alone.runId))).toEqual({ goods: [], suggestions: [] });
+    // Given a good run, the recording has suggestions, and its replay, which went the same way, none.
+    refund(store, { amount: 80, ...GOOD, startedAt: 1_000 });
+    expect(labels(suggestChecks(store, run(store, alone.runId)))).toEqual([VALUE, WHEN]);
+    const replay = refund(store, { amount: 240, parent: alone.runId, startedAt: 2_100 });
+    expect(suggestChecks(store, run(store, replay.runId))).toEqual({ goods: [], suggestions: [] });
     refund(store, { amount: 80, argv: [], ...GOOD });
     const commandless = refund(store, { amount: 240, argv: [], startedAt: 2_000 });
     expect(suggestChecks(store, run(store, commandless.runId))).toEqual({ goods: [], suggestions: [] });
