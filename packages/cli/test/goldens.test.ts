@@ -46,7 +46,7 @@ describe('goldens', () => {
     // An injection test runs live, even for a golden that replays offline: the dashboard says CI needs the keys for it.
     expect(goldens[2]).toMatchObject({ mode: 'replay', checks: [], injection: true, judges: [] });
     // Its injection gate as parsed, with its defaults, for Tests to show among its checks.
-    expect(goldens[2]!.injectionGate).toMatchObject({ obeyed: expect.any(Number), repeat: expect.any(Number), templates: expect.anything() });
+    expect(goldens[2].injectionGate).toMatchObject({ obeyed: expect.any(Number), repeat: expect.any(Number), templates: expect.anything() });
     expect(goldens[3].checks).toEqual(['at most 60000 input tokens', 'cost at most $0.05']);
     expect(listGoldens(project, [], 'nowhere')).toEqual([]);
     // As the dashboard asks for them: from the config on disk, or the folder alone when it can't be read.
