@@ -5,7 +5,7 @@ import { callDetail, provenance, runDetail } from '../src/api.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { runUnrecorded, runWebSockets } from '../src/run-unrecorded.js';
 import { shortReason } from '../src/tests.js';
-import { failureHint } from '../ui/goldens.js';
+import { hintWords } from '../ui/tests/report-words.js';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
 import { declareSnippet, noteText, preloadsOf, preloadWords, runNotes, viaWords } from '../ui/run/notes.js';
 
@@ -198,17 +198,19 @@ describe('a golden the guard never watched, on Tests', () => {
   it('says so in a few words and what to do, never that it couldn’t run', () => {
     const r = { ok: false, failure: 'guard', reason: "No Shadowlap preload loaded in the agent's processes, though the run made 2 model calls: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails.", data: {} } as unknown as Parameters<typeof shortReason>[0];
     expect(shortReason(r)).toBe('no preload loaded: the network guard never watched it');
-    const hint = failureHint({ failure: 'guard', reason: r.reason!, blocked: null } as unknown as Parameters<typeof failureHint>[0]);
+    // Its report's hint (the server keys it no-preload: test/golden-report.test.ts, "the guard").
+    const hint = hintWords({ key: 'no-preload' });
     expect(hint).toContain('No Shadowlap preload loaded in the agent’s processes while the golden replayed');
     expect(hint).toContain('--guard warn');
-    expect(hint).not.toBe('The golden could not be replayed.');
+    expect(hint).not.toBe(hintWords({ key: 'error' }));
   });
 
   it('says a golden failed for a process the guard can’t watch, as that, with doctor’s fix, never as no preload', () => {
     const reason = 'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. Under --guard block nothing stops such a connection, so the run fails. Replay it with --guard warn to accept connections the guard can\'t watch.';
     const r = { ok: false, failure: 'guard', reason, data: {} } as unknown as Parameters<typeof shortReason>[0];
     expect(shortReason(r)).toBe('unguarded: a process the network guard can’t watch ran');
-    const hint = failureHint({ failure: 'guard', reason, blocked: null } as unknown as Parameters<typeof failureHint>[0]);
-    expect(hint.replace(/’/g, "'")).toBe(`A process the network guard can't watch ran while the golden replayed, and under --guard block that fails it, whatever else the replay did: the line above says which. ${UNGUARDED_FIX}`);
+    // Its report's hint (keyed unguarded on the server, never no-preload), with doctor's fix in doctor's words.
+    const hint = hintWords({ key: 'unguarded' });
+    expect(hint.replace(/’/g, "'")).toBe(`A process the network guard can't watch ran while the golden replayed, and under --guard block that fails it: ${UNGUARDED_FIX}`);
   });
 });
