@@ -8,7 +8,7 @@ export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
 export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-step.js';
 
 // Fixes (`/api/fixes`): the read model's own shapes, as the server sends them.
-export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixPr, FixRow, FixRung, FixRunRef, FixStep, RepairStep, StepKey, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
+export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixPr, FixRow, FixRung, FixRunRef, FixStep, RepairStep, StepKey, StepLine, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
 export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fixes-view.js';
 export type { FixLead } from '../src/fix-lead.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
@@ -61,6 +61,8 @@ export interface RunListExtras {
   /** The run an attempt is bundled under, and what made it one (`repeat`, `probe`, `verify`). */
   attemptOf?: string | null;
   attemptKind?: string | null;
+  /** The fork blame rescued a run with: the run it rescued. A run of its own, though blame made it as a probe. */
+  rescues?: string | null;
   /** Where blame found the run lost: `range`, the two calls it was lost around or between, when no one call is pinned. */
   blame?: { callNo: number | null; range?: { from: number; to: number; gradual?: true } | null } | null;
   /** Where blame found the run was lost, as the Runs table's rows say it. */
@@ -103,6 +105,8 @@ export interface CallRowExtras {
   conversation?: number | null;
   /** A model call whose request starts its conversation. */
   conversationStart?: boolean;
+  /** A top agent's conversation start: the first sentence of what it was asked; absent from an older server or copy. */
+  conversationInput?: string | null;
   /** A tool call: the model call that asked for it. */
   requestedBy?: number | null;
   /** A tool call: the tool-use id the provider gave the request for it. */
@@ -470,7 +474,7 @@ export interface StaticPayload {
 // ---- overview-runs: the Overview, the Runs page, imports and the team store -------------------
 // The server's own shapes, as its read models answer: nothing other parts of the API reshape.
 
-export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, GridFamily, GridRow, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, RunGrid, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
+export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, LookStep, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
 export type { BulkSkip, ChipCounts, DayCount, DeleteResult, RunRow, RunsByDay, RunsPage, RunSort as ServerRunSort, RunType as ServerRunType } from '../src/runs-list.js';
 export type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
 export type { TraceSourceView } from '../src/routes/imports.js';
@@ -520,7 +524,7 @@ export interface TestRunView {
   bisect: import('../src/tests.js').BisectChoices | null;
 }
 /** `GET /api/ci/workflows`: both CI panels for the options they are set to. */
-export type { CiListRow, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
+export type { CiListRow, CiSession, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
 
 // ---- Training (#/training): the training read model's answers, as the server sends them (src/training.ts) ----
 export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';

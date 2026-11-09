@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { CallDetail, CallRow, RunDetail } from '../ui/api.js';
 import type { OnShow } from '../ui/components/OnShow.js';
 import { addsCheck, argsOf, checkMenuItems, useCheckEntry } from '../ui/run/check-entry.js';
-import { CheckBuilderPart, type BuilderProps } from '../ui/run/check-part.js';
+import type { BuilderProps } from '../ui/run/check-part.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render } from './ui-render.js';
 
@@ -61,7 +62,7 @@ describe('Add check… on a run’s page', () => {
     const copy = await render(createElement(AppContext.Provider, { value: app }, createElement(Page)));
     expect(offered.at(-1)).toBe(false);
     await copy.unmount();
-    const served = await render(createElement(AppContext.Provider, { value: app }, createElement(CheckBuilderPart.Provider, { value: part }, createElement(Page))));
+    const served = await render(createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: { CheckBuilder: part } }, createElement(Page))));
     expect(offered.at(-1)).toBe(true);
     await served.unmount();
   });

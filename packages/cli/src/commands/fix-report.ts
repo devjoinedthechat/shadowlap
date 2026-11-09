@@ -1,4 +1,4 @@
-import { describeBaselineRule, dimLines, dropBound, outcomeOf, probeFinding, probeGate, rescueRule, unavailableStop, type BlameReport, type FixStatus, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole, whole } from '@shadowlap/engine';
+import { describeBaselineRule, dimLines, outcomeOf, probeFinding, probeGate, rescueRule, unavailableStop, verifyTally, verifyTallyLine, type BlameReport, type FixStatus, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole, whole } from '@shadowlap/engine';
 import { AGENT_NODE_TOO_OLD } from '../agent-node.js';
 import type { BlameError, BlameRun } from '../blame.js';
 import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
@@ -10,12 +10,14 @@ import { palette as p, safe } from '../ui.js';
 /** A gate's result as `--json` prints it beside a run or a probe: its decision, the pass rate's interval and its sentence. */
 const gateJson = (g: { decision: string; interval: unknown; sentence: string } | null | undefined) => (g ? { decision: g.decision, interval: g.interval, sentence: g.sentence } : null);
 
-/** A good run kept against its baseline, as `--json` prints its verdict: the decision, the drop's interval and the sentence, rule included. */
+/**
+ * A good run kept against its baseline, as `--json` prints its verdict: the decision, the drop's
+ * interval and the sentence, its line as verify prints it (engine `verifyTally`), rule included. Its
+ * bound is left out where the drop a report kept gives none.
+ */
 function keptJson(x: VerifyReport['runs'][number], r: VerifyReport): { decision: string; drop: unknown; sentence: string } {
-  const bound = x.drop ? dropBound(x.drop, x.decision) : null;
   const rule = r.kept ? ` · ${describeBaselineRule({ ...r.kept, revision: r.kept.label ?? r.kept.revision ?? null })}` : '';
-  const tally = `${x.passes} of ${x.attempts.length} passed, baseline ${x.baseline!.passes} of ${x.baseline!.attempts}`;
-  return { decision: x.decision ?? 'continue', drop: x.drop ?? null, sentence: `${outcomeOf(x)} · ${tally}${bound ? ` · ${bound}` : ''}${rule}` };
+  return { decision: x.decision ?? 'continue', drop: x.drop ?? null, sentence: `${outcomeOf(x)} · ${verifyTallyLine(verifyTally(x))}${rule}` };
 }
 
 /** The report as `--json` prints it: stable field names for scripts and coding agents. */

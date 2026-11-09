@@ -85,7 +85,7 @@
 .cb-file { margin-top: 2px; }
 .cb-file .codehead { gap: 10px; }
 .cb-ver { color: var(--faint); }
-.cb-file .codebox.fxpatch { margin: 0; padding: 10px 12px; font: var(--fs-label)/1.6 var(--mono); color: var(--faint); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow-y: auto; }
+.cb-file .codebox.wfcode { margin: 0; padding: 10px 12px; font: var(--fs-label)/1.6 var(--mono); color: var(--faint); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow-y: auto; }
 .cb-warn { margin: 0 0 8px; color: var(--cq-amber); font-size: var(--fs-quiet); line-height: 1.5; text-wrap: pretty; }
 .dialog .cb-file + .cb-note { margin-top: 8px; }
 

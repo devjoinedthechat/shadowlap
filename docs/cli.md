@@ -1291,8 +1291,9 @@ three steps.
    repairer did (*not fixed · the repairer could not be asked: claude was not found*), and the repair's
    warnings.
 3. **Verify**: every verdict, named by what changed (a repair's candidate, the request fields it set,
-   or the code version) and headed by the runs it checked, with each run's role and outcome. One that
-   doesn't count for the fix says why in its heading.
+   or the code version) and headed by the runs it checked, with each run's role, outcome and tally as
+   `shadowlap verify` prints it (*12 of 12 passed · rate >= 0.73 (95%)*). One that doesn't count for
+   the fix says why in its heading.
 
 It ends with what to do next. It says when the repair it suggests would end *No fix to try* without
 running the agent, and why (the blames it would reuse rescued no failing run), or couldn't ask its
@@ -1313,6 +1314,7 @@ repairer from here (`claude` isn't on the PATH).
 | `defaultStep`, `defaultVerify` | The step the dashboard opens at, and the verdict it shows first: the newest that counts |
 | `attempts`, `spent`, `upstreamRequests` | What everything behind the fix took: the attempts that ran live, and what they and the repairer cost |
 | `actions` | What can be done next (below) |
+| `lead` | The step it leads with, as its dashboard page and row do: `key`, `label` and `command`, or `null` for none |
 | `commands` | The `blame`, `repair` and `verify` commands to run it again |
 | `repairer` | The repairer the config names (below) |
 | `applied` | Once applied, how: `patch`, `repairId`, the `goldens` copied, `tests`, `by`, `via` |
@@ -1334,21 +1336,27 @@ or `by hand` for one you made that a verdict checked.
 
 `blame` has:
 
+- its verdict `line`: the `word`, its `tone`, the `head` in parts (a probe's tally each) and the
+  `finding`;
 - the call where the run was lost (`lostAt`, model call `step` of `steps`), `confidence`, the
   `boundary` sentence and both `answers`;
-- `probes` with their verdicts, and the attempts per probe (`bundles`);
-- every call of the run, with whether it is in the blame's scope (`callRow`);
-- `cost` and `command`.
+- `probes` with their verdicts, each with its `tally`, `bound` and `interval`, the gate's `marks`,
+  and the attempts per probe (`bundles`);
+- the agent's calls of the run, with whether each is in the blame's scope and probed, and a probed
+  call's `tally` (`callRow`);
+- `cost`, with what the judge's checks cost apart (`judge`), and `command`.
 
 `repair` has:
 
+- its verdict `line`, as `blame`'s, and `again` when the accepted change was verified twice;
 - the `change`, with the text it `added`; the result per role (`roles`); and whether its verification
   `counts`;
+- the gate's `rule`, from the first candidate it verified when none was accepted;
 - who proposed it (`repairer`), or why no repairer did (`noRepairer`: its `text`, and the `warning`
   that says what to do);
 - where each run was `lost`, and the `diagnosis`;
 - every candidate, with its `verdict` (`accepted`, `rejected`, `set aside`, `not tried`,
-  `build failed`, `unsettled`) and `why`;
+  `build failed`, `unsettled`) and `why`, and the runs those whys name by their short ids (`named`);
 - the `files` handed over, and the pull request body (`prBody`);
 - what each stage `cost`, and how many `attempts` it ran: the probes of the blames it ran, and every
   candidate's verification;
@@ -1364,21 +1372,29 @@ or `by hand` for one you made that a verdict checked.
 - `oracle`;
 - each run's `role`, `attempts`, `outcome` and where it went (`note`), and the token and cost changes
   per run;
-- what it took to find out;
+- each run's `tally`, `cutShort` and `bound` in the words `shadowlap verify` prints, its `interval` against the gate's `marks`, and its attempts (`tries`);
+- the failing runs an accepted verdict left out, that no other has checked (`left`);
+- what it took to find out, with the judge's checks apart (`judge`);
+- what answered the change's tool calls after the fork, and the baselines' apart, in `afterFork`, as
+  the report's line says it, or `null` when no attempt made a tool call after its fork;
 - its `reasons`, with those that say a run is inconclusive or not settled, rather than that the change
   failed it, in `unsettled`.
 
 `actions` says what can be done next:
 
 - **`repair`**, for an open fix: `noFix` says why it would end *No fix to try* without running the
-  agent, or is `null`.
+  agent, or is `null`. `spent` is true when its last repair tried candidates and accepted none, with
+  no blame or check change since, so running it again would try the same.
 - **`apply`**, for a verified or applied one: `kind` is `patch`, or `mark` when there is no patch
   (below).
 - **`applied`**, once it is applied.
+- **`verifyLeft`**, for a verified or applied fix whose change is in the working tree: the failing
+  `runs` no accepted verdict checked, and the `command` that verifies the working tree's code on
+  them. It is `null` when every failing run was verified.
 
 `apply` has:
 
-- `kind`, and the `gitApply` command;
+- `kind`, the `command` that applies it, and the `gitApply` command;
 - `pending`, saying what applying left undone;
 - every file the patch changes in `files`, the patch itself in `diff`, and where it is kept in
   `patchFile`;

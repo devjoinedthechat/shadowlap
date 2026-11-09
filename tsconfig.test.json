@@ -75,10 +75,13 @@
     // These render the Runs page's bulk bar, the Overview's panels and the lists of runs.
     "packages/dashboard/test/ui-runs-bulk.test.ts",
     "packages/dashboard/test/ui-overview-lists.test.ts",
+    "packages/dashboard/test/ui-overview-page.test.ts",
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
     "packages/dashboard/test/ui-runs-status.test.ts",
     // These render a fix's page, and the list of fixes.
     "packages/dashboard/test/ui-fix-page.test.ts",
+    "packages/dashboard/test/ui-fix-head.test.ts",
+    "packages/dashboard/test/ui-fix-steps.test.ts",
     "packages/dashboard/test/ui-fixes-list.test.ts",
     // This drives the fork menu's actions, with their confirmation of someone else's command.
     "packages/dashboard/test/ui-action-consent.test.ts",
@@ -107,7 +110,16 @@
     "packages/dashboard/test/ui-run-outcome.test.ts",
     // These render Settings.
     "packages/dashboard/test/ui-settings-states.test.ts",
+    "packages/dashboard/test/ui-settings-shell.test.ts",
+    "packages/dashboard/test/ui-settings-undo.test.ts",
+    "packages/dashboard/test/ui-settings-store.test.ts",
+    "packages/dashboard/test/ui-settings-tools.test.ts",
+    "packages/dashboard/test/ui-training-sections.test.ts",
+    "packages/dashboard/test/ui-project-switcher.test.ts",
+    "packages/dashboard/test/ui-settings-lists.test.ts",
+    "packages/dashboard/test/ui-settings-calibrate.test.ts",
     "packages/dashboard/test/ui-ci-tab.test.ts",
+    "packages/dashboard/test/ui-store-setup-ci.test.ts",
     // This fits run names' about lines, which measures the page.
     "packages/dashboard/test/ui-about.test.ts",
     // This renders the places that name a run.
@@ -161,6 +173,10 @@
     // and this is the page of them browser/primitives.spec.ts measures in a real browser.
     "packages/dashboard/test/ui-primitives.test.ts",
     "packages/dashboard/test/primitives-page.tsx",
+    // This renders the results matrix, its key, its receipt and the panel they open in, and this is
+    // the page of them browser/matrix.spec.ts measures in a real browser.
+    "packages/dashboard/test/ui-matrix.test.ts",
+    "packages/dashboard/test/matrix-page.tsx",
     // This renders the status bar, which measures what fits it.
     "packages/dashboard/test/ui-status-bar.test.ts",
     // This renders Changes: its head, Verdicts, a revision's page and Compare under its tab.

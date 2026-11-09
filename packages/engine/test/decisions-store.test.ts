@@ -64,6 +64,31 @@ describe('decision sessions', () => {
     store.close();
   });
 
+  it('reads what sessions and repairs spent on calls that are no run, by when they were kept', () => {
+    const store = Store.open(':memory:');
+    const put = (sessionId: string, kind: 'decisions' | 'migrate', at: number, data: Record<string, unknown>) => store.putDecisionSession({ sessionId, kind, at, change: 'the model m', actor: null, revision: null, data, runs: [] });
+    // A preview's asks and judging; its verify (runs of their own) is never added.
+    put('dc-01M50000000000000000000001', 'decisions', 1_000, { cost: { spent: 0.25 }, judge: { spent: 0.05 }, verify: { spent: 9 } });
+    // A migration's asking and judging; its verifying again left out.
+    put('mg-01M50000000000000000000002', 'migrate', 2_000, { costs: { checking: { decisions: 0.5, judge: 0.125, verify: 7 } } });
+    // Nothing priced, and one outside the window.
+    put('dc-01M50000000000000000000003', 'decisions', 2_500, {});
+    put('dc-01M50000000000000000000004', 'decisions', 5_000, { cost: { spent: 1 } });
+    expect(store.decisionSpend(1_000, 5_000)).toEqual([
+      { kind: 'decisions', at: 1_000, spent: 0.3 },
+      { kind: 'migrate', at: 2_000, spent: 0.625 },
+      { kind: 'decisions', at: 2_500, spent: 0 },
+    ]);
+    const repair = (repairId: string, at: number, repairer: number | null) =>
+      store.putRepair({ repairId, at, dir: `.shadowlap/repairs/${repairId}`, outcome: 'fixed', accepted: true, report: { candidates: [], cost: { blame: 1, repairer, verify: 2 } } as never, expect: null, command: 'shadowlap repair' });
+    repair('repair-1', 1_500, 0.75);
+    repair('repair-2', 1_600, null);
+    repair('repair-3', 6_000, 2);
+    // The repairer's own answer only: its blame and verify are runs.
+    expect(store.repairerSpend(1_000, 5_000)).toEqual([{ at: 1_500, spent: 0.75 }]);
+    store.close();
+  });
+
   it('adds its tables to a store made before them', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sl-decisions-store-'));
     dirs.push(dir);

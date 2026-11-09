@@ -20,6 +20,7 @@ import type { NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
+import type { RequestDiff } from '../src/request-diff.js';
 import type { UnrecordedView } from '../src/run-unrecorded.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import { copyAmbiguous, copyRunId } from './runs.js';
@@ -62,6 +63,8 @@ export const JOB_KINDS = {
   share: 'share',
   // The team store's setup (Settings → Store): check access to a bucket and connect it (store set --check).
   storeSet: 'store-set',
+  // Settings → Store's Check again: check the store's access again (store check), writing nothing.
+  storeCheck: 'store-check',
   // Tests: update goldens, find the commit (on Tests, the Runs calendar and a run's page), add a
   // normalizer and re-run (and `tests` above runs them).
   testUpdate: 'test-update',
@@ -273,6 +276,11 @@ export interface Client extends ChangesApi, TestsApi {
   outcome(id: string): Promise<{ judged: RunJudged | null }>;
   /** A run's next step alone, whole, with what it bills (`GET /api/runs/:id/next`): what a page's answer leaves out where it would read a long run's calls (`later`). */
   nextStep(id: string): Promise<{ next: NextStep | null }>;
+  /**
+   * The request a fork or a diverged replay changed, as recorded and as sent, with what fixes each
+   * changed path (`GET /api/runs/:id/diff[?call=<n>]`): Show diff's. Null for a run that never diverged.
+   */
+  requestDiff(id: string, callNo?: number): Promise<RequestDiff | null>;
 }
 
 
@@ -516,11 +524,12 @@ function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeS
 }
 
 /** What a long run's first answer leaves to reads of their own, as its analysis has them. */
-function longRunReads(request: Request): Pick<Client, 'outcome' | 'nextStep'> {
+function longRunReads(request: Request): Pick<Client, 'outcome' | 'nextStep' | 'requestDiff'> {
   const id = encodeURIComponent;
   return {
     outcome: (runId) => request<{ judged: unknown }>(`runs/${id(runId)}/outcome`).then((r) => ({ judged: normalizeJudged(r.judged) })),
     nextStep: (runId) => request<{ next: NextStep | null }>(`runs/${id(runId)}/next`),
+    requestDiff: (runId, callNo) => request<{ diff: RequestDiff | null }>(`runs/${id(runId)}/diff${callNo === undefined ? '' : `?call=${callNo}`}`).then((r) => r.diff),
   };
 }
 
@@ -629,5 +638,7 @@ export function createExportedClient(data: StaticPayload): Client {
     outcome: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ judged: normalizeJudged(d.judged ?? null) })),
     // As its page holds it: a copy runs nothing, so it bills nothing.
     nextStep: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ next: d.next ?? null })),
+    // Held for each run that diverged, at the call it diverged at; another call's is the store's to read.
+    requestDiff: (runId, callNo) => Promise.resolve(callNo === undefined ? ((data.responses[`runs/${full(runId)}/diff`] as { diff: RequestDiff | null } | undefined)?.diff ?? null) : null),
   };
 }

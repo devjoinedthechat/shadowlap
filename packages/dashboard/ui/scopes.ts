@@ -3,8 +3,12 @@
  * names it (the engine's agents.ts: the scope its author gave, a trace's agent, a sub-agent a tool
  * started, an agent told by its system prompt), else its scope: `agent`, `agent/policy-checker`,
  * `customer`. Picking one narrows every view to it and the agents nested in it. Blame is scoped by
- * scope (`scope()` in the SDKs), so its hint reads scopes alone. No DOM here: the tests import it.
+ * scope (`scope()` in the SDKs), so its hint reads scopes alone. Shadowlap's own scopes (its judge's,
+ * `shadowlap:judge`) are no agent and nothing to blame by: they get no chip and show no bar, and
+ * their calls are under All. No DOM here: the tests import it.
  */
+
+import { isReservedScope } from '../../engine/src/judge-scope.js';
 
 export interface ScopedCall {
   callNo: number;
@@ -16,6 +20,9 @@ export interface ScopedCall {
 export const agentOf = (c: ScopedCall): string | null => c.agent ?? c.scope ?? null;
 /** A call's scope alone, which blame is scoped by. */
 export const scopeOnly = (c: ScopedCall): string | null => c.scope ?? null;
+
+/** Whether a scope is the agent's, not one Shadowlap makes calls in itself (isReservedScope). */
+const theirs = (s: string | null): s is string => !!s && !isReservedScope(s);
 
 /** Every scope in the order it first appears. */
 export function scopesOf(calls: readonly ScopedCall[], by = agentOf): string[] {
@@ -30,17 +37,17 @@ export function scopesOf(calls: readonly ScopedCall[], by = agentOf): string[] {
 /** The chips of the scopes the run's author gave, alone: what blame can be scoped by. */
 export const realScopes = (calls: readonly ScopedCall[]): string[] => scopeChips(calls, scopeOnly);
 
-/** Whether the views show a run's agents: a scope its author gave, or two agents or more. */
-export const agentsShown = (calls: readonly ScopedCall[]): boolean => calls.some(scopeOnly) || scopesOf(calls).length > 1;
+/** Whether the views show a run's agents: a scope its author gave, or two agents or more, Shadowlap's own scopes aside. */
+export const agentsShown = (calls: readonly ScopedCall[]): boolean => calls.some((c) => theirs(scopeOnly(c))) || scopesOf(calls).filter(theirs).length > 1;
 
 /**
- * The scope chips, as a tree: every scope, each nested one right after the scope it sits in, which
- * gets a chip of its own even when no call was made in it directly (`writer/review` brings `writer`).
- * Siblings keep the order they first appear in.
+ * The scope chips, as a tree: every scope but Shadowlap's own, each nested one right after the scope
+ * it sits in, which gets a chip of its own even when no call was made in it directly (`writer/review`
+ * brings `writer`). Siblings keep the order they first appear in.
  */
 export function scopeChips(calls: readonly ScopedCall[], by = agentOf): string[] {
   const first = new Map<string, number>();
-  scopesOf(calls, by).forEach((s, i) => {
+  scopesOf(calls, by).filter(theirs).forEach((s, i) => {
     const parts = s.split('/');
     for (let k = 1; k <= parts.length; k++) {
       const p = parts.slice(0, k).join('/');

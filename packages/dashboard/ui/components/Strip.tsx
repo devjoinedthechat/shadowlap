@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { ktok } from '../format.js';
 import type { Origin7 } from '../origins.js';
-import { gridCells, miniCells } from '../strip.js';
+import { miniCells } from '../strip.js';
 
 /**
  * The small strips (the Runs table's and the Overview's), in the colour of each call's origin, and
@@ -15,27 +15,18 @@ export function stripDetail(c: { kind: string; effect: string | null; usage: { i
 }
 
 /** The small strip in tables and lists: grouped past 60 cells. */
-export function MiniStrip({ origins, max = 60, className = 'ms' }: { origins: readonly Origin7[]; max?: number; className?: string }) {
+export function MiniStrip({ origins, max = 60, className = 'ms', said }: { origins: readonly Origin7[]; max?: number; className?: string; said?: string | undefined }) {
   const cells = useMemo(() => miniCells(origins, max), [origins, max]);
+  // With `said`, a screen reader hears the calls by origin, held inside the strip; without, the strip is a picture only.
   return (
-    <span className={className} style={{ gridTemplateColumns: `repeat(${Math.max(1, cells.length)}, minmax(0, 1fr))` }} aria-hidden="true">
+    <span className={className} style={{ gridTemplateColumns: `repeat(${Math.max(1, cells.length)}, minmax(0, 1fr))` }} aria-hidden={said ? undefined : 'true'}>
       {cells.map((c, i) => (
         <i key={i} className={c.origin}>
           {c.tick ? <span className={`tk ${c.tick}`} style={{ left: `${c.tickAt * 100}%` }} /> : null}
         </i>
       ))}
+      {said ? <span className="sr">{said}</span> : null}
     </span>
   );
 }
 
-/** A row of the Overview's grid: a family shares one scale, so a fork's replayed prefix lines up under its parent. */
-export function GridStrip({ origins, scale, forkAt = null, live = false }: { origins: readonly Origin7[]; scale: number; forkAt?: number | null; live?: boolean }) {
-  const cells = useMemo(() => gridCells(origins, scale, forkAt), [origins, scale, forkAt]);
-  return (
-    <span className="gs" style={{ gridTemplateColumns: `repeat(${Math.max(1, cells.length)}, minmax(0, 1fr))` }} aria-hidden="true">
-      {cells.map((c, i) => (
-        <i key={i} className={[c.origin ?? (live ? 'pend' : ''), c.fork ? 'fk' : ''].filter(Boolean).join(' ') || undefined} />
-      ))}
-    </span>
-  );
-}

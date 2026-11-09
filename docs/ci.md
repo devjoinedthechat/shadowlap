@@ -929,14 +929,14 @@ A job's store usually goes with the job, so to reach your teammates a fix has to
 
 `push: true` pushes the test runs as `shadowlap test --push` does. Once a fix's pull request is open, it pushes every run the job made (`shadowlap push --all`), which takes the fix with its blame, repair and verdicts along. A teammate's `shadowlap pull` then brings it to their Fixes page, as *from CI · PR #138*.
 
-Settings → CI has no switch of its own for this: the step follows Push from CI. While that is off, or the project has no team store, it is the step above without the push lines.
+Settings → CI has no switch of its own for this: the step follows Push from CI, on Settings → Store. While that is off, or the project has no team store, it is the step above without the push lines.
 
 ### Credentials on S3, Cloud Storage and Azure
 
 Pushing needs the bucket's credentials in the job, besides the permissions the fix needs. Amazon S3, Cloud Storage and Azure give a job short-lived credentials:
 
 1. Add `id-token: write` to the job's permissions, as the first comment says.
-2. Copy the two `if:` steps that `shadowlap store ci --provider github` prints (Settings → Store's **Copy CI step**) into the job where the comment stands, after the checkout and right before the action.
+2. Copy the two `if:` steps that `shadowlap store ci --provider github` prints into the job where the comment stands, after the checkout and right before the action. Settings → CI's **Write file** puts them there for you.
 
 The first gives your branches' jobs the credentials that write to the store; the second gives a pull request's job its own, which write only under `pr/`.
 
@@ -1053,13 +1053,13 @@ They need:
 - its injection gate fails;
 - a gate, a judge or an injection test can't decide (inconclusive), unless the step says `inconclusive: warn`.
 
-With `inconclusive` left out, a gate against history whose golden has fewer than 30 sessions only warns, until the plan reads a decline or a drop in its sessions. Settings → CI's **An inconclusive golden** writes `inconclusive: warn` for **Warns**, and leaves the input out for **Fails**.
+With `inconclusive` left out, a gate against history whose golden has fewer than 30 sessions only warns, until the plan reads a decline or a drop in its sessions. Settings → CI's **An inconclusive golden**, under Gates, writes `inconclusive: warn` for **Warns**, and leaves the input out for **Fails**.
 
 **A config that can't be read.** While `shadowlap.config.json` can't be read, Settings → CI says so. Each step says in its `env` what it leaves out until the file is fixed: which goldens run live and their keys, and whether Fix on failure pushes.
 
 ## One job for all of it
 
-Fix on failure, Alerts and the team store's push are inputs and steps around one run of the goldens, so they go in one job: the action runs once, with `id: goldens`, and the steps you turned on follow it. The dashboard's Settings → CI writes it from its switches: **Fix pull requests**, **Tell Slack**, **Team store** (which follows Push from CI), and **An inconclusive golden**.
+Fix on failure, Alerts and the team store's push are inputs and steps around one run of the goldens, so they go in one job: the action runs once, with `id: goldens`, and the steps you turned on follow it. The dashboard's Settings → CI writes the whole file from its switches: **Pull request comment**, **Fix on failure** and **Alerts**, with Gates' **An inconclusive golden**. The push follows Push from CI. Its **Write file** patches your repository's file in place, and changes only the lines those switches own.
 
 ```yaml
 # the job needs: permissions: { contents: write, pull-requests: write, actions: write, id-token: write }
@@ -1104,7 +1104,7 @@ Fix on failure, Alerts and the team store's push are inputs and steps around one
 
 - **With Slack on**, the action counts the failures without failing the step (`fail-on-divergence: false`), so a fix can open and Slack can hear of it before **Fail the job** fails it. With Slack off, the action fails the job itself.
 - **Each part needs what its section above says, once.** The job's permissions add up, and its `env` holds every golden's keys while Fix on failure is on (blame and verify run the agent live), else those of the goldens that run live.
-- **With Push from CI on**, the step pushes whichever parts are on. So the store setup's CI step (Settings → Store) gives this job the bucket's credentials alone, the two `if:` steps `shadowlap store ci --provider github` prints, where the comment stands: no second job runs the goldens again.
+- **With Push from CI on**, the step pushes whichever parts are on. So this job takes the bucket's credentials alone, the two `if:` steps `shadowlap store ci --provider github` prints, where the comment stands: no second job runs the goldens again. Settings → CI's **Write file** adds them.
 
 ## Other CI systems
 

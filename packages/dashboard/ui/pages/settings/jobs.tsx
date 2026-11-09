@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { Dialog } from '../../components/Dialog.js';
 import { addJobFooter } from '../../job-actions.js';
-import { sentence } from '../../toast.js';
+import { sentence, type ToastAction } from '../../toast.js';
 import type { JobView } from '../../types.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, editErrorText } from './common.js';
@@ -29,11 +29,41 @@ function CalibrateFooter({ job, plain, done }: { job: JobView; plain?: boolean; 
       setState('done');
       settingsChanged();
       done?.();
-      app.toast(r.added.length ? `Added to ${CONFIG_FILE} · normalizer${r.added.length === 1 ? '' : 's'} ${r.added.map((x) => `#${x}`).join(', ')}` : `Already in ${CONFIG_FILE} · ${r.already.map((x) => `#${x}`).join(', ')}`);
+      app.toast(
+        r.added.length ? `Added to ${CONFIG_FILE} · normalizer${r.added.length === 1 ? '' : 's'} ${r.added.map((x) => `#${x}`).join(', ')}` : `Already in ${CONFIG_FILE} · ${r.already.map((x) => `#${x}`).join(', ')}`,
+        'notice',
+        r.added.length ? undoAdded(r.added, r.version) : undefined,
+      );
     } catch (err) {
       setState('idle');
       app.toast(sentence(editErrorText(err)), 'error');
     }
+  };
+  // Undo: the rules it added taken out again, the highest number first so the others keep theirs, each
+  // against the version the last removal wrote; the button is offered again.
+  const undoAdded = (added: readonly number[], version: string): ToastAction => {
+    let sent = false;
+    return {
+      label: 'Undo',
+      undo: true,
+      returnTo: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+      run: () => {
+        if (sent) return;
+        sent = true;
+        void (async () => {
+          try {
+            let at = version;
+            for (const k of [...added].sort((a, b) => b - a)) at = (await app.client.settings.removeRule('normalize', k, at)).version;
+            setState('idle');
+            app.toast(`${added.length === 1 ? 'Rule' : 'Rules'} removed from ${CONFIG_FILE}`);
+          } catch (err) {
+            app.toast(sentence(editErrorText(err)), 'error');
+          } finally {
+            settingsChanged();
+          }
+        })();
+      },
+    };
   };
   return (
     <ActionButton className={plain ? 'btn' : 'btn lime'} disabled={state !== 'idle'} title={`Adds ${n === 1 ? 'the normalizer' : `the ${n} normalizers`} it found to ${CONFIG_FILE}, as --write does`} onClick={() => app.guard(() => void add())}>

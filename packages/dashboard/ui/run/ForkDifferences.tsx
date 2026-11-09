@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import type { ForkChange, ForkDifferences as Differences, ForkEnd, ForkWrite } from '../../src/fork-differences.js';
 import { shortId } from '../format.js';
+import { useForkDifferences } from './fork-differences-load.js';
 import { href } from '../route.js';
-import { useForkDifferences } from './differences.js';
 
 /**
  * What the fork did differently from its parent, one of its findings: from the call it left its parent

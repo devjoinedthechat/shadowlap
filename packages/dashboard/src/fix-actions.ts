@@ -1,7 +1,9 @@
 import { isAbsolute, join, resolve } from 'node:path';
 import { applyGoldens, applyLeft, defaultGoldenNames, type FixRecords, gitApplyCommand, goldensFolder, noFixReason, patchFiles, REPAIR_CANDIDATES, repairArgv, repairJobArgv, repairPatchProblem, repairToApply, shownBlame, type StoredRepair, type StoreOf } from '@shadowlap/engine';
 import { blameNext } from './fix-blame-step.js';
-import { commandLine, fieldsSet, type FixActions, type PatchCheck, patchMerged, type RewriteCheck, unrepairedVerdict } from './fix-shared.js';
+import { repairSpent } from './fix-lead.js';
+import { acceptedVerdict, commandLine, fieldsSet, type FixActions, notVerified, type PatchCheck, patchMerged, type RewriteCheck, unrepairedVerdict } from './fix-shared.js';
+import { verifyLeftArgs } from './fix-verify-step.js';
 
 /**
  * What a fix's buttons run (`FixActions`), as its page and its Fixes row read them: worked out from
@@ -30,7 +32,37 @@ function pendingText(left: { goldens: boolean; test: boolean } | null): string |
  */
 function repairOffer(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null, command: string, argv: string[]): NonNullable<FixActions['repair']> {
   const noFix = noFixReason(store, rec, scope);
-  return { argv, command, noFix: noFix?.sentence ?? null, noFixWhy: noFix?.kind ?? null, candidates: REPAIR_CANDIDATES };
+  return { argv, command, noFix: noFix?.sentence ?? null, noFixWhy: noFix?.kind ?? null, candidates: REPAIR_CANDIDATES, spent: repairSpent(rec) };
+}
+
+/**
+ * Why a fix offers no Verify this run, the first that holds: it is open; no accepted verdict counts
+ * for it; no failing run it lists is left unverified in the store; its change isn't in the working
+ * tree; or the accepted verdict's fields, flags or check can't be made into a verify.
+ */
+export type NoVerifyLeft = 'open' | 'no-verdict' | 'none-left' | 'not-in-tree' | 'not-made';
+
+/**
+ * Verify this run, on a verified or applied fix whose change is in the working tree (`inTree`: its
+ * patch there, as git says; or applied, or verified on the tree as it is, with no repair behind it),
+ * for its failing runs still in the store that no accepted verdict that counts checked. The CLI's
+ * verify checks the code as it is now, so a change not in the tree yet is applied first. Else why not.
+ */
+export function verifyLeftOr(store: StoreOf<'recording'>, rec: FixRecords, inTree: boolean): { offer: NonNullable<FixActions['verifyLeft']> } | { none: NoVerifyLeft } {
+  if (rec.fix.status === 'open') return { none: 'open' };
+  const v = acceptedVerdict(rec);
+  if (!v) return { none: 'no-verdict' };
+  const runs = notVerified(rec).filter((id) => store.getRun(id) !== null);
+  if (!runs.length) return { none: 'none-left' };
+  if (!(inTree || rec.fix.status === 'applied' || unrepairedVerdict(rec))) return { none: 'not-in-tree' };
+  const made = verifyLeftArgs(rec, v, runs);
+  return made ? { offer: { runs, argv: made.argv, command: commandLine(made.argv), pulled: made.pulled, left: made.left } } : { none: 'not-made' };
+}
+
+/** Verify this run as the fix's actions offer it (`verifyLeftOr`), or null. */
+export function verifyLeftOffer(store: StoreOf<'recording'>, rec: FixRecords, inTree: boolean): FixActions['verifyLeft'] {
+  const got = verifyLeftOr(store, rec, inTree);
+  return 'offer' in got ? got.offer : null;
 }
 
 /**
@@ -84,9 +116,11 @@ function applyOffer(store: StoreOf<'team'>, rec: FixRecords, label: string | nul
   const made = defaultGoldenNames({ label, title: fix.title }, copies.length);
   const offered = copies.flatMap((g, i) => (g.copied ? [] : [{ run: g.run, name: made[i]!, source: g.source }]));
   const folder = o.folder ? o.folder(offered) : null;
+  const argv = ['fix', 'apply', fix.fixId];
   return {
     kind: toApply ? 'patch' : 'mark',
-    argv: ['fix', 'apply', fix.fixId],
+    argv,
+    command: commandLine(argv),
     // Once the patch is in the working tree, git apply would only fail.
     gitApply: patchFile && !o.refused && !o.inTree && fix.status !== 'applied' ? gitApplyCommand(patchFile) : null,
     pending: pendingText(applyLeft(fix, toApply, { pulled })),
@@ -122,11 +156,13 @@ export function fixActions(store: StoreOf<'recording' | 'fixes' | 'team'>, rec: 
   const repairArgs = fix.status === 'open' ? [...(o.repairArgs ?? repairArgv(store, rec))] : [];
   const toApply = repairToApply(rec);
   const configured = o.repairer?.trim() || null;
+  const inTree = patchMerged(rec, o.patchInTree);
   return {
     repair: repairArgs.length ? repairOffer(store, rec, b?.scope ?? null, commandLine(repairJobArgv(repairArgs, configured)), repairArgs) : null,
     // Merged by a pull request, or applied by hand: there is nothing to apply, only to mark applied.
-    apply: applyOffer(store, rec, o.label, toApply, { refused: refusedOf(store, toApply, o.rewriteHere), inTree: patchMerged(rec, o.patchInTree), folder: o.goldensFolder ?? null }),
+    apply: applyOffer(store, rec, o.label, toApply, { refused: refusedOf(store, toApply, o.rewriteHere), inTree, folder: o.goldensFolder ?? null }),
     applied: fix.status === 'applied',
     ...blameNext(store, rec, b),
+    verifyLeft: verifyLeftOffer(store, rec, inTree),
   };
 }

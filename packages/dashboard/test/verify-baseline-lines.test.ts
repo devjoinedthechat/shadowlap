@@ -42,11 +42,11 @@ function keptRun(runId: string, o: { hi?: number | null; lo?: number | null; dec
 
 describe('a good run kept against its baseline', () => {
   it('reads by both tallies and the bound on its drop, never a pass rate alone', () => {
-    expect(verifiedLine(keptRun('01M5G00000000000000000000A'))).toEqual({ line: 'kept · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)', tone: 'ok' });
+    expect(verifiedLine(keptRun('01M5G00000000000000000000A'))).toEqual({ line: 'kept · 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)', tone: 'ok' });
     // Broken: the bound that bears on it is the drop's least.
-    expect(verifiedLine(keptRun('01M5G00000000000000000000B', { verdict: 'fail', decision: 'fail', lo: 0.12, hi: 0.4 })).line).toBe('broken · 38 of 38, baseline 38 of 38 · drop >= 0.12 (95%)');
+    expect(verifiedLine(keptRun('01M5G00000000000000000000B', { verdict: 'fail', decision: 'fail', lo: 0.12, hi: 0.4 })).line).toBe('broken · 38 of 38 passed, baseline 38 of 38 · drop >= 0.12 (95%)');
     // Nothing to bound: the tallies alone.
-    expect(verifiedLine({ ...keptRun('01M5G00000000000000000000C'), drop: null }).line).toBe('kept · 38 of 38, baseline 38 of 38');
+    expect(verifiedLine({ ...keptRun('01M5G00000000000000000000C'), drop: null }).line).toBe('kept · 38 of 38 passed, baseline 38 of 38');
   });
 
   it('is decided by its baseline’s rule, any other run by the gate', () => {
@@ -79,7 +79,7 @@ describe('a good run kept against its baseline', () => {
     report.kept = KEPT;
     recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: 2_000 });
     const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
-    expect(bundle).toMatchObject({ verdictLine: `kept · ${report.runs[1].passes} of ${report.runs[1].attempts.length}, baseline 38 of 38 · drop <= 0.10 (95%)`, rule: 'baseline: kept unless it drops 10+ points below its baseline at 35034be, attempt for attempt, <= 5% risk, up to 200 pairs' });
+    expect(bundle).toMatchObject({ verdictLine: `kept · ${report.runs[1].passes} of ${report.runs[1].attempts.length} passed, baseline 38 of 38 · drop <= 0.10 (95%)`, rule: 'baseline: kept unless it drops 10+ points below its baseline at 35034be, attempt for attempt, <= 5% risk, up to 200 pairs' });
   });
 });
 
@@ -98,8 +98,8 @@ describe('a run a verify left open', () => {
     report.runs[0] = { ...report.runs[0], attempts, passes: 3, verdict: 'open' };
     recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug', at: 2_000 });
     const [bundle] = fixBundles(store, failing)!.filter((b) => b.kind === 'verify');
-    expect(bundle).toMatchObject({ verdictLine: 'inconclusive · 3 of 3', tone: 'y', verdict: 'incomplete' });
-    expect(bundleLine(bundle, (usd) => `≈$${usd.toFixed(3)}`)).toBe('inconclusive · 3 of 3 · ≈$0.036 · 370712a+dirty · inconclusive');
+    expect(bundle).toMatchObject({ verdictLine: 'inconclusive · 3 of 3 passed', tone: 'y', verdict: 'incomplete' });
+    expect(bundleLine(bundle, (usd) => `≈$${usd.toFixed(3)}`)).toBe('inconclusive · 3 of 3 passed · ≈$0.036 · 370712a+dirty · inconclusive');
   });
 });
 

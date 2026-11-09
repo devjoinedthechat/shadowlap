@@ -189,13 +189,11 @@ tr.krow > td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
 .boxcopy:hover { color: var(--ink); background: var(--hover); }
 .boxcopy svg { width: 13px; height: 13px; }
 .cmdline > .boxcopy { float: right; margin: -6px -8px -4px 8px; }
-/* A file's change (.codebox.fxpatch): a line added in --add ink, one removed in --del red. What acts on the file ends its
-   header as one group, which takes a second row whole, still at the right, where the header can't hold it beside the name. */
+/* What acts on a file ends its box's header as one group (CodeBox's actions), which takes a second row whole, still at the
+   right, where the header can't hold it beside the name. */
 .codehead.acts { flex-wrap: wrap; row-gap: 2px; }
 .codehead .cdacts { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
 .codehead .cdacts .linkbtn { margin-left: 0; }
-.codebox.fxpatch .add { color: var(--add); }
-.codebox.fxpatch .del { color: var(--del); }
 .boxwrap { position: relative; }
 .boxwrap > .boxcopy { position: absolute; top: 5px; right: 5px; }
 .boxwrap > pre.codebox { padding-right: 40px; }
@@ -323,3 +321,40 @@ code.ts-cmd, code.ts-ct { white-space: normal; }
   /* the theme's own text colour draws a list's id whole, its quiet part with it */
   code.rnm.rl { background: none; -webkit-text-fill-color: currentColor; }
 }
+
+/* The structural diff (JsonDiff.tsx): a line a key, the recorded side's lines signed − and this run's +, washed in the diff's own
+   colours, the words that differ marked in them; a JSON document inside a string read as JSON, said so in the UI face. A line
+   wraps under its own key (a hanging indent) and never runs off the edge; a value with no space in it (.jdq) goes to the next
+   line whole where it doesn't fit after its key, and on a phone the sign's column is narrower, so a user id's line holds it whole
+   from 390. The heads (.jdh) keep the .diffpanel prefix to outrank the old panel's caps-mono heads. */
+.diffpanel.jdp { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.jdh { display: flex; flex-wrap: wrap; gap: 2px 22px; }
+.diffpanel .jdh :is(h2, h3, h4) { margin: 0; font: 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
+.jdh :is(h2, h3, h4) code.rnm { font-size: 12.5px; color: var(--dim); }
+.jdh .js { display: inline-block; width: 14px; font: 500 12.5px var(--mono); }
+.js.add { color: var(--add); }
+.js.del { color: var(--del); }
+.jd { padding: 9px 0; border-radius: var(--r-box); background: var(--code); border: 1px solid var(--line); font: 12.5px/1.7 var(--mono); color: var(--dim); font-variant-ligatures: none; }
+.jl { display: flex; min-width: 0; padding-right: 14px; }
+.jl > .js { flex: none; width: 28px; text-align: center; color: var(--faint); }
+.jl > .jt { flex: 1; min-width: 0; padding-left: calc(var(--d, 0) * 2ch + 2ch); text-indent: -2ch; white-space: pre-wrap; overflow-wrap: anywhere; }
+.jl .jdq { display: inline-block; max-width: 100%; text-indent: 0; vertical-align: top; }
+@media (max-width: 640px) { .jl > .js { width: 20px; } }
+.jl.add, .jl.del { color: var(--ink); }
+.jl.add { background: color-mix(in srgb, var(--add) 8%, transparent); }
+.jl.del { background: color-mix(in srgb, var(--del) 8%, transparent); }
+.jl.add > .js { color: var(--add); }
+.jl.del > .js { color: var(--del); }
+.jk { color: var(--faint); }
+.jl.add .jk, .jl.del .jk { color: var(--dim); }
+.jq { font: 12px var(--body); color: var(--faint); }
+mark.jdw { color: var(--ink); border-radius: var(--r-mark); padding: 0 1px; }
+.jl.add mark.jdw { background: color-mix(in srgb, var(--add) 30%, transparent); }
+.jl.del mark.jdw { background: color-mix(in srgb, var(--del) 30%, transparent); }
+.jd.jds { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.jd.jds .jl:nth-child(even) { border-left: 1px solid var(--line); }
+.jl.gap { min-height: 1.7em; }
+/* A high-contrast theme drops the marks' ground: the words that differ are underlined instead, as a pressed choice is. */
+@media (forced-colors: active) { mark.jdw { text-decoration: underline 2px; text-underline-offset: 2px; } }
+/* What Show diff says under the diff (DiffNotes.tsx): a line a change, then the normalizers' commands in one box. */
+.diffpanel .hint .cmdline { margin-top: 10px; }

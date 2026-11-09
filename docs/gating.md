@@ -164,7 +164,7 @@ And each CI run like this:
 | A gate per golden at its own 5%, `max` 80 | 15% | 14% |
 | A gate per golden at its own 5%, `max` 40 | 61% | 14% |
 | A gate per golden at its own 5%, `max` 20 | 100% | 13% |
-| The default: 5% for the suite, split 100 ways | 0.0018% | 0.0018% |
+| The default: 5% for the suite, split 100 ways | 0.0018% | 0.0056% |
 
 A gate per golden keeps each golden's risk, but a hundred of them add up: 0.15% of a healthy agent's goldens fail, and one in seven runs goes red. So `shadowlap test` gives the session [one risk](#one-risk-for-the-whole-suite) and splits it: a healthy suite then goes red about once in 55,000 runs, at 16.75 attempts a golden instead of 16.7.
 
@@ -775,7 +775,7 @@ The same engine decides `verify`'s runs and `blame`'s probes. Each run's and eac
 | *not fixed*    | The gate failed it, telling it from one at 90% or more                                            |
 | *inconclusive* | The run is still between the bounds after 80 attempts, which keeps the change from being accepted |
 
-Its line shows its tally and bound (`fixed · 12 of 12 · rate >= 0.73 (95%)`), under the rule stated once. A run that passes 90% of the time ends inconclusive 1.0% of the time at 80 attempts, where 40 left it so 12%.
+Its line shows its tally and bound (`fixed · 12 of 12 passed · rate >= 0.73 (95%)`), under the rule stated once. A run that passes 90% of the time ends inconclusive 1.0% of the time at 80 attempts, where 40 left it so 12%.
 
 ### A good run
 

@@ -3,7 +3,6 @@ import {
   asNumber,
   checkRecording,
   checkRecordings,
-  goldenWords,
   intoText,
   isJudgeCall,
   isObject,
@@ -23,8 +22,6 @@ import {
   type Store,
   type TestSpec,
 } from '@shadowlap/engine';
-import { describeEvent } from './activity.js';
-import { links } from './links.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 
 /**
@@ -242,18 +239,6 @@ function checkPreview(store: Store, job: CheckPreviewJob): ReadAnswer {
   };
   return answer(body);
 }
-
-/** The labels an event names, as text. */
-const labels = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-
-// A golden's checks changed in the check builder (routes/checks.ts records it), in the activity feed:
-// what it gained, or lost, by the golden's name; its ref stays the path. Registered here, as the feed is read beside the server too, by threads
-// that load this module with the reads but no route module.
-describeEvent('checks.changed', (e, d) => {
-  const [added, removed, golden] = [labels(d.added), labels(d.removed), e.ref ? goldenWords(e.ref) : 'a golden'];
-  const text = added.length && !removed.length ? `Check added · ${golden}: ${added.join('; ')}` : removed.length && !added.length ? `Check removed · ${golden}: ${removed.join('; ')}` : `Checks changed · ${golden}`;
-  return { kind: 'setting', text, href: links.tests() };
-});
 
 export const CHECK_READS: ReadTable<CheckJob> = {
   'check-context': (store, job) => checkContext(store, job),
