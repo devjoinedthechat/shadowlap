@@ -219,13 +219,19 @@ What the rows mean:
 
 A step that bills names its price on hover, asked for once the pointer or the focus reaches it, and asks first as [Spending](#spending) says. On a read-only dashboard a step that runs a job says **Open →**, since nothing runs there. Past 50 rows of a kind, one line says how many more there are and opens the page that lists them.
 
+**Dismiss** advice you have seen: behaviours no golden covers, runs only on this machine, a model that retires. A failure has no Dismiss.
+
+- **Dismiss**: the **×** at the row's end, which shows on hover or focus and always on a touch screen, or Dismiss in ⌘K on the row. The row folds under its group's **Dismissed (n)**, and the toast's **Undo** or ⌘Z puts it back.
+- **When it comes back**: once it states a fact it didn't, such as another behaviour or run, or another date or golden. **Restore** under **Dismissed (n)** brings it back sooner.
+- **Where it is kept**: in this project's store, never pushed or pulled, and never in Activity.
+
 ### Recent runs
 
 **Recent runs** lists the eight newest runs, one being recorded first, each as the sidebar has it: its id, its calls by origin and when, then what it was about and what needs a look. Hover a row for its kind (*clean replay*, *fork @17*, *rescued fork*, *test replay*) and its calls by origin. **All runs →** opens Runs.
 
 ### Keys on the Overview
 
-**j** and **k** walk Needs a look's rows, then Recent runs, Activity and, with Usage open, the prompt cache's misses. **Enter** opens the row in focus. **⌘K** on a row offers what it opens, and on Needs a look its step, which waits, asks and starts as its button does.
+**j** and **k** walk Needs a look's rows, an open **Dismissed (n)**'s too, then Recent runs, Activity and, with Usage open, the prompt cache's misses. **Enter** opens the row in focus. **⌘K** on a row offers what it opens, and on Needs a look its step, which waits, asks and starts as its button does, and Dismiss on advice or Restore on a dismissed row.
 
 ### Activity
 
@@ -1874,7 +1880,7 @@ shadowlap dashboard --read-only
 
 Read-only mode shows every page and changes nothing in your runs. Use it to show a colleague your runs, or to look around without the risk of a click changing something.
 
-- **Refused**: replay, fork and the other actions, labels, notes, uploads and deletes. Each says why where you would have used it.
+- **Refused**: replay, fork and the other actions, labels, notes, dismissals, uploads and deletes. Each says why where you would have used it.
 - **The status bar** says *read-only*, with the reason on hover, and Search or jump to leaves the actions out.
 - **Downloading a run as HTML** (**Share → HTML report**) still works, since it changes nothing: the file comes straight from the dashboard instead of being written into the project.
 - **The store**: read-only mode needs an existing store and never creates one. It opens that store the way every command does, which brings an older store's layout up to date and lets search build its index.
@@ -1911,13 +1917,13 @@ The dashboard's keys, by where they work. `?`, or **Keyboard shortcuts** in the 
 
 These keys work on any page:
 
-| Key               | What it does                                                            |
-| ----------------- | ----------------------------------------------------------------------- |
-| ⌘K or Ctrl K      | Search or jump to anything; with the focus in a list's row, its actions |
-| `/`               | Filter a run's calls, filter Runs, or search anywhere else              |
-| `?`               | Show the shortcuts                                                      |
-| ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label, a delete)           |
-| Esc               | Close what is open, then go up a level                                  |
+| Key               | What it does                                                               |
+| ----------------- | -------------------------------------------------------------------------- |
+| ⌘K or Ctrl K      | Search or jump to anything; with the focus in a list's row, its actions    |
+| `/`               | Filter a run's calls, filter Runs, or search anywhere else                 |
+| `?`               | Show the shortcuts                                                         |
+| ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label, a delete, a dismissal) |
+| Esc               | Close what is open, then go up a level                                     |
 
 These keys work in a list: Runs, Changes' verdicts and a revision's goldens, Fixes, Tests' goldens, and the sidebar's runs while one has the focus. On Fixes, ⌘K on a fix's row offers Open fix and each of its steps, as it does on a verify's row in Changes › Verdicts, and Esc back from a fix lands on its row.
 
