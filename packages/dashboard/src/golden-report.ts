@@ -4,7 +4,7 @@ import { commandLine, shortFailure } from './fix-shared.js';
 import { links } from './links.js';
 import { answer, type ReadTable } from './read-registry.js';
 import { judgeFor, type OutcomeWork } from './run-outcome.js';
-import { matchingRuns } from './runs-list.js';
+import { matchingRunsEach } from './runs-list.js';
 import type { BisectMiss, FoundCommit } from './tests-bisect.js';
 import { forkedWords } from './tests-evidence.js';
 import { causeOf, divergenceOf } from './tests-normalize.js';
@@ -527,8 +527,11 @@ export function goldenReports(view: TestsView, i: ReportInput): Record<string, G
   return reports;
 }
 
+/** Every golden's failed replays: its test replays under Failed, whatever its name. */
+const FAILED_REPLAYS = 'type:test';
+
 /** Runs' filter for a golden's failed replays: its test replays, whose about line is its name, under Failed. Quoted where the name holds a space. */
-const failedRunsQuery = (name: string): string => `type:test ${/\s/.test(name) ? `"${name}"` : name}`;
+const failedRunsQuery = (name: string): string => `${FAILED_REPLAYS} ${/\s/.test(name) ? `"${name}"` : name}`;
 
 /** Where Failed runs → opens: Runs' Failed view of the golden's replays. */
 export const failedRunsHref = (name: string): string => links.runs({ q: failedRunsQuery(name), types: 'failed' });
@@ -537,18 +540,21 @@ export const failedRunsHref = (name: string): string => links.runs({ q: failedRu
 export type GoldenRunsJob = { kind: 'tests-failed-runs'; goldens: Array<{ golden: string; name: string }>; outcome?: OutcomeWork | null };
 
 /**
- * The pooled read: the runs Failed runs → opens, matched as Runs matches them (runs-list.ts
- * `matchingRuns`, the same filter and the same judge), so the count is what the link opens. It reads
- * every run's index row, so never on the server's thread. A golden with none is left out.
+ * The pooled read: the runs Failed runs → opens, matched as Runs matches them (runs-list.ts, the same
+ * filter and the same judge), so the count is what the link opens. Every run's index row is read
+ * once, for the failed test replays, and each golden's name is matched among those alone: never on
+ * the server's thread. A golden with none is left out.
  */
 export const GOLDEN_REPORT_READS: ReadTable<GoldenRunsJob> = {
   'tests-failed-runs': (store, job, { whole }) => {
     const judge = judgeFor(store, job.outcome ?? null);
+    const filter = (q: string) => ({ q, types: ['failed' as const], known: !whole, judge });
+    const each = matchingRunsEach(store, filter(FAILED_REPLAYS), job.goldens.map((g) => filter(failedRunsQuery(g.name))));
     const found: Record<string, { count: number; ids: string[] }> = {};
-    for (const g of job.goldens) {
-      const runs = matchingRuns(store, { q: failedRunsQuery(g.name), types: ['failed'], known: !whole, judge });
+    job.goldens.forEach((g, n) => {
+      const runs = each[n] ?? [];
       if (runs.length) found[g.golden] = { count: runs.length, ids: runs.slice(0, 5).map((r) => r.runId) };
-    }
+    });
     return answer(found);
   },
 };
