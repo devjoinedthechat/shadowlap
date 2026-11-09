@@ -79,6 +79,22 @@ describe('Dismiss and Restore', () => {
     expect((await localRow())?.advice?.dismissed).toBe(false);
   });
 
+  // The team store status names only the newest 500 runs only here: a row stating those alone would
+  // come back each time a push moved older ones into them.
+  it('states every run only here, past the newest 500, and stays put away when a push sends the newest', async () => {
+    const older = Array.from({ length: 501 }, (_, i) => recorded(NOW - 3 * DAY + i * 1_000));
+    const row = await localRow();
+    expect(row?.title).toBe('503 runs are only on this machine');
+    expect(row?.advice?.facts).toEqual([...runs, ...older].sort());
+    expect((await dismiss('local', row!.advice!.facts)).status).toBe(200);
+    expect((await localRow())?.advice?.dismissed).toBe(true);
+    const remote = new MemoryStore(parseStoreUrl(TEAM));
+    expect((await push({ store, remote, actor: 'dana@northwind.example', now: () => NOW }, { runIds: runs })).pushed.sort()).toEqual([...runs].sort());
+    const after = await localRow();
+    expect(after?.title).toBe('501 runs are only on this machine');
+    expect(after?.advice).toMatchObject({ facts: [...older].sort(), dismissed: true });
+  });
+
   it('answers what a second Dismiss replaced, and its Undo writes that back', async () => {
     await dismiss('local', [runs[0]]);
     const again = await dismiss('local', runs);

@@ -80,7 +80,8 @@ describe('advice', () => {
 });
 
 describe('the facts each advice states', () => {
-  it('runs only here: every one, as localRunSet has them, never the status’s first 500', () => {
+  // Past the status’s newest 500, through the summary job itself: dismissals-routes.test.ts.
+  it('runs only here: every finished one, as the note the summary job builds from localRunSet has them', () => {
     for (let i = 0; i < 3; i++) addRun(store, { startedAt: NOW - DAY + i, calls: 'l' });
     addRun(store, { startedAt: NOW, calls: 'l', status: 'running' });
     const n = note();
