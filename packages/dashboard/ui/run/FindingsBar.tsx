@@ -5,6 +5,7 @@ import type { ForkDifferences as Differences } from '../../src/fork-differences.
 import type { RunInjection, TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { Icon } from '../components/Icon.js';
+import { onShow } from '../components/OnShow.js';
 import { glossed } from '../components/Term.js';
 import { firstWords } from '../outcome-tip.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
@@ -20,7 +21,7 @@ import type { PendingAction } from './actions.js';
 import { findingPath, notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
 import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
-import { DifferencesPanel, useForkDifferences } from './ForkDifferences.js';
+import { useForkDifferences } from './fork-differences-load.js';
 import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
 import { attemptLinks, attemptOf, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
@@ -33,6 +34,9 @@ import { Proof, type ProofTab } from '../injection/Proof.js';
 import { openResults } from './panel-state.js';
 import type { InjectionFinding as InjectionFindingView } from '../injection/model.js';
 import { warmDiff } from './InspectorPanel.js';
+
+/** The fork's differences, drawn by a part of their own as a fork's findings first show them. */
+const DifferencesPanel = onShow(() => import('./ForkDifferences.js').then((m) => m.DifferencesPanel));
 
 /**
  * What a run's page found, as one bar under its header (findings.ts): the most telling finding whole,

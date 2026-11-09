@@ -3,9 +3,13 @@ import { num, plural, shortId } from '../format.js';
 import { jobCommand, quoteArg } from '../job-title.js';
 import type { DeleteResult, LabelRunsResult } from '../types.js';
 
-/** What the bulk bar says once it has acted on the runs picked, and what Push sends. No DOM here: the tests import it. */
+/**
+ * What the bulk bar says once it has acted on the runs picked, and what Push sends. What a run's page
+ * says too (its toasts' words, Add label…'s suggestions) is in run-words.ts, so that page holds none
+ * of the rest. No DOM here: the tests import it.
+ */
 
-export { bulkToast, labelSuggestions, named } from './bulk-said.js';
+export { bulkToast, labelSuggestions, named } from './run-words.js';
 
 /**
  * What a Delete says it takes: the run or the runs, how many attempts go with them, and the recorded
@@ -113,3 +117,4 @@ export function joinLabelled(parts: readonly LabelRunsResult[]): LabelRunsResult
 export function joinDeleted(parts: readonly DeleteResult[]): DeleteResult {
   return { done: parts.flatMap((p) => p.done), attempts: parts.flatMap((p) => p.attempts), skipped: parts.flatMap((p) => p.skipped), blobs: parts.reduce((n, p) => n + p.blobs, 0), bytes: parts.reduce((n, p) => n + p.bytes, 0) };
 }
+

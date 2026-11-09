@@ -3,7 +3,7 @@ import { begin, cancel, sendNow, type PendingRun } from '../pending-delete.js';
 import { navigate } from '../router.js';
 import { matchesChip, RUN_CHIPS } from '../runs.js';
 import { lastRunsHref } from '../runs-view.js';
-import { bulkToast, named } from '../runspage/bulk-said.js';
+import { bulkToast, named } from '../runspage/run-words.js';
 import { useApp } from '../state.js';
 import { errorText, type ToastAction } from '../toast.js';
 import { runLikeOf } from './model.js';

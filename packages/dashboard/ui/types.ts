@@ -109,6 +109,8 @@ export interface CallRowExtras {
   conversation?: number | null;
   /** A model call whose request starts its conversation. */
   conversationStart?: boolean;
+  /** A top agent's conversation start: the first sentence of what it was asked; absent from an older server or copy. */
+  conversationInput?: string | null;
   /** A tool call: the model call that asked for it. */
   requestedBy?: number | null;
   /** A tool call: the tool-use id the provider gave the request for it. */
