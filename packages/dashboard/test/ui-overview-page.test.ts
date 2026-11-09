@@ -147,7 +147,7 @@ describe('a Needs a look row’s job’s end', () => {
   const tick = (ms = 80) => act(() => new Promise<void>((done) => setTimeout(done, ms)));
   const push: NeedsLookRow = { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', key: 'attn:local', group: 'housekeeping', step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' }, href: '#/runs?types=local', runId: null, fixId: null, at: 0 };
   const setup: NeedsLookRow = { kind: 'store-setup', icon: 'setting', title: 'The team store’s setup is partway through', detail: 'its bucket is made, its key isn’t', key: 'attn:store-setup', group: 'housekeeping', step: { of: 'link', label: 'Continue setup', href: '#/settings/store/setup' }, href: '#/settings/store/setup', runId: null, fixId: null, at: 0 };
-  const looks = (items: NeedsLookRow[]) => ({ summary: { ...week, needsLook: { items, total: items.length } } });
+  const looks = (items: NeedsLookRow[]) => ({ summary: { ...week, needsLook: { items, total: items.length, dismissals: 0 } } });
 
   it('hands the focus to the row’s own step where the row is drawn anew with another in its place', async () => {
     const changed = watchThePage();

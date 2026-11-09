@@ -30,11 +30,13 @@ import { setupSteps } from './Setup.js';
 export const WARMING_ASK_MS = 1000;
 
 export function OverviewPage() {
-  const { client, meta, runs, live, tick, exported } = useApp();
+  const { client, meta, runs, live, tick, exported, feeds } = useApp();
   const tz = useMemo(viewerTimeZone, []);
   const [nudge, setNudge] = useState(0);
   const version = `${tick}:${nudge}`;
-  const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, version);
+  // It loads again once advice is put away or back (in another tab too), and a fix step's price
+  // lasts as long as `version` all the same: a Dismiss asks no step for its price again.
+  const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, `${version}:${feeds.dismissals ?? 0}`);
   const activity = useLoad(() => (exported ? null : client.activity(5)), 'activity:5', tick);
   const store = useTeamStore();
   const name = projectOf(meta)?.name ?? 'this project';
@@ -97,7 +99,7 @@ export function OverviewPage() {
         actions={recording ? <WatchLive runId={recording.runId} about={recording.about?.text ?? recording.command} calls={liveCalls} /> : null}
       />
       <div className="ovg">
-        <NeedsLook items={s.needsLook.items} total={s.needsLook.total} version={version} />
+        <NeedsLook items={s.needsLook.items} total={s.needsLook.total} version={version} dismissals={s.needsLook.dismissals} />
         <div className="ovside">
           <RecentRuns runs={runs} now={s.now} />
           <ActivityCard items={activity.data?.items ?? null} error={activity.error} retry={activity.reload} now={s.now} byPerson={!!store} live={live} />
