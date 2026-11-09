@@ -998,7 +998,7 @@ The list holds 200 rows, then a line says how many more calls there are. A run s
 
 **Open a row** to see both calls side by side, as their runs' inspectors show them: a model call's decision or why it failed, or a tool's name, then its origin, tokens, time and cost, then a tool's arguments and result. A replayed model call reads *replayed, not re-spent*. The same tool on both sides shows its arguments and its result as one side-by-side diff.
 
-A model call's words and arguments are cut past 300 characters, as in its row. *Open run at #19*, on each side, opens that run at its own call, whole. A judge's calls take no row, so where one sits between a run's calls, that number can differ from the row's.
+A model call's words, and each tool's arguments on one line, are cut past 300 characters, as in its row. A decision lists 20 tool calls at most, then how many more it made. *Open run at #19*, on each side, opens that run at its own call, whole. A judge's calls take no row, so where one sits between a run's calls, that number can differ from the row's.
 
 The row's number goes into the address, `#/compare/<a>/<b>/<n>`, so a link opens it. The row again, or its ×, closes it. Until both calls are read, the row says it is loading. Where one can't be read, it says why, with Retry.
 
@@ -2284,7 +2284,7 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 - `verdict`: its words, `where` and `tone`; `null` where no call follows the prefix, or while a run records;
 - `rank` and `changes`: the changes, most consequential first;
 - `endings`: each run's HTTP failures, its writes by what became of them, and how its turn ended;
-- `rows`: both paths a row a call, each numbered by its place (`n`), each call as its decision, its failure or its tool, at most 200, and `more` for the rest.
+- `rows`: both paths a row a call, each numbered by its place (`n`), each call as its decision (cut as its row shows it, with `moreTools` for the tool calls past 20), its failure or its tool, at most 200, and `more` for the rest.
 
 ### Jobs
 

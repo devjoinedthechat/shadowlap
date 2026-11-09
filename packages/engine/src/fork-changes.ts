@@ -351,20 +351,28 @@ export function pairEnding(store: StoreOf<'recording'>, run: Pick<RunRecord, 'st
 const endKey = (e: PairEnd): string => (e.kind === 'exited' ? `exited ${e.code ?? ''}` : e.kind);
 
 /**
- * How much of a call's words or arguments a row carries, each string cut past it: a row is a line.
- * The opened row draws a model call's decision from the same copy, and a tool's arguments and result
- * whole, from the call's detail; Open run at #N shows the whole call.
+ * How much of a model call's words a row carries, and of each tool's arguments it calls, measured on
+ * their one-line form (their JSON): a row is a line. The opened row draws the decision from the same
+ * copy, and a tool call's arguments and result whole, from the call's detail; Open run at #N shows
+ * the whole call.
  */
 export const ROW_TEXT = 300;
+
+/** The tool calls a row's decision lists at most; past them, it counts the rest (`moreTools`). */
+export const ROW_TOOLS = 20;
 
 /**
  * A model call's decision as a row and its opened view draw it: the engine's decisionView (its
  * words, each tool it calls with what it does, `unknown` where no run says, and how its turn ends),
- * as a preview's cell takes it, with every string in it cut past ROW_TEXT, and `stops`, how its turn
- * ends in `decisions`' words (`calls tools`), since a page can't load the decisions module.
+ * as a preview's cell takes it, its words and each tool's arguments cut past ROW_TEXT and its tools
+ * past ROW_TOOLS, and `stops`, how its turn ends in `decisions`' words (`calls tools`), since a page
+ * can't load the decisions module. So a decision is a few kilobytes at most in every row, in every
+ * pair a copy holds and in every answer while a side records.
  */
 export interface PathDecision extends DecisionView {
   stops: string;
+  /** The tool calls past ROW_TOOLS, left out; absent where it lists them all. */
+  moreTools?: number;
 }
 
 /** One side's call in a row. */
@@ -435,18 +443,86 @@ function rowCall(store: StoreOf<'recording'>, c: CallRecord, normalizers: readon
   };
 }
 
-/** A value with each string in it cut past `max`: a row's arguments stay a line's worth, their shape kept. */
-function clipStrings(v: unknown, max: number): unknown {
-  if (typeof v === 'string') return clipText(v, max);
-  if (Array.isArray(v)) return v.map((x) => clipStrings(x, max));
-  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clipStrings(x, max)]));
-  return v;
+/** What a value cut short holds where it is cut: a string's last character, an array's last item, an object's last key and its value. */
+const CUT = '…';
+
+/** As much of a string as fits `room` characters of JSON with a `…` after it, quotes and escapes counted. */
+function cutString(x: string, room: number): string {
+  let kept = Math.max(0, room - 3);
+  // An escape takes more room than the character it stands for: cut further until it fits.
+  while (kept > 0) {
+    const over = JSON.stringify(x.slice(0, kept)).length + 1 - room;
+    if (over <= 0) break;
+    kept = Math.max(0, kept - over);
+  }
+  return `${x.slice(0, kept)}${CUT}`;
 }
 
-/** A decision as a row draws it: the engine's view of it, its strings cut. */
+/**
+ * A value cut short past about `max` characters of its one-line form (its JSON), its shape kept up
+ * to the cut: a string there ends with `…`, and each array or object that holds the cut ends with a
+ * `…` item or key where it holds more. A row's marks and line breaks read it as JSON, as they read
+ * the whole. It stops at the cut; a value that fits is kept as it is.
+ */
+function clipValue(v: unknown, max: number): unknown {
+  let left = max;
+  let cut = false;
+  const walk = (x: unknown): unknown => {
+    if (typeof x === 'string') {
+      // Its JSON is its text in quotes, escapes aside: worked out only where that could fit.
+      const size = x.length + 2 <= left ? JSON.stringify(x).length : Infinity;
+      if (size <= left) {
+        left -= size;
+        return x;
+      }
+      cut = true;
+      const kept = cutString(x, left);
+      left = 0;
+      return kept;
+    }
+    if (Array.isArray(x)) {
+      left -= 2;
+      const out: unknown[] = [];
+      for (const item of x) {
+        if (out.length) left -= 1;
+        if (left <= 0) {
+          cut = true;
+          out.push(CUT);
+          break;
+        }
+        out.push(walk(item));
+      }
+      return out;
+    }
+    if (x && typeof x === 'object') {
+      left -= 2;
+      const out: Array<[string, unknown]> = [];
+      for (const key of Object.keys(x)) {
+        if (out.length) left -= 1;
+        const size = key.length + 3 <= left ? JSON.stringify(key).length + 1 : Infinity;
+        if (size >= left) {
+          cut = true;
+          left = 0;
+          out.push([CUT, CUT]);
+          break;
+        }
+        left -= size;
+        out.push([key, walk((x as Record<string, unknown>)[key])]);
+      }
+      return Object.fromEntries(out);
+    }
+    left -= (JSON.stringify(x) ?? 'null').length;
+    return x;
+  };
+  const out = walk(v);
+  return cut ? out : v;
+}
+
+/** A decision as a row draws it: the engine's view of it, its words and each tool's arguments cut past ROW_TEXT, its tools past ROW_TOOLS. */
 function rowDecision(d: ModelDecision, effectOf: EffectOf): PathDecision {
-  const view = decisionView(d, effectOf);
-  return { ...view, tools: view.tools.map((t) => ({ ...t, args: clipStrings(t.args ?? null, ROW_TEXT) })), text: clipText(d.text, ROW_TEXT), stops: STOP_WORDS[d.stop] };
+  const view = decisionView({ ...d, tools: d.tools.slice(0, ROW_TOOLS) }, effectOf);
+  const more = d.tools.length - view.tools.length;
+  return { ...view, tools: view.tools.map((t) => ({ ...t, args: clipValue(t.args ?? null, ROW_TEXT) })), text: clipText(d.text, ROW_TEXT), stops: STOP_WORDS[d.stop], ...(more ? { moreTools: more } : {}) };
 }
 
 /** Whether two calls at one place are alike, or, not alike, similar enough to mark the words that differ: a row both made alike has none to mark. */

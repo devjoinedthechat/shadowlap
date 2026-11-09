@@ -308,8 +308,8 @@ function metaWords(c: PathCall, d: CallDetail | null): string[] {
 
 /**
  * A call as its side of the opened row heads it: the status it got and why, its decision beside the
- * other side's (a tool the other run doesn't call heard as `not called in <its id>`), or a tool's
- * name and effect.
+ * other side's (a tool the other run doesn't call heard as `not called in <its id>`, then how many
+ * more tool calls it made than its row lists), or a tool's name and effect.
  */
 function OpenedCall({ c, other, otherId, detail, flag, side }: { c: PathCall; other: PathCall | null; otherId: string; detail: CallDetail | null; flag: string | null; side: 'a' | 'b' }) {
   if (c.kind === 'api' && c.failure)
@@ -324,7 +324,7 @@ function OpenedCall({ c, other, otherId, detail, flag, side }: { c: PathCall; ot
   if (c.decision) {
     // The other side's decision where it is a model call's, else this one's own, so nothing reads as missing there.
     const theirs = other?.kind === 'api' && !other.failure && other.decision ? other.decision : c.decision;
-    return <Decision d={c.decision} other={theirs} side={side === 'a' ? 'recorded' : 'now'} stop={c.decision.stops} stopDiffers={theirs.stop !== c.decision.stop} notCalled={`, not called in ${shortId(otherId)}`} />;
+    return <Decision d={c.decision} other={theirs} side={side === 'a' ? 'recorded' : 'now'} stop={c.decision.stops} stopDiffers={theirs.stop !== c.decision.stop} notCalled={`, not called in ${shortId(otherId)}`} more={c.decision.moreTools ?? 0} />;
   }
   if (c.kind === 'api') return null;
   return (

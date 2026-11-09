@@ -431,6 +431,19 @@ describe('the whole comparison', () => {
     expect(order).toEqual(['cmpwho', 'cmptool', 'cmpmeta', 'cmpk', 'cmpk', 'more']);
   });
 
+  it('says how many more tool calls a decision made than its row lists, after those it lists', async () => {
+    const reads = { ...refund, tools: Array.from({ length: 20 }, (_, i) => ({ name: 'lookup_order', args: { order: `A-${i}` }, effect: 'read' })), moreTools: 480 };
+    const listed = { ...pair, rows: [{ n: 19, a: call(19, { decision: reads }), b: call(19, { decision: refund }), alike: false, similar: false }] };
+    const page = await shown({ ...client, compare: compared(listed) }, `#/compare/${REC}/${FORK}/19`, (r) => r.all('#cmpd .dtool').length > 0);
+    const [a, b] = page.all('#cmpd .cmpdc');
+    expect(a.querySelectorAll('.dtool:not(.dmore)')).toHaveLength(20);
+    expect([...a.querySelectorAll('.dtool')].at(-1)!.className).toBe('dtool dmore');
+    expect(a.querySelector('.dmore')!.textContent).toBe('…480 more tool calls');
+    expect(a.querySelector('.dmore .ar')!.getAttribute('aria-hidden')).toBe('true');
+    // A decision its row lists whole says nothing more.
+    expect(b.querySelectorAll('.dmore')).toHaveLength(0);
+  });
+
   it('says a side still records under the lines it draws with no verdict, and counts the calls past the rows', async () => {
     const recording = { ...pair, verdict: null, endings: { ...pair.endings, b: { failures: null, writes: [], end: { kind: 'running', callNo: 19 }, quit: false } }, more: 3 };
     const live = (id: string) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { forkEnd, pairDecisions, pathRows, type ForkEnd } from '../src/fork-changes.js';
+import { forkEnd, pairDecisions, pathRows, ROW_TEXT, ROW_TOOLS, type ForkEnd } from '../src/fork-changes.js';
 import { storeApiRequest } from '../src/manifest.js';
 import { pairVerdict } from '../src/pair-verdict.js';
 import { Store } from '../src/store.js';
@@ -167,17 +167,75 @@ describe("Compare's rows", () => {
     expect(p.more).toBe(0);
   });
 
-  it("says each tool a decision calls with what it does, its arguments' strings cut to a row's worth", () => {
+  it("says each tool a decision calls with what it does, its arguments cut to a row's worth of their one-line form", () => {
     const long = 'x'.repeat(500);
-    const p = decide({ a: [{ kind: 'api', tools: [{ name: 'lookup_order', args: { id: 1 } }, { name: 'get_sla', args: { note: long } }] }], b: [{ kind: 'api', tools: [{ name: 'lookup_order', args: { id: 1 } }, { name: 'refund', args: {} }] }] }, 0);
+    const lines = 'line\n'.repeat(100);
+    const p = decide({ a: [{ kind: 'api', tools: [{ name: 'lookup_order', args: { id: 1 } }, { name: 'get_sla', args: { note: long } }] }], b: [{ kind: 'api', tools: [{ name: 'lookup_order', args: { id: 1 } }, { name: 'refund', args: { note: lines } }] }] }, 0);
     expect(p.rows[0].a!.decision!.tools.map((t) => [t.name, t.effect])).toEqual([
       ['lookup_order', 'unknown'],
       ['get_sla', 'unknown'],
     ]);
-    const note = (p.rows[0].a!.decision!.tools[1].args as { note: string }).note;
-    expect(note).toBe(`${'x'.repeat(300)}… (200 more characters)`);
+    const args = p.rows[0].a!.decision!.tools[1].args;
+    expect(args).toEqual({ note: `${'x'.repeat(288)}…` });
+    expect(JSON.stringify(args)).toHaveLength(ROW_TEXT);
+    // Its escapes counted: a line break is two characters of it.
+    const refund = p.rows[0].b!.decision!.tools[1].args as { note: string };
+    expect(refund.note.endsWith('…')).toBe(true);
+    expect(lines.startsWith(refund.note.slice(0, -1))).toBe(true);
+    expect(JSON.stringify(refund).length).toBeGreaterThan(ROW_TEXT / 2);
+    expect(JSON.stringify(refund).length).toBeLessThanOrEqual(ROW_TEXT);
+    // What fits is kept as it is.
+    expect(p.rows[0].a!.decision!.tools[0].args).toEqual({ id: 1 });
+    expect(p.rows[0].a!.decision).not.toHaveProperty('moreTools');
     // Not the same tools: nothing in the row to mark word by word.
     expect(p.rows[0].similar).toBe(false);
+  });
+
+  it("cuts a wide array in a decision's arguments at a row's worth, its shape kept up to a `…` item, and tells the two sides apart by the whole", () => {
+    const points = Array.from({ length: 10_000 }, (_, i) => i);
+    const plot = (last: number): Call[] => [{ kind: 'api', tools: [{ name: 'plot', args: { points: [...points.slice(0, -1), last] } }] }];
+    const p = decide({ a: plot(9_999), b: plot(-1) }, 0);
+    const args = p.rows[0].a!.decision!.tools[0].args as { points: unknown[] };
+    expect(Object.keys(args)).toEqual(['points']);
+    expect(args.points.at(-1)).toBe('…');
+    expect(args.points.slice(0, -1)).toEqual(points.slice(0, args.points.length - 1));
+    expect(JSON.stringify(args).length).toBeGreaterThan(ROW_TEXT - 8);
+    expect(JSON.stringify(args).length).toBeLessThanOrEqual(ROW_TEXT + 8);
+    // The row, both sides, in under 2 KB, where each side's arguments alone are 48,890 characters on one line.
+    expect(JSON.stringify(p.rows[0]).length).toBeLessThan(2048);
+    // Cut alike on both sides, where they differ is past the cut: the whole arguments tell them apart.
+    expect(p.rows[0].b!.decision!.tools[0].args).toEqual(args);
+    expect(p.rows[0]).toMatchObject({ alike: false, similar: true });
+  });
+
+  it("cuts a wide object in a decision's arguments at a row's worth, ending with a `…` key, and each array or object that holds the cut where it holds more", () => {
+    const wide = Object.fromEntries(Array.from({ length: 500 }, (_, i) => [`k${i}`, i]));
+    const lines = Array.from({ length: 200 }, (_, i) => ({ sku: `SKU-${i}`, qty: 1 }));
+    const p = decide({ a: [{ kind: 'api', tools: [{ name: 'tag', args: wide }, { name: 'order', args: { lines, note: 'gift' } }] }], b: [] }, 0);
+    const [tag, order] = p.rows[0].a!.decision!.tools.map((t) => t.args as Record<string, unknown>);
+    const keys = Object.keys(tag);
+    expect(keys.at(-1)).toBe('…');
+    expect(tag['…']).toBe('…');
+    expect(keys.slice(0, -1)).toEqual(Object.keys(wide).slice(0, keys.length - 1));
+    expect(JSON.stringify(tag).length).toBeGreaterThan(ROW_TEXT - 8);
+    expect(JSON.stringify(tag).length).toBeLessThanOrEqual(ROW_TEXT + 8);
+    // Cut inside the list: the list ends with a `…` item, and the object holding it, which holds a note after it, with a `…` key.
+    expect(Object.keys(order)).toEqual(['lines', '…']);
+    const kept = order.lines as unknown[];
+    expect(kept.at(-1)).toBe('…');
+    expect(kept.slice(0, -2)).toEqual(lines.slice(0, kept.length - 2));
+    expect(JSON.stringify(order).length).toBeLessThanOrEqual(ROW_TEXT + 16);
+  });
+
+  it('lists at most ROW_TOOLS tool calls in a decision, and counts the rest', () => {
+    const many = (n: number): Call[] => [{ kind: 'api', tools: Array.from({ length: n }, (_, i) => ({ name: 'lookup_order', args: { order_id: `A-${i}` } })) }];
+    const p = decide({ a: many(ROW_TOOLS + 480), b: many(ROW_TOOLS) }, 0);
+    expect(p.rows[0].a!.decision!.tools.map((t) => t.args)).toEqual(Array.from({ length: ROW_TOOLS }, (_, i) => ({ order_id: `A-${i}` })));
+    expect(p.rows[0].a!.decision!.moreTools).toBe(480);
+    expect(p.rows[0].b!.decision!.tools).toHaveLength(ROW_TOOLS);
+    expect(p.rows[0].b!.decision).not.toHaveProperty('moreTools');
+    // Told apart by all they call: the same names as far as the row lists them, not the same tools.
+    expect(p.rows[0]).toMatchObject({ alike: false, similar: false });
   });
 
   it('leaves a judge out, numbers a row by its place, and says who refused a failure', () => {

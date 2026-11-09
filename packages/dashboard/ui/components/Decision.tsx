@@ -1,5 +1,6 @@
 import { Fragment } from 'react';
 import { argParts, effectTag, toolMarks } from '../decisions.js';
+import { plural } from '../format.js';
 import type { DecisionView } from '../types.js';
 
 /**
@@ -10,9 +11,10 @@ import type { DecisionView } from '../types.js';
  * line in amber where the two stops differ. `stop` is the engine's words for it (STOP_WORDS), sent
  * with the data, since a page can't load the engine's decisions module. `notCalled` is what a screen
  * reader hears after a tool the other side doesn't call: a preview's words unless given (Compare
- * names the other run).
+ * names the other run). `more` is how many more tool calls it made than `d` lists, said after
+ * them: Compare's rows list ROW_TOOLS at most.
  */
-export function Decision({ d, other, side, stop, stopDiffers, notCalled = side === 'recorded' ? ', not called under the change' : ', not called as recorded' }: { d: DecisionView; other: DecisionView | null; side: 'recorded' | 'now'; stop: string; stopDiffers: boolean; notCalled?: string }) {
+export function Decision({ d, other, side, stop, stopDiffers, notCalled = side === 'recorded' ? ', not called under the change' : ', not called as recorded', more = 0 }: { d: DecisionView; other: DecisionView | null; side: 'recorded' | 'now'; stop: string; stopDiffers: boolean; notCalled?: string; more?: number }) {
   const marks = toolMarks(d, other, side);
   return (
     <>
@@ -39,6 +41,12 @@ export function Decision({ d, other, side, stop, stopDiffers, notCalled = side =
           </div>
         );
       })}
+      {more ? (
+        <div className="dtool dmore">
+          <span className="ar" aria-hidden="true">…</span>
+          {plural(more, 'more tool call')}
+        </div>
+      ) : null}
       <p className={`dstop${stopDiffers ? ' diff' : ''}`}>{stop}</p>
     </>
   );
