@@ -335,6 +335,13 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const forceWrite = (name: string, of: string, tool: string) => opened(name, run(page, id(of)), click(page, `main#view tr[data-wi]:has(td.name[title="${tool}"])`), click(page, '#forkBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, `Force ${tool} live`));
   const share = (name: string, row: string) => opened(name, run(page, id('ticket')), click(page, '.rhead .actions button', 'Share', { shows: MENU }), button(`${MENU} [role="menuitem"]`, row));
   const onPage = (name: string, path: string, text: string) => opened(name, at(page, path), button('main#view button', text));
+  // A golden's own buttons sit in its report, folded under its row: Tests' reports are opened first, as a person opens one.
+  const reportsOpen = async () => {
+    await page.locator('main#view button.grptog').first().waitFor({ timeout: 20_000 });
+    const folded = page.locator('main#view button.grptog[aria-expanded="false"]');
+    while (await folded.count()) await folded.first().click();
+  };
+  const inReport = (name: string, text: string) => opened(name, at(page, '/tests'), reportsOpen, button('main#view section.gpanel button', text));
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
   const states = (): Array<[string, () => Promise<void>]> => [
@@ -362,8 +369,8 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...bulk('Pack runs', 'Pack'),
     ...bulk('Export the dataset of runs', 'Dataset'),
     ...opened('Update goldens', at(page, '/tests'), updateGoldens(page)),
-    ...onPage('Update golden', '/tests', 'Update golden'),
-    ...onPage('Add normalizer and update', '/tests', 'Add normalizer and update'),
+    ...inReport('Update golden', 'Update golden'),
+    ...inReport('Add normalizer and update', 'Add normalizer and update'),
     ...onPage('Run tests’ question', '/tests', 'Run tests'),
     ...onPage('Export pairs', '/training', 'Export pairs'),
     ...onPage('Score model', '/training/tasks', 'Score model'),
