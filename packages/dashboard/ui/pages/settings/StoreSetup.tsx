@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { PageHeader } from '../../components/bits.js';
+import { CodeBox } from '../../components/CodeBox.js';
 import { Page } from '../../components/Page.js';
+import { Skeleton } from '../../components/States.js';
+import { VerdictLine } from '../../components/VerdictLine.js';
 import { copyText } from '../../dom.js';
 import { num } from '../../format.js';
 import { useLoad } from '../../hooks.js';
@@ -11,7 +14,7 @@ import { useApp } from '../../state.js';
 import type { CiName, SetupProvider, SetupUrlCheck, StoreSetupView } from '../../store-api.js';
 import { errorText } from '../../toast.js';
 import type { JobView } from '../../types.js';
-import { LoadProblem, Loading } from './common.js';
+import { LoadProblem } from './common.js';
 import { setupStates, type SetupStepState } from './store-logic.js';
 import { ACTIONS } from '../../labels.js';
 import { ActionButton } from '../../components/ActionButton.js';
@@ -24,12 +27,17 @@ import { PushFromCiStep } from './StoreSetupCi.js';
  * credentials this machine would use, the access to ask the cloud admin for, then `store set
  * --check`, which writes the store only once the check passes); push your runs (`push --all`); push
  * from CI (on GitHub Actions, Turn on Push from CI or Skip for now; GitLab CI's or other CI's
- * step, then I added it or Skip for now); bring your team (the config change to commit, then Finish). Settings → Store's Set up team store
+ * step, then I added it or Skip for now); bring your team (the config change to commit, then Finish setup). Settings → Store's Set up team store
  * leads here, and so does the palette, and Needs a look while a setup is under way. `view` is the
  * server's (`GET /api/store/setup`); the steps' jobs and records go through it.
  */
 
 type Provider = SetupProvider['provider'];
+
+/** The four steps' titles, the page's and its loading shape's. */
+const STEP_TITLES = ['Connect your bucket', 'Push your runs', 'Push from CI', 'Bring your team'] as const;
+/** What the first step says before it is done. */
+const CONNECT_LEAD = 'Runs go to object storage you own. The CLI uses the credentials already on this machine, so Shadowlap never sees the bucket, the runs or the keys.';
 
 function Step({ n, state, title, cli, children }: { n: number; state: SetupStepState; title: string; cli?: string | null; children: ReactNode }) {
   return (
@@ -124,7 +132,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
   return (
     <>
       <ol className="setup storesetup">
-        <Step n={1} state={states.connect} title="Connect your bucket" cli={current?.ok ? current.command : `shadowlap store set ${typed || p.example} --check`}>
+        <Step n={1} state={states.connect} title={STEP_TITLES[0]} cli={current?.ok ? current.command : `shadowlap store set ${typed || p.example} --check`}>
           {states.connect === 'done' && store ? (
             <>
               <div className="recline ok">
@@ -138,7 +146,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
               ) : null}
             </>
           ) : (
-            <p>Runs go to object storage you own. The CLI uses the credentials already on this machine, so Shadowlap never sees the bucket, the runs or the keys.</p>
+            <p>{CONNECT_LEAD}</p>
           )}
           {states.connect === 'cur' ? (
             <>
@@ -180,10 +188,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                       <p className="muted">
                         For {part.for}: {part.kind}
                       </p>
-                      <pre tabIndex={0} className="codebox">{part.text}</pre>
-                      <button className="btn sm" type="button" onClick={() => copy(part.text, `the access for ${part.for}`)}>
-                        Copy
-                      </button>
+                      <CodeBox code={part.text} what={`the access policy for ${part.for}`} />
                     </div>
                   ))}
                 </details>
@@ -197,7 +202,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
           ) : null}
         </Step>
 
-        <Step n={2} state={states.push} title="Push your runs" cli="shadowlap push --all">
+        <Step n={2} state={states.push} title={STEP_TITLES[1]} cli="shadowlap push --all">
           {states.push === 'done' ? (
             <div className="recline ok">
               <span className="ic" />
@@ -222,12 +227,14 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
           ) : null}
         </Step>
 
-        <Step n={3} state={states.ci} title="Push from CI" cli={step ? step.command : null}>
+        <Step n={3} state={states.ci} title={STEP_TITLES[2]} cli={step ? step.command : null}>
           <PushFromCiStep view={view} state={states.ci} ci={ci} setCi={setCi} step={step} saving={saving} off={off} save={save} copy={copy} />
         </Step>
 
-        <Step n={4} state={states.team} title="Bring your team" cli={view.commit && states.team === 'cur' ? view.commit.command : null}>
-          <p>Commit the project config. Anyone whose cloud account can read the bucket gets the store on their next pull.</p>
+        <Step n={4} state={states.team} title={STEP_TITLES[3]} cli={view.commit && states.team === 'cur' ? view.commit.command : null}>
+          <p>
+            Commit the project config. Anyone who pulls the commit and can read the bucket gets the team’s runs with <code>shadowlap pull</code>.
+          </p>
           {states.team !== 'todo' && view.commit ? (
             <>
               <pre tabIndex={0} className="codebox">
@@ -237,7 +244,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
               {states.team === 'cur' ? (
                 <div className="actions">
                   <button className="btn" type="button" onClick={() => copy(view.commit!.command, 'the commit command')}>
-                    Copy the commit command
+                    Copy commit command
                   </button>
                   <ActionButton
                     className="btn lime"
@@ -260,7 +267,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                       })
                     }
                   >
-                    Finish
+                    Finish setup
                   </ActionButton>
                 </div>
               ) : null}
@@ -269,15 +276,9 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
         </Step>
       </ol>
       {finishedNow ? (
-        <div className="setupdone">
-          <div>
-            <b>The store is set up.</b>
-            <span>Your runs are in the bucket. Teammates’ runs show up here as they pull the config and push.</span>
-          </div>
-          <a className="btn lime" href={href.overview()}>
-            Go to the overview
-          </a>
-        </div>
+        <VerdictLine word="set up" tone="ok" className="sdone" facts="Teammates’ runs show up here as they pull the config and push." actions={<OverviewLink />}>
+          Your runs are in the bucket.
+        </VerdictLine>
       ) : null}
     </>
   );
@@ -306,9 +307,9 @@ export function StoreSetupPage() {
   }, [jobs]);
   const loaded = useLoad(() => client.storeSetup.view(), 'store-setup', `${tick}:${feeds.team ?? 0}:${seen}`);
   const name = projectOf(meta)?.name ?? 'this project';
-  const header = <PageHeader eyebrow={`store · ${name}`} title={ACTIONS.setUpTeamStore.label} text={SETUP_TEXT} />;
+  const header = <PageHeader eyebrow={`${name} · team store setup`} title={ACTIONS.setUpTeamStore.label} text={SETUP_TEXT} />;
   const view = loaded.data;
-  if (!view) return <Page busy={!loaded.error}>{header}{loaded.error ? <LoadProblem error={loaded.error} /> : <Loading title="Store" />}</Page>;
+  if (!view) return <Page busy={!loaded.error}>{header}{loaded.error ? <LoadProblem error={loaded.error} retry={loaded.reload} /> : <StoreSetupLoading />}</Page>;
   const onChange = (job?: Promise<JobView>) => {
     if (job) {
       void job.then((j) => mine.current.add(j.id), () => undefined);
@@ -324,22 +325,54 @@ export function StoreSetupPage() {
   );
 }
 
-/** A setup finished before: the store it set up, and where it stands now. */
-function SetUpAlready({ view }: { view: StoreSetupView }) {
+/** Where a finished setup goes on: the Overview, the page's one lime button. */
+function OverviewLink() {
   return (
-    <div className="setupdone">
-      <div>
-        <b>The store is set up.</b>
-        <span>
-          {view.store!.url} · {num(view.runs.onlyLocal)} {view.runs.onlyLocal === 1 ? 'run' : 'runs'} only on this machine. Its settings are in Settings → Store.
-        </span>
-      </div>
-      <a className="btn" href={href.settings('store')}>
-        Open Settings → Store
-      </a>
-      <a className="btn lime" href={href.overview()}>
-        Go to the overview
-      </a>
-    </div>
+    <a className="btn lime" href={href.overview()}>
+      Go to Overview
+    </a>
+  );
+}
+
+/**
+ * While the setup loads: its four steps under the page's header in quiet bars, the first at hand and
+ * nothing to press. Each step's line is the first step's lead, which only shows as its length.
+ */
+function StoreSetupLoading() {
+  return (
+    <Skeleton what="the team store’s setup">
+      <ol className="setup storesetup">
+        {STEP_TITLES.map((title, i) => (
+          <Step key={title} n={i + 1} state={i === 0 ? 'cur' : 'todo'} title={title}>
+            <p>{CONNECT_LEAD}</p>
+          </Step>
+        ))}
+      </ol>
+    </Skeleton>
+  );
+}
+
+/** A setup finished before: the store it set up, and where it stands now, as a verdict line where the steps would be. */
+function SetUpAlready({ view }: { view: StoreSetupView }) {
+  const local = view.runs.onlyLocal;
+  return (
+    <VerdictLine
+      word="set up"
+      tone="ok"
+      className="sdone alone"
+      facts={`${num(local)} ${local === 1 ? 'run' : 'runs'} only on this machine. Its settings are in Settings → Store.`}
+      actions={
+        <>
+          <a className="btn" href={href.settings('store')}>
+            Open store settings
+          </a>
+          <OverviewLink />
+        </>
+      }
+    >
+      <>
+        Runs go to <code className="nw">{view.store!.url}</code>
+      </>
+    </VerdictLine>
   );
 }

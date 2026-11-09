@@ -77,18 +77,13 @@ dl.found dd small { color: var(--faint); font-size: 12px; margin-left: 4px; }
 .verdict.sdone > div:not(.actions) { flex: 1 1 320px; min-width: 0; }
 .verdict.sdone.alone { margin-left: 0; border-top: 0; padding-top: 0; }
 .verdict.sdone h2 code { font-size: 15px; font-weight: 500; }
-/* the team store's setup's finished states (#/setup/store), until they are verdict lines as the project's is */
-.setupdone { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-left: 50px; padding: 16px 20px; border-radius: 14px; background: color-mix(in srgb, var(--lime) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-line) 45%, transparent); }
-.setupdone div { flex: 1; min-width: 0; }
-.setupdone b { display: block; font: 600 16px var(--disp); letter-spacing: -.02em; }
-.setupdone span { display: block; margin-top: 2px; color: var(--dim); font-size: 13px; }
 
 @media (max-width: 1000px) {
   .newgrid { grid-template-columns: minmax(0, 1fr); }
   .trow { grid-template-columns: minmax(0, 1fr) 54px; }
   .trow > span:last-child { grid-column: 1 / -1; }
   dl.found { grid-template-columns: 90px minmax(0, 1fr); }
-  .setupdone, .verdict.sdone { margin-left: 0; }
+  .verdict.sdone { margin-left: 0; }
 }
 
 @media (max-width: 640px) {
@@ -129,6 +124,8 @@ ol.setup > li, ol.setup .warnline, .verdict.sdone { scroll-margin-top: 20px; }
 ol.setup .cmdin { margin: 12px 0; }
 ol.setup .form { margin-top: 12px; }
 dl.kvs.onbkv { margin: 12px 0 0; padding: 0; }
+/* on a phone a setup's key sits over its value, so an address, a bucket or a token keeps whole on a line of its own */
+@media (max-width: 480px) { dl.kvs.onbkv { grid-template-columns: minmax(0, 1fr); } dl.kvs.onbkv dt { border-bottom: 0; padding-bottom: 0; } }
 
 /* projects: the switcher, Add a project, the setup and the Remove dialog (what the mock drew inline) */
 .nextsteps .nextnote { padding: 0 0 16px; margin: 0; }
@@ -146,7 +143,8 @@ ol.setup .sb > p.fieldnote.warn { color: var(--warn); }
 /* the team store's setup (Settings → Store): the access to ask for, the CI step's notes, credentials not found */
 ol.setup.storesetup .foundsum .policypart { margin-top: 10px; }
 ol.setup.storesetup .foundsum .policypart p.muted { margin: 0; font-size: 12.5px; }
-ol.setup.storesetup .foundsum .policypart .codebox { margin: 6px 0 8px; max-height: 320px; overflow-y: auto; }
+ol.setup.storesetup .foundsum .policypart .boxwrap { margin: 6px 0 8px; }
+ol.setup.storesetup .foundsum .policypart .codebox { max-height: 320px; overflow-y: auto; }
 ol.setup.storesetup .foundsum { margin-bottom: 18px; }
 ol.setup.storesetup p.muted.cinote { margin: -4px 0 10px; font-size: 12px; line-height: 1.5; max-width: 76ch; }
 ol.setup.storesetup dd .warnt { color: var(--warn); }

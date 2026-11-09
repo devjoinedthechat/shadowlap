@@ -275,7 +275,6 @@ describe('lime', () => {
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.badge.ok': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
-    '.setupdone': 'port/setup-states: a setup that is done says so as a verdict line, “set up” in the passed colour, never a tinted box',
   };
   /** Where lime marks no meaning: the keyboard's focus, a focused field, the text you select, and the row the keys light in a list whose field keeps the focus (`.kb`: a picker's, the palette's). */
   const FOCUS = /:focus(-visible|-within)?\b|^::selection$|^\.labelbar input$|\.kb \.\w+\.on$/;

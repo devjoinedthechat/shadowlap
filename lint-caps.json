@@ -419,7 +419,7 @@
       "NewProjectPage": 158
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 221
+      "StoreSetup": 214
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 267
