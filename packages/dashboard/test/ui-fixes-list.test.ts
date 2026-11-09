@@ -245,7 +245,7 @@ describe('the Fixes list', () => {
     expect(text(un.querySelector('a.rt')!)).toBe('2 failing runs nobody has blamed');
     expect(un.querySelector('a.rt')!.getAttribute('href')).toBe('#/runs?types=failed');
     expect(un.querySelector('.rs')!.children.map(text)).toEqual(['failed', `newest ${newest.slice(0, 10)}`]);
-    expect(text(un.querySelector('.fm')!)).toBe('Failed: The agent exited with an error');
+    expect(text(un.querySelector('.fm')!)).toBe('Failed: the agent exited with an error');
     expect(cellsOf('unblamed')).toEqual(['todo Blame not blamed', 'todo Repair —', 'todo Verify —']);
     const blame = un.querySelector('.psn button')!;
     expect(text(blame)).toBe('Run blame');

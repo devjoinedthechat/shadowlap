@@ -1,9 +1,10 @@
-import { checkWords, failedCheckLabels, fixCost, type FixRecords, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
+import { failedCheckLabels, fixCost, type FixRecords, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
+import { failedWords } from './failed-words.js';
 import { fixActions } from './fix-actions.js';
 import { fixLead, type FixLead } from './fix-lead.js';
 import { keptFixRecords } from './fix-records.js';
 import { type FixRow, openingTitles, rowOf } from './fix-list.js';
-import { checksOf, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, short, unblamedRuns } from './fix-shared.js';
+import { capturedFailure, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, short, unblamedRuns } from './fix-shared.js';
 import { pulledPatchOf } from './fixes.js';
 import { type FailedCheck, failedChecks, issueKeyOf } from './issues.js';
 import { type NextStepRow, type NextStepWork, stepReads, stepRow, unblamedListedStep } from './next-step.js';
@@ -49,7 +50,7 @@ export interface UnblamedRow {
   issue: string | null;
   /** Its about line, when known within the read's budget. */
   about: string | null;
-  /** The first check it failed (a capture's, as its import judged it), in the engine's words; null when it failed by its agent's exit. */
+  /** What it failed on, as Runs' issues and Needs a look say it (failed-words.ts): its first failed check with what it saw, a capture's as its import judged it, the agent's exit. Null only for a run the index doesn't hold. */
   failed: string | null;
   /** Every check it failed, for Run blame's dialog to ask which. */
   checks: string[];
@@ -114,11 +115,9 @@ function unblamedRow(store: Store, index: RunIndex, key: string | null, o: Fixes
   if (!run) return null;
   const indexed = index.byId.get(run.runId);
   const about = indexed ? (aboutsUpTo(store, index, [indexed], o.budget).get(run.runId)?.text ?? null) : null;
-  // A capture's, as its import judged it: the verdict that counts it failed.
-  const check = checksOf(run, indexed).find((c) => !c.ok);
   // Run blame only where its page leads with it: blame can't take a run that made no model call, and a failed injection test's proof comes first.
   const step = unblamedListedStep(store, run.runId, o.next ?? null, { reads: stepReads(store, index) });
-  return { count: runs.length, runId: run.runId, issue: issueKeyOf(store, index, run.runId), about: about || null, failed: check ? checkWords(check, ', but ') : null, checks: failedCheckLabels(run), ...(step?.key === 'blame' ? { from: step.offer.from, next: stepRow(step) } : { from: null, next: null }) };
+  return { count: runs.length, runId: run.runId, issue: issueKeyOf(store, index, run.runId), about: about || null, failed: indexed ? failedWords(indexed, { capture: capturedFailure(indexed) ? run : null }) : null, checks: failedCheckLabels(run), ...(step?.key === 'blame' ? { from: step.offer.from, next: stepRow(step) } : { from: null, next: null }) };
 }
 
 const keeps = (status: FixStatus | 'all' | undefined, f: FixesViewRow): boolean => !status || status === 'all' || (status === 'verified' ? f.status !== 'open' : f.status === status);
