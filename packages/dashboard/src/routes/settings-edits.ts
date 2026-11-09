@@ -43,7 +43,7 @@ import { proposedRules } from '../settings.js';
 
 const LISTS: readonly RuleList[] = ['normalize', 'redact'];
 /** The version of the file an edit was based on: `absent`, or a SHA-256. */
-const VERSION = /^(absent|[0-9a-f]{64})$/;
+export const VERSION = /^(absent|[0-9a-f]{64})$/;
 
 function listOf(name: string | undefined): RuleList {
   if (!LISTS.includes(name as RuleList)) throw new HttpError(404, 'rules are under /settings/rules/normalize or /settings/rules/redact');
@@ -62,7 +62,7 @@ function numberOf(value: string | undefined): number {
 }
 
 /** An edit's error as the page shows it: the rule's fault (400), a file that changed or is busy (409), one that can't be read or written (422). */
-function editError(err: unknown): never {
+export function editError(err: unknown): never {
   if (err instanceof HttpError) throw err;
   if (err instanceof RuleError) throw new HttpError(400, err.message);
   if (err instanceof ConfigConflictError) throw new HttpError(409, err.message);
@@ -79,23 +79,26 @@ export function settingsFolder(ctx: RouteContext): string {
 /** Why an edit can't be made when the folder is gone from disk: the page turns its edits off with the same words. */
 const gone = (ctx: RouteContext, cwd: string) => new HttpError(409, folderGoneText(ctx.project?.name ?? basename(cwd)));
 
-/** The folder an edit writes into: refused, saying why, when it is gone, rather than with the file system's ENOENT. */
-function editFolder(ctx: RouteContext): string {
-  const cwd = settingsFolder(ctx);
+/**
+ * The folder an edit writes into: refused, saying why, when it is gone, rather than with the file
+ * system's ENOENT. `folder` is the project's folder as the edit's page needs it (Settings' by default).
+ */
+export function editFolder(ctx: RouteContext, folder: (ctx: RouteContext) => string = settingsFolder): string {
+  const cwd = folder(ctx);
   if (!existsSync(cwd)) throw gone(ctx, cwd);
   return cwd;
 }
 
 /** An edit's error as the page shows it (editError); one made while the folder went away says so. */
-function failed(ctx: RouteContext, err: unknown, cwd: string): never {
+export function failed(ctx: RouteContext, err: unknown, cwd: string): never {
   if (!existsSync(cwd)) throw gone(ctx, cwd);
   return editError(err);
 }
 
-/** Records the activity an edit leaves, as the CLI's edits do; the person is resolved as the CLI resolves them. */
-function log(ctx: RouteContext, events: ReadonlyArray<ConfigEvent & { runId?: string | null }>): void {
+/** Records the activity an edit leaves, as the CLI's edits do; the person is resolved as the CLI resolves them, in the folder the edit wrote into. */
+export function log(ctx: RouteContext, events: ReadonlyArray<ConfigEvent & { runId?: string | null }>, cwd: string = settingsFolder(ctx)): void {
   if (!events.length) return;
-  const actor = resolveAuthor({ cwd: settingsFolder(ctx) });
+  const actor = resolveAuthor({ cwd });
   for (const e of events) recordEvent(ctx.store, { ...e, actor });
 }
 
