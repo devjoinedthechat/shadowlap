@@ -31,7 +31,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   calls: { kind: 'calls', runId: REC, read: {}, from: 1, limit: 100 },
   call: { kind: 'call', runId: REC, read: {}, callNo: 1 },
   lineage: { kind: 'lineage', runId: FORK, read: {} },
-  compare: { kind: 'compare', a: REC, b: FORK, cwd: null },
+  compare: { kind: 'compare', a: REC, b: FORK, cwd: null, normalizers: [] },
   'compare-head': { kind: 'compare-head', a: REC, b: FORK },
   'runs-page': { kind: 'runs-page', options: { q: 'refund_agent' }, team: null },
   'runs-days': { kind: 'runs-days', options: { tz: 'UTC', now: NOW }, team: null },

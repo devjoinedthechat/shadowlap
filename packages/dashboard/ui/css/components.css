@@ -326,7 +326,7 @@ code.ts-cmd, code.ts-ct { white-space: normal; }
    colours, the words that differ marked in them; a JSON document inside a string read as JSON, said so in the UI face. A line
    wraps under its own key (a hanging indent) and never runs off the edge; a value with no space in it (.jdq) goes to the next
    line whole where it doesn't fit after its key, and on a phone the sign's column is narrower, so a user id's line holds it whole
-   from 390. The heads (.jdh) keep the .diffpanel prefix to outrank the old panel's caps-mono heads. */
+   from 390. The heads (.jdh) are in the body face, unlike a section's caps. */
 .diffpanel.jdp { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .jdh { display: flex; flex-wrap: wrap; gap: 2px 22px; }
 .diffpanel .jdh :is(h2, h3, h4) { margin: 0; font: 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }

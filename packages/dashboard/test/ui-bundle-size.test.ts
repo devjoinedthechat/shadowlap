@@ -52,10 +52,13 @@ const COPY_PARTS = ['ActionDialog', 'ContextView', 'DivergedDialogs', 'Drawer', 
  * the structural diff, the results matrix, the check builder (all of ui/checks/) and each Changes
  * tab with what it opens (all of ui/changes/ but the head every tab shares), Compare among them.
  * Each of them in the build is in neither the first look nor what any page but its own loads up
- * front, so opening a page never loads one.
+ * front, so opening a page never loads one. The structural diff's walk (ui/json-diff.ts) is the one
+ * a page may hold up front, the one its third field names: Compare, a heavy page itself, whose rows
+ * mark the words two calls differ by and whose changed request it walks.
  */
-const HEAVY: ReadonlyArray<readonly [string, RegExp]> = [
+const HEAVY: ReadonlyArray<readonly [string, RegExp, string?]> = [
   ['the structural diff', /^ui\/components\/JsonDiff\.tsx$/],
+  ['the structural diff’s walk', /^ui\/json-diff\.ts$/, 'ui/pages/Compare.tsx'],
   ['the results matrix', /^ui\/components\/ResultsMatrix\.tsx$/],
   ['the check builder', /^ui\/checks\//],
   ['a Changes tab', /^ui\/changes\/(?!Head\.tsx$)/],
@@ -145,12 +148,14 @@ describe('the dashboard’s scripts', () => {
     const listShows = dynamicImports(metafile).filter((d) => listed.has(d.by) && d.by.startsWith('ui/pages/'));
     expect(listShows.map((d) => [d.by, d.entry])).toEqual([['ui/pages/held-elsewhere.tsx', 'ui/pages/Elsewhere.tsx']]);
     // The heavy parts each wait for a script of their own, wherever they show: in neither the first
-    // look nor what opening any other page loads. Compare is one of them already.
-    const heavy = Object.keys(metafile.inputs).flatMap((input) => HEAVY.filter(([, re]) => re.test(input)).map(([what]) => ({ input, what })));
-    expect(heavy.map((h) => h.input)).toContain('ui/pages/Compare.tsx');
-    for (const { input, what } of heavy) {
+    // look nor what opening any other page loads. Compare is one of them already, and the walk loads
+    // with it.
+    const heavy = Object.keys(metafile.inputs).flatMap((input) => HEAVY.filter(([, re]) => re.test(input)).map(([what, , page]) => ({ input, what, page })));
+    expect(heavy.map((h) => h.input)).toEqual(expect.arrayContaining(['ui/pages/Compare.tsx', 'ui/json-diff.ts']));
+    expect(pages.find((p) => p.name === 'Compare')?.upFront.has('ui/json-diff.ts')).toBe(true);
+    for (const { input, what, page } of heavy) {
       expect(firstInputs.has(input), `${what}, ${input}, is in the first look`).toBe(false);
-      for (const p of pages) if (p.entry !== input) expect(p.upFront.has(input), `${what}, ${input}, loads with ${p.name}`).toBe(false);
+      for (const p of pages) if (p.entry !== input && p.entry !== page) expect(p.upFront.has(input), `${what}, ${input}, loads with ${p.name}`).toBe(false);
     }
     // The run page's code is not in the first look.
     expect(firstInputs.has('ui/pages/Run.tsx')).toBe(false);

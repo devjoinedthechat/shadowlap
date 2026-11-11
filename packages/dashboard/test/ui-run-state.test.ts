@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { approx } from '../ui/format.js';
 import { normalizeRunDetail, normalizeState } from '../ui/normalize.js';
-import { failedWord, familyLine, familyLineParts, isFailed, isInterrupted, repeatBundle, runGlyph, runOutcome, runTag, sideLine, type RunLike } from '../ui/runs.js';
+import { failedWord, familyLine, familyLineParts, isFailed, isInterrupted, repeatBundle, runGlyph, runOutcome, sideLine, type RunLike } from '../ui/runs.js';
 import { lineageRunLike, runLikeOf } from '../ui/run/model.js';
 import { datasetTooMany, DATASET_MAX_RUNS } from '../ui/run/share.js';
 import { agentsShown, blameScope, inScope, realScopes, scopeChips, scopeHint } from '../ui/scopes.js';
@@ -19,7 +19,6 @@ describe('an interrupted run, everywhere it is shown', () => {
     expect(isInterrupted(cut)).toBe(true);
     expect(isFailed(cut)).toBe(false);
     // The run page's tag, the sidebar's line and icon, the Runs table's status, the Forks tree's line.
-    expect(runTag(cut)).toEqual({ cls: '', text: 'interrupted' });
     expect(sideLine(cut)).toEqual({ text: 'recording · interrupted · 8 calls' });
     expect(runGlyph(cut)).toEqual({ kind: 'rec', label: 'Recording, interrupted' });
     expect(runOutcome(cut)).toEqual({ tone: 'n', text: 'interrupted' });
@@ -27,7 +26,6 @@ describe('an interrupted run, everywhere it is shown', () => {
     // A replay stopped the same way says what it was.
     const replay: RunLike = { ...cut, mode: 'replay', parentRunId: '01K5CQ4N7F0000000000000000', kind: 'replay' };
     expect(sideLine(replay)).toEqual({ text: 'replay · interrupted · 8 calls' });
-    expect(runTag(replay)).toEqual({ cls: '', text: 'interrupted' });
     // So does a fork, in the sidebar as in the Forks view: what it is, then that it stopped.
     const fork: RunLike = { ...cut, mode: 'replay', parentRunId: '01K5CQ4N7F0000000000000000', divergence: { callNo: 3, type: 'request_changed' }, origins: 'rrllllll', kind: 'fork' };
     expect(sideLine(fork)).toEqual({ text: 'fork @3 · interrupted · 8 calls' });
@@ -35,7 +33,6 @@ describe('an interrupted run, everywhere it is shown', () => {
     expect(runOutcome(fork)).toEqual({ tone: 'n', text: 'interrupted' });
     expect(runGlyph(fork)).toEqual({ kind: 'fork', label: 'Fork at #3, interrupted' });
     // The fork's tag says what it is; its page's eyebrow says that it stopped.
-    expect(runTag(fork)).toEqual({ cls: 'fork', text: 'fork @3' });
   });
 
   it('is interrupted without the server too: a stop is not a failure', () => {
@@ -72,7 +69,6 @@ describe('an interrupted run, everywhere it is shown', () => {
   it('fails as the server says when it failed something before it stopped', () => {
     const failed: RunLike = { ...cut, outcome: { kind: 'check-failed', check: 'send_email called once' }, failed: true };
     expect(isInterrupted(failed)).toBe(false);
-    expect(runTag(failed)).toEqual({ cls: 'fail', text: 'failed' });
     expect(sideLine(failed)).toEqual({ err: 'check failed', text: ' · 8 calls' });
   });
 });
@@ -154,7 +150,6 @@ describe('the run page’s reading of the server’s state', () => {
     const like = runLikeOf(d);
     expect(isFailed(like)).toBe(false);
     expect(isInterrupted(like)).toBe(true);
-    expect(runTag(like)).toEqual({ cls: '', text: 'interrupted' });
   });
 
   it('keeps nothing it can’t read', () => {

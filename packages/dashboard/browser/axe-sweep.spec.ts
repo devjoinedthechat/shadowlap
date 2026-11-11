@@ -96,6 +96,11 @@ const press = (page: Page, key: string, o: { shows?: string; hides?: string } = 
   await page.keyboard.press(key);
   await settled(page, o);
 };
+/** Compare on the pair it opens on, its first row opened by a click, whichever call that is in the demo. */
+const compareOpen = (page: Page) => async () => {
+  await at(page, '/compare', 'main#view .paths2 button.cprow')();
+  await click(page, 'main#view .paths2 button.cprow', undefined, { shows: 'main#view #cmpd' })();
+};
 /** Escape, and the dialog or menu it closes gone. */
 const escape = (page: Page, closes: string = DIALOG) => press(page, 'Escape', { hides: closes });
 /**
@@ -115,7 +120,7 @@ test.describe.configure({ timeout: 300_000 });
 test('every page and Settings tab has no serious or critical axe violation', async ({ page }) => {
   const pages = ['/', '/runs', '/runs?types=capture', '/runs?types=test', '/runs?types=failed', '/runs?q=label%3Agood', '/fixes', '/tests', '/training', '/training/tasks', '/compare', '/new'];
   const settings = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
-  const changes: Array<[string, () => Promise<void>]> = [['/changes', at(page, '/changes', VERDICTS)], ['a revision’s page', revision(page)]];
+  const changes: Array<[string, () => Promise<void>]> = [['/changes', at(page, '/changes', VERDICTS)], ['a revision’s page', revision(page)], ['/compare with a row open', compareOpen(page)]];
   expect(await sweep(page, [...pages.map((p): [string, () => Promise<void>] => [p, at(page, p)]), ...changes, ...settings.map((t): [string, () => Promise<void>] => [`Settings → ${t}`, at(page, `/settings/${t}`)])])).toEqual([]);
 });
 
@@ -289,7 +294,7 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
   await page.setViewportSize({ width: 390, height: 844 });
   const states: Array<[string, () => Promise<void>]> = [];
   for (const p of ['/', '/runs', '/runs?types=failed', '/fixes', '/tests', '/training', '/compare', '/new', '/setup/store']) states.push([`${p} on a phone`, at(page, p)]);
-  states.push(['/changes on a phone', at(page, '/changes', VERDICTS)], ['a revision’s page on a phone', revision(page)]);
+  states.push(['/changes on a phone', at(page, '/changes', VERDICTS)], ['a revision’s page on a phone', revision(page)], ['/compare with a row open on a phone', compareOpen(page)]);
   for (const t of ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store']) states.push([`Settings → ${t} on a phone`, at(page, `/settings/${t}`)]);
   for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step} on a phone`, at(page, `/fixes/${fx}${step}`, 'fix')]);
   for (const name of ['ticket', 'litellm', 'batchFork']) {

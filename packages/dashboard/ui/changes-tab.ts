@@ -40,7 +40,7 @@ export function noteComparePair(a: string, b: string): void {
   keep({ ...now(), pair: [a, b] });
 }
 
-/** Compare found a run of its pair gone: the next Compare opens as `#/compare` does, on the newest fork or replay against its parent. */
+/** Compare found a run of its pair gone: the next Compare opens as `#/compare` does, on the newest fork against its parent (defaultComparePair). */
 export function forgetComparePair(): void {
   keep({ ...now(), pair: null });
 }
@@ -50,7 +50,7 @@ export function comparePair(): readonly [string, string] | null {
   return now().pair;
 }
 
-/** Compare at the pair it last showed, else `#/compare`, which opens on the newest fork or replay against its parent. */
+/** Compare at the pair it last showed, else `#/compare`, which opens on the newest fork against its parent (defaultComparePair). */
 export function comparePairHref(): string {
   const pair = comparePair();
   return pair ? href.compare(pair[0], pair[1]) : href.compare();
