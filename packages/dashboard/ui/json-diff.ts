@@ -40,6 +40,8 @@ export interface JsonLine {
   fold: boolean;
   /** Where it is, as the structural diff names a path (`$.messages[2].content`): inside a JSON string, the string's. */
   path: string;
+  /** Its hover, its key's or a line's with none, where it names its place otherwise: Compare heads a changed request's field with what it is (`tool_result lookup_policy`, a line with no key), its path on hover. */
+  tip?: string;
 }
 
 /** An unchanged value longer than this is cut, with `…`. */
@@ -48,7 +50,8 @@ export const CUT = 72;
 const FOLDED = '[ … ]';
 /** Past this many token pairs, two values' words aren't matched: every word is marked. */
 const MATCH_LIMIT = 160_000;
-const TOKEN = /[A-Za-z0-9_]+|\s+|[^A-Za-z0-9_\s]/g;
+/** A word, a run of spaces, or one other character: what two texts are matched by, and where Compare's rows break arguments. */
+export const TOKEN = /[A-Za-z0-9_]+|\s+|[^A-Za-z0-9_\s]/g;
 /** A lone mark between two changed words, marked with them, so a changed id reads as one change. */
 const JOINER = /^[-_.:/]$/;
 

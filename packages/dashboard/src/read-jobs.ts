@@ -85,7 +85,8 @@ type CoreJob =
   | { kind: 'calls'; runId: string; read: ReadOptions; from: number; limit: number; whole?: boolean }
   | { kind: 'call'; runId: string; read: ReadOptions; callNo: number; whole?: boolean }
   | { kind: 'lineage'; runId: string; read: ReadOptions }
-  | { kind: 'compare'; a: string; b: string; cwd: string | null }
+  /** `normalizers`: the project's matching rules, which `pair` compares arguments and words after (none: as recorded). */
+  | { kind: 'compare'; a: string; b: string; cwd: string | null; normalizers?: Normalizer[] }
   /** What Compare shows first while the whole comparison is worked out: the identical prefix and the first request that differs (compare.ts `compareHead`). */
   | { kind: 'compare-head'; a: string; b: string }
   | { kind: 'runs-page'; options: Omit<RunsPageOptions, 'localRuns' | 'judge'>; team: TeamStoreInput | null; outcome?: OutcomeWork | null; next?: NextStepWork | null }
@@ -282,7 +283,7 @@ const CORE_READS: ReadTable<CoreJob> = {
   compare: async (store, job) => {
     const missing = eitherMissing(store, job.a, job.b);
     if (missing) return missing;
-    const c = await compareView(store, job.a, job.b, { cwd: job.cwd, code });
+    const c = await compareView(store, job.a, job.b, { cwd: job.cwd, normalizers: job.normalizers ?? [], code });
     return c ? answer(c, { tagged: true }) : failed(404, 'one of the runs does not exist');
   },
   // Null when the head can't be told without reading too many requests: the whole comparison says.

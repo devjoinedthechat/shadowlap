@@ -1,7 +1,8 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { CallNote, failedWhy, Inspector, type InspectorTab } from '../ui/run/Inspector.js';
+import { failedWhy } from '../ui/run/calls.js';
+import { CallNote, Inspector, type InspectorTab } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CallDetail } from '../ui/types.js';
 

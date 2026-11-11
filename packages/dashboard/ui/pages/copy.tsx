@@ -32,7 +32,7 @@ export function CopyPages({ route }: { route: Route }) {
       // Not keyed on the id, as the dashboard draws it: a short id settling on the full one is the run already loaded.
       return <RunPage id={route.id} call={route.call} view={route.view} />;
     case 'compare':
-      return compares ? <ComparePage a={route.a} b={route.b} /> : <Page>{null}</Page>;
+      return compares ? <ComparePage a={route.a} b={route.b} call={route.call} /> : <Page>{null}</Page>;
     default:
       return <Page>{null}</Page>;
   }

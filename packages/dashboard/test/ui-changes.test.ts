@@ -630,7 +630,7 @@ describe('Compare under Changes', () => {
     page = await render(createElement(AppContext.Provider, { value: app({}, { runs: [] }) }, createElement(ComparePage, { a: null, b: null })));
     expect(page.one('.ph h1').textContent).toBe('Changes');
     expect(page.one('nav.stabs a[aria-current="page"]').textContent).toBe('Compare');
-    expect(page.one('.stepempty h3').textContent).toBe('Compare needs two runs');
+    expect(page.one('.stepempty h2').textContent).toBe('Compare needs two runs');
     expect(changesHref()).toBe('#/compare');
   });
 
@@ -650,8 +650,8 @@ describe('Compare under Changes', () => {
     const gone = { run: (id: string) => (id === FORK ? Promise.reject(new ApiError(404, 'no run')) : Promise.resolve(detail(id))), compare: () => new Promise(() => undefined), projects: { holding } };
     page = await render(createElement(AppContext.Provider, { value: app(gone as unknown as Partial<Client>, { runs: [listed(REC), listed(FORK)] }) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the pair forgotten', () => changesHref() === '#/compare');
-    await page.until('the not-found', () => page!.all('.stepempty h3').length === 1);
-    expect(page.one('.stepempty h3').textContent).toBe('Not in this store');
+    await page.until('the not-found', () => page!.all('.stepempty h2').length === 1);
+    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
   });
 
   it('keeps a head of its own in an exported copy, with no tabs, and notes nothing', async () => {

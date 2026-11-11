@@ -33,7 +33,8 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * The one part the page list shows itself, the page that says another project holds what a link
  * names, is declared in a module of its own that the pages showing it import too
  * (pages/held-elsewhere.tsx), and the bundle size test pins it. The bundle size test holds each
- * page's and each part's script to a budget of its own.
+ * page's and each part's script to a budget of its own. What a fork did differently waits so too,
+ * a finding of a fork's page alone, asked for with the differences (run/FindingsBar.tsx).
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;

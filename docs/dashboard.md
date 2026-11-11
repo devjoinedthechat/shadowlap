@@ -955,14 +955,37 @@ A revision no session ran every golden at says *No change d2e8a1f.*, with **Open
 
 Compare puts any two runs side by side. Pick them on the row under the tabs, from lists of runs each by its id and its about line.
 
+#### The verdict
+
+Compare opens with a verdict: what one run decided differently from the other after the calls they share. It ranks each change as [Decisions](decisions.md#what-counts-as-a-decision) does, names the most consequential, and says where the runs part: *after #18*, or *from #1* where they share no call.
+
+| Verdict | When |
+| --- | --- |
+| **Different writes**, in red | A write tool added, removed, called with other arguments or in another order |
+| **Different endings**, in amber | One stops, hands over or ends its turn otherwise, or its checks come out otherwise |
+| **Different reads** | A read added, removed or asked differently |
+| **Different words** | Only what the model said differs |
+| **The same decisions** | Both decided alike |
+
+A run that quit puts the endings first where the two ended otherwise: it exited, or stopped on an HTTP failure, with no model call answered after the calls they share. Its writes differ because it stopped, not because it decided otherwise.
+
+Under the verdict, a line a run says what it did from there:
+
+- **Its HTTP failures**: *HTTP 529 at #19–#21*.
+- **Its writes**, by what became of them: *`send_email` blocked*, *`add_note` and `escalate` stubbed*, *`send_email` twice*, or *no write*.
+- **How its turn ended**: *answered at #30*, *exited 1 at #19*, *stopped at #1 on HTTP 503*, or *still running*.
+- **Its checks and what it spent**, as its run's header says them: *check failed at #18*, *≈$0.051 spent*.
+
+While a run is still recording, the lines show without a verdict. Two runs with no call after the ones they share have neither.
+
 #### What changed
 
-Compare starts with what changed between the two runs:
+Then one line a changed fact, and one quiet line for the rest, such as *Code, system prompt, tools and model unchanged*. That line's hover says what each of them is on both sides.
 
-- **The code**: the two revisions, and from the project's git the commits between them, with the newest one's subject (all of them on hover). It reads *uncommitted changes* when only the working tree differed, and *on separate branches* when neither follows the other.
-- **The system prompt**: an unchanged one is named by its hash.
-- **The tools**, added and removed.
-- **The model.**
+- **Code changed**: the two revisions, and from the project's git the commits between them, with the newest one's subject (all of them on hover). It reads *uncommitted changes* when only the working tree differed, and *on separate branches* when neither follows the other.
+- **System prompt changed**: an unchanged one is named by its hash.
+- **Tools changed**: those added and removed.
+- **Model changed**: from one model to the other.
 
 Two runs of one commit whose revisions git abbreviated with different lengths read as unchanged code.
 
@@ -970,21 +993,40 @@ Two runs of one commit whose revisions git abbreviated with different lengths re
 
 Then it shows where the runs part, in order:
 
-1. **The identical prefix.**
+1. **The identical prefix**, as a strip of at most 60 cells: *#1–#18 identical.*
 2. **What made the fork**, as `shadowlap diff` says it, when one run is the other's replay and its flag changed an answer rather than a request. It shows what each run got: *#19 got HTTP 529 instead of an answer*, *#16 lookup_policy returned … instead of …*, a planted instruction, a person's other answer.
-3. **The first request that differs.** Each field that differs is named by what it is in the request, such as `tool_result lookup_policy`, the system prompt or a tool's definition, with its path on hover.
-4. **Each run's calls from there.** A call the other run also made at the same place is dimmed: the same tool with the same arguments, or a model call that asked for the same tools.
+3. **The first request that differs**, as one structural diff of both requests. Each field that differs, at most 12, is a line named by what it is, such as `tool_result lookup_policy`, the system prompt or a tool's definition, with its path on hover and its two values under it.
+4. **Both runs, call by call**, in one list (below).
 5. **Calls where the same request got a different answer.** For a model call, it shows what it answered each time (`"Issuing the refund.", issue_refund(…) → "Above the limit.", escalate(…)`).
+
+What made the fork has a hover card with the flag's command: *#19, answered with HTTP 529 by the fork. The paths differ from there.* A tool's result in the diff is walked as the JSON it holds, and each side's head opens its run at that call.
 
 A call the model answered the same way in another response is counted in the line above instead (`6 calls got the same answer in new responses`). This is the case, for example, in two live runs of one agent where only the response's id or token counts differ.
 
-Each side's calls are headed by its kind (*fork @7*), failed or not.
+#### Both runs, call by call
+
+Both runs' calls after the identical prefix are one list, a row a call, numbered by its place from the prefix on. Each column is headed by its run: its id, its kind and how many calls it made from there (*fork @7 · 5 calls after #18*), failed or not. Each side of a row reads as what the call did:
+
+- **A model call**: the tools it called with their arguments (*→ get_sla* and its JSON), or what it answered (*answered “Issuing the refund.”*).
+- **A model call that failed**: its HTTP status, with *refused offline* or *refused by the provider* where it was refused.
+- **A tool call**: its name and its effect, such as *read* or *write*, or *input* where a person answered.
+- **An empty side**: that run had ended.
+
+Each side ends with its call's origin: *replayed*, *live*, *overridden*, *injected*, *failed*, *blocked* or *stubbed*. A call both runs made alike is dimmed: a model call that decided the same way, a failure with the same status, or a tool asked with the same arguments. Where both called the same tools, or the same tool, the words that differ are marked.
+
+The list holds 200 rows, then a line says how many more calls there are. A run still recording adds its calls as they arrive.
+
+**Open a row** to see both calls side by side, as their runs' inspectors show them: a model call's decision or why it failed, or a tool's name, then its origin, tokens, time and cost, then a tool's arguments and result. A replayed model call reads *replayed, not re-spent*. The same tool on both sides shows its arguments and its result as one side-by-side diff.
+
+A model call's words, and each tool's arguments on one line, are cut past 300 characters, as in its row. A decision lists 20 tool calls at most, then how many more it made. *Open run at #19*, on each side, opens that run at its own call, whole. A judge's calls take no row, so where one sits between a run's calls, that number can differ from the row's.
+
+The row's number goes into the address, `#/compare/<a>/<b>/<n>`, so a link opens it. The row again, or its ×, closes it. Until both calls are read, the row says it is loading. Where one can't be read, it says why, with Retry.
 
 #### Two long runs
 
 Two long runs take seconds to compare whole, since every model call's request of both is read. Meanwhile:
 
-- **The identical prefix and the first request that differs** come at once and show, unless the runs were fingerprinted under other normalizers, with no replay between them.
+- **The identical prefix and the first request that differs** come at once and show, unless the runs were fingerprinted under other normalizers, with no replay between them. The verdict and the rows come with the rest.
 - **The page says what is still being compared.**
 - **When the rest takes longer** than a request is given (two minutes per 50,000 calls of the pair, at least two), what came first stays, with the `shadowlap diff` command that compares the two in a terminal, with no time limit.
 
@@ -992,7 +1034,8 @@ A run still recording is compared again as its calls arrive.
 
 #### Open a comparison
 
-- **`#/compare`** alone opens the newest fork or replay against its parent. With fewer than two runs, it says how to make a second.
+- **`#/compare`** alone opens the newest fork against its parent. With no fork, it opens the newest replay that is neither a test's nor still recording, else the two newest runs. With fewer than two runs, it says how to make a second.
+- **`#/compare/<a>/<b>/<n>`** opens the pair with its row *#n* open.
 - **Compare's tab** reopens the pair it last showed in the project. Once a run of that pair is gone, it opens as `#/compare` alone does.
 - **`#/compare/<run>`** opens that run against its newest fork, else its newest replay (a test's last), else its parent. A run with none says there is nothing to compare yet, with the replay that makes something.
 - **A fork or a replay** has *Compare with parent*. A recording compares with its first fork or replay, never an attempt bundled under it (a blame probe, a verify or `--repeat` attempt).
@@ -1005,7 +1048,7 @@ When a side can't be compared, Compare says so:
 
 #### Compare in an exported copy
 
-An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It opens on the first against the newest other, and the pickers offer only those. There Compare is a page of its own, under its own head, with no tabs.
+An exported copy compares the runs it holds: every pair up to six runs, and beyond that each run with the first. It compares them, and each fork with its parent, after the matching rules of the project it was made in, as the dashboard does. It opens on the first against the newest other, and the pickers offer only those. A row opens from the calls the copy holds. There Compare is a page of its own, under its own head, with no tabs.
 
 ## Fixes
 
@@ -2091,7 +2134,7 @@ One that can't start leaves the dialog open, with what you typed.
 - **Closing** a menu, a dialog or the palette hands the focus back to what had it, or to the control drawn in its place when the page has drawn it anew. A click outside a menu that lands on another control leaves the focus there.
 - **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. Hiding a running job from inside its drawer hands the focus to the status bar's chip, and pressing the chip hands it back.
 - **The sidebar on a phone** takes the focus to its first item as it opens. Closing it from inside it, or with a click beside it, hands the focus to its button. A tap on the page or the status bar only closes it: what it lands on doesn't act. The top bar stays in reach, so its Search or jump to opens as the drawer closes.
-- **A link in a menu or a dialog** hands the focus to the page it opened, and so does Back with one open. A run picked in Compare leaves it on the picker.
+- **A link in a menu or a dialog** hands the focus to the page it opened, and so does Back with one open. A run picked in Compare leaves it on the picker, and a row opened or closed leaves it on the row.
 - **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls and may hold no control (Calls, the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
 - **What has a hover card and no action of its own** takes the focus where it stands on its own (a run's outcome, a fact), so what a hover shows is never only a hover's. In a row or a chart it doesn't, and a mark with no words of its own is named by its card.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
@@ -2123,6 +2166,7 @@ The dashboard's limits, in one place:
 | An edited tool result                         | JSON of at most 2 MB                                              |
 | An edited person's answer                     | At most 65,536 characters                                         |
 | Compare, in a request                         | Two minutes per 50,000 calls of the pair, at least two            |
+| Compare's rows                                | 200 calls, then a line says how many more there are               |
 | Compare in a terminal (`shadowlap diff`)      | No time limit                                                     |
 | Comparisons in an exported copy               | Every pair up to six runs, beyond that each run with the first    |
 | A share link                                  | 7 days at most                                                    |
@@ -2256,6 +2300,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
 - **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's check, Share's eval dataset and OpenTelemetry trace dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
 - **The structural diff** a finding's diff draws has a script of its own as well. Both scripts, and a finished run's diff, are asked for once the pointer or the focus reaches Show diff, so it opens at once. The diff is kept while the page is open.
+- **What a fork did differently**, a finding of a fork's page alone, has a script of its own. It is asked for with the differences, once the fork has ended, so the two come together.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
@@ -2385,6 +2430,13 @@ Every request needs the session token in `x-shadowlap-token`.
 - `answersDiffer`: the calls before the first request that differs that got another answer to the same request.
 
 It is `null` when that would mean reading more than 16 pairs of requests whole: calls whose fingerprints differ and that no replay served from one another, as in runs fingerprinted under other normalizers.
+
+The whole answer adds `pair`: what B decided differently from A after the calls they share, compared after the project's normalizers. It is `null` where a run isn't in the run index.
+
+- `verdict`: its words, `where` and `tone`; `null` where no call follows the prefix, or while a run records;
+- `rank` and `changes`: the changes, most consequential first;
+- `endings`: each run's HTTP failures, its writes by what became of them, and how its turn ended;
+- `rows`: both paths a row a call, each numbered by its place (`n`), each call as its decision (cut as its row shows it, with `moreTools` for the tool calls past 20), its failure or its tool, at most 200, and `more` for the rest.
 
 ### Jobs
 
