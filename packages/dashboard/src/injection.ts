@@ -1,4 +1,4 @@
-import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
+import { ACTIONS, type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { attemptPlant, injectionPanel, markProof, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
@@ -229,87 +229,120 @@ export function toolTrust(store: StoreOf<'readModels'>, tools: ToolTrust | undef
   };
 }
 
-/** The built-in templates, as the Test every untrusted read… dialog lists them. */
+/** The built-in templates, as Run injection test…'s dialog lists them. */
 export function injectionTemplatesView(): ReturnType<typeof injectionTemplates> {
   return injectionTemplates();
 }
 
-const MAX = { repeat: 100, baselines: 20, payloads: 2 * 1024 * 1024 } as const;
+const MAX = { repeat: 100, baselines: 20, payloads: 2 * 1024 * 1024, budget: 100_000 } as const;
 
-/**
- * The `injection` job: `{ runId | golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }`.
- * A run is one of the store's; a golden one of the packs the project lists; templates are ids the
- * built-in set has, `all` or `none`; a payload file is an upload the browser sent. `clean` asks
- * whether that read caused the run's writes (`writes` picks them) instead of planting. `liveReads`
- * runs the reads the recording doesn't hold instead of fencing them.
- */
-export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' | 'upload'> & Partial<Pick<JobBuildContext, 'project'>>, goldens: readonly GoldenSource[]): JobBuildResult {
-  const whole = (v: unknown, key: string, min: number, max: number): number | { error: string } | undefined => {
-    if (v === undefined) return undefined;
-    return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : { error: `${key} is a whole number from ${min} to ${max}` };
-  };
-  let target: string;
-  let runId: string | null;
-  // The command someone else chose that the test runs, asked about once the test's own line is whole (below).
-  let theirs: { argv: readonly string[]; words: (line: string) => string } | null = null;
+type Built<T> = T | { error: string; status?: number };
+/** The command someone else chose that the test runs, asked about once the test's own line is whole. */
+type Theirs = { argv: readonly string[]; words: (line: string) => string } | null;
+
+const whole = (v: unknown, key: string, min: number, max: number): number | { error: string } | undefined => {
+  if (v === undefined) return undefined;
+  return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : { error: `${key} is a whole number from ${min} to ${max}` };
+};
+
+/** What the test runs on: a golden the project lists, or a run of the store that has ended and has a command to run again. */
+function injectionTarget(req: JobRequest, b: Pick<JobBuildContext, 'store'> & Partial<Pick<JobBuildContext, 'project'>>, goldens: readonly GoldenSource[]): Built<{ target: string; runId: string | null; theirs: Theirs }> {
   if (typeof req.golden === 'string') {
     const g = goldens.find((x) => x.path === req.golden);
     if (!g || optionLike(g.path)) return { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
-    target = g.path;
-    runId = g.runId;
     // A golden from a pack the repository doesn't track, recorded elsewhere, runs its command only with a yes, as test asks of one.
     const sent = goldensNeedingConsent(b.store, [g.path], b.project?.path ?? process.cwd())[0];
-    if (sent) theirs = { argv: sent.argv, words: (line) => `${g.path} is from a pack this repository doesn't track: this runs the command it was recorded with (${quoteArgv(sent.argv)}), under ${line}. Confirm it to run it` };
-  } else if (typeof req.runId === 'string' && req.runId) {
-    const run = lookupRun(b.store, req.runId);
-    if (!run) return { error: `no run ${req.runId.slice(0, 40)}`, status: 404 };
-    const id = run.runId.slice(0, 10);
-    if (run.status === 'running') return { error: recordingNow(b.store, run) ? `${id} is still recording: test it once it has ended` : `${id} was interrupted: its recorder stopped before it ended`, status: 409 };
-    if (!hasRecordedCommand(run)) return { error: `${id} ${withoutCommand(run)} and has no command to re-run: replay it once with yours (shadowlap replay ${id} -- <command>) and test that run`, status: 409 };
-    if (commandIsImported(run)) theirs = { argv: run.command.argv, words: (line) => `${id} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${quoteArgv(run.command.argv)}), under ${line}. Confirm it to run it` };
-    target = run.runId;
-    runId = run.runId;
-  } else return { error: 'name the run (runId) or the golden (golden) to test' };
-
-  const args = ['injection', target, '--json'];
-  const clean = whole(req.clean, 'clean', 1, 1_000_000);
-  if (clean && typeof clean === 'object') return clean;
-  if (clean !== undefined) {
-    if (req.golden !== undefined) return { error: '--clean asks about a recorded run: name it with runId' };
-    if (req.templates !== undefined || req.payloadsUpload !== undefined) return { error: '--clean plants nothing: leave out templates and payloads' };
-    args.push('--clean', String(clean));
-    const writes = req.writes === undefined ? [] : Array.isArray(req.writes) ? req.writes : null;
-    if (!writes || writes.length > 100 || !writes.every((w) => typeof w === 'number' && Number.isInteger(w) && w > 0)) return { error: 'writes is a list of call numbers' };
-    for (const w of writes as number[]) args.push('--write', String(w));
-  } else {
-    if (req.writes !== undefined) return { error: 'writes goes with clean' };
-    if (req.templates !== undefined) {
-      const ids = injectionTemplates().templates.map((t) => t.id);
-      if (req.templates === 'all' || req.templates === 'none') args.push('--templates', req.templates);
-      else if (Array.isArray(req.templates) && req.templates.length && req.templates.every((t) => typeof t === 'string' && ids.includes(t))) args.push('--templates', (req.templates as string[]).join(','));
-      else return { error: `templates is all, none, or a list of the built-in templates' ids (${ids.join(', ')})` };
-    }
-    if (req.payloadsUpload !== undefined) {
-      const file = b.upload(req.payloadsUpload);
-      if (!file) return { error: 'that payload file is gone: send it again' };
-      if (file.bytes > MAX.payloads) return { error: 'a payload file is at most 2 MB' };
-      args.push('--payloads', file.path);
-    } else if (req.templates === 'none') return { error: 'with no templates, send a payload file' };
-    const baselines = whole(req.baselines, 'baselines', 0, MAX.baselines);
-    if (baselines && typeof baselines === 'object') return baselines;
-    if (baselines !== undefined) args.push('--baselines', String(baselines));
+    return { target: g.path, runId: g.runId, theirs: sent ? { argv: sent.argv, words: (line) => `${g.path} is from a pack this repository doesn't track: this runs the command it was recorded with (${quoteArgv(sent.argv)}), under ${line}. Confirm it to run it` } : null };
   }
+  if (typeof req.runId !== 'string' || !req.runId) return { error: 'name the run (runId) or the golden (golden) to test' };
+  const run = lookupRun(b.store, req.runId);
+  if (!run) return { error: `no run ${req.runId.slice(0, 40)}`, status: 404 };
+  const id = run.runId.slice(0, 10);
+  if (run.status === 'running') return { error: recordingNow(b.store, run) ? `${id} is still recording: test it once it has ended` : `${id} was interrupted: its recorder stopped before it ended`, status: 409 };
+  if (!hasRecordedCommand(run)) return { error: `${id} ${withoutCommand(run)} and has no command to re-run: replay it once with yours (shadowlap replay ${id} -- <command>) and test that run`, status: 409 };
+  const theirs = commandIsImported(run) ? { argv: run.command.argv, words: (line: string) => `${id} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${quoteArgv(run.command.argv)}), under ${line}. Confirm it to run it` } : null;
+  return { target: run.runId, runId: run.runId, theirs };
+}
+
+/** `--clean <read>` and the writes it asks about: Find cause…, on a recorded run. */
+function cleanFlags(req: JobRequest, clean: number): Built<string[]> {
+  if (req.golden !== undefined) return { error: '--clean asks about a recorded run: name it with runId' };
+  if (req.templates !== undefined || req.payloadsUpload !== undefined) return { error: '--clean plants nothing: leave out templates and payloads' };
+  const writes = req.writes === undefined ? [] : Array.isArray(req.writes) ? req.writes : null;
+  if (!writes || writes.length > 100 || !writes.every((w) => typeof w === 'number' && Number.isInteger(w) && w > 0)) return { error: 'writes is a list of call numbers' };
+  return ['--clean', String(clean), ...(writes as number[]).flatMap((w) => ['--write', String(w)])];
+}
+
+/** What a plant plants: the templates picked, a payload file sent, and the clean replays of each read. */
+function plantFlags(req: JobRequest, b: Pick<JobBuildContext, 'upload'>): Built<string[]> {
+  if (req.writes !== undefined) return { error: 'writes goes with clean' };
+  const out: string[] = [];
+  if (req.templates !== undefined) {
+    const ids = injectionTemplates().templates.map((t) => t.id);
+    if (req.templates === 'all' || req.templates === 'none') out.push('--templates', req.templates);
+    else if (Array.isArray(req.templates) && req.templates.length && req.templates.every((t) => typeof t === 'string' && ids.includes(t))) out.push('--templates', (req.templates as string[]).join(','));
+    else return { error: `templates is all, none, or a list of the built-in templates' ids (${ids.join(', ')})` };
+  }
+  if (req.payloadsUpload !== undefined) {
+    const file = b.upload(req.payloadsUpload);
+    if (!file) return { error: 'that payload file is gone: send it again' };
+    if (file.bytes > MAX.payloads) return { error: 'a payload file is at most 2 MB' };
+    out.push('--payloads', file.path);
+  } else if (req.templates === 'none') return { error: 'with no templates, send a payload file' };
+  const baselines = whole(req.baselines, 'baselines', 0, MAX.baselines);
+  if (baselines && typeof baselines === 'object') return baselines;
+  if (baselines !== undefined) out.push('--baselines', String(baselines));
+  return out;
+}
+
+/** Stop at $ (`--budget`): an amount above 0, to the cent, no attempt starting once it is spent. */
+export function budgetFlags(v: unknown): Built<string[]> {
+  if (v === undefined || v === null) return [];
+  const cents = typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) : 0;
+  if (cents <= 0 || cents > MAX.budget * 100) return { error: 'budget is an amount in USD above 0, such as 25.00' };
+  return ['--budget', (cents / 100).toFixed(2)];
+}
+
+/** The rest of the line: attempts each, and reads the recording doesn't hold run live. */
+function runFlags(req: JobRequest): Built<string[]> {
   const repeat = whole(req.repeat, 'repeat', 1, MAX.repeat);
   if (repeat && typeof repeat === 'object') return repeat;
-  if (repeat !== undefined) args.push('--repeat', String(repeat));
   if (req.liveReads !== undefined && typeof req.liveReads !== 'boolean') return { error: 'liveReads is true or false' };
-  if (req.liveReads === true) args.push('--live-reads');
+  return [...(repeat === undefined ? [] : ['--repeat', String(repeat)]), ...(req.liveReads === true ? ['--live-reads'] : [])];
+}
+
+/** A job's title: Find cause… names the read it makes neutral; a re-run (`again`) says so. */
+export function injectionTitle(req: JobRequest): string {
+  if (typeof req.clean === 'number') return `${ACTIONS.findCause.doing}: testing #${req.clean}`;
+  return req.again === true ? ACTIONS.rerunInjectionTest.doing : ACTIONS.runInjectionTest.doing;
+}
+
+/**
+ * The `injection` job: `{ runId | golden, repeat?, templates?, payloadsUpload?, baselines?, budget?, clean?, writes?, liveReads?, again?, yes? }`.
+ * A run is one of the store's; a golden one of the packs the project lists; templates are ids the
+ * built-in set has, `all` or `none`; a payload file is an upload the browser sent; `budget` is Stop at
+ * $. `clean` asks whether that read caused the run's writes (`writes` picks them) instead of
+ * planting. `liveReads` runs the reads the recording doesn't hold instead of fencing them; `again`
+ * only titles a re-run.
+ */
+export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' | 'upload'> & Partial<Pick<JobBuildContext, 'project'>>, goldens: readonly GoldenSource[]): JobBuildResult {
+  const on = injectionTarget(req, b, goldens);
+  if ('error' in on) return on;
+  const clean = whole(req.clean, 'clean', 1, 1_000_000);
+  if (clean && typeof clean === 'object') return clean;
+  const parts = [clean === undefined ? plantFlags(req, b) : cleanFlags(req, clean), budgetFlags(req.budget), runFlags(req)];
+  const args = ['injection', on.target, '--json'];
+  for (const p of parts) {
+    if ('error' in p) return p;
+    args.push(...p);
+  }
   // The yes is to the lines the question showed (consent.ts): the command someone else chose and the
   // test's own line, so a yes to one test runs no other, and none of the run's error-path presets;
   // only a question asked passes --yes on.
   const line = ['shadowlap', ...args];
+  const { theirs } = on;
   const consent = jobConsent(theirs ? [theirs.argv, line] : [], req.yes, () => theirs!.words(quoteArgv(line)));
   if ('ask' in consent) return consent.ask;
   args.push(...consent.yes);
-  return { args, runId, title: clean !== undefined ? `Testing whether #${clean} caused the writes` : 'Testing for injection' };
+  return { args, runId: on.runId, title: injectionTitle(req) };
 }

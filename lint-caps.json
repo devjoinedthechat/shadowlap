@@ -158,9 +158,6 @@
     "packages/dashboard/src/fix-verify-step.ts": {
       "verifyMore": 41
     },
-    "packages/dashboard/src/injection.ts": {
-      "injectionJob": 49
-    },
     "packages/dashboard/src/jobs.ts": {
       "JobManager.start": 35
     },

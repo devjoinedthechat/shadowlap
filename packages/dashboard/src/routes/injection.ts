@@ -1,6 +1,6 @@
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
-import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, keptInjection } from '../injection.js';
+import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, injectionTitle, keptInjection } from '../injection.js';
 import { injectionReportHtml, reportFile, reportPreview } from '../injection-report.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
@@ -20,7 +20,7 @@ import { namesTeamStore } from './verdicts.js';
  *   GET /api/injection/:id/report         the security report (HTML), the project's redaction rules applied;
  *                                         ?preview=1: { at, attempts, rules, masks, canaries, file }, what its dialog says first
  *
- *   job injection  { runId | golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }
+ *   job injection  { runId | golden, repeat?, templates?, payloadsUpload?, baselines?, budget?, clean?, writes?, liveReads?, again?, yes? }
  */
 
 export const INJECTION_JOB_KIND = 'injection';
@@ -78,7 +78,7 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   ctx.jobs.registerJobKind(INJECTION_JOB_KIND, {
-    title: (req) => (req.clean !== undefined ? 'Testing whether the read caused the writes' : 'Testing for injection'),
+    title: injectionTitle,
     build: (req, b) => injectionJob(req, b, goldens()),
   });
 }
