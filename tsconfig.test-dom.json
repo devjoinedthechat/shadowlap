@@ -112,6 +112,7 @@
     "packages/dashboard/test/ui-findings.test.ts",
     "packages/dashboard/test/ui-findings-status.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts",
+    "packages/dashboard/test/ui-window-hook.test.ts",
     "packages/dashboard/test/ui-run-views.test.ts",
     "packages/dashboard/test/ui-page-failed.test.ts",
     "packages/dashboard/test/ui-primitives.test.ts",
