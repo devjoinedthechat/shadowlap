@@ -16,6 +16,7 @@ import { isKind, kindWords } from './kinds.js';
 import { isPending, type ListedCall, type PendingCall } from './paging.js';
 import { useWindow, type Windowed } from './window-hook.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { useServedParts } from '../served-parts.js';
 import { UntrustedTag } from '../injection/UntrustedTag.js';
 import type { UntrustedView } from '../types.js';
 
@@ -484,6 +485,9 @@ const Row = memo(function Row({
   const d = callDetail(c, asked);
   const res = resultLine(c);
   const t = timeOf(c, ancestors, live);
+  // The fork menu's script loads as the pointer or the focus reaches the row's fork button, so it opens at once.
+  const forkPart = useServedParts().ForkMenu;
+  const preloadFork = () => forkPart?.preload();
   return (
     <tr className={held ? 'held' : undefined} data-wi={at} data-call={c.callNo} data-acts="" aria-rowindex={at + 2} aria-selected={selected} onClick={() => onSelect(c.callNo)}>
       <td className="n">
@@ -520,6 +524,8 @@ const Row = memo(function Row({
             aria-expanded="false"
             aria-label={`Fork at #${c.callNo}`}
             title={`Fork at #${c.callNo}`}
+            onPointerEnter={preloadFork}
+            onFocus={preloadFork}
             onClick={(e) => {
               e.stopPropagation();
               onFork(c.callNo, e.currentTarget);

@@ -63,6 +63,8 @@ that draws one has.
 Share's menu, a part only the served dashboard hands in, brings the words of its rows with it
 (`ui/run/share.ts`). What a run's header, steps and keys say of a copy, such as Pack's command, what
 a pack holds and Push, is in `ui/run/share-steps.ts`, so opening a run loads none of the menu's words.
+The fork menu (`ui/run/ForkMenu.tsx`) and the header's … with Delete run's helper (`ui/run/MoreMenu.tsx`)
+are such parts too: a copy forks nothing and draws none of the header's actions.
 
 ## Overlays
 

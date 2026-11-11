@@ -141,6 +141,17 @@ describe('an exported copy', () => {
     expect(r!.all('[role="menu"]')).toHaveLength(0);
   });
 
+  it('forks nothing, so nothing there opens the fork menu or the header’s …, which the served dashboard alone hands in', async () => {
+    // The page's code that loads their scripts: the served entry's, which a copy's entry never is.
+    expect(loadersOf(/\bForkMenu\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/\bMoreMenu\.js['"]/)).toEqual(['pages/served.tsx']);
+    await open([forkId, runId], `#/run/${forkId}/4`);
+    await r!.until('the run’s calls', () => r!.all('.rhead .actions').length === 1 && r!.all('tr[data-wi]').length > 0);
+    // No Fork at #n in its header or on a row, so neither f nor ⌘K's Fork at #n has one to press, and no ….
+    expect(r!.all('#forkBtn, #moreBtn')).toHaveLength(0);
+    expect(r!.all('td.rowact button')).toHaveLength(0);
+  });
+
   it('draws no step that asks, so nothing there opens the dialogs the served dashboard alone hands in', async () => {
     await open([forkId, runId], `#/run/${runId}`);
     await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);

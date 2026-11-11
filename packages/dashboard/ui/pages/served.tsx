@@ -11,6 +11,8 @@ import type { ServedParts } from '../served-parts.js';
  */
 export const SERVED_PARTS: ServedParts = {
   ShareMenu: onShow(() => import('../run/ShareMenu.js').then((m) => m.ShareMenu)),
+  ForkMenu: onShow(() => import('../run/ForkMenu.js').then((m) => m.ForkMenu)),
+  MoreMenu: onShow(() => import('../run/MoreMenu.js').then((m) => m.MoreMenu)),
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks)),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog)),
