@@ -8,7 +8,8 @@ import type { Router } from '../router.js';
  * arguments), `GET /api/jobs/:id?after=n` follows its output and what it made, `GET /api/jobs`
  * lists recent ones. This module registers the `action` kind: the run actions the terminal UI
  * shares (replay, the fork menu, repeat, pack, add the suggested normalizer), also reachable as
- * `POST /api/runs/:id/actions`.
+ * `POST /api/runs/:id/actions`: `{ runId, key, callNo?, value?, yes?, expect? }`, `expect` being
+ * Plant instruction…'s Judged by, the text of its `--expect`.
  */
 
 /** A run action's title, by its key, as its drawer heads it: the -ing form of its name; any other fork's is Forking. */
@@ -23,7 +24,7 @@ export function register(router: Router, ctx: RouteContext): void {
       if (typeof req.runId !== 'string' || !req.runId) return { error: 'runId is required' };
       if (typeof req.key !== 'string' || !req.key) return { error: 'key is required' };
       const callNo = typeof req.callNo === 'number' ? req.callNo : null;
-      const built = actionArgs(store, req.runId, callNo, req.key, typeof req.value === 'string' ? req.value : undefined, { yes: req.yes });
+      const built = actionArgs(store, req.runId, callNo, req.key, typeof req.value === 'string' ? req.value : undefined, { yes: req.yes, expect: req.expect });
       if ('error' in built) return built;
       return { args: built.args, runId: lookupRun(store, req.runId)?.runId ?? req.runId, opensRun: built.opensRun };
     },

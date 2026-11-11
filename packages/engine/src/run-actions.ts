@@ -1,7 +1,10 @@
 import { ACTIONS, forceLiveLabel } from './action-words.js';
+import { canonicalize } from './canonical.js';
+import { parseExpect } from './checks/parse.js';
 import { checkStatus } from './check-status.js';
 import { literalValue, noLateSystemMessage } from './interventions.js';
 import { isObject } from './is-object.js';
+import { messageOf } from './message-of.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
 import type { StoreOf } from './store.js';
 import { quoteArgv } from './text.js';
@@ -117,6 +120,29 @@ export function forkMenuTitle(call: CallRecord | undefined, o: { untrusted?: boo
   const kind =
     call.kind === 'api' ? 'model call' : call.kind === 'clock' ? 'clock read' : call.kind === 'random' ? 'random value' : isUserInput(call) ? 'recorded input' : o.untrusted && call.effect === 'read' ? 'untrusted read' : call.effect ? `${call.effect} tool` : 'tool';
   return call.kind === 'api' ? `At #${call.callNo} · ${kind}` : `At #${call.callNo} · ${call.name} · ${kind}`;
+}
+
+/**
+ * The checks a planted instruction's attempts are judged by (`--expect`), from the text a page sent:
+ * JSON checked as the CLI checks `--expect` (parseExpect, refused in its words) and passed on
+ * canonically, so the line asked about is the line that runs; empty text, none. Plant instruction…'s
+ * Judged by sends it, the TUI's prompt sending none.
+ */
+export function expectFlag(text: string): { args: string[] } | { error: string } {
+  const t = text.trim();
+  if (!t) return { args: [] };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(t);
+  } catch {
+    return { error: '--expect is JSON, such as {"tools":{"send_email":0}}' };
+  }
+  try {
+    parseExpect(raw, '--expect');
+  } catch (err) {
+    return { error: messageOf(err) };
+  }
+  return { args: ['--expect', canonicalize(raw)] };
 }
 
 /** Shown in place of the forks on a run with no command: a capture records what was sent, not what sent it. */

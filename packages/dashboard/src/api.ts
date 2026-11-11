@@ -1,5 +1,5 @@
 import { askConsent, type CallRecord, checksOf, cleanLabel, compareRuns, type Conversation, describeGate, displayOrigin, estimateCost, gateOf, loadApiRequest, messageOf, normalizeConversation, type NormalizedResponse, normalizeResponse, ORIGIN_CODE, type Price, type RunAbout, type RunComparison, type RunKind, type RunNote, type RunOutcome, type RunRecord, type RunSummary, saidYes, shortModel, type Store, type StoreOf, summarizeRun, type ToolTrust, trustOf, verdictLine, withLabels, withNote } from '@shadowlap/engine';
-import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, importedTrace, notRun, quoteArgv, type ActionContext, type ImportedTrace } from '@shadowlap/engine';
+import { actionContext, actionMissing, buildActions, commandIsImported, expectFlag, forkMenuTitle, importedCommandSource, importedTrace, notRun, quoteArgv, type ActionContext, type ImportedTrace } from '@shadowlap/engine';
 import { kindFacts, lookupRun, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
 import { fixForRun, type FixForRun } from './fixes.js';
@@ -766,8 +766,16 @@ export function importedConsent(run: RunRecord, args: readonly string[], yes: un
   return askConsent(`${run.runId.slice(0, 10)} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${quoteArgv(run.command.argv)}), under ${quoteArgv(['shadowlap', ...shown])}. Confirm it to run it`, lines);
 }
 
+/** Plant instruction…'s Judged by: the checks its attempts are judged by, for its key alone (`x`), as the engine checks `--expect`. */
+function judgedBy(key: string, expect: unknown): { args: string[] } | { error: string; status: number } {
+  if (expect === undefined || expect === null || expect === '') return { args: [] };
+  if (key !== 'x' || typeof expect !== 'string') return { error: 'expect goes with Plant instruction… alone: the text of the checks its attempts are judged by', status: 400 };
+  const flag = expectFlag(expect);
+  return 'error' in flag ? { ...flag, status: 400 } : flag;
+}
+
 /** The CLI arguments for an action, rebuilt on the server from the run and call: the browser never sends a command line. */
-export function actionArgs(store: StoreOf<'recording'>, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined, o: { yes?: unknown } = {}): { args: string[]; opensRun: boolean } | { error: string; status?: number; confirm?: string } {
+export function actionArgs(store: StoreOf<'recording'>, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined, o: { yes?: unknown; expect?: unknown } = {}): { args: string[]; opensRun: boolean } | { error: string; status?: number; confirm?: string } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `unknown run ${idOrPrefix}` };
   const call = callNo === null ? undefined : store.getCalls(run.runId, { only: [callNo] })[0];
@@ -781,8 +789,11 @@ export function actionArgs(store: StoreOf<'recording'>, idOrPrefix: string, call
   // One that asks only for a yes to someone else's command takes it from the request (importedConsent).
   const v = action.imported === 'confirm' ? 'yes' : (value ?? '').trim();
   if (!v) return { error: `${action.prompt.label} is required` };
-  const args = action.prompt.build(v);
-  if (!args.length) return { error: notRun(run) };
+  const judged = judgedBy(key, o.expect);
+  if ('error' in judged) return judged;
+  // Its checks join the line before it is asked about: a yes is to the line that runs.
+  const args = [...action.prompt.build(v), ...judged.args];
+  if (args.length === judged.args.length) return { error: notRun(run) };
   const refused = action.imported ? importedConsent(run, args, o.yes) : null;
   if (refused) return refused;
   return { args, opensRun: action.opensRun };
