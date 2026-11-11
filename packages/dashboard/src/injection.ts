@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { ACTIONS, type CallRecord, cleanBound, cleanDecided, commandIsImported, CONFIG_FILE, configuredTrust, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, messageOf, parsePayloads, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, TRUST_FROM, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
+import { ACTIONS, type CallRecord, type CauseVerdict, CLEAN_GATE, cleanBound, cleanDecided, cleanRule, cleanTally, type CleanReport, type CleanWriteReport, type Gate, commandIsImported, CONFIG_FILE, configuredTrust, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, messageOf, parsePayloads, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, TRUST_FROM, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { trustLine } from './tool-trust.js';
 import { attemptPlant, injectionPanel, markProof, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
@@ -55,14 +55,10 @@ export function injectionLine(r: StoredInjectionResult): string {
   if (r.mode === 'clean') {
     const c = data as Partial<Extract<InjectionReport, { mode: 'clean' }>>;
     const read = c.read ? `#${c.read.callNo} ${c.read.name}` : 'the read';
-    const caused = (c.writes ?? []).filter((w) => w.verdict === 'caused');
+    const caused = (c.writes ?? []).find((w) => w.verdict === 'caused');
     if (r.endedAt === null) return `testing whether ${read} caused its writes`;
-    if (caused.length) {
-      // The tally and the Wilson bound the verdict rests on; the rule is the gate's, in its report.
-      const w = caused[0]!;
-      const bound = cleanBound(w, c.gate);
-      return `caused by ${read} · gone in ${w.gone} of ${plural(w.attempts, 'clean attempt')}${bound ? ` · ${bound}` : ''}`;
-    }
+    // The write, its tally and the bound the verdict rests on, as the finding says it; the rule is the gate's, in its report.
+    if (caused) return `caused by ${cleanAnswerLine(c.read ?? null, caused, c.gate)}`;
     return r.verdict === 'not caused' ? `not caused by ${read}: the writes come back without its content` : `inconclusive: whether ${read} caused the writes`;
   }
   const p = data as Partial<PlantReport>;
@@ -77,6 +73,13 @@ export function injectionLine(r: StoredInjectionResult): string {
   // made the read) ignored nothing: it is counted apart, as the report counts it.
   if (r.inconclusive) return `ignored every planted instruction in ${r.ignored} of ${plural(r.attempts, 'attempt')}, ${r.inconclusive} inconclusive`;
   return `ignored every planted instruction · ${plural(r.attempts, 'attempt')}`;
+}
+
+/** A `--clean` answer about one write, as the run's finding and its line say it: `#4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)`. */
+export function cleanAnswerLine(read: { callNo: number; name: string } | null, w: Pick<CleanWriteReport, 'callNo' | 'name' | 'gone' | 'attempts' | 'verdict' | 'cutShort'>, gate: Gate | null | undefined): string {
+  const write = `#${w.callNo} ${w.name}`;
+  const said = w.attempts ? `${write} is ${cleanTally({ ...w, bound: cleanBound(w, gate) })}` : `${write}: no clean attempt decided it`;
+  return read ? `#${read.callNo} ${read.name} · ${said}` : said;
 }
 
 /** What a kept result comes to, as its row says it (InjectionRow.gate). */
@@ -140,10 +143,48 @@ export function injectionResult(store: StoreOf<'recording' | 'injection'>, resul
   return { row: row(r), report, gone: named.filter((id) => !store.getRun(id)), view };
 }
 
+/** A `--clean` answer about one write: the newest for its read and write, as the run's finding lists it. */
+export interface CleanAnswer {
+  resultId: string;
+  verdict: CauseVerdict;
+  read: { callNo: number; name: string };
+  write: { callNo: number; name: string };
+  gone: number;
+  attempts: number;
+  bound: string | null;
+  /** `#4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)` (cleanAnswerLine). */
+  line: string;
+}
+
+const CAUSE_ORDER: Readonly<Record<CauseVerdict, number>> = { caused: 0, 'not caused': 1, inconclusive: 2 };
+
+/** The run's `--clean` answers: the newest for each read and write asked, causes first. */
+export function cleanAnswers(results: readonly StoredInjectionResult[]): CleanAnswer[] {
+  const seen = new Set<string>();
+  const out: CleanAnswer[] = [];
+  for (const r of [...results].sort((a, b) => b.at - a.at)) {
+    if (r.mode !== 'clean' || r.endedAt === null) continue;
+    const c = r.data as Partial<CleanReport>;
+    if (!c.read) continue;
+    const read = { callNo: c.read.callNo, name: c.read.name };
+    for (const w of c.writes ?? []) {
+      const key = `${read.callNo}:${w.callNo}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ resultId: r.resultId, verdict: w.verdict, read, write: { callNo: w.callNo, name: w.name }, gone: w.gone, attempts: w.attempts, bound: cleanBound(w, c.gate), line: cleanAnswerLine(read, w, c.gate) });
+    }
+  }
+  return out.sort((a, b) => CAUSE_ORDER[a.verdict] - CAUSE_ORDER[b.verdict]);
+}
+
 /** A run's injection on its page: its untrusted reads, its tests, and the test it is an attempt of. */
 export interface RunInjection {
   untrusted: UntrustedView[];
   results: InjectionRow[];
+  /** Find cause…'s gate, as its dialog's Gate fact says it (cleanRule of CLEAN_GATE). */
+  rule: string | null;
+  /** Its `--clean` answers, newest for each read and write, causes first. */
+  answers: CleanAnswer[];
   /** `parts`: an attempt's proof in its parts, for the page to draw with each call to pick (none for a baseline or a clean attempt). */
   attempt: (InjectionMark & AttemptPlant & { line: string | null; proof: string | null; parts: ProofParts | null }) | null;
 }
@@ -165,7 +206,8 @@ export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: s
   const proof = mark ? markProof(mark) : null;
   const report = of ? (of.data as unknown as InjectionReport) : null;
   const plant = run && mark ? attemptPlant(store, run, mark, report, calls) : null;
-  return { untrusted, results: store.listInjectionResults({ runId }).map(row), attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId) } : null };
+  const kept = store.listInjectionResults({ runId });
+  return { untrusted, results: kept.map(row), rule: cleanRule(CLEAN_GATE), answers: cleanAnswers(kept), attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId) } : null };
 }
 
 /** An attempt's proof in its parts: the kept result's own evidence, which says why a write counts, else its record's. */

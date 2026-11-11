@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { injectionTemplates, packRun, type RunRecord, Store, type StoredInjectionResult } from '@shadowlap/engine';
-import { toolTrust } from '../src/injection.js';
+import { CLEAN_GATE, injectionTemplates, packRun, type RunRecord, Store, type StoredInjectionResult } from '@shadowlap/engine';
+import { cleanAnswers, injectionLine, toolTrust } from '../src/injection.js';
 import { defaultPayloads, gatePrice, injectionPrice } from '../src/injection-plan.js';
 import { CANT_READ_RECORDING, INJECTION_READS, injectionSecurity, toolTests, type ToolsRead } from '../src/injection-security.js';
 import { pricingOf } from '../src/pricing.js';
@@ -183,5 +183,27 @@ describe('An injection plan’s price', () => {
     } finally {
       unpriced.close();
     }
+  });
+});
+
+describe('Find cause’s answers', () => {
+  const clean = (resultId: string, at: number, read: number, writes: Array<{ callNo: number; gone: number; verdict: 'caused' | 'not caused' | 'inconclusive' }>): StoredInjectionResult => ({
+    resultId, runId: 'R', golden: null, sessionId: null, mode: 'clean', at, endedAt: at + 1, attempts: 3, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 0, verdict: writes[0].verdict, actor: 'dev',
+    data: { resultId, mode: 'clean', read: { callNo: read, name: read === 4 ? 'get_ticket' : 'get_shipping' }, gate: CLEAN_GATE, writes: writes.map((w) => ({ ...w, name: 'send_email', args: {}, identifiers: '', attempts: w.verdict === 'inconclusive' ? 0 : 3, bound: null })) },
+  });
+
+  it('keeps the newest answer for each read and write, causes first, an older cause kept past a newer answer about another read', () => {
+    const answers = cleanAnswers([
+      clean('inj-1', 10, 4, [{ callNo: 28, gone: 3, verdict: 'caused' }]),
+      clean('inj-2', 20, 14, [{ callNo: 28, gone: 0, verdict: 'not caused' }, { callNo: 31, gone: 0, verdict: 'inconclusive' }]),
+      clean('inj-0', 5, 4, [{ callNo: 28, gone: 0, verdict: 'not caused' }]),
+    ]);
+    expect(answers.map((a) => [a.resultId, a.verdict, a.line])).toEqual([
+      ['inj-1', 'caused', '#4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)'],
+      ['inj-2', 'not caused', '#14 get_shipping · #28 send_email is gone in 0 of 3 clean attempts · rate <= 0.71 (95%)'],
+      ['inj-2', 'inconclusive', '#14 get_shipping · #31 send_email: no clean attempt decided it'],
+    ]);
+    // The run's line says the caused write as the finding does.
+    expect(injectionLine(clean('inj-1', 10, 4, [{ callNo: 28, gone: 3, verdict: 'caused' }]))).toBe('caused by #4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)');
   });
 });

@@ -1,4 +1,4 @@
-import { applyNormalizers, atPath, canaryIn, cleanBound, cleanDecided, cleanRule, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, plural, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
+import { applyNormalizers, atPath, canaryIn, cleanBound, cleanDecided, cleanRule, cleanTally, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, plural, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
 
 /**
  * The security report of `shadowlap injection --html` and the dashboard's Security report: one HTML
@@ -206,7 +206,7 @@ function cleanSection(r: CleanReport, m: Masker, canaries: readonly Canary[]): s
     const args = m.args(w.args, w.name);
     // The verdict, the tally and the Wilson bound; the gate's rule once, under the table.
     const bound = cleanBound(w, r.gate);
-    const tally = `gone in ${w.gone} of ${plural(w.attempts, 'clean attempt')}${bound ? ` · ${bound}` : ''}`;
+    const tally = cleanTally({ ...w, bound });
     const line = w.verdict === 'caused' ? `caused by #${r.read.callNo} · ${tally}` : w.verdict === 'not caused' ? `not caused · ${tally}` : w.attempts ? `inconclusive · ${tally}` : 'inconclusive: no clean attempt decided it';
     return `<tr><td class="mono">#${w.callNo} ${esc(m.name(w.name))}(${marked(describeIdentifiers(args), canaries)})</td><td class="mono count">${marked(clip(JSON.stringify(args) ?? 'null'), canaries)}</td><td class="${VERDICT_CLASS[w.verdict]}">${esc(line)}</td></tr>`;
   });

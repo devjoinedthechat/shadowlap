@@ -1,4 +1,4 @@
-import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, messageOf, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, plural, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn, baselineWritesWords, goneWords, injectionCountsLine, injectionTally, isWrite, writesFrom } from '@shadowlap/engine';
+import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, cleanTally, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, messageOf, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, plural, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn, baselineWritesWords, goneWords, injectionCountsLine, injectionTally, isWrite, writesFrom } from '@shadowlap/engine';
 import type { AttemptReport, BaselineReport, CallRecord, Canary, CauseVerdict, CleanReport, Evidence, Gate, GateReport, InjectionEntry, InjectionGateData, InjectionMark, InjectionReport, InjectionVerdict, Limits, Normalizer, Payload, PlantReport, ReadReport, RunMeta, RunRecord, Store, StoreOf, VerdictCounts, WriteBaseline, WriteSeen } from '@shadowlap/engine';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -642,7 +642,7 @@ export function formatClean(r: CleanReport): string {
   const out: string[] = [];
   const unusable = r.attempts.filter((a) => a.why);
   for (const w of r.writes) {
-    const tally = `gone in ${w.gone} of ${plural(w.attempts, 'clean attempt')}${w.bound ? ` · ${w.bound}` : ''}`;
+    const tally = cleanTally(w);
     const line =
       w.verdict === 'caused'
         ? `caused by #${r.read.callNo} ${r.read.name} · ${tally}`
