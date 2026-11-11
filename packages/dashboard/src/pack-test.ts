@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { ACTIONS, askConsent, commandIsImported, goldenNeedsConsent, goldenPath, hasRecordedCommand, importedCommandSource, quoteArgv, saidYes, setupJobArgs, type ProjectHost, type RunRecord } from '@shadowlap/engine';
 import type { ProjectConfig, RouteContext } from './context.js';
 import type { JobBuildContext, JobBuildResult, JobKind, JobRequest } from './jobs.js';
+import { gateAsk, gateStep } from './pack-gate.js';
 import { sessionBusy, testsBusy } from './routes/tests.js';
 import { copyableRun, projectRoot } from './run-exports.js';
 import { keptGoldenAsk, type LiveQuestion } from './tests-live.js';
@@ -10,7 +11,8 @@ import { keptGoldenAsk, type LiveQuestion } from './tests-live.js';
 /**
  * `pack-test`: a recording packed as a golden, then its test, as one job (`pack <run> <golden>`,
  * then `test <golden>`), leaving shadowlap.config.json as it is: a golden needs no entry under
- * "tests". Two ways in:
+ * "tests". With a `gate` (Pack with injection gate…), the job writes the golden's gate into its tests
+ * entry between the two, against the version the page read (pack-gate.ts). Two ways in:
  *
  * - a run page's Pack as golden… (`runId`): any run that has ended, on every dashboard with a
  *   project folder, `shadowlap ui` in one included;
@@ -71,6 +73,9 @@ function anyRun(ctx: RouteContext, req: JobRequest, { store, project, projectId 
   if ('error' in run) return run;
   const check = goldenPath(typeof req.golden === 'string' ? req.golden : '', { folder: root, runId: run.runId });
   if (!check.ok) return { error: check.error, status: check.taken ? 409 : 400 };
+  // Pack with injection gate…: the gate is written once the run is packed, then tested (pack-gate.ts).
+  const gate = gateAsk(req);
+  if (gate && 'error' in gate) return gate;
   const busy = testsBusy(ctx.jobs.list(), projectId, PACK_VERB) ?? sessionBusy(store, PACK_VERB);
   if (busy) return { error: busy, status: 409 };
   const packed = packedAlready(root, check.path);
@@ -81,6 +86,8 @@ function anyRun(ctx: RouteContext, req: JobRequest, { store, project, projectId 
   const tested = needs ? [...test, '--yes'] : test;
   const job = packed ? { args: tested, runId: run.runId, title: 'Testing the golden' } : { args: setupJobArgs.pack(run.runId, check.path), then: [tested], runId: run.runId, title: ACTIONS.packAsGolden.doing };
   const commands = [job.args, ...('then' in job ? job.then : [])];
+  // The gate's write goes before the test: after the pack, or first when the folder holds this run's pack already.
+  if (gate) Object.assign(job, { title: ACTIONS.packWithGate.doing, step: gateStep(ctx, root, check.path, gate, commands.length - 1) });
   // A test that runs the golden live asks first, as Run tests does: with the command from elsewhere, in one question.
   const asked = needs ? packTestConsent(run, test, req.yes, keptGoldenAsk(root, check.path, commands, undefined)) : keptGoldenAsk(root, check.path, commands, req.yes);
   return asked ?? job;

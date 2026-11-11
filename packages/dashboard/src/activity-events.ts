@@ -77,6 +77,8 @@ export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
     'checks.changed',
     (e, d) => {
       const [added, removed, golden] = [labels(d.added), labels(d.removed), e.ref ? goldenWords(e.ref) : 'a golden'];
+      // Pack with injection gate…'s write: the golden's gate, which has no check's labels.
+      if (d.gate !== undefined) return { kind: 'setting', text: `Injection gate added · ${golden}`, href: links.tests() };
       const text = added.length && !removed.length ? `Check added · ${golden}: ${added.join('; ')}` : removed.length && !added.length ? `Check removed · ${golden}: ${removed.join('; ')}` : `Checks changed · ${golden}`;
       return { kind: 'setting', text, href: links.tests() };
     },

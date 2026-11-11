@@ -5,6 +5,7 @@ import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import { messageOf, type Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
+import { stepDone, type JobStep } from './job-step.js';
 import { isLink } from './links.js';
 import type { JobEstimate, JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
 import { jobCommands, treeClash, treeFolder, treeUse, type JobTree } from './worktree.js';
@@ -132,6 +133,11 @@ export interface JobBuild {
    * Each runs where the first does: the job's project, its store, and `env`.
    */
   then?: string[][];
+  /**
+   * A step the server runs between two of the job's commands, such as Pack with injection gate…'s
+   * write of the golden's tests entry once it is packed (job-step's JobStep).
+   */
+  step?: JobStep;
   /** The run the job is about (its full id), if any. */
   runId?: string | null;
   /** The fix it acts on (its full id), if any: a blame of a fix, its repair, verify or apply. */
@@ -251,6 +257,8 @@ const DRAIN_MS = 2000;
 
 /** What a job is about, as its builder says: the run, the fix, and whether it makes a run to open. */
 const subjectOf = (built: JobBuild): Pick<Job, 'runId' | 'fixId' | 'opensRun'> => ({ runId: built.runId ?? null, fixId: built.fixId ?? null, opensRun: built.opensRun ?? false });
+/** A job's server step, until it has run, and how many of its commands have started. */
+const stepOf = (built: JobBuild): Pick<Job, 'step' | 'ran'> => ({ step: built.step ?? null, ran: 0 });
 
 interface Job {
   id: string;
@@ -264,6 +272,9 @@ interface Job {
   treeAt: string | null;
   /** Commands still to run after the one running now (`JobBuild.then`). */
   rest: string[][];
+  /** Its server step, until it has run (`JobBuild.step`), and the commands started so far, which say when it is due. */
+  step: JobStep | null;
+  ran: number;
   /** What every command of the job gets besides the dashboard's environment (`JobBuild.env`). */
   env: Record<string, string>;
   runId: string | null;
@@ -550,6 +561,7 @@ export class JobManager {
       worktree: tree,
       treeAt,
       rest: (built.then ?? []).map((a) => [...a]),
+      ...stepOf(built),
       env,
       ...subjectOf(built),
       cwd,
@@ -577,8 +589,7 @@ export class JobManager {
     };
     this.jobs.set(id, job);
     this.evict();
-    this.version++;
-    this.runCommand(job, spawnCli, job.args);
+    this.runNext(job, spawnCli, job.args, false);
     if (job.child && built.started) {
       try {
         built.started();
@@ -590,12 +601,41 @@ export class JobManager {
   }
 
   /**
+   * Starts a job's next command (`shown`: with its `$ shadowlap …` line), its server step first when
+   * one is due before it (`JobBuild.step`).
+   */
+  private runNext(job: Job, spawnCli: SpawnCli, args: string[], shown: boolean): void {
+    const step = job.step?.before === job.ran ? job.step : null;
+    if (step) {
+      job.step = null;
+      void this.runStep(job, spawnCli, step, args);
+      return;
+    }
+    if (shown) this.push(job, `$ ${commandLine(args)}`);
+    this.version++;
+    this.runCommand(job, spawnCli, args);
+  }
+
+  /** Runs a job's server step, its lines as it words them: one that refuses ends the job there, and so does a stop asked for meanwhile. */
+  private async runStep(job: Job, spawnCli: SpawnCli, step: JobStep, args: string[]): Promise<void> {
+    const done = await stepDone(step);
+    for (const line of done.lines) this.push(job, line);
+    if (done.code !== undefined) return this.finish(job, done.code);
+    if (job.stopping || this.closed) {
+      this.push(job, `(stopped before ${commandLine(args)})`);
+      return this.finish(job, null);
+    }
+    this.runNext(job, spawnCli, args, true);
+  }
+
+  /**
    * Runs one command of a job, in its folder, against its project's store, with its environment.
    * When it exits 0 and the job has commands left (`JobBuild.then`), the next one starts, unless the
    * job was asked to stop or the dashboard is stopping; otherwise the job ends with this command's
    * exit code.
    */
   private runCommand(job: Job, spawnCli: SpawnCli, args: string[]): void {
+    job.ran++;
     let child: ChildProcess;
     try {
       child = spawnCli(args, { events: true, ...(job.cwd ? { cwd: job.cwd } : {}), ...(job.place.dbPath ? { dbPath: job.place.dbPath } : {}), ...(Object.keys(job.env).length ? { env: job.env } : {}) });
@@ -622,9 +662,7 @@ export class JobManager {
       flushEvents();
       const next = job.rest.shift();
       if (next && code === 0 && !job.stopping && !this.closed) {
-        this.push(job, `$ ${commandLine(next)}`);
-        this.version++;
-        this.runCommand(job, spawnCli, next);
+        this.runNext(job, spawnCli, next, true);
         return;
       }
       // Stopped between two commands: the ones after it never ran, so it did not finish.
