@@ -32,7 +32,7 @@ import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { answerTestsQuestion, moreAttemptsAsk, startTestsJob, type TestsAsk } from '../ui/tests-ask.js';
-import { packRunCommand } from '../ui/run/share.js';
+import { packRunCommand } from '../ui/run/share-steps.js';
 import { importWords } from '../ui/runspage/imports.js';
 import { ApiError, type BisectOffer, type TestsView } from '../ui/api.js';
 import { render, type Rendered } from './ui-render.js';

@@ -160,6 +160,13 @@ describe('the dashboard’s scripts', () => {
     // The run page's code is not in the first look.
     expect(firstInputs.has('ui/pages/Run.tsx')).toBe(false);
     expect(firstInputs.has('ui/run/Inspector.tsx')).toBe(false);
+    // Share's words (ui/run/share.ts) load with its menu, a part only the served dashboard hands in,
+    // never with the run page, whose header, steps and keys read what they say of a copy from
+    // ui/run/share-steps.ts.
+    const runPage = pages.find((p) => p.name === 'Run')!;
+    expect(runPage.upFront.has('ui/run/share-steps.ts')).toBe(true);
+    expect(firstInputs.has('ui/run/share.ts') || runPage.upFront.has('ui/run/share.ts')).toBe(false);
+    expect(inputsOf(loads(chunkOf('ui/run/ShareMenu.tsx'))).has('ui/run/share.ts')).toBe(true);
     // Nothing of an exported copy's own entry is served.
     const all = inputsOf(Object.keys(outs));
     expect(all.has('ui/main-copy.tsx')).toBe(false);

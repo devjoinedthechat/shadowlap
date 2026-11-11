@@ -18,7 +18,8 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * and each part of a page heavy enough to wait for a script of its own: a run's views but Calls
  * (pages/Run.tsx), the dialog a run's action asks in (run/actions.tsx), and what a run's page
  * rarely opens, which keeps it within its budget: a diverged test's dialogs (run/diverged.tsx),
- * Share's menu (pages/served.tsx) and its Export dataset… and Export OpenTelemetry trace…
+ * Share's menu with its rows' words (pages/served.tsx, run/share.ts: the page's header, steps and
+ * keys read theirs from run/share-steps.ts) and its Export dataset… and Export OpenTelemetry trace…
  * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), Edit and fork's dialog
  * (run/EditDialog.tsx), Run blame's dialogs and their check (fixes/RunBlameAsks.tsx), and Find
  * breaking commit's and Delete run's (run/RunDialogs.tsx). So must the structural diff

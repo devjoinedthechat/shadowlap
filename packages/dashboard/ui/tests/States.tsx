@@ -6,7 +6,7 @@ import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { usePendingHidden } from '../pending-delete.js';
 import { PackAsGolden } from '../run/PackAsGolden.js';
-import { packRunCommand } from '../run/share.js';
+import { packRunCommand } from '../run/share-steps.js';
 import { useApp } from '../state.js';
 import type { NextStepRow, RunListItem } from '../types.js';
 
