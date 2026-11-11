@@ -1088,6 +1088,8 @@ The page opens on its last finished step: Blame, Repair or Verify. While a job o
 
 The Blame step opens on its verdict line: *blamed* in ink, or *inconclusive*, *stopped* or *not rescued* in amber. Beside the word are the probes' tallies, as *2 of 4 rescued from #5, 0 of 4 from #7*. Under it are the call, the run and the confidence, with why on hover. **Open run** opens the run at the call blamed, where a stopped search got to, or at the first probe's call, and whole where its agent exited with an error. Then comes what blame found, in one sentence.
 
+A blame found under a check the fix had before its own says so above its verdict line, *Found under the fix’s old check*, naming that check. While its run still fails the fix's check, it gives what runs under that check, with its command: Run blame again, or Run blame with stronger model for a blame no call rescued. The stepper reads *old check*, in amber.
+
 Its sections:
 
 - **Where the run was lost**, on its row of calls. Each probe's tally sits over its call, and every model call says on hover what blame made of it, a tool call its tool's name. The key names only what the row shows.
@@ -1118,7 +1120,7 @@ The Repair step opens on its verdict line:
 - **accepted**, in lime, headed as the Verify step heads the same verdict (*Fixes 1 of 1 target run, keeps 1 of 1 good*). Under it: when it was repaired and who proposed the candidates, then the gate's rule and *verified twice, the second time with fresh attempts*.
 - **rejected**, in red, where the gate turned down every candidate it tried, headed by why (*The gate accepted none of the 2 candidates tried*). *not fixed* reads red too; *no fix to try* and *stopped* read amber.
 
-A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the prompt yourself and verify it.
+A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the check, or change the prompt yourself and verify it.
 
 Its sections:
 
@@ -1148,6 +1150,8 @@ It opens on the newest verdict that counts for the fix. A verdict is headed by t
 - else what it did role by role (*Fixes 1 of 1 target run, keeps 1 of 1 good*).
 
 One that doesn't count for the fix is drawn plain and headed with why (*Doesn't count for this fix: its check leaves out send_email called 1 time*). It is marked so in the switch.
+
+A verdict made under a check the fix had before counts only while its check asks everything the fix's does. One that doesn't is headed *Doesn't count for this fix: it was checked under the fix’s old check*. Under its verdict line it says it is kept and no longer counted, with the verify command under the fix's check.
 
 **A verdict that didn't settle every run** reads *inconclusive*, in amber, as it does on every page; verify's own word for it, *incomplete*, stays in its report. The fix's header leads with what settles it, as its lime button, rightmost, its other buttons plain:
 
@@ -1832,7 +1836,7 @@ It asks first on every setting of [Spending](#spending), since it runs your agen
 
 The dialog's cost line then reads *Free*, nothing runs, and the blame's own next step leads instead:
 
-- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
+- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), that stopped part way (to the end, without its budget), or that was found under an earlier check, under the fix's check.
 - **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run. Its Cost line follows the model you type.
 
 Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask shows that bar beside the last blame's, or, for a search that stopped, the furthest call it had rescued the run at.
@@ -2718,7 +2722,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `apply { fixId, names? }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens named by their runs as `names` says, and tested |
 | `bisect { golden \| runId, good, bad? }` | Find breaking commit |
 | `blame { runId, expect?, command?, yes? }` | Blame with the check given, else the one it was judged by, else a 422 that asks for it. A capture takes your `command` |
-| `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |
+| `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again under its check (unsettled, stopped, or found under an earlier check), or with another model when nothing rescued its run |
 | `calibrate { runId?, write? }` | The setup's recording, else the newest finished one made here, unless one is named |
 | `chaos { golden, presets?, tool? }` | `test <golden> --chaos` |
 | `chaos { runId, presets?, tool?, confirmed? }` | `replay <run> --chaos` |

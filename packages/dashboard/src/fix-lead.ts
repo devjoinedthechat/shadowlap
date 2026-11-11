@@ -12,8 +12,12 @@ import { verifyMore } from './fix-verify-step.js';
  * what its card says. Null when the fix has no step to lead with: its row opens it.
  */
 export type FixLead =
-  /** As its ask says it: where the last search stopped (`soFar`), or the gate it raises and the last blame's rescue rate. */
-  | { key: 'blame-again'; label: string; command: string; use: 'reads'; stopped: boolean; gate: SprtGate | null; soFar: number | null; lastGood: number | null }
+  /**
+   * As its ask says it: where the last search stopped (`soFar`), or the gate it raises and the last
+   * blame's rescue rate; or, for a blame found under the fix's old check (`underCheck`), that it
+   * searches under the fix's check.
+   */
+  | { key: 'blame-again'; label: string; command: string; use: 'reads'; stopped: boolean; gate: SprtGate | null; soFar: number | null; lastGood: number | null; underCheck: boolean }
   | { key: 'blame-stronger'; label: string; command: string; use: 'reads' }
   /** `repairer`: the one shadowlap.config.json names, which its card says it asks; null for your own Claude Code. */
   | { key: 'repair'; label: string; command: string; use: 'writes'; repairer: string | null }
@@ -47,7 +51,7 @@ function verifyLead(rec: FixRecords): FixLead | null {
 function openLead(rec: FixRecords, actions: FixActions, repairer: string | null): FixLead | null {
   if (repairSpent(rec)) return verifyLead(rec);
   const again = actions.blameAgain;
-  if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, soFar: again.soFar, lastGood: again.lastGood };
+  if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, soFar: again.soFar, lastGood: again.lastGood, underCheck: again.underCheck };
   const stronger = actions.blameStronger;
   if (stronger) return { key: 'blame-stronger', label: ACTIONS.runBlameStronger.label, command: stronger.command, use: 'reads' };
   // A repair that would end "No fix to try" runs nothing: the row opens the fix, which says why.

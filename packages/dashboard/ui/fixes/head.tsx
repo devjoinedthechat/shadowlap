@@ -76,7 +76,7 @@ export function runningStep(fix: Pick<FixDetail, 'fixId' | 'actions' | 'verify'>
     return { key: 'blame', title: `${title}…`, meta: model ? `${model} answers from the probed call` : '' };
   }
   const again = title === ACTIONS.runBlameAgain.doing ? fix.actions.blameAgain : null;
-  return { key: 'blame', title: `${title}…`, meta: again ? (again.kind === 'stopped' ? 'from the first model call' : 'at a lower bar') : '' };
+  return { key: 'blame', title: `${title}…`, meta: again ? (again.underCheck ? 'under the fix’s check' : again.kind === 'stopped' ? 'from the first model call' : 'at a lower bar') : '' };
 }
 
 /**

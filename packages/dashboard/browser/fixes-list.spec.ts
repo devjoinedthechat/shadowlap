@@ -89,7 +89,7 @@ for (const width of [1440, 390])
 test('a job started from a row’s next step hands the focus to that row’s step when it ends', async ({ page }) => {
   const email = demoId('emailFix');
   let fixId = '';
-  const again = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null };
+  const again = { key: 'blame-again', label: 'Run blame again', command: 'shadowlap blame --again', use: 'reads', stopped: true, gate: null, soFar: 4, lastGood: null, underCheck: false };
   // The list as the server answers it, the fix's step Run blame again; no estimate, so the step asks.
   await page.route(/\/api\/fixes(\?.*)?$/, async (route) => {
     const body = (await (await route.fetch()).json()) as { fixes: Array<{ fixId: string }> };

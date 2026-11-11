@@ -33,6 +33,12 @@ export interface VerifyStep {
   label: string;
   /** By the runs it checked ("Fixes 1 of 1 target run, keeps 1 of 1 good"), or for one that doesn't count, why ("Doesn't count for this fix: …"). */
   headline: string;
+  /**
+   * That it no longer counts because it checked a check the fix had before (standing `old-check`):
+   * its receipt says so, with the fix's verify command (`commands.verify`), which checks its check now.
+   * False for one made under an old check that covers the fix's, which still counts.
+   */
+  oldCheck: boolean;
   /** "a run passes when 4 of 5 attempts meet the check: …" */
   oracle: string;
   needed: number;
@@ -211,6 +217,7 @@ export function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string):
     code,
     label: `${code} · ${verdictWord(v.verdict)}${standing.counts ? '' : " · doesn't count"}`,
     headline: headline(rec, v, standing),
+    oldCheck: standing.why === 'old-check',
     oracle: sprtGate(r.gate) ? `a run's attempts must meet the check: ${r.oracle.join('; ')}; its gate decides after each one: ${describeGate(sprtGate(r.gate)!)}` : `a run passes when ${r.needed} of ${r.attemptsPerRun} attempts meet the check: ${r.oracle.join('; ')}`,
     needed: r.needed,
     attemptsPerRun: r.attemptsPerRun,

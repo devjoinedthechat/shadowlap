@@ -35,6 +35,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
   const probeGroups = (callNo: number): ProbeGroups | null => (groups?.blame?.blameId === b.blameId ? (groups.blame.probes.find((p) => p.callNo === callNo) ?? null) : null);
   return (
     <>
+      <OldCheckNote b={b} />
       <StepLead line={b.line} facts={<BlameFacts b={b} />} actions={<BlameLinks b={b} />} />
       <div className="grid2 fxg secs">
         {/* Where the run was lost only once blame named the call: otherwise these are the run's calls, with what each probe found. */}
@@ -54,6 +55,24 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
           ))}
         </ul>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Above the step, for a blame found under a check the fix had before: that check, in the Must line's
+ * words, and what runs under the fix's check now with its command (Run blame again, or with a
+ * stronger model for a blame no call rescued).
+ */
+function OldCheckNote({ b }: { b: BlameStep }) {
+  const old = b.oldCheck;
+  if (!old) return null;
+  return (
+    <>
+      <p className="fxreceipt fxold">
+        Found under the fix’s old check, <code>{old.text}</code>.{old.next ? (old.next === 'stronger' ? ' Its next steps run under the new one:' : ' Run blame again searches under the new one:') : null}
+      </p>
+      {old.command ? <CodeBox command={old.command} className="fxoldcmd" /> : null}
     </>
   );
 }

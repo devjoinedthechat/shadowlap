@@ -82,6 +82,37 @@ describe("a fix's steps after its check changed", () => {
     const [blame, , verify] = fixDetail(store, fix.fixId)!.steps;
     expect(blame).toMatchObject({ state: 'warn', short: 'old check', title: 'Found under the old check', meta: `${before[0].short} · blame again under this one` });
     expect(verify).toMatchObject({ state: 'todo', short: 'not verified', meta: 'verified only under its old check' });
+    expect(fixDetail(store, fix.fixId)!.verify[0].oldCheck).toBe(true);
+  });
+
+  const DRAFT_CHECK = { expect: { tools: { issue_refund: 0 } }, key: checkKey({ tools: { issue_refund: 0 } }), oracle: ['the agent exits 0', 'issue_refund called 0 times'], text: 'issue_refund never called' };
+  const blamedFix = (runId: string) =>
+    recordBlame(store, { runId, report: blameReport(runId), expect: EXPECT, scope: null, command: `shadowlap blame ${runId.slice(0, 10)}`, rerun: { flags: [], command: null }, title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with amount 240' }).fix;
+
+  it("blame again under the fix's check while the blamed run still fails it, and lead with it", () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const fix = blamedFix(failing);
+    expect(fixDetail(store, fix.fixId)!).toMatchObject({ actions: { blameAgain: null }, blame: { oldCheck: null } });
+    changeFixCheck(store, fix.fixId, { check: DRAFT_CHECK, judged: { failing: { [failing]: 'inconclusive' }, good: {} } });
+    const d = fixDetail(store, fix.fixId)!;
+    const again = d.actions.blameAgain!;
+    expect(again).toMatchObject({ kind: 'old-check', gate: null, lastGood: null, soFar: null, underCheck: true });
+    expect(again.argv.slice(0, 4)).toEqual(['blame', failing, '--expect', JSON.stringify(DRAFT_CHECK.expect)]);
+    expect(d.lead).toMatchObject({ key: 'blame-again', stopped: false, gate: null, underCheck: true, command: again.command });
+    expect(d.blame!.oldCheck).toEqual({ text: 'issue_refund never called with amount 240', next: 'again', command: again.command });
+    expect(d.verify).toEqual([]);
+  });
+
+  it("offers none once the fix's check passed the blamed run, which left the fix: the note names no command", () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const other = makeRun(store, { labels: ['refund-bug'] });
+    const fix = blamedFix(failing);
+    recordBlame(store, { runId: other, report: blameReport(other, 'unrescuable'), expect: EXPECT, scope: null, command: 'shadowlap blame', rerun: { flags: [], command: null }, title: 'x', checkText: 'x' });
+    changeFixCheck(store, fix.fixId, { check: DRAFT_CHECK, judged: { failing: { [failing]: 'passed', [other]: 'failed' }, good: {} } });
+    const d = fixDetail(store, fix.fixId)!;
+    expect(d.blame).toMatchObject({ runId: failing, oldCheck: { text: 'issue_refund never called with amount 240', next: null, command: null } });
+    expect(d.actions).toMatchObject({ blameAgain: null, blameStronger: null });
+    expect(d.lead?.key).not.toBe('blame-again');
   });
 });
 

@@ -116,13 +116,15 @@ export interface FixActions {
   applied: boolean;
   /**
    * An open fix whose blame couldn't settle where its run was lost (`unsettled`: its first probe
-   * passed between the gate's two rates) or stopped part way (`stopped`): Run blame again, the same
-   * blame under the fix's check, without the budget that stopped it, and for one inconclusive with
-   * more attempts and a lower bar, as blame's report says (`gate`), with the last blame's good rate
-   * beside it (`lastGood`). For one stopped part way, `soFar` is the furthest call a probe rescued the
-   * run at, which its ask says the last search stopped at; null when none did. Null otherwise.
+   * passed between the gate's two rates) or stopped part way (`stopped`), or found its call under a
+   * check the fix had before (`old-check`): Run blame again, the same blame under the fix's check,
+   * without the budget that stopped it, and for one inconclusive with more attempts and a lower bar,
+   * as blame's report says (`gate`), with the last blame's good rate beside it (`lastGood`). For one
+   * stopped part way, `soFar` is the furthest call a probe rescued the run at, which its ask says the
+   * last search stopped at; null when none did. `underCheck` is true for a blame made under the old
+   * check, whatever its kind: its words say it searches under the fix's check. Null otherwise.
    */
-  blameAgain: { kind: 'unsettled' | 'stopped'; argv: string[]; command: string; gate: SprtGate | null; lastGood: number | null; soFar: number | null; pulled: PulledFrom | null; left: string[] } | null;
+  blameAgain: { kind: 'unsettled' | 'stopped' | 'old-check'; argv: string[]; command: string; gate: SprtGate | null; lastGood: number | null; soFar: number | null; pulled: PulledFrom | null; left: string[]; underCheck: boolean } | null;
   /**
    * An open fix whose blame rescued its run from no call, asking the recorded model again, and
    * found nothing that says the model's answer isn't what lost it: Run blame with stronger model, the

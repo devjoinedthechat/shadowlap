@@ -18,7 +18,7 @@
 import { commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, lostRange, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, commandLine, counting, type FixActions, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, runHref, short, shownRepair, type StepKey } from './fix-shared.js';
-import { blameStep, type BlameStep } from './fix-blame-step.js';
+import { blameStep, type BlameStep, oldBlameNote } from './fix-blame-step.js';
 import { fixActions, type GoldensFolder } from './fix-actions.js';
 import { fixLead, type FixLead } from './fix-lead.js';
 import { repairStep, type RepairStep } from './fix-repair-step.js';
@@ -222,7 +222,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     lead: fixLead(rec, actions, { repairer: configured }),
     rung: rungOf(rec),
     pr: prOf(rec),
-    blame: b ? blameStep(store, b, commands.blame) : null,
+    blame: b ? blameStep(store, b, commands.blame, oldBlameNote(rec, b, actions)) : null,
     blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, range: lostRange(x.report.range), confidence: x.report.confidence })),
     repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p), commands.repair) : null,
     repairs: [...rec.repairs].reverse().map((x) => {

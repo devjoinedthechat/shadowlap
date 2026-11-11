@@ -1,4 +1,4 @@
-import { agentCallsOf, type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, blameStateWord, blameSteps, probedInScope, describeBlocks, describeRescue, expectArgs, failureReason, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeInterval, probeTally, probeWord, type PulledFrom, rescueRule, type RunRecord, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
+import { agentCallsOf, type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, blameStateWord, blameSteps, probedInScope, describeBlocks, describeRescue, expectArgs, failureReason, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, madeUnderOldCheck, pinWords, probeBound, probeFinding, probeInterval, probeTally, probeWord, type PulledFrom, rescueRule, type RunRecord, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, gateMarks, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate, type StepLine } from './fix-shared.js';
@@ -97,6 +97,13 @@ export interface BlameStep {
   hrefs: { run: string; lostAt: string | null; rescued: string | null };
   /** What the report says beyond its probes, when it says it: the calls it lost the run between, and its error bound. */
   evidence: BlameEvidence;
+  /**
+   * For a blame found under a check the fix had before (madeUnderOldCheck), the step's note: that
+   * check in the Must line's words (`text`), and what runs under the fix's check now, Run blame again
+   * (`again`) or with a stronger model (`stronger`), with its command; `next` and `command` null when
+   * neither runs (the fix's check left its run, or its fields make no command). Null otherwise.
+   */
+  oldCheck: { text: string; next: 'again' | 'stronger' | null; command: string | null } | null;
 }
 
 
@@ -202,7 +209,7 @@ const exitedFirst = (run: RunRecord | null): boolean => run !== null && failureR
  * A blame as the Blame step shows it. `fallback` is the fix's own blame command, which a pulled
  * blame shows when its fields can't be made into one.
  */
-export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, b: StoredBlame, fallback: string): BlameStep {
+export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, b: StoredBlame, fallback: string, oldCheck: BlameStep['oldCheck'] = null): BlameStep {
   // The gate as it can be read: a malformed one reads as none, the fixed count's words then.
   const r = { ...b.report, gate: sprtGate(b.report.gate) };
   const run = store.getRun(b.runId);
@@ -259,7 +266,17 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
     pulled: b.pulled ?? null,
     hrefs: { run: runHref(b.runId), lostAt: blamedCall ? runHref(b.runId, blamedCall) : null, rescued: contrast ? runHref(contrast.rescuedRunId) : null },
     evidence: blameEvidence(b.report),
+    oldCheck,
   };
+}
+
+/** `BlameStep.oldCheck` for the fix's shown blame, from what its buttons run (`blameNext`). */
+export function oldBlameNote(rec: FixRecords, b: StoredBlame, next: Pick<FixActions, 'blameAgain' | 'blameStronger'>): BlameStep['oldCheck'] {
+  const old = madeUnderOldCheck(rec, b);
+  if (!old) return null;
+  if (next.blameAgain) return { text: old.check.text, next: 'again', command: next.blameAgain.command };
+  if (next.blameStronger) return { text: old.check.text, next: 'stronger', command: next.blameStronger.command };
+  return { text: old.check.text, next: null, command: null };
 }
 
 /**
@@ -283,17 +300,32 @@ function blameCount(r: BlameReport, pulled = false): string[] | null {
 }
 
 /**
+ * Run blame again for a blame that found its call under a check the fix had before: the same search
+ * under the fix's check, by the shown blame's gate or count, with no gate of its own to raise and no
+ * search stopped part way. Null when its fields make no command.
+ */
+function oldCheckAgain(rec: FixRecords, b: StoredBlame): FixActions['blameAgain'] {
+  const g = nextBlameGate(b, false);
+  const made = blameArgs(b, rec.fix.check.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report, !!b.pulled));
+  return made ? { kind: 'old-check', argv: made.argv, command: commandLine(made.argv), gate: null, lastGood: null, soFar: null, pulled: b.pulled ?? null, left: made.rerun.left, underCheck: true } : null;
+}
+
+/**
  * Run blame again, or Run blame with stronger model, for an open fix whose shown blame placed its failure
- * on no call (`FixActions`): built from that blame's checked fields (`blameArgs`), under the fix's
- * check now, with the run named in full and without its budget. Neither for a fix whose run is gone,
- * one whose command came from a capture, which has none to run again, or a blame kept before its
- * flags were.
+ * on no call, or found it under a check the fix had before (`FixActions`): built from that blame's
+ * checked fields (`blameArgs`), under the fix's check now, with the run named in full and without its
+ * budget. Neither for a fix whose run is gone, one whose command came from a capture, which has none
+ * to run again, or a blame kept before its flags were; nor for an old check's blame whose run the
+ * fix's check passed (one whose checks didn't apply included), which left the fix and which blame
+ * refuses: Run repair then blames the runs the fix holds.
  */
 export function blameNext(store: StoreOf<'recording'>, rec: FixRecords, b: StoredBlame | null): Pick<FixActions, 'blameAgain' | 'blameStronger'> {
   const none = { blameAgain: null, blameStronger: null };
-  if (rec.fix.status !== 'open' || !b || b.outcome === 'blamed') return none;
+  const underCheck = !!b && madeUnderOldCheck(rec, b) !== null;
+  if (rec.fix.status !== 'open' || !b || (b.outcome === 'blamed' && !underCheck) || (underCheck && !rec.failing.includes(b.runId))) return none;
   const run = store.getRun(b.runId);
   if (!run || !hasRecordedCommand(run)) return none;
+  if (b.outcome === 'blamed') return { blameAgain: oldCheckAgain(rec, b), blameStronger: null };
   const unsettled = unsettledFirst(b.report);
   const stopped = b.outcome === 'stopped';
   const pulled = b.pulled ?? null;
@@ -305,7 +337,7 @@ export function blameNext(store: StoreOf<'recording'>, rec: FixRecords, b: Store
     // The last blame's bar beside the lower one, and how far a stopped search got: its ask says both.
     const lastGood = unsettled && gate ? (b.report.gate?.good ?? null) : null;
     const soFar = stopped ? (b.report.blamed?.callNo ?? null) : null;
-    return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv: made.argv, command: commandLine(made.argv), gate: unsettled ? gate : null, lastGood, soFar, pulled, left: made.rerun.left }, blameStronger: null };
+    return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv: made.argv, command: commandLine(made.argv), gate: unsettled ? gate : null, lastGood, soFar, pulled, left: made.rerun.left, underCheck }, blameStronger: null };
   }
   // A stronger model can't help when blame found the model's answer isn't what lost the run, nor one asked already.
   if (noAnswerLost(b) || b.report.rescue.fields.model !== undefined) return none;
