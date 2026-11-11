@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { recordEvent, Store } from '@shadowlap/engine';
 import { cliSpawner, startDashboard, type Dashboard } from '../src/index.js';
 
 /**
@@ -100,6 +100,11 @@ describe('PUT /api/settings/tools/trust', () => {
     write({ tools: { search: { trust: 'sometimes' } } });
     expect(await error({ tool: 'a', trust: 'trusted', expect: await version() })).toBe('shadowlap.config.json: tools["search"].trust must be "trusted" or "untrusted"');
     expect(config()).toEqual({ tools: { search: { trust: 'sometimes' } } });
+  });
+
+  it('words a gate Pack with injection gate… wrote apart from a check, in the feed beside the marks', async () => {
+    recordEvent(store, { kind: 'checks.changed', ref: 'goldens/refund', actor: 'dana@example.com', data: { key: 'goldens/refund', added: [], removed: [], gate: { obeyed: 0, repeat: 3 } } });
+    expect((await feed()).find((i) => i.text.startsWith('Injection gate'))).toMatchObject({ text: 'Injection gate added · refund', href: '#/tests' });
   });
 
   it('takes a tool named as Object’s own keys as any other name', async () => {
