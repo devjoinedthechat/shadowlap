@@ -1,4 +1,3 @@
-import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
 import { decisionSession, decisionSessions, decisionsJob, migrateJob, retirementsView, runDecisions, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
@@ -25,16 +24,6 @@ import { verifyRule } from './estimates.js';
  */
 
 const KINDS = new Set(['decisions', 'migrate']);
-
-// How the activity feed words a session (the Changes page that opens one comes with its own route).
-describeEvent('decisions.done', (_e, d) => ({
-  kind: 'fork',
-  text: `Previewed ${typeof d.change === 'string' ? d.change : 'a change'} on ${Number(d.runs) || 0} run${Number(d.runs) === 1 ? '' : 's'}${Number(d.flagged) ? ` · ${Number(d.flagged)} with a write, stop or judged change` : ''}`,
-}));
-describeEvent('migrate.done', (_e, d) => ({
-  kind: 'fork',
-  text: `Migration previewed: ${typeof d.change === 'string' ? d.change : 'another model'} on ${Number(d.runs) || 0} run${Number(d.runs) === 1 ? '' : 's'}${Number(d.flagged) ? ` · ${Number(d.flagged)} with a write, stop or judged change` : ''}`,
-}));
 
 export function register(router: Router, ctx: RouteContext): void {
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];

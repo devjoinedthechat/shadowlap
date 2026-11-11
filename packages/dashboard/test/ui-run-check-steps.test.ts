@@ -2,8 +2,9 @@ import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JOB_KINDS, type RunDetail } from '../ui/api.js';
 import type { OnShow } from '../ui/components/OnShow.js';
-import { CheckBuilderPart, type BuilderProps } from '../ui/run/check-part.js';
+import type { BuilderProps } from '../ui/run/check-part.js';
 import { NextStepButton } from '../ui/run/NextStepButton.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { NextStep } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
@@ -49,7 +50,7 @@ async function step(next: NextStep, o: { builder?: OnShow<BuilderProps>; actions
   };
   const app = { client, exported: false, meta: null, feeds: {}, jobs: [], live: [], runs: [], actionsOff: o.actionsOff ?? null, conn: 'live', guard: (fn: () => void) => (fn(), true), watchJob: () => undefined, toast: () => undefined } as unknown as AppState;
   const button = createElement(NextStepButton, { run, step: next, offers: null, onAction: () => undefined, onFindCommit: () => undefined });
-  r = await render(createElement(AppContext.Provider, { value: app }, o.builder ? createElement(CheckBuilderPart.Provider, { value: o.builder }, button) : button));
+  r = await render(createElement(AppContext.Provider, { value: app }, o.builder ? createElement(ServedPartsContext.Provider, { value: { CheckBuilder: o.builder } }, button) : button));
   return { page: r, started };
 }
 

@@ -16,7 +16,9 @@ import { render, type Rendered } from './ui-render.js';
  * An exported copy is built from an entry of its own (ui/main-copy.tsx), with only the pages it
  * shows (ui/pages/copy.tsx): its runs, a run's page and Compare between them. Drawn here from a real
  * export's data, as the copy draws it, it still opens on the run that was shared, lists its runs,
- * compares them, and sends every other page to its runs.
+ * compares them, and sends every other page to its runs. It draws nothing that opens a part only the
+ * served dashboard hands in (ui/served-parts.ts), whose code its script doesn't hold, nor the dialogs
+ * only such a part opens.
  */
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent', import.meta.url));
 
@@ -79,6 +81,14 @@ async function open(runIds: string[], hash: string) {
 
 const runOpen = () => r!.all('.rhead .rnm').map((h) => h.getAttribute('data-run'));
 
+/** The modules of the page's code that load a module whose path matches `module`: a type alone loads nothing. */
+function loadersOf(module: RegExp): string[] {
+  const ui = fileURLToPath(new URL('../ui/', import.meta.url));
+  return readdirSync(ui, { recursive: true, encoding: 'utf8' })
+    .filter((f) => /\.tsx?$/.test(f) && readFileSync(join(ui, f), 'utf8').split('\n').some((l) => module.test(l) && !/^import type\b/.test(l.trim())))
+    .map((f) => f.split(sep).join('/'));
+}
+
 describe('an exported copy', () => {
   it('opens on the run that was shared, the one the others lead to, whichever order it lists them in', async () => {
     for (const order of [
@@ -109,6 +119,20 @@ describe('an exported copy', () => {
     expect(r!.one('.ph a.more').getAttribute('href')).toBe('#/runs');
   });
 
+  it('draws no Share on a run’s page, so nothing there opens Share’s menu, which the served dashboard alone hands in', async () => {
+    await open([forkId, runId], `#/run/${forkId}`);
+    await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
+    expect(r!.all('#shareBtn')).toHaveLength(0);
+    expect(r!.all('.rhead .actions button').map((b) => b.textContent)).not.toContain('Share');
+    expect(r!.all('[role="menu"]')).toHaveLength(0);
+  });
+
+  it('never opens Export OpenTelemetry trace…: Share’s menu alone loads its dialog, and a copy draws no Share', () => {
+    // The page's code that loads the dialog's script: Share's menu, and nothing a copy draws, so the
+    // copy's script holds none of it (COPY_PARTS in test/ui-bundle-size.test.ts).
+    expect(loadersOf(/\bOtelDialog\.js['"]/)).toEqual(['run/ShareMenu.tsx']);
+  });
+
   it('offers no Add check… at a tool call, in its inspector or its row, as only the served dashboard hands a page the check menu and the builder', async () => {
     await open([forkId, runId], `#/run/${runId}/4`);
     await r!.until('the tool call’s inspector, with its summary line', () => r!.all('section.insp[aria-label="Call 4"] .isumrow .isum').length === 1);
@@ -117,15 +141,17 @@ describe('an exported copy', () => {
     expect(r!.all('[role="menu"]')).toHaveLength(0);
   });
 
-  it('never loads the check menu or the builder: the served entry alone asks for their scripts', () => {
-    // So the copy's one script holds neither (COPY_PARTS in test/ui-bundle-size.test.ts, OnShow.tsx).
-    const ui = fileURLToPath(new URL('../ui/', import.meta.url));
-    const loaders = (part: RegExp) =>
-      readdirSync(ui, { recursive: true, encoding: 'utf8' })
-        .filter((f) => /\.tsx?$/.test(f) && part.test(readFileSync(join(ui, f), 'utf8')))
-        .map((f) => f.split(sep).join('/'));
-    expect(loaders(/import\(['"][./]*(?:run\/)?CheckMenu\.js['"]\)/)).toEqual(['App.tsx']);
-    expect(loaders(/import\(['"][./]*(?:checks\/)?Builder\.js['"]\)/)).toEqual(['App.tsx']);
+  it('never opens the check menu, the check builder or Run blame’s dialogs: the served entry alone loads them, and a copy offers no Add check… at a tool call', async () => {
+    // The page's code that loads their scripts: the parts the served entry hands in, which a copy's
+    // entry never does, so the copy's script holds none of ui/checks/ (HEAVY in test/ui-bundle-size.test.ts)
+    // nor the check menu or Run blame's dialogs. A copy draws no Run blame: its one next step is Compare (test/next-step.test.ts).
+    expect(loadersOf(/\bCheckMenu\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/\bchecks\/Builder\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/\bRunBlameAsks\.js['"]/)).toEqual(['pages/served.tsx']);
+    // At a tool call of a finished recording, where the served dashboard offers it on the inspector.
+    await open([forkId, runId], `#/run/${forkId}/4`);
+    await r!.until('the call’s inspector', () => r!.all('.insp').length === 1);
+    expect(r!.all('[data-act="ckmenu"]')).toHaveLength(0);
   });
 
   it('lists its runs, and only those', async () => {
@@ -148,7 +174,7 @@ describe('an exported copy', () => {
       [[forkId, runId], '#/fixes'],
       [[forkId, runId], '#/changes'],
       [[forkId, runId], '#/tests'],
-      [[forkId, runId], '#/settings/alerts'],
+      [[forkId, runId], '#/settings/ci'],
       [[forkId], '#/compare'],
     ] as const) {
       const bar = await open([...runIds], hash);

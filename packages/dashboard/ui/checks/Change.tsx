@@ -4,7 +4,7 @@ import { CodeBox } from '../components/CodeBox.js';
 import { Copy } from '../components/Copy.js';
 import { ErrorState } from '../components/States.js';
 import { goldenName } from '../format.js';
-import { packRunCommand } from '../run/share.js';
+import { packRunCommand } from '../run/share-steps.js';
 import { changeLines, entryAfter, entryOf, versionWords, type Fragment } from './model.js';
 
 /**

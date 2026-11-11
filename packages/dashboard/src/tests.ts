@@ -1,4 +1,4 @@
-import { ACTIONS, attemptsOf, judgedUnder as underChecks, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, judgedUnder as underChecks, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, plural, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
@@ -670,75 +670,7 @@ function gateView(gate: Gate | null | undefined): GateView | null {
   return { gate, description: describeGate(gate), toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null, toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null };
 }
 
-/** What a gate would do, before it is saved: Settings → CI's preview of the gate's figures. */
-export interface GatePreview {
-  gate: Gate;
-  /** The gate's rule: `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. */
-  description: string;
-  /** An SPRT gate: the attempts an agent that always passes needs (12 at 0.9, 0.7, 0.05), one that always fails (3), and the passes that make up for a failure (about 4.4). Null for history. */
-  toPass: number | null;
-  toFail: number | null;
-  passesPerFailure: number | null;
-  /**
-   * The exact odds of each verdict, and attempts on average, for agents that pass at these rates.
-   * A gate against history is figured against `history`, a baseline it says (47 of 50 unless the
-   * query names one): the chance it fails, by the pass rate now, is its power to catch a drop.
-   */
-  odds: Array<{ rate: number; pass: number; fail: number; inconclusive: number; attempts: number }>;
-  /** A gate against history: the baseline its odds are figured against. Null for an SPRT gate. */
-  history: { passes: number; attempts: number } | null;
-  /** With 100 forked goldens of an agent that passes 95% of the time, how often a CI run goes red for nothing, under `--inconclusive fail` and `warn`. */
-  ci: { goldens: number; rate: number; red: number; redWarn: number };
-  /** What `{}` and `{ "baseline": "history" }` stand for in a golden's gate, and blame's own figures. */
-  defaults: { sprt: Omit<Gate & { kind: 'sprt' }, 'kind'>; baseline: Omit<Gate & { kind: 'baseline' }, 'kind'>; blame: Omit<Gate & { kind: 'sprt' }, 'kind'> };
-}
-
-const PREVIEW_RATES = [0.99, 0.95, 0.9, 0.8, 0.7, 0.5];
-/** A history gate's preview by the pass rate now, against its baseline: unchanged, then by how far it dropped. */
-const HISTORY_RATES = [0.95, 0.9, 0.85, 0.75, 0.6, 0.5, 0.2];
-/** The baseline a history gate's preview is figured against when the query names none: a golden that passed 47 of its last 50 attempts. */
-export const PREVIEW_HISTORY = { passes: 47, attempts: 50 } as const;
-
-/** `47/50`: a baseline's passes and attempts, as the preview's `history` query value gives them. */
-function historyQuery(raw: string | null): { passes: number; attempts: number } {
-  if (raw === null || raw === '') return { ...PREVIEW_HISTORY };
-  const m = /^(\d{1,6})\/(\d{1,6})$/.exec(raw);
-  const passes = m ? Number(m[1]) : NaN;
-  const attempts = m ? Number(m[2]) : NaN;
-  if (!m || attempts < 1 || passes > attempts) throw new Error('history must be passes/attempts, such as 47/50');
-  return { passes, attempts };
-}
-
-/**
- * A gate's preview from its figures as a page sends them (query values, all optional): `good`,
- * `bad`, `risk`, `max`, or `baseline=history` with `drop`, `risk`, `window`, `min`, `max` and the
- * baseline to figure it against, `history=47/50`. Throws with the config's own message for a gate it
- * would refuse.
- */
-export function gatePreview(query: { get(name: string): string | null }): GatePreview {
-  const json: Record<string, unknown> = {};
-  for (const key of ['baseline', 'good', 'bad', 'risk', 'max', 'drop', 'window', 'min']) {
-    const raw = query.get(key);
-    if (raw === null || raw === '') continue;
-    json[key] = key === 'baseline' ? raw : Number(raw);
-  }
-  const gate = parseGate(json, 'gate');
-  const history = gate.kind === 'baseline' ? historyQuery(query.get('history')) : null;
-  const odds = gateOddsAt(gate, gate.kind === 'sprt' ? PREVIEW_RATES : HISTORY_RATES, history);
-  // A healthy agent's CI: the baseline it is figured against is its own rate, for a gate against history.
-  const healthy = gate.kind === 'sprt' ? odds.find((o) => o.rate === 0.95)! : gateOdds(gate, 0.95, { passes: 95, attempts: 100 });
-  return {
-    gate,
-    description: describeGate(gate),
-    toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null,
-    toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null,
-    passesPerFailure: gate.kind === 'sprt' ? passesPerFailure(gate) : null,
-    odds: odds.map((o) => ({ rate: o.rate, pass: o.pass, fail: o.fail, inconclusive: o.inconclusive, attempts: o.attempts })),
-    history,
-    ci: { goldens: 100, rate: 0.95, red: runsRed(healthy, 100, 'fail'), redWarn: runsRed(healthy, 100, 'warn') },
-    defaults: { sprt: { ...SPRT_DEFAULTS }, baseline: { ...BASELINE_DEFAULTS }, blame: { ...BLAME_DEFAULTS } },
-  };
-}
+export { gatePreview, PREVIEW_HISTORY, type GatePreview } from './tests-gate.js';
 
 /**
  * What a result's gate decided, as the screen shows it: the tally, what an attempt cost, and for an
@@ -1008,21 +940,7 @@ interface SessionsRead {
  * running now. Without any full session, every session counts as one.
  */
 function testSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[], max: number): SessionsRead {
-  const all = store.listTestSessions({ limit: SESSION_WINDOW });
-  // Which goldens each session ran, without reading their results: only the shown columns' are read.
-  const ran = store.testSessionGoldens(all.map((s) => s.sessionId));
-  // A session counts once it has a result, or while it runs: one stopped before its first golden ended says nothing.
-  const sessions = all.filter((s) => ran.has(s.sessionId) || sessionLive(store, s));
-  const firstAt = store.firstTestResultAt();
-  const readable = goldens.filter((g) => !unreadable(g)).map((g) => g.path);
-  const full = (s: TestSession): boolean => {
-    const need = readable.filter((p) => (firstAt.get(p) ?? Infinity) < s.startedAt);
-    if (asksForAll(s.command, need)) return true;
-    const got = ran.get(s.sessionId) ?? new Set<string>();
-    return need.every((p) => got.has(p));
-  };
-  let whole = sessions.filter(full);
-  if (!whole.length) whole = sessions;
+  const { sessions, whole } = fullSessions(store, goldens);
   const revisions: Array<string | null> = [];
   for (const s of whole) {
     if (!revisions.includes(s.revision)) revisions.push(s.revision);
@@ -1036,6 +954,38 @@ function testSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[],
   const shownIn = sessions.filter((s) => columnOf.has(s.sessionId) || columnOfRevision(s.revision, columns) !== undefined);
   const results = store.listTestResults({ sessionIds: shownIn.map((s) => s.sessionId), limit: 100_000 });
   return { revisions, results, columnOf, shown: whole[0] ?? store.listTestSessions({ limit: 1, withResults: true })[0] ?? null };
+}
+
+/**
+ * The sessions with a result or running now, newest first (`sessions`), and of them those that ran
+ * every golden tested before they started (`whole`; every session while none did): testSessions.
+ */
+function fullSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[]): { sessions: TestSession[]; whole: TestSession[] } {
+  const all = store.listTestSessions({ limit: SESSION_WINDOW });
+  // Which goldens each session ran, without reading their results: only the shown columns' are read.
+  const ran = store.testSessionGoldens(all.map((s) => s.sessionId));
+  // A session counts once it has a result, or while it runs: one stopped before its first golden ended says nothing.
+  const sessions = all.filter((s) => ran.has(s.sessionId) || sessionLive(store, s));
+  const firstAt = store.firstTestResultAt();
+  const readable = goldens.filter((g) => !unreadable(g)).map((g) => g.path);
+  const full = (s: TestSession): boolean => {
+    const need = readable.filter((p) => (firstAt.get(p) ?? Infinity) < s.startedAt);
+    if (asksForAll(s.command, need)) return true;
+    const got = ran.get(s.sessionId) ?? new Set<string>();
+    return need.every((p) => got.has(p));
+  };
+  const whole = sessions.filter(full);
+  return { sessions, whole: whole.length ? whole : sessions };
+}
+
+/**
+ * The session Tests' verdict line names (the newest that ran every golden, else the newest with a
+ * result), as the screen counts it, inconclusive goldens apart; null before the first. Settings →
+ * CI's line under Your workflow names it without a team store.
+ */
+export function lastFullSession(store: StoreOf<'tests'>, goldens: readonly GoldenSource[]): TestsSessionView | null {
+  const shown = fullSessions(store, goldens).whole[0] ?? store.listTestSessions({ limit: 1, withResults: true })[0] ?? null;
+  return shown ? sessionView(store, shown) : null;
 }
 
 /** Results newest first, grouped by golden. */
@@ -1281,7 +1231,7 @@ export function overviewTests(store: StoreOf<'tests'>, asOf: { now: number; week
 
 export interface FailingTest {
   golden: string;
-  /** For Needs a look: `A test failed: refund-in-limit`, or `A test is inconclusive: refund-over-limit`. */
+  /** For Needs a look: `A golden failed: refund-in-limit`, or `A golden is inconclusive: refund-over-limit`. */
   title: string;
   /** Failed, or inconclusive: Needs a look lists both, told apart. */
   verdict: 'failed' | 'inconclusive';
@@ -1349,7 +1299,7 @@ export function failingTests(store: StoreOf<'recording' | 'fixes' | 'tests'>, op
       // A gate's verdict says its word, tally and bound; the rule goes on the line's hover.
       const gate = decidedByGate(r) ? r.data!.gate! : null;
       const line = gate ? gateLine(gate) : lineOf(store, r, sources.get(r.golden)?.checks ?? [], options.normalizers ?? []);
-      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line, rule: gateRuleOf(gate), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
+      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A golden is inconclusive' : 'A golden failed'}: ${nameOf(r.golden, folder)}`, verdict, line, rule: gateRuleOf(gate), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
     });
 }
 

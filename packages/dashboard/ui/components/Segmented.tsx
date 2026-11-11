@@ -7,12 +7,12 @@ import { ActionButton } from './ActionButton.js';
  * says whether it is pressed, in a group its label names. Turning one thing on and off is a
  * `Switch`, never two options.
  */
-export function SegmentedControl<K extends string>({ items, value, onChange, label, className, action = false, why }: { items: ReadonlyArray<{ key: K; label: string; title?: string }>; value: K; onChange: (k: K) => void; label: string; className?: string; /** A choice the server writes: it waits as `ActionButton` does. */ action?: boolean; why?: string | null }) {
+export function SegmentedControl<K extends string>({ items, value, onChange, label, labelledBy, describedBy, className, action = false, reads = false, why }: { items: ReadonlyArray<{ key: K; label: string; title?: string }>; value: K; onChange: (k: K) => void; /** The group's name, where no label on the page names it. */ label?: string; /** The ids of a row's label and line, which name and describe the group in place of `label`. */ labelledBy?: string; describedBy?: string; className?: string; /** A choice the server writes: it waits as `ActionButton` does. */ action?: boolean; /** A choice the server only answers for (a preview): it still runs on a read-only dashboard. */ reads?: boolean; why?: string | null }) {
   return (
-    <div className={`seg${className ? ` ${className}` : ''}`} role="group" aria-label={label}>
+    <div className={`seg${className ? ` ${className}` : ''}`} role="group" aria-label={labelledBy ? undefined : label} aria-labelledby={labelledBy} aria-describedby={describedBy}>
       {items.map((t) =>
         action ? (
-          <ActionButton key={t.key} aria-pressed={value === t.key} why={why} title={t.title} onClick={() => onChange(t.key)}>
+          <ActionButton key={t.key} aria-pressed={value === t.key} why={why} reads={reads} title={t.title} onClick={() => onChange(t.key)}>
             {t.label}
           </ActionButton>
         ) : (

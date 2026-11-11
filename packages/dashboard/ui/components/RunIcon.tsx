@@ -24,6 +24,7 @@ export const EVENT_LABEL: Record<GlyphKind, string> = {
   fixok: 'Fix accepted',
   fixbad: 'Fix rejected',
   fixinc: 'Fix inconclusive',
+  retire: 'Model retires',
   project: 'Project',
   setting: 'Settings',
   train: 'Training',
@@ -66,6 +67,8 @@ function Mark({ kind }: { kind: GlyphKind }) {
       return <Icon name="gear" />;
     case 'train':
       return <Icon name="target" />;
+    case 'retire':
+      return <Icon name="clock" />;
   }
 }
 
@@ -88,7 +91,7 @@ export function RunIcon({ run, className = 'ri' }: { run: RunLike; className?: s
  * kind's: `err` red, `warn` amber (a stopped blame is the loop in amber). A "Recording started" entry
  * stops pulsing once the run ends.
  */
-export function EventIcon({ kind, live = false, outcome, className = 'ic' }: { kind: GlyphKind; live?: boolean; outcome?: 'err' | 'warn'; className?: string }) {
+export function EventIcon({ kind, live = false, outcome, className = 'ic' }: { kind: GlyphKind; live?: boolean; outcome?: 'err' | 'warn' | undefined; className?: string }) {
   const tone = outcome === 'warn' ? ' amb' : outcome === 'err' ? ' err' : '';
   return <Glyph kind={kind} label={EVENT_LABEL[kind]} className={`${className}${tone}`} done={kind === 'live' && !live} />;
 }

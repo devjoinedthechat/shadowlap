@@ -68,11 +68,11 @@ describe("an error-path preset's attempts", () => {
     expect(listed.runs.find((r) => r.runId === fork)).toMatchObject({ attemptOf: null, attemptKind: null });
   });
 
-  it("aren't counted as runs, nor as today's forks", async () => {
+  it("aren't counted as runs, in the store or in the week's", async () => {
     const meta = await api<{ counts: { runs: number; attempts: number } }>('meta');
     expect(meta.counts).toEqual({ runs: 2, attempts: 3 });
-    const summary = await api<{ today: { forks: { count: number } } }>('summary');
-    expect(summary.today.forks.count).toBe(1);
+    const summary = await api<{ sums: { week: { runs: number; attempts: number } } }>('summary');
+    expect(summary.sums.week).toMatchObject({ runs: 2, attempts: 3 });
     // The team store counts runs the same way: the attempts are filed under the recording.
     expect(teamRunCounts(store, 's3://bucket/project')).toMatchObject({ onlyLocal: 2, localAttempts: 3 });
   });

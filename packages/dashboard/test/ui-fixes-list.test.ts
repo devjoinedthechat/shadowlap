@@ -5,7 +5,8 @@ import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../
 import { fixDetail } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
 import { JOB_KINDS, type Client } from '../ui/api.js';
-import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadCard, leadReadsFix, leadWait, rowCells, rungStatus, unblamedBlameCard, unblamedTitle } from '../ui/fixes/list.js';
+import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadCard, leadReadsFix, leadWait, rowCells, rungStatus } from '../ui/fixes/list.js';
+import { unblamedBlameCard, unblamedTitle } from '../src/unblamed-words.js';
 import { fixRowScope, unblamedScope } from '../ui/fixes/row-scope.js';
 import { forgetRunEstimates } from '../ui/run/estimates.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
@@ -112,14 +113,17 @@ describe('a row’s words', () => {
       ['Verify', 'held'],
     ]);
     const pressed: string[] = [];
-    const un = unblamedScope({ name: unblamedTitle({ count: 2 }), command: 'shadowlap blame r1', wait: 'A repair is running: blame once it is done.', press: () => pressed.push('blame') });
+    const un = unblamedScope({ name: unblamedTitle(2), command: 'shadowlap blame r1', wait: 'A repair is running: blame once it is done.', press: () => pressed.push('blame') });
     expect(un.name).toBe('2 failing runs nobody has blamed');
     expect(un.items()).toEqual([expect.objectContaining({ label: 'Open', hint: '#/runs?types=failed' }), expect.objectContaining({ label: 'Run blame', hint: 'shadowlap blame r1', job: true, wait: 'A repair is running: blame once it is done.' })]);
     un.items()[1]?.run();
     expect(pressed).toEqual(['blame']);
     // No Run blame where the row has none.
     expect(unblamedScope({ name: 'x', command: null, wait: null, press: () => undefined }).items().map((i) => i.label)).toEqual(['Open']);
-    expect(unblamedBlameCard({ count: 1, runId: 'run-0123456789abc' })).toBe('Blames run-012345: finds the model call that lost it, and joins it to the fix its failure belongs to');
+    // A capture's Run blame opens its page: no job, and nothing to wait for.
+    expect(unblamedScope({ name: 'x', command: 'shadowlap blame r1 -- <your command>', job: false, wait: null, press: () => undefined }).items()[1]).not.toHaveProperty('job');
+    expect(unblamedBlameCard(1, 'run-012345')).toBe('Blames run-012345: finds the model call that lost it, then joins the fix its failure belongs to');
+    expect(unblamedBlameCard(3, 'run-012345')).toBe('Blames the newest, run-012345: finds the model call that lost it, then joins the fix its failure belongs to');
   });
 });
 
@@ -244,7 +248,7 @@ describe('the Fixes list', () => {
     expect(cellsOf('unblamed')).toEqual(['todo Blame not blamed', 'todo Repair —', 'todo Verify —']);
     const blame = un.querySelector('.psn button')!;
     expect(text(blame)).toBe('Run blame');
-    expect(tipOf(blame)).toMatchObject({ t: 'Run blame', s: `Blames the newest, ${newest.slice(0, 10)}: finds the model call that lost it, and joins it to the fix its failure belongs to` });
+    expect(tipOf(blame)).toMatchObject({ t: 'Run blame', s: `Blames the newest, ${newest.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to` });
     await chip('Open');
     expect(keys()).toEqual(['unblamed', open.href]);
     await chip('Ready to apply');
@@ -260,7 +264,21 @@ describe('the Fixes list', () => {
     const blame = () => row('unblamed').querySelector('.psn button')!;
     await r!.until('the estimate', () => !!tipOf(blame()).est);
     const u = fixesView(store).unblamed!;
-    expect(tipOf(blame())).toEqual({ t: 'Run blame', s: `Blames ${run.slice(0, 10)}: finds the model call that lost it, and joins it to the fix its failure belongs to`, rows: [], cmd: `$ ${u.next!.command!}`, est: { usd: 0.42, ceiling: true } });
+    expect(tipOf(blame())).toEqual({ t: 'Run blame', s: `Blames ${run.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to`, rows: [], cmd: `$ ${u.next!.command!}`, est: { usd: 0.42, ceiling: true } });
+  });
+
+  it('opens a capture’s page from the unblamed row’s Run blame, where blame asks for your command first, saying what its import judged it failed', async () => {
+    const judged = { rules: 'r', at: 1, verdict: 'failed', why: null, checks: [{ status: 'failed', ok: false, label: 'every issue_refund call: amount <= 100', detail: 'amount was 240' }] };
+    const capture = newRun({ status: 'completed', meta: { imported: { at: 1, from: '/work/cap.jsonl' }, covers: ['api'], judged }, calls: ['api'] });
+    const a = app();
+    await list(a);
+    const blame = row('unblamed').querySelector('.psn .btn')!;
+    expect(blame.tagName).toBe('A');
+    expect(blame.getAttribute('href')).toBe(`#/run/${capture}`);
+    expect(tipOf(blame)).toMatchObject({ t: 'Run blame', s: `Blames ${capture.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to` });
+    expect(text(row('unblamed').querySelector('.fmu')!)).toBe('Failed: every issue_refund call: amount <= 100, but amount was 240');
+    // It starts nothing from here.
+    expect(a.asked.started).toEqual([]);
   });
 
   it('says on each row its rung, its chips, its failing runs and its day, its three steps, and Open → where it has no step', async () => {

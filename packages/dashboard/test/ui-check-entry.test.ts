@@ -4,7 +4,8 @@ import type { CallDetail, CallRow, RunDetail } from '../ui/api.js';
 import type { OnShow } from '../ui/components/OnShow.js';
 import { AddCheckLink, addsCheck, argsOf, useCheckEntry } from '../ui/run/check-entry.js';
 import { checkMenuItems } from '../ui/run/CheckMenu.js';
-import { BuilderLost, CheckBuilderPart, CheckMenuPart, type BuilderProps, type CheckMenuProps } from '../ui/run/check-part.js';
+import { BuilderLost, type BuilderProps, type CheckMenuProps } from '../ui/run/check-part.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render } from './ui-render.js';
 
@@ -16,7 +17,7 @@ const app = { exported: false, actionsOff: null, conn: 'live', toast: () => unde
 const part = <P>(draw: (p: P) => ReactNode): OnShow<P> => Object.assign(draw, { preload: () => undefined, script: 'idle' }) as unknown as OnShow<P>;
 /** A page as the served dashboard holds it, handed the parts given, and an exported copy, handed none. */
 const served = (o: { builder?: OnShow<BuilderProps>; menu?: OnShow<CheckMenuProps> }, page: ReactNode) =>
-  createElement(AppContext.Provider, { value: app }, createElement(CheckBuilderPart.Provider, { value: o.builder ?? null }, createElement(CheckMenuPart.Provider, { value: o.menu ?? null }, page)));
+  createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: { ...(o.builder ? { CheckBuilder: o.builder } : {}), ...(o.menu ? { CheckMenu: o.menu } : {}) } }, page));
 
 describe('Add check… on a run’s page', () => {
   it('is offered at a tool call of a finished recording alone, and never in an exported copy or on a read-only dashboard', () => {

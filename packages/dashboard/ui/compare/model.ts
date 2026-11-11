@@ -1,10 +1,12 @@
 import { clip, jsonText, num, plural, shortId } from '../format.js';
-import type { CallRow, CodeChange, CompareView, LiveRun } from '../types.js';
+import { exitWords } from '../runs.js';
+import { jsonDiff, jsonInString, type JsonLine, type Sign } from '../json-diff.js';
+import type { CodeChange, CompareView, LiveRun } from '../types.js';
 
 /**
- * Compare's logic (`pages/Compare.tsx`), without the DOM so the tests import it: what the four
- * change cards say, which calls after the fork the other run made too, the prefix line, which runs
- * the pickers offer, and when the comparison is read again.
+ * Compare's logic (`pages/Compare.tsx`), without the DOM so the tests import it: what changed and
+ * what didn't, the prefix line and the card on what made the fork, the changed request's lines, each
+ * run's line, which runs the pickers offer, and when the comparison is read again.
  */
 
 export interface ChangeCard {
@@ -68,6 +70,51 @@ export function changeCards(c: Pick<CompareView, 'changes' | 'code'>): ChangeCar
   ];
 }
 
+/** A changed fact's line in What changed: `Code changed`, what changed set as code, then a muted note. */
+export interface ChangedFact {
+  key: ChangeCard['key'];
+  /** `Code changed`, `System prompt changed`. */
+  lead: string;
+  /** What changed, as code: `a7b3c2e → c91d0f4`, `+lookup −email`, `claude-sonnet-5 → claude-haiku-4-5`. */
+  code: string | null;
+  /** Words after it, muted: the commit's subject, `a definition changed`. */
+  note: string | null;
+  /** More on hover: the commits between the revisions, every tool added and removed. */
+  tip: string | null;
+}
+
+/** What changed between the two runs, a line a changed fact, and what didn't in one muted line, with a row a fact for its hover. */
+export interface CompareFacts {
+  changed: ChangedFact[];
+  /** `Code, system prompt, tools and model unchanged`; null when every fact changed. */
+  same: string | null;
+  /** The unchanged line's card, `The same on both sides`: each fact and what it is in both runs. */
+  sameRows: Array<{ key: string; value: string }>;
+}
+
+const sentenceCase = (s: string): string => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
+const listed = (xs: readonly string[]): string => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)!}` : xs.join(''));
+
+/**
+ * The change cards' words regrouped as What changed says them: each card words its change its own
+ * way, as their titles and notes don't line up. The code's revisions and the model's names as code,
+ * the commit's subject muted after them; the tools added and removed as code, or in words where
+ * only a definition changed; a system prompt that changed, alone (its note says it again).
+ */
+export function compareFacts(cards: readonly ChangeCard[]): CompareFacts {
+  const changed = cards
+    .filter((c) => c.changed)
+    .map((c): ChangedFact => {
+      const fact = { key: c.key, lead: `${sentenceCase(c.key)} changed`, code: null, note: null, tip: null };
+      if (c.key === 'code') return { ...fact, code: c.title, note: c.note || null, tip: c.tip };
+      if (c.key === 'model') return { ...fact, code: c.title };
+      if (c.key === 'tools') return /^[+−]/.test(c.note) ? { ...fact, code: c.note, tip: c.tip } : { ...fact, note: c.note, tip: c.tip };
+      return fact;
+    });
+  const same = cards.filter((c) => !c.changed);
+  return { changed, same: same.length ? `${sentenceCase(listed(same.map((c) => c.key)))} unchanged` : null, sameRows: same.map((c) => ({ key: sentenceCase(c.key), value: c.note })) };
+}
+
 /**
  * The answers that changed, for the table: a model that answered a call the same way again (its text,
  * tool calls and thinking; only the new response's id or token counts differ) gave no different answer.
@@ -100,8 +147,36 @@ export function madeBy(c: { a?: Pick<CompareView['a'], 'runId'>; intervention?: 
   return iv ? `${iv.words}${iv.run === 'a' && c.a ? ` in ${shortId(c.a.runId)}` : ''}` : null;
 }
 
-/** The line beside the identical prefix: how far the runs agree, what made the fork when no request shows it, and where they part. */
-export function prefixLine(c: Pick<CompareView, 'identicalPrefix' | 'firstRequestDifference' | 'responseDifferences' | 'onlyInA' | 'onlyInB'> & { a?: Pick<CompareView['a'], 'runId'>; intervention?: CompareView['intervention'] }): { lead: string; rest: string } {
+/** How the flag that made the fork acted on its call, as the card on what made it says it. */
+const ACTED: Record<NonNullable<CompareView['intervention']>['kind'], string> = { fail: 'answered with', override: 'overridden', answer: 'answered otherwise', plant: 'planted', resample: 'asked again' };
+
+/**
+ * The card on what made the fork: `Same request, different response`, then `#19, answered with
+ * HTTP 529 by the fork. The paths differ from there.`, and the flag as its command.
+ */
+export function madeCard(iv: NonNullable<CompareView['intervention']>): { title: string; line: string; command: string } {
+  const acted = iv.kind === 'fail' ? `${ACTED.fail} ${iv.after ?? 'an HTTP failure'}` : ACTED[iv.kind];
+  return { title: 'Same request, different response', line: `#${num(iv.callNo)}, ${acted} by the fork. The paths differ from there.`, command: iv.flag };
+}
+
+/** The identical prefix's strip draws at most this many cells, one a call, so a long shared start (906 calls) still draws. */
+export const PREFIX_CELLS = 60;
+
+/** The strip's cells for `n` identical calls: one a call, at most PREFIX_CELLS. */
+export const prefixCells = (n: number): number => Math.max(1, Math.min(n, PREFIX_CELLS));
+
+/**
+ * The line beside the identical prefix: how far the runs agree (`lead`), then what made the fork when
+ * no request shows it and where they part (`rest`). `made`, the words `rest` starts with that say what
+ * made the fork, which carry its card; null with none.
+ */
+export function prefixLine(c: Pick<CompareView, 'identicalPrefix' | 'firstRequestDifference' | 'responseDifferences' | 'onlyInA' | 'onlyInB'> & { a?: Pick<CompareView['a'], 'runId'>; intervention?: CompareView['intervention'] }): { lead: string; made: string | null; rest: string } {
+  const line = prefixWords(c);
+  const made = madeBy(c);
+  return { lead: line.lead, made: made && line.rest.startsWith(made) ? made : null, rest: line.rest };
+}
+
+function prefixWords(c: Parameters<typeof prefixLine>[0]): { lead: string; rest: string } {
   const n = c.identicalPrefix;
   const first = c.firstRequestDifference?.callNo ?? null;
   const lead = n ? `#1–#${num(n)} identical.` : 'No identical prefix.';
@@ -129,30 +204,6 @@ export function answersSub(c: Pick<CompareView, 'firstRequestDifference' | 'resp
   return c.firstRequestDifference ? `${n}, before the first request that differs` : n;
 }
 
-type PathCall = Pick<CallRow, 'callNo' | 'kind' | 'name' | 'detail'>;
-
-/** What a model call asked for: the tool calls that follow it until the next model call, with their arguments. */
-function askedFor(calls: readonly PathCall[], i: number): string {
-  const out: string[] = [];
-  for (let j = i + 1; j < calls.length && calls[j]!.kind !== 'api'; j++) if (calls[j]!.kind === 'tool') out.push(`${calls[j]!.name}(${calls[j]!.detail})`);
-  return out.join('\n');
-}
-
-/**
- * Which calls of a run's path after the fork the other run made too, at the same place: a tool
- * with the same arguments, or a model call that asked for the same tools (two final answers are
- * the same place). The mock dims those rows, so what differs stands out. The call where the
- * requests first differ (`first`) is never the same, whatever its name.
- */
-export function samePlaces(calls: readonly PathCall[], other: readonly PathCall[], first: number | null): boolean[] {
-  return calls.map((c, i) => {
-    const o = other[i];
-    if (!o || c.callNo === first || o.kind !== c.kind || o.name !== c.name) return false;
-    if (c.kind === 'api') return askedFor(calls, i) === askedFor(other, i);
-    return o.detail === c.detail;
-  });
-}
-
 /** Two values that share a start longer than this open shortly before where they part. */
 const SHARED_START = 60;
 
@@ -177,6 +228,34 @@ export function diffTexts(e: { op: 'changed' | 'added' | 'removed'; before?: unk
   }
   const show = (s: string | null) => (s === null ? '(absent)' : from ? `…${clip(s.slice(from), max)}` : clip(s, max));
   return { before: show(a), after: show(b) };
+}
+
+type DiffEntry = NonNullable<NonNullable<CompareView['firstRequestDifference']>['diff']>[number];
+
+/** How many of the first differing request's fields the changed request shows. */
+export const DIFF_SHOWN = 12;
+
+/** A plain string longer than this, on either side, shows as diffTexts' window of it rather than whole. */
+const WHOLE_STRING = 600;
+
+const signed = (lines: readonly JsonLine[], sign: Sign): JsonLine[] => lines.map((l) => ({ ...l, sign }));
+
+/**
+ * The first request that differs as one structural diff: each differing field, at most DIFF_SHOWN,
+ * a line naming it (`tool_result lookup_policy`, its path on hover), then its two values walked a
+ * level under it, a tool's result as the JSON in its string. A plain string past WHOLE_STRING on
+ * either side shows as diffTexts' window of it, where the two part.
+ */
+export function requestLines(diff: readonly DiffEntry[]): JsonLine[] {
+  return diff.slice(0, DIFF_SHOWN).flatMap((e) => {
+    const long = [e.before, e.after].some((v) => typeof v === 'string' && v.length > WHOLE_STRING && !jsonInString(v));
+    const cut = long ? diffTexts(e) : null;
+    const [was, now] = cut ? [cut.before, cut.after] : [e.before, e.after];
+    const walked = e.op === 'added' ? signed(jsonDiff(now, now), '+') : e.op === 'removed' ? signed(jsonDiff(was, was), '-') : jsonDiff(was, now);
+    // A heading, not a key: the field's name with no colon after it, its path on hover where it names it otherwise.
+    const head: JsonLine = { sign: ' ', depth: 0, key: null, value: [{ text: e.what ?? e.path, marked: false }], whole: false, json: false, fold: false, path: e.path, ...(e.what ? { tip: e.path } : {}) };
+    return [head, ...walked.map((l) => ({ ...l, depth: l.depth + 1 }))];
+  });
 }
 
 /** Whether either run is recording now: the comparison is read again as its calls arrive. */
@@ -213,4 +292,43 @@ export function oneRunPair(d: { run: { runId: string }; parent: { runId: string 
 /** The command that gives a run something to compare with: its replay, with the agent's command for a capture, which has none of its own. */
 export function replayCommand(d: { run: { runId: string }; source: string | null }): string {
   return `shadowlap replay ${shortId(d.run.runId)}${d.source ? ' -- <your command>' : ''}`;
+}
+
+/** How one side ended after the calls the two runs share (`pair.endings`, fork-changes.ts `pairEnding`). */
+type Ending = NonNullable<CompareView['pair']>['endings']['a'];
+
+/**
+ * A part of the line a run, each kept whole: the HTTP failures it got (`HTTP 529` `at #19–#21`), a
+ * group of its writes, those a replay fenced under their origin's word, each tool with how many
+ * times (`twice`, `3 times`), `no write`, then how its turn ended. `http`, a status the part names,
+ * is kept on one line: before its words in a failures part, after them where a turn stopped on it.
+ */
+export type EndingPart = { kind: 'failures'; http: string; words: string } | { kind: 'writes'; fate: 'blocked' | 'stubbed' | null; tools: Array<{ tool: string; times: string | null }> } | { kind: 'words'; words: string; http?: string };
+
+const timesWords = (n: number): string | null => (n === 1 ? null : n === 2 ? 'twice' : `${num(n)} times`);
+const callRange = (from: number, to: number): string => (to > from ? `#${num(from)}–#${num(to)}` : `#${num(from)}`);
+
+/** How a turn ended, the status it stopped on apart: `exited 1 at #22`, `stopped at #22 on` `HTTP 529`, `answered at #22`, `ended at #22`, `still running`, `no call`. */
+function endPart(end: Ending['end']): { words: string; http?: string } {
+  const at = end.callNo !== null ? ` at #${num(end.callNo)}` : '';
+  if (end.kind === 'exited') return { words: `${exitWords(typeof end.code === 'number' ? { exitCode: end.code } : {})}${at}` };
+  if (end.kind === 'stopped') return typeof end.status === 'number' ? { words: `stopped${at} on`, http: `HTTP ${end.status}` } : { words: `stopped${at}` };
+  if (end.kind === 'answered' || end.kind === 'ended') return { words: `${end.kind}${at}` };
+  return { words: end.kind === 'running' ? 'still running' : 'no call' };
+}
+
+/** How a turn ended: `exited 1 at #22`, `stopped at #22 on HTTP 529`, `answered at #22`, `ended at #22`, `still running`, `no call`. */
+export function endWords(end: Ending['end']): string {
+  const p = endPart(end);
+  return p.http ? `${p.words} ${p.http}` : p.words;
+}
+
+/** The line a run's parts, from how it ended after the calls the two share; its checks and its spend follow them. */
+export function endingParts(e: Ending): EndingPart[] {
+  const parts: EndingPart[] = [];
+  if (e.failures) parts.push({ kind: 'failures', http: `HTTP ${e.failures.status}`, words: `at ${callRange(e.failures.from, e.failures.to)}` });
+  for (const g of e.writes) parts.push({ kind: 'writes', fate: g.fate, tools: g.tools.map((t) => ({ tool: t.tool, times: timesWords(t.count) })) });
+  if (!e.writes.length) parts.push({ kind: 'words', words: 'no write' });
+  parts.push({ kind: 'words', ...endPart(e.end) });
+  return parts;
 }

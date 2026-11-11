@@ -5,7 +5,8 @@ import { LoadFailed } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { onShow } from '../components/OnShow.js';
-import { BuilderFailed, builderTitle, CheckBuilderPart, removeTitle, type RemoveProps } from '../run/check-part.js';
+import { BuilderFailed, builderTitle, removeTitle, type RemoveProps } from '../run/check-part.js';
+import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 import type { LeadPress } from './Verdict.js';
 
@@ -14,7 +15,7 @@ import type { LeadPress } from './Verdict.js';
  * end each check and Add check… the last, shown on the row's hover or focus; on a touch screen, and
  * where the checks sit under the golden's name, one line under them, Edit checks… and Add check….
  * Edit and Add check… open the check builder on the golden, a part the served dashboard hands the
- * page (run/check-part.tsx); Remove asks first in a dialog of its own (checks/RemoveCheck.tsx). Tests
+ * page (served-parts.ts); Remove asks first in a dialog of its own (checks/RemoveCheck.tsx). Tests
  * imports neither: only the golden and the check's label go to them, which find the check in the
  * golden's entry as they read it.
  */
@@ -59,7 +60,7 @@ function shownAdd(golden: string): HTMLElement | null {
  */
 export function useCheckEntries(view: TestsView | null, reload: () => void): { entries: CheckEntries | null; edit: LeadPress['edit']; node: ReactNode } {
   const { actionsOff } = useApp();
-  const Builder = useContext(CheckBuilderPart);
+  const Builder = useServedParts().CheckBuilder;
   const [open, setOpen] = useState<CheckOpen | null>(null);
   const back = useRef<{ golden: string; until: number } | null>(null);
   const entries = useMemo<CheckEntries | null>(() => (Builder && !actionsOff ? { open: setOpen, preload: (act) => (act === 'remove' ? RemoveDialog.preload() : Builder.preload()) } : null), [Builder, actionsOff]);
@@ -98,7 +99,6 @@ export function useCheckEntries(view: TestsView | null, reload: () => void): { e
     edit,
     node: (
       <BuilderFailed.Provider value={<NoPart title={builderTitle(open.golden, { edit: open.check !== null, fromCall: false })} what="check builder" onClose={closeBuilder} />}>
-        {/* eslint-disable-next-line react-hooks/static-components -- the one part the served dashboard hands the page (App.tsx), the same on every render */}
         <Builder golden={open.golden} edit={open.check} onClose={closeBuilder} />
       </BuilderFailed.Provider>
     ),

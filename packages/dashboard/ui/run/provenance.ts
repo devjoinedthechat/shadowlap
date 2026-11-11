@@ -1,5 +1,6 @@
 import { approx, num } from '../format.js';
 import { failedWord, isFailed, isInterrupted, isLive, runType, type RunLike } from '../runs.js';
+import { scopeOnly, scopesOf, type ScopedCall } from '../scopes.js';
 
 /**
  * What Provenance works out on the page when the server does not: the providers a run's model calls
@@ -19,6 +20,12 @@ export function lineageWords(r: RunLike, label: string): { err: string | null; t
   if (isFailed(r) && (t === 'recording' || t === 'replay')) return { err: failedWord(r), text: '' };
   return { err: null, text: label };
 }
+
+/**
+ * The scopes the run's calls were recorded in, for the Calls row's count and the ledger's Scope
+ * column: what each call's meta holds, the judge's too, never an agent the server names.
+ */
+export const recordedScopes = (calls: readonly ScopedCall[]): string[] => scopesOf(calls, scopeOnly);
 
 /**
  * The Upstream row: the requests the run sent its providers and what they cost, and for a run pulled

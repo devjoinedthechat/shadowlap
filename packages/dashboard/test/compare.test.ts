@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { compareRuns, parseJsonExact, Store, storeApiRequest, storeView, type RunMeta, type RunRecord } from '@shadowlap/engine';
 import { codeChangeCache, compareHead, HEAD_READS, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
-import { startDashboard, type Dashboard } from '../src/index.js';
+import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
 import { LocalReads } from '../src/read-pool.js';
 import { compareTarget } from '../ui/runs.js';
 
@@ -197,6 +197,14 @@ describe('GET /api/compare', () => {
     expect(c.firstRequestDifference?.diff).toEqual([{ path: '$.messages[2].content[0].content', op: 'changed', before: '{"approval":"tier2"}', after: '{"refund_limit":100,"approval":"tier2"}', what: 'tool_result lookup_policy' }]);
   });
 
+  it('carries what the second run decided differently after the calls they share, which the head leaves out', async () => {
+    const c = await get(ids.recorded, ids.forked);
+    expect(c.pair).toMatchObject({ from: { a: 1, b: 1 }, verdict: { words: 'The same decisions', where: 'from #1', tone: 'done' }, more: 0 });
+    expect(c.pair?.rows.map((r) => r.n)).toEqual([1]);
+    const head = await fetch(`${dash.url}/api/compare?a=${ids.recorded}&b=${ids.forked}&part=head`, { headers: { 'x-shadowlap-token': dash.token } });
+    expect(await head.json()).not.toHaveProperty('pair');
+  });
+
   it('tells the read models how many calls the two runs have, which a long pair is given the time for', async () => {
     const asked = vi.spyOn(LocalReads.prototype, 'run');
     try {
@@ -308,5 +316,36 @@ describe('what Compare shows first', () => {
     const older = recorded(JSON.parse(asked('12345678901234567891')), 'f-3');
     expect(same(store, older, a)).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null });
     store.close();
+  });
+});
+
+describe('GET /api/compare after the project’s matching rules', () => {
+  it('compares the two after the normalizers the project config names, as a fork’s differences are', async () => {
+    const store = Store.open(':memory:');
+    // Two runs that each opened a ticket, its id the one thing between them.
+    const ticket = (id: string) => {
+      const r = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: repo } });
+      const identity = { kind: 'tool' as const, name: 'create_ticket', fingerprint: `ticket ${id}`, occurrence: 1 };
+      store.appendCallStart({ runId: r.runId, callNo: 1, ...identity, origin: 'live', effect: 'write', requestRef: store.putJson({ args: { id, note: 'Refund order A-1042' } }), meta: {}, at: 1 });
+      store.appendCallEnd(identity, { runId: r.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ result: { ok: true } }), outcome: 'ok', meta: {}, at: 2 });
+      store.endRun(r.runId, 'completed');
+      return r.runId;
+    };
+    const [a, b] = [ticket('T-1'), ticket('T-2')];
+    const verdict = async (normalize: ProjectConfig['normalize'] | null) => {
+      const dash = await startDashboard({ store, readOnly: true, project: { path: repo }, ...(normalize ? { loadConfig: (): ProjectConfig => ({ normalize, redact: [] }) } : {}) });
+      try {
+        const res = await fetch(`${dash.url}/api/compare?a=${a}&b=${b}`, { headers: { 'x-shadowlap-token': dash.token } });
+        return ((await res.json()) as CompareView).pair?.verdict?.words ?? null;
+      } finally {
+        await dash.close();
+      }
+    };
+    try {
+      expect(await verdict(null)).toBe('Different writes');
+      expect(await verdict([{ kind: 'tool', path: '$.args.id', replace: '<id>' }])).toBe('The same decisions');
+    } finally {
+      store.close();
+    }
   });
 });

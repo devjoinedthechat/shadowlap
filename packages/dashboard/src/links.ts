@@ -11,9 +11,10 @@
  *   #/changes[/verdicts/<rev>]           Changes: Verdicts, and a revision's page there
  *   #/changes/decisions[/<id>]           Changes: a preview (`shadowlap decisions`)
  *   #/changes/migrate[/<id>]             Changes: a migration (`shadowlap migrate`)
- *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a call of theirs
+ *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a row of theirs, by its place
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
  *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup  #/setup/store
+ *   #/settings/ci?gate=<kind>            Settings → CI with Gates on a kind (`sprt` or `baseline`), which it reads once
  */
 
 /** A run page's views; Calls is the default and leaves the link. */
@@ -222,14 +223,15 @@ export const links = {
   changes: (rev?: string | null): string => (rev ? `#/changes/verdicts/${enc(rev)}` : '#/changes'),
   /** Changes: a preview's tab (`decisions`) or a migration's (`migrate`), at a session. */
   changeSession: (kind: 'decisions' | 'migrate', id?: string | null): string => `#/changes/${kind}${id ? `/${enc(id)}` : ''}`,
-  /** Compare, under Changes: one run picked, two, and a call of theirs (which needs both). */
+  /** Compare, under Changes: one run picked, two, and a row of theirs, by its place (which needs both). */
   compare: (a?: string | null, b?: string | null, call?: number | null): string => (a ? `#/compare/${enc(a)}${b ? `/${enc(b)}${call ? `/${call}` : ''}` : ''}` : '#/compare'),
   /** Fixes, a fix, one of its steps (`blame`, `repair`, `verify`), and a verdict of its Verify step. */
   fixes: (id?: string | null, step?: string | null, sub?: string | null): string => `#/fixes${id ? `/${enc(id)}${step ? `/${enc(step)}${sub ? `/${enc(sub)}` : ''}` : ''}` : ''}`,
   tests: (): string => '#/tests',
   training: (tab?: 'pairs' | 'tasks'): string => (tab === 'tasks' ? '#/training/tasks' : '#/training'),
   /** Settings, at a tab (`matching`, `redaction`, `alerts` for CI, `agents`, `tools`, `project`, `store`). */
-  settings: (tab?: string | null): string => (tab ? `#/settings/${enc(tab)}` : '#/settings'),
+  /** A tab, and for CI the gate kind Gates opens on (a rule under Tests' table links there): the engine's `sprt` or `baseline`. */
+  settings: (tab?: string | null, o: { gate?: 'sprt' | 'baseline' } = {}): string => (tab ? `#/settings/${enc(tab)}${tab === 'ci' && o.gate ? `?gate=${o.gate}` : ''}` : '#/settings'),
   newProject: (): string => '#/new',
   setup: (): string => '#/setup',
   storeSetup: (): string => '#/setup/store',

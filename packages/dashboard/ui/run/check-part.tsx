@@ -1,6 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { CallDetail, RunDetail } from '../api.js';
-import type { OnShow } from '../components/OnShow.js';
 import { goldenName } from '../format.js';
 
 /** What the check menu offers to start from, by the key the builder's kinds take. */
@@ -9,31 +8,24 @@ export type CheckKind = 'never' | 'neverargs' | 'must' | 'after' | 'every' | 'wh
 /**
  * The check builder (checks/Builder.tsx): opened from a run's tool call with the kind picked in its
  * check menu, or on a golden to add a check to it or change one of its checks (`edit`, the check's
- * label as the CLI labels it, found in the golden's entry as the builder reads it).
+ * label as the CLI labels it, found in the golden's entry as the builder reads it). A part of its own
+ * that the served dashboard hands a run's page and Tests (served-parts.ts, from pages/served.tsx) and
+ * an exported copy never does: a copy draws no Add check… nor Edit check…, so its one script holds no
+ * builder (OnShow.tsx). Apart from the entries (check-entry.tsx, tests/check-entries.tsx), so the
+ * first look, whose served parts name the builder, holds this module and not them.
  */
 export type BuilderProps = { onClose: () => void } & ({ run: RunDetail; call: CallDetail; kind: CheckKind } | { golden: string; edit: string | null });
 
 /**
- * The check builder, a part of its own that the served dashboard hands a run's page (App.tsx) and an
- * exported copy never does: a copy draws no Add check…, so its one script holds no builder
- * (OnShow.tsx). Apart from the entries (check-entry.tsx), so the shell's first look holds only this.
+ * What the check menu at a tool call takes (CheckMenu.tsx): its call, once it came, and the rule
+ * picked. A part of its own, handed in beside the builder (served-parts.ts).
  */
-export const CheckBuilderPart = createContext<OnShow<BuilderProps> | null>(null);
-
-/** What the check menu at a tool call takes (CheckMenu.tsx): its call, once it came, and the rule picked. */
 export interface CheckMenuProps {
   anchor: HTMLElement;
   call: CallDetail | null;
   onPick: (kind: CheckKind) => void;
   onClose: () => void;
 }
-
-/**
- * The check menu at a tool call, which Add check… opens and whose pick opens the builder: a part of its
- * own that the served dashboard hands a run's page beside the builder (App.tsx), so neither the run's
- * page nor an exported copy's one script holds it. A page handed one without the other offers no Add check….
- */
-export const CheckMenuPart = createContext<OnShow<CheckMenuProps> | null>(null);
 
 /** The builder's title: from a call, `Add check`; on a golden, adding to it or changing its check. The entry's own dialog takes it where the builder's script didn't come. */
 export function builderTitle(golden: string | null, o: { edit: boolean; fromCall: boolean }): string {

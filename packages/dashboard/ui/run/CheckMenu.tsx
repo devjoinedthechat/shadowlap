@@ -6,8 +6,8 @@ import type { CheckKind, CheckMenuProps } from './check-part.js';
 /**
  * The check menu at a tool call, which Add check… opens (check-entry.tsx): its rules, each with the
  * key of the check it writes, then a judge's question about the whole run. A part of its own, which
- * the served dashboard hands a run's page beside the builder (App.tsx, CheckMenuPart in
- * check-part.tsx): the run's page rarely opens it, and an exported copy never does.
+ * the served dashboard hands a run's page beside the builder (served-parts.ts, from pages/served.tsx):
+ * the run's page rarely opens it, and an exported copy never does.
  */
 
 /** The check menu's rules for a call, each with the key of the check it writes, as the fork menu shows a flag. */

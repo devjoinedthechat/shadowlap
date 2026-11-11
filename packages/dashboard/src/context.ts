@@ -74,3 +74,17 @@ export interface RouteContext {
   /** Names this server instance: what the browser learned from another one (a cursor) no longer holds. */
   instance: string;
 }
+
+/**
+ * The project's matching rules (its config's `normalize`), as a fork's differences and Compare mask
+ * what they compare: none where the dashboard reads no config, or the config can't be read, so the
+ * comparison goes on as recorded rather than fail.
+ */
+export function projectNormalizers(ctx: Pick<RouteContext, 'options' | 'config'>): Normalizer[] {
+  if (!ctx.options.loadConfig) return [];
+  try {
+    return ctx.config().normalize;
+  } catch {
+    return [];
+  }
+}

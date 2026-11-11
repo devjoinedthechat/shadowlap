@@ -18,23 +18,27 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * and each part of a page heavy enough to wait for a script of its own: a run's views but Calls
  * (pages/Run.tsx), the dialog a run's action asks in (run/actions.tsx), and what a run's page
  * rarely opens, which keeps it within its budget: a diverged test's dialogs (run/diverged.tsx),
- * Export dataset… (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), a fork's
- * differences (run/FindingsBar.tsx), Edit and fork's
- * dialog (run/EditDialog.tsx), Run blame's check (fixes/RunBlame.tsx), and Find breaking commit's
- * and Delete run's (run/RunDialogs.tsx). So must the structural diff
+ * Share's menu with its rows' words (pages/served.tsx, run/share.ts: the page's header, steps and
+ * keys read theirs from run/share-steps.ts) and its Export dataset… and Export OpenTelemetry trace…
+ * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), Edit and fork's dialog
+ * (run/EditDialog.tsx), Run blame's dialogs and their check (fixes/RunBlameAsks.tsx), and Find
+ * breaking commit's and Delete run's (run/RunDialogs.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * and Remove check's dialog on Tests (checks/, the dialog declared in tests/check-entries.tsx) and
  * each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
- * the parts they show and none of the dashboard's other pages. A part a copy never draws stays out of
- * it: the check menu at a tool call and the check builder its pick opens, which only Add check… opens
- * and a copy never offers, are handed to a run's page by the served dashboard (App.tsx,
- * run/check-part.tsx), so the copy's script holds neither (test/ui-exported-copy.test.ts pins that a
- * copy's run page offers no Add check…). The one part the page list shows
- * itself, the page that says another project holds what a link names, is declared in a module of its
- * own that the pages showing it import too (pages/held-elsewhere.tsx), and the bundle size test pins
- * it. The bundle size test holds each page's and each part's script to a budget of its own.
+ * the parts they show and none of the dashboard's other pages. A part a copy never draws, such as
+ * Share's menu, Run blame's dialogs, or the check menu at a tool call and the check builder its pick
+ * opens (which only Add check… opens), is the exception: the served entry hands it in
+ * (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it, nor the dialogs it
+ * opens (Share's Export dataset… and Export OpenTelemetry trace…), and a test pins what keeps each one
+ * undrawn there (test/ui-exported-copy.test.ts).
+ * The one part the page list shows itself, the page that says another project holds what a link
+ * names, is declared in a module of its own that the pages showing it import too
+ * (pages/held-elsewhere.tsx), and the bundle size test pins it. The bundle size test holds each
+ * page's and each part's script to a budget of its own. What a fork did differently waits so too,
+ * a finding of a fork's page alone, asked for with the differences (run/FindingsBar.tsx).
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;

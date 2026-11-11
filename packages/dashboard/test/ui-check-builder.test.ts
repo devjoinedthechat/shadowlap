@@ -39,6 +39,7 @@ import {
   unitsOf,
   withRule,
   withoutJudges,
+  type BoxLine,
   type Rule,
   type RuleContext,
   type Unit,
@@ -282,11 +283,13 @@ describe('the golden it goes to', () => {
 });
 
 describe('the change', () => {
+  /** A line by its colour (`add`, `del`, or `.` kept), then its mark and its text, as the box draws them but for `−`. */
+  const drawn = (l: BoxLine) => `${l.op === '+' ? 'add' : l.op === '-' ? 'del' : '.'} ${l.op} ${l.text}`;
   it('shows the golden’s entry as the file lays it out, what goes and what comes, two kept lines around them and … for the entries around it', () => {
     const before = { expect: { tools: { a: 0, b: 1, c: 2, d: 3, e: 4 } } };
     const after = { expect: { tools: { a: 0, b: 1, c: 2, d: 3, e: 5 } } };
     const lines = changeLines({ key: 'goldens/x', before, after, indent: '  ', order: ['goldens/w', 'goldens/x', 'goldens/y'], exists: true, hasTests: true });
-    expect(lines.map((l) => `${l.tone ?? '.'} ${l.text}`)).toEqual([
+    expect(lines.map(drawn)).toEqual([
       '.     "tests": {',
       '.       …',
       '.       "goldens/x": {',
@@ -307,7 +310,7 @@ describe('the change', () => {
     const after = { expect: { tools: { a: 0, b: 1, c: 2, d: 3, e: 5 } } };
     const lines = changeLines({ key: 'goldens/x', before, after, indent: '    ', order: ['goldens/w', 'goldens/x', 'goldens/y'], exists: true, hasTests: true });
     const sp = (n: number) => ' '.repeat(n);
-    expect(lines.map((l) => `${l.tone ?? '.'} ${l.text}`)).toEqual([
+    expect(lines.map(drawn)).toEqual([
       `. ${sp(6)}"tests": {`,
       `. ${sp(10)}…`,
       `. ${sp(10)}"goldens/x": {`,
@@ -326,8 +329,8 @@ describe('the change', () => {
   it('shows an entry with no tests as it comes in whole, the file’s braces too with no file', () => {
     const after = { expect: { tools: { a: 0 } } };
     const lines = changeLines({ key: 'goldens/x', before: undefined, after, indent: '  ', order: [], exists: false, hasTests: false });
-    expect(lines.every((l) => l.tone === 'add')).toBe(true);
-    expect(lines.map((l) => l.text)).toEqual(['+ {', '+   "tests": {', '+     "goldens/x": {', '+       "expect": {', '+         "tools": {', '+           "a": 0', '+         }', '+       }', '+     }', '+   }', '+ }']);
+    expect(lines.every((l) => l.op === '+')).toBe(true);
+    expect(lines.map((l) => `${l.op} ${l.text}`)).toEqual(['+ {', '+   "tests": {', '+     "goldens/x": {', '+       "expect": {', '+         "tools": {', '+           "a": 0', '+         }', '+       }', '+     }', '+   }', '+ }']);
   });
 });
 

@@ -504,10 +504,10 @@ export function entryAfter(entry: unknown, expect: Fragment): Fragment {
   return next;
 }
 
-/** A line of the change's box: going (`del`), coming (`add`), or kept and faint (null). */
+/** A line of the change's box, as CodeBox's `lines` draws it: going (`-`), coming (`+`), or kept and faint (` `). */
 export interface BoxLine {
+  op: ' ' | '+' | '-';
   text: string;
-  tone: 'add' | 'del' | null;
 }
 
 /** The entry's lines as the file lays them out under `tests`: its key two levels in, a comma after it where entries follow. */
@@ -557,15 +557,15 @@ export function changeLines(o: ChangeOf): BoxLine[] {
   const at = o.order.indexOf(o.key);
   const comma = at >= 0 && at < o.order.length - 1;
   const lines = diffLines(entryLines(o.key, o.before, o.indent, comma), entryLines(o.key, o.after, o.indent, comma));
-  const mark = (x: [' ' | '-' | '+', string]): BoxLine => ({ text: `${x[0]} ${x[1]}`, tone: x[0] === '+' ? 'add' : x[0] === '-' ? 'del' : null });
+  const mark = (x: [' ' | '-' | '+', string]): BoxLine => ({ op: x[0], text: x[1] });
   if (!o.hasTests) {
     const whole = [`${o.indent}"tests": {`, ...entryLines(o.key, o.after, o.indent, false), `${o.indent}}`];
     return (o.exists ? whole : ['{', ...whole, '}']).map((text) => mark(['+', text]));
   }
-  // Under the entries' keys: the mark's two columns, then two of the file's indents.
-  const gap: BoxLine = { text: `  ${o.indent.repeat(2)}…`, tone: null };
+  // Under the entries' keys: two of the file's indents, after the mark's two columns the box draws.
+  const gap: BoxLine = { op: ' ', text: `${o.indent.repeat(2)}…` };
   const near = (k: number) => lines.slice(Math.max(0, k - 2), k + 3).some((y) => y[0] !== ' ');
-  const out: BoxLine[] = [{ text: `  ${o.indent}"tests": {`, tone: null }, ...(at > 0 || (at < 0 && o.order.length) ? [gap] : [])];
+  const out: BoxLine[] = [{ op: ' ', text: `${o.indent}"tests": {` }, ...(at > 0 || (at < 0 && o.order.length) ? [gap] : [])];
   lines.forEach((x, k) => {
     if (x[0] === ' ' && !near(k) && k && k < lines.length - 1) {
       if (out.at(-1) !== gap) out.push(gap);

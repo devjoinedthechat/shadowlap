@@ -221,6 +221,15 @@ test('a control’s hover card says its key, and Provenance’s card its name ov
   await expect(page.locator('.tip .kbd')).toHaveText('v');
 });
 
+test('c on a fork opens Compare against the run it forked from, the verdict first', async ({ page }) => {
+  const fork = demoId('override');
+  await openPage(page, `/run/${fork}`, 'run');
+  await page.keyboard.press('c');
+  await expect.poll(() => hash(page)).toBe(`#/compare/${demoId('ticket')}/${fork}`);
+  await expect(page.locator('main#view .verdict.cmpv')).toBeVisible();
+  await expect(page.locator('main#view .paths2 button.cprow').first()).toBeVisible();
+});
+
 test('n’s call on a fork’s banner says its key, and n selects it', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
   const mark = page.locator('#view [data-shortcut="jump"]');
@@ -258,7 +267,7 @@ test('Esc closes a run’s diff first, its toggle taking the focus from inside i
 test('Esc closes a run’s diff first while its script is on its way and once it failed to come, the run staying open', async ({ page }) => {
   // The diff is a script of its own, asked for the first time it opens: held back, then failed.
   const held: Route[] = [];
-  await page.route(/\/assets\/chunks\/DiffPanel-\w+\.js$/, (route) => void held.push(route));
+  await page.route(/\/assets\/chunks\/RequestDiff-\w+\.js$/, (route) => void held.push(route));
   await openPage(page, `/run/${demoId('override')}`, 'run');
   const at = await hash(page);
   const toggle = page.locator('#view [data-act="diff"]');

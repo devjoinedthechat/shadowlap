@@ -69,15 +69,23 @@ function callRows(m: MetricInput): MetricCard['rows'] {
   return made.filter(([, v]) => v !== 0);
 }
 
-export function metricItems(m: MetricInput): MetricItem[] {
+/**
+ * What a run spent, as its header says it and Compare's line a run says it again: `≈$0.051 spent`,
+ * `$0.12 as captured` for a capture, `— spent · no price for <model>` where its model has no price,
+ * with `· by <name>` for a run pulled from the team store.
+ */
+export function spentWords(m: Pick<MetricInput, 'cost' | 'capture' | 'spentBy'>): { value: string; label: string } {
+  if (m.capture) return { value: money(m.cost.captured), label: 'as captured' };
   const unpriced = m.cost.spent === 0 && m.cost.unknownModels.length > 0;
   const by = m.spentBy ? ` · by ${m.spentBy}` : '';
+  return { value: unpriced ? '—' : approx(m.cost.spent), label: unpriced ? `spent${by} · no price for ${m.cost.unknownModels[0]!}` : `spent${by}` };
+}
+
+export function metricItems(m: MetricInput): MetricItem[] {
   const upstream: MetricCard['rows'] = [[plural(m.upstreamRequests, 'upstream request'), m.upstreamRequests]];
   const items: MetricItem[] = [
     { value: m.total, label: m.live ? plural(m.total, 'call so far', 'calls so far') : plural(m.total, 'call'), cls: '', tip: { title: `${m.total.toLocaleString('en-US')} ${plural(m.total, 'call')}`, rows: callRows(m) } },
-    m.capture
-      ? { value: money(m.cost.captured), label: 'as captured', cls: 'q', tip: { title: 'As the capture recorded it', rows: upstream } }
-      : { value: unpriced ? '—' : approx(m.cost.spent), label: unpriced ? `spent${by} · no price for ${m.cost.unknownModels[0]!}` : `spent${by}`, cls: 'q', tip: { title: 'Spent live', rows: upstream } },
+    { ...spentWords(m), cls: 'q', tip: { title: m.capture ? 'As the capture recorded it' : 'Spent live', rows: upstream } },
   ];
   if (m.cost.saved || m.tokensNotRespent) items.push({ value: money(m.cost.saved), label: 'not re-spent', cls: 'q', tip: { title: 'Replayed from the recording', rows: m.tokensNotRespent ? [['input tokens not sent again', ktok(m.tokensNotRespent)]] : [] } });
   if (m.notWaitedMs) items.push({ value: receiptDuration(m.notWaitedMs), label: 'not waited', cls: 'q', tip: { title: 'The recorded time of the replayed calls', rows: [], ...(m.notWaitedUnknown ? { sub: durationsNotFound(m.notWaitedUnknown) } : {}) } });

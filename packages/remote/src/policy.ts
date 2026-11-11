@@ -212,6 +212,23 @@ export function accessPolicy(provider: Provider, loc: StoreLocation | null): Acc
   }
 }
 
+/**
+ * What `shadowlap store policy` prints, line by line, ready to hand over: the policy for people and
+ * protected branches, then the one for pull requests, each under a `#` line saying who it is for
+ * with its notes after it, and the notes on both last. `comment`: a `#` line. Settings → Store's
+ * Copy access policy copies the same lines, so the copy and the command say the same.
+ */
+export function policyLines(policy: AccessPolicy): Array<{ text: string; comment: boolean }> {
+  const out = [{ text: `# ${policyTitle(policy.provider)}: one policy for people and protected branches, one for pull requests`, comment: true }];
+  for (const [i, part] of [policy.writer, policy.pullRequest].entries()) {
+    out.push({ text: `#\n# ${i + 1}. For ${part.for}: ${part.kind}`, comment: true }, { text: part.text, comment: false });
+    for (const n of part.notes) out.push({ text: `# ${n}`, comment: true });
+  }
+  if (policy.notes.length) out.push({ text: '#', comment: true });
+  for (const n of policy.notes) out.push({ text: `# ${n}`, comment: true });
+  return out;
+}
+
 export function policyTitle(provider: Provider): string {
   return `The access to ask your cloud admin for (${PROVIDER_NAMES[provider]})`;
 }

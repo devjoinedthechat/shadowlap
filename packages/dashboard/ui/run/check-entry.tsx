@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { isObject } from '../../../engine/src/is-object.js';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import type { CallDetail, CallRow, RunDetail } from '../api.js';
@@ -7,14 +7,15 @@ import { LoadFailed } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { useMenu } from '../components/Popover.js';
+import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 import type { NextStep } from '../types.js';
-import { BuilderFailed, builderTitle, CheckBuilderPart, CheckMenuPart, type CheckKind } from './check-part.js';
+import { BuilderFailed, builderTitle, type CheckKind } from './check-part.js';
 
 /**
  * Add check… on a run's page: first in a tool call's row menu, on the inspector's summary line and in
  * ⌘K, each opening the check menu at the call, whose pick opens the check builder (checks/). Both are
- * parts of their own that the served dashboard hands the page (App.tsx): nothing here imports their
+ * parts of their own that the served dashboard hands the page (served-parts.ts): nothing here imports their
  * code, so the run's page carries only the entries, and an exported copy, handed neither, none.
  */
 
@@ -69,8 +70,7 @@ function NoBuilder({ title = 'Add check', onClose }: { title?: string; onClose: 
  */
 export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: CallDetail | null }): { check: CheckEntry | undefined; fromPalette: (() => void) | undefined; offered: boolean; node: ReactNode } {
   const app = useApp();
-  const Builder = useContext(CheckBuilderPart);
-  const Menu = useContext(CheckMenuPart);
+  const { CheckBuilder: Builder, CheckMenu: Menu } = useServedParts();
   const menu = useMenu();
   const [start, setStart] = useState<{ call: CallDetail; kind: CheckKind } | null>(null);
   const handed = !!Builder && !!Menu;
@@ -108,7 +108,6 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
     <>
       {menu.anchor && Menu ? (
         <BuilderFailed.Provider value={<NoBuilder onClose={menu.close} />}>
-          {/* eslint-disable-next-line react-hooks/static-components -- the one part the served dashboard hands the page (App.tsx), the same on every render */}
           <Menu
             anchor={menu.anchor}
             call={call}
@@ -122,7 +121,6 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
       ) : null}
       {start && Builder ? (
         <BuilderFailed.Provider value={<NoBuilder onClose={close} />}>
-          {/* eslint-disable-next-line react-hooks/static-components -- the one part the served dashboard hands the page (App.tsx), the same on every render */}
           <Builder run={o.run} call={start.call} kind={start.kind} onClose={close} />
         </BuilderFailed.Provider>
       ) : null}
@@ -139,7 +137,7 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
  * act it keeps its place and says why.
  */
 export function EditCheckStep({ step }: { step: Extract<NextStep, { key: 'edit-check' }> }) {
-  const Builder = useContext(CheckBuilderPart);
+  const Builder = useServedParts().CheckBuilder;
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   if (!Builder) return null;
@@ -151,7 +149,6 @@ export function EditCheckStep({ step }: { step: Extract<NextStep, { key: 'edit-c
       </ActionButton>
       {open ? (
         <BuilderFailed.Provider value={<NoBuilder title={builderTitle(step.golden, { edit: true, fromCall: false })} onClose={close} />}>
-          {/* eslint-disable-next-line react-hooks/static-components -- the one part the served dashboard hands the page (App.tsx), the same on every render */}
           <Builder golden={step.golden} edit={step.check} onClose={close} />
         </BuilderFailed.Provider>
       ) : null}

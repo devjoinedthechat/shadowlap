@@ -7,7 +7,8 @@ import type { ChecksApi, ChecksConfig, GoldenEntry } from '../ui/checks-api.js';
 import { checkPhrases, RemoveCheck } from '../ui/checks/RemoveCheck.js';
 import type { OnShow } from '../ui/components/OnShow.js';
 import { TestsPage } from '../ui/pages/Tests.js';
-import { CheckBuilderPart, type BuilderProps, type RemoveProps } from '../ui/run/check-part.js';
+import type { BuilderProps, RemoveProps } from '../ui/run/check-part.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import type { ToastAction } from '../ui/toast.js';
 import { shell, words } from './ui-overlays-page.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
@@ -98,7 +99,7 @@ async function openTests(o: { tests?: () => Promise<TestsView>; builder?: OnShow
   } as unknown as Client;
   const app = { client, tick: 0, feeds: {}, jobs: [], actionsOff: o.actionsOff ?? null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: o.toast ?? (() => undefined), refresh: () => undefined };
   const page = createElement(TestsPage);
-  r = await render(shell(app as never, o.builder === null ? page : createElement(CheckBuilderPart.Provider, { value: o.builder ?? fakeBuilder().Part }, page)));
+  r = await render(shell(app as never, o.builder === null ? page : createElement(ServedPartsContext.Provider, { value: { CheckBuilder: o.builder ?? fakeBuilder().Part } }, page)));
   await r.until('the goldens to load', () => r!.all('table.gt tbody tr').length === 2);
   return r;
 }
@@ -251,7 +252,7 @@ describe('Remove check', () => {
     expect(page.all('.dialog.ckrm header p code.ckl .ckp').map((p) => p.textContent)).toEqual([ISSUE]);
     expect(page.all('.dialog.ckrm .cb-k')).toEqual([]);
     // Only its own line goes: the other check's stays as it is, comma and all.
-    expect(page.all('.cb-file .codebox .del').map((l) => l.textContent.trim())).toEqual(['-           "issue_refund": 1,']);
+    expect(page.all('.cb-file .codebox .del').map((l) => l.textContent.trim())).toEqual(['−           "issue_refund": 1,']);
     expect(page.all('.cb-file .codebox .add')).toEqual([]);
     expect(said(page.one('.cb-ver'))).toBe('version c0ffee12 · saved only if unchanged');
     expect(said(page.one('.dlg-ok'))).toBe('Remove check');

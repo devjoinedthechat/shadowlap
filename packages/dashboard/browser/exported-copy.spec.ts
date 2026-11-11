@@ -104,6 +104,17 @@ test('an exported copy lists its runs, compares them, and opens its runs for any
   await sections.getByRole('link', { name: 'Compare' }).click();
   await expect(page.locator('main#view .pickers')).toHaveCount(1);
   await expect(page.locator('main#view .prefix')).toBeVisible();
+  // The fork against its parent, the verdict first; a row opens both calls from what the copy holds,
+  // its call in the address, and its × closes it.
+  await expect(page.locator('main#view .verdict.cmpv')).toBeVisible();
+  const row = page.locator('main#view .paths2 button.cprow').first();
+  await row.click();
+  await expect(row).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('main#view #cmpd a.more').first()).toBeVisible();
+  expect(await hash(page)).toMatch(new RegExp(`^#/compare/${parent}/${fork}/\\d+$`));
+  await page.locator('main#view #cmpd .cmpx').click();
+  await expect(page.locator('main#view #cmpd')).toHaveCount(0);
+  expect(await hash(page)).toBe(`#/compare/${parent}/${fork}`);
   // A page a copy doesn't hold, from a link or the address bar, opens its runs; the Overview's
   // address, the run that was shared.
   for (const other of ['#/fixes', '#/changes', '#/changes/verdicts/d2e8a1f', '#/tests', '#/training', '#/settings/redaction']) {

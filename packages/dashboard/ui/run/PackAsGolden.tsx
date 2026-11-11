@@ -8,7 +8,7 @@ import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { PACK_HOLDS, PACK_VERB, packTestCommands, redactsFact } from './share.js';
+import { PACK_HOLDS, PACK_VERB, packTestCommands, redactsFact } from './share-steps.js';
 
 /*
  * Pack as golden…'s button and its dialog, in a module of their own: the run page's header and step

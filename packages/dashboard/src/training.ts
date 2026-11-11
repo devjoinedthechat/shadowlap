@@ -217,8 +217,6 @@ export interface PairGroupView {
   context: string;
   rejected: AnswerView;
   chosen: AnswerView[];
-  /** `chosen · blame attempt, passed`, or `chosen · 3 attempts that passed`. */
-  chosenLabel: string;
   ids: string[];
 }
 
@@ -626,7 +624,6 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
         context: x.context,
         rejected: { text: x.rejected.text, what: x.rejected.what, runId: x.rejected.runId, callNo: x.rejected.callNo, href: links.run(x.rejected.runId, x.rejected.callNo) },
         chosen: [],
-        chosenLabel: '',
         ids: [],
       };
       byKey.set(key, g);
@@ -636,7 +633,6 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
     g.ids.push(x.id);
     g.chosen.push({ text: x.chosen.text, what: x.chosen.what, runId: x.chosen.runId, callNo: x.chosen.callNo, href: links.run(x.chosen.runId, x.chosen.callNo) });
   }
-  for (const g of groups) g.chosenLabel = g.chosen.length === 1 ? `chosen · ${g.chosen[0]!.what}` : `chosen · ${g.chosen.length} attempts that passed`;
   const madeBy: Record<string, number> = {};
   for (const x of input.pairs) madeBy[x.source] = (madeBy[x.source] ?? 0) + 1;
 

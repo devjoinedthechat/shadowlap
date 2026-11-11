@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { RunPicker } from '../ui/compare/RunPicker.js';
 import { EventIcon } from '../ui/components/RunIcon.js';
 import { ResponseDifferences } from '../ui/pages/Compare.js';
-import { TodayCard, WeekGrid } from '../ui/overview/panels.js';
 import { matchPalette } from '../ui/palette.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { sideStatus } from '../ui/runs.js';
@@ -202,17 +201,6 @@ describe('the lists name a run by its id, with its about line', () => {
     expect(html).toContain('<code class="rnm rl pid">01M5GRX4VY</code>');
     expect(html).toContain('data-about="Ticket T-8812 from customer C-311: order A-1042 ($240) arrived damaged"');
     expect(html).not.toContain('<select');
-  });
-
-  it('on the Overview: the grid’s hover card has the about line under the id, and a recording in progress shows it under its id', () => {
-    const row = { runId: FORK, parentRunId: REC, depth: 1, context: false, kind: 'fork', status: 'completed', outcome: { kind: 'none' }, failed: false, label: 'fork @17', about: { text: 'override #16', from: 'change', change: null }, rescues: null, startedAt: 1, calls: 3, cells: 'rrl', forkCell: 2, origins: { r: 2, l: 1, o: 0, i: 0, f: 0, b: 0, s: 0 } };
-    const grid = renderToStaticMarkup(createElement(WeekGrid, { grid: { runs: 1, calls: 3, origins: row.origins, families: [{ size: 1, cols: 30, rows: [row] }], shown: 1, more: 0 } as never, now: 2 }));
-    expect(grid).toContain('&quot;s&quot;:&quot;override #16&quot;');
-    const today = { day: '2026-10-22', served: 0, notRespent: 0, recording: [{ runId: '01M5GRZNA5PJ6DHP9G395YMSJG', command: 'node refund_agent.mjs T-8813', calls: 9, startedAt: 1, about: { text: 'My blender arrived broken', from: 'user' } }], replays: 0, forks: { count: 0, live: 0, blocked: 0 }, tests: { count: 0, failed: 0, inconclusive: 0, latestFailure: null }, blame: { probes: 0, attempts: 0, runs: [] } };
-    const card = renderToStaticMarkup(createElement(TodayCard, { today: today as never, live: [], tests: null }));
-    expect(card).toContain('Recording <code>01M5GRZNA5</code>');
-    expect(card).toContain('<span class="rab d" data-about="My blender arrived broken"');
-    expect(card).not.toContain('node refund_agent.mjs T-8813</span>');
   });
 });
 

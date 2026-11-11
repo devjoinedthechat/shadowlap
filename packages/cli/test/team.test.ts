@@ -8,6 +8,7 @@ import { fixRecords, recordBlame, recordRepair, Store, unpackRun, type RunMeta }
 import { blameReport, EXPECT, repairReport } from '../../engine/test/fix-fixtures.js';
 import { startFakeS3, type FakeS3 } from '../../remote/test/fakes/s3.js';
 import { prepareTestPush, pushIfQueued, storeCheck, storeCi, storePolicy, storePushFromCi, storeSet, storeSetChecked, storeShow, TeamError, teamPull, teamPush, teamShare, type TeamEnv } from '../src/team.js';
+import { lastCiSession, parseStoreUrl, storeKey } from '@shadowlap/remote';
 import { loadConfig } from '../src/config.js';
 import { testReport } from '../src/test-report.js';
 
@@ -818,6 +819,36 @@ describe('a run pushed while it records, and test runs from CI', () => {
     const goldenDoc = JSON.parse(s3.objects.get(`ci/runs/${golden}/run.json`)!.body.toString()) as { run: { meta: { author?: string } } };
     expect(goldenDoc.run.meta.author).toBeUndefined();
     expect(keysUnder('ci').filter((k) => k.startsWith('ci/tests/'))).toHaveLength(1);
+  });
+
+  it('names the CI in the report, and a pull keeps the newest session CI pushed, never a person’s', async () => {
+    const dana = machine('ci-seen', 'dana@northwind.example');
+    storeSet(dana, storeUrl('ci-seen'));
+    const verdicts = (...v: string[]) => v.map((verdict) => ({ verdict })) as unknown as Parameters<typeof testReport>[0];
+    const report = (id: string, revision: string, results: ReturnType<typeof verdicts>) => ({ ...testReport([], { id, revision }), results });
+    const job = teammate(dana, 'ci-seen-runner', 'ci', { GITHUB_ACTIONS: 'true' });
+    // Each report a minute after the one before: its key's ULID sorts by that time.
+    const minute = (m: Machine, n: number): Machine => ({ ...m, now: () => at('2027-01-15') + n * 60_000 });
+    await (await prepareTestPush(minute(job, 1)))!.finish(report('S1', 'd2e8a1f9', verdicts('passed', 'passed', 'failed', 'inconclusive')));
+    const docs = keysUnder('ci-seen').filter((k) => k.startsWith('ci-seen/tests/'));
+    expect(docs).toHaveLength(1);
+    expect(JSON.parse(s3.objects.get(docs[0])!.body.toString())).toMatchObject({ format: 'shadowlap-store-tests', ci: 'github' });
+    // A person's own --push, later: no ci, so the line still names CI's.
+    await (await prepareTestPush(minute(teammate(dana, 'ci-seen-laptop', 'sam@northwind.example'), 2)))!.finish(report('S2', 'aaaa111', verdicts('passed')));
+    const key = (m: Machine) => {
+      const store = Store.open(m.dbPath);
+      try {
+        return lastCiSession(store, storeKey(parseStoreUrl(storeUrl('ci-seen'))));
+      } finally {
+        store.close();
+      }
+    };
+    expect(await teamPull(dana, [])).toBe(0);
+    expect(key(dana)).toEqual({ ci: 'github', session: 'S1', revision: 'd2e8a1f9', at: expect.any(Number), passed: 2, failed: 1, inconclusive: 1 });
+    // The next pull reads only what came since; a later CI session replaces it.
+    await (await prepareTestPush(minute(job, 3)))!.finish(report('S3', 'b0b0b0b', verdicts('passed', 'passed')));
+    expect(await teamPull(dana, [])).toBe(0);
+    expect(key(dana)).toMatchObject({ session: 'S3', revision: 'b0b0b0b', passed: 2, failed: 0, inconclusive: 0 });
   });
 
   it("keeps CI from pushing when Push from CI is off, and pushes from a person's machine anyway", async () => {

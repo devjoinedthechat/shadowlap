@@ -102,7 +102,7 @@ describe('the check builder from a call', () => {
     expect(text('.cb-count')).toBe('Passes 2 recordings · fails 1, labelled bug');
     expect(text('.cb-sub')).toContain('replay');
     // A comma comes after the count it follows: that line goes and comes again.
-    expect(r!.all('.cb-file .codebox .del').map((l) => l.textContent.trim())).toEqual(['-           "send_email": 0']);
+    expect(r!.all('.cb-file .codebox .del').map((l) => l.textContent.trim())).toEqual(['−           "send_email": 0']);
     expect(r!.all('.cb-file .codebox .add').map((l) => l.textContent.trim())).toEqual(['+           "send_email": 0,', '+           "issue_refund": 0']);
     expect(text('.cb-ver')).toBe('version c0ffee12 · saved only if unchanged');
     expect(text('.dlg-ok')).toBe('Save check');

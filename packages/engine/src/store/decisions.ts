@@ -131,6 +131,20 @@ export abstract class Decisions extends StorePart {
     return rows.map((r) => this.decisionSessionRow(r));
   }
 
+  /**
+   * What each session kept in [from, to) spent on model calls that are no run: a preview's asks and
+   * judge calls (`cost.spent`, `judge.spent`), a migration's (`costs.checking.decisions` and
+   * `.judge`). Never what their verify spent: its attempts are runs of their own, priced with the
+   * rest. Read off the `at` index, no report parsed. Oldest first.
+   */
+  decisionSpend(from: number, to: number): Array<{ kind: 'decisions' | 'migrate'; at: number; spent: number }> {
+    const asked = `CASE kind WHEN 'migrate' THEN coalesce(json_extract(data, '$.costs.checking.decisions'), 0) + coalesce(json_extract(data, '$.costs.checking.judge'), 0) ELSE coalesce(json_extract(data, '$.cost.spent'), 0) + coalesce(json_extract(data, '$.judge.spent'), 0) END`;
+    return this.db
+      .prepare(`SELECT kind, at, ${asked} AS spent FROM decision_sessions WHERE at >= ? AND at < ? ORDER BY at, session_id`)
+      .all(from, to)
+      .map((r) => ({ kind: r.kind === 'migrate' ? ('migrate' as const) : ('decisions' as const), at: Number(r.at), spent: Number(r.spent) || 0 }));
+  }
+
   /** A run's part of each session that asked its model calls again, newest first, with the session's kind and change. */
   decisionsOfRun(runId: string, limit = 20): Array<DecisionRunRow & Pick<DecisionSessionRow, 'kind' | 'change'>> {
     return this.db
