@@ -1,4 +1,4 @@
-import { canonicalize, credentialFreeArgv, credentialFreeCommandLine, FIX_STATUSES, isObject, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type StepRerun, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
+import { canonicalize, checkKey, credentialFreeArgv, credentialFreeCommandLine, FIX_RUN_OUTCOMES, FIX_STATUSES, isObject, repairPatchProblem, sha256, type FixCheckEntry, type FixData, type FixLink, type FixLinkKind, type FixStatus, type StepRerun, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
 import { LayoutError } from './layout.js';
 
 /**
@@ -37,6 +37,12 @@ export interface FixDoc {
   blames: StoredBlame[];
   verdicts: StoredVerdict[];
   repairs: StoredRepair[];
+  /**
+   * Each check the fix has had, the first first, without the place each machine numbers it by
+   * (historyOf). A document without them holds one: the fix's check, from when it was opened, by its
+   * opener. A Shadowlap from before they synced reads the document and drops them on its next push.
+   */
+  checks?: FixCheckEntry[];
 }
 
 const FIX_ID = /^fx-[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -268,6 +274,16 @@ const repairReport = obj({
   output: obj({ dir: nullable(line), patch: nullable(line), report: nullable(line), goldens: arr(line), applied: bool, branch: nullable(line), pr: nullable(line) }),
   warnings: arr(str),
 });
+/** How a check a fix was given judged its runs: run ids, each passed, failed, inconclusive or gone. */
+const runOutcomes: Check = (v, w) => {
+  record(oneOf(...FIX_RUN_OUTCOMES))(v, w);
+  const ids = Object.keys(v as object);
+  if (ids.length > MAX.links) fail(w, `holds more than ${MAX.links} runs`);
+  for (const id of ids) runId(id, `${w}.${id}`);
+};
+const fixCheck = obj({ expect: any, key: line, oracle: arr(str), text: str });
+const checkEntry = obj({ at: num, actor: nullable(line), check: fixCheck, judged: optional(nullable(obj({ failing: runOutcomes, good: runOutcomes }))) });
+
 const standing = obj({ counts: bool, why: oneOf(null, 'another-check', 'already-passing', 'no-runs'), missing: optional(arr(str)) });
 const fixData = obj({
   source: optional(obj({ ci: optional(pattern(/^[a-z][a-z0-9-]{0,31}$/, 'a CI provider')), pr: optional(obj({ url: line, number: nullable(num), state: optional(oneOf('open', 'merged', 'closed')), at: optional(num) })) })),
@@ -329,7 +345,7 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
     fixId: pattern(FIX_ID, 'a fix id'),
     title: line,
     labels: arr(pattern(LABEL, 'a label'), MAX.labels),
-    check: obj({ expect: any, key: line, oracle: arr(str), text: str }),
+    check: fixCheck,
     status: oneOf(...FIX_STATUSES),
     openedAt: num,
     verifiedAt: nullable(num),
@@ -373,8 +389,26 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
     blames: (raw.blames as StoredBlame[]).filter((b) => named('blame').has(b.blameId)).map(unmarked),
     verdicts: (raw.verdicts as StoredVerdict[]).filter((v) => named('verify').has(v.verifyId)).map(unmarked),
     repairs: (raw.repairs as StoredRepair[]).filter((r) => named('repair').has(r.repairId)),
+    ...parsedChecks(raw.checks, where),
   };
 }
+
+/** A document's checks, checked, when it holds them: a document from before they synced has none. */
+function parsedChecks(v: unknown, where: string): Pick<FixDoc, 'checks'> {
+  if (v === undefined) return {};
+  arr(checkEntry, MAX.records)(v, `${where}.checks`);
+  const checks = (v as FixCheckEntry[]).map(entryOf);
+  return checks.length ? { checks } : {};
+}
+
+const entryOf = (e: FixCheckEntry): FixCheckEntry => ({ at: e.at, actor: e.actor ?? null, check: e.check, judged: e.judged ?? null });
+
+/** A copy's checks, the first first: one, the fix's check from when it was opened by its opener, for a document without them. */
+export function historyOf(doc: Pick<FixDoc, 'fix' | 'checks'>): FixCheckEntry[] {
+  return doc.checks?.length ? doc.checks.map(entryOf) : [{ at: doc.fix.openedAt, actor: doc.fix.data.openedBy ?? null, check: doc.fix.check, judged: null }];
+}
+
+const checkOrder = (x: FixCheckEntry, y: FixCheckEntry): number => x.at - y.at || (x.check.key < y.check.key ? -1 : x.check.key > y.check.key ? 1 : 0);
 
 // ---------------------------------------------------------------------------------------------- this machine's copy
 
@@ -444,6 +478,7 @@ export function fixDocOf(store: StoreOf<'fixes'>, fixId: string): FixDoc | null 
     blames: found(refs('blame').map((id) => store.getBlame(id))).map((b) => shared(unmarked(b))),
     verdicts: found(refs('verify').map((id) => store.getVerdict(id))).map((v) => shared(unmarked(v))),
     repairs: found(refs('repair').map((id) => store.getRepair(id))).map(shared),
+    checks: store.fixChecks(fixId).map(({ at, actor, check, judged }) => ({ at, actor, check, judged })),
   });
 }
 
@@ -460,8 +495,28 @@ export function fixDocHash(doc: FixDoc): string {
       blames: byKey(doc.blames, (b) => b.blameId),
       verdicts: byKey(doc.verdicts, (v) => v.verifyId),
       repairs: byKey(doc.repairs, (r) => r.repairId),
+      checks: historyOf(doc).sort(checkOrder),
     }),
   );
+}
+
+/**
+ * Two copies' checks as one: every check either had, by when it was given, the store's (`there`)
+ * last of two given at once, so the newest is the one the fix has. A fix verified keeps the check its
+ * accepted verdict counted under, whichever copy changed it since: that check goes last, the same way
+ * on every machine.
+ */
+function mergedChecks(here: FixDoc, there: FixDoc, status: FixStatus, verdicts: readonly StoredVerdict[], links: FixDoc['links']): FixCheckEntry[] {
+  const theirs = historyOf(there);
+  const known = new Set(theirs.map((e) => `${e.at}:${e.check.key}`));
+  const all = [...historyOf(here).filter((e) => !known.has(`${e.at}:${e.check.key}`)), ...theirs].sort((x, y) => x.at - y.at);
+  if (status === 'open') return all;
+  const counted = new Set(links.filter((l) => l.kind === 'verify' && (l.data?.counts ?? true)).map((l) => l.ref));
+  const accepted = verdicts.find((v) => v.verdict === 'accepted' && counted.has(v.verifyId));
+  const key = accepted ? checkKey(accepted.expect ?? null) : null;
+  let i = all.length - 1;
+  while (i >= 0 && all[i]!.check.key !== key) i--;
+  return i < 0 || i === all.length - 1 ? all : [...all.slice(0, i), ...all.slice(i + 1), all[i]!];
 }
 
 // ---------------------------------------------------------------------------------------------- merging two copies
@@ -519,6 +574,9 @@ export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
     for (const x of [...ys, ...xs]) if (!out.has(id(x))) out.set(id(x), x);
     return [...out.values()];
   };
+  const merged = [...links.values()].sort((x, y) => x.at - y.at || (x.ref < y.ref ? -1 : 1));
+  const verdicts = union(here.verdicts, there.verdicts, (x) => x.verifyId).sort((x, y) => x.at - y.at);
+  const checks = mergedChecks(here, there, status, verdicts, merged);
   return {
     format: FIX_FORMAT,
     version: FIX_VERSION,
@@ -526,17 +584,18 @@ export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
       fixId: a.fixId,
       title,
       labels,
-      check: b.check,
+      check: checks.at(-1)!.check,
       status,
       openedAt: Math.min(a.openedAt, b.openedAt),
       verifiedAt: status === 'open' ? null : minOf(a.verifiedAt, b.verifiedAt),
       appliedAt: null,
       data,
     },
-    links: [...links.values()].sort((x, y) => x.at - y.at || (x.ref < y.ref ? -1 : 1)),
+    links: merged,
     blames: union(here.blames, there.blames, (x) => x.blameId).sort((x, y) => x.at - y.at).map(shared),
-    verdicts: union(here.verdicts, there.verdicts, (x) => x.verifyId).sort((x, y) => x.at - y.at).map(shared),
+    verdicts: verdicts.map(shared),
     repairs: union(here.repairs, there.repairs, (x) => x.repairId).sort((x, y) => x.at - y.at).map(shared),
+    checks,
   };
 }
 
@@ -573,6 +632,8 @@ export function applyFixDoc(store: StoreOf<'fixes' | 'team'>, doc: FixDoc, o: { 
       repairs.push(r.repairId);
     }
     for (const l of doc.links) store.addFixLink(fix.fixId, l.kind, l.ref, l.at, (l.data) ?? null);
+    // Its checks as merged, the newest the one it has.
+    store.replaceFixChecks(fix.fixId, historyOf(doc));
     return { created: !here, repairs };
   }, 'immediate');
 }
