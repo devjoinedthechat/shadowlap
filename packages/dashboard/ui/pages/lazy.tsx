@@ -89,7 +89,7 @@ function PageFor({ route }: { route: Route }) {
       // RunPage keeps; another run starts the page empty there.
       return <RunPage id={route.id} call={route.call} view={route.view} />;
     case 'changes':
-      return <ChangesPage tab={route.tab} id={route.id} />;
+      return <ChangesPage tab={route.tab} id={route.id} run={route.run} call={route.call} />;
     case 'compare':
       return <ComparePage a={route.a} b={route.b} call={route.call} />;
     case 'fixes':

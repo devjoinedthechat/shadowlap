@@ -619,7 +619,7 @@ export function createExportedClient(data: StaticPayload): Client {
     decisionSession: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     verdicts: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     verdictRevision: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
-    runDecisions: () => Promise.resolve({ runId: '', sessions: [] }),
+    runDecisions: () => Promise.resolve({ runId: '', sessions: [], later: null }),
     retirements: () => Promise.resolve({ version: '', notices: [] }),
     coverage: () => Promise.resolve(null),
     chaos: () => Promise.resolve(null),

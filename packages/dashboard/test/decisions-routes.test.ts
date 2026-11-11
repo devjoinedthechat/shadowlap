@@ -6,7 +6,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import { decisionRow, decisionSession, retirementsView, runDecisions, type DecisionsListView } from '../src/decisions.js';
+import type { ProjectConfig } from '../src/context.js';
+import type { PreviewView } from '../src/decision-view.js';
+import { decisionRow, decisionSession, retirementsView, runDecisions, type DecisionCell, type DecisionsListView } from '../src/decisions.js';
 import { commandTreeUse } from '../src/worktree.js';
 
 /**
@@ -50,6 +52,18 @@ const runOf = (runId: string, golden: string | null, decisions: DecisionStep[]):
 
 const api = (d: Dashboard, path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, ...(typeof init.body === 'string' ? { 'content-type': 'application/json' } : {}) } });
 const startJob = (d: Dashboard, body: unknown) => api(d, 'jobs', { method: 'POST', body: JSON.stringify(body) });
+/**
+ * Until every job a dashboard started has ended. Each stand-in exits at once, but on a busy machine
+ * the jobs this file starts can still be 16 running, and the dashboard then refuses the next with a
+ * 429 before its builder can say what it refuses it for.
+ */
+const jobsEnded = async (d: Dashboard) => {
+  for (let i = 0; i < 1500; i++) {
+    const { jobs } = (await (await api(d, 'jobs')).json()) as { jobs: Array<{ done: boolean }> };
+    if (jobs.every((j) => j.done)) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+};
 
 beforeAll(async () => {
   project = mkdtempSync(join(tmpdir(), 'sl-decisions-routes-'));
@@ -86,13 +100,33 @@ afterAll(async () => {
 describe('the decision read models', () => {
   it("draws a run's row as its model calls in call order, each with its rank", () => {
     const run = decisionSession(store, 'dc-01M5000000000000000000000A')!;
-    expect(run.matrix).toEqual([
-      { runId: refunded, golden: 'goldens/refund', title: 'goldens/refund', rank: 1, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 3, step: 3, rank: 4, majority: 4, changed: 2, answered: 2, judge: null }, { callNo: 5, step: 5, rank: 1, majority: 1, changed: 2, answered: 2, judge: null }] },
-      { runId: failed, golden: null, title: failed.slice(0, 10), rank: 2, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 3, step: 3, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 5, step: 5, rank: 2, majority: 2, changed: 2, answered: 2, judge: null }] },
+    // A row is named by its run (its golden a chip beside it), each cell by what came of its step.
+    const cell = (c: DecisionCell) => [c.callNo, c.step, c.rank, c.majority, c.changed, c.answered, c.judge, c.state];
+    expect(run.matrix.map((r) => ({ runId: r.runId, golden: r.golden, title: r.title, rank: r.rank, flagged: r.flagged, cells: r.cells.map(cell) }))).toEqual([
+      { runId: refunded, golden: 'goldens/refund', title: refunded.slice(0, 10), rank: 1, flagged: true, cells: [[1, 1, 0, 0, 0, 2, null, 'same'], [3, 3, 4, 4, 2, 2, null, 'ranked'], [5, 5, 1, 1, 2, 2, null, 'ranked']] },
+      { runId: failed, golden: null, title: failed.slice(0, 10), rank: 2, flagged: true, cells: [[1, 1, 0, 0, 0, 2, null, 'same'], [3, 3, 0, 0, 0, 2, null, 'same'], [5, 5, 2, 2, 2, 2, null, 'ranked']] },
     ]);
-    expect(decisionRow({ ...(run.runs as DecisionRun[])[0], decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] }).cells).toEqual([{ callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0, judge: null }]);
-    // A write changed in 1 of 3 samples: drawn split, its majority the same.
-    expect(decisionRow({ ...(run.runs as DecisionRun[])[0], decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] }).cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null }]);
+    // Each row ends on what flags it, in its colour, and each cell says what it decided.
+    expect(run.matrix.map((r) => r.ending)).toEqual([
+      { text: '#5 issue_refund is no longer called', then: '', tone: 'w', callNo: 5, waits: 0, why: null },
+      { text: '#5 it stops, hands over or is judged differently', then: '', tone: 's', callNo: 5, waits: 0, why: null },
+    ]);
+    expect(run.matrix[0].cells.map((c) => c.words)).toEqual(['the same in every sample: calls tools', 'a read asked differently · in 2 of 2 samples', 'issue_refund is no longer called · in 2 of 2 samples']);
+    expect(decisionRow({ ...(run.runs as DecisionRun[])[0], decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] }).cells).toEqual([
+      { callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0, judge: null, state: 'not-asked', sampled: null, ranks: [], control: null, detail: null, words: 'not asked: HTTP 529', open: null },
+    ]);
+    // A write changed in 1 of 3 samples: drawn split, its majority the same, and not flagged.
+    const minority = decisionRow({ ...(run.runs as DecisionRun[])[0], majority: null, decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] });
+    expect(minority.cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null, state: 'ranked', sampled: 1, ranks: [1, 0, 0], control: null, detail: 'a write changed', rankWords: 'a write changed', words: 'a write changed · in 1 of 3 samples, fewer than half: not flagged', open: { short: 'in 1 of 3, not flagged', stops: { recorded: 'calls tools', now: 'calls tools' }, args: [], judges: [], delta: '' } }]);
+    expect(minority.ending).toEqual({ text: '#4 a write changed', then: '· in 1 of 3, not flagged', tone: null, callNo: 4, waits: 0, why: null });
+    // Left as recorded, the row says so; refused whole, every cell is not asked and the row says why.
+    const left = decisionRow({ ...(run.runs as DecisionRun[])[0], asked: 0, steps: 1, counts: { ...emptyCounts(), untouched: 1 }, decisions: [step(2, null, { samples: { asked: 0, answered: 0, changed: 0, ranks: [] } })] });
+    expect([left.cells[0].state, left.cells[0].words, left.ending.text]).toEqual(['left', 'left as recorded: made with claude-sonnet-4-5-20250929', 'the change leaves its requests as recorded']);
+    // Asked nothing, a step not left as recorded: the report's words, why on the row's card.
+    const unasked = decisionRow({ ...(run.runs as DecisionRun[])[0], asked: 0, steps: 1, counts: { ...emptyCounts(), notAsked: 1 }, decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] });
+    expect([unasked.ending.text, unasked.ending.why]).toEqual(['nothing asked', 'HTTP 529']);
+    const refused = decisionRow({ ...(run.runs as DecisionRun[])[0], refused: 'its first request differs in more than its prompt and tools\nkeep the rest as recorded', decisions: [step(2, 1)] });
+    expect([refused.cells[0].state, refused.cells[0].words, refused.ending.text, refused.ending.tone]).toEqual(['not-asked', 'not asked: its first request differs in more than its prompt and tools', 'not asked: its first request differs in more than its prompt and tools', 'y']);
   });
 
   it('marks a text-only change a judge check read: raised to rank 2 when it came out otherwise, inconclusive while it waits on the judge', () => {
@@ -123,12 +157,21 @@ describe('the decision read models', () => {
   it('fills a migrate session\'s decisions in from its runs, and finds a run\'s decisions newest first', () => {
     const m = decisionSession(store, 'mg-01M5000000000000000000000B')!;
     expect(m).toMatchObject({ kind: 'migrate', to: 'claude-haiku-4-5', decisions: { runs: [{ runId: refunded }] } });
-    // A run's part of a session opens the run at its most consequential change, as its page's Decisions view lists it.
-    expect(runDecisions(store, refunded).sessions.map((s) => [s.sessionId, s.kind, s.rank, s.href])).toEqual([
-      ['mg-01M5000000000000000000000B', 'migrate', 1, `#/run/${refunded}/5`],
-      ['dc-01M5000000000000000000000A', 'decisions', 1, `#/run/${refunded}/5`],
+    // A run's part of a session opens its Decisions view at its most consequential change, and its cell on Changes.
+    expect(runDecisions(store, refunded).sessions.map((s) => [s.sessionId, s.kind, s.rank, s.href, s.changes])).toEqual([
+      ['mg-01M5000000000000000000000B', 'migrate', 1, `#/run/${refunded}/5/decisions`, `#/changes/migrate/mg-01M5000000000000000000000B/${refunded}/5`],
+      ['dc-01M5000000000000000000000A', 'decisions', 1, `#/run/${refunded}/5/decisions`, `#/changes/decisions/dc-01M5000000000000000000000A/${refunded}/5`],
     ]);
-    expect(runDecisions(store, failed).sessions.map((s) => s.href)).toEqual([`#/run/${failed}/5`]);
+    expect(runDecisions(store, refunded).sessions.map((s) => [s.name, s.samples, s.toVerify, s.verified])).toEqual([
+      ['claude-sonnet-4-5-20250929 → claude-haiku-4-5', 2, true, null],
+      ['Model switch to claude-sonnet-5-5 with temperature=1', 2, true, null],
+    ]);
+    // Its view lists its ranked steps, most consequential first, each worded on the server.
+    expect(runDecisions(store, refunded).sessions[1].steps).toEqual([
+      { callNo: 5, rank: 1, within: null, detail: 'issue_refund is no longer called', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
+      { callNo: 3, rank: 4, within: null, detail: 'a read asked differently', short: 'in 2 of 2', waits: false, recorded: 'calls tools', now: 'calls tools', delta: '', args: [] },
+    ]);
+    expect(runDecisions(store, failed).sessions.map((s) => s.href)).toEqual([`#/run/${failed}/5/decisions`]);
     expect(decisionSession(store, 'dc-nope')).toBeNull();
   });
 
@@ -158,9 +201,11 @@ describe('the decision routes', () => {
   });
 
   it('serves a session whole, a run\'s decisions, and the retirements', async () => {
-    const one = (await (await api(dash, 'decisions/dc-01M5000000000000000000000A')).json()) as { runs: DecisionRun[]; matrix: unknown[]; command: string };
+    const one = (await (await api(dash, 'decisions/dc-01M5000000000000000000000A')).json()) as { runs: DecisionRun[]; matrix: unknown[]; command: string; view: PreviewView };
     expect(one.runs.map((r) => r.runId)).toEqual([refunded, failed]);
     expect(one.matrix).toHaveLength(2);
+    // Worded on the server for Preview: no redaction rules in this project, so a cell's cost says none masked.
+    expect(one.view).toMatchObject({ name: 'Model switch to claude-sonnet-5-5 with temperature=1', samples: 2, verdict: { word: 'not verified' }, next: { verify: { runs: [refunded, failed], every: true, gone: 0 } }, redacted: false });
     expect(one.command).toBe('shadowlap decisions goldens/* --model claude-sonnet-5-5');
     expect((await api(dash, 'decisions/dc-01M5000000000000000000000Z')).status).toBe(404);
     const run = (await (await api(dash, `runs/${failed}/decisions`)).json()) as ReturnType<typeof runDecisions>;
@@ -247,6 +292,55 @@ describe('the decision routes', () => {
       expect((await startJob(dash, body)).status, JSON.stringify(body)).toBe(202);
       expect(spawned.at(-1)!.filter((a) => ['--attempts', '--passes', '--gate', '--inconclusive'].includes(a)), JSON.stringify(body)).toEqual([]);
     }
+  });
+
+  it('verifies the runs Preview names of those left to verify, an empty list naming none, and says which named run it cleared or never asked', async () => {
+    const A = 'dc-01M5000000000000000000000A';
+    const error = async (res: Response) => ((await res.json()) as { error: string }).error;
+    await jobsEnded(dash);
+    // The runs no verify took yet, as Preview's Verify names them once verify took some: each by its id or a prefix, once.
+    expect((await startJob(dash, { kind: 'decisions-verify', sessionId: A, runIds: [failed] })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['decisions', '--verify', A, failed]);
+    expect((await startJob(dash, { kind: 'decisions-verify', sessionId: A, runIds: [refunded.slice(0, 12), failed, failed] })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['decisions', '--verify', A, refunded, failed]);
+    // A list naming none names none: every run left to verify, as the estimate takes it.
+    expect((await startJob(dash, { kind: 'decisions-verify', sessionId: A, runIds: [] })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['decisions', '--verify', A]);
+    // 500 at most, as a list.
+    expect((await startJob(dash, { kind: 'decisions-verify', sessionId: A, runIds: Array.from({ length: 500 }, () => failed) })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['decisions', '--verify', A, failed]);
+    for (const runIds of [Array.from({ length: 501 }, () => failed), failed]) {
+      const res = await startJob(dash, { kind: 'decisions-verify', sessionId: A, runIds });
+      expect([res.status, await error(res)]).toEqual([400, 'runIds is a list of the runs to verify']);
+    }
+    // A session that cleared a run: named among the others, the job is refused, the run named.
+    const C = 'dc-01M5000000000000000000000C';
+    const runs = decisionSession(store, A)!.runs as DecisionRun[];
+    store.putDecisionSession({ sessionId: C, kind: 'decisions', at: 500, change: 'the model claude-sonnet-5-5', actor: null, revision: null, data: { change: { model: 'claude-sonnet-5-5', fields: {}, fromCode: null, text: 'the model claude-sonnet-5-5' }, flagged: [refunded, failed], toVerify: [refunded], verify: null }, runs: runs.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.rank, changed: 1, data: r as unknown as Record<string, unknown> })) });
+    const cleared = await startJob(dash, { kind: 'decisions-verify', sessionId: C, runIds: [refunded, failed] });
+    expect([cleared.status, await error(cleared)]).toEqual([409, `this session cleared ${failed}: it has nothing to verify`]);
+    const stranger = await startJob(dash, { kind: 'decisions-verify', sessionId: 'mg-01M5000000000000000000000B', runIds: [refunded, failed] });
+    expect([stranger.status, await error(stranger)]).toEqual([404, `this session asked no run ${failed}`]);
+    expect((await startJob(dash, { kind: 'decisions-verify', sessionId: C })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['decisions', '--verify', C]);
+  });
+
+  it('serves a preview whose project config can’t be read, its cost line saying nothing of it, and an exact clock as such', async () => {
+    const at = async (loadConfig: () => ProjectConfig) => {
+      const own = await startDashboard({ store, project: { path: project }, goldens: () => [], loadConfig });
+      try {
+        const res = await api(own, 'decisions/dc-01M5000000000000000000000A');
+        return [res.status, ((await res.json()) as { view: PreviewView }).view] as const;
+      } finally {
+        await own.close();
+      }
+    };
+    const [status, view] = await at(() => {
+      throw new SyntaxError('Unexpected token } in JSON');
+    });
+    expect([status, view.redacted, view.clock]).toEqual([200, false, null]);
+    const [, exact] = await at(() => ({ normalize: [], redact: [], clock: 'exact' }));
+    expect([exact.redacted, exact.clock]).toEqual([false, 'exact']);
   });
 
   it('refuses every job on a read-only dashboard', async () => {
