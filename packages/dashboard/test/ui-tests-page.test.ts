@@ -141,6 +141,8 @@ describe('the Tests page', () => {
     const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
     expect(ci.textContent).toContain('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
     expect(ci.textContent).not.toContain('throwaway store');
+    // Settings → CI writes each part the workflow has, so the line names them.
+    expect(ci.textContent).toContain('On GitHub, Settings → CI builds the whole workflow, with the pull request comment, Fix on failure and alerts.');
     expect(one(ci, '.cmdline').textContent).toBe(`$shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     // In its box alone, with the box's one Copy, named by what it copies.
     expect(all(ci, 'button').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy CI command']);
