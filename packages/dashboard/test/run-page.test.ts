@@ -613,3 +613,37 @@ describe('the run endpoint', () => {
     }
   });
 });
+
+describe('the run page: a judge’s calls', () => {
+  it('says on a judge’s call’s row the check it answered and the verdict its run kept, and names the judge’s calls beside a long run’s strings, wherever they come', () => {
+    const store = Store.open(':memory:');
+    const explains = { name: 'explains', model: 'claude-haiku-4-5', of: 'answer' as const, verdict: 'no' as const, source: 'live' as const, cost: 0.0004, redactions: 0, cut: 0, callNo: 2 };
+    const meta: RunMeta = { checks: [{ ok: false, status: 'failed', label: 'judge "explains" answers yes', detail: 'the judge answered no', reason: 'It never says why.', source: 'live', judge: explains }] };
+    const b = RunBuilder.start(store, { meta });
+    const ask = b.model({ messages: [user('Refund order A-1042.')] }, [toolUse('issue_refund', { order_id: 'A-1042' }, 't1')]);
+    // The judge's calls before the agent's last: the endpoint never assumes they come last.
+    const j1 = b.model({ messages: [user('Does the reply say why?')] }, [text('{"verdict":"no"}')], { scope: JUDGE_SCOPE, meta: { judge: { check: 'explains', ask: 'a1' } } });
+    const j2 = b.model({ messages: [user('Is it polite?')] }, [text('{"verdict":"yes"}')], { scope: JUDGE_SCOPE, meta: { judge: { check: 'polite', ask: 'a2' } } });
+    const refund = b.tool('issue_refund', { order_id: 'A-1042' }, { refunded: true });
+    b.end();
+    expect([ask, j1, j2, refund]).toEqual([1, 2, 3, 4]);
+    const d = runDetail(store, b.runId)!;
+    // The second judge's check named no call: its verdict is unknown to its row.
+    expect(d.calls.map((c) => c.judge ?? null)).toEqual([null, { check: 'explains', verdict: 'no' }, { check: 'polite', verdict: null }, null]);
+    // Every call in `calls`: no strings, and no judge's numbers beside them.
+    expect([d.origins, d.judgeCalls]).toEqual([undefined, undefined]);
+    // Two calls a page: the strings, and the judge's calls by number, one of them on a page not read yet.
+    const first = runDetail(store, b.runId, {}, { limit: 2 })!;
+    expect([first.calls.length, first.origins?.length, first.judgeCalls]).toEqual([2, 4, [j1, j2]]);
+    expect(runCallsPage(store, b.runId, { from: 3 })!.calls.map((c) => c.judge ?? null)).toEqual([{ check: 'polite', verdict: null }, null]);
+    expect(callDetail(store, b.runId, j1)!.call.judge).toEqual({ check: 'explains', verdict: 'no' });
+    // A run with no judge's call names none beside its strings.
+    const plain = RunBuilder.start(store);
+    plain.model({ messages: [user('Hello.')] }, [text('Hi.')]);
+    plain.model({ messages: [user('Bye.')] }, [text('Bye.')]);
+    plain.end();
+    const other = runDetail(store, plain.runId, {}, { limit: 1 })!;
+    expect([other.origins?.length, other.judgeCalls]).toEqual([2, undefined]);
+    store.close();
+  });
+});

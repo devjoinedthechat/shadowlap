@@ -4,6 +4,7 @@ import {
   cacheMisses,
   canonicalModel,
   firstSentence,
+  isJudgeCall,
   isObject,
   isReservedScope,
   Lru,
@@ -484,9 +485,10 @@ function valueLineOf(store: StoreOf<'recording'>, c: CallRecord): string | null 
  * What a call row shows that is the call's own: its blobs, its fingerprint, a tool's result in a
  * line, whether it is a person's answer the agent read (`userInput()`, or stdin through the
  * preload), which Calls tags "input" and the fork menu answers differently, and whether it was made
- * in one of Shadowlap's own scopes (its judge's), whose questions are never a batch's items.
+ * in one of Shadowlap's own scopes (its judge's), whose questions are never a batch's items. A
+ * judge's call says the check it answered and the verdict the run kept of it (`verdicts`).
  */
-export function ownFacts(store: StoreOf<'recording'>, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true; reserved?: true } {
+export function ownFacts(store: StoreOf<'recording'>, c: CallRecord, verdicts?: JudgeVerdicts): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true; reserved?: true; judge?: JudgeRow } {
   return {
     fingerprint: c.fingerprint,
     requestRef: c.requestRef,
@@ -494,7 +496,41 @@ export function ownFacts(store: StoreOf<'recording'>, c: CallRecord): { fingerpr
     resultShort: resultShortOf(store, c),
     ...(c.kind === 'tool' && c.meta.input === true ? { input: true as const } : {}),
     ...(isReservedScope(c.meta.scope) ? { reserved: true as const } : {}),
+    ...judgeRowOf(c, verdicts),
   };
+}
+
+/** A judge's call as its row says it: the check it answered, by its name in the config, and the verdict that check kept of it, null where none was kept. */
+export interface JudgeRow {
+  check: string;
+  verdict: 'yes' | 'no' | null;
+}
+
+/** The verdict each judge's call gave, by the call's number. */
+export type JudgeVerdicts = ReadonlyMap<number, 'yes' | 'no' | null>;
+
+/** The run's judge verdicts by their calls, as its checks keep them (`judge.callNo`): what each judge's row says. */
+export function verdictsByCall(run: RunRecord): JudgeVerdicts {
+  const out = new Map<number, 'yes' | 'no' | null>();
+  for (const c of storedChecks(run)) if (c.judge?.callNo !== undefined) out.set(c.judge.callNo, c.judge.verdict);
+  return out;
+}
+
+/** A judge's call's check and verdict (`JudgeRow`), from its meta (`meta.judge.check`) and the run's checks; nothing for another call. */
+function judgeRowOf(c: CallRecord, verdicts: JudgeVerdicts | undefined): { judge?: JudgeRow } {
+  const check: unknown = c.meta.judge?.check;
+  return isJudgeCall(c) && typeof check === 'string' ? { judge: { check, verdict: verdicts?.get(c.callNo) ?? null } } : {};
+}
+
+/**
+ * A run's judge calls by number, read through the store's index of them alone (call_events_judge,
+ * whose condition this repeats exactly, as the run index does): a long run's page tells them apart
+ * by them before their pages come, and no call is read for them. Never assumed to come last.
+ */
+const JUDGE_CALLS_SQL = `SELECT call_no AS n FROM call_events WHERE run_id = ? AND phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge' ORDER BY call_no`;
+
+export function judgeCallNos(store: Store, runId: string): number[] {
+  return store.query(JUDGE_CALLS_SQL, runId).map((r) => Number(r.n));
 }
 
 /** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */
