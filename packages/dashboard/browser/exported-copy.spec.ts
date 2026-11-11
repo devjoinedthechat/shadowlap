@@ -83,6 +83,8 @@ test('an exported copy opens on the run that was shared and draws each of its vi
     await views.getByRole('tab', { name: view }).click();
     await expect(page.locator(`main#view .vbody ${drawn}`).first(), `${view} draws`).toBeVisible();
   }
+  // Decisions, the last, draws no matrix and no cell: a copy never draws a preview's matrix, so none of it is a part the copy holds.
+  await expect(page.locator('main#view .vbody :is(.dmx, .dvstrip, .dc)')).toHaveCount(0);
   await expectAccessible(page);
   expect(seen).toEqual([]);
 });
