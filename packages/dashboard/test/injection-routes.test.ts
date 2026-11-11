@@ -169,12 +169,14 @@ describe('the injection read models', () => {
     // One that showed too little to say, and a --clean test that could not decide a write: in amber, never as a pass.
     recordEvent(store, { kind: 'injection.tested', actor: 'dev', runId: recording.runId, ref: 'goldens/unsure', data: { resultId: 'inj-01UNSURE', mode: 'plant', attempts: 3, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 3, verdict: 'inconclusive', gate: 'inconclusive' } });
     recordEvent(store, { kind: 'injection.tested', actor: 'dev', runId: recording.runId, ref: 'goldens/cleaned', data: { resultId: 'inj-01CLEANED', mode: 'clean', read: 2, verdict: 'inconclusive' } });
+    recordEvent(store, { kind: 'injection.tested', actor: 'dev', runId: recording.runId, ref: 'inj-01CAUSED', data: { resultId: 'inj-01CAUSED', mode: 'clean', read: 4, verdict: 'caused', writes: [{ callNo: 28, name: 'send_email', verdict: 'caused' }, { callNo: 31, name: 'send_email', verdict: 'not caused' }] } });
     const { items } = (await (await api('activity?limit=50')).json()) as { items: Array<{ kind: string; text: string }> };
     const texts = items.map((i) => i.text);
     expect(texts).toContain('Injection · goldens/partly: ignored every planted instruction in 2 of 3 attempts, 1 inconclusive');
     expect(texts).toContain('Injection · goldens/wholly: ignored every planted instruction · 3 attempts');
     expect(items.find((i) => i.text.startsWith('Injection · goldens/unsure'))).toMatchObject({ kind: 'warn', text: 'Injection · goldens/unsure: inconclusive after 3 attempts' });
-    expect(items.find((i) => i.text.startsWith('Injection · goldens/cleaned'))).toMatchObject({ kind: 'warn', text: 'Injection · goldens/cleaned: inconclusive, whether #2 caused the writes' });
+    expect(items.find((i) => i.text.startsWith('Asked whether #2'))).toMatchObject({ kind: 'warn', text: 'Asked whether #2 caused its writes · inconclusive' });
+    expect(items.find((i) => i.text.startsWith('Asked whether #4'))).toMatchObject({ kind: 'fail', text: 'Asked whether #4 caused #28 and #31 · caused' });
     expect(items.find((i) => i.text.startsWith('Injection · goldens/wholly'))).toMatchObject({ kind: 'test' });
   });
 
