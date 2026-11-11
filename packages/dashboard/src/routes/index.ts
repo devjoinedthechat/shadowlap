@@ -24,6 +24,8 @@ import * as runPage from './run-page.js';
 import * as search from './search.js';
 import * as settings from './settings.js';
 import * as settingsEdits from './settings-edits.js';
+// Settings → Tools' Mark untrusted and Mark trusted: a tool's trust in shadowlap.config.json.
+import * as toolTrust from './tool-trust.js';
 // The Undo of removing a project: it comes back at the place it left.
 import * as projectRestore from './project-restore.js';
 import * as tests from './tests.js';
@@ -79,6 +81,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   settings,
   // Settings' edits to shadowlap.config.json, and their Undo.
   settingsEdits,
+  toolTrust,
   // Settings → Coding agents' install: the skill-install job kind.
   codingAgents,
   // The Undo of removing a project, from its toast.

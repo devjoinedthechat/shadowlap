@@ -75,6 +75,8 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['redaction.added', (_e, d) => ({ kind: 'setting', text: `Redaction rule added · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)!}` : ''}`, href: links.settings('redaction') })],
   ['redaction.removed', (_e, d) => ({ kind: 'setting', text: `Redaction rule removed · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)!}` : ''}`, href: links.settings('redaction') })],
   ['clock.set', (e, d) => ({ kind: 'setting', text: `Clock set to ${str(d.clock) ?? e.ref ?? 'auto'}`, href: links.settings('matching') })],
+  // Settings → Tools' marks, and the Undo that takes one out, by the tool's name.
+  ['tool.trust', (e, d) => ({ kind: 'setting', text: `${str(d.trust) ? `Tool marked ${str(d.trust)!}` : 'Tool mark removed'} · ${e.ref ?? 'a tool'}`, href: links.settings('tools') })],
   ['runs.cleaned', (_e, d) => ({ kind: 'setting', text: `Cleaned up ${plural(num(d.runs) ?? 0, 'old run')}`, href: links.settings('project') })],
   ['golden.packed', (e) => ({ kind: 'test', text: `Golden packed · ${e.ref ?? 'a golden'}`, href: links.tests() })],
   ['run.packed', (e, d) => ({ kind: 'project', text: `Packed · ${e.ref ?? plural(num(d.runs) ?? 1, 'run')}${num(d.calls) !== null ? ` · ${plural(num(d.calls)!, 'call')}` : ''}` })],
