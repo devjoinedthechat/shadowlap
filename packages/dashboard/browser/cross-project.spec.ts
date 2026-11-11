@@ -51,7 +51,7 @@ const SWITCH = 'main#view .ph .actions .btn.lime';
 const ITEMS: Array<{ name: string; what: HeldAsk['what']; path: () => string; id: () => string; crumb: string }> = [
   { name: 'a run', what: 'run', path: () => `/run/${demoId('refundBug')}`, id: () => demoId('refundBug'), crumb: 'Runs' },
   { name: 'a fix', what: 'fix', path: () => `/fixes/${demoId('refundFix')}`, id: () => demoId('refundFix'), crumb: 'Fixes' },
-  { name: 'a preview', what: 'preview', path: () => `/changes/decisions/${preview()}`, id: preview, crumb: 'Changes' },
+  { name: 'a preview', what: 'preview', path: () => `/changes/decisions/${preview()}`, id: preview, crumb: 'Changes/Preview' },
 ];
 
 /** An element's words as the page has them (the eyebrow is drawn in capitals), its spaces as one. */
@@ -88,7 +88,7 @@ for (const item of ITEMS) {
       expect(await words(page, 'main#view .ph .phl p')).toBe(`The ${item.what} ${item.id()} is in support-agent’s store, not triage-bot’s.`);
       await expect(page.locator(SWITCH)).toHaveText('Switch to support-agent');
       await expect(page).toHaveTitle('In support-agent — shadowlap');
-      // The crumbs name the section only: the page can't show what it opened for.
+      // The crumbs name the section only, Changes with its tab as on any preview's page: the page can't show what it opened for.
       if (width > 640) expect(await words(page, '.top .crumbs')).toBe(item.crumb);
       // A phone: the action under the title, from its left, and nothing wider than the phone.
       if (width < 640) {
