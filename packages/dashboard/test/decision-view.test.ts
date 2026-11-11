@@ -215,6 +215,12 @@ describe('an opened cell, worded on the server', () => {
       delta: '+120 tokens · +$0.0020',
     });
   });
+
+  it('words a step its control couldn’t settle inconclusive, as decisions prints it, drawn as not asked', () => {
+    const open = step(3, null, { changes: [write], majority: null, sampled: 1, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] }, control: { asked: 3, answered: 0, changed: 0, ranks: [], error: 'overloaded' } });
+    const id = keep('dc-01M5000000000000000000000Y', [runOf(a, null, [step(1, null), open])], { samples: 3, counts: counts({ same: 1, notAsked: 1 }) });
+    expect(previewSession(store, id)!.matrix[0].cells[1]).toMatchObject({ state: 'unsettled', words: "issue_refund is no longer called · inconclusive: in 1 of 3 samples; as recorded, no answer (overloaded): too few to tell from the model's own variation" });
+  });
 });
 
 describe('the within-variation line', () => {

@@ -114,6 +114,9 @@ export const OWN_VARIATION = "the model's own variation";
 /** A step whose samples decided otherwise no more often than the request as recorded did, as a report and a page word it. */
 export const WITHIN_VARIATION = `within ${OWN_VARIATION}`;
 
+/** A step its control couldn't settle (controlOpen), as a report and a page word it: its samples changed, with too few answers to tell that from the model's own variation (unsettledWords). */
+export const INCONCLUSIVE_STEP = 'inconclusive';
+
 /** Stop reasons by provider: Anthropic and Bedrock Converse, OpenAI Chat Completions and Responses, Gemini. */
 const STOPS: Record<string, DecisionStop> = {
   // Anthropic Messages (also on Bedrock and Vertex AI), and Bedrock Converse
@@ -1146,9 +1149,9 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
     }
     lines.push(`${p.bold(name)}  ${p.dim(`${run.asked} of ${run.steps} model call${run.steps === 1 ? '' : 's'} asked`)} · ${run.majority !== null && run.majority <= 2 ? p.red(summary) : run.rank !== null ? p.yellow(summary) : summary}`);
     for (const s of run.decisions) {
-      // A change the request as recorded got no answer to tell from the model's own variation: not ranked, not settled.
+      // A change the request as recorded got no answer to tell from the model's own variation: not ranked, inconclusive.
       if (controlOpen(s)) {
-        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.yellow('not settled')}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled!])}${p.dim(` · ${unsettledWords(s, safeLine)}`)}`);
+        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.yellow(INCONCLUSIVE_STEP)}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled!])}${p.dim(` · ${unsettledWords(s, safeLine)}`)}`);
         continue;
       }
       // A change no more frequent than the control's: listed with both arms' counts, not ranked.

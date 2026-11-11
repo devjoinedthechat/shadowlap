@@ -1,4 +1,4 @@
-import { argsDelta, decisionLine, decisionStepState, judgedOutcome, judgeOpen, judgeWords, JUDGED_IN_RECORDED_STATE, minorityChange, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, unchangedRunWords, unsettledWords, WITHIN_VARIATION, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type DecisionView, type Palette } from '@shadowlap/engine';
+import { argsDelta, decisionLine, decisionStepState, INCONCLUSIVE_STEP, judgedOutcome, judgeOpen, judgeWords, JUDGED_IN_RECORDED_STATE, minorityChange, RANK_LABELS, samplesWords, stepDelta, STOP_WORDS, unchangedRunWords, unsettledWords, WITHIN_VARIATION, type DecisionRank, type DecisionRun, type DecisionStep, type DecisionStepState, type DecisionView, type Palette } from '@shadowlap/engine';
 
 /**
  * A preview's matrix as Changes and a run's Decisions view draw it: a row per run, a cell per model
@@ -164,7 +164,7 @@ function stepWords(s: DecisionStep, state: DecisionStepState, o: { refused: stri
     case 'not-asked':
       return `not asked: ${s.error ?? 'no answer came'}`;
     case 'unsettled':
-      return `${detail} · inconclusive: ${unsettledWords(s)}`;
+      return `${detail} · ${INCONCLUSIVE_STEP}: ${unsettledWords(s)}`;
     case 'noise':
       return `${detail} · ${WITHIN_VARIATION}: ${samplesWords(s)}`;
     case 'same':
