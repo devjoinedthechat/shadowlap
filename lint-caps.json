@@ -204,7 +204,7 @@
       "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 43
+      "Workspace": 39
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
@@ -216,7 +216,7 @@
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 59
+      "RunHeader": 56
     },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31

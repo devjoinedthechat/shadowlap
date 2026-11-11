@@ -4,11 +4,13 @@
  * started, an agent told by its system prompt), else its scope: `agent`, `agent/policy-checker`,
  * `customer`. Picking one narrows every view to it and the agents nested in it. Blame is scoped by
  * scope (`scope()` in the SDKs), so its hint reads scopes alone. Shadowlap's own scopes (its judge's,
- * `shadowlap:judge`) are no agent and nothing to blame by: they get no chip and show no bar, and
- * their calls are under All. No DOM here: the tests import it.
+ * `shadowlap:judge`) are no agent and nothing to blame by: they get no agent's chip. A judge's calls
+ * are the check's, kept out of All and its counts: they have a chip of their own, `judge`, after the
+ * agents', which shows the bar for them alone, and no fork starts at one (`forksAt`). No DOM here:
+ * the tests import it.
  */
 
-import { isReservedScope } from '../../engine/src/judge-scope.js';
+import { isReservedScope, JUDGE_SCOPE } from '../../engine/src/judge-scope.js';
 
 export interface ScopedCall {
   callNo: number;
@@ -20,6 +22,23 @@ export interface ScopedCall {
 export const agentOf = (c: ScopedCall): string | null => c.agent ?? c.scope ?? null;
 /** A call's scope alone, which blame is scoped by. */
 export const scopeOnly = (c: ScopedCall): string | null => c.scope ?? null;
+
+/** Whether Shadowlap's judge made a call, by the agent the server names it (its scope, `shadowlap:judge`): the judge chip's, never the agent's. */
+export const isJudge = (c: ScopedCall): boolean => agentOf(c) === JUDGE_SCOPE;
+
+/** Whether a fork can start at a call: the one rule the row's Fork, the head's and ⌘K's read. Never at a judge's call, which is the check's. */
+export const forksAt = (c: ScopedCall): boolean => !isJudge(c);
+
+/** Why the head's Fork waits at a call no fork starts at (forksAt), and its card's line. */
+export interface ForkWait {
+  why: string;
+  card: string;
+}
+
+const JUDGE_FORK: ForkWait = { why: 'A judge’s call can’t be forked', card: 'A judge’s call is the check’s, not the agent’s: no fork starts at it' };
+
+/** Why no fork starts at the selected call: a judge's; null for any other call, or none. */
+export const judgeForkWait = (c: ScopedCall | null): ForkWait | null => (c && !forksAt(c) ? JUDGE_FORK : null);
 
 /** Whether a scope is the agent's, not one Shadowlap makes calls in itself (isReservedScope). */
 const theirs = (s: string | null): s is string => !!s && !isReservedScope(s);
@@ -37,8 +56,11 @@ export function scopesOf(calls: readonly ScopedCall[], by = agentOf): string[] {
 /** The chips of the scopes the run's author gave, alone: what blame can be scoped by. */
 export const realScopes = (calls: readonly ScopedCall[]): string[] => scopeChips(calls, scopeOnly);
 
-/** Whether the views show a run's agents: a scope its author gave, or two agents or more, Shadowlap's own scopes aside. */
-export const agentsShown = (calls: readonly ScopedCall[]): boolean => calls.some((c) => theirs(scopeOnly(c))) || scopesOf(calls).filter(theirs).length > 1;
+/** Whether the views name a run's agents: a scope its author gave, or two agents or more, Shadowlap's own scopes aside. */
+export const ownAgents = (calls: readonly ScopedCall[]): boolean => calls.some((c) => theirs(scopeOnly(c))) || scopesOf(calls).filter(theirs).length > 1;
+
+/** Whether the run shows the agents' bar: for its own agents (`ownAgents`), or for a judge's calls, which the bar keeps apart. */
+export const agentsShown = (calls: readonly ScopedCall[]): boolean => ownAgents(calls) || calls.some(isJudge);
 
 /**
  * The scope chips, as a tree: every scope but Shadowlap's own, each nested one right after the scope
@@ -69,9 +91,9 @@ export function scopeChips(calls: readonly ScopedCall[], by = agentOf): string[]
   return out;
 }
 
-/** Whether a call is in a scope or one nested in it; `all` takes every call. */
+/** Whether a call is in a scope or one nested in it; `all` takes every call but the judge's. */
 export function inScope(c: ScopedCall, scope: string, by = agentOf): boolean {
-  if (scope === 'all') return true;
+  if (scope === 'all') return by(c) !== JUDGE_SCOPE;
   const s = by(c) ?? '';
   return s === scope || s.startsWith(`${scope}/`);
 }
