@@ -121,7 +121,7 @@ function Rows({ view, chip, limit, moreFailed, onMore }: { view: VerdictsView; c
       {moreFailed ?? (next !== null ? <ShowMore shown={view.rows.length} total={view.counts[chip]} onMore={() => onMore(next)} /> : view.more ? <p className="muted vdlocal">Older changes than these aren’t listed.</p> : null)}
       {view.shared ? null : (
         <p className="muted vdlocal">
-          This machine’s test sessions only: CI’s show here once it pushes them to a team store.{' '}
+          This machine’s test sessions only.{' '}
           <Link href={href.settings('store')} to>
             Team store
           </Link>

@@ -362,7 +362,7 @@ describe('Verdicts', () => {
       ['#/changes/verdicts/c91d0f4', null],
     ]);
     // On one machine every check is its own: the note says so, with the way to a team store.
-    expect(shown(page!.one('p.vdlocal'))).toBe('This machine’s test sessions only: CI’s show here once it pushes them to a team store. Team store →');
+    expect(shown(page!.one('p.vdlocal'))).toBe('This machine’s test sessions only. Team store →');
     expect(page!.one('p.vdlocal a').getAttribute('href')).toBe('#/settings/store');
   });
 
