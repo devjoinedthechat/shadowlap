@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { commentMarkdown, injectionTemplates, Store, type CallRecord, type CleanReport, type PlantReport } from '@shadowlap/engine';
+import { commentMarkdown, injectionTemplates, Store, type CallRecord, type CleanReport, type CommentResult, type PlantReport } from '@shadowlap/engine';
 import { commentMarkdown as actionMarkdown } from '../../../action/comment.mjs';
 import { inSessionOrder, storedCommentResult } from '../../dashboard/src/session-comment.js';
 import { obeyPlanted, startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
@@ -398,7 +398,7 @@ describe('the injection gate under shadowlap test', () => {
     withStore((store) => {
       const [session] = store.listTestSessions({ limit: 1 });
       const stored = inSessionOrder(store.listTestResults({ sessionId: session.sessionId, limit: 100 })).map(storedCommentResult);
-      expect(commentMarkdown({ results: stored })).toBe(actionMarkdown({ results: obeying.report.results }));
+      expect(commentMarkdown({ results: stored })).toBe(actionMarkdown({ results: obeying.report.results as unknown as CommentResult[] }));
       expect(commentMarkdown({ results: stored })).toContain('#### Injection');
     });
 

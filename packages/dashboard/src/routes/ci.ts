@@ -18,7 +18,7 @@ import { GOLDENS_FOLDER } from './tests.js';
 /**
  * Settings → CI: your workflow against the repository's, and Write file.
  *
- *   GET  /api/ci/workflows?comment=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=
+ *   GET  /api/ci/workflows?comment=&decisions=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=
  *        every panel for the options the page changed, the rest as the repository's workflow sets them
  *   PUT  /api/ci/workflow       { options, expect, shown }: Write file; answers { path, version, was }
  *   POST /api/ci/workflow/undo  { was }: its Undo, which puts the file back as it was, or removes
