@@ -1,22 +1,17 @@
 import { useState } from 'react';
-import { probesPart } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
-import { ConfirmDialog, ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
-import { namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
+import { useServedParts } from '../served-parts.js';
 import type { ShortcutMark } from '../shortcuts.js';
-import { guardedWayOn, useApp } from '../state.js';
+import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { TreeJob } from './model.js';
 import { useTreeBusy } from './tree.js';
 import { ACTIONS } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
-import { onShow } from '../components/OnShow.js';
-import { AskNote } from '../components/AskNote.js';
 import { tipCard } from '../components/HoverCard.js';
-import type { CostLineProps } from '../components/CostLine.js';
 import { type StepHooks, useBilledPress } from '../components/JobButton.js';
 import { sentEstimate, tipEst } from '../spending.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
@@ -32,8 +27,8 @@ function useBlameWait(busy: string | null | undefined, jobs: readonly TreeJob[] 
   return busy === undefined ? tree : busy;
 }
 
-/** The check a blame needs, asked for in a dialog the run page rarely opens: a part of its own (CheckDialog.tsx). */
-const CheckDialog = onShow(() => import('./CheckDialog.js').then((m) => m.CheckDialog));
+/** What Run blame asks in, once pressed: a capture's command, a yes above Spending, the check a blame needs, or a consent the server asks for (RunBlameAsks.tsx). */
+export type BlameAsking = null | { kind: 'command' } | { kind: 'ask' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> };
 
 /**
  * Run blame, for a failed run never blamed: a job that finds the model call where the run was lost
@@ -46,7 +41,9 @@ const CheckDialog = onShow(() => import('./CheckDialog.js').then((m) => m.CheckD
  * It starts by Spending, with the estimate it was given or, given none (the banner's), the run's own
  * from the server: at or under the threshold at once, else it asks, `Run blame on <id>`. A blame
  * that needs its check, or a capture's command, asks for it in that one dialog, priced, and starts
- * from it; a check the server asks for after all opens that dialog with the estimate kept.
+ * from it; a check the server asks for after all opens that dialog with the estimate kept. The
+ * dialogs are a part only the served dashboard hands in (RunBlameAsks.tsx), loaded the first time one
+ * asks, so the pages that draw the button carry none of them.
  */
 export function RunBlameButton({
   runId,
@@ -98,15 +95,14 @@ export function RunBlameButton({
 }) {
   const app = useApp();
   const waits = useBlameWait(busy, jobs);
-  const [asking, setAsking] = useState<null | { kind: 'command' } | { kind: 'ask' } | { kind: 'check'; command: string | null } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
+  const [asking, setAsking] = useState<BlameAsking>(null);
+  const { RunBlameAsks: Asks } = useServedParts();
   const own = useRunEstimates(runId, 'estimate' in priced ? undefined : null);
   const estimate: Estimate | null | undefined = 'estimate' in priced ? priced.estimate : own === undefined ? undefined : (own?.blame ?? null);
   const failed = offer.failed;
   const form = capture || offer.from === 'ask';
   const press = useBilledPress();
   const blameLine = line ?? `shadowlap blame ${shortId(runId)}`;
-  const cost: CostLineProps = { price: 'Billed by your provider', parts: [probesPart()], ...(estimate ? { estimate } : {}) };
-  const note = <AskNote estimate={estimate} form={form} />;
   /**
    * Starts the blame. What the check dialog should show instead comes back: why the server refused
    * the check it was given. Anything else closes the dialog: the job, the consent it needs, or its
@@ -137,7 +133,6 @@ export function RunBlameButton({
       },
     );
   const go = (e: Estimate | null | undefined) => (form ? app.guard(() => setAsking(capture ? { kind: 'command' } : { kind: 'check', command: null })) : press({ estimate: e, start: () => void start({}, e), ask: () => setAsking({ kind: 'ask' }) }));
-  const failedLine = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give` : null;
   return (
     <>
       <ActionButton
@@ -153,51 +148,7 @@ export function RunBlameButton({
         {icon ? <Icon name="loop" /> : null}
         {ACTIONS.runBlame.label}
       </ActionButton>
-      {asking?.kind === 'command' ? (
-        <PromptDialog
-          title={namedIn(`${ACTIONS.runBlame.label} on ${shortId(runId)}`, shortId(runId))}
-          lead="Finds the model call that lost the run."
-          doc="blame"
-          label={`${shortId(runId)} came from a capture and has no command. What starts your agent?`}
-          placeholder="python agent.py"
-          command={(command) => (line ?? `shadowlap blame ${shortId(runId)} -- <your command>`).replace('<your command>', () => command || '<your command>')}
-          cost={cost}
-          ok={ACTIONS.runBlame.label}
-          onClose={() => setAsking(null)}
-          onRun={(command) => app.guard(() => void start({ command }))}
-        />
-      ) : null}
-      {asking?.kind === 'ask' ? (
-        <ConfirmDialog
-          title={namedIn(`${ACTIONS.runBlame.label} on ${shortId(runId)}`, shortId(runId))}
-          lead="Finds the model call that lost the run."
-          doc="blame"
-          command={blameLine}
-          cost={cost}
-          footNote={note}
-          ok={ACTIONS.runBlame.label}
-          onClose={() => setAsking(null)}
-          onOk={() => app.guard(() => void start({}))}
-        />
-      ) : null}
-      {asking?.kind === 'check' ? (
-        <CheckDialog
-          runId={runId}
-          line={failedLine}
-          command={asking.command}
-          cost={cost}
-          onClose={() => setAsking(null)}
-          onRun={(expect) => guardedWayOn(app.guard, () => start({ expect, ...(asking.command ? { command: asking.command } : {}) })) || Promise.resolve(null)}
-        />
-      ) : null}
-      {asking?.kind === 'consent' ? (
-        <ConsentDialog
-          why={asking.why}
-          ok={ACTIONS.runBlame.label}
-          onClose={() => setAsking(null)}
-          onOk={() => app.guard(() => void start({ ...asking.fields, yes: asking.confirm }))}
-        />
-      ) : null}
+      {asking && Asks ? <Asks runId={runId} asking={asking} estimate={estimate} form={form} line={line} failed={failed} start={start} onClose={() => setAsking(null)} /> : null}
     </>
   );
 }

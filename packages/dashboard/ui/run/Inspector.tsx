@@ -16,8 +16,9 @@ import { agentOf } from '../scopes.js';
 import { shortcut, shortcutCard } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { refusedOffline } from './calls.js';
+import { failedBy, failureNote, type FailedBy } from './calls.js';
 import { EditAndFork } from './EditAndFork.js';
+import { AddCheckLink, type CheckEntry } from './check-entry.js';
 import { viaWords } from './notes.js';
 import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
 import { ActionButton } from '../components/ActionButton.js';
@@ -64,9 +65,11 @@ export interface InspectorProps {
   onSelect?: (n: number) => void;
   /** An injection attempt's planted read, its planted text and its canary, which the tabs mark (injection/AttemptPage.tsx); none on any other run, nor in a copy. */
   injection?: RunInjection['attempt'] | undefined;
+  /** Add check… on the summary line, where the selected call takes it (run/check-entry.tsx). */
+  check?: CheckEntry | undefined;
 }
 
-export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect, injection }: InspectorProps) {
+export function Inspector({ runId, call, calls, models, detail, error, tab, onTab, onStep, change, live, flag, onSelect, injection, check }: InspectorProps) {
   const page = useAttemptPage(injection);
   const marks = useMemo(() => (page ? page.attemptMarks(injection) : NO_MARKS), [page, injection]);
   if (!call) return <section className="insp" aria-label="Inspector"><div className="empty">{live ? 'Waiting for the first call…' : 'No calls in this run.'}</div></section>;
@@ -104,6 +107,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
             summary
           )}
         </span>
+        {check ? <AddCheckLink check={check} /> : null}
         {/* The fork menu's override with the result edited here, a tool's or what a person answered: on every tab. */}
         {c && detail ? (
           <span className="iedit">
@@ -230,29 +234,14 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
   );
 }
 
-type FailedBy = 'shadowlap' | 'replay' | 'provider';
 /** A failed model call's words in each place, by who answered it. */
-const RESPONSE_BY: Readonly<Record<FailedBy, string>> = { shadowlap: ' · written by Shadowlap, nothing sent', replay: ' · refused offline', provider: ' · from the provider' };
-const OUTCOME_BY: Readonly<Record<FailedBy, string>> = { shadowlap: 'by --fail-at, never sent', replay: 'refused offline', provider: 'from the provider' };
-const LATENCY_BY: Readonly<Record<FailedBy, string>> = { shadowlap: 'answered by Shadowlap', replay: 'refused by the replay', provider: 'answered by the provider' };
+const RESPONSE_BY: Readonly<Record<FailedBy, string>> = { injected: ' · written by Shadowlap, nothing sent', offline: ' · refused offline', provider: ' · from the provider' };
+const OUTCOME_BY: Readonly<Record<FailedBy, string>> = { injected: 'by --fail-at, never sent', offline: 'refused offline', provider: 'from the provider' };
+const LATENCY_BY: Readonly<Record<FailedBy, string>> = { injected: 'answered by Shadowlap', offline: 'refused by the replay', provider: 'answered by the provider' };
 
-/** Who answered a model call that failed: Shadowlap's --fail-at (never sent), an offline replay (refused), or the provider. */
-function failedBy(c: CallDetail['call']): FailedBy | null {
-  if (c.kind !== 'api' || c.outcome !== 'error') return null;
-  return c.origin === 'injected' ? 'shadowlap' : refusedOffline(c) ? 'replay' : 'provider';
-}
-
-/** A failed call's error without the status the note already says, so `HTTP 529: Overloaded` names 529 once. */
-function errorWords(c: Pick<CallDetail['call'], 'status' | 'error'>): string {
-  const e = (c.error ?? '').trim();
-  return (c.status ? e.replace(new RegExp(`^(HTTP\\s*)?${c.status}\\b[\\s:·.-]*`, 'i'), '') : e).replace(/\.+$/, '');
-}
-
-/** Why a call failed, in a sentence: the provider's status and error, the error alone, or that it ended in one. */
-export function failedWhy(c: Pick<CallDetail['call'], 'status' | 'error'>): string {
-  const why = errorWords(c);
-  if (c.status) return `The provider answered HTTP ${c.status}${why ? `: ${why}` : ''}.`;
-  return why ? `${why}.` : 'The call ended in an error.';
+/** Who answered a model call that failed: Shadowlap's --fail-at (never sent), an offline replay (refused), or the provider; null for any other call. */
+function answeredBy(c: CallDetail['call']): FailedBy | null {
+  return c.kind !== 'api' || c.outcome !== 'error' ? null : failedBy(c);
 }
 
 /**
@@ -261,24 +250,17 @@ export function failedWhy(c: Pick<CallDetail['call'], 'status' | 'error'>): stri
  */
 export function CallNote({ c, flag }: { c: CallDetail['call']; flag: string | null }) {
   if (c.outcome !== 'error') return null;
-  if (c.origin === 'injected')
-    return (
-      <div className="inote inj">
-        <b>Never sent.</b> Shadowlap answered with HTTP {c.status ?? '?'} (<code>{flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at'}</code>){c.attempts ? `, ${c.attempts + 1} attempts` : ''}. This is the conversation the agent would have sent.
-      </div>
-    );
-  if (refusedOffline(c))
-    return (
-      <div className="inote err">
-        <b>Refused.</b> The replay is offline and this request is not in the recording, so it got HTTP {c.status}. This is what the agent sent.
-      </div>
-    );
+  const by = failedBy(c);
+  const note = failureNote(c, by, flag);
   return (
-    <div className="inote err">
-      <b>Failed.</b> {failedWhy(c)} This is the conversation the agent sent.
+    <div className={`inote ${by === 'injected' ? 'inj' : 'err'}`}>
+      <b>{note.word}</b> {note.why.map((p, i) => (typeof p === 'string' ? <Fragment key={i}>{p}</Fragment> : <code key={i}>{p.code}</code>))} {SHOWN[by]}
     </div>
   );
 }
+
+/** What the view under a failed call's note shows: the conversation the agent sent, or would have. */
+const SHOWN: Record<FailedBy, string> = { injected: 'This is the conversation the agent would have sent.', offline: 'This is what the agent sent.', provider: 'This is the conversation the agent sent.' };
 
 /**
  * Under a tool call's arguments and result: the model call of its own conversation that asked for it
@@ -411,7 +393,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
           <>
             <div className="ibar err">
               HTTP {c.status ?? '?'}
-              {RESPONSE_BY[failedBy(c) ?? 'provider']}
+              {RESPONSE_BY[answeredBy(c) ?? 'provider']}
             </div>
             <div className="jbox">{marks.mark(r.raw)}</div>
           </>
@@ -545,7 +527,7 @@ function originRows(c: CallDetail['call'], flag: string | null): Array<[string, 
   const over = origin === 'over' && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
   const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>answered by Shadowlap with --fail-at</small></> : over ? <>{c.origin} <small>{over}</small></> : c.origin;
   const http = c.status ? ` · HTTP ${c.status}` : '';
-  const by = failedBy(c);
+  const by = answeredBy(c);
   const outcome = c.outcome === null ? 'pending' : c.outcome === 'ok' ? `ok${http}` : <>error{http}{by ? <small> {OUTCOME_BY[by]}</small> : null}</>;
   return [['Origin', made], ['Outcome', outcome]];
 }
@@ -556,8 +538,8 @@ function originRows(c: CallDetail['call'], flag: string | null): Array<[string, 
  */
 function spendRows(c: CallDetail['call']): Array<[string, ReactNode]> {
   const rows: Array<[string, ReactNode]> = [];
-  const by = failedBy(c);
-  const unsent = by === 'shadowlap' || by === 'replay';
+  const by = answeredBy(c);
+  const unsent = by === 'injected' || by === 'offline';
   if (c.usage) {
     const parts = by ? (unsent ? 'in the request; nothing was sent' : 'in the request') : `${num(c.usage.cacheRead)} ${INPUT_PARTS.cacheRead} · ${num(c.usage.cacheWrite)} ${INPUT_PARTS.cacheCreation} · ${num(c.usage.input)} ${INPUT_PARTS.uncached}`;
     rows.push(['Input tokens', <>{num(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)} <small>{parts}</small></>]);

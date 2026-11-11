@@ -421,8 +421,8 @@ describe('Compare', () => {
     await inPage(A);
     expect(said).toEqual([`run ${A}`, `holding run ${A}`]);
     await page!.click(page!.one('.ph .actions button'));
-    await page!.until('the run drawn there', () => page!.all('.stepempty h3').length === 1);
-    expect(page!.one('.stepempty h3').textContent).toBe('Nothing to compare yet');
+    await page!.until('the run drawn there', () => page!.all('.stepempty h2').length === 1);
+    expect(page!.one('.stepempty h2').textContent).toBe('Nothing to compare yet');
     expect(said.slice(2)).toEqual([`select ${THERE}`, 'reload', `run ${A}`]);
   });
 

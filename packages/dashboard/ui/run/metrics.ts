@@ -71,15 +71,23 @@ function callRows(m: MetricInput): MetricCard['rows'] {
   return made.filter(([, v]) => v !== 0);
 }
 
-export function metricItems(m: MetricInput): MetricItem[] {
+/**
+ * What a run spent, as its header says it and Compare's line a run says it again: `≈$0.051 spent`,
+ * `$0.12 as captured` for a capture, `— spent · no price for <model>` where its model has no price,
+ * with `· by <name>` for a run pulled from the team store.
+ */
+export function spentWords(m: Pick<MetricInput, 'cost' | 'capture' | 'spentBy'>): { value: string; label: string } {
+  if (m.capture) return { value: money(m.cost.captured), label: 'as captured' };
   const unpriced = m.cost.spent === 0 && m.cost.unknownModels.length > 0;
   const by = m.spentBy ? ` · by ${m.spentBy}` : '';
+  return { value: unpriced ? '—' : approx(m.cost.spent), label: unpriced ? `spent${by} · no price for ${m.cost.unknownModels[0]!}` : `spent${by}` };
+}
+
+export function metricItems(m: MetricInput): MetricItem[] {
   const upstream: MetricCard['rows'] = [[plural(m.upstreamRequests, 'upstream request'), m.upstreamRequests]];
   const items: MetricItem[] = [
     { value: m.total, label: m.live ? plural(m.total, 'call so far', 'calls so far') : plural(m.total, 'call'), cls: '', tip: { title: `${m.total.toLocaleString('en-US')} ${plural(m.total, 'call')}`, rows: callRows(m) } },
-    m.capture
-      ? { value: money(m.cost.captured), label: 'as captured', cls: 'q', tip: { title: 'As the capture recorded it', rows: upstream } }
-      : { value: unpriced ? '—' : approx(m.cost.spent), label: unpriced ? `spent${by} · no price for ${m.cost.unknownModels[0]!}` : `spent${by}`, cls: 'q', tip: { title: 'Spent live', rows: upstream } },
+    { ...spentWords(m), cls: 'q', tip: { title: m.capture ? 'As the capture recorded it' : 'Spent live', rows: upstream } },
   ];
   if (m.cost.saved || m.tokensNotRespent) items.push({ value: money(m.cost.saved), label: 'not re-spent', cls: 'q', tip: { title: 'Replayed from the recording', rows: m.tokensNotRespent ? [['input tokens not sent again', ktok(m.tokensNotRespent)]] : [] } });
   if (m.notWaitedMs) items.push({ value: receiptDuration(m.notWaitedMs), label: 'not waited', cls: 'q', tip: { title: 'The recorded time of the replayed calls', rows: [], ...(m.notWaitedUnknown ? { sub: durationsNotFound(m.notWaitedUnknown) } : {}) } });
@@ -158,6 +166,15 @@ function verdictFact(v: FactVerdicts): (Omit<OutcomeFact, 'callNo' | 'today'> & 
 }
 
 /**
+ * The tool calls no checks' hover counts, those a check is added from: a person's recorded answers
+ * are left out, as Add check… leaves them, once every call's row is in; while a long run's pages are
+ * yet to come, its summary's count of tool calls.
+ */
+export function toolsToCheck(calls: readonly { kind: string; input?: boolean }[], callsTotal: number, summaryTools: number): number {
+  return calls.length >= callsTotal ? calls.filter((c) => c.kind === 'tool' && !c.input).length : summaryTools;
+}
+
+/**
  * How the run came out, its page's first fact, in the words Runs' Status has (outcomeOf): the
  * verdict of the checks that judged it, the call it turned on apart, by today's checks after it when
  * they came after the run. A run no check judges says `no checks`, by a grey dot, a clean replay and a
@@ -165,12 +182,12 @@ function verdictFact(v: FactVerdicts): (Omit<OutcomeFact, 'callNo' | 'today'> & 
  * it. `pending`: a long run whose first answer came before its analysis judged it, which says nothing
  * yet. An interrupted run says so muted, by a grey dot, as every status that is no verdict.
  */
-export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean } & FactVerdicts): OutcomeFact {
+export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean; offered?: boolean } & FactVerdicts): OutcomeFact {
   const verdict = verdictFact(o);
   if (verdict) return { callNo: null, ...verdict, today: false };
   if (o.pending) return { tone: 'mu', words: '…', callNo: null, today: false, tip: { title: 'Judging it by its checks', sub: 'Read from all its calls, beside the server.', rows: [], said: 'judging it by its checks' } };
   const out = outcomeOf(r);
-  const tip = outcomeTip(r, out, o.tools);
+  const tip = outcomeTip(r, out, o.tools, !!o.offered);
   // A failed attempt whose checks say nothing still failed.
   if ((out.of === 'none' || out.of === 'fork') && o.attempt?.tone === 'no') return { tone: 'err', words: 'failed', callNo: null, today: false, tip: card('Failed', null) };
   if (out.of === 'none' || out.of === 'fork') return { tone: 'mu', words: 'no checks', callNo: null, today: false, tip };

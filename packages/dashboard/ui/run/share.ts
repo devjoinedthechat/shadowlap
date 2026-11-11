@@ -1,14 +1,14 @@
-import type { FactWords } from '../actions.js';
 import { num, shortId } from '../format.js';
-import { draftCommand } from '../job-title.js';
 import { ACTIONS } from '../labels.js';
-import { packRunCommand } from './share-steps.js';
 import type { RunOffers } from '../types.js';
 
 /**
  * The Share menu without the DOM: which copies it lists, in the mock's order and words (parallel nouns,
  * an ellipsis on each that asks first), and the note
  * under them on how many redaction rules each applies (decision 6). The tests import it.
+ * It loads with the menu (ShareMenu.tsx, a part only the served dashboard hands in), the dialogs the
+ * menu opens and the Runs page's bulk bar, never with a run's page: what its header, steps and keys
+ * say of a copy is in share-steps.ts.
  */
 
 export type ShareKey = 'link' | 'html' | 'pack' | 'dataset' | 'otel' | 'har' | 'security';
@@ -37,26 +37,6 @@ const ITEMS: Record<CopyKey, Omit<ShareItem, 'key'>> = {
 
 /** Where the server's jobs write a copy, inside the project (src/run-exports.ts). */
 export const EXPORTS = '.shadowlap/exports';
-
-/**
- * What a copy's dialog says of its redaction rules: how many, and that the store never changes, or
- * that the copy holds what was recorded. A trace holds no prompt text whatever they say. No row where
- * the server doesn't say how many.
- */
-export function redactsFact(rules: number | null, trace = false): FactWords | null {
-  if (rules === null) return null;
-  const by = `by ${num(rules)} ${rules === 1 ? 'rule' : 'rules'}`;
-  if (trace) return rules ? { label: 'Redacts', value: by, quiet: 'a trace holds no prompt, arguments or results' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules; a trace holds no prompt, arguments or results' };
-  return rules ? { label: 'Redacts', value: by, quiet: 'the store never changes' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules: the copy holds what was recorded' };
-}
-
-/** What Pack as golden… runs, a line each: the pack into the golden's folder, then its test. */
-export function packTestCommands(runId: string, dir: string): readonly string[] {
-  return [packRunCommand(runId, dir), draftCommand(['test', dir.trim()])];
-}
-
-/** What a pack holds, its one fact besides that. */
-export const PACK_HOLDS: FactWords = { label: 'Holds', value: '`run.json`, `calls.jsonl` and one file per blob' };
 
 /** A copy's name in a file or a folder: the run's id, as the server's jobs name it. */
 const fileId = (runId: string) => runId.slice(0, 10).toLowerCase();

@@ -1,12 +1,13 @@
+import type { FactWords } from '../actions.js';
 import { num, shortId } from '../format.js';
 import { draftCommand } from '../job-title.js';
 import type { RunOffers } from '../types.js';
 
 /*
  * What the run page's header, its steps and its keys say of a copy: Pack's command, Pack as golden…'s
- * verb, Push and the drawer's Copy link. Share's menu and the dialogs it opens word the rest
- * (share.ts), and the served dashboard hands the menu in (ShareMenu.tsx, a part), so the run page's
- * script holds none of their words.
+ * commands and verb, what a pack holds and what a copy redacts, Push and the drawer's Copy link.
+ * Share's menu and the dialogs it opens word the rest (share.ts), and the served dashboard hands the
+ * menu in (ShareMenu.tsx, a part), so the run page's script holds none of their words.
  */
 
 /** Pack's command for one run, wherever it is asked (Share, the bulk bar, the key `p`): the folder as typed, quoted as its job's is. */
@@ -16,6 +17,26 @@ export function packRunCommand(runId: string, dir: string): string {
 
 /** What Pack as golden… waits with, as it packs a golden and tests it: a Tests job holds the goldens. */
 export const PACK_VERB = 'pack it';
+
+/** What Pack as golden… runs, a line each: the pack into the golden's folder, then its test. */
+export function packTestCommands(runId: string, dir: string): readonly string[] {
+  return [packRunCommand(runId, dir), draftCommand(['test', dir.trim()])];
+}
+
+/** What a pack holds, its one fact besides that. */
+export const PACK_HOLDS: FactWords = { label: 'Holds', value: '`run.json`, `calls.jsonl` and one file per blob' };
+
+/**
+ * What a copy's dialog says of its redaction rules: how many, and that the store never changes, or
+ * that the copy holds what was recorded. A trace holds no prompt text whatever they say. No row where
+ * the server doesn't say how many.
+ */
+export function redactsFact(rules: number | null, trace = false): FactWords | null {
+  if (rules === null) return null;
+  const by = `by ${num(rules)} ${rules === 1 ? 'rule' : 'rules'}`;
+  if (trace) return rules ? { label: 'Redacts', value: by, quiet: 'a trace holds no prompt, arguments or results' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules; a trace holds no prompt, arguments or results' };
+  return rules ? { label: 'Redacts', value: by, quiet: 'the store never changes' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules: the copy holds what was recorded' };
+}
 
 /**
  * The link a finished share job made, from its result (`shadowlap share` reports `url` and

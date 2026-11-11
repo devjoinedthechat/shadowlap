@@ -1,4 +1,4 @@
-import { BISECT_PARTS, INJECTION_PART, moreAttemptsParts, updatePart } from '../cost-words.js';
+import { BISECT_PARTS, INJECTION_PART, JUDGE_UNASKED, moreAttemptsParts, updatePart } from '../cost-words.js';
 import type { CostReport, PlantReport } from '../injection.js';
 import type { TestResultData } from '../store.js';
 import { counted, CUT_SHORT_LINE, liveFrom, noEstimate, noPriceWords, type Estimate, type ExpectedFigure, type PricedCall } from './estimate.js';
@@ -146,7 +146,7 @@ export function updateEstimate(goldens: ReadonlyArray<{ calls: readonly PricedCa
   let usd = 0;
   for (const g of goldens) {
     if (g.judge !== undefined) {
-      if (g.judge === null) return { ...noEstimate('update', 'its judge has not been asked yet, so what a call of it costs is unknown'), always };
+      if (g.judge === null) return { ...noEstimate('update', JUDGE_UNASKED), always };
       usd += g.judge;
       continue;
     }

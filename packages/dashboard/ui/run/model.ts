@@ -159,6 +159,16 @@ export function recordingWords(r: Pick<RunDetail['run'], 'meta'>): string {
 }
 
 /**
+ * What kind of run it is, as its page's eyebrow says it, and Compare's head over each side's calls:
+ * a fork where it forked (`fork @7`, a failed one too), else `clean replay`, `replay`, `test replay`,
+ * `capture`, or the recording's words.
+ */
+export function runKindWords(d: Parameters<typeof forkKindWords>[0] & { run: Pick<RunDetail['run'], 'meta'> }, type: RunType, rescued: boolean): string {
+  const fork = forkKindWords(d, type, rescued);
+  return fork ? fork : type === 'clean' ? 'clean replay' : type === 'replay' ? 'replay' : type === 'test' ? 'test replay' : type === 'capture' ? 'capture' : recordingWords(d.run);
+}
+
+/**
  * Who spent what a run pulled from the team store spent, where it was recorded: its author by name
  * ("maya", as Runs' By column names them). Undefined for a run made here, for a capture (whose calls
  * were paid for where that traffic ran), and for a run that names no one, such as one in an HTML
@@ -213,6 +223,16 @@ export function lineageRunLike(n: LineageNode, listed: RunListItem | undefined):
 export function modelLabel(models: Readonly<Record<string, string>> | null | undefined, model: string | null | undefined): string | null {
   if (!model) return null;
   return models?.[model] ?? models?.[shortModel(model)] ?? canonicalModel(model).replace(/-\d{8}$/, '');
+}
+
+/**
+ * Whether blame rescued a run with this fork, and where the fork sets out: by the server's
+ * `rescuedBy` (at its call, else `forkAt`), or by the blame of `parent`, the run's parent where the
+ * page has it, naming it as the run it rescued (at its divergence); null for any other run.
+ */
+export function rescuedAt(run: Pick<RunDetail, 'rescuedBy'> & { run: Pick<RunDetail['run'], 'runId' | 'divergence'> }, parent: { run: Pick<RunDetail['run'], 'meta'> } | null, forkAt: number | null): { callNo: number | null } | null {
+  if (run.rescuedBy) return { callNo: run.rescuedBy.callNo ?? forkAt };
+  return parent?.run.meta?.blame?.rescuedRunId === run.run.runId && run.run.divergence ? { callNo: run.run.divergence.callNo } : null;
 }
 
 /** The run's call rows with each model call's model named as the page names it (`modelLabel`). */

@@ -3,6 +3,7 @@ import type { RunDetail } from '../api.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import { runInjectionView } from '../injection/model.js';
+import { rescuedAt } from './model.js';
 import { runNotes } from './notes.js';
 import { presetAttempt } from './preset.js';
 
@@ -16,7 +17,7 @@ import { presetAttempt } from './preset.js';
  * - `notes`: what the run did that Shadowlap did not record, or answered as it went (notes.ts), the
  *   tools the model called that it never recorded read beside the server;
  * - `rescued`: where the fork that rescued its parent's blame sets out, by the server's `rescuedBy` or
- *   the parent's blame (`parent`);
+ *   the parent's blame (`parent`, rescuedAt);
  * - `injection`: the injection tests it was in (injection/model.ts): its untrusted reads and, for an
  *   attempt, what was planted where, read once, since that reads every call of the run; and the
  *   finding of its newest test, from its results as runs move.
@@ -30,9 +31,8 @@ export function useRunExtras(run: RunDetail, parent: RunDetail | null, forkAt: n
   const preset = useMemo(() => presetAttempt(presets, runId), [presets, runId]);
   const unrecorded = useLoad(() => (live ? null : client.unrecorded(runId)), `${runId}:unrecorded:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
-  const rescued: { callNo: number | null } | null = run.rescuedBy ? { callNo: run.rescuedBy.callNo ?? forkAt } : parent?.run.meta?.blame?.rescuedRunId === runId && run.run.divergence ? { callNo: run.run.divergence.callNo } : null;
   const tested = useLoad(() => (live ? null : client.injectionRun(runId)), `${runId}:injection:${live ? 'live' : 'ended'}`).data ?? null;
   const results = useLoad(() => (live ? null : client.injectionResults(runId)), `${runId}:injection-results:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data?.results ?? null;
   const injection = useMemo(() => runInjectionView(tested, results), [tested, results]);
-  return { offers, preset, notes, rescued, injection };
+  return { offers, preset, notes, rescued: rescuedAt(run, parent, forkAt), injection };
 }

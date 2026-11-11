@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { JOB_KINDS } from '../api.js';
 import { shortId } from '../format.js';
-import { datasetCommand, datasetFile, datasetTooMany, redactsFact, shareDialog } from '../run/share.js';
+import { datasetCommand, datasetFile, datasetTooMany, shareDialog } from '../run/share.js';
+import { redactsFact } from '../run/share-steps.js';
 import { useApp } from '../state.js';
 import { Dialog } from './Dialog.js';
 import { namedIn } from './Id.js';

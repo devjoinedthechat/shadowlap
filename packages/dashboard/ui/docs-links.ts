@@ -14,6 +14,7 @@ export interface DocsLink {
 }
 
 export const DOCS = {
+  checks: { page: 'checks#make-a-check-in-the-dashboard', what: 'Checks' },
   deletingRuns: { page: 'cli#rm-gc', what: 'Deleting runs' },
   commandsFromSomeoneElse: { page: 'dashboard#commands-from-someone-else', what: 'Commands from someone else' },
   injectInstruction: { page: 'interventions#inject-an-instruction', what: 'Interventions' },

@@ -1,7 +1,7 @@
-import { act, createElement, useState } from 'react';
+import { act, createElement, useLayoutEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
-import { ToastHost } from '../ui/components/Toast.js';
+import { ToastHost, useUndoKeys } from '../ui/components/Toast.js';
 import { OfflineBar } from '../ui/shell/Connection.js';
 import { setSingleKeys } from '../ui/shortcuts.js';
 import { AppContext, AppProvider, useApp, type AppState } from '../ui/state.js';
@@ -175,6 +175,19 @@ describe('the undo keys', () => {
     await show({ id: 3, action: undo });
     await act(async () => void toastKey.current!());
     expect(ran).toBe(3);
+  });
+
+  it('answer from the commit that draws the Undo, before it is painted, so a key pressed as it shows is never lost', async () => {
+    // A layout effect after the keys' own runs where the browser's paint would come: they are live by then.
+    const live: boolean[] = [];
+    const shown = { id: 1, text: 'Done', kind: 'notice', action: { label: 'Undo', undo: true, run: () => undefined } } as NonNullable<AppState['toastText']>;
+    function Probe() {
+      useUndoKeys(shown, false, 'ok', () => undefined);
+      useLayoutEffect(() => void live.push(toastKey.current !== null), []);
+      return null;
+    }
+    r = await render(createElement(Probe));
+    expect(live).toEqual([true]);
   });
 
   it('never press a way on', async () => {

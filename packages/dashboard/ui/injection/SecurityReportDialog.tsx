@@ -3,7 +3,7 @@ import { namedIn } from '../components/Id.js';
 import { minuteStamp, plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
-import { redactsFact } from '../run/share.js';
+import { redactsFact } from '../run/share-steps.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { InjectionRow } from '../types.js';

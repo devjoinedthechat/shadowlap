@@ -202,8 +202,8 @@ function resultOf(c: CallRecord, input: CheckInput): { value: unknown } | { none
   return { none: why ? `has no result (${why})` : 'has no result', ended: c.origin === 'blocked' || c.end?.outcome === 'error' };
 }
 
-/** A JSON object or list held in a string, as tools often return one, read so a path can go into it. */
-function intoText(v: unknown): unknown {
+/** A JSON object or list held in a string, as tools often return one, read so a path can go into it: a value as a reference reads it. */
+export function intoText(v: unknown): unknown {
   if (typeof v !== 'string') return v;
   const t = v.trimStart();
   if (t[0] !== '{' && t[0] !== '[') return v;

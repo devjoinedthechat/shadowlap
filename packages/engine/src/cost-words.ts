@@ -64,3 +64,6 @@ export const probesPart = (blocked = false): string => `live from each probe, wr
 
 /** Find breaking commit: a golden that replays bisects offline; one marked fork runs live at each commit; a run, one live replay a commit. */
 export const BISECT_PARTS = { offline: 'bisect replays offline', fork: 'live at each commit, as a golden marked fork runs', run: 'one live replay each, writes blocked' } as const;
+
+/** Why a judge never asked yet has no price: Update golden's estimate and the check builder's Ask a judge… both say it. */
+export const JUDGE_UNASKED = 'its judge has not been asked yet, so what a call of it costs is unknown';

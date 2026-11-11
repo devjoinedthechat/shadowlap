@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asTheyStand, carriesCredentials, keepingRunCanaries, redactRunWithDetails, Store, type StoreOf, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
-import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { callDetailFrom, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { comparePairOf } from './compare.js';
 import { withExitCodes } from './exit-codes.js';
 import { forkDifferences } from './fork-differences.js';
 import { copyNextStep } from './next-step.js';
@@ -35,8 +36,9 @@ export interface ExportHtmlOptions {
   /** Applied to every request and response before they are embedded. */
   redact?: Normalizer[];
   /**
-   * The rules matching applies (the config's `normalize`): Show diff's answer says a change they
-   * mask apart from those that made a run diverge, as the dashboard does.
+   * The rules matching applies (the config's `normalize`), which the copy compares after as the
+   * dashboard does: Compare's pairs and a fork's differences, and Show diff's answer, which says a
+   * change they mask apart from those that made a run diverge.
    */
   normalize?: Normalizer[];
   version?: string | null;
@@ -142,7 +144,8 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     responses[`runs/${runId}`] = { ...detail, judged, ...(next ? { next } : {}), run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
     responses[`runs/${runId}/lineage`] = { nodes: (lineage(store, runId, read) ?? []).filter((n) => runIds.includes(n.runId)).map((n) => (keep ? n : anonymous(n))) };
     // What a fork did differently, when the file holds its parent too: it quotes the parent's calls.
-    if (record.parentRunId && runIds.includes(record.parentRunId)) responses[`runs/${runId}/differences`] = { differences: forkDifferences(store, runId) };
+    // Compared after the rules matching applies, as the dashboard compares them and the copy's Compare does.
+    if (record.parentRunId && runIds.includes(record.parentRunId)) responses[`runs/${runId}/differences`] = { differences: forkDifferences(store, runId, { normalizers: opts.normalize }) };
     // Show diff's request, as recorded and as sent: of the copy's runs alone, the divergence's own
     // changes where the file leaves out the run it is compared with. Read from the copy's store, so
     // redacted as its runs and calls are, with the rules matching applies, as the dashboard reads it.
@@ -160,7 +163,8 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   const pairs = runIds.length <= COMPARE_ALL_UPTO ? runIds.flatMap((a) => runIds.map((b) => [a, b] as const)) : runIds.flatMap((a) => [[a, runIds[0]!] as const, [runIds[0]!, a] as const]);
   for (const [a, b] of pairs) {
     if (a === b) continue;
-    const c = compare(store, a, b);
+    // Compared after the rules matching applies, as the dashboard compares them.
+    const c = comparePairOf(store, a, b, opts.normalize);
     if (c) responses[`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`] = c;
   }
   return { data: { shadowlap: opts.version ?? null, exportedAt: opts.now, runIds, redacted: opts.rules > 0, responses }, calls };
