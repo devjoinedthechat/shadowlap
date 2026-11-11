@@ -215,7 +215,7 @@ What the rows mean:
 - **A preview of a change** is settled by a session of that change that asked its flagged runs again and flagged none, or whose verify accepted them, as a migration to a model after a preview of it.
 - **Verified fixes**: one verified with request fields set, as `--set temperature=1`, says to make them in your agent first.
 - **Runs only on this machine** are counted as Settings → Store and `shadowlap store show` count them, by run. **Push local runs** pushes them all, as `shadowlap push --all` does. The row opens Runs with those runs alone, each with the `local` tag.
-- **A model that retires**: its name, how many goldens use it, and when it goes (*retires on Nov 30, 2026*, *retired on*, or *is deprecated*). **Migrate to** asks first, then runs `shadowlap migrate --to <model> <goldens> --from <model>` on those goldens. A model with nothing to migrate to has no step.
+- **A model that retires**: its name, how many goldens use it, and when it goes (*retires on Nov 30, 2026*, *retired on*, or *is deprecated*). **Migrate to** asks first, saying your provider bills it, then runs `shadowlap migrate --to <model> <goldens> --from <model>` on those goldens. A model with nothing to migrate to has no step.
 
 A step that bills names its price on hover, asked for once the pointer or the focus reaches it, and asks first as [Spending](#spending) says. On a read-only dashboard a step that runs a job says **Open →**, since nothing runs there. Past 50 rows of a kind, one line says how many more there are and opens the page that lists them.
 
@@ -1080,7 +1080,7 @@ The verdict is in Verdicts' words, with the lines that explain it:
 - **Runs a change shows in that doesn't flag them**, on a line of their own, such as a change within the model's own variation.
 - **Verify's verdict**, once verify ran, with its warnings and how many runs it verified end to end (*2 of 7 runs verified end to end*).
 
-One lime button gives the next step. **Verify 2 runs** verifies the runs left to verify, priced first, and asks before it starts above your threshold. It waits, saying why, while a run it would verify is gone from the store. **Migrate to claude-haiku-4-5** comes where Verdicts calls the preview accepted, or finds nothing to verify.
+One lime button gives the next step. **Verify 2 runs** verifies the runs left to verify, priced first, and asks before it starts above your threshold. It waits, saying why, while a run it would verify is gone from the store. **Migrate to claude-haiku-4-5** comes where Verdicts calls the preview accepted, or finds nothing to verify, and asks first, as a retiring model's row on Needs a look does.
 
 #### The matrix
 

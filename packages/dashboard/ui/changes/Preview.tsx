@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Link } from '../components/Link.js';
+import { MigrateAsk } from '../components/MigrateAsk.js';
 import { Picker } from '../components/Picker.js';
 import { useMenu } from '../components/Popover.js';
 import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
@@ -267,7 +268,6 @@ function NextStepButton({ session }: { session: PreviewSession }) {
   }
   const targets = step.goldens.length ? step.goldens : step.runs.map(shortId);
   const command = `shadowlap migrate --to ${step.to} ${targets.join(' ')}${step.from.map((f) => ` --from ${f}`).join('')}`;
-  const from = step.from.join(', ') || 'the recorded model';
   return (
     <FixJobButton
       kind="migrate"
@@ -278,7 +278,7 @@ function NextStepButton({ session }: { session: PreviewSession }) {
       tip="The switch checked end to end, ending on the config change and a pull request body"
       command={command}
       estimate={null}
-      ask={(start, close) => <ConfirmDialog title={`Migrate ${from} to ${step.to}`} lead={`Asks ${from}’s calls again under ${step.to} and verifies the runs whose decisions change.`} command={command} cost={{ price: 'Billed by your provider', estimate: null }} ok={step.label} onOk={() => start({})} onClose={close} />}
+      ask={(start, close) => <MigrateAsk from={step.from} to={step.to} command={command} ok={step.label} onOk={() => start({})} onClose={close} />}
     />
   );
 }

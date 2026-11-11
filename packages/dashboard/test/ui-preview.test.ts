@@ -359,6 +359,29 @@ describe('the Preview page', () => {
     expect(asked).toEqual([`decisions/${ID}/estimates?runId=${a}&runId=${b}`, `decisions/${ID}/estimates`]);
   });
 
+  it('asks before Migrate in the one ask a retiring model’s row on Needs a look asks, then starts the migration it names', async () => {
+    const migrating: PreviewSession = { ...flagged, view: { ...flagged.view, next: { verify: null, more: [], migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'], runs: [] } } } };
+    const started: Array<[string, Record<string, unknown>]> = [];
+    const client = {
+      decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }),
+      decisionSession: () => Promise.resolve(migrating),
+      startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), Promise.resolve({ jobId: 'j1', kind, status: 'running' })),
+    };
+    const p = await open(client as unknown as Partial<Client>);
+    await p.until('the verdict', () => !!p.one('.dverdict .actions button'));
+    await p.click(p.byText('.dverdict .actions button', 'Migrate to claude-haiku-4-5'));
+    await p.until('the ask', () => p.all('.dialog').length === 1);
+    expect([shown(p.one('.dialog h3')), shown(p.one('.dialog header p')), shown(p.one('.dialog .dcost'))]).toEqual([
+      'Migrate claude-sonnet-4-5-20250929 to claude-haiku-4-5',
+      'Asks claude-sonnet-4-5-20250929’s calls again under claude-haiku-4-5 and verifies the runs whose decisions change.',
+      'Billed by your provider',
+    ]);
+    expect(shown(p.one('.dialog .cmdline'))).toContain('shadowlap migrate --to claude-haiku-4-5 goldens/refund --from claude-sonnet-4-5-20250929');
+    await p.click(p.one('.dialog .dlg-ok'));
+    await p.until('the job', () => started.length === 1);
+    expect(started[0]).toEqual(['migrate', expect.objectContaining({ to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'] })]);
+  });
+
   it('marks the message a forked run’s cell changed against its parent’s call, with Jump to change', async () => {
     const turns = (third: string) => Array.from({ length: 4 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', blocks: [{ type: 'text', text: i === 2 ? third : `message ${i + 1}` }] }));
     const at = (third: string) => ({ call: { callNo: 3, kind: 'api', outcome: 'ok' }, conversation: { turns: turns(third), fromCallNo: 3, n: null } });
