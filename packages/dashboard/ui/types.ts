@@ -532,11 +532,13 @@ export type { PrCommentPreview } from '../src/pr-comment-preview.js';
 export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';
 
 // The decision diff (`/api/decisions`): the read model's own shapes, as the server sends them.
-export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RetirementsView } from '../src/decisions.js';
+export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RetirementsView, RowEnding, RunDecisionsSession, ViewStep } from '../src/decisions.js';
+export type { CellOpen, Toned } from '../src/decision-cells.js';
+export type { PreviewCounts, PreviewKeyEntry, PreviewNext, PreviewReceipt, PreviewRowFacts, PreviewSession, PreviewVerify, PreviewView } from '../src/decision-view.js';
 export type { DecisionChange, DecisionRun, DecisionStep, DecisionsReport, DecisionView } from '../../engine/src/decisions.js';
 export type { RetirementNotice } from '../../engine/src/model-retirements.js';
-/** One session whole: a decisions report (`decisions --json`) or a migrate report, with the matrix the page draws. */
-export type DecisionSessionDetail = Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: import('../src/decisions.js').DecisionRow[] };
+/** One session whole: a decisions report (`decisions --json`) or a migrate report, with the matrix the page draws and its `view`, worded on the server. */
+export type DecisionSessionDetail = import('../src/decision-view.js').PreviewSession;
 /** A run's decisions under each session that asked it again, newest first. */
 export type RunDecisionsView = ReturnType<typeof import('../src/decisions.js').runDecisions>;
 // Changes › Verdicts (`/api/verdicts`): every change checked, and the verdict it got.
@@ -550,4 +552,4 @@ export type { CodeChange } from '../src/compare.js';
 export type { ChaosCell, ChaosMatrix, ChaosPresetInfo, ChaosSessionView, ChaosView } from '../src/chaos.js';
 export type { CoverageGroupView, CoverageLook, CoverageView } from '../src/coverage.js';
 /** `GET /api/compare`: the engine's comparison, and the code card's commits (absent from an exported copy, which has no git behind it). */
-export type CompareView = Omit<import('../src/compare.js').CompareView, 'code'> & { code?: import('../src/compare.js').CodeChange | null };
+export type CompareView = Omit<import('../src/compare.js').CompareView, 'code' | 'pair'> & { code?: import('../src/compare.js').CodeChange | null; pair?: import('../src/fork-differences.js').PairDifferences | null };

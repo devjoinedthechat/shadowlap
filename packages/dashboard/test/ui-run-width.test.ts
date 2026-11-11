@@ -122,8 +122,6 @@ describe('Show diff’s structural diff', () => {
     expect(topRule('.jl')).toMatch(/display: flex/);
     expect(topRule('.jl > .jt')).toMatch(/text-indent: -2ch/);
     expect(topRule('.jl > .jt')).toMatch(/overflow-wrap: anywhere/);
-    // Compare's own panes keep their lines' blocks.
-    expect(topRule('.diffpanel pre .add')).toMatch(/display: block/);
   });
 });
 

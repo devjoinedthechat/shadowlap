@@ -1677,6 +1677,20 @@ More on some of them:
 The command after `--` replaces each run's recorded one, for `--from-code`, `--then-verify` and
 `--verify`.
 
+**What it prints.** The report opens with how many runs decide a write or when to stop differently,
+and the steps it asked. Each run then has a line, and under it a line for each step that changed or
+wasn't asked ([reading the report](./decisions.md#reading-the-report)). A step's line gives its call
+and its step, then one of these:
+
+| It says | When |
+| --- | --- |
+| `rank 1` to `rank 5` | Its change ranks, by consequence, with what it decided as recorded and under the change |
+| `within the model's own variation` | Its samples decided otherwise no more often than as recorded, with both counts |
+| `inconclusive` | Its samples changed, but too few answers came, under the change or as recorded, to tell that from the model's own variation |
+| `not asked` | It got no answer, with why |
+
+An inconclusive step counts as not asked, and its run settles nothing unless something else flags it.
+
 `decisions` exits with:
 
 | Status    | Meaning                                                                                                |
@@ -1796,7 +1810,7 @@ Each of its `decisions`, a step, has these fields:
 More on a step's fields:
 
 - **`rank`** is `null` when there is none, and when either side got fewer than 3 answers, which leaves
-  the step not settled.
+  the step inconclusive.
 - **`changes`**: each has its `rank`, its `kind`, the `tool` and its `effect`, `before`, `after` and a
   `detail` sentence. `kind` is one of `write-added`, `write-removed`, `write-arguments`,
   `write-order`, `stops`, `handover`, `judge`, `read-added`, `read-removed`, `read-arguments` and

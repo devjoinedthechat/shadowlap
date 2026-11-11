@@ -121,7 +121,8 @@ export { kindFacts, modelResolver, runLabel, type LabelledRun } from './run-labe
 // What the dashboard and the terminal UI both say of a run: why it failed, how an attempt came out,
 // what a fork did differently from its parent and how each ended, and the good/bad key.
 export { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, keptAttemptVerdict, lostRange, lostWords, type AttemptVerdict, type FailureReason } from './run-verdicts.js';
-export { compareFork, forkEnd, MAX_TOOL_CALLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite } from './fork-changes.js';
+export { compareFork, comparePair, forkEnd, MAX_TOOL_CALLS, PATH_ROWS, pairDecisions, pairEnding, pathRows, ROW_TEXT, ROW_TOOLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite, type PairChange, type PairComparison, type PairDecisions, type PairEnd, type PairEnding, type PairOptions, type PathCall, type PathDecision, type PathRow } from './fork-changes.js';
+export { pairVerdict, type PairVerdict, type PairVerdictInput, type PairVerdictWords } from './pair-verdict.js';
 export { markChange, markKey, MARKS, markToast, type RunMark } from './run-marks.js';
 // A request's body, read whole or not at all, for every server here; node:sqlite as every store opens it.
 export { BodyTooLarge, MODEL_BODY_LIMIT, readBody, type BodyLimits } from './body.js';
@@ -233,7 +234,7 @@ export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
 // in, its answer's decision against the recorded one, ranked by consequence; the providers' model
 // retirement dates; and the sessions the store keeps.
 export { promptOf, promptParts, samePrompt, withoutEarlierThinking, withPrompt, type RequestPrompt } from './prompt.js';
-export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LABELS, STOP_WORDS, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, percentChange, promoteByJudge, sameModel, shownSample, stepDelta, tokenTotal, unjudgedSample } from './decisions.js';
+export { DECISIONS_ID, INCONCLUSIVE_STEP, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, MIGRATE_ID, NO_TOKENS, OWN_VARIATION, RANK_LABELS, STOP_WORDS, WITHIN_VARIATION, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionStepState, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, judgeWords, majorityRank, minorityChange, minorityNotes, modelFamily, percentChange, promoteByJudge, sameModel, samplesWords, shownSample, stepDelta, stepsAsked, tokenTotal, unchangedRunWords, unjudgedSample, unsettledWords, withinVariationLine, type DecisionStepState } from './decisions.js';
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
@@ -243,6 +244,7 @@ export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, m
 export { fixVerifyHead, goldensPassed, runOutcomeWord, sessionTally, verdictWord, verifyHead } from './verdict-words.js';
 export { commentDecisions, commentHead, commentInjection, commentMarkdown, commentRows, commentVerdict, costPerRunLine, injectionGateLine, injectionTally, JUDGED_IN_RECORDED_STATE_SHORT, PR_DECISIONS_SUFFIX, commentVerdictLine, worstFirst } from './pr-comment.js';
 export type { CommentBase, CommentDecision, CommentDecisionsSource, CommentFix, CommentParts, CommentResult } from './pr-comment.js';
+export { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, type VerifiedTally } from './verified-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,

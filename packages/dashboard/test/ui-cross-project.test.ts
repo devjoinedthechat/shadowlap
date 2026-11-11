@@ -2,6 +2,7 @@ import { act, createElement, useMemo, useState, type ReactElement } from 'react'
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError, type Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
+import { ChangesPage } from '../ui/pages/Changes.js';
 import { ComparePage } from '../ui/pages/Compare.js';
 import { Elsewhere } from '../ui/pages/held-elsewhere.js';
 import { RunPage } from '../ui/pages/Run.js';
@@ -274,6 +275,7 @@ describe('Switch to', () => {
 // The pages that ask: a run's, a fix's and Compare's, each drawn as the shell draws it.
 
 const FIX = 'fx-01M5GMZKCV0000000000000000';
+const SESSION = 'dc-01M5GT0000000000000000000A';
 const A = '01M5GRXFM1Y2E2VBPFX0TV2TGA';
 const B = '01M5GRYHR0BT1ATQFZP3EQR1MZ';
 const ELSE = ['01M5GS00000000000000000001', '01M5GS00000000000000000002'];
@@ -323,6 +325,9 @@ async function openPage(hash: string, draw: () => ReactElement, o: Stores & { co
     jobs: () => Promise.resolve([]),
     run: (id: string) => asked(`run ${id}`, () => run(id)),
     fix: (id: string) => asked(`fix ${id}`, () => (now === HERE ? Promise.reject(new ApiError(404, `no fix ${id}`)) : new Promise(() => undefined))),
+    // Previews: none listed, a session by its id a 404 here and waiting there.
+    decisionSessions: () => asked('previews', () => Promise.resolve({ sessions: [], goldens: 1 })),
+    decisionSession: (id: string) => asked(`preview ${id}`, () => (now === HERE ? Promise.reject(new ApiError(404, `no preview ${id}`)) : new Promise(() => undefined))),
     compare: (a: string, b: string) => asked(`compare ${a} ${b}`, () => Promise.reject(new ApiError(500, 'the comparison failed'))),
     compareHead: (a: string, b: string) => asked(`head ${a} ${b}`, () => Promise.resolve(null)),
     projects: {
@@ -401,6 +406,7 @@ describe('a run’s page and a fix’s', () => {
       [`#/fixes/${FIX}`, () => createElement(FixPage, { id: FIX, step: null, sub: null }), `No fix ${FIX}`],
       [`#/compare/${A}`, () => createElement(ComparePage, { a: A, b: null }), `No run ${A}`],
       [`#/compare/${A}/${B}`, () => createElement(ComparePage, { a: A, b: B }), `No run ${A}`],
+      [`#/changes/decisions/${SESSION}`, () => createElement(ChangesPage, { tab: 'decisions', id: SESSION }), `No preview ${SESSION}`],
     ];
     for (const [hash, draw, words] of pages)
       for (const o of [{ copy: true }, { oneStore: true }]) {
@@ -415,14 +421,31 @@ describe('a run’s page and a fix’s', () => {
   });
 });
 
+describe('a preview', () => {
+  it('another project holds: In support-agent in place of Changes’ head and tabs, and Switch reads it there, at the same cell', async () => {
+    const said = await openPage(`#/changes/decisions/${SESSION}/${A}/3`, () => createElement(ChangesPage, { tab: 'decisions', id: SESSION, run: A, call: 3 }));
+    await inPage(SESSION, 'preview');
+    // The page whole: its one heading, and no tabs of Changes under it.
+    expect([page!.all('h1').length, page!.all('nav.stabs').length]).toEqual([1, 0]);
+    expect(said).toEqual(['previews', `preview ${SESSION}`, `holding preview ${SESSION}`]);
+    await page!.click(page!.one('.ph .actions button'));
+    await page!.until('the preview read there', () => said.includes(`select ${THERE}`) && said.filter((l) => l === `preview ${SESSION}`).length === 2);
+    expect(said.slice(3)).toEqual([`select ${THERE}`, 'reload', 'previews', `preview ${SESSION}`]);
+    expect((g.location as { hash: string }).hash).toBe(`#/changes/decisions/${SESSION}/${A}/3`);
+    // Under the head again, its tabs with it, while the read there comes.
+    await page!.until('the head', () => page!.all('nav.stabs').length === 1);
+    expect(page!.all('h1').map((h) => h.textContent)).toEqual(['Changes']);
+  });
+});
+
 describe('Compare', () => {
   it('one run another project holds: asks for it, and Switch reads it there, where it is drawn', async () => {
     const said = await openPage(`#/compare/${A}`, () => createElement(ComparePage, { a: A, b: null }), { here: ELSE, there: [A] });
     await inPage(A);
     expect(said).toEqual([`run ${A}`, `holding run ${A}`]);
     await page!.click(page!.one('.ph .actions button'));
-    await page!.until('the run drawn there', () => page!.all('.stepempty h3').length === 1);
-    expect(page!.one('.stepempty h3').textContent).toBe('Nothing to compare yet');
+    await page!.until('the run drawn there', () => page!.all('.stepempty h2').length === 1);
+    expect(page!.one('.stepempty h2').textContent).toBe('Nothing to compare yet');
     expect(said.slice(2)).toEqual([`select ${THERE}`, 'reload', `run ${A}`]);
   });
 

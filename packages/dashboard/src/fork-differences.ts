@@ -1,5 +1,6 @@
-import { compareFork, forkEnd, RANK_LABELS, type DecisionRank, type ForkChange as ComparedChange, type ForkEnd as ComparedEnd, type ForkWrite as ComparedWrite, type Normalizer, type StoreOf } from '@shadowlap/engine';
+import { compareFork, forkEnd, pairDecisions, RANK_LABELS, type CallRecord, type DecisionRank, type ForkChange as ComparedChange, type ForkEnd as ComparedEnd, type ForkWrite as ComparedWrite, type Normalizer, type PairChange as ComparedPairChange, type PairEnding, type PairVerdict, type PathRow, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
+import { exitCodes } from './exit-codes.js';
 import { links } from './links.js';
 import { loadRunIndex, type IndexedRun } from './run-index.js';
 
@@ -10,6 +11,9 @@ import { loadRunIndex, type IndexedRun } from './run-index.js';
  * Every change is ranked as `shadowlap decisions` ranks a changed decision: a write first, then how
  * the run ended, then reads added or removed, reads asked differently, and the words of its last
  * answer. Arguments and words are compared after the project's normalizers.
+ *
+ * Compare asks the same of any two runs (pairDifferences): what B decided differently from A after
+ * the calls they share, its verdict, how each side ended, and both paths call by call.
  */
 
 export type { ForkChangeKind } from '@shadowlap/engine';
@@ -83,6 +87,67 @@ export function forkDifferences(store: StoreOf<'recording' | 'readModels'>, idOr
     writes: compared.writes.map((w) => ({ ...w, href: links.run(run.runId, w.callNo) })),
     toolCalls: compared.toolCalls,
     cut: compared.cut,
+    ranks: RANK_LABELS,
+  };
+}
+
+/** A change between two runs, B read against A, with a link to the call it is about on each side. */
+export interface PairChange extends Omit<ComparedPairChange, 'aCallNo' | 'bCallNo'> {
+  a: { callNo: number; href: string } | null;
+  b: { callNo: number; href: string } | null;
+}
+
+/** What run B decided differently from run A after the calls they share, for Compare (`pair` in `GET /api/compare`). */
+export interface PairDifferences {
+  /** The first call after the identical prefix in each run. */
+  from: { a: number; b: number };
+  /** `Different writes after #18`, and its tone; null where no call follows the prefix, or while a run records. */
+  verdict: PairVerdict | null;
+  /** The most consequential change, or null when B decided as A did. */
+  rank: DecisionRank | null;
+  /** Each change, most consequential first. */
+  changes: PairChange[];
+  /** How each run ended, as the run lists count it. */
+  ended: { a: ForkEnd; b: ForkEnd };
+  /** What each did after the calls they share: its HTTP failures, its writes by what became of them, how its turn ended. */
+  endings: { a: PairEnding; b: PairEnding };
+  /** Each run's writes from there on, in order. */
+  writes: { a: ForkWrite[]; b: ForkWrite[] };
+  toolCalls: { a: number; b: number };
+  cut: boolean;
+  /** Both paths after the prefix, a row a call, at most `PATH_ROWS`. */
+  rows: PathRow[];
+  /** The rows left out past them. */
+  more: number;
+  ranks: Record<DecisionRank, string>;
+}
+
+/**
+ * What run `b` decided differently from run `a` after the `identicalPrefix` calls they share
+ * (compareRuns counts them): any two runs, ranked as a fork against its parent is, with how each
+ * ended from the run index. Null when either run isn't in the store's index.
+ */
+export function pairDifferences(store: StoreOf<'recording' | 'readModels' | 'tests'>, a: RunRecord, b: RunRecord, identicalPrefix: number, options: { normalizers?: readonly Normalizer[]; calls?: { a: CallRecord[]; b: CallRecord[] } } = {}): PairDifferences | null {
+  const index = loadRunIndex(store);
+  const rowA = index.byId.get(a.runId);
+  const rowB = index.byId.get(b.runId);
+  if (!rowA || !rowB) return null;
+  const codes = exitCodes(store, [a, b].map((r) => ({ runId: r.runId, status: r.status, test: r.meta?.test ?? null })));
+  const p = pairDecisions(store, a, b, identicalPrefix, { a: endOf(rowA), b: endOf(rowB) }, { ...options, exitCodes: { a: codes.get(a.runId) ?? null, b: codes.get(b.runId) ?? null } });
+  const link = (run: RunRecord, callNo: number | null) => (callNo !== null ? { callNo, href: links.run(run.runId, callNo) } : null);
+  const c = p.comparison;
+  return {
+    from: p.from,
+    verdict: p.verdict,
+    rank: c.changes[0]?.rank ?? null,
+    changes: c.changes.map(({ aCallNo, bCallNo, ...change }) => ({ ...change, a: link(a, aCallNo), b: link(b, bCallNo) })),
+    ended: { a: shown(c.ended.a), b: shown(c.ended.b) },
+    endings: p.endings,
+    writes: { a: c.writes.a.map((w) => ({ ...w, href: links.run(a.runId, w.callNo) })), b: c.writes.b.map((w) => ({ ...w, href: links.run(b.runId, w.callNo) })) },
+    toolCalls: c.toolCalls,
+    cut: c.cut,
+    rows: p.rows,
+    more: p.more,
     ranks: RANK_LABELS,
   };
 }

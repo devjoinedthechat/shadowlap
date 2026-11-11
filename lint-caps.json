@@ -200,14 +200,11 @@
     "packages/dashboard/ui/normalize.ts": {
       "normalizeRunDetail": 36
     },
-    "packages/dashboard/ui/pages/Compare.tsx": {
-      "Comparison": 46
-    },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 43
+      "Workspace": 37
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
@@ -219,7 +216,7 @@
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 64
+      "RunHeader": 59
     },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31
@@ -245,7 +242,7 @@
       "walkValue": 41
     },
     "packages/engine/src/decisions.ts": {
-      "formatDecisions": 77
+      "formatDecisions": 61
     },
     "packages/engine/src/json-doc.ts": {
       "scan": 65
@@ -486,7 +483,7 @@
     }
   },
   "max-lines": {
-    "packages/cli/src/decisions.ts": 1083,
+    "packages/cli/src/decisions.ts": 1082,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,

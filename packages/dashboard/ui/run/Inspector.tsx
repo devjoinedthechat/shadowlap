@@ -1,19 +1,20 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { applyDeltas } from '../../../engine/src/deltas.js';
 import { INPUT_PARTS } from '../../../engine/src/tokens.js';
-import type { Block, CallDetail, CallRow, Delta, RunNote, Turn, TurnBlock } from '../api.js';
+import type { Block, CallDetail, CallRow, Delta, RunNote } from '../api.js';
+import { Conversation, useFormatJson } from '../components/Conversation.js';
 import { Org, Seg } from '../components/bits.js';
 import { Tabs } from '../components/Tabs.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
 import { copyText } from '../dom.js';
-import { asJson, dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
+import { dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { agentOf } from '../scopes.js';
 import { shortcut, shortcutCard } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { refusedOffline } from './calls.js';
+import { failedBy, failureNote, type FailedBy } from './calls.js';
 import { EditAndFork } from './EditAndFork.js';
 import { viaWords } from './notes.js';
 import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
@@ -37,8 +38,6 @@ const TAB_ITEMS = () =>
     const mark = shortcut(PART_KEYS[i]!);
     return { key, label: TAB_NAMES[key], mark, tip: mark['aria-keyshortcuts'] ? tipText(TAB_NAMES[key]) : undefined };
   });
-
-let formatJsonPref = true;
 
 export interface InspectorProps {
   runId: string;
@@ -114,46 +113,9 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
 
 // ---------------------------------------------------------------------------------------------- conversation
 
-function FormatSwitch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <span
-      className="switch"
-      role="switch"
-      tabIndex={0}
-      aria-checked={on}
-      onClick={() => onChange(!on)}
-      onKeyDown={(e) => {
-        if (e.key === ' ' || e.key === 'Enter') {
-          e.preventDefault();
-          onChange(!on);
-        }
-      }}
-    >
-      <i />
-      Format JSON
-    </span>
-  );
-}
-
-function shown(text: string, format: boolean): string {
-  if (!format) return text;
-  const parsed = asJson(text);
-  return parsed === undefined ? text : JSON.stringify(parsed, null, 2);
-}
-
 function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: CallDetail; calls: readonly CallRow[]; change: InspectorProps['change']; flag: string | null; onSelect?: ((n: number) => void) | undefined }) {
   const c = detail.call;
-  const [format, setFormatState] = useState(formatJsonPref);
-  const setFormat = (v: boolean) => {
-    formatJsonPref = v;
-    setFormatState(v);
-  };
-  const [expanded, setExpanded] = useState(false);
-  const changedRef = useRef<HTMLDivElement>(null);
-  const [jump, setJump] = useState(false);
-  useEffect(() => {
-    if (jump) changedRef.current?.scrollIntoView({ block: 'center' });
-  }, [jump]);
+  const [format] = useFormatJson();
   if (c.kind !== 'api') {
     const result = detail.result as { result?: unknown; error?: unknown } | null;
     const args = (detail.request as { args?: unknown } | null)?.args ?? detail.request;
@@ -166,83 +128,23 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
       </>
     );
   }
-  const conv = detail.conversation;
-  const note = <CallNote c={c} flag={flag} />;
-  const failed = c.outcome === 'error';
-  if (!conv) return <>{note}<div className="ibar">The request could not be read as a conversation; the Request tab shows it as stored.</div></>;
-  const turns = conv.turns;
   // A run of many conversations (a batch): which one this call's is.
   const conversations = calls.reduce((n, x) => Math.max(n, x.conversation ?? 0), 0);
-  const which = conv.n && conversations > 1 ? ` · conversation ${num(conv.n)} of ${num(conversations)}` : '';
+  const k = detail.conversation?.n;
+  const which = k && conversations > 1 ? ` · conversation ${num(k)} of ${num(conversations)}` : '';
   // Which call each message came from, when the server names the tool calls' ids.
-  const from = turnCalls(turns, calls);
-  // Tool results name their call only by id in some providers: the tool's name comes from the call that asked for it.
-  const names = new Map<string, string>();
-  for (const t of turns) for (const b of t.blocks) if (b.type === 'tool_call' && b.id) names.set(b.id, b.name);
-  const keepLast = 6;
-  const hidden = expanded ? 0 : Math.max(0, turns.length - keepLast - 2);
-  const visible = hidden ? [...turns.slice(0, 2).map((t, i) => [t, i] as const), ...turns.slice(2 + hidden).map((t, i) => [t, i + 2 + hidden] as const)] : turns.map((t, i) => [t, i] as const);
-  return (
-    <>
-      {note}
-      <div className="ibar">
-        <span>
-          {num(turns.length)} {turns.length === 1 ? 'message' : 'messages'} · what the model {failed ? 'would have seen' : 'saw'} at #{conv.fromCallNo ?? c.callNo}
-          {which}
-        </span>
-        {change ? (
-          <button
-            className="linkbtn"
-            type="button"
-            onClick={() => {
-              setExpanded(true);
-              setJump(false);
-              setTimeout(() => setJump(true));
-            }}
-          >
-            Jump to change
-          </button>
-        ) : null}
-        <span className="sp" />
-        <FormatSwitch on={format} onChange={setFormat} />
-      </div>
-      {visible.map(([t, i]) => (
-        <Fragment key={i}>
-          {hidden && i === 2 + hidden ? (
-            <button className="expand" type="button" onClick={() => setExpanded(true)}>
-              Show {hidden} earlier {hidden === 1 ? 'message' : 'messages'}
-            </button>
-          ) : null}
-          <Message turn={t} callNo={from.get(i) ?? null} format={format} names={names} changed={change?.turn === i} changedBy={change?.by ?? 'fork'} firstAt={change?.firstAt ?? null} innerRef={change?.turn === i ? changedRef : undefined} />
-        </Fragment>
-      ))}
-    </>
-  );
+  const from = detail.conversation ? turnCalls(detail.conversation.turns, calls) : undefined;
+  return <Conversation detail={detail} from={from} which={which} change={change} note={<CallNote c={c} flag={flag} />} />;
 }
 
-type FailedBy = 'shadowlap' | 'replay' | 'provider';
 /** A failed model call's words in each place, by who answered it. */
-const RESPONSE_BY: Readonly<Record<FailedBy, string>> = { shadowlap: ' · written by Shadowlap, nothing sent', replay: ' · refused offline', provider: ' · from the provider' };
-const OUTCOME_BY: Readonly<Record<FailedBy, string>> = { shadowlap: 'by --fail-at, never sent', replay: 'refused offline', provider: 'from the provider' };
-const LATENCY_BY: Readonly<Record<FailedBy, string>> = { shadowlap: 'answered by Shadowlap', replay: 'refused by the replay', provider: 'answered by the provider' };
+const RESPONSE_BY: Readonly<Record<FailedBy, string>> = { injected: ' · written by Shadowlap, nothing sent', offline: ' · refused offline', provider: ' · from the provider' };
+const OUTCOME_BY: Readonly<Record<FailedBy, string>> = { injected: 'by --fail-at, never sent', offline: 'refused offline', provider: 'from the provider' };
+const LATENCY_BY: Readonly<Record<FailedBy, string>> = { injected: 'answered by Shadowlap', offline: 'refused by the replay', provider: 'answered by the provider' };
 
-/** Who answered a model call that failed: Shadowlap's --fail-at (never sent), an offline replay (refused), or the provider. */
-function failedBy(c: CallDetail['call']): FailedBy | null {
-  if (c.kind !== 'api' || c.outcome !== 'error') return null;
-  return c.origin === 'injected' ? 'shadowlap' : refusedOffline(c) ? 'replay' : 'provider';
-}
-
-/** A failed call's error without the status the note already says, so `HTTP 529: Overloaded` names 529 once. */
-function errorWords(c: Pick<CallDetail['call'], 'status' | 'error'>): string {
-  const e = (c.error ?? '').trim();
-  return (c.status ? e.replace(new RegExp(`^(HTTP\\s*)?${c.status}\\b[\\s:·.-]*`, 'i'), '') : e).replace(/\.+$/, '');
-}
-
-/** Why a call failed, in a sentence: the provider's status and error, the error alone, or that it ended in one. */
-export function failedWhy(c: Pick<CallDetail['call'], 'status' | 'error'>): string {
-  const why = errorWords(c);
-  if (c.status) return `The provider answered HTTP ${c.status}${why ? `: ${why}` : ''}.`;
-  return why ? `${why}.` : 'The call ended in an error.';
+/** Who answered a model call that failed: Shadowlap's --fail-at (never sent), an offline replay (refused), or the provider; null for any other call. */
+function answeredBy(c: CallDetail['call']): FailedBy | null {
+  return c.kind !== 'api' || c.outcome !== 'error' ? null : failedBy(c);
 }
 
 /**
@@ -251,24 +153,17 @@ export function failedWhy(c: Pick<CallDetail['call'], 'status' | 'error'>): stri
  */
 export function CallNote({ c, flag }: { c: CallDetail['call']; flag: string | null }) {
   if (c.outcome !== 'error') return null;
-  if (c.origin === 'injected')
-    return (
-      <div className="inote inj">
-        <b>Never sent.</b> Shadowlap answered with HTTP {c.status ?? '?'} (<code>{flag && /^--fail-at\b/.test(flag) ? flag : '--fail-at'}</code>){c.attempts ? `, ${c.attempts + 1} attempts` : ''}. This is the conversation the agent would have sent.
-      </div>
-    );
-  if (refusedOffline(c))
-    return (
-      <div className="inote err">
-        <b>Refused.</b> The replay is offline and this request is not in the recording, so it got HTTP {c.status}. This is what the agent sent.
-      </div>
-    );
+  const by = failedBy(c);
+  const note = failureNote(c, by, flag);
   return (
-    <div className="inote err">
-      <b>Failed.</b> {failedWhy(c)} This is the conversation the agent sent.
+    <div className={`inote ${by === 'injected' ? 'inj' : 'err'}`}>
+      <b>{note.word}</b> {note.why.map((p, i) => (typeof p === 'string' ? <Fragment key={i}>{p}</Fragment> : <code key={i}>{p.code}</code>))} {SHOWN[by]}
     </div>
   );
 }
+
+/** What the view under a failed call's note shows: the conversation the agent sent, or would have. */
+const SHOWN: Record<FailedBy, string> = { injected: 'This is the conversation the agent would have sent.', offline: 'This is what the agent sent.', provider: 'This is the conversation the agent sent.' };
 
 /**
  * Under a tool call's arguments and result: the model call of its own conversation that asked for it
@@ -288,58 +183,6 @@ function ConversationLink({ detail, calls, onSelect }: { detail: CallDetail; cal
       ) : null}
     </div>
   );
-}
-
-function Message({ turn, callNo, format, names, changed, changedBy = 'fork', firstAt, innerRef }: { turn: Turn; callNo: number | null; format: boolean; names: Map<string, string>; changed: boolean; changedBy?: 'fork' | 'replay'; firstAt: number | null; innerRef?: React.RefObject<HTMLDivElement | null> | undefined }) {
-  const role = turn.role;
-  return (
-    <div className={`msg ${role}${changed ? ' changed' : ''}`} ref={innerRef}>
-      <div className="role">
-        {role}
-        {callNo !== null ? <small>#{callNo}</small> : null}
-      </div>
-      <div>
-        {turn.blocks.length === 0 ? <div className="txt muted">empty</div> : null}
-        {turn.blocks.map((b, i) => (
-          <MessageBlock key={i} block={b} format={format} names={names} />
-        ))}
-        {changed ? <span className="chg">changed in this {changedBy}{firstAt ? ` · first sent at #${firstAt}` : ''}</span> : null}
-      </div>
-    </div>
-  );
-}
-
-function MessageBlock({ block, format, names }: { block: TurnBlock; format: boolean; names: Map<string, string> }) {
-  switch (block.type) {
-    case 'text':
-      return <div className="txt">{block.text}</div>;
-    case 'thinking':
-      return (
-        <div className="think">
-          <span className="tlab">{block.redacted ? 'redacted thinking' : 'thinking'}</span>
-          {block.redacted ? null : block.text}
-        </div>
-      );
-    case 'tool_call':
-      return (
-        <div className="tu">
-          <span className="ar">→</span> <b>{block.name}</b> {JSON.stringify(block.input)}
-        </div>
-      );
-    case 'tool_result': {
-      const name = block.name ?? (block.id ? names.get(block.id) : undefined);
-      return (
-        <>
-          <div className="tu">
-            <span className="ar">←</span> {block.isError ? 'error' : null} <b>{name ?? 'result'}</b>
-          </div>
-          <div className="jbox">{shown(block.content, format)}</div>
-        </>
-      );
-    }
-    default:
-      return <div className="txt muted">[{block.label}]</div>;
-  }
 }
 
 // ---------------------------------------------------------------------------------------------- response
@@ -398,7 +241,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
           <>
             <div className="ibar err">
               HTTP {c.status ?? '?'}
-              {RESPONSE_BY[failedBy(c) ?? 'provider']}
+              {RESPONSE_BY[answeredBy(c) ?? 'provider']}
             </div>
             <div className="jbox">{r.raw}</div>
           </>
@@ -531,7 +374,7 @@ function originRows(c: CallDetail['call'], flag: string | null): Array<[string, 
   const over = origin === 'over' && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
   const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>answered by Shadowlap with --fail-at</small></> : over ? <>{c.origin} <small>{over}</small></> : c.origin;
   const http = c.status ? ` · HTTP ${c.status}` : '';
-  const by = failedBy(c);
+  const by = answeredBy(c);
   const outcome = c.outcome === null ? 'pending' : c.outcome === 'ok' ? `ok${http}` : <>error{http}{by ? <small> {OUTCOME_BY[by]}</small> : null}</>;
   return [['Origin', made], ['Outcome', outcome]];
 }
@@ -542,8 +385,8 @@ function originRows(c: CallDetail['call'], flag: string | null): Array<[string, 
  */
 function spendRows(c: CallDetail['call']): Array<[string, ReactNode]> {
   const rows: Array<[string, ReactNode]> = [];
-  const by = failedBy(c);
-  const unsent = by === 'shadowlap' || by === 'replay';
+  const by = answeredBy(c);
+  const unsent = by === 'injected' || by === 'offline';
   if (c.usage) {
     const parts = by ? (unsent ? 'in the request; nothing was sent' : 'in the request') : `${num(c.usage.cacheRead)} ${INPUT_PARTS.cacheRead} · ${num(c.usage.cacheWrite)} ${INPUT_PARTS.cacheCreation} · ${num(c.usage.input)} ${INPUT_PARTS.uncached}`;
     rows.push(['Input tokens', <>{num(c.usage.input + c.usage.cacheRead + c.usage.cacheWrite)} <small>{parts}</small></>]);

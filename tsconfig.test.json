@@ -43,6 +43,7 @@
     "packages/dashboard/test/normalize.test.ts",
     // These render the run page's components, which use the DOM too.
     "packages/dashboard/test/ui-strip.test.ts",
+    "packages/dashboard/test/ui-preview.test.ts",
     "packages/dashboard/test/ui-run-width.test.ts",
     "packages/dashboard/test/ui-run-scale.test.ts",
     "packages/dashboard/test/ui-timeline-notch.test.ts",
