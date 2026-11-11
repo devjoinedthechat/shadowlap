@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import type { Store, StoredFix, TestSession } from '@shadowlap/engine';
+import type { PullRequestState, Store, StoredFix, TestSessionPullRequest } from '@shadowlap/engine';
 import { gitAsync } from './patch-in-tree.js';
 
 /**
@@ -171,8 +171,13 @@ export interface PrItem {
   number?: number | null;
 }
 
+/** A test session's pull request as the refresher reads it: the store's session's, or Verdicts' row of it. */
+export interface SessionPr {
+  pullRequest: (Pick<TestSessionPullRequest, 'number' | 'url'> & { state?: PullRequestState | null | undefined }) | null;
+}
+
 /** A test session's pull request to ask about: one whose page is a GitHub pull request's, open or not yet told where it stands. */
-export function sessionPullRequest(session: Pick<TestSession, 'pullRequest'>): PrItem | null {
+export function sessionPullRequest(session: SessionPr): PrItem | null {
   const pr = session.pullRequest;
   return pr && (pr.state ?? 'open') === 'open' && isGithubPr(pr.url) ? { key: pr.url, url: pr.url, number: pr.number } : null;
 }
@@ -317,7 +322,7 @@ export function storePrStates(store: () => Store, o: { projectDir?: string | nul
  * its page and its number (setTestPullRequestState), `open` included, as a session's stands nowhere
  * until told. The store writes nothing for a state a session has already.
  */
-export function storeSessionPrStates(store: () => Store, o: { projectDir?: string | null; read?: PrReader; env?: NodeJS.ProcessEnv } = {}): { refresh(sessions: ReadonlyArray<Pick<TestSession, 'pullRequest'>>): void } {
+export function storeSessionPrStates(store: () => Store, o: { projectDir?: string | null; read?: PrReader; env?: NodeJS.ProcessEnv } = {}): { refresh(sessions: readonly SessionPr[]): void } {
   const prs = new PrStates({ ...projectReads(o), writesOpen: true, write: (_page, state, item) => void store().setTestPullRequestState({ number: item.number ?? null, url: item.url }, state) });
   return {
     refresh: (sessions) =>
