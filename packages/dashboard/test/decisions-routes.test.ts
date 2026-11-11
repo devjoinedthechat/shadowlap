@@ -52,6 +52,18 @@ const runOf = (runId: string, golden: string | null, decisions: DecisionStep[]):
 
 const api = (d: Dashboard, path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, ...(typeof init.body === 'string' ? { 'content-type': 'application/json' } : {}) } });
 const startJob = (d: Dashboard, body: unknown) => api(d, 'jobs', { method: 'POST', body: JSON.stringify(body) });
+/**
+ * Until every job a dashboard started has ended. Each stand-in exits at once, but on a busy machine
+ * the jobs this file starts can still be 16 running, and the dashboard then refuses the next with a
+ * 429 before its builder can say what it refuses it for.
+ */
+const jobsEnded = async (d: Dashboard) => {
+  for (let i = 0; i < 1500; i++) {
+    const { jobs } = (await (await api(d, 'jobs')).json()) as { jobs: Array<{ done: boolean }> };
+    if (jobs.every((j) => j.done)) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+};
 
 beforeAll(async () => {
   project = mkdtempSync(join(tmpdir(), 'sl-decisions-routes-'));
@@ -285,6 +297,7 @@ describe('the decision routes', () => {
   it('verifies the runs Preview names of those left to verify, an empty list naming none, and says which named run it cleared or never asked', async () => {
     const A = 'dc-01M5000000000000000000000A';
     const error = async (res: Response) => ((await res.json()) as { error: string }).error;
+    await jobsEnded(dash);
     // The runs no verify took yet, as Preview's Verify names them once verify took some: each by its id or a prefix, once.
     expect((await startJob(dash, { kind: 'decisions-verify', sessionId: A, runIds: [failed] })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['decisions', '--verify', A, failed]);
