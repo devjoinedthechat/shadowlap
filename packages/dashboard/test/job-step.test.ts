@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
@@ -19,7 +20,7 @@ const builds = new Map<string, JobBuild>();
 
 beforeAll(() => {
   store = Store.open(':memory:');
-  jobs = new JobManager({ store, project: null, spawnCli: cliSpawner({ command: [process.execPath, FAKE] }) });
+  jobs = new JobManager({ store, project: null, spawnCli: cliSpawner({ command: [process.execPath, FAKE], cwd: tmpdir() }) });
   jobs.registerJobKind('stepped', { title: () => 'Stepping', build: (req) => builds.get(String(req.as))! });
 });
 afterAll(async () => {
