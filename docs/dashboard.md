@@ -130,7 +130,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 **Search or jump to** (⌘K or Ctrl K) is a palette over the whole dashboard. It offers:
 
 - **Every page**, and **This run's actions**, its next step first.
-- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, the team store's setup, and Keyboard shortcuts.
+- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, Preview pull request comment once the goldens have a test session, the team store's setup, and Keyboard shortcuts.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
 - **The fixes**, each by its title, with its label and status. Its steps find it too: `blame`, `repair`, `verify`, `apply`.
 - **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens** opens its dialog on Tests.
@@ -935,7 +935,9 @@ Verdicts lists every change checked, newest first, one row each. A change is one
 - **A preview or a migration**: what a change of model, prompt or tools decides differently.
 - **A verify a fix keeps.** Its row opens the fix's Verify step at that verify.
 
-Each row gives the change and how it was checked (*test session · d2e8a1f*), what it was checked on (*7 goldens*), what moved and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
+Each row gives the change and how it was checked (*test session · d2e8a1f · PR #142 open*), what it was checked on (*7 goldens*), what moved (*2 goldens failed*, and *1 write changed* where its comment kept the decisions) and when. Its verdict is in the words of the command that gave it: *passed*, *failed*, *inconclusive*, *accepted*, *rejected*, *not verified* or *nothing to verify*, with its tally under it. On a phone the verdict sits under the change.
+
+**A session's pull request**, where CI ran it for one, is read from GitHub with `gh pr view` in the background while the page is open, as [a fix's](#fixes) is: *PR #142 open*, *merged* or *closed*, and *PR #142* until `gh` says. One that merged though its session didn't pass is flagged in amber under its verdict, *merged while failing* or *merged while inconclusive*, and its card says what shipped: *PR #127 merged with 6 of 7 goldens passed at b7e40c2: the change shipped with this verdict*. A read-only dashboard asks no one.
 
 The newest revision a test session ran every golden at leads the page: its verdict, its tally and **Open the change**, in lime while it failed or couldn't decide. The chips (*All*, *Test sessions*, *Previews*, *Verifies*) each count their rows. **Show more** reads 50 more at a time, up to 200, and says when older changes aren't listed.
 
@@ -943,11 +945,14 @@ The page keeps its chip, and how far it read, while it stays open, so the way ba
 
 ### A revision's page
 
-A test session's row opens its revision's page (`#/changes/verdicts/<revision>`). It gives that session's verdict and tally, the change, who made it and when, with **Open Tests**. On the newest revision, Open Tests is lime while it failed or couldn't decide. Under them:
+A test session's row opens its revision's page (`#/changes/verdicts/<revision>`). It gives that session's verdict and tally, the change, its pull request, who made it and when, with the amber flag where it merged though it didn't pass, and **Open Tests**. On the newest revision, Open Tests is lime while it failed or couldn't decide, and **Preview pull request comment** before it opens the comment's preview, as on [Settings → CI](#ci). Under them:
 
 - **Goldens**, worst first, as that session judged them, each with its note (*4/4 replayed*). A golden opens the replay that judged it while the store holds it, else Tests.
-- **Decisions**: the previews and migrations asked at that revision.
+- **Decisions**: what its prompt and tools decide differently, as its pull request comment carried them: each golden's steps at rank 1 and 2, what changed, the call recorded and the call made, then that later steps are judged in the recorded run's state. With none flagged, it gives the decisions' sentence (*The same decisions at every step asked.*).
+- **On the pull request**, for a session that ran for one: what else its comment carried, a run's cost before and after (*≈$0.041 → ≈$0.043 +5%*) and each injection gate's verdict and tally.
 - **The command** that gave the verdict.
+
+A session that kept no decisions lists under Decisions the previews and migrations asked at that revision, else says CI runs one on each pull request with the Action's `decisions: true`.
 
 A revision no session ran every golden at says *No change d2e8a1f.*, with **Open Verdicts**.
 
@@ -1358,12 +1363,16 @@ The workflow has the checkout, Node 22 and a line for the agent's dependencies b
 
 **Keys.** Each panel lists what it needs (*it needs*). The step's `env` names the keys of the providers the goldens' recordings call, with how many there are among what it needs:
 
-- With Fix on failure on, every golden's keys, since blame and verify run the agent live.
+- With Fix on failure or the comment's decisions on, every golden's keys, since blame and verify run the agent live and decisions asks its models.
 - Otherwise, those of the goldens that run live: one marked `fork`, or with an injection gate, and a forking golden's judges.
 
 Where a golden's keys can't be named, a comment in the `env` says to add them. A list of keys breaks only after a comma.
 
-**Pull request comment** is the action's one comment on each pull request, kept current on every push: each golden's verdict by its gate, beside the base branch's last session. Off, the step says `comment: false`. It needs `pull-requests: write`.
+**Pull request comment** is the action's one comment on each pull request, kept current on every push: each golden's verdict by its gate, beside the base branch's last session, a run's cost before and after, and what planted instructions did. Off, the step says `comment: false`. It needs `pull-requests: write`.
+
+**The decisions the branch changes**, the comment's own switch, is off by default. On, the step says `decisions: true` after `comment`, and the action runs `shadowlap decisions --from-code` on each pull request: the comment gains what the branch's prompt and tools decide differently at rank 1 and 2. It asks the goldens' models on every push, so the panel lists *a model key, for the decisions the branch changes* with every golden's keys. Nothing is written while the comment is off.
+
+**Preview pull request comment** draws the comment as GitHub shows it, from the newest test session that ran every golden, ended and wasn't interrupted, at its revision as it was (*d2e8a1f+dirty*). It says who posts it: *github-actions*, unless the step gives the action a token of its own. **Copy Markdown** copies its Markdown, less what only the job knows: the base branch's column, the fixes it opened and its summary's link. Before such a session the button waits: *No test session yet: run the tests once*.
 
 **Fix on failure** sets the budget per failing golden and the repairer. The pull request is shown as CI opens it: its branch named after the golden, blame where the run was lost, and verify's line with its rule stated once. It is the newest fix verified here, else the docs' example.
 
@@ -2591,8 +2600,10 @@ The `matrix` has a row per run and a cell per model call. Each cell holds:
 
 - `/api/verdicts`: every change checked, newest first, `limit` rows (50 unless given, at most 200) of the chip `kind` names. A change is a revision a test session ran every golden at, a preview or a migration, or a verify a fix keeps.
 - Each row gives its verdict as the command that gave it says it (`word`, coloured by `tone`), the `line` under it, what it was `checked` on and what `moved`. It names who made the change (`by`: a commit's author, who ran a preview) only when the project's config names a team store.
+- A session's row gives the `pullRequest` it ran for, or null: its `number`, its `url` and its `state` as `gh` last said, each null when unknown. Its `flag` is `merged while failing` or `merged while inconclusive`, else null.
 - `counts` gives each chip's count, and `lead` the newest revision's verdict. The list reads the newest 200 test sessions, previews and verifies, and `more` says older changes exist.
 - `/api/verdicts/:rev` gives a revision's page (`no-revision` for a session that knew none): its goldens as that session judged them, worst first with their notes, and the previews and migrations asked at that revision. `latest` says whether it is the newest revision's, the one the list leads with.
+- A revision's `comment` is what the session's pull request comment carried beside the verdicts, or null: the kept `decisions` (their `sentence`, `headline`, `rows` and `note`), the `cost` per run and each `injection` gate that ran.
 
 **Injection tests:**
 

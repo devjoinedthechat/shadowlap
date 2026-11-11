@@ -592,7 +592,7 @@ On a pull request, this previews the prompt and tools the branch sends against t
 
 It asks the model, so the job needs the provider's key as a secret, as a live `verify` does. `--budget` caps what it spends, and `--inconclusive warn` lets a preview that couldn't settle (the budget ran out) pass with a warning. `--json` prints the report the dashboard reads, with the same fields for a coding agent ([the reference](./cli.md#decisions)).
 
-The GitHub Action's `decisions: true` runs it on each pull request with `--inconclusive warn` and puts what it finds in the [pull request comment](./ci.md#decisions-in-the-comment). `--test-session` keeps the preview with the session `test` ran, so the dashboard shows it on that revision. The Action takes no budget: run the command in a step of your own to give it `--budget`.
+The GitHub Action's `decisions: true` runs it on each pull request with `--inconclusive warn` and puts what it finds in the [pull request comment](./ci.md#decisions-in-the-comment). `--test-session` keeps the preview with the session `test` ran, so the dashboard shows it on that revision. The dashboard's Settings → CI turns it on with the comment's **The decisions the branch changes** switch. The Action takes no budget: run the command in a step of your own to give it `--budget`.
 
 ## Flags
 
