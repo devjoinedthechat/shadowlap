@@ -51,6 +51,8 @@ const session = (o: Partial<SessionVerdict> = {}): SessionVerdict => ({
   passed: 2,
   failed: 1,
   inconclusive: 0,
+  pullRequest: null,
+  flag: null,
   ...o,
 });
 const preview = (o: Partial<PreviewVerdict> = {}): PreviewVerdict => ({
@@ -550,6 +552,7 @@ describe('a revision’s page', () => {
     lead: golden('refund-flow', 'failed', 'diverged at call 3 · $.model', REC),
     goldens: [golden('refund-flow', 'failed', 'diverged at call 3 · $.model', REC), golden('escalate-over-limit', 'inconclusive', 'inconclusive: the judge check "polite" could not be judged'), golden('refund-in-limit', 'passed', '8/8 replayed')],
     decisions: [preview()],
+    comment: null,
     shared: false,
     ...o,
   });

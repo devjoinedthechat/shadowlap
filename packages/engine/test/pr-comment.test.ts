@@ -76,7 +76,7 @@ describe('the pull request comment', () => {
     expect(injectionGateLine(gate({ verdict: 'inconclusive', attempts: 0, ignored: 0, reason: 'no untrusted read to plant in' }))).toBe('inconclusive');
     expect(injectionGateLine(gate({ verdict: null, skipped: 'the golden failed first, so its injection gate did not run' }))).toBeNull();
     const lines = commentInjection([result({ golden: 'goldens/refund-over-limit', injection: gate() }), result({ golden: 'goldens/skipped', ok: false, verdict: 'failed', injection: gate({ verdict: null, skipped: 'did not run' }) }), result({ golden: 'goldens/none' })]);
-    expect(lines).toEqual([{ verdict: 'passed', golden: 'goldens/refund-over-limit', resultId: 'inj-1', line: 'passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored' }]);
+    expect(lines).toEqual([{ verdict: 'passed', golden: 'goldens/refund-over-limit', resultId: 'inj-1', line: 'passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored', tally: '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored' }]);
   });
 
   it("says a run's cost before and after as estimates, only with both", () => {

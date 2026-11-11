@@ -175,11 +175,11 @@ export function injectionGateLine(d: InjectionGateData | null | undefined): stri
   return d.attempts ? `${d.verdict} · ${injectionTally(d, true)}` : d.verdict;
 }
 
-/** Each golden's injection gate that ran, in the rows' order: its verdict, its name, the result kept for it, and its line. */
-export function commentInjection(results: readonly CommentResult[]): Array<{ verdict: string; golden: string; resultId: string | null; line: string }> {
+/** Each golden's injection gate that ran, in the rows' order: its verdict, its name, the result kept for it, its line, and the line after its verdict (null with no attempts). */
+export function commentInjection(results: readonly CommentResult[]): Array<{ verdict: string; golden: string; resultId: string | null; line: string; tally: string | null }> {
   return worstFirst(results).flatMap((r) => {
     const line = injectionGateLine(r.injection);
-    return line && r.injection ? [{ verdict: String(r.injection.verdict), golden: nameOf(r), resultId: r.injection.resultId ?? null, line }] : [];
+    return line && r.injection ? [{ verdict: String(r.injection.verdict), golden: nameOf(r), resultId: r.injection.resultId ?? null, line, tally: r.injection.attempts ? injectionTally(r.injection, true) : null }] : [];
   });
 }
 
