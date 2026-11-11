@@ -300,7 +300,8 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .prc b.fail { color: var(--cq-red); } .prc b.inc { color: var(--cq-amber); } .prc b.pass { color: var(--ink); }
 .prc-g { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .prc-g li, .prc-i { display: grid; grid-template-columns: 14px minmax(140px, max-content) minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 12.5px; }
-.prc-g li i, .prc-i i { font-style: normal; font-weight: 600; color: var(--cq-lime); }
+.prc-g li i, .prc-i i { font-style: normal; font-weight: 600; }
+.prc-g li.pass i, .prc-i.pass i { color: var(--cq-lime); }
 .prc-g li.fail i, .prc-i.fail i { color: var(--cq-red); } .prc-g li.inc i, .prc-i.inc i { color: var(--cq-amber); }
 .prc-g li > span, .prc-i > span { text-wrap: pretty; }
 .prc-dh { font-size: 12.5px; }

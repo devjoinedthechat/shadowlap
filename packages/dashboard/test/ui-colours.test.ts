@@ -274,6 +274,8 @@ describe('lime', () => {
     '.dsv.ok b': 'a preview’s run that verify kept passing or fixed: its word',
     '.dlead .dlv.ok b': 'an opened cell’s run that verify kept passing or fixed: its word',
     '.djudge b.ok': 'a judge check that passed',
+    '.prc-g li.pass i': 'the pull request comment’s mark, drawn, of a golden that passed',
+    '.prc-i.pass i': 'the pull request comment’s mark, drawn, of an injection gate that passed',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
@@ -401,6 +403,11 @@ describe('amber', () => {
     '.drk.q2': 'a change of rank 2’s label: a look',
     '.dside.q2': 'an opened cell’s decision now, of rank 2: its edge, a look',
     '.djudge b.y': 'a judge check that couldn’t decide',
+    '.prc b.inc': 'the pull request comment’s decisions, drawn, where only reads or text changed or no step was asked: their mark, a look',
+    '.prc-g li.inc i': 'the pull request comment’s mark, drawn, of a golden that couldn’t decide',
+    '.prc-i.inc i': 'the pull request comment’s mark, drawn, of an injection gate that couldn’t decide',
+    '.prc-rk.r2': 'a step of rank 2’s label in the pull request comment’s decisions: a look, as the design ranks them',
+    '.vdflag': 'a session whose pull request merged though it failed or couldn’t decide',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
