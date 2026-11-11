@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { decisionStepState, emptyCounts, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, judgeWords, minorityChange, minorityNotes, samplesWords, stepsAsked, unchangedRunWords, unsettledWords, WITHIN_VARIATION, withinVariationLine, type DecisionChange, type DecisionJudge, type DecisionStep } from '../src/decisions.js';
+import { decisionStepState, emptyCounts, INCONCLUSIVE_STEP, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, judgeWords, minorityChange, minorityNotes, samplesWords, stepsAsked, unchangedRunWords, unsettledWords, WITHIN_VARIATION, withinVariationLine, type DecisionChange, type DecisionJudge, type DecisionStep } from '../src/decisions.js';
 import { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords } from '../src/verified-words.js';
 
 type Step = Pick<DecisionStep, 'rank' | 'majority' | 'control' | 'sampled' | 'samples' | 'error'>;
@@ -122,5 +124,19 @@ describe('how verify found the runs it took', () => {
     expect(changePct(0, 1)).toBe('');
     expect(usdOrUnknown(null)).toBe('unknown');
     expect(CLEARED).toBe("the same decisions, no write and no check it can't read: not run end to end");
+  });
+});
+
+describe('a step its control couldn’t settle, in the docs', () => {
+  it('reads inconclusive, as decisions prints it, on the decisions page and in the CLI reference’s decisions section', () => {
+    const doc = (page: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${page}.md`, import.meta.url)), 'utf8');
+    const cli = doc('cli');
+    const from = cli.indexOf('\n## decisions\n');
+    expect(from).toBeGreaterThan(0);
+    const section = cli.slice(from, cli.indexOf('\n## migrate\n', from));
+    // The words a step's line gives, as the report prints them.
+    for (const word of [WITHIN_VARIATION, INCONCLUSIVE_STEP]) expect(section).toContain(`| \`${word}\` |`);
+    expect(doc('decisions')).toContain(`*${INCONCLUSIVE_STEP}*`);
+    for (const [where, text] of [['docs/cli.md#decisions', section], ['docs/decisions.md', doc('decisions')]]) expect(text, where).not.toMatch(/not settled/i);
   });
 });

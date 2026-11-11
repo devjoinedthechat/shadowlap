@@ -278,8 +278,8 @@ Some steps aren't ranked, or aren't ranked against the control:
 | Its samples decided otherwise no more often than its control's | Lists it with both counts, *within the model's own variation*, and counts such steps |
 | A sample a judge could not judge, and its samples don't flag it | Waits on the judge, and says how many of its samples were *not judged* |
 | The request as recorded can't be asked any more | Ranks it by its changed samples alone, and warns |
-| The request as recorded got no answer, for a passing reason | Marks a step its samples changed *not settled* |
-| Fewer than 3 answers on either side | Marks it *not settled* too, and counts it as not asked |
+| The request as recorded got no answer, for a passing reason | Marks a step its samples changed *inconclusive* |
+| Fewer than 3 answers on either side | Marks it *inconclusive* too, and counts it as not asked |
 
 - **Ranked by chance.** Each step is tested on its own, so across a run of many steps one may be ranked by chance: `verify`, which runs the change end to end, settles it.
 - **Which sample a step shows.** A judge reads each sample's words, on both sides alike. The step shows the sample with the most consequential change, or among text-only ones, one whose words could not be judged.
@@ -288,7 +288,7 @@ Some steps aren't ranked, or aren't ranked against the control:
 - **No answer, for a passing reason**: the request as recorded got none because of an overload, a rate limit, a 5xx or a dropped connection. Nothing told the step's change from the model's own variation.
 - **Fewer than 3 answers** on either side, whatever kept the third from coming: no split of 3 against 2 comes out rarer than 1 in 10, so it could never rank.
 
-A step that is not settled, as with a step that waits on a judge, leaves its run settling nothing unless something else flags it: `decisions` exits 3, and `migrate` reads the run as inconclusive.
+An inconclusive step, as with a step that waits on a judge, leaves its run settling nothing unless something else flags it: `decisions` exits 3, and `migrate` reads the run as inconclusive.
 
 ### What the report masks
 
