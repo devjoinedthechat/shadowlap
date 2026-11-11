@@ -1,6 +1,6 @@
 import { act, createElement, useMemo, useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BASELINE_DEFAULTS, readWorkflow, RECORD_WINDOWS, workflowVersion } from '@shadowlap/engine';
+import { BASELINE_DEFAULTS, commentMarkdown, readWorkflow, RECORD_WINDOWS, workflowVersion } from '@shadowlap/engine';
 import { fileSwitches, type RepositoryWorkflow } from '../src/ci-file.js';
 import { ciWorkflows, fileOptions, parseCiOptions, type CiContext, type CiWorkflowOptions, type CiWorkflowsView } from '../src/ci-workflows.js';
 import type { PrCommentPreview } from '../src/pr-comment-preview.js';
@@ -409,7 +409,10 @@ describe('Settings → CI: the pull request comment', () => {
     expect(prc.querySelector('.prc-dim')!.textContent).toBe(PREVIEW.decisions!.note);
     expect(plain(prc.querySelector('.prc-cost')!)).toBe('cost per run ≈$0.041 → ≈$0.043 (+5%)');
     expect(prc.querySelectorAll('.prc-i').map((x) => [x.getAttribute('class'), x.querySelector('i')!.textContent, x.querySelector('code')!.textContent, x.querySelector('span')!.textContent])).toEqual([['prc-i pass', '✓', 'goldens/refund-flow-budget', PREVIEW.injection[0].line]]);
-    expect(prc.querySelector('.prc-foot')!.textContent).toBe("The job's summary has each failure in full.");
+    // The job summary's line as the Action writes it, without the job's address the preview can't know.
+    const foot = commentMarkdown({ results: [], runUrl: 'u' }).trimEnd().split('\n').at(-1)!;
+    expect(foot).toBe("[The job's summary](u) has each failure in full.");
+    expect(prc.querySelector('.prc-foot')!.textContent).toBe(foot.replace(/\[(.+?)\]\(u\)/, '$1'));
     // Close first, then Copy Markdown, which copies what the Action would post and stays open.
     expect(dialog.querySelectorAll('footer button').filter((b) => !b.hasAttribute('hidden')).map((b) => b.textContent)).toEqual(['Close', 'Copy Markdown']);
     expect(r!.focused().textContent).toBe('Close');
