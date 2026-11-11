@@ -7,9 +7,9 @@ import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDeci
  * client, as each of its reads is. Nothing here is drawn, so nothing comes from ui/changes/.
  */
 export interface ChangesApi {
-  /** The decisions and migrate sessions kept, newest first, and the goldens' models that retire. */
-  decisionSessions(kind?: 'decisions' | 'migrate'): Promise<DecisionsListView>;
-  /** One session whole, by its id (`dc-…`, `mg-…`): its report and its matrix. */
+  /** The decisions and migrate sessions kept, newest first (`limit` of them, 50 unless asked, 200 at most), the project's goldens, and their models that retire. */
+  decisionSessions(kind?: 'decisions' | 'migrate', limit?: number): Promise<DecisionsListView>;
+  /** One session whole, by its id (`dc-…`, `mg-…`): its report, its matrix and its `view`. */
   decisionSession(id: string): Promise<DecisionSessionDetail>;
   /** A run's decisions under each session that asked its model calls again, for its Decisions view. */
   runDecisions(runId: string): Promise<RunDecisionsView>;
@@ -25,7 +25,10 @@ export function changesApi(request: Request): ChangesApi {
   // A revision's `+dirty` goes as `%2B`, which the server's router reads back.
   const id = encodeURIComponent;
   return {
-    decisionSessions: (kind) => request<DecisionsListView>(`decisions${kind ? `?kind=${kind}` : ''}`),
+    decisionSessions: (kind, limit) => {
+      const params = [kind ? `kind=${kind}` : '', limit ? `limit=${limit}` : ''].filter(Boolean).join('&');
+      return request<DecisionsListView>(`decisions${params ? `?${params}` : ''}`);
+    },
     decisionSession: (sessionId) => request<DecisionSessionDetail>(`decisions/${id(sessionId)}`),
     runDecisions: (runId) => request<RunDecisionsView>(`runs/${id(runId)}/decisions`),
     retirements: () => request<RetirementsView>('retirements'),

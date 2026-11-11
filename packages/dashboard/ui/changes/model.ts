@@ -27,7 +27,7 @@ export const VERDICT_CHIPS: ReadonlyArray<{ key: VerdictsKind; label: string }> 
 export function chipEmpty(kind: Exclude<VerdictsKind, 'all'>): readonly LinePart[] {
   if (kind === 'sessions') return [{ words: 'No test session yet. Each one CI runs on a pull request lands here.' }];
   if (kind === 'verifies') return [{ words: 'No verify yet. A fix’s Verify step proves its change on the failing runs and the good ones.' }];
-  return [{ words: 'No preview yet.' }, { code: 'shadowlap decisions' }, { words: 'previews a change before it ships.' }];
+  return [{ words: 'No preview yet. Preview a change on the Preview tab, before it ships.' }];
 }
 
 /** A row's colour, as the API gives it (`ok` held, `no` didn't, `y` open, none for nothing to verify): never read off its word. */
@@ -36,12 +36,13 @@ export function rowTone(tone: VerdictTone | null): Tone {
 }
 
 /**
- * Where a row leads: a revision's page, a fix's Verify step at that verify. A preview's and a
- * migration's lead nowhere until their tabs land.
+ * Where a row leads: a revision's page, a fix's Verify step at that verify, a preview's on Preview. A
+ * migration's leads nowhere until its tab lands.
  */
 export function verdictHref(row: VerdictRow): string | null {
   if (row.kind === 'session') return href.changes(row.key);
   if (row.kind === 'verify') return href.fixes(row.fixId, 'verify', row.verifyId);
+  if (row.kind === 'preview') return href.changeSession('decisions', row.sessionId);
   return null;
 }
 

@@ -294,16 +294,22 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   }
 });
 
-test('a preview’s and a migration’s link opens Changes on Verdicts, and neither Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
+test('a preview’s link opens Preview and a migration’s Changes on Verdicts, and neither Preview, Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
   const { origin, token } = dash();
   const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
   const { sessions } = (await get('decisions')) as { sessions: Array<{ kind: 'decisions' | 'migrate'; href: string }> };
-  for (const kind of ['decisions', 'migrate'] as const) {
-    const link = sessions.find((s) => s.kind === kind)?.href;
-    expect(link, `the demo's ${kind} session`).toMatch(new RegExp(`^#/changes/${kind}/`));
-    await openPage(page, link!.slice(1), 'main#view table.vdt tbody tr');
-    await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/changes');
-  }
+  const preview = sessions.find((s) => s.kind === 'decisions')?.href;
+  expect(preview, 'the demo’s preview').toMatch(/^#\/changes\/decisions\//);
+  await openPage(page, preview!.slice(1), 'main#view .dmx button.dc');
+  expect(await page.evaluate(() => location.hash)).toBe(preview);
+  await expect(page.locator('main#view a[aria-current="page"]', { hasText: 'Preview' })).toHaveCount(1);
+  // At a desk the matrix's key is a line; the matrix is the container its narrow rules ask of (`matrix`).
+  const key = page.locator('main#view .dmx .mxkey');
+  expect(await key.evaluate((k) => [getComputedStyle(k).display, getComputedStyle(k.closest('.dmx')!).containerName])).toEqual(['block', 'matrix']);
+  const migration = sessions.find((s) => s.kind === 'migrate')?.href;
+  expect(migration, 'the demo’s migration').toMatch(/^#\/changes\/migrate\//);
+  await openPage(page, migration!.slice(1), 'main#view table.vdt tbody tr');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/changes');
   const { lead } = (await get('verdicts')) as { lead: { key: string } | null };
   expect(lead, 'the demo’s newest revision a session ran every golden at').not.toBeNull();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -315,6 +321,39 @@ test('a preview’s and a migration’s link opens Changes on Verdicts, and neit
   }, lead!.key);
   await page.waitForSelector('main#view table.vdg tbody tr', { state: 'visible' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  // Preview's matrix scrolls a row's cells in their own box, never the page; its key turns into two aligned columns.
+  await openPage(page, preview!.slice(1), 'main#view .dmx button.dc');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  expect(await key.evaluate((k) => [getComputedStyle(k).display, getComputedStyle(k).gridTemplateColumns.split(' ').length])).toEqual(['grid', 2]);
+});
+
+test.describe('a preview on a touch screen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test('keeps a long row’s cells 18 px with room to tap each, the row scrolling in its own box, with no serious axe violation', async ({ page, request }) => {
+    const { origin, token } = dash();
+    const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token } })).json()) as { sessions: Array<{ kind: string; sessionId: string; href: string }> };
+    const s = sessions.find((x) => x.kind === 'decisions');
+    expect(s, 'the demo’s preview').toBeTruthy();
+    // A run of 30 model calls, its first row's cells over again: more than a phone's row holds at 18 px.
+    await page.route(`**/api/decisions/${s!.sessionId}`, async (route) => {
+      const body = (await (await route.fetch()).json()) as { matrix: Array<{ cells: Array<Record<string, unknown>> }> };
+      const row = body.matrix[0]!;
+      row.cells = Array.from({ length: 30 }, (_, i) => ({ ...row.cells[i % row.cells.length], callNo: i + 1, step: i + 1 }));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    await openPage(page, s!.href.slice(1), 'main#view .dmx button.dc');
+    const cells = page.locator('main#view .dmr').first().locator('button.dc');
+    await expect(cells).toHaveCount(30);
+    const sizes = await cells.evaluateAll((bs) => [...new Set(bs.map((b) => `${Math.round(b.getBoundingClientRect().width)}x${Math.round(b.getBoundingClientRect().height)}`))]);
+    expect(sizes).toEqual(['18x22']);
+    // 6 px apart, so each takes 24 px of taps across its step.
+    expect(await cells.evaluateAll((bs) => Math.round(bs[1]!.getBoundingClientRect().left - bs[0]!.getBoundingClientRect().right))).toBe(6);
+    const box = page.locator('main#view .dmr').first().locator('.dmcw');
+    expect(await box.evaluate((b) => b.scrollWidth > b.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+    expect(await seriousViolations(page)).toEqual([]);
+  });
 });
 
 test('Runs keeps its filters in the address, Back goes back through them, and it has no serious axe violation', async ({ page }) => {
