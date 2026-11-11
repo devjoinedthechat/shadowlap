@@ -185,7 +185,7 @@ describe('the injection read models', () => {
       ['search', 'untrusted', 'config'],
       ['send_email', 'trusted', null],
     ]);
-    expect(tools[0].configLine).toBe('"tools": { "fetch_page": { "trust": "trusted" } }');
+    expect(tools[0].flip).toBe('"tools": { "fetch_page": { "trust": "trusted" } }');
     // A mark the recording machine's config stamped on the calls counts where the config says nothing.
     const s = Store.open(':memory:');
     try {
@@ -527,5 +527,24 @@ describe('what the run page draws of a kept test', () => {
     kept('inj-02CLEAN', 'clean', 80);
     expect(securityOffer(store, run)).toEqual({ resultId: 'inj-02PLANT', mode: 'plant' });
     expect(securityOffer(store, attemptRun)).toEqual({ resultId: 'inj-01CLEAN', mode: 'clean' });
+  });
+
+  it('price a dialog\'s picks on the server, refusing what the job would refuse, and list each golden\'s untrusted reads for Security', async () => {
+    const priced = await api(`injection/estimate?run=${recording.runId}&payloads=2&repeat=3&budget=0.50`);
+    expect(priced.status).toBe(200);
+    expect(((await priced.json()) as { estimate: { kind: string } | null }).estimate).toMatchObject({ kind: 'injection' });
+    const gate = (await (await api(`injection/estimate?run=${recording.runId}&payloads=2&gate=1`)).json()) as { estimate: { kind: string } };
+    expect(gate.estimate).toMatchObject({ kind: 'injection' });
+    expect((await api(`injection/estimate?run=${recording.runId}&payloads=2&budget=0`)).status).toBe(400);
+    expect(await (await api(`injection/estimate?run=${recording.runId}&payloads=2&budget=0`)).json()).toMatchObject({ error: 'budget is an amount in USD above 0, such as 25.00' });
+    expect(await (await api(`injection/estimate?run=${recording.runId}&payloads=2&repeat=0`)).json()).toMatchObject({ error: 'repeat is a whole number from 1 to 100' });
+    expect((await api(`injection/estimate?run=${recording.runId}`)).status).toBe(400);
+    expect((await api('injection/estimate?run=01NOSUCHRUN00000000000000&payloads=1')).status).toBe(404);
+    // A run's own estimates carry the plan nobody picked and Find cause's on each untrusted read.
+    const own = (await (await api(`runs/${recording.runId}/estimates`)).json()) as { injection: unknown; cause: Record<string, unknown> };
+    expect(own).toHaveProperty('injection');
+    expect(own.cause).toEqual(expect.any(Object));
+    const security = (await (await api('injection/security')).json()) as { goldens: Array<{ path: string; reads: Array<{ name: string }> }>; none: string[] };
+    expect(security.goldens.map((g) => [g.path, g.reads.map((r) => r.name)])).toEqual([['goldens/research', ['fetch_page', 'search']]]);
   });
 });

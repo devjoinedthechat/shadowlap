@@ -42,11 +42,15 @@ afterEach(async () => {
 type Sent = { key: string; sent: Record<string, unknown> | undefined };
 
 /** The run page's menu and its runner, the server pricing the call as `answer` says (never, for one that hasn't answered). */
-async function page(threshold: Spending, answer: RunEstimates | 'never' | ((model?: string | null) => RunEstimates), o: { rows?: ActionLike[]; forkAt?: number | null } = {}) {
+/** A run's estimates as the menu reads them: its rows', with no injection test or cause priced. */
+type Rows = Pick<RunEstimates, 'blame' | 'actions'>;
+const full = (e: Rows): RunEstimates => ({ injection: null, cause: {}, ...e });
+
+async function page(threshold: Spending, answer: Rows | 'never' | ((model?: string | null) => Rows), o: { rows?: ActionLike[]; forkAt?: number | null } = {}) {
   resetSpending(threshold);
   const sent: Sent[] = [];
   const client = {
-    estimates: { runEstimates: (_id: string, _at?: number | null, model?: string | null) => (answer === 'never' ? new Promise(() => undefined) : Promise.resolve(typeof answer === 'function' ? answer(model) : answer)) },
+    estimates: { runEstimates: (_id: string, _at?: number | null, model?: string | null) => (answer === 'never' ? new Promise(() => undefined) : Promise.resolve(full(typeof answer === 'function' ? answer(model) : answer))) },
     action: (_id: string, key: string, _no: number | null, _v?: string, _yes?: string, more?: Record<string, unknown>) => (sent.push({ key, sent: more }), Promise.resolve({ id: 'j1' } as JobView)),
   } as unknown as Client;
   function Page() {

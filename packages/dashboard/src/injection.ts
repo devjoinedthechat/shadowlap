@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
-import { ACTIONS, type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, messageOf, parsePayloads, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
+import { ACTIONS, type CallRecord, cleanBound, cleanDecided, commandIsImported, CONFIG_FILE, configuredTrust, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, messageOf, parsePayloads, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, TRUST_FROM, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
+import { trustLine } from './tool-trust.js';
 import { attemptPlant, injectionPanel, markProof, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
@@ -79,7 +80,7 @@ export function injectionLine(r: StoredInjectionResult): string {
 }
 
 /** What a kept result comes to, as its row says it (InjectionRow.gate). */
-function resultGate(r: StoredInjectionResult): InjectionRow['gate'] {
+export function resultGate(r: StoredInjectionResult): InjectionRow['gate'] {
   if (r.endedAt === null) return null;
   const data = r.data as Partial<InjectionReport>;
   if (r.mode === 'clean') return cleanDecided({ writes: (data as Partial<Extract<InjectionReport, { mode: 'clean' }>>).writes ?? [] }) ? 'passed' : 'inconclusive';
@@ -194,14 +195,26 @@ export function injectionNeedsLook(store: StoreOf<'injection'>, limit = 20): Arr
   return out;
 }
 
-/** A tool as Settings → Tools' Trust column shows it: trusted or untrusted, from where, and the config line that marks it. */
+/** A tool as Settings → Tools' Trust column shows it: trusted or untrusted, from where, and the config line that marks it the other way. */
 export interface ToolTrustRow {
   name: string;
   trust: 'trusted' | 'untrusted';
   from: TrustSource | null;
+  /** Where the mark comes from, in the column's words: `MCP openWorldHint · <server>`, `SDK`, `shadowlap.config.json`, or `recorded with its config’s mark` where the recording machine's config set it and this file says nothing; null for a tool trusted by default. */
+  where: string | null;
   calls: number;
-  /** The `tools` entry that marks it the other way, for the column's toggle. */
-  configLine: string;
+  /** Its calls are what a person typed (`meta.input`): never planted in. */
+  input: boolean;
+  /** The `tools` entry's line that marks it the other way, for the column's button. */
+  flip: string;
+}
+
+/** Where a tool's mark comes from, in Settings → Tools' words (TRUST_FROM's, with the MCP server named). */
+function trustWhere(from: TrustSource | null, o: { server: string | null; inFile: boolean }): string | null {
+  if (from === 'mcp') return o.server ? `${TRUST_FROM.mcp} · ${o.server}` : TRUST_FROM.mcp;
+  if (from === 'sdk') return TRUST_FROM.sdk;
+  if (from === 'config') return o.inFile ? CONFIG_FILE : 'recorded with its config’s mark';
+  return null;
 }
 
 /**
@@ -215,17 +228,20 @@ export function toolTrust(store: StoreOf<'readModels'>, tools: ToolTrust | undef
        MAX(CASE WHEN json_extract(meta, '$.trust') = 'untrusted' THEN 1 ELSE 0 END) AS untrusted,
        MAX(CASE WHEN json_extract(meta, '$.trust') = 'untrusted' AND json_extract(meta, '$.trustFrom') = 'config' THEN 1 ELSE 0 END) AS untrustedByConfig,
        MAX(CASE WHEN json_extract(meta, '$.trust') = 'trusted' AND json_extract(meta, '$.trustFrom') = 'config' THEN 1 ELSE 0 END) AS trustedByConfig,
-       MAX(CASE WHEN json_extract(meta, '$.mcp') IS NOT NULL THEN 1 ELSE 0 END) AS mcp, MAX(json_extract(meta, '$.http')) AS http
+       MAX(CASE WHEN json_extract(meta, '$.mcp') IS NOT NULL THEN 1 ELSE 0 END) AS mcp, MAX(json_extract(meta, '$.mcp.server')) AS server,
+       MAX(CASE WHEN json_extract(meta, '$.input') = 1 THEN 1 ELSE 0 END) AS input, MAX(json_extract(meta, '$.http')) AS http
      FROM call_events WHERE phase = 'start' AND kind = 'tool' GROUP BY name ORDER BY name`,
   );
   return {
     tools: rows.map((r) => {
       const name = String(r.name);
+      const server = typeof r.server === 'string' && r.server ? r.server : null;
+      const http = typeof r.http === 'string' ? r.http : null;
       const recorded: Pick<CallRecord['meta'], 'trust' | 'trustFrom'> = Number(r.untrustedByConfig) ? { trust: 'untrusted', trustFrom: 'config' } : Number(r.untrusted) ? { trust: 'untrusted' } : Number(r.trustedByConfig) ? { trust: 'trusted', trustFrom: 'config' } : {};
-      const meta: CallRecord['meta'] = { ...recorded, ...(Number(r.mcp) ? { mcp: { transport: 'stdio' as const, server: '' } } : {}), ...(typeof r.http === 'string' ? { http: r.http } : {}) };
+      const meta: CallRecord['meta'] = { ...recorded, ...(Number(r.mcp) ? { mcp: { transport: 'stdio' as const, server: server ?? '' } } : {}), ...(http ? { http } : {}) };
       const t = trustOf({ kind: 'tool', name, meta }, tools);
-      const other = t.trust === 'untrusted' ? 'trusted' : 'untrusted';
-      return { name, trust: t.trust, from: t.from, calls: Number(r.calls), configLine: `"tools": { ${JSON.stringify(name)}: { "trust": "${other}" } }` };
+      const where = trustWhere(t.from, { server, inFile: configuredTrust(tools, name, http) !== undefined });
+      return { name, trust: t.trust, from: t.from, where, calls: Number(r.calls), input: Number(r.input) === 1, flip: trustLine(name, t.trust === 'untrusted' ? 'trusted' : 'untrusted') };
     }),
   };
 }

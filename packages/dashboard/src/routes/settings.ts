@@ -20,7 +20,8 @@ import {
   type SettingsContext,
 } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
-import type { ToolReads } from '../tool-reads.js';
+import type { ToolsRead } from '../injection-security.js';
+import { injectionReadInput } from './injection.js';
 import { settingsFolder } from './settings-edits.js';
 
 /**
@@ -102,7 +103,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // Every tool call in the store and the MCP servers they came through, read beside the server; the config and the clients' files here.
   router.get('/settings/tools', async (r) => {
     const s = settings();
-    r.tagged(toolsSettings(s, { reads: answerData<ToolReads>(await ctx.reads.run({ kind: 'tool-reads' })) }));
+    r.tagged(toolsSettings(s, { reads: answerData<ToolsRead>(await ctx.reads.run({ kind: 'tools-read', ...injectionReadInput(ctx) })) }));
   });
 
   // Add MCP server…: the line and the client entry for what the dialog has so far. Nothing is written.

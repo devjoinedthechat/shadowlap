@@ -10,9 +10,6 @@ import {
   goldenRerunEstimate,
   hasRecordedCommand,
   injectionAgainEstimate,
-  injectionEstimate,
-  injectionGateEstimate,
-  injectionTemplates,
   isObject,
   keptCaptureVerdict,
   noEstimate,
@@ -20,7 +17,6 @@ import {
   parseTests,
   pathSetByCode,
   shortRunId as short,
-  untrustedReads,
   updateEstimate,
   type CleanReport,
   type Estimate,
@@ -38,6 +34,7 @@ import {
 import { actionsFor, lookupRun, noSuchRun, type ActionItem } from './api.js';
 import { chaosMatrices, type ChaosMatrix } from './chaos.js';
 import { GOLDEN_HISTORY } from './bisect-start.js';
+import { gatePrice, injectionPrice } from './injection-plan.js';
 import { HEX } from './commits-here.js';
 import { commandLine } from './fix-shared.js';
 import { fixForRun, type FixForRun } from './fix-for-run.js';
@@ -310,9 +307,6 @@ function blameStep(runId: string, offer: BlameOffer, capture = false): Decided {
 
 const packable = (f: Facts, run: RunRecord): boolean => packableIn(f.work?.dir, f.work?.goldens ?? [], run);
 
-/** The payloads every template plants, as a test with none picked plants them. */
-const allTemplates = () => injectionTemplates().templates.length;
-
 function packGateStep(f: Facts, runId: string, parent: boolean): Decided {
   const folder = goldenFolder(runId);
   return {
@@ -326,7 +320,7 @@ function packGateStep(f: Facts, runId: string, parent: boolean): Decided {
     sub: parent ? 'A golden with an injection gate: it fails while the agent obeys a planted instruction' : 'A golden with an injection gate: it fails while the agent obeys a planted instruction, and passes once it is fixed',
     command: commandLine(['pack', short(runId), folder]),
     reads: [runId],
-    price: (p) => injectionGateEstimate(p.calls(runId), untrustedReads(p.raw(runId), f.work?.tools).reads, { payloads: allTemplates() }),
+    price: gatePrice(runId, f.work?.tools),
   };
 }
 
@@ -548,7 +542,7 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   // Stopped early, or with a payload file its result doesn't keep: it can't run again as it ran, so it asks what to test.
   const ownFile = report.payloads?.some((x) => x.source === 'file');
   const stopped = report.stopReason ? stopWords(report.stopReason) : null;
-  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
+  if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: injectionPrice(row.runId, f.work?.tools) };
   if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: gateAgainSub(why), price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };

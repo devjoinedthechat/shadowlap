@@ -1,4 +1,6 @@
-import { isObject, type Effect } from '@shadowlap/engine';
+import { isObject, parseToolTrust, type Effect, type ToolTrust, type TrustSource } from '@shadowlap/engine';
+import { toolTrust, type ToolTrustRow } from './injection.js';
+import type { ToolsRead, ToolTest } from './injection-security.js';
 import { toolReads, type ToolReads } from './tool-reads.js';
 import { type ConfigInfo, loadConfigFile, type SettingsContext } from './settings-shared.js';
 import { type ClientConfigBlock, clientConfigs, type McpRecordedServer, type McpServerRow, mcpServers, recordedMcpServers } from './settings-mcp.js';
@@ -18,6 +20,23 @@ export interface ToolRow {
   changed: boolean;
   /** Its effect comes from `mcp.effects` in the config. */
   mcp: boolean;
+  /** Its trust: the config's `tools`, else what its calls were recorded with, else trusted (injection.ts toolTrust). */
+  trust: 'trusted' | 'untrusted';
+  from: TrustSource | null;
+  /** Where the mark comes from, in the Trust column's words; null for a tool trusted by default. */
+  where: string | null;
+  /** The `tools` line that marks it the other way: Mark trusted's or Mark untrusted's. */
+  flip: string;
+  /** What a person typed (`meta.input`): never planted in, so it has no mark. */
+  input: boolean;
+  /** An untrusted read's Run injection test…: the run it tests and what its card says; null where no run reads it, and for every other tool. */
+  test: ToolTest | null;
+}
+
+/** One line of the config's `tools` entry, as the file holds it: `  "get_ticket": { "trust": "untrusted" },`. */
+export interface ToolsEntryLine {
+  tool: string;
+  text: string;
 }
 
 export interface HttpHostRow {
@@ -34,6 +53,8 @@ export interface HttpHostRow {
 
 export interface ToolsSettings {
   config: ConfigInfo;
+  /** The config's `tools` entry, a tool a line, `unrecorded` as written: the box under the table. */
+  entry: ToolsEntryLine[];
   /** Runs live after a fork: read and pure tools, and tools that declare no effect. */
   live: ToolRow[];
   /** Blocked or stubbed after a fork: write tools. */
@@ -74,20 +95,62 @@ const EFFECTS: readonly Effect[] = ['pure', 'read', 'write'];
 
 const effectOf = (v: unknown): Effect | null => (EFFECTS.includes(v as Effect) ? (v as Effect) : null);
 
+/** A JSON value on one line, spaced as the config's entries are written: `{ "trust": "untrusted" }`. */
+function oneLine(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(oneLine).join(', ')}]`;
+  if (isObject(v)) {
+    const keys = Object.entries(v);
+    return keys.length ? `{ ${keys.map(([k, x]) => `${JSON.stringify(k)}: ${oneLine(x)}`).join(', ')} }` : '{}';
+  }
+  return JSON.stringify(v) ?? 'null';
+}
+
+/** The config's `tools` entry, a key a line with its comma, as the box under the Trust table shows it. */
+export function toolsEntry(tools: unknown): ToolsEntryLine[] {
+  if (!isObject(tools)) return [];
+  const keys = Object.entries(tools);
+  return keys.map(([tool, v], i) => ({ tool, text: `  ${JSON.stringify(tool)}: ${oneLine(v)}${i < keys.length - 1 ? ',' : ''}` }));
+}
+
+/** The config's trust marks, for a page read without the pooled job's: none where `tools` can't be read. */
+function trustMarks(tools: unknown): ToolTrust | undefined {
+  try {
+    return parseToolTrust(tools);
+  } catch {
+    return undefined;
+  }
+}
+
+/** A tool row's trust columns, from its trust row; trusted by default where none was read. */
+function trustCells(name: string, t: ToolTrustRow | undefined, tests: Record<string, ToolTest>): Pick<ToolRow, 'trust' | 'from' | 'where' | 'flip' | 'input' | 'test'> {
+  return {
+    trust: t?.trust ?? 'trusted',
+    from: t?.from ?? null,
+    where: t?.where ?? null,
+    flip: t?.flip ?? `"tools": { ${JSON.stringify(name)}: { "trust": "untrusted" } }`,
+    input: t?.input ?? false,
+    test: Object.hasOwn(tests, name) ? tests[name]! : null,
+  };
+}
+
 /**
  * The Tools tab: every tool any run called, from one query across the store, by what happens to it
  * after a fork; the hosts under `http` and `mcp.effects` in the config; and the MCP servers the
  * project's client configs list, with the `shadowlap mcp` line that records each. The server hands
  * it the store's part, read beside it (`reads`); without them it reads them itself.
  */
-export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string | null; reads?: ToolReads } = {}): ToolsSettings {
+export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string | null; reads?: ToolReads | ToolsRead } = {}): ToolsSettings {
   const { info, file } = loadConfigFile(ctx.cwd);
   const data = file?.data ?? {};
   const mcpEffects = isObject(data.mcp) && isObject(data.mcp.effects) ? data.mcp.effects : {};
   const httpRules = isObject(data.http) ? Object.entries(data.http) : [];
 
   // One row per tool: the effect of its latest call, and whether an earlier one differed.
-  const { usage, mcp: mcpUsage } = options.reads ?? toolReads(ctx.store);
+  const read = options.reads ?? toolReads(ctx.store);
+  const { usage, mcp: mcpUsage } = read;
+  const pooled = 'tests' in read ? (read as ToolsRead) : null;
+  const trustBy = new Map((pooled?.trust ?? toolTrust(ctx.store, trustMarks(data.tools)).tools).map((t) => [t.name, t]));
+  const tests = pooled?.tests ?? {};
   const tools = new Map<string, ToolRow>();
   const hostCalls = new Map<string, { calls: number; lastAt: number; effect: Effect | null }>();
   for (const u of usage) {
@@ -105,7 +168,7 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
     }
     const t = tools.get(u.name);
     if (!t) {
-      tools.set(u.name, { name: u.name, effect: u.effect, calls: u.calls, runs: u.runs, lastAt: u.lastAt, changed: false, mcp: Object.hasOwn(mcpEffects, u.name) });
+      tools.set(u.name, { name: u.name, effect: u.effect, calls: u.calls, runs: u.runs, lastAt: u.lastAt, changed: false, mcp: Object.hasOwn(mcpEffects, u.name), ...trustCells(u.name, trustBy.get(u.name), tests) });
       continue;
     }
     t.changed ||= t.effect !== u.effect;
@@ -145,6 +208,7 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
   const doc = options.mcpDoc !== undefined ? options.mcpDoc : readShippedDoc('mcp.md');
   return {
     config: info,
+    entry: toolsEntry(data.tools),
     live: rows.filter((t) => t.effect !== 'write'),
     fenced: rows.filter((t) => t.effect === 'write'),
     http,

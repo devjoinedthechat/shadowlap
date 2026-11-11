@@ -1,10 +1,14 @@
+import type { InjectionPlan, ToolTrust } from '@shadowlap/engine';
+import { lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
-import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, injectionTitle, keptInjection, payloadsRead } from '../injection.js';
+import { budgetFlags, injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, injectionTitle, keptInjection, payloadsRead } from '../injection.js';
 import { injectionReportHtml, reportFile, reportPreview } from '../injection-report.js';
+import type { InjectionReadInput } from '../injection-security.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { runAffinity } from '../run-index.js';
+import { runVersionTag } from '../run-version.js';
 import { namesTeamStore } from './verdicts.js';
 
 /**
@@ -14,6 +18,8 @@ import { namesTeamStore } from './verdicts.js';
  *   GET /api/injection                    { results }: newest first; ?run=<id>, ?golden=<path>, ?limit=<n>
  *   GET /api/injection/templates          the built-in templates, versioned, for the dialog
  *   GET /api/injection/payloads           ?upload=<id>: { name, count, noCanary }, a payload file sent and not yet taken by a test
+ *   GET /api/injection/estimate           ?run=<id>&payloads=<n>&repeat=<n>&budget=<usd>, or &gate=1: { estimate }, a dialog's plan priced
+ *   GET /api/injection/security           { goldens, none, unread }: each golden's recording's untrusted reads, its last test, its test's price
  *   GET /api/injection/tools              { tools }: every recorded tool with its trust, for Settings → Tools
  *   GET /api/injection/needs-look         { items }: runs and goldens whose newest test obeyed, was influenced or is inconclusive
  *   GET /api/injection/runs/:id           { untrusted, results, attempt }: a run's untrusted reads, its tests, and the test it is an attempt of
@@ -26,17 +32,47 @@ import { namesTeamStore } from './verdicts.js';
 
 export const INJECTION_JOB_KIND = 'injection';
 
+/** The config's trust marks. The config can be mid-edit: the trust it gives is left out rather than failing the page. */
+export function configTools(ctx: RouteContext): ToolTrust | undefined {
+  try {
+    return ctx.config().tools;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What a pooled injection read is handed besides its kind: the trust marks, the goldens, the project's folder and the prices. */
+export function injectionReadInput(ctx: RouteContext): InjectionReadInput {
+  const tools = configTools(ctx);
+  return { goldens: ctx.options.goldens?.() ?? [], project: ctx.project?.path ?? process.cwd(), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(tools ? { tools } : {}) };
+}
+
+/** The most payloads a plan prices: every template and a payload file's. */
+const MAX_PAYLOADS = 10_000;
+
+/** A whole number from the query string, between `min` and `max`; undefined when absent. */
+function wholeParam(raw: string | null, key: string, min: number, max: number): number | undefined {
+  if (raw === null) return undefined;
+  const n = Number(raw);
+  if (!(Number.isInteger(n) && n >= min && n <= max)) throw new HttpError(400, `${key} is a whole number from ${min} to ${max}`);
+  return n;
+}
+
+/** A dialog's picks as the estimators take them: the payloads planted, attempts each, and Stop at $ (checked as the job checks it). */
+function planParams(q: URLSearchParams): InjectionPlan {
+  const payloads = wholeParam(q.get('payloads'), 'payloads', 0, MAX_PAYLOADS);
+  if (payloads === undefined) throw new HttpError(400, 'payloads is how many payloads the test plants');
+  const repeat = wholeParam(q.get('repeat'), 'repeat', 1, 100);
+  const raw = q.get('budget');
+  const budget = raw === null || raw === '' ? [] : budgetFlags(Number(raw));
+  if (!Array.isArray(budget)) throw new HttpError(400, budget.error);
+  return { payloads, ...(repeat !== undefined ? { repeat } : {}), ...(budget.length ? { budget: Number(budget[1]) } : {}) };
+}
+
 export function register(router: Router, ctx: RouteContext): void {
   const { store } = ctx;
   const goldens = () => ctx.options.goldens?.() ?? [];
-  // The config can be mid-edit: the trust it gives is left out rather than failing the page.
-  const tools = () => {
-    try {
-      return ctx.config().tools;
-    } catch {
-      return undefined;
-    }
-  };
+  const tools = () => configTools(ctx);
 
   router.get('/injection', (r) => {
     const limit = r.query.get('limit');
@@ -52,6 +88,29 @@ export function register(router: Router, ctx: RouteContext): void {
     const read = payloadsRead(file);
     if ('error' in read) throw new HttpError(400, read.error);
     r.json(read);
+  });
+  // Tests' Security: each golden's recording's untrusted reads, its last test, and its test's price.
+  router.get('/injection/security', async (r) => {
+    sendAnswer(r, await ctx.reads.run({ kind: 'injection-security', ...injectionReadInput(ctx) }));
+  });
+  // A dialog's picks priced, asked again a moment after each pick: revalidated, as a run's estimates are, from where the run stands, the prices and the plan.
+  router.get('/injection/estimate', async (r) => {
+    const run = lookupRun(store, r.query.get('run') ?? '');
+    if (!run) {
+      const no = noSuchRun(store, r.query.get('run') ?? '');
+      throw new HttpError(no.status, no.message);
+    }
+    const plan = planParams(r.query);
+    const gate = r.query.get('gate') === '1';
+    const trust = tools();
+    const etag = runVersionTag(store, run, JSON.stringify([ctx.read, trust ?? null, plan, gate]));
+    if (r.req.headers['if-none-match'] === etag) {
+      r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+      r.res.end();
+      return;
+    }
+    const job = { kind: 'injection-estimate' as const, runId: run.runId, plan, gate, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(trust ? { tools: trust } : {}) };
+    sendAnswer(r, await ctx.reads.run(job, runAffinity(store, run.runId)), { etag });
   });
   // Both read every call they are about, of a run or of every run: worked out beside the server.
   router.get('/injection/tools', async (r) => {
