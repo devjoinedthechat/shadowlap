@@ -1,4 +1,4 @@
-import { fixLabelInfo, fixOfRun, keptAttemptVerdict, pinWords, type AttemptVerdict, type RunRecord, type StoreOf, type StoredFix, type StoredRepair, type StoredVerdict, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
+import { fixLabelInfo, fixLinksOfRun, fixOfRun, keptAttemptVerdict, standingIn, pinWords, type AttemptVerdict, type RunRecord, type StoreOf, type StoredFix, type StoredRepair, type StoredVerdict, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
 import { probeLine, runsRule, verifiedLine, type VerdictTone } from './verdict.js';
 import { askedAgain, attemptNote, changeName, fixHref, ROLE, runHref, sprtGate, type VerifyRow } from './fix-shared.js';
 
@@ -128,7 +128,7 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
   const linkedFix = (ref: string, kind: 'blame' | 'repair' | 'verify', runOf: string): StoredFix | null => {
     const fixes = store.linksTo(ref, kind).map((l) => store.getFix(l.fixId)).filter((f): f is StoredFix => f !== null);
     // A verdict shared by several fixes leads to the one the run takes part in.
-    const own = fixes.find((f) => store.linksTo(runOf).some((l) => l.fixId === f.fixId && (l.kind === 'failing' || l.kind === 'good')));
+    const own = fixes.find((f) => [...fixLinksOfRun(store, runOf, 'failing'), ...fixLinksOfRun(store, runOf, 'good')].some((l) => l.fixId === f.fixId));
     return own ?? fixes[0] ?? null;
   };
 
@@ -234,8 +234,8 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
     for (const x of inFamily(v.report.runs)) {
       const fix = linkedFix(v.verifyId, 'verify', x.runId);
       const change = changeName(v);
-      // Whether it counts for the fix it leads to, as that fix's Verify step says: kept with the link.
-      const counts = fix ? (store.linksTo(v.verifyId, 'verify').find((l) => l.fixId === fix.fixId)?.data?.counts ?? true) : null;
+      // Whether it counts for the fix it leads to, under the check the fix has, as its Verify step says.
+      const counts = fix ? (standingIn(store, fix, v)?.counts ?? true) : null;
       verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, counts, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at, runsRule({ gate: sprtGate(v.report.gate), needed: v.report.needed, attemptsPerRun: v.report.attemptsPerRun, kept: v.report.kept ?? null }, x));
     }
   }

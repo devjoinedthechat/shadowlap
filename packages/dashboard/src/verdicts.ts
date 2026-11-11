@@ -1,4 +1,4 @@
-import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, migrateBreaks, migrateUnsettled, outcomeOf, plural, runOutcomeWord, verdictWord, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
+import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, leftFixLinkSql, migrateBreaks, migrateUnsettled, outcomeOf, plural, runOutcomeWord, standingIn, verdictWord, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type FixStanding, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
 import { changeName, fieldsOf } from './fix-shared.js';
 import { uncountedHead } from './fix-verify-step.js';
 import { isRevisionKey } from './links.js';
@@ -166,7 +166,7 @@ export interface VerdictsOptions {
   normalizers?: readonly Normalizer[];
 }
 
-type Store = StoreOf<'readModels' | 'tests'>;
+type Store = StoreOf<'readModels' | 'tests' | 'fixes'>;
 
 const parsed = <T>(v: unknown, fallback: T): T => {
   if (typeof v !== 'string') return fallback;
@@ -548,25 +548,31 @@ function verifyWindow(store: Store): { entries: Array<{ verifyId: string; at: nu
 interface VerifyFix {
   fixId: string;
   title: string;
-  standing: VerdictStanding;
+  standing: FixStanding;
   /** The fix's failing runs, which its Verify step's heading reads. */
   failing: string[];
 }
 
-/** The fix each verify is a row of: the first it counts for, else the first that keeps it; with that fix's failing runs. */
+/** A verify's standing for a fix under the check the fix has (standingIn), else as its link keeps it. */
+function standingFor(store: Store, fixId: string, verifyId: string, kept: VerdictStanding | null): FixStanding {
+  const fix = store.getFix(fixId);
+  const v = store.getVerdict(verifyId);
+  return (fix && v ? standingIn(store, fix, v) : null) ?? (kept?.counts === false ? kept : { counts: true, why: null });
+}
+
+/** The fix each verify is a row of: the first it counts for, else the first that keeps it; with that fix's failing runs, but those that left it. */
 function fixesOf(store: Store, ids: readonly string[]): Map<string, VerifyFix> {
   const rows = store.query(`SELECT l.ref AS id, l.fix_id AS fix, l.data AS standing, f.title AS title FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id WHERE l.kind = 'verify' AND l.ref IN (SELECT value FROM json_each(?)) ORDER BY l.at, l.fix_id`, JSON.stringify(ids));
   const out = new Map<string, VerifyFix>();
   for (const r of rows) {
-    const kept = parsed<VerdictStanding | null>(r.standing, null);
-    const standing: VerdictStanding = kept?.counts === false ? kept : { counts: true, why: null };
+    const standing = standingFor(store, String(r.fix), String(r.id), parsed<VerdictStanding | null>(r.standing, null));
     const was = out.get(String(r.id));
     if (!was || (!was.standing.counts && standing.counts)) out.set(String(r.id), { fixId: String(r.fix), title: String(r.title), standing, failing: [] });
   }
   const fixes = [...new Set([...out.values()].map((f) => f.fixId))];
   const failing = new Map<string, string[]>();
   if (fixes.length) {
-    for (const r of store.query(`SELECT fix_id AS fix, ref FROM fix_links WHERE kind = 'failing' AND fix_id IN (SELECT value FROM json_each(?))`, JSON.stringify(fixes))) {
+    for (const r of store.query(`SELECT l.fix_id AS fix, l.ref AS ref FROM fix_links l WHERE l.kind = 'failing' AND l.fix_id IN (SELECT value FROM json_each(?)) AND NOT ${leftFixLinkSql('l')}`, JSON.stringify(fixes))) {
       const list = failing.get(String(r.fix));
       if (list) list.push(String(r.ref));
       else failing.set(String(r.fix), [String(r.ref)]);

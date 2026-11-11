@@ -74,7 +74,7 @@ describe('what stays on this machine', () => {
     await pull(maya);
     const fix = maya.store.getFix(fixId)!;
     expect(fix.check).toMatchObject({ expect: EXPECT, oracle: ORACLE });
-    expect(maya.store.fixChecks(fixId)).toEqual([{ fixId, position: 0, at: 2_000, actor: 'dana@northwind.example', check: fix.check }]);
+    expect(maya.store.fixChecks(fixId)).toEqual([{ fixId, position: 0, at: 2_000, actor: 'dana@northwind.example', judged: null, check: fix.check }]);
     // Pulled again, the fix is merged, not kept anew: still the one check.
     await pull(maya);
     expect(maya.store.fixChecks(fixId)).toHaveLength(1);

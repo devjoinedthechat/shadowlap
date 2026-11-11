@@ -26,9 +26,10 @@ export type { SqlValue } from './store.js';
 // The sidecar's writes queued while another process holds the store, and the ids of runs it starts before they are written.
 export type { QueuedWrites } from './store.js';
 export { ulidNow } from './store/core.js';
-export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
-export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
-export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
+export type { FixCheckEntry, FixCheckJudged, FixData, FixLink, FixLinkKind, FixRunOutcome, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
+export { FIX_RUN_OUTCOMES } from './store.js';
+export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, changeFixCheck, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixLinksOfRun, fixOfRun, fixRecords, joinableFix, leftFixLinkSql, madeUnderOldCheck, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, runsLeft, setFixTitle, settleAppliedFixes, standingIn, standingOn, verdictCounts } from './fixes.js';
+export type { BlameToRecord, FixCheckChange, FixCost, FixRecords, FixStanding, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
 // A run by its full id or the unique prefix the CLI prints, for the dashboard's routes and the fix jobs.
 export { lookupRun } from './run-lookup.js';
 // The commands a repair from a fix and a verify of it run, and the yes they need first, as the

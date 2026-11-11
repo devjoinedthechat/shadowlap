@@ -1,4 +1,4 @@
-import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, runsLeft, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { type NoVerifyLeft, verifyLeftOr } from '../fix-actions.js';
@@ -346,7 +346,8 @@ export function register(router: Router, ctx: RouteContext): void {
     const fix = findFix(store, r.params.id);
     const model = modelParam(r.query.get('model'));
     // The calls of the runs it reads, by the fix's links alone: its blames, repairs and verdicts are read beside the server.
-    const runs = new Set(store.fixLinks(fix.fixId).flatMap((l) => (l.kind === 'failing' || l.kind === 'good' ? [l.ref] : [])));
+    const left = runsLeft(store.fixChecks(fix.fixId));
+    const runs = new Set(store.fixLinks(fix.fixId).flatMap((l) => ((l.kind === 'failing' || l.kind === 'good') && !left[l.kind].has(l.ref) ? [l.ref] : [])));
     const { byId } = loadRunIndex(store);
     const calls = [...runs].reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
     // Whether its patch is in the working tree, as git says: Verify this run is offered only on a change there.

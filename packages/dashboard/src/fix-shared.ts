@@ -1,4 +1,4 @@
-import { BLAME_DEFAULTS, fieldValue, keptCaptureVerdict, outcomeOf, repairPatchProblem, repairToApply, shownBlame, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type NoFixToTry, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredCheck, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, fieldValue, fixLinksOfRun, keptCaptureVerdict, outcomeOf, repairPatchProblem, repairToApply, shownBlame, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type NoFixToTry, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredCheck, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { isCount } from './rerun.js';
@@ -365,7 +365,7 @@ export function patchToCheck(rec: FixRecords): string | null {
  */
 export function isUnblamedFailure(store: StoreOf<'readModels' | 'fixes'>, run: RunRecord, index: RunIndex = loadRunIndex(store)): boolean {
   if (!failedAlone(index, run, !!run.meta?.injection)) return false;
-  return store.blamesOfRun(run.runId).length === 0 && store.linksTo(run.runId, 'failing').length === 0;
+  return store.blamesOfRun(run.runId).length === 0 && fixLinksOfRun(store, run.runId, 'failing').length === 0;
 }
 
 /**
