@@ -92,7 +92,8 @@ describe('the pull request comment’s preview', () => {
     store.setTestSessionComment(full, { decisions: 'dc-01M5PREVIEW00000000000000' });
     store.setTestSessionComment(full, { costPerRun: { before: 0.041, after: 0.043 } });
     const p = shown(prCommentPreview(store, GOLDENS, { step: null }));
-    expect(p.decisions).toMatchObject({ sessionId: 'dc-01M5PREVIEW00000000000000', mark: '✓', rows: [] });
+    expect(p.decisions).toMatchObject({ sessionId: 'dc-01M5PREVIEW00000000000000', mark: '✓', rows: [], note: null });
+    expect(p.decisions!.headline).toBe(`${p.decisions!.sentence}, under the prompt and tools this pull request sends`);
     expect(p.cost).toMatchObject({ line: '≈$0.041 → ≈$0.043 (+5%)' });
     const results = inSessionOrder(store.listTestResults({ sessionId: full, limit: 100 })).map(storedCommentResult);
     expect(p.markdown).toBe(commentMarkdown({ results, decisions: keptDecisions(store, 'dc-01M5PREVIEW00000000000000'), costPerRun: { before: 0.041, after: 0.043 } }));

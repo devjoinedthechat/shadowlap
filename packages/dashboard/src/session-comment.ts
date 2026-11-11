@@ -1,4 +1,4 @@
-import { aboutUsd, commentDecisions, commentInjection, costPerRunLine, decisionsMoved, emptyCounts, percentChange, testResultVerdict, type CommentDecision, type CommentDecisionsSource, type CommentResult, type DecisionCounts, type DecisionStep, type PullRequestState, type StoreOf, type TestResult, type TestSession, type TestSessionComment } from '@shadowlap/engine';
+import { aboutUsd, commentDecisions, commentInjection, costPerRunLine, decisionsMoved, emptyCounts, JUDGED_IN_RECORDED_STATE_SHORT, percentChange, PR_DECISIONS_SUFFIX, testResultVerdict, type CommentDecision, type CommentDecisionsSource, type CommentResult, type DecisionCounts, type DecisionStep, type PullRequestState, type StoreOf, type TestResult, type TestSession, type TestSessionComment } from '@shadowlap/engine';
 
 /**
  * What a test session keeps of the pull request it ran for, and of the comment the Action keeps on
@@ -107,8 +107,13 @@ export interface KeptDecisions {
   /** The `decisions --from-code` session they came from. */
   sessionId: string;
   mark: '✗' | '!' | '✓';
+  /** `1 of 7 goldens decides a write or when to stop differently`: as a revision's page says it. */
   sentence: string;
+  /** The sentence as the comment says it, `, under the prompt and tools this pull request sends` after it. */
+  headline: string;
   rows: CommentDecision[];
+  /** Under the steps, with any: later steps are judged in the recorded run's state. */
+  note: string | null;
 }
 
 /** A run's cost before and after, as the comment says it: `≈$0.041 → ≈$0.043 (+5%)`, and its two parts. */
@@ -147,7 +152,7 @@ export interface SessionCommentParts {
 export function decisionsPart(source: (CommentDecisionsSource & { sessionId: string }) | null): KeptDecisions | null {
   if (!source) return null;
   const d = commentDecisions(source);
-  return { sessionId: source.sessionId, ...d };
+  return { sessionId: source.sessionId, ...d, headline: `${d.sentence}${PR_DECISIONS_SUFFIX}`, note: d.rows.length ? JUDGED_IN_RECORDED_STATE_SHORT : null };
 }
 
 /** The cost part in the comment's words; null without both sides. */

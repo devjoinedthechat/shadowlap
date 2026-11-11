@@ -106,6 +106,8 @@ export const ACTIONS = {
   addProject: { label: 'Add project…' },
   setUpTeamStore: { label: 'Set up team store' },
   continueTeamStoreSetup: { label: 'Continue team store setup' },
+  // Settings → CI's pull request comment, from the last test session: it only reads.
+  previewPrComment: { label: 'Preview pull request comment' },
   keyboardShortcuts: { label: 'Keyboard shortcuts' },
 } as const satisfies Record<string, ActionWords>;
 

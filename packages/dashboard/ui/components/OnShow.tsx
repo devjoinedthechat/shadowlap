@@ -21,7 +21,9 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * Share's menu (pages/served.tsx) and its Export dataset… and Export OpenTelemetry trace…
  * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), Edit and fork's dialog
  * (run/EditDialog.tsx), Run blame's check (fixes/RunBlame.tsx), and Find breaking commit's and
- * Delete run's (run/RunDialogs.tsx). So must the structural diff
+ * Delete run's (run/RunDialogs.tsx); and Preview pull request comment's dialog, which Settings → CI
+ * and a revision's page under Changes both open, declared once in a module they share
+ * (ci/comment-parts.tsx) so the build makes one script for both. So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in

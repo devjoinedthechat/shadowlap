@@ -40,8 +40,9 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
 /**
  * The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land.
  * The dialogs a list row's step asks in load as the step first asks: a fix's lead's (LeadDialog, on Fixes and Needs a look), and Needs a look's Find breaking commit's and Update golden's.
+ * Preview pull request comment's (PrCommentDialog) loads as Settings → CI or the newest revision's page under Changes first opens it; an exported copy has neither.
  */
-const PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'LeadDialog', 'OtelDialog', 'Palette', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RevisionPage', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
+const PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'LeadDialog', 'OtelDialog', 'Palette', 'PrCommentDialog', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RevisionPage', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
 /** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset… and Export OpenTelemetry trace… it opens. */

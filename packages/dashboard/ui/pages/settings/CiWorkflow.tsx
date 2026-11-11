@@ -4,7 +4,7 @@ import { CodeBox, CopyButton } from '../../components/CodeBox.js';
 import { Dialog } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
 import { Section } from '../../components/Section.js';
-import { dayClock } from '../../goldens.js';
+import { sessionWhen } from '../../ci/words.js';
 import type { CiSession, CiWorkflowOptions, CiWorkflowsView } from '../../types.js';
 import { useApp } from '../../state.js';
 import { TeamStoreRow } from './CiTeamStore.js';
@@ -54,9 +54,7 @@ function WorkflowState({ view }: { view: CiWorkflowsView }) {
  * CI's own, `Last seen in CI, …`; a session with no revision says so, as Tests' line does: `no revision, just now`.
  */
 export function sessionLine(s: CiSession, now = Date.now()): string {
-  const rev = s.revision ? (/^[0-9a-f]{8,}$/i.test(s.revision) ? s.revision.slice(0, 7) : s.revision) : 'no revision';
-  const when = now - s.at < 60_000 ? `${rev}, just now` : `${rev} at ${dayClock(s.at)}`;
-  return `${s.ci ? 'Last seen in CI' : 'The last test session'}, ${when}: ${s.text}.`;
+  return `${s.ci ? 'Last seen in CI' : 'The last test session'}, ${sessionWhen(s.revision, s.at, now)}: ${s.text}.`;
 }
 
 export function YourWorkflow({ view, changed, onWritten, reload }: { view: CiWorkflowsView; changed: Partial<CiWorkflowOptions>; onWritten: () => void; reload: () => void }) {

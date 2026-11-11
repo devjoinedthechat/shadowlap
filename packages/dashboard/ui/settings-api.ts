@@ -9,6 +9,7 @@ import type {
   ToolsSettings,
 } from '../src/settings.js';
 import type { CiWorkflowOptions } from '../src/ci-workflows.js';
+import type { PrCommentPreview } from '../src/pr-comment-preview.js';
 import type { GatePreview } from '../src/tests-gate.js';
 
 /**
@@ -16,7 +17,8 @@ import type { GatePreview } from '../src/tests-gate.js';
  * shadowlap.config.json. Every edit sends the version of the file the tab read (`config.version`),
  * so the server refuses it with a 409 when the file changed on disk since. Types only from the
  * server's read model (`src/settings.ts`): nothing here needs Node. The CI tab reads
- * `client.ciWorkflows`, which Tests uses too.
+ * `client.ciWorkflows`, which Tests uses too, and the pull request comment's preview here, which a
+ * revision's page under Changes opens too.
  */
 
 export type { CodingAgentsSettings, MatchingSettings, ProjectSettings, RedactionPreviewView, RedactionSettings, RuleRow, StoreSettings, ToolsSettings };
@@ -76,6 +78,8 @@ export interface SettingsApi {
   undoWorkflow(was: string): Promise<{ path: string; version: string; removed: boolean }>;
   /** What a gate's figures would do, as Gates previews them: the query `GET /api/tests/gate` takes. */
   gate(query: string, signal?: AbortSignal): Promise<GatePreview>;
+  /** The pull request comment as the Action would post it (`GET /api/ci/comment`): `{ session: null }` before a session ran every golden. */
+  prComment(): Promise<PrCommentPreview | { session: null }>;
 }
 
 /** The client's request function, as `createClient` has it. */
@@ -102,6 +106,7 @@ export function settingsApi(request: Request): SettingsApi {
     writeWorkflow: (options, expect, shown) => send('PUT', 'ci/workflow', { options, expect, shown }),
     undoWorkflow: (was) => send('POST', 'ci/workflow/undo', { was }),
     gate: (query, signal) => request(`tests/gate?${query}`, signal ? { signal } : {}),
+    prComment: () => request('ci/comment'),
   };
 }
 
@@ -125,5 +130,6 @@ export function noSettings(refuse: () => Promise<never>): SettingsApi {
     writeWorkflow: refuse,
     undoWorkflow: refuse,
     gate: refuse,
+    prComment: refuse,
   };
 }
