@@ -121,6 +121,9 @@ table.probes tr.hot td { background: var(--sel); }
 /* what failed and what must hold are sentences, in the UI face; only a value in them is data */
 .fm .fmv { white-space: normal; overflow-wrap: anywhere; color: var(--dim); }
 .pslist .fm { margin-top: 4px; }
+/* the way to change the check, after it: a link whose padding hangs out of the line's start as a list's links do */
+.fm .fmx { position: relative; }
+.fm .fmx .linkbtn { margin-left: -7px; }
 
 .stepper { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; border-bottom: 1px solid var(--line); }
 .stepper a { position: relative; display: block; padding: 4px 18px 16px 0; text-decoration: none; }

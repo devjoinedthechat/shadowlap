@@ -110,5 +110,5 @@ export function showPatchCard(fix: Pick<FixDetail, 'rung' | 'actions'>): string 
   return fix.actions.apply?.pulled ? 'Applied: the patch is in the working tree; its goldens are on the machine that ran the repair' : 'Applied: the patch is in the working tree and its goldens pass';
 }
 
-/** Run repair's wait after a repair whose gate rejected every candidate, and its card: running it again would try the same. */
-export const REPAIR_SPENT = { why: 'Repair rejected every candidate', tip: 'Nothing has changed since its last repair, whose gate rejected every candidate: verify a change of your own' } as const;
+/** Run repair's wait after a repair whose gate rejected every candidate, and its card: running it again would try the same, so its way out is Edit check…. */
+export const REPAIR_SPENT = { why: 'Repair rejected every candidate', tip: 'Nothing has changed since its last repair, whose gate rejected every candidate: edit the check, or verify a change of your own' } as const;
