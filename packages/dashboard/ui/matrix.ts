@@ -1,5 +1,6 @@
 import { statusTone } from './components/Status.js';
 import { plural } from './format.js';
+import { MANY_READS } from '../src/injection-defaults.js';
 
 /**
  * The results matrix's data and words: one design for an injection test (its untrusted reads by
@@ -126,7 +127,7 @@ export interface ReadRow {
  * or couldn't say, worst first then by number, each by its number alone (named "#4 get_ticket"), then
  * one line for the rest. Eight reads or fewer: a row each, as given.
  */
-export function groupRows(reads: readonly ReadRow[], { many = 8 }: { many?: number } = {}): MatrixRow[] {
+export function groupRows(reads: readonly ReadRow[], { many = MANY_READS }: { many?: number } = {}): MatrixRow[] {
   if (reads.length <= many) return reads.map((r) => r.row);
   const by = new Map<string, ReadRow[]>();
   for (const r of reads) {
