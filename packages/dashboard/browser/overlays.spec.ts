@@ -1,12 +1,14 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { GLOSSARY } from '../ui/glossary.js';
 import { demoId, focusedLabel, openPage, seriousViolations } from './dashboard.js';
+import { routePrCommentFixture } from './pr-comment-fixture.js';
 
 /**
  * Every overlay on one set of rules, in Chromium over the demo store: a menu placed by the room there
  * is, with its keys, its rows and its widths; a picker's filter; a modal that fits, the app behind it
- * out of reach, and the ask before it discards an edit; hover cards for the pointer, the keyboard and
- * a finger; and on a phone, 390 px wide, each of them a sheet from the foot of the screen.
+ * out of reach, and the ask before it discards an edit; a toast over the footer of a dialog that
+ * stays open; hover cards for the pointer, the keyboard and a finger; and on a phone, 390 px wide,
+ * each of them a sheet from the foot of the screen.
  */
 
 const MENU = '.pop[role="menu"]';
@@ -573,6 +575,25 @@ test('a hover card in a dialog goes over its element rather than over the dialog
   // It would have reached the footer under its element.
   expect(f.y + f.height + 8 + t.height).toBeGreaterThan(foot.y);
   expect(t.y + t.height).toBeLessThanOrEqual(foot.y);
+});
+
+test('a toast over a dialog that stays open sits over its footer: Copy Markdown in the pull request comment’s preview at 1180 by 800', async ({ page }) => {
+  // Every part of the comment drawn, so the dialog is as tall as the window lets it be.
+  await routePrCommentFixture(page);
+  await page.setViewportSize({ width: 1180, height: 800 });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openPage(page, '/settings/ci', 'main#view .prpanel');
+  await page.locator('main#view button', { hasText: 'Preview pull request comment' }).click();
+  const dialog = page.locator(DIALOG);
+  await expect(dialog.locator('.prc-i')).toHaveCount(3);
+  await dialog.locator('footer button', { hasText: 'Copy Markdown' }).click();
+  const toast = page.locator('.toast');
+  await expect(toast).toContainText('Copied the comment’s Markdown');
+  // Copy keeps the dialog open: its footer reaches the toast's place, so the toast goes over it.
+  await expect(dialog).toBeVisible();
+  const foot = await box(page.locator('.dialog > footer'));
+  expect(foot.y + foot.height).toBeGreaterThan(800 - 28 - 14 - (await box(toast)).height);
+  await expect.poll(async () => { const t = await box(toast); return t.y + t.height; }, { message: 'the toast’s foot, over the footer’s top' }).toBeLessThanOrEqual(foot.y);
 });
 
 test('a hover card goes when its element leaves the page, and when the page changes under one that stays', async ({ page }) => {
