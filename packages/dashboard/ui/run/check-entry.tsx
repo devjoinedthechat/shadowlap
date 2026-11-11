@@ -134,9 +134,10 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
  * Edit check…, a test replay's step where its golden's own recording fails a check added since: the
  * builder on the golden at that check (`check`, its label, found in the entry as the builder reads
  * it). None where nothing hands the page the builder (an exported copy); on a dashboard that can't
- * act it keeps its place and says why.
+ * act it keeps its place and says why. Lime as the run's lead; Needs a look's row draws it plain
+ * (`className`).
  */
-export function EditCheckStep({ step }: { step: Extract<NextStep, { key: 'edit-check' }> }) {
+export function EditCheckStep({ step, className = 'btn lime' }: { step: Extract<NextStep, { key: 'edit-check' }>; className?: string }) {
   const Builder = useServedParts().CheckBuilder;
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -144,7 +145,7 @@ export function EditCheckStep({ step }: { step: Extract<NextStep, { key: 'edit-c
   const ahead = () => Builder.preload();
   return (
     <>
-      <ActionButton className="btn lime" data-next={step.key} tip={step.label} sub={step.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => setOpen(true)}>
+      <ActionButton className={className} data-next={step.key} tip={step.label} sub={step.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => setOpen(true)}>
         {step.label}
       </ActionButton>
       {open ? (

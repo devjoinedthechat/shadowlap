@@ -15,12 +15,13 @@ import { goldenName } from '../format.js';
 import { testsBusy } from '../goldens.js';
 import { PUSH_LOCAL } from '../labels.js';
 import { moreCard } from '../pages/tests-cards.js';
+import { EditCheckStep } from '../run/check-entry.js';
 import { stepCard, stepJob } from '../run/next-step.js';
 import { blameTitle, unknownBisect } from '../run/offers.js';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { sentEstimate, tipEst } from '../spending.js';
 import { useApp } from '../state.js';
-import { bannerNormalizerAsk, gateAgainAsk, moreAttemptsAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
+import { bannerNormalizerAsk, gateAgainAsk, moreAttemptsAsk, rerunAsk, sessionAsk, startTestsJob } from '../tests-ask.js';
 import { errorText } from '../toast.js';
 import type { LookStep, NeedsLookRow, NextStep } from '../types.js';
 import { updatePlan } from '../update-plan.js';
@@ -60,8 +61,12 @@ export function useLookWaits(): LookWait {
   return useMemo(() => (job) => (job ? ((job.tests ? testsBusy(jobs, job.verb, id) : null) ?? treeBusy(jobs, job.use ?? 'reads', job.verb, path)) : null), [jobs, path, id]);
 }
 
-/** The run steps a row runs from here; any other (a rule, a pack, an injection test, Replay, Compare) opens its page. */
-const RUN_KINDS: Partial<Record<NextStep['key'], string>> = { blame: JOB_KINDS.blame, normalizer: JOB_KINDS.normalizeAndTest, 'update-golden': JOB_KINDS.testUpdate, 'rerun-test': JOB_KINDS.tests, 'gate-again': JOB_KINDS.tests, bisect: JOB_KINDS.bisect };
+/**
+ * The run steps a row runs from here, Run tests among them, Tests' whole session, where a golden's
+ * checks changed since its last test; Edit check opens the check builder (`LookStepButton`); any other
+ * (a rule, a pack, an injection test, Replay, Compare) opens its page.
+ */
+const RUN_KINDS: Partial<Record<NextStep['key'], string>> = { blame: JOB_KINDS.blame, normalizer: JOB_KINDS.normalizeAndTest, 'update-golden': JOB_KINDS.testUpdate, 'rerun-test': JOB_KINDS.tests, 'gate-again': JOB_KINDS.tests, 'run-tests': JOB_KINDS.tests, bisect: JOB_KINDS.bisect };
 
 /** The job a row's step runs, and what it waits for; null for a link, none, or a step that opens its page instead. */
 export function stepRun(s: LookStep | null): { kind: string; job: Job | null } | null {
@@ -178,6 +183,8 @@ export function LookStepButton({ row, wait, version }: { row: NeedsLookRow; wait
       </a>
     );
   }
+  // Edit check opens the check builder at the check on its golden, as Tests and the run's page do: no job, so no wait.
+  if (s?.of === 'run' && s.step.key === 'edit-check' && !app.actionsOff && !app.exported) return <EditCheckStep step={s.step} className="btn sm" />;
   const run = stepRun(s);
   if (!s || !run || !wait || app.actionsOff || app.exported) return <span className="go">Open →</span>;
   const why = (app.hasKind(run.kind) ? null : 'This dashboard doesn’t run it: run the command in a terminal.') ?? wait(run.job);
@@ -296,7 +303,8 @@ function RunStep({ s, why }: { s: Extract<LookStep, { of: 'run' }>; why: string 
   else if (step.key === 'rerun-test' || step.key === 'gate-again') {
     const name = goldenName(step.golden);
     go = (p) => void startTestsJob(app, JOB_KINDS.tests, { golden: step.golden, ...sentEstimate(p) }, { ...(step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden)), estimate: p });
-  } else if (step.key === 'bisect') {
+  } else if (step.key === 'run-tests') go = (p) => void startTestsJob(app, JOB_KINDS.tests, sentEstimate(p), { ...sessionAsk(step.command ?? ''), estimate: p });
+  else if (step.key === 'bisect') {
     // From where its golden last passed it starts by Spending; with no commit to start from, its dialog asks for one.
     const starts = step.starts;
     const bisect = (good: string | null, sent: Record<string, unknown>) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good, ...sent })));

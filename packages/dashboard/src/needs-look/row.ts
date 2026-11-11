@@ -93,7 +93,7 @@ export interface LookWork {
   fixes: NeedsLookItem[];
   /** Goldens failing now, newest first (`failingTests`). */
   failing: FailingTest[];
-  /** The step of each failing golden's kept run, by its path: undefined where its record can't be read. */
+  /** The step of each failed golden's kept run, and of each inconclusive one's whose checks changed since, by its path: undefined where its record can't be read. */
   steps: Map<string, NextStep | null | undefined>;
   /** The goldens each open fix holds, by fix id. */
   held: Map<string, HeldGolden[]>;

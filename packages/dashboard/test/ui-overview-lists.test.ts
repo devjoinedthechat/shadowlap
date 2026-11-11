@@ -1,10 +1,13 @@
 import { act, createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { OnShow } from '../ui/components/OnShow.js';
 import { NeedsLook } from '../ui/overview/NeedsLook.js';
+import type { BuilderProps } from '../ui/run/check-part.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { Usage } from '../ui/overview/Usage.js';
 import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { NeedsLookRow, OverviewSummary } from '../ui/types.js';
+import type { NeedsLookRow, NextStep, OverviewSummary } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -148,6 +151,33 @@ describe('Needs a look', () => {
       expect(r.all('[role="dialog"]')).toEqual([]);
       await act(async () => priced({ next: { key: 'blame', estimate: { kind: 'blame', usd: 0.42, ceiling: 0.6, parts: [] } } }));
       expect(startJob).toHaveBeenCalledWith('blame', { runId: run, estimate: { usd: 0.42, ceiling: 0.6 } });
+    } finally {
+      resetSpending();
+    }
+  });
+
+  it('runs Tests’ whole session from a golden whose checks changed since, and opens the builder at the check from one whose recording fails a check added since, each plain', async () => {
+    resetSpending(null);
+    try {
+      const golden = 'goldens/refund-in-limit';
+      const runTests = { key: 'run-tests', label: 'Run tests', golden, gone: ['issue_refund called 0 times'], sub: 'Its checks changed since this test: the session judges them as they are now', command: 'shadowlap test goldens/*' } as unknown as NextStep;
+      const editCheck = { key: 'edit-check', label: 'Edit check…', golden, check: 'escalate called 1 time', sub: 'It fails refund-in-limit’s own recording: edit the check, or update the golden if the agent should now do this' } as unknown as NextStep;
+      const row = (n: number, step: NextStep): NeedsLookRow => ({ kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', name: 'refund-in-limit', detail: 'check failed · checks changed since', key: `attn:failed:${golden}:${n}`, group: 'failing', step: { of: 'run', runId: run, step }, href: '#/tests', runId: run, fixId: null, at: n });
+      const opened: BuilderProps[] = [];
+      const Builder = Object.assign((p: BuilderProps) => (opened.push(p), createElement('div', { className: 'fakeb' })), { preload: vi.fn(), script: 'loaded' as const }) as unknown as OnShow<BuilderProps>;
+      const startJob = vi.fn(async () => ({ id: 'job-1' }));
+      const nextStep = vi.fn(async () => ({ next: { key: 'run-tests', estimate: null } }));
+      const look = createElement(NeedsLook, { items: [row(2, runTests), row(1, editCheck)], total: 2 });
+      r = await render(within(running({ jobs: async () => [], startJob, nextStep }), createElement(ServedPartsContext.Provider, { value: { CheckBuilder: Builder } }, look)));
+      expect(r.all('.arow .ast .btn').map((b) => [text(b), b.className])).toEqual([
+        ['Run tests', 'btn sm'],
+        ['Edit check…', 'btn sm'],
+      ]);
+      await r.click(r.byText('.arow .ast .btn', 'Run tests'));
+      await r.until('the session', () => startJob.mock.calls.length === 1);
+      expect(startJob).toHaveBeenCalledWith('test', {});
+      await r.click(r.byText('.arow .ast .btn', 'Edit check…'));
+      expect(opened).toMatchObject([{ golden, edit: 'escalate called 1 time' }]);
     } finally {
       resetSpending();
     }

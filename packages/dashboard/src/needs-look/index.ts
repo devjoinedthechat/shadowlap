@@ -67,7 +67,8 @@ export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: Stor
   const fixes = needsLookFixes(store, o.patchInTree ? { patchInTree: o.patchInTree } : {});
   const failing = o.goldens.length ? failingTests(store, { goldens: o.goldens }) : [];
   const steps = new Map<string, NextStep | null | undefined>();
-  for (const t of failing) if (t.verdict === 'failed' && t.runId) steps.set(t.golden, listedStep(store, t.runId, o.next, { reads: readsOnce() }));
+  // Each failing golden's, and an inconclusive one's whose checks changed since: its run leads with Run tests.
+  for (const t of failing) if ((t.verdict === 'failed' || t.next === 'run-tests') && t.runId) steps.set(t.golden, listedStep(store, t.runId, o.next, { reads: readsOnce() }));
   const open = new Set(fixes.filter((f) => f.kind === 'open').map((f) => f.fixId));
   const held = new Map<string, HeldGolden[]>();
   for (const t of failing) {
