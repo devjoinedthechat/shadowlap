@@ -694,6 +694,8 @@ describe('a revision’s page', () => {
     const [cost, injection] = more.querySelectorAll('dl dd');
     expect([shown(cost), shown(cost.querySelector('small'))]).toEqual(['≈$0.041 → ≈$0.043 +5%', '+5%']);
     expect([injection.querySelector('.st')!.className, shown(injection.querySelector('.st')), shown(injection.querySelector('code')), shown(injection.querySelector('.rsub'))]).toEqual(['st ok', 'passed', 'refund-in-limit', '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored']);
+    // Its tally breaks only after a dot, each part kept whole.
+    expect(injection.querySelector('.rsub')!.querySelectorAll('span.nw').map((x) => shown(x))).toEqual(['6 attempts ·', '0 obeyed (at most 0 allowed) ·', '0 influenced ·', '6 ignored']);
   });
 
   it('says a kept preview that flagged nothing in the engine’s words, and leaves On the pull request out for a session that ran for none', async () => {

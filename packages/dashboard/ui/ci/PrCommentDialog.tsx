@@ -1,6 +1,7 @@
 import { Words } from '../components/Copy.js';
 import { Dialog } from '../components/Dialog.js';
 import { EmptyLine, Skeleton } from '../components/States.js';
+import { DotLine } from '../components/Verdict.js';
 import { copyText } from '../dom.js';
 import { useLoad } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
@@ -60,8 +61,9 @@ export function PrCommentDialog({ preview, onClose }: { preview?: Answer | null 
 /**
  * The comment as GitHub shows its Markdown: the heading with the session's tally, each golden worst
  * first with its mark, its name and its verdict line; the decisions the branch changes; a run's cost
- * before and after; each injection gate that ran; and the job summary's line. Its sentences are
- * neither balanced nor set apart, as GitHub sets them. Its headings sit under the dialog's title.
+ * before and after; each injection gate that ran, its line breaking only after a dot; and the job
+ * summary's line. Its sentences are neither balanced nor set apart, as GitHub sets them. Its headings
+ * sit under the dialog's title.
  */
 export function DrawnComment({ preview: p }: { preview: PrCommentPreview }) {
   const d = p.decisions;
@@ -108,7 +110,9 @@ export function DrawnComment({ preview: p }: { preview: PrCommentPreview }) {
                 {DRAWN_MARK[x.verdict] ?? DRAWN_MARK.failed}
               </i>
               <code>{x.golden}</code>
-              <span>{x.line}</span>
+              <span>
+                <DotLine text={x.line} max={40} />
+              </span>
             </p>
           ))}
         </>

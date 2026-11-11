@@ -10,6 +10,7 @@ import { EmptyLine, ErrorState, Skeleton } from '../components/States.js';
 import { Status, statusTone } from '../components/Status.js';
 import { rowOpen } from '../components/Table.js';
 import { glossed } from '../components/Term.js';
+import { DotLine } from '../components/Verdict.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { goldenName, minuteStamp } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -150,7 +151,7 @@ function KeptSteps({ kept }: { kept: KeptDecisions }) {
   );
 }
 
-/** What the comment added beside the verdicts, for a session that ran for a pull request: a run's cost before and after, then each injection gate. None when it kept neither. */
+/** What the comment added beside the verdicts, for a session that ran for a pull request: a run's cost before and after, then each injection gate, its tally breaking only after a dot. None when it kept neither. */
 function OnThePullRequest({ comment }: { comment: SessionCommentParts }) {
   const { cost, injection } = comment;
   if (!cost && !injection.length) return null;
@@ -171,7 +172,11 @@ function OnThePullRequest({ comment }: { comment: SessionCommentParts }) {
               <dt>Injection</dt>
               <dd>
                 <Status tone={statusTone(i.verdict)}>{i.verdict}</Status> <code>{goldenName(i.golden)}</code>
-                {i.tally ? <span className="rsub">{i.tally}</span> : null}
+                {i.tally ? (
+                  <span className="rsub">
+                    <DotLine text={i.tally} max={40} />
+                  </span>
+                ) : null}
               </dd>
             </Fragment>
           ))}

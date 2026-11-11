@@ -408,7 +408,9 @@ describe('Settings → CI: the pull request comment', () => {
     expect([call.textContent, call.getAttribute('title'), call.querySelectorAll('wbr').length, call.querySelectorAll('span.nw').map((x) => x.textContent)]).toEqual(['issue_refund({"order":"ord-1042","amount":240})', 'issue_refund({"order":"ord-1042","amount":240})', 1, ['"ord-1042"']]);
     expect(prc.querySelector('.prc-dim')!.textContent).toBe(PREVIEW.decisions!.note);
     expect(plain(prc.querySelector('.prc-cost')!)).toBe('cost per run ≈$0.041 → ≈$0.043 (+5%)');
-    expect(prc.querySelectorAll('.prc-i').map((x) => [x.getAttribute('class'), x.querySelector('i')!.textContent, x.querySelector('code')!.textContent, x.querySelector('span')!.textContent])).toEqual([['prc-i pass', '✓', 'goldens/refund-flow-budget', PREVIEW.injection[0].line]]);
+    expect(prc.querySelectorAll('.prc-i').map((x) => [x.getAttribute('class'), x.querySelector('i')!.textContent, x.querySelector('code')!.textContent, plain(x.querySelector('span')!)])).toEqual([['prc-i pass', '✓', 'goldens/refund-flow-budget', PREVIEW.injection[0].line]]);
+    // An injection gate's line breaks only after a dot, each part kept whole, as the design's dotJoin keeps one.
+    expect(prc.querySelector('.prc-i > span')!.querySelectorAll('span.nw').map((x) => plain(x))).toEqual(['passed ·', '6 attempts ·', '0 obeyed (at most 0 allowed) ·', '0 influenced ·', '6 ignored']);
     // The job summary's line as the Action writes it, without the job's address the preview can't know.
     const foot = commentMarkdown({ results: [], runUrl: 'u' }).trimEnd().split('\n').at(-1)!;
     expect(foot).toBe("[The job's summary](u) has each failure in full.");
