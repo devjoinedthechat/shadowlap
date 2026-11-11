@@ -1274,6 +1274,7 @@ it only once someone renames the fix.
 | `fixId`, `status`, `title`, `label`, `labels`, `check` | The fix, as the list shows it |
 | `href` | Where the dashboard shows it |
 | `failed` | What its failing runs did (below) |
+| `judge` | The check's first judge: its `label`, the `question` it asks, what it `reads` and its `model`; `null` for none |
 | `failing`, `good` | How many runs are failing, and how many good |
 | `steps`, `source` | Its steps, and where it came from |
 | `openedAt`, `verifiedAt`, `appliedAt` | When it was opened, verified and applied: epoch milliseconds, or `null` |
@@ -1308,9 +1309,11 @@ repairer from here (`claude` isn't on the PATH).
 | --- | --- |
 | `fixId`, `href`, `failing`, `good`, `openedAt`, `verifiedAt`, `appliedAt` | As in [`fix ls`](#fix-ls) |
 | `openedBy` | Who opened it |
-| `status`, `title`, `label`, `labels`, `check`, `failed`, `oracle`, `expect`, `source` | The fix (below) |
+| `status`, `title`, `label`, `labels`, `check`, `judge`, `failed`, `oracle`, `expect`, `source` | The fix (below) |
 | `broken` | For an applied fix that doesn't hold, why: its test failed, or a verify rejected it after it was applied |
 | `failingRuns`, `goodRuns` | The runs, each with `runId`, `exists` (false once deleted from the store), `status` and `labels` |
+| `left` | The `failing` and `good` run ids a check given later left out (see [`fix check`](#fix-check)) |
+| `guard` | The golden that guards it, as its key under `tests` names it, or `null` (below) |
 | `steps` | Blame, repair and verify (below) |
 | `blame`, `repair`, `verify` | Each step in full (below) |
 | `blames`, `repairs` | Every blame and repair behind the fix, newest first (below) |
@@ -1331,6 +1334,8 @@ The fix's own fields:
 - `oracle` is the conditions a verdict must check to count. `expect` is the `--expect` JSON (null for
   the exit code alone).
 - `source` says where it came from, such as `from CI · PR #138`.
+- `guard` is the golden a failing run of it replayed, else one that applying it copied and the
+  goldens folder still holds. A verified fix with none is usually one to apply first.
 
 `steps` holds blame, repair and verify, each with `state` (`done`, `todo`, `no` for a verify that
 only rejected, or `warn` for a step that ran and needs a look), a `title`, a `meta` line and a `short`

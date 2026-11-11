@@ -53,6 +53,14 @@ export interface FixDetail extends FixRow {
   oracle: string[];
   failingRuns: FixRunRef[];
   goodRuns: FixRunRef[];
+  /** The runs a check given since left out of it (`fix check`): failing runs it passes and good runs it fails. */
+  left: { failing: string[]; good: string[] };
+  /**
+   * The golden that guards it, as its `tests` key names it in shadowlap.config.json (`goldens/refund-flow`):
+   * the first a failing run of it replayed, else the first that applying it copied and the goldens
+   * folder still holds. Null when none does: a verified fix with none is usually one to apply first.
+   */
+  guard: string | null;
   openedBy: string | null;
   upstreamRequests: number;
   /** The step a fix opens on without one in its URL: its last finished step. */
@@ -87,6 +95,14 @@ export interface FixDetail extends FixRow {
    */
   repairer: { name: string; configured: boolean; problem: string | null };
   applied: FixData['applied'] | null;
+}
+
+/** `FixDetail.guard`: read from the failing runs still the fix's, so a run a check left out can't name it. */
+function guardOf(store: StoreOf<'recording'>, rec: FixRecords, folder: GoldensFolder | undefined): string | null {
+  const replayed = rec.failing.map((id) => store.getRun(id)?.meta?.test?.golden).find((g): g is string => typeof g === 'string' && g !== '');
+  if (replayed) return replayed;
+  const held = new Set(folder ? folder([]).held.map((n) => n.toLowerCase()) : []);
+  return rec.fix.data.applied?.goldens.find((g) => held.has(g.replace(/\/+$/, '').split('/').at(-1)!.toLowerCase())) ?? null;
 }
 
 function runRef(store: StoreOf<'recording'>, runId: string): FixRunRef {
@@ -197,6 +213,8 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     oracle: fix.check.oracle,
     failingRuns: rec.failing.map((id) => runRef(store, id)),
     goodRuns: rec.good.map((id) => runRef(store, id)),
+    left: rec.left,
+    guard: guardOf(store, rec, options.goldensFolder),
     openedBy: fix.data.openedBy ?? null,
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',

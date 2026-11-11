@@ -1,5 +1,5 @@
 import { EXPECT_KEYS, asNumber } from '../../../engine/src/checks/grammar.js';
-import { checkLabels } from '../../../engine/src/checks/labels.js';
+import { checkLabels, JUDGE_READS } from '../../../engine/src/checks/labels.js';
 import { isReference, parseExpect, referenceTo } from '../../../engine/src/checks/parse.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { messageOf } from '../../../engine/src/message-of.js';
@@ -75,11 +75,7 @@ export const THEN_COUNTS: ReadonlyArray<readonly [ThenCount, string]> = [
   ['>= 1', 'at least 1 time'],
   [1, '1 time'],
 ];
-export const JUDGE_READS = [
-  ['answer', 'the answer'],
-  ['output', 'the output'],
-  ['run', 'the whole run'],
-] as const;
+export { JUDGE_READS };
 export type JudgeReads = (typeof JUDGE_READS)[number][0];
 
 /** A value compared to: an earlier call's, by reference (`@lookup_order.result.total`), or a number as typed. */

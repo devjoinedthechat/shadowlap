@@ -1,4 +1,4 @@
-import { blameStateWord, commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, lostWords, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
+import { blameStateWord, commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, JUDGE_READS, judgeLabel, lostWords, noRepairerOf, outcomeOf, parseExpect, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
 import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, notVerified, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
 
 /** The Fixes list: a row for each fix, the most recently opened first, with its status, its failing runs and how far blame, repair and verify got. */
@@ -33,6 +33,8 @@ export interface FixRow {
   labels: string[];
   /** What a passing run does, in words. */
   check: string;
+  /** Its check's first judge, as the Must line's card says it (`judgeOf`), or null: a check with no judge, or one that doesn't parse. */
+  judge: FixJudge | null;
   /**
    * What its failing runs did, in the words blame titled the fix with when it opened it (`send_email
    * called twice, not once`): its title, until someone gives it one of their own. Without that
@@ -53,6 +55,14 @@ export interface FixRow {
   /** What everything behind it took: attempts that ran live, and what they and the repairer cost. */
   attempts: number;
   spent: number;
+}
+
+/** A judge of a fix's check: its label, the question it asks, what it reads and the model asked. */
+export interface FixJudge {
+  label: string;
+  question: string;
+  reads: string;
+  model: string;
 }
 
 export interface FixList {
@@ -201,6 +211,17 @@ function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, string>): 
   return opening().get(f.fixId) ?? rec.blames.map((b) => b.report.recordedFailures?.[0]).find((x): x is string => typeof x === 'string' && x.trim() !== '') ?? null;
 }
 
+/** The first judge of a check, or null: none, or a check that doesn't parse, which a pulled one may not (a teammate's store can hold anything). */
+export function judgeOf(expect: unknown): FixJudge | null {
+  let j;
+  try {
+    j = expect === null ? undefined : parseExpect(expect, 'expect').judge?.[0];
+  } catch {
+    return null;
+  }
+  return j ? { label: judgeLabel(j), question: j.question, reads: JUDGE_READS.find(([of]) => of === j.of)?.[1] ?? j.of, model: j.model } : null;
+}
+
 export function rowOf(store: StoreOf<'recording' | 'activity' | 'fixes'>, rec: FixRecords, opening: () => ReadonlyMap<string, string> = openingTitles(store)): FixRow {
   const f = rec.fix;
   const cost = fixCost([rec]);
@@ -213,6 +234,7 @@ export function rowOf(store: StoreOf<'recording' | 'activity' | 'fixes'>, rec: F
     label,
     labels,
     check: f.check.text,
+    judge: judgeOf(f.check.expect),
     failed: failedOf(rec, opening),
     failing: rec.failing.length,
     good: rec.good.length,

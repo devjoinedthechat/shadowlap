@@ -112,6 +112,16 @@ export function conditionLabel(c: CallCondition): string {
 /** `judge "explains-escalation" answers yes`. */
 export const judgeLabel = (j: JudgeCheck): string => `judge "${j.name}" answers ${j.pass}`;
 
+/** What a judge reads (its `of`), in the words the check builder offers it and a fix's judge card says it. */
+export const JUDGE_READS = [
+  ['answer', 'the answer'],
+  ['output', 'the output'],
+  ['run', 'the whole run'],
+] as const satisfies ReadonlyArray<readonly [JudgeCheck['of'], string]>;
+
+/** When a fix's judge is asked: live, in each attempt of blame, repair or verify that exits 0, as the Must line's card and the builder's fix mode say it. */
+export const JUDGE_ASKED = 'asked live in each attempt that exits 0';
+
 // ---- Each check's label -------------------------------------------------------------------------
 
 /** A count under `tools`: `send_email called 0 times`, `issue_refund with {"order_id":"A-1042"} called at least 1 time`. */
