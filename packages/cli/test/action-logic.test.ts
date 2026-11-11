@@ -7,9 +7,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { afterAll, describe, expect, it } from 'vitest';
-import { commentMarkdown as engineComment, emptyCounts, markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store, titleText as engineTitle, type CommentDecisionsSource, type CommentParts, type DecisionStep } from '@shadowlap/engine';
+import { COMMENT_FOOT as engineFoot, commentMarkdown as engineComment, emptyCounts, JUDGED_IN_RECORDED_STATE_SHORT as engineJudgedShort, PR_DECISIONS_SUFFIX as engineSuffix, markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store, titleText as engineTitle, type CommentDecisionsSource, type CommentParts, type DecisionStep } from '@shadowlap/engine';
 import { HOSTILE, HOSTILE_TITLES } from '../../engine/test/markdown-cases.js';
-import { baseSession, commentBody, commentMarker, commentMarkdown, commentNote, commentVerdictLine, postComment, readHistory } from '../../../action/comment.mjs';
+import { baseSession, COMMENT_FOOT, commentBody, commentMarker, commentMarkdown, commentNote, commentVerdictLine, JUDGED_IN_RECORDED_STATE_SHORT, postComment, PR_DECISIONS_SUFFIX, readHistory } from '../../../action/comment.mjs';
 import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, pushLine, pushTarget, repairArgs, repairPlan } from '../../../action/fix.mjs';
 import { annotation, commandText, logLine, logLines } from '../../../action/log.mjs';
 import { markdownCode, markdownFence, markdownText, titleText } from '../../../action/markdown.mjs';
@@ -501,6 +501,8 @@ describe('the pull request comment', () => {
       { results: Array.from({ length: 400 }, (_, i) => result({ name: `g${i}`, golden: `goldens/golden-number-${i}`, ...(i % 7 ? {} : { ok: false, verdict: 'failed', message: 'diverged at call 3' }) })), base, baseRef: 'main', costPerRun: { before: 0.041, after: 0.043 }, longest: 5_000, runUrl: 'https://github.test/x' },
     ];
     for (const parts of cases) expect(commentMarkdown(parts)).toBe(engineComment(parts));
+    // The words the two share as constants: what the decisions were asked of, the note under them, and the comment's last line.
+    expect([PR_DECISIONS_SUFFIX, JUDGED_IN_RECORDED_STATE_SHORT, COMMENT_FOOT]).toEqual([engineSuffix, engineJudgedShort, engineFoot]);
     // The comment on a test report is that Markdown, with the report's own cost per run.
     expect(commentBody({ report: { session: 'S', results, costPerRun: { before: 0.041, after: 0.043 } }, marker, decisions: flagged })).toBe(engineComment({ marker, results, decisions: flagged, costPerRun: { before: 0.041, after: 0.043 } }));
   });

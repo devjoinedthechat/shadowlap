@@ -39,6 +39,9 @@ const CALL_WIDTH = 1_000;
 export const PR_DECISIONS_SUFFIX = ', under the prompt and tools this pull request sends';
 /** Under the decisions the comment lists: the short form of the line every decisions report carries. */
 export const JUDGED_IN_RECORDED_STATE_SHORT = "Later steps are judged in the recorded run's state: shadowlap verify runs it end to end.";
+/** The comment's last line: where each failure is in full, its first words (FOOT_LINKED) linked to the job's page. */
+export const COMMENT_FOOT = "The job's summary has each failure in full.";
+const FOOT_LINKED = "The job's summary";
 
 /**
  * Text safe in a Markdown table cell, and anywhere else in the comment: one line, and nothing GitHub
@@ -314,7 +317,7 @@ function tailMarkdown(parts, rows) {
   if (injection.length) lines.push('', '#### Injection', '', ...injection.map((x) => `${markOf(x.verdict)} ${code(x.golden)} · ${cell(x.line)}`));
   const opened = (parts.fixes ?? []).filter((f) => f.outcome === 'opened' && f.pr);
   if (opened.length) lines.push('', ...opened.map((f) => `Fix on failure opened ${String(f.pr)} for ${String(f.golden ?? f.name).split(', ').map((g) => code(g)).join(', ')}: ${cell(f.title ?? 'a fix')}.`));
-  if (parts.runUrl) lines.push('', `[The job's summary](${parts.runUrl}) has each failure in full.`);
+  if (parts.runUrl) lines.push('', `[${FOOT_LINKED}](${parts.runUrl})${COMMENT_FOOT.slice(FOOT_LINKED.length)}`);
   return lines;
 }
 

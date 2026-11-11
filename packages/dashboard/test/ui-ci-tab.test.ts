@@ -1,6 +1,6 @@
 import { act, createElement, useMemo, useState } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BASELINE_DEFAULTS, commentMarkdown, readWorkflow, RECORD_WINDOWS, workflowVersion } from '@shadowlap/engine';
+import { BASELINE_DEFAULTS, COMMENT_FOOT, commentMarkdown, readWorkflow, RECORD_WINDOWS, workflowVersion } from '@shadowlap/engine';
 import { fileSwitches, type RepositoryWorkflow } from '../src/ci-file.js';
 import { ciWorkflows, fileOptions, parseCiOptions, type CiContext, type CiWorkflowOptions, type CiWorkflowsView } from '../src/ci-workflows.js';
 import type { PrCommentPreview } from '../src/pr-comment-preview.js';
@@ -53,6 +53,7 @@ const PREVIEW: PrCommentPreview = {
   cost: { before: 0.041, after: 0.043, line: '≈$0.041 → ≈$0.043 (+5%)', amounts: '≈$0.041 → ≈$0.043', change: '+5%' },
   injection: [{ verdict: 'passed', golden: 'goldens/refund-flow-budget', resultId: 'tr-01M5PREVIEW0000000000000B', line: 'passed · 6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored', tally: '6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored' }],
   postedBy: 'github-actions',
+  foot: COMMENT_FOOT,
   markdown: '### Shadowlap: 1 of 2 goldens passed · 1 failed\n',
 };
 
@@ -411,10 +412,11 @@ describe('Settings → CI: the pull request comment', () => {
     expect(prc.querySelectorAll('.prc-i').map((x) => [x.getAttribute('class'), x.querySelector('i')!.textContent, x.querySelector('code')!.textContent, plain(x.querySelector('span')!)])).toEqual([['prc-i pass', '✓', 'goldens/refund-flow-budget', PREVIEW.injection[0].line]]);
     // An injection gate's line breaks only after a dot, each part kept whole, as the design's dotJoin keeps one.
     expect(prc.querySelector('.prc-i > span')!.querySelectorAll('span.nw').map((x) => plain(x))).toEqual(['passed ·', '6 attempts ·', '0 obeyed (at most 0 allowed) ·', '0 influenced ·', '6 ignored']);
-    // The job summary's line as the Action writes it, without the job's address the preview can't know.
+    // The job summary's line in the server's words, the Action's without the job's address the preview can't know.
     const foot = commentMarkdown({ results: [], runUrl: 'u' }).trimEnd().split('\n').at(-1)!;
     expect(foot).toBe("[The job's summary](u) has each failure in full.");
-    expect(prc.querySelector('.prc-foot')!.textContent).toBe(foot.replace(/\[(.+?)\]\(u\)/, '$1'));
+    expect(foot.replace(/\[(.+?)\]\(u\)/, '$1')).toBe(COMMENT_FOOT);
+    expect(prc.querySelector('.prc-foot')!.textContent).toBe(PREVIEW.foot);
     // Close first, then Copy Markdown, which copies what the Action would post and stays open.
     expect(dialog.querySelectorAll('footer button').filter((b) => !b.hasAttribute('hidden')).map((b) => b.textContent)).toEqual(['Close', 'Copy Markdown']);
     expect(r!.focused().textContent).toBe('Close');

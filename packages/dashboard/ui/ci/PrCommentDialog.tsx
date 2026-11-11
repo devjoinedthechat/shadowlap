@@ -117,7 +117,7 @@ export function DrawnComment({ preview: p }: { preview: PrCommentPreview }) {
           ))}
         </>
       ) : null}
-      <p className="prc-foot">The job's summary has each failure in full.</p>
+      <p className="prc-foot">{p.foot}</p>
     </div>
   );
 }

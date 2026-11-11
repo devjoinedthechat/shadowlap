@@ -2637,7 +2637,9 @@ Whether the step pushes is no option: it follows Push from CI in `shadowlap.conf
 
 **Write file** (`PUT /api/ci/workflow`) takes the `options` the page changed, the `version` it read as `expect`, and the workflow it showed as `shown`. It answers the `path`, the `version` written, whether it `changed`, and `was`, the id its Undo sends. A file changed since, or a workflow other than the one shown, is a 409. A file it can't write, or a view with a `problem`, is a 422.
 
-**The comment's preview** (`/api/ci/comment`) reads the newest session that ran every golden, ended and wasn't interrupted, as it left it: a golden replayed on its own since waits for the next one. It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+dirty`, and `at`), the `head`, each golden's `rows` worst first, the kept `decisions`, the `cost` per run, each `injection` gate, who the comment is `postedBy`, and the `markdown` Copy Markdown copies. Before such a session it answers `{ "session": null }`. The job adds the rest: the base branch's column, the fixes it opened, and its summary's link.
+**The comment's preview** (`/api/ci/comment`) reads the newest session that ran every golden, ended and wasn't interrupted, as it left it: a golden replayed on its own since waits for the next one. Before such a session it answers `{ "session": null }`.
+
+It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+dirty`, and `at`), the `head`, each golden's `rows` worst first, the kept `decisions`, the `cost` per run and each `injection` gate. Then who the comment is `postedBy`, its last line as text (`foot`), and the `markdown` Copy Markdown copies. The job adds the rest: the base branch's column, the fixes it opened, and its summary's link.
 
 **Its Undo** (`/api/ci/workflow/undo`) puts the file back only while it is the version the write left, which the dashboard keeps with `was`. It is a 409 once the file changed since, even after the page read it again, or once the dashboard no longer holds it.
 

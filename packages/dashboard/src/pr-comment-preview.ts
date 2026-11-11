@@ -1,4 +1,4 @@
-import { commentHead, commentInjection, commentMarkdown, commentRows, type ActionStep, type StoreOf } from '@shadowlap/engine';
+import { COMMENT_FOOT, commentHead, commentInjection, commentMarkdown, commentRows, type ActionStep, type StoreOf } from '@shadowlap/engine';
 import { costPart, decisionsPart, inSessionOrder, keptDecisions, storedCommentResult, type KeptCost, type KeptDecisions, type KeptInjection } from './session-comment.js';
 import type { GoldenSource } from './tests.js';
 import { newestFullSession } from './verdicts.js';
@@ -30,6 +30,8 @@ export interface PrCommentPreview {
   injection: KeptInjection[];
   /** Who posts it: `github-actions`, or the account the step's own token belongs to. */
   postedBy: string;
+  /** The comment's last line, where each failure is in full, as text: the job's page it links to is the job's own. */
+  foot: string;
   /** The comment as Markdown: what Copy Markdown copies. */
   markdown: string;
 }
@@ -66,6 +68,7 @@ export function prCommentPreview(store: Store, goldens: readonly GoldenSource[],
     cost: costPart(costPerRun),
     injection: commentInjection(results),
     postedBy: postedBy(o.step),
+    foot: COMMENT_FOOT,
     markdown: commentMarkdown({ results, decisions, costPerRun }),
   };
 }

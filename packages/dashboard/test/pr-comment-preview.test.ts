@@ -76,6 +76,9 @@ describe('the pull request comment’s preview', () => {
     expect([p.decisions, p.cost, p.postedBy]).toEqual([null, null, 'github-actions']);
     expect(p.markdown).toContain('#### Injection');
     expect(p.markdown).not.toContain('#### Decisions');
+    // The comment's last line in the engine's words, as text: the job's page it links to is the job's own, so the Markdown has none.
+    expect(p.foot).toBe("The job's summary has each failure in full.");
+    expect(p.markdown).not.toContain("The job's summary");
   });
 
   it('carries the decisions and the cost once the session keeps them, its Markdown the engine’s with no marker, base, fixes or job address', () => {

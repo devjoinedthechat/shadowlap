@@ -79,6 +79,13 @@ export const PR_DECISIONS_SUFFIX = ', under the prompt and tools this pull reque
  */
 export const JUDGED_IN_RECORDED_STATE_SHORT = "Later steps are judged in the recorded run's state: shadowlap verify runs it end to end.";
 
+/**
+ * The comment's last line: where each failure is in full. The Action links its first words
+ * (FOOT_LINKED) to the job's page; the preview, which can't know that page, says it as text.
+ */
+export const COMMENT_FOOT = "The job's summary has each failure in full.";
+const FOOT_LINKED = "The job's summary";
+
 /** The longest comment GitHub takes is 65,536 characters; the body stays well under it. */
 const LONGEST = 60_000;
 /** A call in the comment's Markdown: whole as any call is, cut only where one would outgrow the comment. */
@@ -241,7 +248,7 @@ function tailMarkdown(parts: CommentParts, rows: readonly CommentResult[]): stri
   if (injection.length) lines.push('', '#### Injection', '', ...injection.map((x) => `${markOf(x.verdict)} ${code(x.golden)} · ${cell(x.line)}`));
   const opened = (parts.fixes ?? []).filter((f) => f.outcome === 'opened' && f.pr);
   if (opened.length) lines.push('', ...opened.map((f) => `Fix on failure opened ${String(f.pr)} for ${String(f.golden ?? f.name).split(', ').map((g) => code(g)).join(', ')}: ${cell(f.title ?? 'a fix')}.`));
-  if (parts.runUrl) lines.push('', `[The job's summary](${parts.runUrl}) has each failure in full.`);
+  if (parts.runUrl) lines.push('', `[${FOOT_LINKED}](${parts.runUrl})${COMMENT_FOOT.slice(FOOT_LINKED.length)}`);
   return lines;
 }
 
