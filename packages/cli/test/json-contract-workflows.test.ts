@@ -132,6 +132,10 @@ describe('Fixes: blame, verify, repair and fix', () => {
     const b = json(blame);
     expect(b.outcome).toBe('blamed');
     hold([['blame', b], ['blameCall', b.blamed], ['blameCall', b.lost], ['blameContrast', b.contrast], ['blameProbe', first(b.probes)], ['blameFix', b.fix]]);
+    // A check the fix has already changes nothing, but answers as a change does.
+    const fixCheck = await cli(project, ['fix', 'check', (b.fix as { fixId: string }).fixId, '--expect', ORACLE, '--json']);
+    expect(fixCheck.code, fixCheck.out).toBe(0);
+    hold([['fixCheck', json(fixCheck)]]);
 
     const verify = await cli(project, ['verify', '--fixes', failed[0], '--keeps', 'label:good', '--expect', ORACLE, '--attempts', '2', '--json']);
     const v = json(verify);

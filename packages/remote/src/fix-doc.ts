@@ -1,4 +1,4 @@
-import { canonicalize, checkKey, credentialFreeArgv, credentialFreeCommandLine, FIX_RUN_OUTCOMES, FIX_STATUSES, isObject, repairPatchProblem, sha256, type FixCheckEntry, type FixData, type FixLink, type FixLinkKind, type FixStatus, type StepRerun, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
+import { canonicalize, checkKey, credentialFreeArgv, credentialFreeCommandLine, FIX_RUN_OUTCOMES, FIX_STATUSES, HIDDEN_IN_NAME, HIDDEN_IN_TEXT, isObject, repairPatchProblem, sha256, type FixCheckEntry, type FixData, type FixLink, type FixLinkKind, type FixStatus, type StepRerun, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
 import { LayoutError } from './layout.js';
 
 /**
@@ -53,17 +53,18 @@ const REPAIR_ID = /^repair-[0-9a-z]{1,40}$/;
 const LABEL = /^[\p{L}\p{N}][\p{L}\p{N} _.:/-]*$/u;
 /**
  * C0 and C1 control characters, format characters (a right-to-left override, a zero-width space:
- * Unicode's Cf) and line and paragraph separators: never part of a name, able to rewrite a terminal
- * or to disguise what a page or a question asking for a yes shows.
+ * Unicode's Cf) and line and paragraph separators (the engine's HIDDEN_IN_NAME): never part of a
+ * name, able to rewrite a terminal or to disguise what a page or a question asking for a yes shows.
  */
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u;
+const CONTROL = HIDDEN_IN_NAME;
 /**
  * The same, but for text that may run over lines, such as a model's answer in a report: a tab, a
- * line feed and a carriage return are allowed. A fix keeps its reports whole, so what else a model
- * wrote is sent as U+FFFD rather than refused by the teammate who pulls it.
+ * line feed and a carriage return are allowed (HIDDEN_IN_TEXT). A fix keeps its reports whole, so
+ * what else a model wrote is sent as U+FFFD rather than refused by the teammate who pulls it. A
+ * check holding one is refused where it is given (hiddenCharacter), since its copy would be another check.
  */
-const CONTROL_IN_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u;
-const CONTROL_IN_TEXT_ALL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu;
+const CONTROL_IN_TEXT = HIDDEN_IN_TEXT;
+const CONTROL_IN_TEXT_ALL = new RegExp(HIDDEN_IN_TEXT.source, 'gu');
 const LINK_KINDS: readonly FixLinkKind[] = ['failing', 'good', 'blame', 'repair', 'verify'];
 const STATUS_RANK: Record<FixStatus, number> = { open: 0, verified: 1, applied: 2 };
 /** The most of each a fix document carries: far past any real failure, short of a bucket filled to stall a pull. */

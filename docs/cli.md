@@ -1210,6 +1210,7 @@ open, with every candidate tried and why it was dropped.
 shadowlap fix ls [--status open|verified|applied] [--json]
 shadowlap fix show <fix> [--json]
 shadowlap fix title <fix> <title...>
+shadowlap fix check <fix> --expect <json|@file> [--json]
 shadowlap fix apply <fix> [--name <run>=<name>]... [--goldens <dir>] [--no-test] [--build <command>] [--json]
 shadowlap fix pr <fix> [<url>] [--json]
 ```
@@ -1222,15 +1223,16 @@ A fix is one failure, from the blame that reproduced it to a change that held.
   verdict counts for it only when it checked the fix's check on a run that failed it.
 - **Fix ids** look like `fx-01M3RZ4XKN…`. Any unique prefix works, with or without `fx-`, and the list
   shows the first ten characters.
-- **Activity**: blame, repair, verify and apply each log an activity event in the store
+- **Activity**: blame, repair, verify, apply and `fix check` each log an activity event in the store
   (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`,
-  `fix.applied`).
+  `fix.applied`, `fix.check`).
 
 Its subcommands take these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes | — |
+| `--expect <json\|@file>` | `fix check`: the check, an expect object as `blame` takes it | — |
 | `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run, at most 64 characters and not a name Windows keeps (repeatable) | The fix's label |
 | `--goldens <dir>` | `fix apply`: where the recordings go | `goldens` |
 | `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them | — |
@@ -1244,9 +1246,10 @@ With `--json`, each subcommand prints:
 | `fix ls` | `{ fixes, counts }` ([fields](#fix-ls)) |
 | `fix show` | The fix, with its three steps in full ([fields](#fix-show)) |
 | `fix apply` | What it did ([fields](#fix-apply)) |
+| `fix check` | What changed ([fields](#fix-check)) |
 | `fix pr` | `{ fixId, pr: { url, number, state, at } }` ([below](#fix-pr)) |
 | An id that matches no fix, or several | `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }`, with the `fixId` given; exit status 2 |
-| An error in `fix pr` or `fix apply` | `{ fixId, status, error }`, with `status` `error` |
+| An error in `fix pr`, `fix apply` or `fix check` | `{ fixId, status, error }`, with `status` `error` |
 
 ### `fix ls`
 
@@ -1418,6 +1421,34 @@ from being asked here (such as `claude` not on the PATH), or `null`.
 
 Replaces the title derived from the check with one of your own. Blames that join the fix later keep
 it. With a team store, the latest rename on any machine is the one every machine keeps.
+
+### `fix check`
+
+Gives an open fix another check, as `--expect` takes it. Its failing and good runs are judged by it
+again from what they recorded, judges included, with nothing replayed. A failing run it passes and
+a good run it fails leave the fix, though Shadowlap keeps them. A run none of its checks applies to
+passes, and leaves as well.
+
+- **What stays.** Every blame, repair and verdict keeps the check it ran under. A verdict counts for
+  the fix only when it checked the fix's check, so one made under the check before stops counting.
+- **Refused, with exit status 2.** A fix that is verified or applied keeps the check its accepted
+  verdict counted under: add the check to the golden that guards it instead. A check none of the
+  failing runs fails as recorded would no longer be this failure. So is a check holding a hidden
+  character, and one that doesn't read. Nothing changes.
+- **The check it has** changes nothing, with exit status 0.
+
+`fix check --json` prints `{ fixId, status, check, previous, runs, left, uncounted, next }`:
+
+| Field | What it holds |
+| --- | --- |
+| `status` | `changed`, or `unchanged` for the check the fix has |
+| `check`, `previous` | The check given and the one before, each `{ expect, key, oracle, text }` |
+| `runs` | Each run as the check judged it, failing ones first (below) |
+| `left`, `uncounted`, `next` | The runs it left out (`{ failing, good }`), the verdicts that stopped counting, and the command of the fix's next step |
+
+Each of its runs (`runId`, `role`, `outcome`, `na`, `why`, `checks`) is as the check judged it.
+`role` is `failing` or `good`, and `outcome` is `passed`, `failed`, `inconclusive`, or `gone` from
+the store. `na` says it passed only because none of its checks applied.
 
 ### `fix pr`
 

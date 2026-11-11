@@ -27,6 +27,9 @@ export { provenance, showRunJson } from './api.js';
 export { countMasked } from './run-page.js';
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './api.js';
 // Fixes: the read model behind #/fixes, the Overview's fix numbers, Needs a look and the run page's banners.
+// A fix given another check (shadowlap fix check): its runs judged again, what refuses it, the verdicts it stops counting.
+export { fixCheckOf, fixCheckRefusal, hiddenCheckWords, judgeFixRuns, notOpenWords, uncountedUnder } from './fix-check.js';
+export type { FixCheckJudging, FixCheckRow } from './fix-check.js';
 export { fieldChange, fixBundles, fixDetail, fixesSummary, fixForRun, fixHref, fixList, goldensFolderIn, needsLookFixes, patchesToCheck, pulledPatchesToCheck } from './fixes.js';
 export { fixesView, type FixBucket, type FixesView, type FixesViewRow, type UnblamedRow } from './fixes-view.js';
 export type { FixLead } from './fix-lead.js';

@@ -5,6 +5,7 @@ import { posix, win32 } from 'node:path';
 import { unsettledFirst } from './blame.js';
 import { checkStatus } from './check-status.js';
 import { checkKey, fixLabelInfo, fixLabels, fixOfRun, GOOD_LABEL, type FixRecords } from './fixes.js';
+import { HIDDEN_IN_NAME } from './hidden-characters.js';
 import { isObject } from './is-object.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
 import { recordingsOfRun, testsEntryFor } from './run-checks.js';
@@ -25,11 +26,11 @@ import type { RunRecord } from './types.js';
  */
 
 /**
- * What disguises a command line a person is asked to say yes to: a control character, a format
- * character (a right-to-left override, a zero-width space) or a line or paragraph separator. A value
- * holding one is never run again from here.
+ * What disguises a command line a person is asked to say yes to (HIDDEN_IN_NAME): a control
+ * character, a format character (a right-to-left override, a zero-width space) or a line or
+ * paragraph separator. A value holding one is never run again from here.
  */
-const HIDDEN = /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u;
+const HIDDEN = HIDDEN_IN_NAME;
 /** A name (a tool's, a scope's): one line, at most 200 characters, never starting like a flag, a file or a space, and nothing hidden in it. */
 const NAME = /^[^\s@-][^\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]{0,199}$/u;
 
