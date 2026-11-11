@@ -31,7 +31,7 @@ const flagged = (d: Record<string, unknown>) => (Number(d.flagged) ? ` · ${Numb
 export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
   // A session of `shadowlap decisions` or `migrate`, by its name; one kept before events had a name,
   // by its change. One that settled nothing says why, as its page does. A preview opens on its tab
-  // under Changes, at its session (a migration's tab comes with port/migrate).
+  // under Changes, at its session; a migration, its run if it has one, until its tab lands.
   [
     'decisions.done',
     (e, d) => {
