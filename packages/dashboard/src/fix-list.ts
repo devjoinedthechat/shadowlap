@@ -235,16 +235,22 @@ function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, string>): 
   return opening().get(f.fixId) ?? rec.blames.map((b) => b.report.recordedFailures?.[0]).find((x): x is string => typeof x === 'string' && x.trim() !== '') ?? null;
 }
 
-/** The first judge of a check, or null: none, or a check that doesn't parse, which a pulled one may not (a teammate's store can hold anything). */
-export function judgeOf(expect: unknown): FixJudge | null {
-  let j;
+/**
+ * Each judge of a check, the first first, as its card says it: none for a check with none, or one
+ * that doesn't parse, which a pulled one may not (a teammate's store can hold anything).
+ */
+export function judgesOf(expect: unknown): FixJudge[] {
+  let judges;
   try {
-    j = expect === null ? undefined : parseExpect(expect, 'expect').judge?.[0];
+    judges = expect === null ? undefined : parseExpect(expect, 'expect').judge;
   } catch {
-    return null;
+    return [];
   }
-  return j ? { label: judgeLabel(j), question: j.question, reads: JUDGE_READS.find(([of]) => of === j.of)?.[1] ?? j.of, model: j.model } : null;
+  return (judges ?? []).map((j) => ({ label: judgeLabel(j), question: j.question, reads: JUDGE_READS.find(([of]) => of === j.of)?.[1] ?? j.of, model: j.model }));
 }
+
+/** The first judge of a check (`judgesOf`), or null. */
+export const judgeOf = (expect: unknown): FixJudge | null => judgesOf(expect)[0] ?? null;
 
 export function rowOf(store: StoreOf<'recording' | 'activity' | 'fixes'>, rec: FixRecords, opening: () => ReadonlyMap<string, string> = openingTitles(store)): FixRow {
   const f = rec.fix;

@@ -49,6 +49,7 @@
     "packages/dashboard/test/ui-fix-page.test.ts",
     "packages/dashboard/test/ui-fix-head.test.ts",
     "packages/dashboard/test/ui-fix-steps.test.ts",
+    "packages/dashboard/test/ui-fix-check.test.ts",
     "packages/dashboard/test/ui-fixes-list.test.ts",
     "packages/dashboard/test/ui-action-consent.test.ts",
     "packages/dashboard/test/ui-load.test.ts",

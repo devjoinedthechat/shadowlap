@@ -17,6 +17,7 @@ import { navigate } from '../router.js';
 import type { BlameStep, FixDetail } from '../types.js';
 import { type CallCell, callRowCells, otherBlameWords, probeTone, probeVerdictWords } from './model.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
+import { judgeTip } from './parts.js';
 import { StepLead } from './StepLead.js';
 
 type Probe = BlameStep['probes'][number];
@@ -332,9 +333,21 @@ function Checked({ b }: { b: BlameStep }) {
     <Section title="The check" sub="what a passing run must do">
       <div className="pbody">
         <ul className="fxlist">
-          {b.oracle.map((o) => (
-            <li key={o}>{o}</li>
-          ))}
+          {b.oracle.map((o) => {
+            // A judge's line carries its card: what it asks and reads, the model, and when it is asked.
+            const judge = b.judges.find((j) => j.label === o);
+            return (
+              <li key={o}>
+                {judge ? (
+                  <span tabIndex={0} data-tip={judgeTip(judge)}>
+                    {o}
+                  </span>
+                ) : (
+                  o
+                )}
+              </li>
+            );
+          })}
         </ul>
         {b.recordedFailures.length ? (
           <>

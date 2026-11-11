@@ -1,5 +1,6 @@
 import { agentCallsOf, type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, blameStateWord, blameSteps, probedInScope, describeBlocks, describeRescue, expectArgs, failureReason, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, madeUnderOldCheck, pinWords, probeBound, probeFinding, probeInterval, probeTally, probeWord, type PulledFrom, rescueRule, type RunRecord, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
+import { judgesOf, type FixJudge } from './fix-list.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, gateMarks, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate, type StepLine } from './fix-shared.js';
 
@@ -77,6 +78,8 @@ export interface BlameStep {
   /** What the blame ran and spent; `judge`, what its judge checks' calls cost apart, as the CLI's report adds it, null when no judge was asked. */
   cost: { attempts: number; upstreamRequests: number; spent: number; unknownModels: string[]; judge: { upstreamRequests: number; spent: number } | null };
   oracle: string[];
+  /** Each judge of the check it ran under (its own, which may be one the fix had before), for the card on its line of `oracle` (`judgesOf`). */
+  judges: FixJudge[];
   recordedFailures: string[];
   stopReason: string | null;
   /**
@@ -257,6 +260,7 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
     callRow: run ? callRowOf(store, b) : [],
     cost: { attempts: r.attempts, upstreamRequests: r.upstreamRequests, spent: r.spent, unknownModels: r.unknownModels, judge: r.judge ? { upstreamRequests: r.judge.upstreamRequests, spent: r.judge.spent } : null },
     oracle: r.oracle,
+    judges: judgesOf(b.expect),
     recordedFailures: r.recordedFailures,
     stopReason: r.stopReason,
     look: noAnswerLost(b) || unsettledFirst(r) ? unrescuedWhy(r).look : null,

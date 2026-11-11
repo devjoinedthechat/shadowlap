@@ -41,6 +41,11 @@ describe("a fix's judge, its guard and the runs a check left out", () => {
     const fix = opened(makeRun(store, { labels: ['refund-bug'] }), { ...EXPECT, judge: [JUDGE, { ...JUDGE, name: 'second', of: 'answer' }] });
     expect(fixList(store).fixes[0].judge).toEqual({ label: 'judge "explains-refusal" answers yes', question: JUDGE.question, reads: 'the whole run', model: 'claude-haiku-4-5' });
     expect(fixDetail(store, fix.fixId)!.judge?.reads).toBe('the whole run');
+    // The Blame step's check gives every judge of the blame's own check its card, by its line.
+    expect(fixDetail(store, fix.fixId)!.blame!.judges.map((j) => [j.label, j.reads])).toEqual([
+      ['judge "explains-refusal" answers yes', 'the whole run'],
+      ['judge "second" answers yes', 'the answer'],
+    ]);
     const other = opened(makeRun(store, { labels: ['other-bug'] }), { judge: 'not a list' });
     expect(fixDetail(store, other.fixId)!.judge).toBeNull();
     expect(fixDetail(store, opened(makeRun(store, { labels: ['plain'] })).fixId)!.judge).toBeNull();
