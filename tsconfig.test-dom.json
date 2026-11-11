@@ -38,6 +38,7 @@
     "packages/dashboard/test/ui-check-entry.test.ts",
     "packages/dashboard/test/ui-check-builder-dialog.test.ts",
     "packages/dashboard/test/ui-check-builder-view.test.ts",
+    "packages/dashboard/test/ui-check-builder-fix.test.ts",
     "packages/dashboard/test/ui-check-builder.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     "packages/dashboard/test/ui-tests-chaos.test.ts",

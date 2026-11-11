@@ -432,15 +432,15 @@ export function settle(units: readonly Unit[], base: Fragment | null, active: nu
   return { rows, merged, refusal, changed: !same(mergeFragments(unitsOf(base)), asBuilt), draft: draftOf.length ? mergeFragments(draftOf) : null };
 }
 
-/** Why Save is off, in the mock's order, or null once it can save. */
-export function saveWhy(s: Settled, units: readonly Unit[], active: number, golden: string | null): string | null {
+/** Why Save is off, in the mock's order, or null once it can save; `none`, why with no golden to save it under. */
+export function saveWhy(s: Settled, units: readonly Unit[], active: number, golden: string | null, none = 'No golden to save it under'): string | null {
   const own = units[active];
   const ownWhy = own && !own.gone ? s.rows[active]?.why : null;
   if (!s.changed) return 'Nothing changed yet';
   if (ownWhy) return ownWhy;
   if (s.refusal) return s.refusal.why;
   if (units.some((u, i) => !s.rows[i]!.f && !u.gone && u.rule)) return 'Finish the rule first';
-  return golden ? null : 'No golden to save it under';
+  return golden ? null : none;
 }
 
 /** The draft as the preview judges it and the command repeats it: without its judges, whose verdicts no recording holds yet. */
