@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo } from 'react';
 import { ApiError } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { AskNote } from '../components/AskNote.js';
@@ -36,7 +36,11 @@ import { DecisionMatrix } from './DecisionMatrix.js';
 /** How many previews the picker lists: the most the server reads, the filter finding the rest. */
 const LISTED = 200;
 
-export function PreviewTab({ id, run, call }: { id: string | null; run: string | null; call: number | null }) {
+/**
+ * `onMissing` hears that the session the address names isn't in this store, with the read that
+ * found it so: the page then asks whether another project holds it (pages/Changes.tsx).
+ */
+export function PreviewTab({ id, run, call, onMissing }: { id: string | null; run: string | null; call: number | null; onMissing?: (error: Error) => void }) {
   const { client, feeds } = useApp();
   const list = useLoad(() => client.decisionSessions('decisions', LISTED), 'decision-sessions', `${feeds.decisions ?? 0}`);
   const sessions = list.data?.sessions;
@@ -48,6 +52,10 @@ export function PreviewTab({ id, run, call }: { id: string | null; run: string |
     if (session && session.kind === 'decisions') notePreviewSession(session.sessionId);
     else if (gone) forgetPreviewSession();
   }, [session, gone, shownId]);
+  // Before the not-found line paints, so the page that asks elsewhere takes its place without a flash.
+  useLayoutEffect(() => {
+    if (gone && id && detail.error) onMissing?.(detail.error);
+  }, [gone, id, detail.error, onMissing]);
   if (list.error && !list.data) return <ErrorState retry={list.reload}>{failedWords(list.error)}</ErrorState>;
   if (!sessions) return <Skeleton what="the previews" lines={8} />;
   if (!shownId) return <NoPreview goldens={list.data!.goldens} />;
