@@ -122,4 +122,5 @@ function ApplyFooter({ job, plain, done }: { job: JobView; plain?: boolean; done
 addJobFooter(JOB_KINDS.blame, NextStepFooter);
 addJobFooter(JOB_KINDS.repair, NextStepFooter);
 addJobFooter(JOB_KINDS.verify, NextStepFooter);
+addJobFooter(JOB_KINDS.fixCheck, NextStepFooter);
 addJobFooter(JOB_KINDS.applyFix, ApplyFooter);

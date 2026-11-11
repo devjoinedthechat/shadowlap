@@ -1,7 +1,8 @@
-import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, runsLeft, type RunRecord, selectedRuns, setFixTitle, splitCommand, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, fixRecords, messageOf, type FixStatus, goldenNameArgs, goldenNamesProblem, hasRecordedCommand, type JobConsent, needsConsent, parseExpect, readConfigFile, repairerProblem, repairJobArgv, resolveFix, runsLeft, type RunRecord, selectedRuns, setFixTitle, splitCommand, type Store, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { type NoVerifyLeft, verifyLeftOr } from '../fix-actions.js';
+import { type FixCheckPreviewJob, hiddenCheckWords, notOpenWords } from '../fix-check.js';
 import { patchMerged, patchToCheck } from '../fix-shared.js';
 import { APPLY_GOLDENS, fixBundles, fixDetail, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
@@ -115,7 +116,39 @@ function requestedCheck(raw: unknown): { expect: unknown } | { error: string } {
   if (value === null) return { expect: null };
   if (typeof value !== 'object' || Array.isArray(value)) return { error: `the check is an object, such as {"tools":{"send_email":1}}` };
   if (JSON.stringify(value).length > MAX_EXPECT) return { error: 'that check is too long' };
-  return { expect: value };
+  // In the engine's words, as the CLI's exit 2 says them: a character the team store would rewrite, or what parseExpect can't take.
+  const refused = hiddenCheckWords(value) ?? parseRefusal(value);
+  return refused ? { error: refused } : { expect: value };
+}
+
+/** Why parseExpect refuses a check, in its words, or null. */
+function parseRefusal(value: unknown): string | null {
+  try {
+    parseExpect(value, 'expect');
+    return null;
+  } catch (err) {
+    return messageOf(err);
+  }
+}
+
+/**
+ * Save check, in the check builder's fix mode: `shadowlap fix check <fix> --expect <json>`, refused
+ * at once where the command would refuse before judging anything: a fix that isn't open (409), or a
+ * check it can't take (400), the exit code alone included, as `--expect` takes an object.
+ */
+function fixCheckJob(req: JobRequest, store: StoreOf<'fixes'>): JobBuildResult {
+  const fix = findFix(store, req.fixId);
+  if (fix.status !== 'open') return { error: notOpenWords(fix), status: 409 };
+  const asked = requestedCheck(req.expect);
+  if ('error' in asked) return { error: asked.error };
+  if (asked.expect === null) return { error: parseRefusal(null)! };
+  return { args: ['fix', 'check', fix.fixId, '--expect', JSON.stringify(asked.expect)], fixId: fix.fixId, title: ACTIONS.editCheck.doing };
+}
+
+/** The calls of every run a fix holds as failing or good, those a check left out included: what reading them all takes. */
+function fixRunCalls(store: Store, fixId: string): number {
+  const { byId } = loadRunIndex(store);
+  return [...new Set(store.fixLinks(fixId).flatMap((l) => (l.kind === 'failing' || l.kind === 'good' ? [l.ref] : [])))].reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
 }
 
 /** A run whose command came from someone else's pack, or from the team store, runs only once the user said yes to it and to `args`. */
@@ -358,6 +391,24 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, await ctx.reads.run(job, { calls }));
   });
 
+  // A draft check judged on every run the fix holds, from what each recorded, before Save check
+  // writes it (the check builder's fix mode): beside the server, as golden mode's preview is. The
+  // draft comes in the body, so it is a POST, which changes nothing.
+  router.post(
+    '/fixes/:id/check-preview',
+    async (r) => {
+      const body = await r.body();
+      const fix = findFix(store, r.params.id);
+      if (fix.status !== 'open') throw new HttpError(409, notOpenWords(fix));
+      const asked = requestedCheck(body.expect);
+      if ('error' in asked) throw new HttpError(400, asked.error);
+      if (asked.expect === null) throw new HttpError(400, parseRefusal(null)!);
+      const job: FixCheckPreviewJob = { kind: 'fix-check-preview', fixId: fix.fixId, expect: asked.expect as Record<string, unknown>, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+      sendAnswer(r, await ctx.reads.run(job, { calls: fixRunCalls(store, fix.fixId) }));
+    },
+    { write: false },
+  );
+
   router.put('/fixes/:id/title', async (r) => {
     const body = await r.body();
     const fix = findFix(store, r.params.id);
@@ -372,6 +423,8 @@ export function register(router: Router, ctx: RouteContext): void {
   jobs.registerJobKind('blame', { title: () => ACTIONS.runBlame.doing, build: (req, b) => blameJob(req, b.store, b.project?.path ?? null) });
   jobs.registerJobKind('repair', { title: () => ACTIONS.runRepair.doing, build: (req, b) => repairJob(req, b.store, configuredRepairer(ctx)) });
   jobs.registerJobKind('apply', { title: () => ACTIONS.applyFix.doing, build: (req, b) => applyJob(req, b.store) });
+  // Another check for an open fix: it changes the store alone, never the working tree, so it waits on no other job.
+  jobs.registerJobKind('fix-check', { title: () => ACTIONS.editCheck.doing, build: (req, b) => fixCheckJob(req, b.store) });
   // A verdict's more attempts (`verifyId`), or a verified fix's runs left (`left: true`, Verify this run).
   jobs.registerJobKind('verify', { title: () => ACTIONS.runVerify.doing, build: (req, b) => (req.left === true ? verifyLeftJob(req, b.store, b.project?.path ?? null) : verifyJob(req, b.store)) });
 }

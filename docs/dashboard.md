@@ -2483,10 +2483,12 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 | `GET /api/fixes/:id`; `PUT /api/fixes/:id/title` | One fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
 | `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, Verify this run, and each Verify step's more attempts bill |
+| `POST /api/fixes/:id/check-preview` | A draft check judged on every run an open fix holds, from what each recorded, before Save check gives the fix it |
 | `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run |
 
 - **Groups**: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure), and an `example` attempt to open.
 - **Its estimates**: `repair`, `blameAgain`, `blameStronger`, `verifyLeft` for Verify this run, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
+- **A check's preview**: `rows`, each run's `role`, `outcome`, `na` (no check applied) and `checks`, failing runs first, as [`fix check`](./cli.md#fix-check) judges them. Then `refused`, why Save check would be refused, and `uncounted`, the verdicts that would stop counting. A fix that isn't open is a 409, and a check the command can't take is a 400 in its words.
 - **A run's family**: each bundle with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone`, and the `rule` it was decided by.
 
 ### Tests and CI
@@ -2726,6 +2728,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify? }` | A decision diff |
 | `decisions-verify { sessionId, runId? }` | `decisions --verify` |
 | `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
+| `fix-check { fixId, expect }` | Save check: [`fix check`](./cli.md#fix-check) on an open fix; a 409 for one not open, a 400 for a check it can't take |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or `{ format: "langfuse", traceId, host? }`, with `project?` too for `phoenix` |
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |

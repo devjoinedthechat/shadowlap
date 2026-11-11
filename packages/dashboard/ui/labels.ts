@@ -17,6 +17,7 @@ const PAST: Readonly<Record<string, string>> = {
   Applying: 'Applied',
   Blaming: 'Blamed',
   Calibrating: 'Calibrated',
+  Changing: 'Changed',
   Checking: 'Checked',
   Cleaning: 'Cleaned',
   Connecting: 'Connected',

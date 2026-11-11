@@ -1,4 +1,5 @@
-import { checkKey, checkRecordings, hiddenCharacter, hiddenCharacterWords, notApplicable, runsLeft, shortFixId, standingOn, type CheckResult, type FixCheckJudged, type FixRecords, type FixRunOutcome, type Price, type Store, type StoredFix, type StoredFixCheck, type TestSpec } from '@shadowlap/engine';
+import { checkKey, checkRecordings, fixRecords, hiddenCharacter, hiddenCharacterWords, messageOf, notApplicable, oracleLabels, parseExpect, runsLeft, shortFixId, standingOn, type CheckResult, type FixCheckJudged, type FixRecords, type FixRunOutcome, type Price, type Store, type StoredFix, type StoredFixCheck, type TestSpec } from '@shadowlap/engine';
+import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 
 /**
  * Giving a fix another check (E11, `shadowlap fix check`): its failing and good runs judged again by
@@ -85,3 +86,38 @@ export function uncountedUnder(rec: FixRecords, draft: StoredFix['check'], judgi
 /** The check a fix keeps for `expect`, given its oracle and words, by its key. */
 export const fixCheckOf = (expect: unknown, oracle: string[], text: string): StoredFix['check'] => ({ expect, key: checkKey(expect), oracle, text });
 
+
+/** Fix mode's preview (`POST /api/fixes/:id/check-preview`): a draft check judged on the fix's runs beside the server, before Save check writes it. */
+export type FixCheckPreviewJob = { kind: 'fix-check-preview'; fixId: string; expect: Record<string, unknown>; prices?: Record<string, Price> };
+
+/** What the preview answers: `shadowlap fix check` would judge the same, refuse the same and stop counting the same verdicts. */
+export interface FixCheckPreview {
+  rows: FixCheckRow[];
+  /** Why Save check would be refused (fixCheckRefusal), or null. */
+  refused: string | null;
+  /** The verdicts that count for the fix and would stop, by id and as the page names them. */
+  uncounted: Array<{ verifyId: string; code: string }>;
+}
+
+/** Judged on every run the fix holds; a fix that is no longer open, or a draft the CLI would refuse before judging, answers as its job would (409, 400). */
+function fixCheckPreview(store: Store, job: FixCheckPreviewJob): ReadAnswer {
+  const fix = store.getFix(job.fixId);
+  if (!fix) return failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+  if (fix.status !== 'open') return failed(409, notOpenWords(fix));
+  const hidden = hiddenCheckWords(job.expect);
+  if (hidden) return failed(400, hidden);
+  let spec: TestSpec;
+  try {
+    spec = parseExpect(job.expect, 'expect');
+  } catch (err) {
+    return failed(400, messageOf(err));
+  }
+  const rec = fixRecords(store, fix);
+  const judging = judgeFixRuns(store, rec, { spec, expect: job.expect }, job.prices ? { prices: job.prices } : {});
+  const body: FixCheckPreview = { rows: judging.rows, refused: fixCheckRefusal(fix.fixId, judging.rows), uncounted: uncountedUnder(rec, fixCheckOf(job.expect, oracleLabels(spec), ''), judging) };
+  return answer(body);
+}
+
+export const FIX_CHECK_READS: ReadTable<FixCheckPreviewJob> = {
+  'fix-check-preview': (store, job) => fixCheckPreview(store, job),
+};

@@ -53,6 +53,8 @@ export const JOB_KINDS = {
   applyFix: 'apply',
   // A fix's verdict left incomplete: Run more attempts, or Verify again.
   verify: 'verify',
+  // An open fix given another check (Edit check…, Save check).
+  fixCheck: 'fix-check',
   tests: 'test',
   importCapture: 'import',
   calibrate: 'calibrate',

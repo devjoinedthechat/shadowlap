@@ -65,6 +65,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'request-diff': { kind: 'request-diff', runId: FORK, callNo: null, normalizers: [] },
   'check-context': { kind: 'check-context', runId: REC, at: 3 },
   'check-preview': { kind: 'check-preview', expect: { tools: { issue_refund: 0 } }, agent: 'node refund_agent.mjs', madeFrom: REC, goldens: [{ path: 'goldens/refund', runId: REC, pack: null }], limit: 200 },
+  'fix-check-preview': { kind: 'fix-check-preview', fixId: FIX, expect: { tools: { issue_refund: 0 } } },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };

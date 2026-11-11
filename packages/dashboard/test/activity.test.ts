@@ -602,6 +602,7 @@ describe('events as each feature records them', () => {
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-refund-limit', data: { title: 'Escalate refunds above the policy limit', repairId: 'r-munzln2i', patch: 'applied', goldens: 1, tests: 'passed' }, at: 3300 });
     // A fix with no patch, verified with temperature=1: only marked applied.
     recordEvent(store, { kind: 'fix.applied', ref: 'fx-double-email', data: { title: 'Confirmation email sent twice', repairId: null, patch: 'none', goldens: 0, tests: 'skipped' }, at: 3310 });
+    recordEvent(store, { kind: 'fix.check', ref: 'fx-double-email', data: { title: 'Confirmation email sent twice', check: 'send_email called once', previous: 'send_email called at most twice' }, at: 3320 });
     // The tests slice: a session, one cut short, a golden updated.
     recordEvent(store, { kind: 'test.session', actor: 'ci', ref: 'sess-1', data: { passed: 3, failed: 1, goldens: 4, revision: 'd2e8a1f', upstreamRequests: 0 }, at: 4000 });
     recordEvent(store, { kind: 'test.session', actor: 'ci', ref: 'sess-2', data: { passed: 1, failed: 0, goldens: 4, revision: 'd2e8a1f', upstreamRequests: 0, interrupted: true, notRun: 3 }, at: 4010 });
@@ -651,6 +652,7 @@ describe('events as each feature records them', () => {
     expect(at(3220)).toMatchObject({ kind: 'fixinc', outcome: 'warn', text: 'Verify inconclusive · target run 01K5CQ2E8M inconclusive: provider unavailable: 3 attempts in a row ended on HTTP 529', href: '#/fixes/fx-lost/verify/v-3' });
     expect(at(3300)).toMatchObject({ kind: 'fixok', text: 'Patch applied · Escalate refunds above the policy limit', href: '#/fixes/fx-refund-limit' });
     expect(at(3310)).toMatchObject({ kind: 'fixok', text: 'Marked applied · Confirmation email sent twice', href: '#/fixes/fx-double-email' });
+    expect(at(3320)).toMatchObject({ kind: 'setting', text: 'Check changed · Confirmation email sent twice: send_email called once', href: '#/fixes/fx-double-email' });
     expect(at(4000)).toMatchObject({ kind: 'test', outcome: 'err', text: 'Tests ran · 3 passed, 1 failed', actor: 'ci' });
     expect(at(4010)).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Tests stopped · 1 passed, 0 failed, 3 not run' });
     expect(at(4100)).toMatchObject({ kind: 'test', text: 'Golden updated · goldens/refund-flow re-recorded · 31 calls' });
