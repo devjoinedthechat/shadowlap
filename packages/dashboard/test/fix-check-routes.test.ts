@@ -75,6 +75,16 @@ describe("a fix's judge, its guard and the runs a check left out", () => {
   });
 });
 
+describe('a recording of a verified fix working', () => {
+  it("is its accepted verdict's first passing attempt on its first failing run, and none before one", () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const fix = opened(failing);
+    expect(fixDetail(store, fix.fixId)!.fixedRun).toBeNull();
+    const { verdict } = recordVerdict(store, { report: verifyReport([{ runId: failing, role: 'target', pass: true }], { oracle: ORACLE }), expect: EXPECT, command: 'shadowlap verify', at: Date.now() });
+    expect(fixDetail(store, fix.fixId)!.fixedRun).toBe(verdict.report.runs[0].attempts[0].runId);
+  });
+});
+
 describe("a fix's steps after its check changed", () => {
   it('say its blame was found, and its verdict checked, under the old check', () => {
     const failing = makeRun(store, { labels: ['refund-bug'] });

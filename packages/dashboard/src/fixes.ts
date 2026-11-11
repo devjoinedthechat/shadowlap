@@ -17,7 +17,7 @@
 
 import { commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, lostRange, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
-import { acceptedCandidate, commandLine, counting, type FixActions, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, runHref, short, shownRepair, type StepKey } from './fix-shared.js';
+import { acceptedCandidate, acceptedVerdict, commandLine, counting, type FixActions, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, runHref, short, shownRepair, type StepKey } from './fix-shared.js';
 import { blameStep, type BlameStep, oldBlameNote } from './fix-blame-step.js';
 import { fixActions, type GoldensFolder } from './fix-actions.js';
 import { fixLead, type FixLead } from './fix-lead.js';
@@ -61,6 +61,12 @@ export interface FixDetail extends FixRow {
    * folder still holds. Null when none does: a verified fix with none is usually one to apply first.
    */
   guard: string | null;
+  /**
+   * A recording of the fix working, to pack as the golden that guards it when none does: the first
+   * passing attempt of its accepted verdict on its first failing run (else on the verdict's first
+   * failing run), as repair packs one. Null without an accepted verdict that counts, or such an attempt.
+   */
+  fixedRun: string | null;
   openedBy: string | null;
   upstreamRequests: number;
   /** The step a fix opens on without one in its URL: its last finished step. */
@@ -95,6 +101,13 @@ export interface FixDetail extends FixRow {
    */
   repairer: { name: string; configured: boolean; problem: string | null };
   applied: FixData['applied'] | null;
+}
+
+/** `FixDetail.fixedRun`. */
+function fixedRunOf(rec: FixRecords): string | null {
+  const runs = acceptedVerdict(rec)?.report.runs.filter((r) => r.role === 'target') ?? [];
+  const run = runs.find((r) => r.runId === rec.failing[0]) ?? runs[0];
+  return run?.attempts.find((a) => a.passed)?.runId ?? null;
 }
 
 /** `FixDetail.guard`: read from the failing runs still the fix's, so a run a check left out can't name it. */
@@ -215,6 +228,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     goodRuns: rec.good.map((id) => runRef(store, id)),
     left: rec.left,
     guard: guardOf(store, rec, options.goldensFolder),
+    fixedRun: fixedRunOf(rec),
     openedBy: fix.data.openedBy ?? null,
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
