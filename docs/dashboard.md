@@ -192,12 +192,12 @@ The header says the week in four facts, the first three each a link: *4 failures
 | --- | --- | --- |
 | Setup | A [team store](./team.md)'s setup left unfinished | **Continue setup** |
 | Failing | An applied fix that doesn't hold | **Open →** |
-| Failing | A golden that failed, as its gate says it | What its run's page leads with, such as **Find breaking commit**, **Add normalizer** or **Update golden** |
+| Failing | A golden that failed, as its gate says it | What its run's page leads with, such as **Find breaking commit**, **Add normalizer**, **Update golden**, **Run tests** or **Edit check…** |
 | Failing | [Error-path presets](./error-paths.md) that failed | **Open →**, to the attempt that shows it |
 | Failing | This week's failed runs nobody has blamed, as one row | **Run blame** on the newest |
 | Failing | An open fix, with each golden it holds | A held crash's **Find breaking commit**, else its next step on Fixes, such as **Run repair**, **Run blame again** or **Run more attempts** |
 | Ready to ship | A verified fix not applied yet, but not one whose pull request merged | Its next step on Fixes: **Verify this run**, **Apply fix**, or **Mark applied** for one with no patch |
-| Tests | An inconclusive golden, and presets left inconclusive | **Run more attempts**, **Update golden** or **Re-run test** |
+| Tests | An inconclusive golden, and presets left inconclusive | **Run tests**, **Run more attempts**, **Update golden** or **Re-run test** |
 | Tests | How many behaviours seen in production no golden [covers](./coverage.md) | **Open →**, to a run of the newest |
 | Tests | A [preview of a change](./decisions.md) whose flagged runs nothing has settled since | **Open →**, to the first at the call whose decision changed |
 | Security | An [injection test](./injection.md) a planted instruction got through (red), or that it influenced or that showed too little to say (amber) | **Open →** |
@@ -209,7 +209,8 @@ One cause is one row. A golden an open fix holds is named on the fix's row (*ref
 What the rows mean:
 
 - **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own.
-- **Inconclusive goldens**: **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection test showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
+- **A golden whose checks changed since its last test** says so after its line (*· checks changed since*), and its step is **Run tests**, Tests' whole session, which judges the checks as they stand. One whose own recording fails a check added since leads with **Edit check…**, which opens the [check builder](#making-a-check) at that check.
+- **Inconclusive goldens**: **Run tests** when their checks changed since, **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection test showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
 - **Failed runs nobody has blamed**: a fork that failed counts as much as a recording, and so does a capture its import judged failed. The row names the newest by its id, with what it was about on hover, and opens Runs on the week's failed runs. A capture's **Run blame** opens its page, which asks for the command that starts your agent first.
 - **Open fixes**: where blame found that no answer of the model's lost the run, a repair of the prompt is no fix, and the row opens the fix at Blame.
 - **A preview of a change** is settled by a session of that change that asked its flagged runs again and flagged none, or whose verify accepted them, as a migration to a model after a preview of it.
@@ -681,7 +682,9 @@ The strip's key is the call filter: *all*, then each kind or origin the run has,
 
 ### Agents
 
-A run of several agents gets a chip per agent, nested ones included, with counts. Picking one dims the strip outside it and narrows every view to it. A run of one agent and no scope shows no chips. The calls of Shadowlap's own judge (`shadowlap:judge`) are no agent's: they get no chip, and count under All.
+A run of several agents gets a chip per agent, nested ones included, with counts. Picking one dims the strip outside it and narrows every view to it. A run of one agent and no scope shows no chips.
+
+**A judge's calls**, made in Shadowlap's own scope (`shadowlap:judge`), are the check's, none of the agent's. All leaves them out, and so do the strip, the key's and the tabs' counts. They get a chip of their own, **judge**, after the agents' and a hairline, so a judged run of one agent shows the chips for them, the first reading **Agent**. Picking **judge** lists the judge's calls in Calls and Turns, and adds them to the strip, the agent's dimmed. Context and Timeline stay the agent's, and say so. A judge verdict's call opens under the chip.
 
 The dashboard names the agents itself, so a run needs no `scope()` to show them. Each conversation is one agent's, named by the first of these that applies:
 
@@ -692,7 +695,7 @@ The dashboard names the agents itself, so a run needs no `scope()` to show them.
 
 A handoff (`transfer_to_billing`) keeps the conversation and changes its agent: the calls after it are `billing`'s. The names are for reading only: replay matches calls by scope, never by them.
 
-The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line.
+The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line, and a judged one says no count, budget or cost of the agent's includes the judge's calls. Blame and Preview never offer the judge's scope.
 
 ### Views of the run
 
@@ -731,10 +734,11 @@ Calls lists every call with its kind, name, origin, tokens and time. Each kind o
 | A tool call                         | What it returned, on a second line, or that it was blocked, stubbed or failed |
 | A clock or random call              | The value it gave                                                             |
 | A person's answer the agent read    | Tagged *input* ([what a person types](./sdk.md#what-a-person-types))          |
+| A judge's call                      | Its check and the verdict it gave: *judge "explains-refund" · no*             |
 
 A replayed call's time is its recorded duration, in grey, because the replay did not wait for it. A clock or random read records none, so its time is blank.
 
-The strip's key and **Filter calls** filter the list. A filter lists what it matches flat. Each row has a fork button.
+The strip's key and **Filter calls** filter the list. A filter lists what it matches flat. Each row has a fork button, but a judge's call: no fork starts at one.
 
 A call's origin shows in the strip's colors, with an injected or a failed call's swatch drawn as a ring. A tool call's effect shows beside its name: a write in teal.
 
@@ -1743,7 +1747,7 @@ A job that bills nothing, such as a replay offline, starts at once on every sett
 
 **Replay** re-runs the recorded command.
 
-**Fork at #n** (or a row's fork button, or `f`) offers what the terminal UI's fork menu offers for that call, one line each with its flag, each named in the CLI's verbs:
+**Fork at #n** (or a row's fork button, or `f`) offers what the terminal UI's fork menu offers for that call, one line each with its flag, each named in the CLI's verbs. At a judge's call it reads **Fork** and waits, saying why: a judge's call is the check's, so no fork starts at it, and ⌘K offers none.
 
 | Selected | The menu offers |
 | --- | --- |
@@ -2439,6 +2443,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.
 - **Its outcome by checks**: `judged` says what judged it (`by`: `own`, `import` or `family`), its `verdict`, the checks' `counts`, the `callNo` it turned on, the `first` check that failed, `today`, `since`, the `goldens` and `why`. It is `null` when no check judges the run. The page's answer and Runs' rows add each of `checks`; the sidebar's rows leave them out.
 - **A judge check's verdict**: each judge check in `checks` carries its `judge`, with the `verdict` (null for none), its `source`, `cost` and `model`, what was done to what it read (`redactions`, `cut`) and the judge's call in the run (`callNo`).
+- **A judge's calls**: a call in one of Shadowlap's own scopes says `reserved`, and a judge's call its `judge`: the `check` it answered and the `verdict` its run kept (null for none). Beside `origins`, `judgeCalls` numbers the judge's calls wherever they come, so the page keeps them out of All before their pages come. It is absent where the run has none.
 - **Its agent's exit**: a test replay its agent's exit failed carries `exitCode` where its test result kept the code.
 - **Its next step**: `next` is what its header leads with ([The next step](#the-next-step)): its `key`, `label`, `href` for a link, `off` for why it can't start, the hover's `title` and `sub`, the `command` it runs and `estimate`, what it bills. `later` says this answer left out what would read a long run's calls, which `/api/runs/:id/next` answers with.
 - **A crash's next step**: `blame` is the Run blame beside it, its `offer`, `sub`, `command` and `estimate`.
