@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decisionStepState, emptyCounts, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, judgeWords, minorityChange, minorityNotes, samplesWords, stepsAsked, unchangedRunWords, unsettledWords, WITHIN_VARIATION, type DecisionJudge, type DecisionStep } from '../src/decisions.js';
+import { decisionStepState, emptyCounts, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, judgeWords, minorityChange, minorityNotes, samplesWords, stepsAsked, unchangedRunWords, unsettledWords, WITHIN_VARIATION, withinVariationLine, type DecisionChange, type DecisionJudge, type DecisionStep } from '../src/decisions.js';
 import { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords } from '../src/verified-words.js';
 
 type Step = Pick<DecisionStep, 'rank' | 'majority' | 'control' | 'sampled' | 'samples' | 'error'>;
@@ -51,6 +51,48 @@ describe('a step as a report counts it and a page draws it', () => {
     expect(judgeWords(judge({}))).toBe('passed → failed · curt (judged live, <$0.001)');
     expect(judgeWords(judge({ changed: false, now: side('passed', 'polite', 'kept') }))).toBe('passed, as recorded · polite (asked before and kept, free)');
     expect(judgeWords(judge({ changed: null, now: side('inconclusive', 'not judged: no key for its provider', 'live') }))).toBe('inconclusive · not judged: no key for its provider');
+  });
+});
+
+describe('the line under a preview’s verdict', () => {
+  type LineStep = Parameters<typeof withinVariationLine>[0]['runs'][number]['decisions'][number];
+  const write = (kind: DecisionChange['kind']) => kind.startsWith('write');
+  const changed = (kind: DecisionChange['kind']): DecisionChange => ({ rank: write(kind) ? 1 : kind.startsWith('read') ? 4 : 2, kind, tool: write(kind) ? 'issue_refund' : null, effect: write(kind) ? 'write' : null, before: null, after: null, detail: '' });
+  // In 1 of 3 samples, as often as in 1 of 3 asked as recorded: within the model's own variation.
+  const within = (kind: DecisionChange['kind']): LineStep => ({ rank: null, majority: null, sampled: write(kind) ? 1 : 2, control: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] }, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] }, error: null, changes: [changed(kind)] });
+  // In 2 of 5 samples, ranked by them alone, as the provider will never answer the request as recorded again.
+  const fewer = (kind: DecisionChange['kind']): LineStep => {
+    const rank = write(kind) ? 1 : 2;
+    return { rank, majority: null, sampled: rank, control: { asked: 5, answered: 0, changed: 0, ranks: [], error: 'HTTP 404: no such model' }, samples: { asked: 5, answered: 5, changed: 2, ranks: [rank, rank, 0, 0, 0] }, error: null, changes: [changed(kind)] };
+  };
+  /** The line for `n` runs whose step is `s`, beside a run the preview flags. */
+  const line = (n: number, s: LineStep, samples = s.samples.asked) => withinVariationLine({ samples, flagged: ['F'], runs: [{ runId: 'F', refused: null, decisions: [] }, ...Array.from({ length: n }, (_, i) => ({ runId: `R${i}`, refused: null, decisions: [s] }))] });
+
+  it('agrees its verb with the count, singular and plural, for a write, a stop and a judged change, each way it ends', () => {
+    expect(line(1, within('write-removed'))).toBe("1 more run changes a write within the model's own variation");
+    expect(line(3, within('write-removed'))).toBe("3 more runs change a write within the model's own variation");
+    expect(line(1, within('stops'))).toBe("1 more run changes when to stop within the model's own variation");
+    expect(line(3, within('stops'))).toBe("3 more runs change when to stop within the model's own variation");
+    expect(line(1, within('judge'))).toBe("1 more run is judged otherwise within the model's own variation");
+    expect(line(3, within('judge'))).toBe("3 more runs are judged otherwise within the model's own variation");
+    // Its runs and their samples are two counts: 3 runs, each in 2 of 5 samples.
+    expect(line(1, fewer('write-removed'))).toBe('1 more run changes a write in 2 of 5 samples, not flagged');
+    expect(line(3, fewer('write-removed'))).toBe('3 more runs change a write in 2 of 5 samples, not flagged');
+    expect(line(1, fewer('stops'))).toBe('1 more run changes when to stop in 2 of 5 samples, not flagged');
+    expect(line(3, fewer('stops'))).toBe('3 more runs change when to stop in 2 of 5 samples, not flagged');
+    expect(line(1, fewer('judge'))).toBe('1 more run is judged otherwise in 2 of 5 samples, not flagged');
+    expect(line(3, fewer('judge'))).toBe('3 more runs are judged otherwise in 2 of 5 samples, not flagged');
+  });
+
+  it('names every kind its runs show, leaves out more where no run is flagged, and counts no run it flags, refused or asked once', () => {
+    const run = (runId: string, decisions: LineStep[], refused: string | null = null) => ({ runId, refused, decisions });
+    expect(withinVariationLine({ samples: 3, flagged: ['F'], runs: [run('A', [within('write-removed'), within('stops')]), run('B', [within('judge')])] })).toBe("2 more runs change a write or when to stop, or are judged otherwise within the model's own variation");
+    const once = { ...fewer('stops'), samples: { asked: 5, answered: 5, changed: 1, ranks: [2, 0, 0, 0, 0] } };
+    expect(withinVariationLine({ samples: 5, flagged: [], runs: [run('A', [fewer('stops')]), run('B', [once])] })).toBe('2 runs change when to stop in fewer than half their samples, not flagged');
+    expect(line(1, within('write-removed'), 1)).toBeNull();
+    expect(line(1, { ...within('read-added'), sampled: 4 })).toBeNull();
+    expect(withinVariationLine({ samples: 3, flagged: ['A'], runs: [run('A', [within('write-removed')])] })).toBeNull();
+    expect(withinVariationLine({ samples: 3, flagged: [], runs: [run('A', [within('write-removed')], 'its first request differs in more than its prompt')] })).toBeNull();
   });
 });
 

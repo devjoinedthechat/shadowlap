@@ -14,6 +14,7 @@ import type { CallRecord, Effect, Normalizer } from './types.js';
 import type { RetirementNotice } from './model-retirements.js';
 import { isObject } from './is-object.js';
 import { fieldValue } from './interventions.js';
+import { plural } from './words.js';
 
 /**
  * The decision diff (`shadowlap decisions`): each recorded model call asked again with only what a
@@ -674,6 +675,30 @@ export function minorityChange(s: Pick<DecisionStep, 'rank' | 'majority'>): bool
 export function minorityNotes(steps: ReadonlyArray<Pick<DecisionStep, 'rank' | 'majority'>>): string[] {
   const n = steps.filter(minorityChange).length;
   return n ? [`${n} step${n === 1 ? '' : 's'} had a write, stop or judged change in fewer than half ${n === 1 ? 'its' : 'their'} samples: listed, not flagged, as a model's own variation.`] : [];
+}
+
+type WithinStep = Pick<DecisionStep, 'rank' | 'majority' | 'control' | 'sampled' | 'samples' | 'error' | 'changes'>;
+
+/**
+ * The line under a preview's verdict that counts the runs a write, stop or judged change shows in
+ * without flagging them, so the red and amber bands in their cells read with it. It ends within the
+ * model's own variation where a control told a step's change from it (`3 more runs change a write
+ * within the model's own variation`), else on how often the samples showed it (`3 more runs change
+ * a write in 2 of 5 samples, not flagged`), as for a step a control gone for good left to its own
+ * samples. The verb agrees with the count, and `more` follows a flagged run. Null asked once, or for none.
+ */
+export function withinVariationLine(r: Pick<DecisionsReport, 'samples' | 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'refused'> & { decisions: readonly WithinStep[] }> }): string | null {
+  const counted = r.runs.filter((x) => !r.flagged.includes(x.runId) && !x.refused).map((x) => x.decisions.filter((s) => minorityChange(s) || (s.rank === null && !!s.control && !!s.sampled && s.sampled <= 2))).filter((x) => x.length);
+  if (!counted.length || r.samples < 2) return null;
+  const steps = counted.flat();
+  const kinds = new Set(steps.map((s) => { const k = s.changes[0]?.kind ?? ''; return k.startsWith('write') ? 'w' : k === 'judge' ? 'j' : 's'; }));
+  const one = counted.length === 1;
+  const acts = kinds.has('w') || kinds.has('s') ? `${one ? 'changes' : 'change'} ${kinds.has('w') && kinds.has('s') ? 'a write or when to stop' : kinds.has('w') ? 'a write' : 'when to stop'}` : '';
+  const what = `${acts}${kinds.has('j') ? `${acts ? ', or ' : ''}${one ? 'is' : 'are'} judged otherwise` : ''}`;
+  const runs = `${plural(counted.length, r.flagged.length ? 'more run' : 'run')} ${what}`;
+  if (steps.some((s) => decisionStepState(s) === 'noise')) return `${runs} ${WITHIN_VARIATION}`;
+  const often = [...new Set(steps.map((s) => s.samples.changed))];
+  return `${runs} in ${often.length === 1 ? `${often[0]!} of ${r.samples}` : 'fewer than half their'} samples, not flagged`;
 }
 
 /**

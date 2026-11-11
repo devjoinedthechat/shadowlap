@@ -1,4 +1,4 @@
-import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, minorityChange, percentChange, plural, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, WITHIN_VARIATION, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
+import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
 import { LATER_STEPS, type DecisionCell, type DecisionRow } from './decision-cells.js';
 import { decisionSession, runDecisions, sessionReport } from './decisions.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
@@ -107,7 +107,7 @@ export interface PreviewView {
   steps: { text: string; once: boolean; tail: string[]; notes: string[] };
   /** The later steps in a few words, its card's title and sentence; null when no step was asked. */
   later: { text: string; title: string; card: string } | null;
-  /** The runs a write, stop or judged change shows in that doesn't flag them, on a line of their own. */
+  /** The runs a write, stop or judged change shows in that doesn't flag them, on a line of their own: the engine's withinVariationLine. */
   within: string | null;
   verify: PreviewVerify | null;
   next: PreviewNext;
@@ -137,27 +137,6 @@ const split = (c: DecisionCell) => c.rank !== null && c.ranks.length > 1 && c.ra
  * couldn't judge. A change it shows besides keeps its colour, and its rank's count.
  */
 const ringed = (c: DecisionCell) => c.judge === 'inconclusive' && (c.state === 'ranked' || c.state === 'noise' || c.state === 'same') && band((c.state === 'noise' ? c.sampled : c.rank) ?? 0) === 'm';
-
-/**
- * The runs whose cells show a write, stop or judged change that doesn't flag them, counted on a line
- * of their own under the verdict, so the red and amber bands in their cells read with it: within
- * the model's own variation, with the control (`2 more runs change a write within the model's own
- * variation`); else in fewer than half their samples (`1 run changes when to stop in 1 of 2 samples,
- * not flagged`). Null asked once, or for none.
- */
-export function withinLine(r: Pick<DecisionsReport, 'samples' | 'flagged'> & { runs: readonly DecisionRun[] }): string | null {
-  const steps = r.runs.filter((x) => !r.flagged.includes(x.runId) && !x.refused).map((x) => x.decisions.filter((s) => minorityChange(s) || (s.rank === null && !!s.control && !!s.sampled && s.sampled <= 2)));
-  const counted = steps.filter((x) => x.length);
-  if (!counted.length || r.samples < 2) return null;
-  const kinds = new Set(counted.flat().map((s) => { const k = s.changes[0]?.kind ?? ''; return k.startsWith('write') ? 'w' : k === 'judge' ? 'j' : 's'; }));
-  const one = counted.length === 1;
-  const acts = kinds.has('w') || kinds.has('s') ? `${one ? 'changes' : 'change'} ${kinds.has('w') && kinds.has('s') ? 'a write or when to stop' : kinds.has('w') ? 'a write' : 'when to stop'}` : '';
-  const what = `${acts}${kinds.has('j') ? `${acts ? ', or ' : ''}${one ? 'is' : 'are'} judged otherwise` : ''}`;
-  const runs = `${plural(counted.length, r.flagged.length ? 'more run' : 'run')} ${what}`;
-  if (counted.flat().some((s) => s.control)) return `${runs} ${WITHIN_VARIATION}`;
-  const often = [...new Set(counted.flat().map((s) => s.samples.changed))];
-  return `${runs} in ${often.length === 1 ? `${often[0]!} of ${r.samples}` : 'fewer than half their'} samples, not flagged`;
-}
 
 /** Verify's verdict, once it ran on the session's runs. */
 function verifyView(v: DecisionsVerify, runs: readonly DecisionRun[]): PreviewVerify {
@@ -309,7 +288,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     headline,
     steps: { text: stepsAsked({ counts: c, samples: report.samples, runs }), once: report.samples === 1, tail: [...(c.notAsked ? [`${c.notAsked} not asked`] : []), 'no tool ran'], notes: report.notes ?? [] },
     later: headline.asked ? { text: JUDGED_LATER, ...LATER_STEPS } : null,
-    within: withinLine({ samples: report.samples, flagged: report.flagged, runs }),
+    within: withinVariationLine({ samples: report.samples, flagged: report.flagged, runs }),
     verify: v ? verifyView(v, runs) : null,
     next: nextFacts(store, session.kind, report, v, { asked: headline.asked, word: verdict.word }),
     counts: { writes: c[1], stops: c[2], reads: c[3] + c[4], text: c[5], same: c.same, left: c.untouched, notAsked: c.notAsked, noise: c.noise ?? 0, waits: cells.filter(ringed).length, split: cells.filter(split).length },

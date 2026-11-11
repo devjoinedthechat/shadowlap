@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
-import { previewSession, withinLine } from '../src/decision-view.js';
+import { previewSession } from '../src/decision-view.js';
 import { quoteLine } from '../src/decision-cells.js';
 
 /**
@@ -218,12 +218,13 @@ describe('an opened cell, worded on the server', () => {
 });
 
 describe('the within-variation line', () => {
-  it('counts the runs whose cells show a write within the model’s own variation, and says nothing asked once', () => {
-    const noise = step(3, null, { changes: [write], samples: { asked: 2, answered: 2, changed: 1, ranks: [1, 0] }, majority: null, sampled: 1, control: { asked: 2, answered: 2, changed: 1, ranks: [1, 0] } });
+  it('puts the engine’s line under the verdict for the runs a change shows in that doesn’t flag them, and none asked once', () => {
+    // Changed in 1 of 3 samples, as often as in 1 of 3 asked as recorded: within the model's own variation.
+    const noise = step(3, null, { changes: [write], samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] }, majority: null, sampled: 1, control: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } });
     const runs = [runOf(a, null, [noise]), runOf(b, null, [step(3, 1)])];
-    expect(withinLine({ samples: 2, flagged: [b], runs })).toBe("1 more run changes a write within the model's own variation");
-    expect(withinLine({ samples: 1, flagged: [b], runs })).toBeNull();
-    expect(withinLine({ samples: 2, flagged: [], runs: [runOf(a, null, [step(3, null)])] })).toBeNull();
+    const data = { flagged: [b], toVerify: [b], counts: counts({ 1: 1, noise: 1 }) };
+    expect(previewSession(store, keep('dc-01M5000000000000000000000W', runs, { ...data, samples: 3 }))!.view.within).toBe("1 more run changes a write within the model's own variation");
+    expect(previewSession(store, keep('dc-01M5000000000000000000000X', runs, { ...data, samples: 1 }))!.view.within).toBeNull();
   });
 });
 
