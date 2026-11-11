@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { changeFixCheck, checkKey, markFixApplied, recordBlame, shortFixId, Store } from '@shadowlap/engine';
-import { blameReport, EXPECT, makeRun } from '../../engine/test/fix-fixtures.js';
+import { changeFixCheck, checkKey, markFixApplied, recordBlame, recordVerdict, shortFixId, Store } from '@shadowlap/engine';
+import { blameReport, EXPECT, makeRun, ORACLE, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail, fixList, goldensFolderIn } from '../src/fixes.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView } from '../src/index.js';
 
@@ -67,6 +67,21 @@ describe("a fix's judge, its guard and the runs a check left out", () => {
     expect(d.left).toEqual({ failing: [failing], good: [] });
     expect(d.failingRuns.map((r) => r.runId)).toEqual([other]);
     expect(d.guard).toBeNull();
+  });
+});
+
+describe("a fix's steps after its check changed", () => {
+  it('say its blame was found, and its verdict checked, under the old check', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const fix = opened(failing);
+    recordVerdict(store, { report: verifyReport([{ runId: failing, role: 'target', pass: false }], { oracle: ORACLE }), expect: EXPECT, command: 'shadowlap verify', at: Date.now() });
+    const before = fixDetail(store, fix.fixId)!.steps;
+    expect(before[2].state).toBe('no');
+    const draft = { tools: { issue_refund: 0 } };
+    changeFixCheck(store, fix.fixId, { check: { expect: draft, key: checkKey(draft), oracle: ['the agent exits 0', 'issue_refund called 0 times'], text: 'issue_refund never called' }, judged: { failing: { [failing]: 'failed' }, good: {} } });
+    const [blame, , verify] = fixDetail(store, fix.fixId)!.steps;
+    expect(blame).toMatchObject({ state: 'warn', short: 'old check', title: 'Found under the old check', meta: `${before[0].short} · blame again under this one` });
+    expect(verify).toMatchObject({ state: 'todo', short: 'not verified', meta: 'verified only under its old check' });
   });
 });
 

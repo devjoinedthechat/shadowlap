@@ -251,7 +251,7 @@ describe('the Repair step', () => {
     await open(fixId, 'repair');
     expect(r!.one('.verdict .vw').className).toBe('vw err');
     expect(text(r!.one('.verdict h2'))).toBe('rejected The gate accepted none of the 1 candidate tried');
-    expect(text(r!.one('p.fxsay'))).toBe('The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the prompt yourself and verify it.');
+    expect(text(r!.one('p.fxsay'))).toBe('The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the check, or change the prompt yourself and verify it.');
     expect(r!.all('section.panel.sec > header h2').map(text)).toEqual(['Candidates', 'report.md', 'Why']);
     const subs = r!.all('section.panel.sec > header .sub').map(text);
     expect(subs[0]).toBe(`tried smallest first · ${d.repair!.rule!}`);

@@ -304,7 +304,7 @@ describe('each step’s verdict line', () => {
     const { fix } = recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: (at += DAY) });
     recordRepair(store, { repairId: 'repair-none', dir: '.shadowlap/repairs/repair-none', report: repairReport({ targets: [run], accepted: false }), expect: EXPECT, command: 'shadowlap repair', at: (at += DAY) });
     const none = detail(fix.fixId).repair!;
-    expect(none.line).toEqual({ word: 'rejected', tone: 'err', head: ['The gate accepted none of the 1 candidate tried'], finding: 'The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the prompt yourself and verify it.' });
+    expect(none.line).toEqual({ word: 'rejected', tone: 'err', head: ['The gate accepted none of the 1 candidate tried'], finding: 'The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the check, or change the prompt yourself and verify it.' });
     expect(none.again).toBeNull();
     expect(none.rule).toMatch(/^each at \d+ of \d+ attempts/);
   });

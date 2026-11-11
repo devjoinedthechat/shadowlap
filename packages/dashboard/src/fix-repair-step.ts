@@ -39,7 +39,8 @@ export interface RepairStep {
   /** The model that answered, when it differs from the one asked. */
   served: string | null;
   /** The gate's run on the accepted candidate: its verdict, attempts and spend, and whether it counts for this fix. */
-  verify: { verifyId: string | null; attempts: number; spent: number; counts: boolean } | null;
+  /** `oldCheck`: it doesn't count because it was checked under the fix's old check. */
+  verify: { verifyId: string | null; attempts: number; spent: number; counts: boolean; oldCheck: boolean } | null;
   change: { file: string; anchor: string; before: string; after: string; added: { at: number; text: string } | null; removed: string } | null;
   /** The accepted change's result per role: target 1 of 1. */
   roles: Array<{ role: 'target' | 'held-out' | 'good'; held: number; of: number }>;
@@ -176,7 +177,7 @@ function repairLine(rec: FixRecords, r: StoredRepair, why: string | null): StepL
   }
   const rejected = r.outcome === 'not-fixed' && r.report.candidates.some((x) => x.state === 'rejected');
   const spent = repairSpent(rec) && rec.repairs.at(-1)?.repairId === r.repairId;
-  const next = spent ? 'Repairing again would try the same: change the prompt yourself and verify it.' : 'Repair again, or verify a fix of your own.';
+  const next = spent ? 'Repairing again would try the same: change the check, or change the prompt yourself and verify it.' : 'Repair again, or verify a fix of your own.';
   const text = why ?? 'No candidate was accepted';
   return {
     word: rejected ? 'rejected' : repairOutcomeWord(r.outcome),
@@ -215,7 +216,7 @@ export function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRe
     repairer: repairerLabel(r),
     noRepairer: none,
     served: rep.repairer?.served && rep.repairer.served !== rep.repairer.model ? rep.repairer.served : null,
-    verify: v ? { verifyId: verdict?.verifyId ?? null, attempts: v.attempts, spent: v.spent, counts: verdict ? verdictCounts(rec, verdict) : false } : null,
+    verify: v ? { verifyId: verdict?.verifyId ?? null, attempts: v.attempts, spent: v.spent, counts: verdict ? verdictCounts(rec, verdict) : false, oldCheck: !!verdict && rec.standing.get(verdict.verifyId)?.why === 'old-check' } : null,
     change: c ? { file: c.file, anchor: c.surface, before: c.before, after: c.after, ...addedText(c.before, c.after) } : null,
     roles: v ? rolesOf(v.runs) : [],
     needed: v?.needed ?? null,
