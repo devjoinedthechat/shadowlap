@@ -28,8 +28,12 @@ export interface ChecksApi {
   preview(expect: unknown, of: ChecksOf, signal?: AbortSignal): Promise<CheckPreview>;
   /** The golden's entry as it changes: `{ expect }`, or `{ expect: null }` to take its checks out. */
   save(body: { golden: string; version: string; read: ConfigPrints; entry: { expect: unknown } }): Promise<ChecksSaved>;
-  /** Judged on every run an open fix holds, from what each recorded, as `shadowlap fix check` judges them; it changes nothing. */
-  fixPreview(fixId: string, expect: unknown, signal?: AbortSignal): Promise<FixCheckPreview>;
+  /**
+   * Judged on every run an open fix holds, from what each recorded, as `shadowlap fix check` judges
+   * them; it changes nothing. With `context`, a fix of any status, nothing refused or uncounted: its
+   * runs beside a check added to the golden that guards it.
+   */
+  fixPreview(fixId: string, expect: unknown, o?: { context?: boolean; signal?: AbortSignal }): Promise<FixCheckPreview>;
 }
 
 export function checksApi(request: Request): ChecksApi {
@@ -41,7 +45,7 @@ export function checksApi(request: Request): ChecksApi {
     context: (runId, at) => request(`checks/context?run=${q(runId)}&at=${at}`),
     preview: (expect, of, signal) => send('POST', 'checks/preview', { expect, ...of }, signal),
     save: (body) => send('PUT', 'checks/tests', body),
-    fixPreview: (fixId, expect, signal) => send('POST', `fixes/${q(fixId)}/check-preview`, { expect }, signal),
+    fixPreview: (fixId, expect, o = {}) => send('POST', `fixes/${q(fixId)}/check-preview`, { expect, ...(o.context ? { context: true } : {}) }, o.signal),
   };
 }
 

@@ -393,17 +393,19 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // A draft check judged on every run the fix holds, from what each recorded, before Save check
   // writes it (the check builder's fix mode): beside the server, as golden mode's preview is. The
-  // draft comes in the body, so it is a POST, which changes nothing.
+  // draft comes in the body, so it is a POST, which changes nothing. With `context: true`, the runs
+  // of a fix of any status, beside a check added to the golden that guards it.
   router.post(
     '/fixes/:id/check-preview',
     async (r) => {
       const body = await r.body();
       const fix = findFix(store, r.params.id);
-      if (fix.status !== 'open') throw new HttpError(409, notOpenWords(fix));
+      const context = body.context === true;
+      if (fix.status !== 'open' && !context) throw new HttpError(409, notOpenWords(fix));
       const asked = requestedCheck(body.expect);
       if ('error' in asked) throw new HttpError(400, asked.error);
       if (asked.expect === null) throw new HttpError(400, parseRefusal(null)!);
-      const job: FixCheckPreviewJob = { kind: 'fix-check-preview', fixId: fix.fixId, expect: asked.expect as Record<string, unknown>, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+      const job: FixCheckPreviewJob = { kind: 'fix-check-preview', fixId: fix.fixId, expect: asked.expect as Record<string, unknown>, ...(context ? { context: true as const } : {}), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
       sendAnswer(r, await ctx.reads.run(job, { calls: fixRunCalls(store, fix.fixId) }));
     },
     { write: false },

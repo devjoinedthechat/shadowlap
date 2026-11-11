@@ -202,5 +202,8 @@ describe("fix mode's preview", () => {
     expect([bad.status, (await json(bad)).error]).toEqual([400, expect.stringMatching(/^expect\.tools\["issue_refund"\]/)]);
     markFixApplied(store, fix.fixId, { patch: 'none', repairId: null, goldens: [], tests: 'skipped' });
     expect((await preview(fix.fixId, DRAFT)).status).toBe(409);
+    // As context for a check added to the golden that guards it: its runs, nothing refused or uncounted.
+    const context = await api(`fixes/${fix.fixId}/check-preview`, { method: 'POST', body: JSON.stringify({ expect: DRAFT, context: true }) });
+    expect(await json(context)).toMatchObject({ rows: [{ runId: passes, role: 'failing', outcome: 'passed' }], refused: null, uncounted: [] });
   });
 });

@@ -2493,6 +2493,7 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 - **Groups**: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure), and an `example` attempt to open.
 - **Its estimates**: `repair`, `blameAgain`, `blameStronger`, `verifyLeft` for Verify this run, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
 - **A check's preview**: `rows`, each run's `role`, `outcome`, `na` (no check applied) and `checks`, failing runs first, as [`fix check`](./cli.md#fix-check) judges them. Then `refused`, why Save check would be refused, and `uncounted`, the verdicts that would stop counting. A fix that isn't open is a 409, and a check the command can't take is a 400 in its words.
+- **A check's preview as context**: with `context: true`, the runs of a fix of any status, beside a check added to the golden that guards it. Nothing is refused or uncounted.
 - **A run's family**: each bundle with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone`, and the `rule` it was decided by.
 
 ### Tests and CI
