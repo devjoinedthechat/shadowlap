@@ -1,4 +1,5 @@
-import { ACTIONS, type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
+import { readFileSync } from 'node:fs';
+import { ACTIONS, type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, messageOf, parsePayloads, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { attemptPlant, injectionPanel, markProof, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
@@ -234,7 +235,28 @@ export function injectionTemplatesView(): ReturnType<typeof injectionTemplates> 
   return injectionTemplates();
 }
 
-const MAX = { repeat: 100, baselines: 20, payloads: 2 * 1024 * 1024, budget: 100_000 } as const;
+/** The largest payload file a test takes. */
+export const PAYLOAD_FILE_MAX = 2 * 1024 * 1024;
+const MAX = { repeat: 100, baselines: 20, payloads: PAYLOAD_FILE_MAX, budget: 100_000 } as const;
+
+/** A payload file once it is sent, as Run injection test…'s dialog names it: its name, how many payloads, and those with no `{{canary}}`, by id. */
+export interface PayloadsRead {
+  name: string;
+  count: number;
+  noCanary: string[];
+}
+
+/** Reads a payload file sent as the test reads it (parsePayloads), named as it was picked; why not, in its words. */
+export function payloadsRead(file: { path: string; name: string; original: string | null; bytes: number }): PayloadsRead | { error: string } {
+  if (file.bytes > PAYLOAD_FILE_MAX) return { error: 'a payload file is at most 2 MB' };
+  const name = file.original ?? file.name;
+  try {
+    const payloads = parsePayloads(readFileSync(file.path, 'utf8'), name);
+    return { name, count: payloads.length, noCanary: payloads.filter((p) => !p.canary).map((p) => p.id) };
+  } catch (err) {
+    return { error: messageOf(err) };
+  }
+}
 
 type Built<T> = T | { error: string; status?: number };
 /** The command someone else chose that the test runs, asked about once the test's own line is whole. */

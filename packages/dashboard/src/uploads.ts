@@ -208,6 +208,19 @@ export class UploadStore implements UploadSource {
     return { path: u.path, name: u.name, original: u.original, bytes: u.bytes };
   }
 
+  /**
+   * An upload nobody has claimed yet, read before a job takes it (Run injection test…'s payload
+   * file, counted once it arrives): null for an unknown id, one a job holds, or one sent to another
+   * project than `project`.
+   */
+  peek(uploadId: unknown, project?: ProjectInfo | null): { path: string; name: string; original: string | null; bytes: number } | null {
+    if (typeof uploadId !== 'string' || !/^[0-9A-Z]{26}$/.test(uploadId)) return null;
+    const u = this.uploads.get(uploadId);
+    if (!u || u.jobId !== null || (project && project.path !== u.project.path)) return null;
+    u.lastUsed = this.now();
+    return { path: u.path, name: u.name, original: u.original, bytes: u.bytes };
+  }
+
   /** A job that claimed uploads did not start: they wait for another. */
   release(jobId: string): void {
     for (const u of this.uploads.values()) {

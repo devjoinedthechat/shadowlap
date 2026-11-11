@@ -1,6 +1,6 @@
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
-import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, injectionTitle, keptInjection } from '../injection.js';
+import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, injectionTitle, keptInjection, payloadsRead } from '../injection.js';
 import { injectionReportHtml, reportFile, reportPreview } from '../injection-report.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
@@ -13,6 +13,7 @@ import { namesTeamStore } from './verdicts.js';
  *
  *   GET /api/injection                    { results }: newest first; ?run=<id>, ?golden=<path>, ?limit=<n>
  *   GET /api/injection/templates          the built-in templates, versioned, for the dialog
+ *   GET /api/injection/payloads           ?upload=<id>: { name, count, noCanary }, a payload file sent and not yet taken by a test
  *   GET /api/injection/tools              { tools }: every recorded tool with its trust, for Settings → Tools
  *   GET /api/injection/needs-look         { items }: runs and goldens whose newest test obeyed, was influenced or is inconclusive
  *   GET /api/injection/runs/:id           { untrusted, results, attempt }: a run's untrusted reads, its tests, and the test it is an attempt of
@@ -44,6 +45,14 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged(injectionResults(store, { ...(r.query.get('run') ? { runId: r.query.get('run')! } : {}), ...(r.query.get('golden') ? { golden: r.query.get('golden')! } : {}), ...(n !== undefined ? { limit: n } : {}) }));
   });
   router.get('/injection/templates', (r) => r.tagged(injectionTemplatesView()));
+  // A payload file once the dialog sent it: read before the test takes it, so the dialog can say what it holds.
+  router.get('/injection/payloads', (r) => {
+    const file = ctx.uploads.peek(r.query.get('upload'), ctx.project);
+    if (!file) throw new HttpError(404, 'that payload file is gone: send it again');
+    const read = payloadsRead(file);
+    if ('error' in read) throw new HttpError(400, read.error);
+    r.json(read);
+  });
   // Both read every call they are about, of a run or of every run: worked out beside the server.
   router.get('/injection/tools', async (r) => {
     const trust = tools();
