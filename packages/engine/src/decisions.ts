@@ -685,10 +685,12 @@ type WithinStep = Pick<DecisionStep, 'rank' | 'majority' | 'control' | 'sampled'
  * model's own variation where a control told a step's change from it (`3 more runs change a write
  * within the model's own variation`), else on how often the samples showed it (`3 more runs change
  * a write in 2 of 5 samples, not flagged`), as for a step a control gone for good left to its own
- * samples. The verb agrees with the count, and `more` follows a flagged run. Null asked once, or for none.
+ * samples. The verb agrees with the count, and `more` follows a flagged run. A step its control
+ * couldn't settle is inconclusive, so it isn't counted. Null asked once, or for none.
  */
 export function withinVariationLine(r: Pick<DecisionsReport, 'samples' | 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'refused'> & { decisions: readonly WithinStep[] }> }): string | null {
-  const counted = r.runs.filter((x) => !r.flagged.includes(x.runId) && !x.refused).map((x) => x.decisions.filter((s) => minorityChange(s) || (s.rank === null && !!s.control && !!s.sampled && s.sampled <= 2))).filter((x) => x.length);
+  const shows = (s: WithinStep) => minorityChange(s) || (decisionStepState(s) === 'noise' && s.sampled! <= 2);
+  const counted = r.runs.filter((x) => !r.flagged.includes(x.runId) && !x.refused).map((x) => x.decisions.filter(shows)).filter((x) => x.length);
   if (!counted.length || r.samples < 2) return null;
   const steps = counted.flat();
   const kinds = new Set(steps.map((s) => { const k = s.changes[0]?.kind ?? ''; return k.startsWith('write') ? 'w' : k === 'judge' ? 'j' : 's'; }));

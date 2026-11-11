@@ -94,6 +94,13 @@ describe('the line under a preview’s verdict', () => {
     expect(withinVariationLine({ samples: 3, flagged: ['A'], runs: [run('A', [within('write-removed')])] })).toBeNull();
     expect(withinVariationLine({ samples: 3, flagged: [], runs: [run('A', [within('write-removed')], 'its first request differs in more than its prompt')] })).toBeNull();
   });
+
+  it('counts no step its control couldn’t settle, which is inconclusive, not within the model’s own variation', () => {
+    const unsettled: LineStep = { ...within('write-removed'), control: { asked: 3, answered: 1, changed: 0, ranks: [0], error: 'HTTP 529' } };
+    expect(decisionStepState(unsettled)).toBe('unsettled');
+    expect(line(1, unsettled)).toBeNull();
+    expect(withinVariationLine({ samples: 3, flagged: ['F'], runs: [{ runId: 'A', refused: null, decisions: [unsettled] }, { runId: 'B', refused: null, decisions: [within('stops')] }] })).toBe("1 more run changes when to stop within the model's own variation");
+  });
 });
 
 describe('how verify found the runs it took', () => {
