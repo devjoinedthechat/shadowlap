@@ -252,7 +252,7 @@ function revisionSessions(store: Store, goldens: readonly GoldenSource[]): { ses
 }
 
 /** Each session's goldens by how they came out: one read of the verdict each result kept, not the rest of it. */
-function sessionTallies(store: Store, ids: readonly string[]): Map<string, { passed: number; failed: number; inconclusive: number }> {
+export function sessionTallies(store: Store, ids: readonly string[]): Map<string, { passed: number; failed: number; inconclusive: number }> {
   const out = new Map<string, { passed: number; failed: number; inconclusive: number }>();
   if (!ids.length) return out;
   const rows = store.query(`SELECT session_id AS session, ok, failure, json_extract(data, '$.verdict') AS verdict FROM test_results WHERE session_id IN (SELECT value FROM json_each(?))`, JSON.stringify(ids));

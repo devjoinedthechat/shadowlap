@@ -73,7 +73,7 @@ const put = (path: string, text: string) => {
 };
 
 describe('readWorkflow', () => {
-  it('reads the action step’s inputs, its id and env names, and the Slack step’s secret and branch', () => {
+  it('reads the action step’s inputs, its id and env, and the Slack step’s secret and branch', () => {
     const read = readWorkflow(FILE);
     expect(read.problem).toBeNull();
     expect(read.count).toBe(1);
@@ -85,6 +85,7 @@ describe('readWorkflow', () => {
       // main's own quoting undone, a comment no part of the value, an expression kept as written
       inputs: { version: '0.1.0', recordings: 'goldens/* allow', comment: 'false', 'fail-on-divergence': 'false', inconclusive: 'warn', 'fix-on-failure': 'true', 'fix-budget': '5.00', repairer: 'claude-code', push: "${{ !startsWith(github.event_name, 'pull_request') }}" },
       env: ['ANTHROPIC_API_KEY'],
+      envValues: { ANTHROPIC_API_KEY: '${{ secrets.ANTHROPIC_API_KEY }}' },
     });
     expect(read.slack).toEqual({ secret: 'TEAM_HOOK', branch: 'trunk' });
   });

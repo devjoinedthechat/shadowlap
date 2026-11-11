@@ -2428,6 +2428,7 @@ It is `null` when that would mean reading more than 16 pairs of requests whole: 
 | `GET /api/ci/workflows?comment=&fix=&alerts=&budget=&repairer=&onlyMain=&secret=&inconclusive=` | Settings → CI: your workflow for those options |
 | `PUT /api/ci/workflow { options, expect, shown }` | Write file: the workflow those options build, written over the version read |
 | `POST /api/ci/workflow/undo { was }` | Write file's Undo: the file put back as it was, or removed |
+| `GET /api/ci/comment` | Settings → CI: the pull request comment as the Action would post it, from the last session that ran every golden |
 
 **The Tests screen** (`/api/tests`) holds:
 
@@ -2498,13 +2499,15 @@ A gate against history is figured at seven pass rates against the baseline `hist
 **Your workflow** (`/api/ci/workflows`) takes its options: `comment`, `fix`, `alerts` and `onlyMain` on or off, `budget` in dollars, `repairer` as `repair --repairer` takes it, `secret` the webhook secret's name, and `inconclusive` fail or warn. An option left out is what the repository's workflow sets. It answers with:
 
 - the repository's workflow (`file`), whether it `exists`, the `version` read, and why Write file waits (`problem`);
-- one job that runs the goldens once (`workflow`): the whole file (`text`), its `lines` marked against the repository's, how many are `added` and `removed`, whether it is the `same`, its hash (`shown`), and the test `session` last seen, with `ci` when CI pushed it;
+- one job that runs the goldens once (`workflow`): the whole file (`text`), its `lines` marked against the repository's, how many are `added` and `removed`, whether it is the `same`, its hash (`shown`), and the test `session` its line names: CI's, with `ci`, once CI pushed one, else the one the comment's preview reads;
 - for each part, what it needs and a preview of what lands;
 - what Gates sends (`gates`): the config's `suiteRisk`, and the goldens on each kind's defaults (`uses`).
 
 Whether the step pushes is no option: it follows Push from CI in `shadowlap.config.json`, read as `/settings/store` reads it (`fixOnFailure.teamStore`).
 
 **Write file** (`PUT /api/ci/workflow`) takes the `options` the page changed, the `version` it read as `expect`, and the workflow it showed as `shown`. It answers the `path`, the `version` written, whether it `changed`, and `was`, the id its Undo sends. A file changed since, or a workflow other than the one shown, is a 409. A file it can't write, or a view with a `problem`, is a 422.
+
+**The comment's preview** (`/api/ci/comment`) reads the newest session that ran every golden, ended and wasn't interrupted, as it left it: a golden replayed on its own since waits for the next one. It answers the `session` (its `id`, its `revision` as it is, such as `d2e8a1f+dirty`, and `at`), the `head`, each golden's `rows` worst first, the kept `decisions`, the `cost` per run, each `injection` gate, who the comment is `postedBy`, and the `markdown` Copy Markdown copies. Before such a session it answers `{ "session": null }`. The job adds the rest: the base branch's column, the fixes it opened, and its summary's link.
 
 **Its Undo** (`/api/ci/workflow/undo`) puts the file back only while it is the version the write left, which the dashboard keeps with `was`. It is a 409 once the file changed since, even after the page read it again, or once the dashboard no longer holds it.
 

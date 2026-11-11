@@ -9,7 +9,9 @@ import type { Router } from '../router.js';
 import { configFileError } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
 import { ciGates } from '../tests-gate.js';
-import { lastFullSession, testPatterns, testsSummary, type GoldenSource } from '../tests.js';
+import { prCommentPreview } from '../pr-comment-preview.js';
+import { testPatterns, testsSummary, type GoldenSource } from '../tests.js';
+import { newestFullSession, sessionTallies } from '../verdicts.js';
 import { editFolder, failed, VERSION } from './settings-edits.js';
 import { GOLDENS_FOLDER } from './tests.js';
 
@@ -21,6 +23,8 @@ import { GOLDENS_FOLDER } from './tests.js';
  *   PUT  /api/ci/workflow       { options, expect, shown }: Write file; answers { path, version, was }
  *   POST /api/ci/workflow/undo  { was }: its Undo, which puts the file back as it was, or removes
  *                               the one the write made
+ *   GET  /api/ci/comment        the pull request comment as the Action would post it, from the newest
+ *                               session that ran every golden: its parts, and the Markdown Copy copies
  *
  * Write file writes only text the server builds itself, from the options and the repository's file
  * read again, never text from the page, and only while the file is the version the page read
@@ -46,13 +50,15 @@ interface Kept {
 
 /**
  * The test session the line under Your workflow names: the newest one CI pushed to the project's
- * team store, as a pull keeps it (*Last seen in CI*), else the last one here that ran every golden.
+ * team store, as a pull keeps it (*Last seen in CI*), else the session the pull request comment's
+ * preview reads: the newest here that ran every golden and wasn't interrupted (newestFullSession).
  */
-function ciSession(store: StoreOf<'tests' | 'team'>, goldens: readonly GoldenSource[], storeUrl: string | null): CiSession | null {
+function ciSession(store: StoreOf<'readModels' | 'tests' | 'team'>, goldens: readonly GoldenSource[], storeUrl: string | null): CiSession | null {
   const ci = seenInCi(store, storeUrl);
   if (ci) return { ci: true, revision: ci.revision, at: ci.at, text: sessionTally(ci.passed, ci.failed, ci.inconclusive) };
-  const s = lastFullSession(store, goldens);
-  return s ? { ci: false, revision: s.revision, at: s.endedAt ?? s.startedAt, text: sessionTally(s.passed, s.failed, s.inconclusive) } : null;
+  const s = newestFullSession(store, goldens);
+  const t = s ? sessionTallies(store, [s.sessionId]).get(s.sessionId) : null;
+  return s ? { ci: false, revision: s.revision, at: s.endedAt ?? s.startedAt, text: sessionTally(t?.passed ?? 0, t?.failed ?? 0, t?.inconclusive ?? 0) } : null;
 }
 
 /** The newest session CI pushed to the store `shadowlap.config.json` names, as a pull kept it; null without a store, or before one. */
@@ -130,6 +136,14 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/ci/workflows', (r) => {
     r.tagged(read(r.query).view);
+  });
+
+  // The comment as the Action would post it, and who posts it, as the repository's step gives the
+  // action its token. The session's results and the comment's parts only: no run, no call.
+  router.get('/ci/comment', (r) => {
+    const project = ctx.project?.path ?? null;
+    const repo = repositoryWorkflow(project, gitFacts(project).root);
+    r.tagged(prCommentPreview(ctx.store, goldens(), { step: repo?.read?.action ?? null }));
   });
 
   router.put('/ci/workflow', async (r) => {
