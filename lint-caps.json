@@ -128,7 +128,7 @@
     },
     "packages/cli/src/verify.ts": {
       "runVerify": 58,
-      "runVerify > verifyOne": 46,
+      "runVerify > verifyOne": 35,
       "runVerify > verifyOne > againstPaired": 32
     },
     "packages/cli/test/checks-schema.test.ts": {
@@ -149,35 +149,20 @@
       "callDetailFrom": 39,
       "row": 56
     },
-    "packages/dashboard/src/ci-workflows.ts": {
-      "ciWorkflows": 34
-    },
-    "packages/dashboard/src/ci-yaml.ts": {
-      "workflowYaml": 31
-    },
-    "packages/dashboard/src/fix-blame-step.ts": {
-      "blameStep": 40
-    },
     "packages/dashboard/src/fix-bundles.ts": {
       "fixBundles": 82
     },
     "packages/dashboard/src/fix-for-run.ts": {
       "fixForRun": 44
     },
-    "packages/dashboard/src/fix-list.ts": {
-      "stepsOf": 31
-    },
     "packages/dashboard/src/fix-verify-step.ts": {
       "verifyMore": 41
-    },
-    "packages/dashboard/src/fixes.ts": {
-      "fixDetail": 33
     },
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
     },
     "packages/dashboard/src/jobs.ts": {
-      "JobManager.start": 37
+      "JobManager.start": 35
     },
     "packages/dashboard/src/projects.ts": {
       "calibrateStep": 32,
@@ -198,10 +183,10 @@
     "packages/dashboard/src/tests.ts": {
       "bisectChoices": 64,
       "resultLine": 38,
-      "testsView": 62
+      "testsView": 55
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 83
+      "trainingView": 81
     },
     "packages/dashboard/test/static.test.ts": {
       "scriptEnd": 56
@@ -209,38 +194,29 @@
     "packages/dashboard/ui/compare/model.ts": {
       "changeCards": 33
     },
-    "packages/dashboard/ui/fixes/FixPage.tsx": {
-      "FixActions": 34
-    },
     "packages/dashboard/ui/fixes/model.ts": {
       "fixJobStatus": 37
     },
     "packages/dashboard/ui/normalize.ts": {
       "normalizeRunDetail": 36
     },
-    "packages/dashboard/ui/pages/Compare.tsx": {
-      "Comparison": 51
-    },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 39
+      "Workspace": 37
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
     },
-    "packages/dashboard/ui/pages/settings/Store.tsx": {
-      "StoreTab": 32
-    },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 65
+      "StoreSetup": 50
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 95
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 64
+      "RunHeader": 59
     },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31
@@ -425,38 +401,26 @@
       "startMcpListener": 228
     },
     "packages/cli/src/verify.ts": {
-      "runVerify": 289,
-      "runVerify > verifyOne": 185
+      "runVerify": 286,
+      "runVerify > verifyOne": 182
     },
     "packages/dashboard/src/fix-bundles.ts": {
       "fixBundles": 180
     },
     "packages/dashboard/src/routes/projects.ts": {
-      "register": 221
-    },
-    "packages/dashboard/src/routes/settings.ts": {
-      "register": 206
+      "register": 216
     },
     "packages/dashboard/src/training.ts": {
-      "trainingView": 168
+      "trainingView": 166
     },
     "packages/dashboard/ui/api.ts": {
-      "createClient": 169
-    },
-    "packages/dashboard/ui/fixes/BlameStep.tsx": {
-      "BlameStepView": 193
+      "createClient": 167
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
       "NewProjectPage": 162
     },
-    "packages/dashboard/ui/pages/Tests.tsx": {
-      "TestsPage": 234
-    },
-    "packages/dashboard/ui/pages/Training.tsx": {
-      "TasksTab": 163
-    },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 284
+      "StoreSetup": 221
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 267
@@ -519,14 +483,14 @@
     }
   },
   "max-lines": {
-    "packages/cli/src/decisions.ts": 1085,
+    "packages/cli/src/decisions.ts": 1082,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 1088,
-    "packages/dashboard/test/fixes.test.ts": 871,
+    "packages/dashboard/src/tests.ts": 1035,
+    "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
-    "packages/dashboard/test/ui-logic.test.ts": 822,
+    "packages/dashboard/test/ui-logic.test.ts": 810,
     "packages/engine/src/pairs.ts": 819,
     "packages/engine/src/redact.ts": 983,
     "packages/remote/test/sync.test.ts": 1059,

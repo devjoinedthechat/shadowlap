@@ -23,7 +23,7 @@ try {
   store = Store.openExisting(work.dbPath);
   // Its time starts now: opening waited for any command holding the store.
   post({ type: 'open' });
-  const result = exportHtml({ store, runIds: work.runIds, redact: work.redact, version: work.version, ...(work.prices ? { prices: work.prices } : {}), ...(work.uiDir ? { uiDir: work.uiDir } : {}) });
+  const result = exportHtml({ store, runIds: work.runIds, redact: work.redact, ...(work.normalize?.length ? { normalize: work.normalize } : {}), version: work.version, ...(work.prices ? { prices: work.prices } : {}), ...(work.uiDir ? { uiDir: work.uiDir } : {}) });
   answer = { type: 'answer', ok: true, result };
 } catch (err) {
   const error = messageOf(err);

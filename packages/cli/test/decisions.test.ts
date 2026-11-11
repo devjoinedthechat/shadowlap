@@ -117,7 +117,8 @@ describe('shadowlap decisions', () => {
       expect(kept).toMatchObject({ kind: 'decisions', change: 'the model claude-sonnet-4-6 and temperature=0', runs: 1, flagged: 0 });
       expect(kept!.runRows[0].data).toEqual(JSON.parse(JSON.stringify(report.runs[0])));
       expect(store.decisionsOfRun(runId)[0]).toMatchObject({ sessionId: report.decisionsId, kind: 'decisions', rank: null });
-      expect(store.listEvents({ kinds: ['decisions.done'] })[0]).toMatchObject({ ref: report.decisionsId, data: { runs: 1, flagged: 0 } });
+      // By its name, and settled: no why, and the status it ended with.
+      expect(store.listEvents({ kinds: ['decisions.done'] })[0]).toMatchObject({ ref: report.decisionsId, data: { runs: 1, flagged: 0, name: 'Model switch to claude-sonnet-4-6 with temperature=0', why: null, exit: 0 } });
     } finally {
       store.close();
     }

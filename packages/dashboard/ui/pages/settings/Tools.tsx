@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react';
-import { CodeBlock, CopyButton, Seg } from '../../components/bits.js';
+import { useEffect, useRef, useState } from 'react';
+import { Seg } from '../../components/bits.js';
+import { CodeBox } from '../../components/CodeBox.js';
 import { Dialog } from '../../components/Dialog.js';
+import { Section } from '../../components/Section.js';
 import { DialogFacts } from '../../components/DialogFacts.js';
+import { Icon } from '../../components/Icon.js';
+import { Term } from '../../components/Term.js';
 import { tipCard, tipText, type TipRow } from '../../components/HoverCard.js';
 import { copyText } from '../../dom.js';
 import { num, whenShort } from '../../format.js';
 import { useLoad } from '../../hooks.js';
+import { useListKeys } from '../../list-keys.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CommandLine, LoadProblem, Loading, MCP_GONE, TOOLS_GONE, useFolderGone, useSettingsData } from './common.js';
@@ -15,24 +20,21 @@ import { MCP_FORMS, addServerNotes, copiedLineText, entryEnvFor, mcpEntryText, m
  * Tools: every tool the recordings called, by what happens to it after a fork (reads run live,
  * writes are blocked or stubbed), the hosts the config records as tools, and the MCP servers:
  * those the project's client configs list and those calls came through, each with its transport,
- * its command or URL and its tools, with the `shadowlap mcp` line that records one. With the
+ * its command or URL and its tools, with the `shadowlap mcp` line that records one, and under Show
+ * the client’s config, folded at first, the config to copy with it in front. With the
  * project's folder gone, neither the store's calls nor the client configs can be read, and the tab
  * says so where they would be, rather than that there are none.
  */
 export function ToolsTab() {
   const { client } = useApp();
-  const { data, error } = useSettingsData(() => client.settings.tools(), 'settings:tools');
+  const { data, error, reload } = useSettingsData(() => client.settings.tools(), 'settings:tools');
   const [adding, setAdding] = useState(false);
   const gone = useFolderGone();
-  if (error && !data) return <LoadProblem error={error} />;
-  if (!data) return <Loading title="Tool effects" />;
+  if (error && !data) return <LoadProblem error={error} retry={reload} />;
+  if (!data) return <Loading title="Tools" />;
   const none = !data.live.length && !data.fenced.length;
   return (
-    <section className="panel set">
-      <header>
-        <h2>Tool effects</h2>
-        <span className="sub">what runs again after a fork</span>
-      </header>
+    <Section className="set" title="Tools" sub="what a fork runs again">
       <div className="pbody">
         <p className="muted">Declared in the agent’s code. After a fork, reads run live and writes are blocked or stubbed unless you allow them, so by default a replay never acts on the world twice.</p>
       </div>
@@ -75,7 +77,7 @@ export function ToolsTab() {
       ) : null}
       <McpBlock data={data} gone={!!gone} onAdd={() => setAdding(true)} />
       {adding ? <AddServerDialog files={data.mcp.files} onClose={() => setAdding(false)} /> : null}
-    </section>
+    </Section>
   );
 }
 
@@ -108,19 +110,38 @@ function ToolGroup({ title, tools, write }: { title: string; tools: ToolsSetting
   );
 }
 
+/** Show the client’s config: closed at first, then as it was left while the page is open in this tab. */
+let configShown = false;
+
+/** An MCP server's row for the keys (its key holds a NUL, which no selector can name). */
+const serverKey = (r: McpRow) => `mcp:${r.key.split('\u0000').join('/')}`;
+
+/** Copies the line that records a server, and says so. */
+const copyLine = (row: McpRow, toast: (text: string) => void) => void copyText(row.line!).then((ok) => toast(ok ? copiedLineText(row) : 'Copying was refused by the browser'));
+
 function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; onAdd: () => void }) {
+  const { toast } = useApp();
   const rows = mcpRows(data.mcp);
+  const box = useRef<HTMLDivElement>(null);
+  // A row leads nowhere: Enter and ⌘K offer copy the line, where it has one.
+  const inFocus = useListKeys({ rows: gone ? [] : rows, keyOf: serverKey, root: box, actions: (r) => (r.line ? { name: r.name, items: () => [{ label: 'Copy the line', hint: r.line!, run: () => copyLine(r, toast) }] } : null) });
   const broken = data.mcp.files.filter((f) => f.error);
+  const [shown, setShownState] = useState(() => configShown);
+  const setShown = (v: boolean) => {
+    configShown = v;
+    setShownState(v);
+  };
+  const folded = data.mcp.clientConfigs.length > 0 || data.mcp.otherForms.length > 0;
   return (
     <div className="egrp mcp">
       <span className="k">tools from MCP servers</span>
       <p className="muted">
-        Put <code>shadowlap mcp</code> in front of a server in the client’s config. Its tool calls are then recorded, replayed and fenced like any other tool. A tool marked <code>readOnlyHint</code> is read; any other is write, unless <code>mcp.effects</code> in the config says otherwise.
+        Put <code>shadowlap mcp</code> in front of a server in the client’s config. Its tool calls are then recorded, replayed and <Term k="fenced">fenced</Term> like any other tool. A tool marked <code>readOnlyHint</code> is read; any other is write, unless <code>mcp.effects</code> in the config says otherwise.
       </p>
       {gone ? (
         <p className="muted none">{MCP_GONE}</p>
       ) : rows.length ? (
-        <div className="tscroll mcptable">
+        <div className="tscroll mcptable" ref={box}>
           <table className="t">
             <thead>
               <tr>
@@ -132,7 +153,7 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
             </thead>
             <tbody>
               {rows.map((r) => (
-                <McpServer key={r.key} row={r} />
+                <McpServer key={r.key} row={r} focused={inFocus === serverKey(r)} />
               ))}
             </tbody>
           </table>
@@ -158,39 +179,41 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
       <button className="btn sm" type="button" onClick={onAdd}>
         Add MCP server…
       </button>
-      {data.mcp.clientConfigs.map((b) => (
-        <ClientConfig key={b.file ?? 'docs'} block={b} />
-      ))}
-      {data.mcp.otherForms.map((f) => (
-        <div key={f} className="mcpform2">
-          <span className="muted">{MCP_FORMS[f].label}:</span>
-          <CommandLine command={MCP_FORMS[f].line} />
-        </div>
-      ))}
+      {folded ? (
+        <>
+          <p className="wftog">
+            <button className="linkbtn" type="button" aria-expanded={shown} aria-controls="mcpCfg" onClick={() => setShown(!shown)}>
+              {shown ? 'Hide' : 'Show'} the client’s config
+              <Icon name="caret" />
+            </button>
+          </p>
+          <div id="mcpCfg" hidden={!shown}>
+            {data.mcp.clientConfigs.map((b) => (
+              <ClientConfig key={b.file ?? 'docs'} block={b} />
+            ))}
+            {data.mcp.otherForms.map((f) => (
+              <div key={f} className="mcpform2">
+                <span className="muted">{MCP_FORMS[f].label}:</span>
+                <CommandLine command={MCP_FORMS[f].line} />
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
 
 /**
- * A client config to copy: a project file's servers with `shadowlap mcp` in front, under its name,
- * and what the copy leaves out to put back; or the docs' example, as the mock shows it.
+ * A client config to copy, its Copy named Copy MCP config: a project file's servers with
+ * `shadowlap mcp` in front, under its name, and right under it what the copy leaves out to put back;
+ * or the docs' example, as the mock shows it.
  */
 function ClientConfig({ block }: { block: ToolsSettings['mcp']['clientConfigs'][number] }) {
-  if (!block.file) {
-    return (
-      <>
-        <pre className="codebox mcpjson" tabIndex={0}>
-          {block.text}
-        </pre>
-        <CopyButton text={block.text} label="the config" className="btn sm">
-          Copy
-        </CopyButton>
-      </>
-    );
-  }
+  if (!block.file) return <CodeBox code={block.text} what="the MCP config" className="mcpjson" />;
   return (
     <>
-      <CodeBlock file={block.file} code={block.text} copyLabel={`the servers in ${block.file}${block.putBack.length ? ', without their values' : ''}`} />
+      <CodeBox file={block.file} code={block.text} what="the MCP config" />
       {block.putBack.length ? (
         <div className="fieldnote warn putback">
           Values aren’t copied. Put these back before the client starts the server:
@@ -212,10 +235,10 @@ function ClientConfig({ block }: { block: ToolsSettings['mcp']['clientConfigs'][
   );
 }
 
-function McpServer({ row }: { row: McpRow }) {
+function McpServer({ row, focused }: { row: McpRow; focused: boolean }) {
   const { toast } = useApp();
   return (
-    <tr className="still">
+    <tr className={`still${focused ? ' krow' : ''}`} data-rowkey={serverKey(row)}>
       <td>
         <code>{row.name}</code>
         {row.note ? (
@@ -224,7 +247,7 @@ function McpServer({ row }: { row: McpRow }) {
             {row.line ? (
               <>
                 {' · '}
-                <button className="linkbtn" type="button" title={row.line} onClick={() => void copyText(row.line!).then((ok) => toast(ok ? copiedLineText(row) : 'Copying was refused by the browser'))}>
+                <button className="linkbtn" type="button" title={row.line} onClick={() => copyLine(row, toast)}>
                   copy the line
                 </button>
               </>

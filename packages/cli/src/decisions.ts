@@ -86,6 +86,7 @@ import {
 import { STOP_SIGNALS } from './agent-signals.js';
 import { specFor, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, loadTests, upstreamOverrides, type ShadowlapConfig } from './config.js';
+import { sessionEventData, type KeptReport } from './decisions-event.js';
 import { captureFromCode, type FromCodeCapture } from './decisions-capture.js';
 import { TextJudge } from './decisions-judge.js';
 import { azureApiVersion, azureDeploymentCall, ModelSender, providerById, type ModelAnswer } from './decisions-send.js';
@@ -1302,12 +1303,7 @@ export function keepDecisions(store: StoreOf<'activity' | 'decisions'>, report: 
       data,
       runs: runs.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.majority ?? null, changed: r.decisions.filter((x) => x.rank !== null).length, data: r as unknown as Record<string, unknown> })),
     });
-    if (event) {
-      // What asking (and judging, and for migrate, verifying) cost.
-      const r = report as Partial<DecisionsReport> & { costs?: { checking?: { decisions: number; verify: number; judge?: number } } };
-      const spent = r.costs?.checking ? r.costs.checking.decisions + r.costs.checking.verify + (r.costs.checking.judge ?? 0) : (r.cost?.spent ?? 0) + (r.verify?.spent ?? 0) + (r.judge?.spent ?? 0);
-      recordEvent(store, { kind: `${kind}.done`, actor, ref: sessionId, data: { change: report.change.text, runs: runs.length, flagged: report.flagged.length, spent } });
-    }
+    if (event) recordEvent(store, { kind: `${kind}.done`, actor, ref: sessionId, data: sessionEventData(report as KeptReport, kind) });
     return sessionId;
   } catch (err) {
     (report as DecisionsReport).warnings?.push(`the result could not be kept in the store: ${messageOf(err)}`);

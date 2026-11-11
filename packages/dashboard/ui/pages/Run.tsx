@@ -8,6 +8,7 @@ import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
 import { Unshown } from '../shell/unshown.js';
 import { NotFoundPage } from './NotFound.js';
+import { Elsewhere } from './held-elsewhere.js';
 import { sameRun } from '../format.js';
 import { runRefresh } from '../connection.js';
 import { useActiveTabInView, useLatest, useLoad } from '../hooks.js';
@@ -181,7 +182,7 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
             <NotFoundPage header what={`No run ${id} in this copy.`} back={[lastRunsHref(), 'Open Runs']} />
           </>
         );
-      return (
+      const page = (
         <Page>
           {missing ? <Unshown at={`run:${id}`} /> : null}
           <div className="empty tall">
@@ -192,6 +193,8 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
           </div>
         </Page>
       );
+      // Another project may hold it: a link from there, or a page left open across a switch.
+      return missing ? <Elsewhere ask={{ what: 'run', ids: [id] }} error={loaded.error} waiting={<RunLoading />} retry={loaded.reload} fallback={page} /> : page;
     }
     return <RunLoading />;
   }
@@ -274,7 +277,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // The calls as Calls lists them: the scope, the filter, the groups and what is folded (call-list.ts).
   // A recording's or a capture's strip, key and filter go by what each call was; every other run's by origin (kinds.ts).
   const kinds = useMemo(() => byKind(run), [run]);
-  const { scope, setScope, scopeTree, scoped, scopedCalls, filter, setFilter, text, setText, asked, listed, tree, folded, fold, visible, counts } = useCallList({ runId, calls, paging, selected, byKind: kinds });
+  const { scope, setScope, scopeTree, scoped, scopedCalls, filter, setFilter, text, setText, asked, listed, trace, rows, held, shown, fold, visible, counts } = useCallList({ runId, calls, paging, selected, byKind: kinds, live, spend: !run.summary.imported });
   const [tab, setTabState] = useState<InspectorTab>(lastTab);
   const setTab = (t: InspectorTab) => {
     lastTab = t;
@@ -344,7 +347,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   );
 
   // The run's keys, while this page is open.
-  useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), tree, folded, listed, fold, runs: app.runs, toast: app.toast });
+  useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), trace, shown, listed, fold, runs: app.runs, toast: app.toast });
 
   // This run, in the palette.
   useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView });
@@ -382,11 +385,11 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
               the view takes it itself, to be scrolled by keyboard. */}
           <div className="vbody" id="vbody" key={v} role="tabpanel" aria-labelledby={`vtab-${v}`} tabIndex={PANE_VIEWS.includes(v) ? 0 : -1}>
             <ViewSwitch v={v} run={run} calls={scopedCalls} selected={selected} scoped={scoped} byKind={kinds} onSelect={select}>
-              <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} />
+              <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} rows={rows} held={held} shown={shown} trace={trace} onFold={fold} />
             </ViewSwitch>
           </div>
         </section>
-        <InspectorPlace panel={panel} run={run} test={offers?.test ?? null} onClose={closePanel} onPick={select}>
+        <InspectorPlace panel={panel} run={run} onClose={closePanel} onPick={select}>
           <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
         </InspectorPlace>
       </div>

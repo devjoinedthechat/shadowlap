@@ -25,10 +25,12 @@ describe('a tab’s title', () => {
     expect(title('#/nothing-here')).toBe('Not found — shadowlap');
   });
 
-  it('names a Settings tab, CI by the label its address has kept since Alerts', () => {
+  it('names a Settings tab, and the tab an older name opens: CI for alerts, Project for plan', () => {
     expect(title('#/settings')).toBe('Matching · Settings — shadowlap');
     expect(title('#/settings/redaction')).toBe('Redaction · Settings — shadowlap');
+    expect(title('#/settings/ci')).toBe('CI · Settings — shadowlap');
     expect(title('#/settings/alerts')).toBe('CI · Settings — shadowlap');
+    expect(title('#/settings/plan')).toBe('Project · Settings — shadowlap');
     expect(title('#/settings/agents')).toBe('Coding agents · Settings — shadowlap');
     expect(title('#/settings/store')).toBe('Store · Settings — shadowlap');
   });
@@ -72,6 +74,15 @@ describe('a tab’s title', () => {
     expect(title('#/fixes/fx-01M5GMZKCV', { setup: true })).toBe('Fixes — shadowlap');
     // The list itself, and the Overview, say what shows: the setup.
     expect(title('#/fixes', { setup: true })).toBe('Set up — shadowlap');
+  });
+
+  it('names the project that holds a link another project’s store holds, whatever it names, the setup’s place too', () => {
+    for (const hash of ['#/run/01M5GHQ4770XBC2GET8V493QCY/3/context', '#/fixes/fx-01M5GMZKCV/repair', '#/compare/01M5GHQ477/01M5GHR0Q1', '#/compare/01M5GHQ477']) {
+      expect(title(hash, { heldBy: 'support-agent', unshown: true, about: 'Order A-1131', fixTitle: 'Escalate refunds' }), hash).toBe('In support-agent — shadowlap');
+      expect(title(hash, { heldBy: 'support-agent', setup: true }), hash).toBe('In support-agent — shadowlap');
+    }
+    // Until the page says so, what it opened for.
+    expect(title('#/fixes/fx-01M5GMZKCV', { heldBy: null })).toBe('fx-01M5GMZKCV · Fix — shadowlap');
   });
 
   it('names a fix by its title once it is known, and by its id until then', () => {

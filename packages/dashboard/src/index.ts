@@ -28,8 +28,10 @@ export { countMasked } from './run-page.js';
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './api.js';
 // Fixes: the read model behind #/fixes, the Overview's fix numbers, Needs a look and the run page's banners.
 export { fieldChange, fixBundles, fixDetail, fixesSummary, fixForRun, fixHref, fixList, goldensFolderIn, needsLookFixes, patchesToCheck, pulledPatchesToCheck } from './fixes.js';
+export { fixesView, type FixBucket, type FixesView, type FixesViewRow, type UnblamedRow } from './fixes-view.js';
+export type { FixLead } from './fix-lead.js';
 export { patchesInTree, patchInTree, rewritesHere } from './patch-in-tree.js';
-export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixesSummary, FixForRun, FixList, FixRef, FixRow, FixRunRef, FixStep, NeedsLookItem, PatchCheck, RepairStep, RewriteCheck, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
+export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixesSummary, FixForRun, FixList, FixPr, FixRef, FixRow, FixRung, FixRunRef, FixStep, NeedsLookItem, PatchCheck, RepairStep, RewriteCheck, RunBlame as FixRunBlame, StepKey, StepState, VerifyRow, VerifyStep } from './fixes.js';
 export { ghEnv, ghReader, GH_TIMEOUT_MS, isGithubPr, openPullRequest, parsePrState, prHost, PrStates, readableHosts, remoteHost, storePrStates, type PrRead, type PrReader, type PrState, type PrStatesOptions } from './pr-state.js';
 // Tests: the read model behind the Tests screen, and the Settings → CI workflow steps.
 export { bisectArgs, bisectChoices, bisectJob, checkedRevision, failingTests, gatePreview, gateResultView, liveTestSession, normalizeAndTestJob, overviewTests, resultLine, runTestsJob, shortReason, testPatterns, testRunBanner, testsSummary, testsView, underChecks, updateGoldensJob, verdictOfResult } from './tests.js';

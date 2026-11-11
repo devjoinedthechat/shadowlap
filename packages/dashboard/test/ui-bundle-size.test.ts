@@ -37,22 +37,28 @@ const COPY = 900 * KB;
 
 /** The pages the shell routes to, by their chunk's name: the list grows as pages land. */
 const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', 'Runs', 'Settings', 'Setup', 'StoreSetup', 'Tests', 'Training'];
-/** The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land. */
-const PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'ForksView', 'Palette', 'Preview', 'ProvenanceView', 'RemoveProject', 'RevisionPage', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'Verdicts', 'jobs'];
+/**
+ * The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land.
+ * The dialogs a list row's step asks in load as the step first asks: a fix's lead's (LeadDialog, on Fixes and Needs a look), and Needs a look's Find breaking commit's and Update golden's.
+ */
+const PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'LeadDialog', 'OtelDialog', 'Palette', 'Preview', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RevisionPage', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
-/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. */
-const COPY_PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
+/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset… and Export OpenTelemetry trace… it opens. */
+const COPY_PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'Palette', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
 
 /**
  * The parts heavy enough that they must wait for a script of their own (`onShow`), by their modules:
  * the structural diff, the results matrix, the check builder (all of ui/checks/) and each Changes
  * tab with what it opens (all of ui/changes/ but the head every tab shares), Compare among them.
  * Each of them in the build is in neither the first look nor what any page but its own loads up
- * front, so opening a page never loads one.
+ * front, so opening a page never loads one. The structural diff's walk (ui/json-diff.ts) is the one
+ * a page may hold up front, the one its third field names: Compare, a heavy page itself, whose rows
+ * mark the words two calls differ by and whose changed request it walks.
  */
-const HEAVY: ReadonlyArray<readonly [string, RegExp]> = [
+const HEAVY: ReadonlyArray<readonly [string, RegExp, string?]> = [
   ['the structural diff', /^ui\/components\/JsonDiff\.tsx$/],
+  ['the structural diff’s walk', /^ui\/json-diff\.ts$/, 'ui/pages/Compare.tsx'],
   ['the results matrix', /^ui\/components\/ResultsMatrix\.tsx$/],
   ['the check builder', /^ui\/checks\//],
   ['a Changes tab', /^ui\/changes\/(?!Head\.tsx$)/],
@@ -135,13 +141,21 @@ describe('the dashboard’s scripts', () => {
     expect(names(pages)).toEqual(PAGES);
     expect(names(parts)).toEqual(PARTS);
     for (const p of parts) expect(firstInputs.has(p.entry) || p.shownWith.has(p.entry), `${p.name} waits for its own script`).toBe(false);
+    // The page list declares no part, and shows one part itself: the In page, which a link into a
+    // project with no runs yet shows in the setup's place, declared in a module the pages showing it
+    // import too, so an exported copy takes it with its pages and not the page list (OnShow.tsx).
+    const listed = new Set(metafile.inputs['ui/pages/lazy.tsx'].imports.filter((i) => i.kind === 'import-statement').map((i) => i.path));
+    const listShows = dynamicImports(metafile).filter((d) => listed.has(d.by) && d.by.startsWith('ui/pages/'));
+    expect(listShows.map((d) => [d.by, d.entry])).toEqual([['ui/pages/held-elsewhere.tsx', 'ui/pages/Elsewhere.tsx']]);
     // The heavy parts each wait for a script of their own, wherever they show: in neither the first
-    // look nor what opening any other page loads. Compare is one of them already.
-    const heavy = Object.keys(metafile.inputs).flatMap((input) => HEAVY.filter(([, re]) => re.test(input)).map(([what]) => ({ input, what })));
-    expect(heavy.map((h) => h.input)).toContain('ui/pages/Compare.tsx');
-    for (const { input, what } of heavy) {
+    // look nor what opening any other page loads. Compare is one of them already, and the walk loads
+    // with it.
+    const heavy = Object.keys(metafile.inputs).flatMap((input) => HEAVY.filter(([, re]) => re.test(input)).map(([what, , page]) => ({ input, what, page })));
+    expect(heavy.map((h) => h.input)).toEqual(expect.arrayContaining(['ui/pages/Compare.tsx', 'ui/json-diff.ts']));
+    expect(pages.find((p) => p.name === 'Compare')?.upFront.has('ui/json-diff.ts')).toBe(true);
+    for (const { input, what, page } of heavy) {
       expect(firstInputs.has(input), `${what}, ${input}, is in the first look`).toBe(false);
-      for (const p of pages) if (p.entry !== input) expect(p.upFront.has(input), `${what}, ${input}, loads with ${p.name}`).toBe(false);
+      for (const p of pages) if (p.entry !== input && p.entry !== page) expect(p.upFront.has(input), `${what}, ${input}, loads with ${p.name}`).toBe(false);
     }
     // The run page's code is not in the first look.
     expect(firstInputs.has('ui/pages/Run.tsx')).toBe(false);
@@ -168,6 +182,9 @@ describe('the dashboard’s scripts', () => {
     // Not the dashboard's page list, which would bring every page with it.
     expect(held.has('ui/pages/lazy.tsx')).toBe(false);
     expect(held.has('ui/main.tsx')).toBe(false);
+    // Nor what only the served dashboard draws, which it hands in (ui/served-parts.ts): a copy draws no Share.
+    expect(held.has('ui/pages/served.tsx')).toBe(false);
+    expect(held.has('ui/run/ShareMenu.tsx')).toBe(false);
     // The parts its pages show are in its one script: a file has no server to load them from.
     const shown = dynamicImports(metafile).filter((d) => held.has(d.by));
     for (const part of COPY_PARTS) expect(PARTS).toContain(part);

@@ -169,17 +169,7 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 .dside.q2 { border-top-color: var(--cq-amber); }
 .dside.q3, .dside.q4 { border-top-color: var(--k-read); }
 .dside .k { display: block; margin-bottom: 8px; font: 500 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
-.dsay { margin: 0 0 8px; color: var(--ink); font-size: 13.5px; line-height: 1.5; text-wrap: pretty; }
-.dtool { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; padding: 3px 0; font: 12.5px/1.55 var(--mono); color: var(--dim); }
-.dtool b { color: var(--ink); font-weight: 500; }
-.dtool .ar { width: 10px; color: var(--faint); }
-.dtool code { flex-basis: 100%; padding-left: 18px; color: var(--dim); overflow-wrap: anywhere; }
-.dtool .nw { white-space: nowrap; }
-.dtool.gone b { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--line2); }
-.dtool.new .ar, .dtool.diff .ar { color: var(--ink); }
-.dtool.new.w b, .dtool.new.w .ar { color: var(--cq-red); }
-.dstop { margin: 8px 0 0; font: 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
-.dstop.diff { color: var(--cq-amber); }
+/* each side's decision is the Decision component's (components/Decision.tsx), styled in compare.css */
 .dchg { list-style: none; margin: 16px 0 0; padding: 0; font-size: 12.5px; color: var(--dim); }
 .dchg li { padding: 2px 0; }
 .dchg li.dargs code { display: block; font-size: 12.5px; color: var(--dim); white-space: normal; overflow-wrap: anywhere; }
@@ -196,5 +186,5 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 @media (max-width: 760px) { .dpair { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
 @media (forced-colors: active) {
   .dside, .dside.q1, .dside.q2, .dside.q3, .dside.q4 { border-top-color: CanvasText; }
-  .dtool.new.w b, .dtool.new.w .ar, .drk.q1, .drk.q2, .dstop.diff { color: CanvasText; }
+  .drk.q1, .drk.q2 { color: CanvasText; }
 }

@@ -20,7 +20,8 @@ import { isObject } from '../is-object.js';
  * list holds only what the folder doesn't: where the project is, how far its setup got, and the
  * commands confirmed for recording there. Removing a project takes it off the list and remembers
  * that part (`removed`); adding the folder again brings it all back, setup and confirmed commands
- * from the list and runs from the folder, which never left it. Deleting its recordings forgets it.
+ * from the list and runs from the folder, which never left it, and so does the Undo of a removal
+ * (`restore`), at the place it left. Deleting its recordings forgets it.
  *
  * The file is written atomically and owner-only (0600), one writer at a time, and kept as JSON a
  * person can read: unknown keys are preserved, so a newer version's additions survive an older
@@ -109,8 +110,11 @@ export interface AddedProject {
   runs: number;
 }
 
-/** A project taken off the list, as the list remembers it: adding the folder again brings this back. */
-export type RemovedEntry = ProjectEntry & { removedAt: number };
+/**
+ * A project taken off the list, as the list remembers it: adding the folder again brings this back.
+ * `place`: where it was among the projects listed, for an Undo that puts it back there.
+ */
+export type RemovedEntry = ProjectEntry & { removedAt: number; place?: number };
 
 export interface RemovedProject {
   project: ProjectEntry;
@@ -251,13 +255,31 @@ function removedEntries(raw: Raw): RemovedEntry[] {
   if (!Array.isArray(raw.removed)) return [];
   return raw.removed.flatMap((r): RemovedEntry[] => {
     const entry = toEntry(r);
-    return entry ? [{ ...entry, removedAt: isObject(r) && typeof r.removedAt === 'number' ? r.removedAt : 0 }] : [];
+    if (!entry || !isObject(r)) return [];
+    const place = typeof r.place === 'number' && Number.isInteger(r.place) && r.place >= 0 ? r.place : undefined;
+    return [{ ...entry, removedAt: typeof r.removedAt === 'number' ? r.removedAt : 0, ...(place === undefined ? {} : { place }) }];
   });
 }
 
 /** The file's `removed` list without what it remembers of the folder at `path`. */
 function forgetRemoved(raw: Raw, path: string): unknown[] {
   return (Array.isArray(raw.removed) ? raw.removed : []).filter((r) => !(isObject(r) && r.path === path));
+}
+
+/**
+ * A project on the list: last, or at `place` among the projects listed, before the one there now
+ * (where a removed one was, for its Undo). The file keeps its projects in the order of its list.
+ */
+function listAt(state: State, entry: ProjectEntry, place?: number): void {
+  const next = place === undefined ? undefined : state.projects[place];
+  const raw: unknown[] = Array.isArray(state.raw.projects) ? state.raw.projects : [];
+  const at = next ? raw.findIndex((r) => toEntry(r)?.id === next.id) : -1;
+  if (at < 0) {
+    state.projects.push(entry);
+    return;
+  }
+  state.projects.splice(place!, 0, entry);
+  state.raw.projects = [...raw.slice(0, at), entry, ...raw.slice(at)];
 }
 
 /**
@@ -489,7 +511,7 @@ export class ProjectRegistry {
    * since (the store says so) comes back finished.
    */
   private restoredEntry(remembered: RemovedEntry, taken: readonly ProjectEntry[], facts: StoreFacts): ProjectEntry {
-    const { removedAt: _removedAt, ...entry } = remembered;
+    const { removedAt: _removedAt, place: _place, ...entry } = remembered;
     const finished = facts.setupEvent && remembered.setup.stage !== 'done' ? initialSetup(facts, 0) : null;
     return {
       ...entry,
@@ -499,7 +521,7 @@ export class ProjectRegistry {
     };
   }
 
-  private addFolder(real: string, options: { inUse?: boolean; dbPath?: string } = {}): AddedProject {
+  private addFolder(real: string, options: { inUse?: boolean; dbPath?: string; place?: number } = {}): AddedProject {
     const dbPath = options.dbPath ?? projectDbPath(real);
     const { facts, start } = this.startOf(real, dbPath, !!options.inUse);
     const { project, restored, moved } = this.mutate((state) => {
@@ -516,7 +538,7 @@ export class ProjectRegistry {
       const remembered = removedEntries(state.raw).filter((r) => r.path === real).at(-1) ?? null;
       const entry = remembered ? this.restoredEntry(remembered, state.projects, facts) : this.newEntry(real, state.projects, start);
       if (remembered) state.raw.removed = forgetRemoved(state.raw, real);
-      state.projects.push(entry);
+      listAt(state, entry, options.place);
       return { project: entry, restored: !!remembered, moved: false };
     });
     if (moved) throw new ProjectError('exists', `${this.display(real)} is already in the dashboard, as ${project.name}.`);
@@ -535,6 +557,23 @@ export class ProjectRegistry {
   remove(id: string, options: { deleteRecordings?: boolean; typedName?: string } = {}): RemovedProject {
     const project = this.removeFromList(id, options);
     return { project, deleted: options.deleteRecordings ? this.deleteRecordingsOf(project) : [] };
+  }
+
+  /**
+   * The Undo of {@link remove}: the project removed last under this id back on the list, at the
+   * place it left, as adding its folder again brings it back (setup and confirmed commands as they
+   * were, its id unless another project took it), without asking again where a folder may be: it
+   * was on the list a moment ago. Refused when the list remembers no such project (it is back
+   * already, was added again, or went with its recordings) and when its folder is gone. `store`:
+   * the store `--db` named for a folder, read in place of the folder's own when it is this one's.
+   */
+  restore(id: string, options: { store?: { path: string; dbPath: string } } = {}): AddedProject {
+    const remembered = removedEntries(this.read().raw).filter((r) => r.id === id).at(-1);
+    if (!remembered) throw new ProjectError('not-found', `There is no removed project ${id} to put back.`);
+    const real = realpathOrNull(remembered.path);
+    if (real !== remembered.path || !statSync(real).isDirectory()) throw new ProjectError('folder', `${this.display(remembered.path)} isn’t on disk any more.`);
+    const dbPath = options.store?.path === real ? options.store.dbPath : undefined;
+    return this.addFolder(real, { inUse: true, ...(remembered.place === undefined ? {} : { place: remembered.place }), ...(dbPath ? { dbPath } : {}) });
   }
 
   /**
@@ -562,7 +601,7 @@ export class ProjectRegistry {
       if (state.projects.length <= 1) throw new ProjectError('only-project', 'This is the only project. Add another one first.');
       const [gone] = state.projects.splice(i, 1);
       const others = forgetRemoved(state.raw, gone!.path);
-      state.raw.removed = options.deleteRecordings ? others : [...others, { ...gone, removedAt: at }].slice(-MAX_REMOVED);
+      state.raw.removed = options.deleteRecordings ? others : [...others, { ...gone, removedAt: at, place: i }].slice(-MAX_REMOVED);
     });
     if (!options.deleteRecordings) this.activity(project, { kind: 'project.removed', ref: project.id, data: { path: this.display(project.path), name: project.name } }, false);
     return project;

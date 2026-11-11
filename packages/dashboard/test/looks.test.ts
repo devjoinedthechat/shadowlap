@@ -63,8 +63,8 @@ describe('the upgrades’ results in Needs a look', () => {
     presets('goldens/gone', run(), [{ preset: 'timeout', verdict: 'failed', callNo: 2 }]);
     const rows = items().filter((i) => i.kind === 'presets');
     expect(rows).toEqual([
-      { kind: 'presets', icon: 'fail', title: 'Error-path presets failed: forecast', detail: '2 of 4 presets failed: tool timeout #2, provider 429 #3 · 1 inconclusive', action: 'Open', href: `#/run/${failing.timeout}`, runId: failing.timeout, fixId: null, at: expect.any(Number) },
-      { kind: 'presets', icon: 'warn', title: 'Error-path presets inconclusive: inbox', detail: '1 of 2 presets inconclusive: provider 500 #4', action: 'Open', href: `#/run/${unsure['500']}`, runId: unsure['500'], fixId: null, at: expect.any(Number) },
+      { kind: 'presets', icon: 'fail', title: 'Error-path presets failed: forecast', detail: '2 of 4 presets failed: tool timeout #2, provider 429 #3 · 1 inconclusive', key: 'attn:presets:goldens/forecast', group: 'failing', step: null, href: `#/run/${failing.timeout}`, runId: failing.timeout, fixId: null, at: expect.any(Number) },
+      { kind: 'presets', icon: 'warn', title: 'Error-path presets inconclusive: inbox', detail: '1 of 2 presets inconclusive: provider 500 #4', key: 'attn:presets:goldens/inbox', group: 'tests', step: null, href: `#/run/${unsure['500']}`, runId: unsure['500'], fixId: null, at: expect.any(Number) },
     ]);
   });
 
@@ -76,12 +76,13 @@ describe('the upgrades’ results in Needs a look', () => {
     store.putInjectionResult({ resultId: 'inj-01A', runId: recording, golden: 'goldens/forecast', sessionId: null, mode: 'plant', at: NOW - 5_000, endedAt: NOW - 4_000, attempts: 2, obeyed: 1, influenced: 0, ignored: 1, inconclusive: 0, verdict: 'obeyed', actor: null, data });
     // One of a golden no longer on disk: nothing to look at.
     store.putInjectionResult({ resultId: 'inj-01B', runId: recording, golden: 'goldens/gone', sessionId: null, mode: 'plant', at: NOW - 3_000, endedAt: NOW - 2_000, attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: null, data });
-    // A failed test is a failure: the injection line comes with them, before the failures with no fix yet.
+    // The injection line is under Security, after the failures.
     const failedRun = run({ status: 'failed' });
-    const rows = items();
-    expect(rows[0]).toEqual({ kind: 'injection', icon: 'fail', title: 'An injection test failed: forecast', detail: 'send_email obeyed a planted instruction (1 of 2)', action: 'Open', href: `#/run/${obeyed}`, runId: obeyed, fixId: null, at: NOW - 4_000 });
-    expect(rows.map((r) => r.kind)).toEqual(['injection', 'unblamed']);
-    expect(rows[1].runId).toBe(failedRun);
+    const all = items();
+    const rows = all.filter((r) => r.kind === 'injection');
+    expect(rows[0]).toEqual({ kind: 'injection', icon: 'fail', title: 'An injection test failed: forecast', detail: 'send_email obeyed a planted instruction (1 of 2)', key: expect.stringMatching(/^attn:injection:#\/run\//), group: 'security', step: null, href: `#/run/${obeyed}`, runId: obeyed, fixId: null, at: NOW - 4_000 });
+    expect(all.map((r) => r.kind)).toEqual(['unblamed', 'injection']);
+    expect(all[0].runId).toBe(failedRun);
   });
 
   it('lists a preview whose flagged runs no verify accepted, opening its cell on Preview, and a migration’s run, at the call whose decision changed', () => {
@@ -101,8 +102,8 @@ describe('the upgrades’ results in Needs a look', () => {
     session('dc-01M5000000000000000000000E', 'decisions', NOW - 50_000, 'temperature=1', { flagged: [refund], verify: null });
     store.putDecisionSession({ sessionId: 'dc-01M5000000000000000000000F', kind: 'decisions', at: NOW - 6_000, change: 'temperature=1', actor: null, revision: null, data: { flagged: [], verify: null }, runs: [{ runId: refund, golden: 'goldens/forecast', rank: null, changed: 0, data: { ...decisionRun, rank: null, decisions: [step(3, null)] } }] });
     expect(items().filter((i) => i.kind === 'decisions')).toEqual([
-      { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the model gpt-5-mini', detail: 'a migration: a write, stop or judged change · verify rejected it', action: 'Open', href: `#/run/${refund}/5`, runId: refund, fixId: null, at: NOW - 7_000 },
-      { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the prompt and tools in the working tree', detail: 'a preview: a write, stop or judged change · not verified yet', action: 'Open', href: `#/changes/decisions/dc-01M5000000000000000000000A/${refund}/5`, runId: refund, fixId: null, at: NOW - 9_000 },
+      { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the model gpt-5-mini', detail: 'a migration: a write, stop or judged change · verify rejected it', key: 'attn:decisions:mg-01M5000000000000000000000D', group: 'tests', step: null, href: `#/run/${refund}/5`, runId: refund, fixId: null, at: NOW - 7_000 },
+      { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the prompt and tools in the working tree', detail: 'a preview: a write, stop or judged change · not verified yet', key: 'attn:decisions:dc-01M5000000000000000000000A', group: 'tests', step: null, href: `#/changes/decisions/dc-01M5000000000000000000000A/${refund}/5`, runId: refund, fixId: null, at: NOW - 9_000 },
     ]);
   });
 
@@ -143,17 +144,17 @@ describe('the upgrades’ results in Needs a look', () => {
     store.finishTestSession(session.sessionId, { passed: 0, failed: 2, upstreamRequests: 0, endedAt: NOW - 7_000 });
     // One line each, its test's: red for the failure, amber for the one that couldn't say.
     expect(items().map((r) => [r.kind, r.icon, r.title])).toEqual([
-      ['test', 'fail', 'A test failed: forecast'],
-      ['test', 'warn', 'A test is inconclusive: inbox'],
+      ['test', 'fail', 'A golden failed: forecast'],
+      ['test', 'warn', 'A golden is inconclusive: inbox'],
     ]);
     expect(overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.total).toBe(2);
-    // Tested on its own since (`shadowlap injection goldens/forecast`): a line of its own, after the failing tests.
+    // Tested on its own since (`shadowlap injection goldens/forecast`): a line of its own, under Security after the tests.
     const again = run({ parent: forecast, meta: { injection: { result: 'inj-01C', role: 'attempt', read: 1, payload: 'notice', attempt: 1, of: 1, verdict: 'obeyed' } } });
     store.putInjectionResult({ resultId: 'inj-01C', runId: forecast, golden: 'goldens/forecast', sessionId: null, mode: 'plant', at: NOW - 2_000, endedAt: NOW - 1_000, attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, verdict: 'obeyed', actor: null, data: { mode: 'plant', attempts: [{ runId: again, verdict: 'obeyed', evidence: [] }], gate: { verdict: 'failed' } } });
     expect(items().map((r) => [r.kind, r.title, r.runId])).toEqual([
-      ['test', 'A test failed: forecast', replay],
+      ['test', 'A golden failed: forecast', replay],
+      ['test', 'A golden is inconclusive: inbox', null],
       ['injection', 'An injection test failed: forecast', again],
-      ['test', 'A test is inconclusive: inbox', null],
     ]);
   });
 
@@ -183,14 +184,14 @@ describe('the upgrades’ results in Needs a look', () => {
     store.saveCoverageScan({ scanId: 'S1', at: NOW - 1_000, runs: 1, groups: 1, uncovered: 1, goldens: 2, actor: null, data: null }, [{ key: 'aaaa000011112222', scanId: 'S1', behaviour: { path: ['lookup_order'], writes: [], unknown: [], outcome: 'answered' }, runs: 1, runIds: [capture], sources: ['prod.har'], firstSeen: NOW - 9_000, lastSeen: NOW - 5_000, coveredBy: [], nearest: null, command: null, packed: null }]);
     expect(items().map((r) => [r.kind, r.icon])).toEqual([
       ['test', 'fail'],
-      ['injection', 'fail'],
-      ['injection', 'warn'],
       ['presets', 'fail'],
+      ['unblamed', 'fail'],
       ['test', 'warn'],
       ['presets', 'warn'],
-      ['unblamed', 'fail'],
-      ['decisions', 'warn'],
       ['coverage', 'rec'],
+      ['decisions', 'warn'],
+      ['injection', 'fail'],
+      ['injection', 'warn'],
     ]);
   });
 
@@ -199,7 +200,7 @@ describe('the upgrades’ results in Needs a look', () => {
     const group = (o: Partial<StoredCoverageGroup>): StoredCoverageGroup => ({ key: 'aaaa000011112222', scanId: 'S1', behaviour: { path: ['lookup_order', 'issue_refund'], writes: ['issue_refund'], unknown: [], outcome: 'answered' }, runs: 1, runIds: ['GONE', capture], sources: ['prod.har'], firstSeen: NOW - 9_000, lastSeen: NOW - 5_000, coveredBy: [], nearest: null, command: null, packed: null, ...o });
     store.saveCoverageScan({ scanId: 'S1', at: NOW - 1_000, runs: 2, groups: 2, uncovered: 1, goldens: 1, actor: null, data: null }, [group({}), group({ key: 'bbbb000011112222', coveredBy: ['goldens/forecast'] })]);
     const rows = items();
-    expect(rows.at(-1)).toEqual({ kind: 'coverage', icon: 'rec', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund, in prod.har', action: 'Open', href: `#/run/${capture}`, runId: capture, fixId: null, at: NOW - 1_000 });
+    expect(rows.at(-1)).toEqual({ kind: 'coverage', icon: 'rec', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund, in prod.har', key: 'attn:coverage:aaaa000011112222', group: 'tests', step: null, href: `#/run/${capture}`, runId: capture, fixId: null, at: NOW - 1_000 });
   });
 
   it('adds nothing for a store where the upgrades found nothing to look at', () => {
@@ -230,6 +231,6 @@ describe('a golden’s presets on Tests', () => {
     expect(f.presets).toEqual({ verdict: 'failed', ran: 3, passed: 2, failed: 1, inconclusive: 0, line: '1 of 3 presets failed: tool timeout #2', runId: attempts.timeout, at: expect.any(Number) });
     expect(i.presets).toMatchObject({ verdict: 'passed', ran: 1, line: '1 of 1 preset passed' });
     // Its replay not tested yet: said so, and not as a golden nothing ran on.
-    expect(view.verdict!.title).toBe('1 of 2 goldens pass, 1 tested only by its error-path presets');
+    expect(view.verdict!.title).toBe('1 of 2 goldens passed · 1 golden tested only by its error-path presets');
   });
 });

@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { VERDICTS_WINDOW } from '../src/verdicts.js';
 import { ApiError, type Client } from '../ui/api.js';
@@ -7,17 +7,18 @@ import { ChangesHead } from '../ui/changes/Head.js';
 import { chipEmpty, kindLine, moreLimit, rowTone, verdictHref, VERDICTS_MAX, VERDICTS_STEP } from '../ui/changes/model.js';
 import { RevisionPage } from '../ui/changes/RevisionPage.js';
 import { forgetVerdictsKept, VerdictsTab } from '../ui/changes/Verdicts.js';
+import { rememberList } from '../ui/fixes/data.js';
 import { minuteStamp } from '../ui/format.js';
 import { ChangesPage } from '../ui/pages/Changes.js';
 import { ComparePage } from '../ui/pages/Compare.js';
 import { showProject } from '../ui/projects-api.js';
 import { navSection, parseRoute, routeHref, samePage } from '../ui/route.js';
-import { goTarget } from '../ui/shell/Keyboard.js';
+import { goTarget, Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { changesCrumbs } from '../ui/shell/top.js';
 import { unshownKey, useUnshown } from '../ui/shell/unshown.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { Meta, PreviewVerdict, RunDetail, RunListItem, SessionVerdict, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerifyVerdict } from '../ui/types.js';
+import type { FixesViewRow, Meta, PreviewVerdict, RunDetail, RunListItem, SessionVerdict, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerifyVerdict } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
@@ -543,6 +544,45 @@ describe('Verdicts', () => {
     expect(moreLimit({ shown: 120, limit: 150, count: 120 })).toBeNull();
     expect(moreLimit({ shown: 200, limit: 200, count: 600 })).toBeNull();
   });
+
+  it('offers on ⌘K a verify’s row its fix and each step, named as the Fixes list names it once read, else by its id', async () => {
+    const fixId = verify().fixId;
+    const shell = { conn: 'ok', runCommands: [], help: false, setHelp: () => undefined, sideOpen: false, setSideOpen: () => undefined, runKeys: { current: null } };
+    function WithPalette() {
+      const [palette, setPalette] = useState(false);
+      const state = app({ verdicts: () => Promise.resolve(view([verify()])) }, { ...shell, palette, setPalette } as unknown as Partial<AppState>);
+      return createElement(AppContext.Provider, { value: state }, createElement('main', { id: 'view' }, createElement(VerdictsTab)), createElement(Keyboard), createElement(Palette, { route: parseRoute('#/changes/verdicts') }));
+    }
+    /** ⌘K on the row j puts the focus in: the group's name, and each item's label and hint. */
+    async function actions(): Promise<{ name: string; items: string[][] }> {
+      await page?.unmount();
+      page = await render(createElement(WithPalette));
+      await page.until('the row', () => table().length === 1);
+      await page.press('j');
+      await page.press('k', { metaKey: true });
+      await page.until('the palette', () => page!.all('.palette').length === 1);
+      return { name: shown(page.one('.palg code')), items: page.all('.palit').map((el) => [shown(el.querySelector('.pl')), shown(el.querySelector('.ph2'))]) };
+    }
+    try {
+      // Before the Fixes list was read: the fix by its id, its title on Open fix, and no step's word.
+      rememberList({ fixes: [] });
+      expect(await actions()).toEqual({ name: fixId.slice(0, 13), items: [['Open fix', 'refund-bug'], ['Blame', ''], ['Repair', ''], ['Verify', '']] });
+      // Once read: by its label, each step hinted with its word in the list.
+      const steps = [
+        { key: 'blame', short: 'lost at #5' },
+        { key: 'repair', short: 'prompt change' },
+        { key: 'verify', short: '2 fixed · 1 kept' },
+      ];
+      rememberList({ fixes: [{ fixId, label: 'refund-bug', title: 'issue_refund called with amount 240', steps } as unknown as FixesViewRow] });
+      expect(await actions()).toEqual({ name: 'refund-bug', items: [['Open fix', 'issue_refund called with amount 240'], ['Blame', 'lost at #5'], ['Repair', 'prompt change'], ['Verify', '2 fixed · 1 kept']] });
+      // Each opens the fix at its step.
+      const location = addressBar('#/changes/verdicts');
+      await page!.click(page!.all('.palit').find((el) => shown(el.querySelector('.pl')) === 'Verify')!);
+      expect(location.hash).toBe(`#/fixes/${fixId}/verify`);
+    } finally {
+      rememberList({ fixes: [] });
+    }
+  });
 });
 
 describe('a revision’s page', () => {
@@ -641,7 +681,7 @@ describe('Compare under Changes', () => {
     page = await render(createElement(AppContext.Provider, { value: app({}, { runs: [] }) }, createElement(ComparePage, { a: null, b: null })));
     expect(page.one('.ph h1').textContent).toBe('Changes');
     expect(page.one('nav.stabs a[aria-current="page"]').textContent).toBe('Compare');
-    expect(page.one('.stepempty h3').textContent).toBe('Compare needs two runs');
+    expect(page.one('.stepempty h2').textContent).toBe('Compare needs two runs');
     expect(changesHref()).toBe('#/compare');
   });
 
@@ -656,10 +696,13 @@ describe('Compare under Changes', () => {
     expect(page.one('.ph h1').textContent).toBe('Changes');
     await page.unmount();
     addressBar(`#/compare/${REC}/${FORK}`);
-    const gone = { run: (id: string) => (id === FORK ? Promise.reject(new ApiError(404, 'no run')) : Promise.resolve(detail(id))), compare: () => new Promise(() => undefined) };
-    page = await render(createElement(AppContext.Provider, { value: app(gone as Partial<Client>, { runs: [listed(REC), listed(FORK)] }) }, createElement(ComparePage, { a: REC, b: FORK })));
+    // The page first asks whether another project's store holds the run that's gone (GET /api/projects/holding): none does.
+    const holding = () => Promise.resolve({ current: { id: 'support-agent', name: 'support-agent' }, held: null });
+    const gone = { run: (id: string) => (id === FORK ? Promise.reject(new ApiError(404, 'no run')) : Promise.resolve(detail(id))), compare: () => new Promise(() => undefined), projects: { holding } };
+    page = await render(createElement(AppContext.Provider, { value: app(gone as unknown as Partial<Client>, { runs: [listed(REC), listed(FORK)] }) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the pair forgotten', () => changesHref() === '#/compare');
-    expect(page.one('.stepempty h3').textContent).toBe('Not in this store');
+    await page.until('the not-found', () => page!.all('.stepempty h2').length === 1);
+    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
   });
 
   it('keeps a head of its own in an exported copy, with no tabs, and notes nothing', async () => {

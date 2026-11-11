@@ -76,9 +76,9 @@ describe('the progress of blame, verify and repair', () => {
     progress.log('    target    01M5TPWDF0  attempt 1  ✓ passed · 7 live · 256ms · 01M5TPWT4D');
     progress.log('    held-out  01M5TPWD00  attempt 1  ✗ issue_refund called 1 time · 7 live · 352ms · 01M5TPWT6D');
     progress.log('    good      01M5TPWDXP  baseline 1  ✓ passed · 7 live · 393ms · 01M5TPWT8C');
-    progress.log('    target    01M5TPWDF0  fixed · 12 of 12 · rate >= 0.73 (95%)');
+    progress.log('    target    01M5TPWDF0  fixed · 12 of 12 passed · rate >= 0.73 (95%)');
     progress.log('    good      01M5TPWDXP  attempt 2  ✓ passed · 7 live · 387ms · 01M5TPWV24');
-    expect(screen(out.text)).toEqual(['  candidate 3 (system prompt, 39 characters changed): You are a support agent.', '    target    01M5TPWDF0  fixed · 12 of 12 · rate >= 0.73 (95%)', '    4 attempts: 3 passed, 1 failed']);
+    expect(screen(out.text)).toEqual(['  candidate 3 (system prompt, 39 characters changed): You are a support agent.', '    target    01M5TPWDF0  fixed · 12 of 12 passed · rate >= 0.73 (95%)', '    4 attempts: 3 passed, 1 failed']);
     progress.done();
   });
 

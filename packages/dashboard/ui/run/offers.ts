@@ -1,7 +1,7 @@
 import type { CostWords, FactWords } from '../actions.js';
 import { goldenName, num, shortId } from '../format.js';
 import { commandText } from '../goldens.js';
-import { divergedWhere, insteadOf, recordingCost, replacedIf, updateSteps, type UpdatePlan } from '../update-plan.js';
+import { divergedWhere, insteadOf, recordingCost, replacedIf, updateSteps, type UpdatePlan } from '../update-words.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { bisectBadFact, bisectCost, FLAKY_NOTE, revisionTally, type GoodChoice } from '../runspage/find-commit.js';
 import type { BisectOffer, BlameOffer, TestBannerOffer } from '../types.js';
@@ -159,6 +159,9 @@ function bisectLine(b: BisectFrom, good: string): string {
 }
 
 /** Find breaking commit's command for its hover card, before its dialog asks for a commit: from the one the server knows, else `<commit>`. */
+/** A Find breaking commit with nothing known about the run's revisions: the dialog asks for a commit, on the run's page and from Needs a look. */
+export const unknownBisect = (runId: string): BisectOffer => ({ target: { kind: 'run', runId }, failed: true, good: null, bad: null, revisions: [], fork: false, live: false, unavailable: null, args: null });
+
 export const bisectCardCommand = (offer: BisectOffer): string => `$ ${bisectLine(offer, offer.good ?? '<commit>')}`;
 
 /**

@@ -244,6 +244,24 @@ function kindOf(s: Span): 'model' | 'tool' | 'embedding' | null {
   return null;
 }
 
+/**
+ * The agent a span is, by the conventions that mark one: any span naming `gen_ai.agent.name`, or
+ * OpenTelemetry's `invoke_agent` operation (the OpenAI Agents SDK's instrumentations, Pydantic AI,
+ * Strands and others); an OpenInference AGENT span (CrewAI, smolagents, LlamaIndex); OpenLLMetry's
+ * agent spans; Pydantic AI's older `agent run`. Null for any other span.
+ */
+function agentOf(s: Span): string | null {
+  const a = s.attrs;
+  const named = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const own = named(a['gen_ai.agent.name']);
+  if (own) return own;
+  if (a['gen_ai.operation.name'] === 'invoke_agent') return named(s.name.replace(/^invoke_agent\b/, ''));
+  if (typeof a['openinference.span.kind'] === 'string' && a['openinference.span.kind'].toUpperCase() === 'AGENT') return named(a['agent.name']) ?? named(s.name);
+  if (a['traceloop.span.kind'] === 'agent') return named(a['traceloop.entity.name']) ?? named(s.name);
+  if (s.name === 'agent run') return named(a['agent_name']);
+  return null;
+}
+
 /** OpenLLMetry logs a decorated function's input as `{ args, kwargs }` and a chain's as `{ inputs }`. */
 function entityValue(raw: unknown, key: 'inputs' | 'outputs'): unknown {
   const v = maybeJson(raw);
@@ -634,7 +652,12 @@ function tracesOf(spans: Span[]): Trace[] {
       skipped.push({ url: `trace ${id}`, reason: 'exported by shadowlap export otel, which carries no prompt text: share the run as a pack instead (shadowlap pack, then shadowlap unpack)' });
     }
     const parents = new Map(list.filter((s) => s.parentSpanId).map((s) => [s.spanId, s.parentSpanId]));
-    traces.push({ id, calls, spans: list.length, skipped, parents });
+    const agents = new Map<string, string>();
+    for (const s of list) {
+      const name = agentOf(s);
+      if (name !== null) agents.set(s.spanId, name);
+    }
+    traces.push({ id, calls, spans: list.length, skipped, parents, ...(agents.size ? { agents } : {}) });
   }
   return traces;
 }

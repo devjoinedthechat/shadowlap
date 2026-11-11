@@ -15,6 +15,7 @@ import { LoadProblem, Loading } from './common.js';
 import { setupStates, type SetupStepState } from './store-logic.js';
 import { ACTIONS } from '../../labels.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { PushFromCiStep } from './StoreSetupCi.js';
 
 /**
  * The team store's setup, free like the rest of Shadowlap, on a page of its own (`#/setup/store`)
@@ -22,8 +23,8 @@ import { ActionButton } from '../../components/ActionButton.js';
  * Connect your bucket (the provider, the bucket and folder checked against its scheme, the
  * credentials this machine would use, the access to ask the cloud admin for, then `store set
  * --check`, which writes the store only once the check passes); push your runs (`push --all`); push
- * from CI (the step for GitHub Actions, GitLab CI or other CI, then I added it or Skip for now);
- * bring your team (the config change to commit, then Finish). Settings → Store's Set up team store
+ * from CI (on GitHub Actions, Turn on Push from CI or Skip for now; GitLab CI's or other CI's
+ * step, then I added it or Skip for now); bring your team (the config change to commit, then Finish). Settings → Store's Set up team store
  * leads here, and so does the palette, and Needs a look while a setup is under way. `view` is the
  * server's (`GET /api/store/setup`); the steps' jobs and records go through it.
  */
@@ -222,71 +223,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
         </Step>
 
         <Step n={3} state={states.ci} title="Push from CI" cli={step ? step.command : null}>
-          {states.ci === 'done' ? (
-            <p>{view.setup.ci === 'skipped' ? 'Skipped. Add it any time; the step is in Settings → Store.' : 'CI pushes every test run, its report and each fix it opens, so the store covers every pull request.'}</p>
-          ) : (
-            <p>CI pushes every test run, its report and each fix it opens, so the store covers every pull request. Give CI its own access to the bucket, with short-lived credentials where your CI allows it.</p>
-          )}
-          {states.ci === 'cur' && view.ci ? (
-            <>
-              <div className="seg" role="group" aria-label="CI">
-                {view.ci.map((x) => (
-                  <button key={x.ci} type="button" aria-pressed={ci === x.ci} onClick={() => setCi(x.ci)}>
-                    {x.name}
-                  </button>
-                ))}
-              </div>
-              {step?.workflow ? (
-                // GitHub: your workflow on Settings → CI runs the goldens once and pushes them; this adds no job that runs them again.
-                <>
-                  <p className="muted cinote">
-                    Your workflow on <a href={step.workflow.href}>Settings → CI</a> runs your goldens once, and with Push from CI on it pushes them (<code>push: true</code>), so this adds no job of its own.{' '}
-                    {step.workflow.credentials ? 'Put these steps in its job right before the action, where its comment says:' : 'Add R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY as repository secrets: its step gives them to your branches’ jobs only.'}
-                  </p>
-                  {step.workflow.credentials ? (
-                    <pre tabIndex={0} className="codebox" title={step.file}>
-                      {step.workflow.credentials}
-                    </pre>
-                  ) : null}
-                  {step.workflow.printed ? <p className="muted cinote">{step.workflow.printed}</p> : null}
-                  {step.notes.map((n) => (
-                    <p key={n} className="muted cinote">
-                      {n}
-                    </p>
-                  ))}
-                </>
-              ) : step ? (
-                <>
-                  <pre tabIndex={0} className="codebox" title={step.file}>
-                    {step.text}
-                  </pre>
-                  {step.notes.map((n) => (
-                    <p key={n} className="muted cinote">
-                      {n}
-                    </p>
-                  ))}
-                </>
-              ) : null}
-              <div className="actions">
-                {step?.workflow ? (
-                  <a className="btn" href={step.workflow.href}>
-                    Open your workflow
-                  </a>
-                ) : null}
-                {step?.workflow && !step.workflow.credentials ? null : (
-                  <button className="btn" type="button" disabled={!step} onClick={() => step && copy(step.workflow?.credentials ?? step.text, step.workflow ? 'the credentials steps' : `the ${step.name} step`)}>
-                    Copy
-                  </button>
-                )}
-                <ActionButton className="btn lime" disabled={saving} why={off} onClick={() => save({ ci: 'added', ciProvider: ci }, 'Push from CI added')}>
-                  I added it
-                </ActionButton>
-                <ActionButton className="btn quiet" disabled={saving} why={off} onClick={() => save({ ci: 'skipped', ciProvider: ci }, 'Skipped for now · the step stays in Settings → Store')}>
-                  Skip for now
-                </ActionButton>
-              </div>
-            </>
-          ) : null}
+          <PushFromCiStep view={view} state={states.ci} ci={ci} setCi={setCi} step={step} saving={saving} off={off} save={save} copy={copy} />
         </Step>
 
         <Step n={4} state={states.team} title="Bring your team" cli={view.commit && states.team === 'cur' ? view.commit.command : null}>

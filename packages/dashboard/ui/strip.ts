@@ -218,29 +218,3 @@ export function miniCells(origins: readonly Origin7[], max = MINI_CELLS): MiniCe
   return bins ? bins.map((b) => ({ origin: b.major as Origin7, tick: b.tick as Origin7 | null, tickAt: b.tickAt })) : origins.map((origin) => ({ origin, tick: null, tickAt: 0 }));
 }
 
-/** The Overview's family rows share one scale, at least this many calls wide, so a fork's prefix lines up under its parent. */
-export const GRID_MIN = 30;
-
-export interface GridCell {
-  /** The cell's most notable origin, or null for calls the run has not made (yet). */
-  origin: Origin7 | null;
-  /** The cell holds the call a fork left at. */
-  fork: boolean;
-}
-
-/**
- * One family row of the Overview's grid: `scale` columns of calls (grouped past 60, each range taking
- * its most notable origin), with the run's own calls filled in and the rest left empty.
- */
-export function gridCells(origins: readonly Origin7[], scale: number, forkAt: number | null = null, max = MINI_CELLS): GridCell[] {
-  const n = Math.max(scale, origins.length, 1);
-  const size = n > max ? Math.ceil(n / max) : 1;
-  const out: GridCell[] = [];
-  for (let i = 0; i < n; i += size) {
-    const range = origins.slice(i, Math.min(i + size, origins.length));
-    let top: Origin7 | null = null;
-    for (const o of range) if (top === null || ORIGIN_RANK[o] > ORIGIN_RANK[top]) top = o;
-    out.push({ origin: top, fork: forkAt !== null && forkAt > i && forkAt <= i + size });
-  }
-  return out;
-}

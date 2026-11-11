@@ -223,6 +223,15 @@ test('a control’s hover card says its key, and Provenance’s card its name ov
   await expect(page.locator('.tip .kbd')).toHaveText('v');
 });
 
+test('c on a fork opens Compare against the run it forked from, the verdict first', async ({ page }) => {
+  const fork = demoId('override');
+  await openPage(page, `/run/${fork}`, 'run');
+  await page.keyboard.press('c');
+  await expect.poll(() => hash(page)).toBe(`#/compare/${demoId('ticket')}/${fork}`);
+  await expect(page.locator('main#view .verdict.cmpv')).toBeVisible();
+  await expect(page.locator('main#view .paths2 button.cprow').first()).toBeVisible();
+});
+
 test('n’s call on a fork’s banner says its key, and n selects it', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
   const mark = page.locator('#view [data-shortcut="jump"]');
@@ -260,7 +269,7 @@ test('Esc closes a run’s diff first, its toggle taking the focus from inside i
 test('Esc closes a run’s diff first while its script is on its way and once it failed to come, the run staying open', async ({ page }) => {
   // The diff is a script of its own, asked for the first time it opens: held back, then failed.
   const held: Route[] = [];
-  await page.route(/\/assets\/chunks\/DiffPanel-\w+\.js$/, (route) => void held.push(route));
+  await page.route(/\/assets\/chunks\/RequestDiff-\w+\.js$/, (route) => void held.push(route));
   await openPage(page, `/run/${demoId('override')}`, 'run');
   const at = await hash(page);
   const toggle = page.locator('#view [data-act="diff"]');
@@ -401,7 +410,7 @@ test('a job’s end hands the focus to what took its control’s place, however 
   const run = demoId('digestFailed');
   const fix = { role: 'failing', fix: { fixId: 'fx-0000000000000000000000000A', href: '#/fixes/fx-0000000000000000000000000A', title: 'The agent exited with code 1', status: 'open', label: 'digest', check: 'the agent exits 0' }, blame: null, probe: null, verify: null };
   // What the server leads with once the blame opened that fix.
-  const opens = { key: 'fix', label: 'Open fix', fixId: fix.fix.fixId, status: 'open', href: fix.fix.href, title: `“${fix.fix.title}”` };
+  const opens = { key: 'fix', label: 'Open fix', fixId: fix.fix.fixId, status: 'open', check: fix.fix.check, href: fix.fix.href, title: `“${fix.fix.title}”` };
   const job = (done: boolean) => ({ id: 'stubjob', kind: 'blame', title: 'Blaming', args: ['blame', run], worktree: { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: '/x' }, runId: run, opensRun: false, startedAt: Date.now() - 1000, endedAt: done ? Date.now() : null, done, stopped: false, code: done ? 3 : null, newRunId: null, runs: [], links: [], files: [], total: 0, lines: [], project: { id: 'support-agent', name: 'support-agent' } });
   let polls = 0;
   let ended = false;

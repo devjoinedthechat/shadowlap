@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { consentAsked } from '../actions.js';
 import { ConsentDialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
+import { refusedPress } from './page-fix.js';
 import { useTreeBusy } from './tree.js';
 import { JobButton } from '../components/JobButton.js';
 import { sentEstimate, type Priced } from '../spending.js';
@@ -22,7 +23,8 @@ type FixJobBilling = { estimate?: never; form?: never; ask?: never } | { estimat
  * Run more attempts, Verify again): lime when it is the page's next step, its command on hover, and
  * plain, with why, while it can't start (a read-only dashboard, a server without the job, a repair
  * or an apply holding the tree). A job whose runs came from someone else's pack asks once more
- * before it runs their command. `ask` is its dialog, which starts the job with the fields it adds. With
+ * before it runs their command; one refused once the fix's blame moved on offers Open Blame
+ * (`refusedPress`). `ask` is its dialog, which starts the job with the fields it adds. With
  * an `estimate`, a press follows Spending (JobButton): it starts at once at or under the threshold,
  * else opens `ask`, and the start, the ask's and the consent's yes all send the estimate the card said.
  * Without one, `ask` opens on every press, as a form does. A job billed or a form has its `ask` (the
@@ -65,7 +67,7 @@ export function FixJobButton({
       (err: unknown) => {
         const asked = more.yes === undefined ? consentAsked(err) : null;
         if (asked) setConsent({ ...asked, fields: more });
-        else app.watchJob(Promise.reject(err));
+        else refusedPress(app, kind, fields, err);
       },
     );
   return (

@@ -4,7 +4,8 @@ import { recordBlame, recordVerdict, Store, type BlameReport, type VerifyReport 
 import { blameReport, EXPECT, makeRun, verifyReport } from '../../engine/test/fix-fixtures.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import { blameEvidence, gateEvidence, methodWords, verifyEvidence } from '../src/evidence.js';
-import { fixDetail, fixList } from '../src/fixes.js';
+import { fixDetail } from '../src/fixes.js';
+import { fixesView } from '../src/fixes-view.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -34,7 +35,7 @@ const newRun = (o: Parameters<typeof makeRun>[1] = {}): string => makeRun(store 
 function app(groups: FixAttemptGroups | null = null): AppState {
   const client = {
     fix: (id: string) => Promise.resolve(fixDetail(store, id)),
-    fixes: () => Promise.resolve(fixList(store)),
+    fixes: () => Promise.resolve(fixesView(store)),
     attemptGroups: (id: string) => Promise.resolve(groups ?? { fixId: id, blame: null, verify: [], cut: false }),
     jobs: () => Promise.resolve([]),
   } as unknown as Client;
@@ -113,12 +114,12 @@ describe('a fix’s page, with what its verdicts say beyond their tallies', () =
     });
     const page = await open(fixId, 'blame');
     // The bound as the CLI prints it after the confidence.
-    expect(text(page.one('.sh p'))).toMatch(/· confidence high \(<= 4% risk that the range is wrong: 3 probes decided, at <= 1\.3% risk each\) · lost between #3 and #5/);
+    expect(text(page.one('.verdict p'))).toMatch(/· confidence high \(<= 4% risk that the range is wrong: 3 probes decided, at <= 1\.3% risk each\) · lost between #3 and #5/);
     const row = page.all('table.probes tbody tr')[1];
     expect(text(row)).toContain('· 2 unavailable');
   });
 
-  it('shows a run’s baseline and the bound on its drop as the CLI says it, its bound’s method on hover and its unavailable attempts', async () => {
+  it('shows a run’s baseline and the bound on its drop as the CLI says it, its tallies once, its margin on hover and its unavailable attempts', async () => {
     const { fixId } = fix({
       verify: (v) => {
         const good = v.runs[1];
@@ -129,14 +130,30 @@ describe('a fix’s page, with what its verdicts say beyond their tallies', () =
     const page = await open(fixId, 'verify');
     const rows = page.all('table.t tbody tr');
     const good = rows.find((x) => text(x).startsWith('good'))!;
-    expect(text(good.querySelector('.fxwhere')!)).toContain('baseline 12 of 12, paired at a7b3c2e · drop <= 0.10 (95%)');
+    // Both tallies and the bound on the drop in its Attempts cell, where its baseline came from beside where it went.
+    expect(text(good.querySelector('td.va')!)).toMatch(/^\d+ of \d+ passed, baseline 12 of 12 · drop <= 0\.10 \(95%\)/);
+    expect(text(good.querySelector('.fxbase')!)).toBe('baseline paired at a7b3c2e');
     expect(good.querySelector('.fxbase')!.getAttribute('title')).toBe('Kept unless its pass rate drops 10 points or more below its baseline’s');
     expect(text(good)).toContain('· 1 unavailable');
-    const bound = good.querySelectorAll('.fxof .fxdim').find((x) => /rate >=/.test(x.textContent))!;
-    expect(bound.getAttribute('title')).toBe('the bound: exact under the gate’s stopping rule');
+    // The drop's bound rests on no gate's method: nothing on hover.
+    expect(good.querySelectorAll('td.va .acell .nw[title]')).toEqual([]);
     // A report kept before the bound was: its margin, as it said it.
     const target = rows.find((x) => text(x).startsWith('target'))!;
-    expect(text(target.querySelector('.fxwhere')!)).toContain('baseline 40 of 50, from history · margin 0.1');
+    expect(text(target.querySelector('.fxbase')!)).toBe('baseline from history · margin 0.1');
+  });
+
+  it('shows the bound of a run its gate decided in its Attempts cell, with its method on hover', async () => {
+    const { fixId } = fix({
+      verify: (v) => {
+        Object.assign(v.runs[0], { gate: { decision: 'pass', sentence: 'passed', clean: false, attempts: 4, interval: { lo: 0.51, hi: 1, confidence: 0.95 }, bound: { lo: 0.53, confidence: 0.95, method: 'sprt-stagewise' } } });
+      },
+    });
+    const page = await open(fixId, 'verify');
+    const target = page.all('table.t tbody tr').find((x) => text(x).startsWith('target'))!;
+    const bound = target.querySelector('td.va .acell .nw[title]')!;
+    // Its words glossed: the term's definition rides along hidden.
+    expect(text(bound)).toMatch(/^rate >= 0\.51 \(95%\)The tally’s bound/);
+    expect(bound.getAttribute('title')).toBe('the bound: exact under the gate’s stopping rule');
   });
 
   it('reads a report without them as it always did', async () => {
@@ -171,7 +188,10 @@ describe('a fix’s attempts grouped by what each did', () => {
       cut: false,
     };
     const blamePage = await open(fixId, 'blame', groups);
-    await blamePage.until('the groups', () => blamePage.all('.agroups').length > 0);
+    // A probe's groups show with its attempts, under its row once it is opened.
+    const probe = blamePage.all('table.probes tbody tr').find((x) => text(x).startsWith('#5'))!;
+    await blamePage.click(probe.querySelector('button.xbtn')!);
+    await blamePage.until('the groups', () => blamePage.all('tr.sub .agroups').length > 0);
     const lines = blamePage.all('.agroups li').map(text);
     expect(lines).toEqual(['2× escalate (stubbed) passed 01M3RZ0011 →', '2× issue_refund (blocked) failed issue_refund called 1 time 01M3RZ0012 →']);
     expect(blamePage.one('.agroups li.failed a').getAttribute('href')).toBe('#/run/01M3RZ0012AAAAAAAAAAAAAAAA/5');
@@ -179,7 +199,10 @@ describe('a fix’s attempts grouped by what each did', () => {
     await blamePage.unmount();
     r = null;
     const verifyPage = await open(fixId, 'verify', groups);
-    await verifyPage.until('the groups', () => verifyPage.all('.agroups').length > 0);
+    // A run's groups show with its attempts, under its row once it is opened.
+    const row = verifyPage.all('table.vruns tbody tr').find((x) => text(x).startsWith('target'))!;
+    await verifyPage.click(row.querySelector('button.xbtn')!);
+    await verifyPage.until('the groups', () => verifyPage.all('tr.sub .agroups').length > 0);
     expect(verifyPage.all('.agroups li').map(text)).toEqual(['1× no tool call failed the agent exited with code 1 01M3RZ0013 →', '3× escalate (stubbed) passed 01M3RZ0014 →']);
   });
 });

@@ -1,10 +1,10 @@
 import { isObject } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import { chaosMatrices, presetsSummary } from './chaos.js';
-import { coverageLook } from './coverage.js';
+import { coverageNewest } from './coverage.js';
 import { injectionNeedsLook } from './injection.js';
 import { links } from './links.js';
-import type { NeedsLookRow } from './overview.js';
+import type { LookSource, LookWork, NeedsLookRow } from './needs-look/row.js';
 import type { GoldenList, GoldenSource } from './tests.js';
 
 /**
@@ -15,19 +15,6 @@ import type { GoldenList, GoldenSource } from './tests.js';
  * failing attempt, a run whose decision changed, a capture of the behaviour), as no page of their
  * own exists yet. Red lines are failures; amber lines need a look or couldn't decide.
  */
-export interface UpgradeLooks {
-  /** Injection tests a planted instruction got through (red), first, then those it influenced or that showed too little to say (amber). */
-  injection: NeedsLookRow[];
-  /** Goldens whose error-path presets failed (red). */
-  presetsFailed: NeedsLookRow[];
-  /** Goldens whose error-path presets couldn't say (amber). */
-  presetsUnsure: NeedsLookRow[];
-  /** Previews of a change that flag runs no session of that change has settled since (amber). */
-  decisions: NeedsLookRow[];
-  /** Behaviours seen in production that no golden covers. */
-  coverage: NeedsLookRow[];
-}
-
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const goldenName = (path: string) => path.replace(/^\.\//, '').replace(/^goldens\//, '');
 const pathOf = (g: string | GoldenSource) => (typeof g === 'string' ? g : g.path);
@@ -57,7 +44,7 @@ function injectionLooks(store: StoreOf<'recording' | 'tests' | 'injection'>, gol
     const attempts = isObject(result?.data) && Array.isArray(result.data.attempts) ? (result.data.attempts as unknown[]).filter(isObject) : [];
     const shows = attempts.find((a) => a.verdict === x.severity && typeof a.runId === 'string' && kept(store, a.runId));
     const runId = (shows?.runId as string | undefined) ?? kept(store, x.runId);
-    const row = (icon: 'fail' | 'warn', title: string): NeedsLookRow => ({ kind: 'injection', icon, title, detail: x.text, action: 'Open', href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: result?.endedAt ?? 0 });
+    const row = (icon: 'fail' | 'warn', title: string): NeedsLookRow => ({ key: `attn:injection:${runId ? links.run(runId) : x.resultId}`, group: 'security', kind: 'injection', icon, title, detail: x.text, step: null, href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: result?.endedAt ?? 0 });
     if (x.severity === 'obeyed') failed.push(row('fail', `An injection test failed: ${name}`));
     else if (x.severity === 'influenced') warn.push(row('warn', `An injection test needs a look: ${name}`));
     else warn.push(row('warn', `An injection test is inconclusive: ${name}`));
@@ -80,7 +67,7 @@ function presetLooks(store: StoreOf<'recording' | 'chaos'>, goldens: GoldenList)
     if (!p || p.verdict === 'passed') continue;
     const name = m.golden ? goldenName(m.golden) : m.runId.slice(0, 10);
     const runId = p.runId ?? kept(store, m.runId);
-    const row: NeedsLookRow = { kind: 'presets', icon: p.verdict === 'failed' ? 'fail' : 'warn', title: `Error-path presets ${p.verdict}: ${name}`, detail: p.line, action: 'Open', href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: m.at };
+    const row: NeedsLookRow = { key: `attn:presets:${m.golden ?? m.runId}`, group: p.verdict === 'failed' ? 'failing' : 'tests', kind: 'presets', icon: p.verdict === 'failed' ? 'fail' : 'warn', title: `Error-path presets ${p.verdict}: ${name}`, detail: p.line, step: null, href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: m.at };
     (p.verdict === 'failed' ? failed : warn).push(row);
   }
   return { failed, warn };
@@ -145,11 +132,13 @@ function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>)
       .sort((a, b) => a - b)[0];
     const state = verdict === 'rejected' ? 'verify rejected it' : verdict === 'incomplete' ? 'verify didn’t settle it' : 'not verified yet';
     out.push({
+      key: `attn:decisions:${s.sessionId}`,
+      group: 'tests',
       kind: 'decisions',
       icon: 'warn',
       title: `${plural(n, 'run decides', 'runs decide')} differently under ${s.change}`,
       detail: `${s.kind === 'migrate' ? 'a migration' : 'a preview'}: a write, stop or judged change · ${state}`,
-      action: 'Open',
+      step: null,
       // A preview's line opens its cell on Preview (a gone run's, the session); a migration's opens the run until its tab draws one.
       href: s.kind === 'decisions' ? links.changeSession('decisions', s.sessionId, first, callNo ?? null) : first ? links.run(first, callNo) : links.runs(),
       runId: first,
@@ -160,15 +149,58 @@ function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>)
   return out;
 }
 
-/** Every line the upgrades' results add to Needs a look. */
-export function upgradeLooks(store: StoreOf<'recording' | 'readModels' | 'tests' | 'chaos' | 'injection' | 'coverage' | 'decisions'>, o: { goldens: GoldenList }): UpgradeLooks {
-  const presets = presetLooks(store, o.goldens);
-  const coverage = coverageLook(store);
-  return {
-    injection: injectionLooks(store, o.goldens),
-    presetsFailed: presets.failed,
-    presetsUnsure: presets.warn,
-    decisions: decisionLooks(store),
-    coverage: coverage ? [coverage] : [],
-  };
-}
+/** A look's presets, read once for both of their sources. */
+const presetsRead = new WeakMap<LookWork, ReturnType<typeof presetLooks>>();
+const presetsOf = (w: LookWork) => presetsRead.get(w) ?? (presetsRead.set(w, presetLooks(w.store, w.goldens)), presetsRead.get(w)!);
+
+/*
+ * The upgrades' rows, each a source of Needs a look (needs-look/index.ts) in main's words until its
+ * own slice takes it: error-path presets that failed under Failing and those left inconclusive under
+ * Tests, behaviours no golden covers and previews that flag runs under Tests, injection tests under
+ * Security.
+ */
+export const presetsFailed: LookSource = {
+  id: 'presetsFailed',
+  group: 'failing',
+  order: 30,
+  rows: (w) => presetsOf(w).failed,
+  rest: (n) => ({ icon: 'fail', title: `${plural(n, 'more error-path test')} failed`, detail: 'each on its run, under Runs', href: links.runs() }),
+};
+
+export const presetsUnsure: LookSource = {
+  id: 'presetsUnsure',
+  group: 'tests',
+  order: 20,
+  rows: (w) => presetsOf(w).warn,
+  rest: (n) => ({ icon: 'warn', title: `${plural(n, 'more error-path test')} inconclusive`, detail: 'each on its run, under Runs', href: links.runs() }),
+};
+
+/** `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it, keyed by the newest behaviour no golden covers. */
+export const coverage: LookSource = {
+  id: 'coverage',
+  group: 'tests',
+  order: 30,
+  rows: (w) => {
+    const newest = coverageNewest(w.store);
+    if (!newest) return [];
+    const { kind, icon, title, detail, href, runId, fixId, at } = newest.look;
+    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at }];
+  },
+};
+
+export const decisions: LookSource = {
+  id: 'decisions',
+  group: 'tests',
+  order: 40,
+  rows: (w) => decisionLooks(w.store),
+  rest: (n) => ({ icon: 'warn', title: `${plural(n, 'more preview')} of a change to look at`, detail: 'each on its run, under Runs', href: links.runs() }),
+};
+
+/** Obeyed first: the line for the rest reads in red when any of the rest obeyed. */
+export const injection: LookSource = {
+  id: 'injection',
+  group: 'security',
+  order: 10,
+  rows: (w) => injectionLooks(w.store, w.goldens),
+  rest: (n, rest) => ({ icon: rest.some((x) => x.icon === 'fail') ? 'fail' : 'warn', title: `${plural(n, 'more injection test')} to look at`, detail: 'each on its run, under Runs', href: links.runs() }),
+};

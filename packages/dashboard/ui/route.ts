@@ -11,7 +11,7 @@ import { isRevisionKey, links, parseRunsQuery, type LinkView, type RunsFilterRea
  *   #/changes[/verdicts[/<rev>]]         Changes: Verdicts, and a revision's page there
  *   #/changes/decisions[/<id>[/<run>[/<call>]]]   Changes: a preview, on its tab; a run's most telling step, a cell
  *   #/changes/migrate[/<id>[/<run>[/<call>]]]     Changes: a migration, on its tab; a run's most telling step, a cell
- *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a call of theirs
+ *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a row of theirs, by its place
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
  *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup
  *   #/setup/store                        the team store's setup

@@ -15,6 +15,8 @@ import { onShownProject, shownProject } from '../projects-api.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { SessionVerdict, VerdictRow, VerdictsKind, VerdictsView } from '../types.js';
+import { knownFixes } from '../fixes/data.js';
+import { fixRowScope } from '../fixes/row-scope.js';
 import { chipEmpty, kindLine, leadFacts, leadIsOpen, moreLimit, rowTone, titledByRevision, VERDICT_CHIPS, VERDICTS_STEP, verdictHref, type LinePart } from './model.js';
 
 /**
@@ -106,6 +108,8 @@ function Rows({ view, chip, limit, moreFailed, onMore }: { view: VerdictsView; c
       const to = verdictHref(r);
       if (to) navigate(to);
     },
+    // ⌘K on a verify's row offers its fix and each step, as the fix's row on Fixes does.
+    actions: (r) => (r.kind === 'verify' ? fixRowScope(knownFixes().find((f) => f.fixId === r.fixId) ?? { fixId: r.fixId, label: null, title: r.title }) : null),
   });
   if (!view.rows.length) return <EmptyLine>{chip === 'all' ? 'No change checked yet.' : <Parts parts={chipEmpty(chip)} />}</EmptyLine>;
   const next = moreLimit({ shown: view.rows.length, limit, count: view.counts[chip] });

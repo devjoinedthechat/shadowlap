@@ -65,6 +65,12 @@ export interface CallMeta {
   query?: string;
   /** The logical branch the call was made in (`scope()` in the SDKs). */
   scope?: string;
+  /**
+   * The agent an imported trace's spans name a model call's (`gen_ai.agent.name`, an OpenInference
+   * agent span), as a path when agents nest: `supervisor/researcher`. For reading only (agents.ts):
+   * unlike `scope`, replay never matches by it.
+   */
+  agent?: string;
   /** A person's input: a `user_input` tool call whose argument is the prompt and whose result is `{ text }`. */
   input?: boolean;
   /**

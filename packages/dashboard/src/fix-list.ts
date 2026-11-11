@@ -1,5 +1,5 @@
 import { blameStateWord, commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, lostWords, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
-import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
+import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, notVerified, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
 
 /** The Fixes list: a row for each fix, the most recently opened first, with its status, its failing runs and how far blame, repair and verify got. */
 
@@ -7,7 +7,8 @@ import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, repair
  * Done, to do, (Verify only) rejected, or `warn`: a step that ran and needs a look, in amber, never
  * the grey of one not run yet: a blame no model call rescued ("not rescued"), one whose first probe
  * couldn't tell ("inconclusive") or stopped part way ("stopped"), a verify left inconclusive or
- * stopped before every run settled ("inconclusive"), one word for each state on every page.
+ * stopped before every run settled ("inconclusive"), one word for each state on every page. Repair
+ * is done with the change repair made, or with one made by hand that a verdict checked ("by hand").
  */
 export type StepState = 'done' | 'todo' | 'no' | 'warn';
 
@@ -97,70 +98,89 @@ function fixedKept(rec: FixRecords): { text: string; kept: number } {
   return { text: [fixed.size ? `${fixed.size} fixed` : '', kept.size ? `${kept.size} kept` : ''].filter(Boolean).join(' · ') || 'verified', kept: kept.size };
 }
 
-/** The fix's failing runs that no accepted verdict that counts has checked as failing runs. */
-function notVerified(rec: FixRecords): string[] {
-  const checked = new Set(counting(rec).flatMap((v) => (v.verdict === 'accepted' ? v.report.runs.filter((x) => x.role !== 'good').map((x) => x.runId) : [])));
-  return rec.failing.filter((id) => !checked.has(id));
+function blameStepOf(rec: FixRecords): FixStep {
+  const b = shownBlame(rec);
+  if (!b) return { key: 'blame', n: '01', state: 'todo', short: 'not blamed', title: 'Not blamed yet', meta: 'find the call that lost the run' };
+  const r = b.report;
+  const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
+  // At the call blame names, or around or between two when no one call is pinned.
+  if (b.outcome === 'blamed' && r.blamed) return { key: 'blame', n: '01', state: 'done', short: lostWords(r.blamed.callNo, r.range), title: lostWords(r.blamed.callNo, r.range, 'title'), meta: `confidence ${r.confidence} · ${cost}` };
+  // Its first probe couldn't tell: inconclusive at the first model call, never a finding that no call rescues the run.
+  // Not rescued from any model call only where blame's bound bears it out; else from the first, as blame's report heads it.
+  if (b.outcome === 'unrescuable') return { key: 'blame', n: '01', state: 'warn', short: blameStateWord('unrescuable', unsettledFirst(r)), title: unrescuedHead(r).replace(/^\S+ /, ''), meta: cost };
+  return { key: 'blame', n: '01', state: 'warn', short: blameStateWord('stopped', false), title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
 }
 
-function stepsOf(rec: FixRecords): FixStep[] {
-  const b = shownBlame(rec);
+/** A change made by hand, which verify checked: Repair says so (`by hand`), beside what a repair that ran left, if one did. */
+const byHand = (meta: string): FixStep => ({ key: 'repair', n: '02', state: 'done', short: 'by hand', title: 'Changed by hand', meta });
+
+/**
+ * The Repair step: the change repair made, or, with none, a change made by hand that a verdict that
+ * counts checked (its verdict names no repair): with no repair run, any such verdict; after a repair
+ * that made none, the accepted one, beside what that repair left. Else no change yet.
+ */
+function repairStepOf(rec: FixRecords): FixStep {
   const p = shownRepair(rec);
-  const v = acceptedVerdict(rec);
-  const rejected = counting(rec).filter((x) => x.verdict === 'rejected');
-
-  let blame: FixStep;
-  if (!b) blame = { key: 'blame', n: '01', state: 'todo', short: 'not blamed', title: 'Not blamed yet', meta: 'find the call that lost the run' };
-  else {
-    const r = b.report;
-    const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
-    // At the call blame names, or around or between two when no one call is pinned.
-    if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: lostWords(r.blamed.callNo, r.range), title: lostWords(r.blamed.callNo, r.range, 'title'), meta: `confidence ${r.confidence} · ${cost}` };
-    // Its first probe couldn't tell: inconclusive at the first model call, never a finding that no call rescues the run.
-    // Not rescued from any model call only where blame's bound bears it out; else from the first, as blame's report heads it.
-    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'warn', short: blameStateWord('unrescuable', unsettledFirst(r)), title: unrescuedHead(r).replace(/^\S+ /, ''), meta: cost };
-    else blame = { key: 'blame', n: '01', state: 'warn', short: blameStateWord('stopped', false), title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
-  }
-
-  let repair: FixStep;
   const c = p && acceptedCandidate(p);
   if (p && c) {
     const n = p.report.candidates.length;
     const by = repairerLabel(p);
-    repair = { key: 'repair', n: '02', state: 'done', short: changeKind(c), title: commitTitle(c), meta: `candidate ${p.report.candidates.indexOf(c) + 1} of ${n} · ${by ? `proposed by ${by}` : (noRepairerOf(p.report)?.text ?? 'no repairer needed')}${repairCounts(rec, p) ? '' : ' · verified under another check'}` };
-  } else if (p) {
-    const tried = p.report.candidates.filter((x) => x.state !== 'invalid' && x.state !== 'untried').length;
-    // A repairer that proposed nothing is why, more than "there was no candidate to try".
-    const none = noRepairerOf(p.report)?.text;
-    repair = { key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta: p.report.candidates.length ? `${tried} candidate${s(tried)} tried, none accepted${none ? ` · ${none}` : ''}` : (none ?? p.report.why ?? 'the repair found nothing to try') };
-  } else repair = { key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta: 'repair proposes a prompt change' };
+    return { key: 'repair', n: '02', state: 'done', short: changeKind(c), title: commitTitle(c), meta: `candidate ${p.report.candidates.indexOf(c) + 1} of ${n} · ${by ? `proposed by ${by}` : (noRepairerOf(p.report)?.text ?? 'no repairer needed')}${repairCounts(rec, p) ? '' : ' · verified under another check'}` };
+  }
+  if (!p) return counting(rec).some((v) => v.repairId === null) ? byHand('verify checks it; repair hasn’t run') : { key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta: 'repair proposes a prompt change' };
+  const tried = p.report.candidates.filter((x) => x.state !== 'invalid' && x.state !== 'untried').length;
+  // A repairer that proposed nothing is why, more than "there was no candidate to try".
+  const none = noRepairerOf(p.report)?.text;
+  const meta = p.report.candidates.length ? `${tried} candidate${s(tried)} tried, none accepted${none ? ` · ${none}` : ''}` : (none ?? p.report.why ?? 'the repair found nothing to try');
+  return acceptedVerdict(rec)?.repairId === null ? byHand(meta) : { key: 'repair', n: '02', state: 'todo', short: 'no change yet', title: 'No change yet', meta };
+}
 
-  let verify: FixStep;
+function verifyStepOf(rec: FixRecords): FixStep {
+  const v = acceptedVerdict(rec);
+  const rejected = counting(rec).filter((x) => x.verdict === 'rejected');
   if (v) {
     const held = fixedKept(rec);
     const left = notVerified(rec).length;
     const earlier = rejected.filter((x) => x.at < v.at).length;
     const later = rejected.filter((x) => x.at > v.at).length;
     const meta = [earlier ? `${earlier} earlier change${s(earlier)} rejected` : left ? `${left} failing run${s(left)} not verified` : held.kept ? 'every failing run fixed, every good run kept' : 'every failing run fixed', ...(later ? [`${later} later change${s(later)} rejected`] : [])].join(' · ');
-    verify = { key: 'verify', n: '03', state: 'done', short: held.text, title: held.text, meta };
-  } else if (rejected.length) verify = { key: 'verify', n: '03', state: 'no', short: 'rejected', title: 'Rejected', meta: `${rejected.length} change${s(rejected.length)} rejected` };
-  else if (counting(rec).length) {
+    return { key: 'verify', n: '03', state: 'done', short: held.text, title: held.text, meta };
+  }
+  if (rejected.length) return { key: 'verify', n: '03', state: 'no', short: 'rejected', title: 'Rejected', meta: `${rejected.length} change${s(rejected.length)} rejected` };
+  if (counting(rec).length) {
     // A run it took is inconclusive (its gate ran out of attempts, or an attempt could not be judged), or the verify stopped first.
     const unsure = counting(rec).some((x) => x.report.runs.some((run) => outcomeOf(run) === 'inconclusive'));
-    verify = { key: 'verify', n: '03', state: 'warn', short: 'inconclusive', title: 'Inconclusive', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
+    return { key: 'verify', n: '03', state: 'warn', short: 'inconclusive', title: 'Inconclusive', meta: unsure ? 'a run it verified is inconclusive' : 'a verify stopped before every run settled' };
   }
-  else if (rec.verdicts.length) {
+  if (rec.verdicts.length) {
     const why = rec.standing.get(rec.verdicts.at(-1)!.verifyId)?.why;
-    verify = { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: why === 'another-check' ? 'verified only under another check' : why === 'already-passing' ? 'verified only on runs that already passed' : 'no verdict on its runs yet' };
-  } else verify = { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: 'checks a fix before it ships' };
-  return [blame, repair, verify];
+    return { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: why === 'another-check' ? 'verified only under another check' : why === 'already-passing' ? 'verified only on runs that already passed' : 'no verdict on its runs yet' };
+  }
+  return { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: 'checks a fix before it ships' };
+}
+
+/** A fix's three steps, as its stepper, its row on Fixes and its row on Needs a look say them. */
+const stepsOf = (rec: FixRecords): FixStep[] => [blameStepOf(rec), repairStepOf(rec), verifyStepOf(rec)];
+
+/**
+ * What changed on a fix and what verify made of it, as Needs a look words an open fix after where
+ * blame left it, from the Repair and Verify steps its row on Fixes shows: the accepted change's kind
+ * (`prompt change, not verified yet`), or `changed by hand` where Repair says `by hand` (a change
+ * made by hand, then verified with `verify --fix`), then `, verify inconclusive` or `, verify
+ * rejected it` from the Verify step's state. Null where nothing changed yet.
+ */
+export function changeWords(rec: FixRecords, steps: readonly FixStep[] = stepsOf(rec)): string | null {
+  const [, repair, verify] = steps;
+  if (repair?.state !== 'done') return null;
+  const verdict = verify?.state === 'warn' ? ', verify inconclusive' : verify?.state === 'no' ? ', verify rejected it' : verify?.state === 'todo' ? ', not verified yet' : '';
+  return `${repair.short === 'by hand' ? 'changed by hand' : repair.short}${verdict}`;
 }
 
 /**
  * The title each fix was opened with, by fix id: what its failing run did, as blame titled the fix
  * when it opened it (`blame.done`, `opened`). Read once per answer, and only once a fix was renamed.
  */
-function openingTitles(store: StoreOf<'activity'>): () => ReadonlyMap<string, string> {
+export function openingTitles(store: StoreOf<'activity'>): () => ReadonlyMap<string, string> {
   let titles: Map<string, string> | null = null;
   return () => {
     if (titles) return titles;

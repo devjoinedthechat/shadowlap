@@ -1,11 +1,9 @@
 import { askConsent, commandIsImported, hasRecordedCommand, importedCommandSource, quoteArgv, saidYes } from '@shadowlap/engine';
-import { describeEvent } from '../activity.js';
 import { lookupRun } from '../api.js';
 import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { optionLike } from '../tests.js';
-import { links } from '../links.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
 
@@ -22,17 +20,6 @@ import { sessionBusy, testsBusy } from './tests.js';
  * a pack to finish, as those wait for them.
  */
 export const CHAOS_JOB_KIND = 'chaos';
-
-const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-
-// The activity feed: a session of presets, by how they came out; on one run, it opens that run. One
-// with an inconclusive preset and no failure reads in amber, as a test session's does.
-describeEvent('chaos.session', (e, d) => {
-  const failed = count(d.failed);
-  const inconclusive = count(d.inconclusive);
-  const parts = [`${count(d.passed)} passed`, `${failed} failed`, ...(inconclusive ? [`${inconclusive} inconclusive`] : [])];
-  return { kind: failed ? 'fail' : inconclusive ? 'warn' : 'test', text: `Error-path presets ${d.interrupted === true ? 'stopped' : 'ran'} · ${parts.join(', ')}`, href: e.runId ? links.run(e.runId) : links.tests() };
-});
 
 export function register(router: Router, ctx: RouteContext): void {
   router.get('/chaos', (r) => r.tagged(chaosView(ctx.store)));

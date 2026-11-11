@@ -1,9 +1,6 @@
-import { DECISIONS_ID } from '@shadowlap/engine';
-import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
 import { decisionSessions, decisionsJob, migrateJob, retirementsView, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
-import { links } from '../links.js';
 import { outcomeWork } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
@@ -41,17 +38,6 @@ function comparedBy(ctx: RouteContext): { redacted: boolean; clock: 'auto' | 'ex
     return { redacted: false, clock: null };
   }
 }
-
-// How the activity feed words a session: a preview opens on its tab under Changes (a migration's tab comes with port/migrate).
-describeEvent('decisions.done', (e, d) => ({
-  kind: 'fork',
-  text: `Previewed ${typeof d.change === 'string' ? d.change : 'a change'} on ${Number(d.runs) || 0} run${Number(d.runs) === 1 ? '' : 's'}${Number(d.flagged) ? ` · ${Number(d.flagged)} with a write, stop or judged change` : ''}`,
-  ...(e.ref && DECISIONS_ID.test(e.ref) ? { href: links.changeSession('decisions', e.ref) } : {}),
-}));
-describeEvent('migrate.done', (_e, d) => ({
-  kind: 'fork',
-  text: `Migration previewed: ${typeof d.change === 'string' ? d.change : 'another model'} on ${Number(d.runs) || 0} run${Number(d.runs) === 1 ? '' : 's'}${Number(d.flagged) ? ` · ${Number(d.flagged)} with a write, stop or judged change` : ''}`,
-}));
 
 export function register(router: Router, ctx: RouteContext): void {
   const goldens = (): GoldenSource[] => ctx.options.goldens?.() ?? [];

@@ -1,10 +1,10 @@
-import { approx } from './format.js';
+import { approx, justNow } from './format.js';
 import { ACTIONS, confirmWords } from './labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
 import { noteText, UNGUARDED_FIX } from './run/note-words.js';
-import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
+import type { BisectMiss, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, InconclusiveView, TestsView } from './types.js';
 
 /**
  * The Tests screen's words and choices, from the tests read model (`GET /api/tests`): the verdict's
@@ -38,16 +38,19 @@ export const n = (count: number, word: string) => `${count.toLocaleString('en-US
  * running while its process is (`live`, from the server, wherever it was started; `running`, a test
  * job of this tab's), and otherwise did not finish.
  */
-export function sessionLine(view: TestsView, running = false): { command: string; rest: string; since: string | null; sinceTip: string | null } | null {
+export function sessionLine(view: { verdict: Pick<NonNullable<TestsView['verdict']>, 'session' | 'since'> | null }, running = false, now = Date.now()): { command: string; rest: string; since: string | null; sinceTip: string | null; live: boolean } | null {
   const v = view.verdict;
   if (!v) return null;
   const s = v.session;
   const live = s.endedAt === null && !s.interrupted && (s.live || running);
   // Inconclusive goldens count apart, as the verdict's badge counts them.
   const counts = `${s.passed} passed, ${s.failed} failed${s.inconclusive ? `, ${s.inconclusive} inconclusive` : ''}`;
-  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', dayClock(s.endedAt ?? s.startedAt), `${counts}${live ? ' so far' : ''}`, n(s.upstreamRequests, 'upstream request')];
+  // While it runs: just now, so far, and no upstream requests, which a session counts as it ends; the verdict's word says it runs.
+  // Ended within the minute (`now`), as one you just watched in the browser ends: still just now.
+  const recent = live || (s.endedAt !== null && justNow(s.endedAt, now));
+  const parts = [s.revision ? `rev ${s.revision}` : 'no revision', recent ? 'just now' : dayClock(s.endedAt ?? s.startedAt), `${counts}${live ? ' so far' : ''}`, ...(live ? [] : [n(s.upstreamRequests, 'upstream request')])];
   if (s.interrupted) parts.push('interrupted');
-  else if (s.endedAt === null) parts.push(live ? 'running' : 'did not finish');
+  else if (s.endedAt === null && !live) parts.push('did not finish');
   const since = v.since ?? [];
   // Each as it came out: an inconclusive one is neither passed nor failed (a result from before verdicts reads by `ok`).
   const word = (x: (typeof since)[number]) => x.verdict ?? (x.ok ? 'passed' : 'failed');
@@ -55,8 +58,8 @@ export function sessionLine(view: TestsView, running = false): { command: string
   const unsure = since.filter((x) => word(x) === 'inconclusive').length;
   const notPassed = [failed ? `${failed} failed` : '', unsure ? `${unsure} inconclusive` : ''].filter(Boolean).join(', ');
   const sinceText = !since.length ? null : since.length === 1 ? `since: ${since[0]!.name} ${word(since[0]!)}` : `since: ${since.length} goldens ran again, ${notPassed || 'all passed'}`;
-  const sinceTip = since.length ? since.map((x) => `${x.name} ${word(x)}${x.revision ? ` at ${x.revision}` : ''}, ${dayClock(x.at)}`).join('\n') : null;
-  return { command: s.command, rest: parts.join(' · '), since: sinceText, sinceTip };
+  const sinceTip = since.length ? since.map((x) => `${x.name} ${word(x)}${x.revision ? ` at ${x.revision}` : ''}, ${dayClock(x.at)}`).join(' · ') : null;
+  return { command: s.command, rest: parts.join(' · '), since: sinceText, sinceTip, live };
 }
 
 /**
@@ -103,42 +106,12 @@ export function runningTests<T extends { kind?: string | undefined; done: boolea
   return jobs.find((x) => !x.done && x.kind === 'test') ?? null;
 }
 
-/**
- * The commits Find breaking commit's dialog offers as good ones, newest first, as the mock words them:
- * each with its subject, and how the golden did there when it didn't pass under today's checks: failed, inconclusive (neither passed nor failed), or passed under others. `initial` is the one to start on: the newest that passed under them, older
- * than `tried` when a search from that one named no first bad commit (it already failed there); ''
- * when none is known, for the dialog to ask for any commit.
- */
-export function revisionChoices(revisions: readonly BisectRevision[], tried: string | null = null): { options: Array<{ value: string; subject: string; how: string | null }>; initial: string } {
-  const options = revisions.map((r) => ({ value: r.rev, subject: r.subject || shortDate(r.at), how: r.verdict === 'inconclusive' ? 'inconclusive here' : r.result === 'fail' ? 'failed here' : r.sameChecks ? null : 'passed under other checks' }));
-  const at = tried ? revisions.findIndex((r) => r.rev === tried || r.rev.startsWith(tried) || tried.startsWith(r.rev)) : -1;
-  // Nothing older than the one tried is known: the dialog starts on a field for any commit ('').
-  const older = at >= 0 ? revisions.slice(at + 1) : revisions;
-  const initial = older.find((r) => r.result === 'pass' && r.sameChecks)?.rev ?? older[0]?.rev ?? '';
-  return { options, initial };
-}
-
-/** A revision as the history's column names it: the short sha, with a + when it was tested with changes on top. */
+/** A revision as the history's column names it: the short sha, with a + when it was tested with changes on top; `no rev` for none, never a dash. */
 export function revLabel(rev: string | null): string {
-  if (!rev) return '—';
+  if (!rev) return 'no rev';
   const dirty = rev.endsWith('+dirty');
   const base = rev.replace(/\+dirty$/, '');
   return `${/^[0-9a-f]{8,}$/.test(base) ? base.slice(0, 7) : base.slice(0, 8)}${dirty ? '+' : ''}`;
-}
-
-/**
- * How a golden did at one revision, for its history cell's hover: the title and one coloured row. A
- * pass says when it was updated there, and a connection the network guard blocked in its replay.
- */
-export function historyTip(cell: HistoryCell, name: string): { title: string; label: string; value: string; color: string } {
-  const title = `${cell.revision ?? 'no revision'} · ${name}`;
-  // Run again on its own with changes on top of this commit (Add normalizer and re-run): said, as it isn't the commit alone.
-  const again = cell.tested && cell.tested !== cell.revision ? `run again at ${cell.tested}` : null;
-  // Neither passed nor failed: amber, with the attempts it ran.
-  if (cell.verdict === 'inconclusive') return { title, label: 'inconclusive', value: [again, cell.rate ? `${cell.rate.passes} of ${cell.rate.attempts} attempts passed` : null, cell.note].filter(Boolean).join(' · '), color: 'var(--warn)' };
-  if (cell.result === 'pass') return { title, label: 'passed', value: [cell.updated ? 'updated here: re-recorded, its checks passed' : null, again, cell.note].filter(Boolean).join(' · '), color: 'var(--o-rep)' };
-  if (cell.result === 'fail') return { title, label: 'failed', value: [again, cell.updated ? `updated here, then ${cell.note ?? 'failed'}` : cell.note].filter(Boolean).join(' · '), color: 'var(--err)' };
-  return { title, label: 'not tested here', value: '', color: 'var(--line2)' };
 }
 
 /**
@@ -390,7 +363,7 @@ export function divergenceButtons(d: DivergenceView, has: (kind: string) => bool
   const updates = !!steps && (steps.at(-1) ?? []).includes('--update');
   const lead = d.normalizerFixes && !d.maybeReal;
   let normalize: DivergenceButtons['normalize'] = null;
-  if (steps && d.rulesAdded) normalize = updates || !has('test') ? null : { label: 'Re-run', lead, run: 'rerun' };
+  if (steps && d.rulesAdded) normalize = updates || !has('test') ? null : { label: ACTIONS.rerunTest.label, lead, run: 'rerun' };
   else if (steps && has('normalize-and-test')) normalize = updates ? { label: ACTIONS.addNormalizerAndUpdate.label, lead, run: 'normalize-update' } : { label: ACTIONS.addNormalizerAndRerun.label, lead, run: 'normalize' };
   return {
     normalize,
@@ -478,6 +451,7 @@ export function testsPalette(view: TestsView | null, o: { update: boolean }): Te
 /** Settings → CI's options as `/api/ci/workflows` takes them in its query string; those left out take the server's defaults. */
 export function ciQuery(o: Partial<CiWorkflowOptions> = {}): string {
   const q = new URLSearchParams();
+  if (o.comment !== undefined) q.set('comment', o.comment ? 'on' : 'off');
   if (o.fix !== undefined) q.set('fix', o.fix ? 'on' : 'off');
   if (o.alerts !== undefined) q.set('alerts', o.alerts ? 'on' : 'off');
   if (o.budget !== undefined) q.set('budget', o.budget);

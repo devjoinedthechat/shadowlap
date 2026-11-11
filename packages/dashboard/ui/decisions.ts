@@ -1,4 +1,4 @@
-import { canonicalize } from '../../engine/src/canonical.js';
+import { canonicallySame } from '../../engine/src/canonical.js';
 import { approx, clock, minuteStamp, num } from './format.js';
 import type { DecisionCell, DecisionRun, DecisionSessionView, DecisionView, PreviewNext, PreviewReceipt, PreviewView } from './types.js';
 
@@ -158,9 +158,9 @@ export function receiptWords(r: PreviewReceipt, endToEnd: string | null): Receip
 export type ToolMark = 'same' | 'diff' | 'gone' | 'new';
 
 export function toolMarks(d: Pick<DecisionView, 'tools'>, other: Pick<DecisionView, 'tools'> | null, side: 'recorded' | 'now'): ToolMark[] {
-  const calls = new Set(other?.tools.map((t) => `${t.name}\n${canonicalize(t.args ?? null)}`));
-  const names = new Set(other?.tools.map((t) => t.name));
-  return d.tools.map((t) => (calls.has(`${t.name}\n${canonicalize(t.args ?? null)}`) ? 'same' : names.has(t.name) ? 'diff' : side === 'recorded' ? 'gone' : 'new'));
+  const theirs = other?.tools ?? [];
+  const same = (t: DecisionView['tools'][number]) => theirs.some((o) => o.name === t.name && canonicallySame(o.args ?? null, t.args ?? null));
+  return d.tools.map((t) => (same(t) ? 'same' : theirs.some((o) => o.name === t.name) ? 'diff' : side === 'recorded' ? 'gone' : 'new'));
 }
 
 /** A tool's effect as its tag says it: a tool of unknown effect counts as a write, as the engine counts it; a hand-over keeps its word. */

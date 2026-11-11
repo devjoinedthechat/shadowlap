@@ -6,9 +6,9 @@ import { Popover, useMenu } from '../components/Popover.js';
 import { compactPath, projectOfStore } from '../format.js';
 import { confirmWords } from '../labels.js';
 import { addPaletteSource } from '../palette-sources.js';
-import { ONLY_PROJECT, provideProjectRemoval } from '../project-actions.js';
+import { ONLY_PROJECT, onProjectsChanged, provideProjectRemoval } from '../project-actions.js';
 import { expectProject, onProjectSwitched, takeDialogDropped, takeLanding, type ProjectsView } from '../projects-api.js';
-import { exportedLine, exportedNote, keepsPageOnSwitch, switchedText } from '../projects.js';
+import { exportedLine, exportedNote, keepsPageOnSwitch, switchedText, switchToLabel } from '../projects.js';
 import { projectInitial as initial } from '../../src/project-initial.js';
 import { href, parseRoute } from '../route.js';
 import { navigate } from '../router.js';
@@ -67,7 +67,7 @@ export async function switchProject(app: AppState, id: string, to: string = href
 addPaletteSource(({ app }) =>
   (lastList?.items ?? [])
     .filter((p) => !p.current)
-    .map((p) => ({ group: 'Projects' as const, label: `Switch to ${p.name}`, hint: p.path, run: () => app.guard(() => void switchProject(app, p.id)) })),
+    .map((p) => ({ group: 'Projects' as const, label: switchToLabel(p.name), hint: p.path, run: () => app.guard(() => void switchProject(app, p.id)) })),
 );
 
 export function ProjectBlock({ meta }: { meta: Meta | null }) {
@@ -116,8 +116,9 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
     );
   }, [client]);
 
-  // Loaded once, and again whenever the project changes; the menu loads it afresh as it opens.
+  // Loaded once, and again whenever the project changes or a removed one comes back; the menu loads it afresh as it opens.
   useEffect(() => load(), [load, id]);
+  useEffect(() => onProjectsChanged(load), [load]);
 
   // Settings → Project's Remove project… opens this same dialog for the current project.
   const several = list ? list.items.length > 1 : true;
@@ -196,7 +197,7 @@ function ProjectSwitcher({ meta }: { meta: Meta }) {
           onKeys={(e) => {
             // → reaches a row's ×; Delete on the project removes it too.
             if (e.key !== 'Delete' && e.key !== 'Backspace') return false;
-            const row = items.find((p) => p.id === (document.activeElement as HTMLElement | null)?.dataset?.project);
+            const row = items.find((p) => p.id === (document.activeElement as HTMLElement | null)?.getAttribute('data-project'));
             if (!row?.removable) return false;
             e.preventDefault();
             if (removeWait) {

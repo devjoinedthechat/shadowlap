@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { copyText } from '../dom.js';
 import { useApp } from '../state.js';
 import { Command } from './Copy.js';
@@ -29,6 +29,29 @@ export interface CodeBoxProps {
   className?: string | undefined;
   /** A command box's, for what folds it. */
   id?: string | undefined;
+  /**
+   * A file shown as a change, a line each: kept (` `), added (`+`, in ink) or taken out (`-`, in
+   * red), each marked at its start while any line differs. Such a box shows a change: no Copy.
+   */
+  lines?: ReadonlyArray<{ op: ' ' | '+' | '-'; text: string }>;
+}
+
+/** A change's lines, one span a line: `+ ` and `− ` lead them while any differs, so the change reads without colour too. */
+function MarkedLines({ lines }: { lines: NonNullable<CodeBoxProps['lines']> }) {
+  const changed = lines.some((l) => l.op !== ' ');
+  return (
+    <>
+      {lines.map((l, i) => (
+        <Fragment key={i}>
+          {i ? '\n' : null}
+          <span className={l.op === '+' ? 'add' : l.op === '-' ? 'del' : undefined}>
+            {changed ? `${l.op === '-' ? '−' : l.op} ` : ''}
+            {l.text}
+          </span>
+        </Fragment>
+      ))}
+    </>
+  );
 }
 
 /** What a box's Copy names and its toast says: what the box names itself, else the whole command, the commands, the command or the code. */
@@ -82,7 +105,8 @@ function BoxCopy({ text, what, words = false }: { text: string; what: string; wo
 
 /** One code box, with its one Copy: a command, code, or a file of code with its name in the header. */
 export function CodeBox(props: CodeBoxProps) {
-  const { command, code = '', file, full, change = false, className, id } = props;
+  const { command, code = '', file, full, className, id, lines } = props;
+  const change = props.change ?? !!lines;
   const what = boxWhat(props);
   if (command !== undefined) {
     const lines = typeof command === 'string' ? [command] : command;
@@ -109,15 +133,15 @@ export function CodeBox(props: CodeBoxProps) {
           {change ? null : <BoxCopy text={code} what={what} words />}
         </div>
         {/* It scrolls sideways for a long line: by keyboard too. */}
-        <pre className="codebox" tabIndex={0}>
-          {code}
+        <pre className={lines ? 'codebox wfcode' : 'codebox'} tabIndex={0}>
+          {lines ? <MarkedLines lines={lines} /> : code}
         </pre>
       </div>
     );
   }
   const pre = (
-    <pre className={`codebox${change && className ? ` ${className}` : ''}`} tabIndex={0}>
-      {code}
+    <pre className={`codebox${lines ? ' wfcode' : ''}${change && className ? ` ${className}` : ''}`} tabIndex={0}>
+      {lines ? <MarkedLines lines={lines} /> : code}
     </pre>
   );
   return change ? (
