@@ -211,23 +211,32 @@ function judged(callNo: number, verdict: 'yes' | 'no'): CheckView {
     : { label, ok: false, status: 'failed', detail: 'the judge answered no', reason: 'It never says when the money arrives', source: 'live', judge };
 }
 
+const JUDGE = 'shadowlap:judge';
+type Row = { callNo: number; kind: string };
+/** The number of a run's last model call, which the routed page makes its judge's. */
+const lastModel = (calls: readonly Row[]): number => Math.max(...calls.filter((c) => c.kind === 'api').map((c) => c.callNo));
+
 /**
  * The good run's page with the checks `checks.now` gives as its own, which the demo never judged it
- * by (set it again before the page is read again); the number of its last call, the judge's here.
+ * by (set it again before the page is read again), and its last model call made the judge's, as a
+ * judge's call is recorded: in Shadowlap's own scope, its row naming its check and verdict. The
+ * judge's call's number, and how many calls the run has.
  */
-async function routeChecks(page: Page, checks: { now: (last: number) => CheckView[] }): Promise<{ id: string; last: number }> {
+async function routeChecks(page: Page, checks: { now: (last: number) => CheckView[] }): Promise<{ id: string; last: number; calls: number }> {
   const id = demoId('good');
   await page.route(
     (url) => url.pathname === `/api/runs/${id}`,
     async (route) => {
       const res = await route.fetch();
-      const body = (await res.json()) as { calls: Array<{ callNo: number }> };
-      return route.fulfill({ response: res, json: { ...body, checks: checks.now(Math.max(...body.calls.map((c) => c.callNo))) } });
+      const body = (await res.json()) as { calls: Row[] };
+      const last = lastModel(body.calls);
+      const calls = body.calls.map((c) => (c.callNo === last ? { ...c, scope: JUDGE, agent: JUDGE, reserved: true, judge: { check: 'explains-refund', verdict: 'yes' } } : c));
+      return route.fulfill({ response: res, json: { ...body, calls, checks: checks.now(last) } });
     },
   );
   const { origin, token } = dash();
-  const run = (await (await page.request.get(`${origin}/api/runs/${id}`, { headers: { 'x-shadowlap-token': token } })).json()) as { calls: Array<{ callNo: number }> };
-  return { id, last: Math.max(...run.calls.map((c) => c.callNo)) };
+  const run = (await (await page.request.get(`${origin}/api/runs/${id}`, { headers: { 'x-shadowlap-token': token } })).json()) as { calls: Row[] };
+  return { id, last: lastModel(run.calls), calls: run.calls.length };
 }
 
 /** Opens the bar's other findings where it has more than one. */
@@ -238,12 +247,20 @@ async function openFindings(page: Page): Promise<void> {
   await expect(more).toHaveAttribute('aria-expanded', 'true');
 }
 
-test('a run’s judge verdicts are findings of their own, each its call, the check, its reason and where it came from, and a judge’s line in the checks finding carries the same, wide and on a phone, with no serious axe violation', async ({ page }) => {
+test('a run’s judge verdicts are findings of their own, each its call, the check, its reason and where it came from, whose #n opens the judge’s call under the judge’s chip, and a judge’s line in the checks finding carries the same, wide and on a phone, with no serious axe violation', async ({ page }) => {
   const why = (reason: string) => new RegExp(`^${reason}${DOT}judged live${DOT}<\\$0\\.001$`);
   const refund: CheckView = { label: 'issue_refund called 1 time', ok: true, status: 'passed' };
   const checks = { now: (n: number): CheckView[] => [refund, judged(n, 'yes'), { ...judged(n, 'no'), label: 'judge "names-the-date" answers yes' }] };
-  const { id, last } = await routeChecks(page, checks);
+  const { id, last, calls } = await routeChecks(page, checks);
   await openPage(page, `/run/${id}`, 'run');
+  // The judge's call out of All: the agents' bar for it alone, Agent first, the judge's chip after a hairline.
+  const bar = page.locator('main#view .scopebar');
+  await expect(bar.locator('.chips > *')).toHaveCount(3);
+  await expect(bar.locator('.chips > .jsep')).toHaveAttribute('aria-hidden', 'true');
+  await expect(bar.locator('.chips button')).toHaveText([`Agent${calls - 1}`, 'judge1']);
+  await expect(bar.locator('.chips button').last()).toHaveAttribute('title', 'shadowlap:judge: the judge’s calls, kept apart from the agent’s');
+  await expect(bar.locator('.shint')).toHaveText('A judge’s calls are the check’s: no count, budget or cost of the agent’s includes them');
+  await expect(page.locator(`main#view .vbody tr[data-call="${last}"]`)).toHaveCount(0);
   await openFindings(page);
   const verdicts = page.locator('main#view .findings section.jv');
   await expect(verdicts).toHaveCount(2);
@@ -258,6 +275,15 @@ test('a run’s judge verdicts are findings of their own, each its call, the che
   expect(await card(call)).toMatchObject({ t: 'Open the judge’s call' });
   await call.click();
   await expect(page.locator(`main#view tr[data-call="${last}"]`).first()).toHaveAttribute('aria-selected', 'true');
+  // Under the judge's chip, picked with its call: Calls lists the judge's call alone, which no fork starts at, and the head's Fork says why.
+  await expect(bar.locator('.chips button').last()).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('main#view .vbody tr[data-call]')).toHaveCount(1);
+  await expect(page.locator(`main#view tr[data-call="${last}"]`).first()).toContainText('judge "explains-refund" · yes');
+  await expect(page.locator(`main#view tr[data-call="${last}"] .rowact button`)).toHaveCount(0);
+  const fork = page.locator('#forkBtn');
+  await expect(fork).toHaveText('Fork');
+  await expect(fork).toHaveAttribute('aria-disabled', 'true');
+  await expect(fork).toHaveAttribute('data-why', 'A judge’s call can’t be forked');
   await expectAccessible(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await openFindings(page);
