@@ -664,7 +664,7 @@ export function createExportedClient(data: StaticPayload): Client {
     nextStep: (runId) => get<RunDetail>(`runs/${full(runId)}`).then((d) => ({ next: d.next ?? null })),
     // A copy keeps no injection results: its run's page tags no read and draws no test, and an attempt's
     // page draws what its run's own record says of it (run/model.ts), never what was planted where.
-    injectionRun: () => Promise.resolve({ untrusted: [], results: [], rule: null, answers: [], attempt: null }),
+    injectionRun: () => Promise.resolve({ untrusted: [], results: [], rule: null, answers: [], cause: [], attempt: null }),
     injectionResults: () => Promise.resolve({ results: [] }),
     injectionResult: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
     injectionPreview: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
