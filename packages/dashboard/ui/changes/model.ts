@@ -2,7 +2,7 @@ import type { VerdictTone } from '../../src/verdict.js';
 import type { Tone } from '../components/Status.js';
 import { personName } from '../overview/model.js';
 import { href } from '../route.js';
-import type { SessionVerdict, VerdictRow, VerdictsKind } from '../types.js';
+import type { SessionVerdict, VerdictPullRequest, VerdictRow, VerdictsKind } from '../types.js';
 
 /**
  * What Changes › Verdicts decides without the DOM: each row's colour, kind line and link, the chips
@@ -57,13 +57,33 @@ export interface LinePart {
 /** Who made a change, only where the API names them (a team store): their name, an address's part before the @. */
 const who = (by: string | null): LinePart[] => (by ? [{ words: personName(by) }] : []);
 
+/** A session's pull request and where it stands: `PR #142 open`, `PR #142` alone until gh said; null for none, and for one CI gave no number. */
+export function prWords(pr: VerdictPullRequest | null): string | null {
+  if (pr?.number === null || pr?.number === undefined) return null;
+  return pr.state ? `PR #${pr.number} ${pr.state}` : `PR #${pr.number}`;
+}
+
+/** A session's pull request in a line, kept whole. */
+const pullRequest = (row: SessionVerdict): LinePart[] => {
+  const words = prWords(row.pullRequest);
+  return words ? [{ words }] : [];
+};
+
 /**
- * The kind of check first, on every row: `test session · d2e8a1f · maya`, with the revision left out
- * where the title is it; `verify` and what it verified (a repair's candidate or the fields it set, as
- * the fix's Verify step names it, else the code it ran at); `preview · on d2e8a1f · maya`.
+ * What the flag of a session whose pull request merged though it didn't pass says on its card:
+ * `PR #127 merged with 6 of 7 goldens passed at b7e40c2: the change shipped with this verdict`.
+ */
+export function flagLine(row: SessionVerdict): string {
+  return `${prWords(row.pullRequest) ?? 'Its pull request'} with ${row.line}${row.revision ? ` at ${row.revision}` : ''}: the change shipped with this verdict`;
+}
+
+/**
+ * The kind of check first, on every row: `test session · d2e8a1f · PR #142 open · maya`, with the
+ * revision left out where the title is it; `verify` and what it verified (a repair's candidate or the
+ * fields it set, as the fix's Verify step names it, else the code it ran at); `preview · on d2e8a1f · maya`.
  */
 export function kindLine(row: VerdictRow): LinePart[] {
-  if (row.kind === 'session') return [{ words: 'test session' }, ...(row.revision && !titledByRevision(row) ? [{ code: row.revision }] : []), ...who(row.by)];
+  if (row.kind === 'session') return [{ words: 'test session' }, ...(row.revision && !titledByRevision(row) ? [{ code: row.revision }] : []), ...pullRequest(row), ...who(row.by)];
   if (row.kind === 'verify') {
     if (row.candidate !== null || row.fields !== null) return [{ words: 'verify' }, { words: row.code }];
     return [{ words: 'verify' }, row.codeVersion ? { words: 'on', code: row.codeVersion } : { words: 'working tree' }];
@@ -71,9 +91,10 @@ export function kindLine(row: VerdictRow): LinePart[] {
   return [{ words: row.kind }, ...(row.revision ? [{ words: 'on', code: row.revision }] : []), ...who(row.by)];
 }
 
-/** The lead's facts under its tally: the change (unless it is the revision, which the heading shows), who made it, when. */
-export function leadFacts(lead: SessionVerdict, when: string): string[] {
-  return [...(titledByRevision(lead) ? [] : [lead.title]), ...(lead.by ? [personName(lead.by)] : []), when];
+/** The lead's facts under its tally: the change (unless it is the revision, which the heading shows), on a revision's page its pull request, who made it, when. */
+export function leadFacts(lead: SessionVerdict, when: string, o: { pr?: boolean } = {}): string[] {
+  const pr = o.pr ? prWords(lead.pullRequest) : null;
+  return [...(titledByRevision(lead) ? [] : [lead.title]), ...(pr ? [pr] : []), ...(lead.by ? [personName(lead.by)] : []), when];
 }
 
 /** The lead's next step is the page's lime while its revision failed or couldn't decide. */

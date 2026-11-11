@@ -40,6 +40,12 @@ table.vdt tbody tr.still:hover td, table.vdg tbody tr.still:hover td { backgroun
 .tscroll table.t.fit td:first-child { white-space: normal; }
 /* the local note and the line past the window, under the list */
 .vdlocal { margin: 12px 0 0; font-size: 12.5px; }
+/* A revision's page: the decisions its comment carried, step by step, then its note; On the pull request's rows. A change
+   that merged while its session failed or couldn't decide, in amber under its verdict and in its facts. */
+.vdd + .vdd { margin-top: 14px; }
+.vdnote { margin-top: 12px !important; font-size: 12.5px; }
+.vdkv { grid-template-columns: 130px minmax(0, 1fr); }
+.vdflag { color: var(--cq-amber) !important; }
 /* Compare's pickers on a row of their own under Changes' tabs; a revision's command under its sections */
 .pickers.chpick { margin-bottom: 16px; }
 .cmdline.chcmd { margin-top: 18px; }
