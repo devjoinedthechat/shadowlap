@@ -1,11 +1,13 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
+import { routePrCommentFixture } from './pr-comment-fixture.js';
 import { routeTestsFixture } from './tests-fixture.js';
 
 /**
  * axe-core's WCAG 2.2 A and AA rules over everything the whole demo shows: every page, every run with
  * each view, its inspector's tabs, its menus and dialogs, Fixes and each fix's steps, Tests and its
  * dialogs, a gated golden's evidence, Settings' tabs, the team store's setup, the palette, the shortcuts on every kind of page,
+ * the pull request comment's preview with every part, a merged session's flag and its card,
  * a toast with Undo and the bar that says the dashboard can't be reached; and again on a phone, 390 px
  * wide. Any serious or critical violation fails, named with the state it was found in.
  */
@@ -268,6 +270,37 @@ test('Tests with a gated golden’s evidence open, and Update goldens for two go
     [`Update goldens for two closed${on}`, escape(page)],
     // Closed again, as a page that stays drawn keeps it open: the phone's sweep opens it anew.
     [`a gated golden’s evidence closed${on}`, click(page, 'main#view button.gev', undefined, { hides: 'main#view tr.gevrow' })],
+  ];
+  const wide = await sweep(page, states(''));
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect([...wide, ...(await sweep(page, states(' on a phone')))]).toEqual([]);
+});
+
+test('the pull request comment’s preview from Settings → CI and a revision’s page, and a session merged while failing, have no serious or critical axe violation, wide and on a phone', async ({ page }) => {
+  await routePrCommentFixture(page);
+  // Every part drawn: the decisions at rank 1 and 2, and the three injection gates.
+  const preview = (on: string, where: string): Array<[string, () => Promise<void>]> => [
+    [`Preview pull request comment from ${where}${on}`, async () => {
+      await click(page, 'main#view button', 'Preview pull request comment', { shows: `${DIALOG} .prc` })();
+      await expect(page.locator(`${DIALOG} .prc-d`)).toHaveCount(2);
+      await expect(page.locator(`${DIALOG} .prc-i`)).toHaveCount(3);
+    }],
+    [`Preview pull request comment from ${where} closed${on}`, escape(page)],
+  ];
+  const states = (on: string): Array<[string, () => Promise<void>]> => [
+    [`Settings → CI with the comment’s preview${on}`, at(page, '/settings/ci', 'main#view .prpanel')],
+    ...preview(on, 'Settings → CI'),
+    [`Verdicts with each session’s pull request${on}`, at(page, '/changes', VERDICTS)],
+    [`the flag’s card${on}`, async () => {
+      await page.mouse.move(2, 2);
+      await page.locator('main#view .rsub.vdflag').first().focus();
+      await settled(page, { shows: '#tip' });
+    }],
+    [`a revision’s page with what its comment carried${on}`, async () => {
+      await revision(page)();
+      await expect(page.locator('main#view .vdkv dt')).toHaveCount(4);
+    }],
+    ...preview(on, 'a revision’s page'),
   ];
   const wide = await sweep(page, states(''));
   await page.setViewportSize({ width: 390, height: 844 });
