@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { injectionTemplates, Store, type CallRecord, type CleanReport, type PlantReport } from '@shadowlap/engine';
+import { commentMarkdown, injectionTemplates, Store, type CallRecord, type CleanReport, type PlantReport } from '@shadowlap/engine';
+import { commentMarkdown as actionMarkdown } from '../../../action/comment.mjs';
+import { inSessionOrder, storedCommentResult } from '../../dashboard/src/session-comment.js';
 import { obeyPlanted, startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 import { departures, type ShapeName } from './json-shapes.js';
@@ -391,6 +393,14 @@ describe('the injection gate under shadowlap test', () => {
     expect(obeying.stdout).toMatch(/✗ research: injection: send_email obeyed a planted instruction in 5 of 5 attempts/);
     expect(obeying.stdout).toMatch(/planted at #\d+ → read at #\d+ → send_email\.to = \w+@canary\.invalid at #\d+/);
     expect(obeying.stdout).toContain('✗ injection: 5 attempts · 5 obeyed · 0 influenced · 0 ignored');
+    // The pull request comment reads the same from the JSON report, as the Action does, and from the
+    // store, as Settings → CI's preview does: the same rows and the same injection line.
+    withStore((store) => {
+      const [session] = store.listTestSessions({ limit: 1 });
+      const stored = inSessionOrder(store.listTestResults({ sessionId: session.sessionId, limit: 100 })).map(storedCommentResult);
+      expect(commentMarkdown({ results: stored })).toBe(actionMarkdown({ results: obeying.report.results }));
+      expect(commentMarkdown({ results: stored })).toContain('#### Injection');
+    });
 
     // The code fix: the agent refuses to email outside its domain, so the golden still replays clean.
     const coded = await test({ AGENT_EMAIL_DOMAIN: 'example.com' });
