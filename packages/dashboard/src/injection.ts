@@ -367,7 +367,8 @@ function plantFlags(req: JobRequest, b: Pick<JobBuildContext, 'upload'>): Built<
     else return { error: `templates is all, none, or a list of the built-in templates' ids (${ids.join(', ')})` };
   }
   if (req.payloadsUpload !== undefined) {
-    const file = b.upload(req.payloadsUpload);
+    // Under the name it arrived with, so the test's ids read `payloads.txt#2`.
+    const file = b.upload(req.payloadsUpload, { named: true });
     if (!file) return { error: 'that payload file is gone: send it again' };
     if (file.bytes > MAX.payloads) return { error: 'a payload file is at most 2 MB' };
     out.push('--payloads', file.path);

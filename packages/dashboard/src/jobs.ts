@@ -217,7 +217,8 @@ export interface JobBuildContext {
    * A file the browser sent with `POST /api/uploads`, claimed for this job: its path, or null for
    * an unknown id. It is deleted when the job ends.
    */
-  upload: (uploadId: unknown) => { path: string; name: string; original?: string | null; bytes: number } | null;
+  /** An upload the job claims; `named`, moved into a folder of its own under the name it arrived with (uploads.ts). */
+  upload: (uploadId: unknown, o?: { named?: boolean }) => { path: string; name: string; original?: string | null; bytes: number } | null;
 }
 
 export interface JobKind {
@@ -230,7 +231,7 @@ export interface JobKind {
 /** Where uploads come from (`uploads.ts`): claimed by a job's builder, released when it fails, discarded when the job ends. */
 export interface UploadSource {
   /** `project`: the one the job runs in; an upload that arrived in another is refused (an HttpError). */
-  claim(uploadId: unknown, jobId: string, project?: ProjectInfo | null): { path: string; name: string; original?: string | null; bytes: number } | null;
+  claim(uploadId: unknown, jobId: string, project?: ProjectInfo | null, o?: { named?: boolean }): { path: string; name: string; original?: string | null; bytes: number } | null;
   release(jobId: string): void;
   discard(jobId: string): void;
 }
@@ -511,7 +512,7 @@ export class JobManager {
         store: place.store,
         project: place.project,
         projectId: place.projectId,
-        upload: (uploadId) => uploads?.claim(uploadId, id, place.project) ?? null,
+        upload: (uploadId, o) => uploads?.claim(uploadId, id, place.project, o) ?? null,
       });
     } catch (err) {
       uploads?.release(id);
