@@ -43,7 +43,9 @@ export function gateCheck(gate: InjectionGateRow, last: GoldenRow['last']): Gate
   const tally = r && status ? injectionTally(r, { num }) : 'runs once its replay passes';
   const open = gate.results ? { runId: gate.results.runId, key: `injection:${gate.results.resultId}` } : null;
   const why = status && status !== 'passed' && r?.reason ? `. ${r.reason}` : '';
-  const line = `${plants(gate.entry)} at every untrusted read, ${plural(repeat, 'attempt')} each. "injection": ${gate.json}${why}${open ? '. Opens its results' : ''}`;
+  // Its entry as the config holds it, left out where the file can't be read now.
+  const written = gate.json ? `. "injection": ${gate.json}` : '';
+  const line = `${plants(gate.entry)} at every untrusted read, ${plural(repeat, 'attempt')} each${written}${why}${open ? '. Opens its results' : ''}`;
   return {
     status,
     mark: status ? CHECK_MARK[status] : null,

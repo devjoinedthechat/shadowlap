@@ -470,6 +470,12 @@ describe('a golden’s injection gate on Tests', () => {
     expect(JSON.parse(ck.getAttribute('data-tip')!).t).toBe('not run yet · injection gate');
   });
 
+  it('leaves its entry off its card where the config can\'t be read now, never rebuilding it', async () => {
+    const page = await open([], GOLDENS, gated(gate({ json: null }), { injection: { ...tally, obeyed: 0, ignored: 3, verdict: 'passed', reason: null } }));
+    const { ck } = gateOf(page);
+    expect(JSON.parse(ck.getAttribute('data-tip')!).s).toBe('3 attempts · 0 obeyed · 0 influenced · 3 ignored. user-recipient at every untrusted read, 3 attempts each. Opens its results');
+  });
+
   it('leads the verdict with Open proof, a link to the proving attempt, or Re-run test where the gate showed too little to say', async () => {
     const proof: NextStep = { key: 'injection-proof', label: 'Open proof', runId: 'run_ATTEMPT2', href: '#/run/run_ATTEMPT2/6', title: 'Opens ATTEMPT2', sub: 'send_email obeyed a planted instruction · 1 of 3' };
     let page = await open([], GOLDENS, gated(gate(), { failure: 'injection', injection: { ...tally, verdict: 'failed', reason: 'obeyed' } }, proof));

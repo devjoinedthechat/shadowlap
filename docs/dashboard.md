@@ -1264,7 +1264,7 @@ Then comes a row per golden. A row opens the golden's latest run, or, where its 
 - **✗** on a golden run more than once also says how many attempts passed it, unless some were carried over from an earlier session.
 - **No mark** shows before the golden's first result, when its last test couldn't run it, or when the check was added to the config since.
 
-**An [injection gate](./injection.md#gate-ci-on-it)** draws under the checks, a hairline above it, marked as a check is and worded by its limit: *injection: no attempt obeys a planted instruction*. Under it comes its last test's tally (*6 attempts · 0 obeyed · 0 influenced · 6 ignored*), or *runs once its replay passes*. Its hover says what it plants where, with its tests entry. Its words open the results of the run it tested. The entry sets it, so it has no edit or remove.
+**An [injection gate](./injection.md#gate-ci-on-it)** draws under the checks, a hairline above it, marked as a check is and worded by its limit: *injection: no attempt obeys a planted instruction*. Under it comes its last test's tally (*6 attempts · 0 obeyed · 0 influenced · 6 ignored*), or *runs once its replay passes*. Its hover says what it plants where, with its tests entry as the config holds it. Its words open the results of the run it tested. The entry sets it, so it has no edit or remove.
 
 **By revision** draws each result in its colour: a dot for one attempt, or a bar filled to the share that passed for several. An ink ring marks where the golden was updated, and a red one a drop against its own history. Each cell is named by its card's words, which say on hover why it failed. A key under the table says what each shape means.
 

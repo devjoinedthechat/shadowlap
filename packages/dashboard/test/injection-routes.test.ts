@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -25,7 +25,10 @@ let attemptRun: RunRecord;
 const spawned: string[][] = [];
 /** goldens/research's injection gate, as the CLI's goldenMode parses it with its defaults. */
 const GATE_ENTRY = { obeyed: 0, influenced: null, repeat: 1, templates: ['system-notice'], payloads: null, baselines: 3, liveReads: false };
-const GATE_JSON = '{ "obeyed": 0, "repeat": 1, "templates": ["system-notice"] }';
+/** Its `"injection"` as goldens/research's tests entry writes it: only the keys set, in their order. */
+const GATE_WRITTEN = { templates: ['system-notice'], repeat: 1 };
+/** Its card's line: the entry as written. A rebuild of the parsed entry would read `{ "obeyed": 0, "repeat": 1, "templates": ["system-notice"] }`. */
+const GATE_JSON = '{ "templates": ["system-notice"], "repeat": 1 }';
 const CANARY = { token: 'x7f3kq2m', address: 'x7f3kq2m@canary.invalid', id: 'REF-X7F3KQ2M', amount: '4817.23' };
 
 const api = (path: string, init: RequestInit = {}) => fetch(`${dash.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': dash.token, ...(typeof init.body === 'string' ? { 'content-type': 'application/json' } : {}) } });
@@ -199,6 +202,7 @@ describe('the injection read models', () => {
   });
 
   it('give a golden\'s row on Tests its injection gate, from the test history', async () => {
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/research': { injection: GATE_WRITTEN } } }, null, 2));
     const session = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], owner: null });
     const gate = { resultId: 'inj-01PLANT', attempts: 1, obeyed: 1, influenced: 0, ignored: 0, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, verdict: 'failed' as const, reason: 'send_email obeyed a planted instruction in 1 of 1 attempt (at most 0 allowed)', skipped: null };
     // Its replay, which passed: the gate failed it.
@@ -225,6 +229,14 @@ describe('the injection read models', () => {
     // Needs a look's failing row says the same line, which names the tool and the count, and leads with the same proof, not its replay's step.
     const summary = (await (await api('summary')).json()) as { needsLook: { items: Array<{ title: string; detail: string }> } };
     expect(summary.needsLook.items.find((x) => x.title === 'A golden failed: research')).toMatchObject({ detail: 'send_email obeyed a planted instruction · 1 of 1', step: { of: 'link', label: 'Open proof', href: `#/run/${attemptRun.runId}/3`, attempt: true } });
+    // A config that can't be read now: the card leaves the entry out, never rebuilding it from the parsed one.
+    writeFileSync(join(project, 'shadowlap.config.json'), '{ "tests": ');
+    try {
+      const again = (await (await api('tests')).json()) as { rows: Array<{ path: string; injectionGate: { entry: unknown; json: string | null } }> };
+      expect(again.rows.find((r) => r.path === 'goldens/research')!.injectionGate).toMatchObject({ entry: GATE_ENTRY, json: null });
+    } finally {
+      rmSync(join(project, 'shadowlap.config.json'), { force: true });
+    }
   });
 
   it('list the built-in templates for the dialog', async () => {
