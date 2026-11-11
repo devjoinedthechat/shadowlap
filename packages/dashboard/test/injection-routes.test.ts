@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type CleanReport, consentKey, type DivergenceReport, injectionTemplates, type PlantReport, recordEvent, type RunRecord, Store, untrustedView } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
-import { injectionJob, injectionLine, injectionNeedsLook, toolTrust } from '../src/injection.js';
+import { injectionJob, injectionLine, injectionNeedsLook, injectionTitle, toolTrust } from '../src/injection.js';
 import { injectionPanel, lineageInjection } from '../src/injection-view.js';
 import { securityOffer } from '../src/run-offers.js';
 import { injectionReportHtml, reportPreview } from '../src/injection-report.js';
@@ -312,6 +312,17 @@ describe('the injection job', () => {
     expect(spawned.at(-1)).toEqual(['injection', attemptRun.runId, '--json', '--clean', '1', '--write', '3']);
     await job({ kind: 'injection', runId: recording.runId, liveReads: true });
     expect(spawned.at(-1)).toEqual(['injection', recording.runId, '--json', '--live-reads']);
+    // Stop at $ is --budget, to the cent, after what is planted (Find cause… sends none, though the CLI takes one).
+    await job({ kind: 'injection', runId: recording.runId, templates: 'all', budget: 25, repeat: 2 });
+    expect(spawned.at(-1)).toEqual(['injection', recording.runId, '--json', '--templates', 'all', '--budget', '25.00', '--repeat', '2']);
+    await job({ kind: 'injection', runId: attemptRun.runId, clean: 1, budget: 0.505 });
+    expect(spawned.at(-1)).toEqual(['injection', attemptRun.runId, '--json', '--clean', '1', '--budget', '0.51']);
+  });
+
+  it('titles each job in the engine’s words: a test, its re-run, and Find cause by the read it tests', () => {
+    expect(injectionTitle({ runId: 'r' })).toBe('Running injection test');
+    expect(injectionTitle({ runId: 'r', again: true })).toBe('Re-running injection test');
+    expect(injectionTitle({ runId: 'r', clean: 4, writes: [28] })).toBe('Finding cause: testing #4');
   });
 
   it('refuses what the CLI would, before anything runs', () => {
@@ -328,6 +339,7 @@ describe('the injection job', () => {
     expect(error({ runId: recording.runId, payloadsUpload: 'gone' })).toBe('that payload file is gone: send it again');
     expect(error({ runId: recording.runId, repeat: 0 })).toBe('repeat is a whole number from 1 to 100');
     expect(error({ runId: recording.runId, liveReads: 'yes' })).toBe('liveReads is true or false');
+    for (const budget of [0, -1, 0.004, 100_001, '25', Number.NaN]) expect(error({ runId: recording.runId, budget })).toBe('budget is an amount in USD above 0, such as 25.00');
     expect(error({ golden: 'goldens/research', clean: 1 })).toBe('--clean asks about a recorded run: name it with runId');
     expect(error({ runId: recording.runId, writes: [3] })).toBe('writes goes with clean');
     expect(error({ runId: recording.runId, clean: 1, templates: 'all' })).toBe('--clean plants nothing: leave out templates and payloads');
