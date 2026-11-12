@@ -1,17 +1,23 @@
-import { ACTIONS, askConsent, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, quoteArgv, saidYes } from '@shadowlap/engine';
-import { lookupRun } from '../api.js';
+import { ACTIONS, askConsent, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, parsePresets, presetsTarget, quoteArgv, saidYes, type RunRecord } from '@shadowlap/engine';
+import { lookupRun, noSuchRun } from '../api.js';
 import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
 import type { RouteContext } from '../context.js';
 import { expectArgs } from '../expect-field.js';
 import { HttpError } from '../http.js';
+import { outcomeWork } from '../outcome-work.js';
+import type { PresetsPlanJob } from '../presets-plan.js';
+import { sendAnswer } from '../read-pool.js';
+import { runAffinity } from '../run-index.js';
+import { runVersionTag } from '../run-version.js';
 import { optionLike } from '../tests.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
+import { namesTeamStore } from './verdicts.js';
 
 /**
  * Error-path presets: every recording's matrix and the newest sessions (`GET /api/chaos`), one
- * run's matrix (`GET /api/chaos/runs/:id`: a preset's attempt opens on its recording's), and the job
- * that runs them:
+ * run's matrix (`GET /api/chaos/runs/:id`: a preset's attempt opens on its recording's), Run
+ * error-path presets…'s plan (`GET /api/chaos/runs/:id/plan`), and the job that runs them:
  *
  *   chaos   { golden, presets?, tool?,           `test <golden> --chaos`: a golden on disk; one from a pack the
  *             confirmed? }                         repository doesn't track runs only confirmed
@@ -24,6 +30,39 @@ import { sessionBusy, testsBusy } from './tests.js';
  */
 export const CHAOS_JOB_KIND = 'chaos';
 
+/**
+ * The plan's job: the picks checked as the job checks them, and what the server reads first (the
+ * config's tests and goldens, `mcp.effects`, whether names show, and the command a golden from a pack
+ * the repository doesn't track would run).
+ */
+function presetsPlanJob(ctx: RouteContext, run: RunRecord, query: URLSearchParams): PresetsPlanJob | { error: string } {
+  const presets = query.get('presets');
+  const tool = query.get('tool');
+  const flags = chaosFlags({ ...(presets !== null ? { presets: presets ? presets.split(',') : [] } : {}), ...(tool ? { tool } : {}) });
+  if ('error' in flags) return flags;
+  const work = outcomeWork(ctx);
+  const golden = work?.goldens.find((g) => g.runId === presetsTarget(run));
+  let effects: Record<string, string> | undefined;
+  try {
+    effects = ctx.config().mcp?.effects;
+  } catch {
+    effects = undefined;
+  }
+  const project = ctx.project?.path ?? process.cwd();
+  return {
+    kind: 'presets-plan',
+    runId: run.runId,
+    ...(presets !== null ? { presets: parsePresets(presets ? presets.split(',') : [], 'presets') } : {}),
+    ...(tool ? { tool } : {}),
+    ...(query.get('expect') === '1' ? { expect: true } : {}),
+    work,
+    untracked: golden ? (goldensNeedingConsent(ctx.store, [golden.path], project)[0]?.argv ?? null) : null,
+    ...(effects ? { effects } : {}),
+    shared: namesTeamStore(ctx.project?.path),
+    ...(ctx.read.prices ? { prices: ctx.read.prices } : {}),
+  };
+}
+
 export function register(router: Router, ctx: RouteContext): void {
   router.get('/chaos', (r) => r.tagged(chaosView(ctx.store)));
 
@@ -31,6 +70,25 @@ export function register(router: Router, ctx: RouteContext): void {
     const run = lookupRun(ctx.store, r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     r.tagged({ runId: run.runId, matrix: chaosOfRun(ctx.store, run.runId) });
+  });
+
+  // Run error-path presets…'s plan for the picks (`presets=timeout,429`, `tool=`, `expect=1` while the
+  // field has checks): a pooled read of the recording's calls, revalidated from where it stands.
+  router.get('/chaos/runs/:id/plan', async (r) => {
+    const run = lookupRun(ctx.store, r.params.id!);
+    if (!run) {
+      const no = noSuchRun(ctx.store, r.params.id!);
+      throw new HttpError(no.status, no.message);
+    }
+    const job = presetsPlanJob(ctx, run, r.query);
+    if ('error' in job) throw new HttpError(400, job.error);
+    const etag = runVersionTag(ctx.store, run, JSON.stringify([ctx.read, job]));
+    if (r.req.headers['if-none-match'] === etag) {
+      r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
+      r.res.end();
+      return;
+    }
+    sendAnswer(r, await ctx.reads.run(job, runAffinity(ctx.store, run.runId)), { etag });
   });
 
   ctx.jobs.registerJobKind(CHAOS_JOB_KIND, {

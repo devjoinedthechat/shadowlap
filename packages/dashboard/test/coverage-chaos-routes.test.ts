@@ -9,6 +9,7 @@ import { lineage } from '../src/api.js';
 import { chaosMatrices, chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
 import { coverageLook, coveragePackArgs, coverageView, type CoverageView } from '../src/coverage.js';
 import { treeUse } from '../src/worktree.js';
+import type { PresetsPlan } from '../src/presets-plan.js';
 import type { GoldenSource } from '../src/tests.js';
 
 /**
@@ -271,6 +272,15 @@ describe('error-path presets', () => {
     expect((await api('chaos/runs/NOPE')).status).toBe(404);
     expect(chaosOfRun(store, golden)).toEqual(chaosOfGolden(store, 'goldens/forecast'));
     expect(chaosOfGolden(store, 'goldens/other')).toBeNull();
+  });
+
+  it("serves Run error-path presets…'s plan, a pooled read, for the picks it is asked with", async () => {
+    const plan = await getJson<PresetsPlan>(`chaos/runs/${golden}/plan?presets=429,timeout`);
+    expect(plan).toMatchObject({ target: golden, golden: 'goldens/forecast', runsHere: null });
+    // This recording keeps no call: the engine's words say why no preset can hit one.
+    expect(plan.at).toEqual({ tool: { none: 'the recording makes no tool call' }, model: { none: 'the recording makes no model call' } });
+    expect((await api(`chaos/runs/${golden}/plan?presets=nope`)).status).toBe(400);
+    expect((await api('chaos/runs/NOPE/plan')).status).toBe(404);
   });
 
   it('never gives the CLI a golden whose path would read as one of its options', async () => {
