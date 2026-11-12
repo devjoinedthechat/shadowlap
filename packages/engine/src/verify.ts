@@ -9,6 +9,7 @@ import { dimLines, plain } from './report.js';
 import { fitLine, safeLine } from './text.js';
 import type { CallRecord } from './types.js';
 import { unavailableStop } from './unavailable.js';
+import { verifyTallyLine, type VerifyTally } from './verified-words.js';
 import type { UnrecordedTool } from './unrecorded-tools.js';
 import { shortRunId as short } from './words.js';
 
@@ -194,35 +195,6 @@ export function outcomeOf(r: Pick<VerifiedRun, 'role' | 'verdict'> & { decision?
   return r.verdict === 'pass' ? 'fixed' : 'not fixed';
 }
 
-/**
- * A run's tally in its parts, as verify's line says it (`verifyTallyLine`) and a page draws it: what
- * it counted, why an attempt stopped it, the attempts the provider cut short, and the bound.
- */
-export interface VerifyTally {
-  /**
-   * What it counted: `12 of 12 passed`; against its baseline both tallies, `38 of 38 passed, baseline
-   * 38 of 38`; `clean replay` for a run its first attempt settled. For a run an attempt it could not
-   * judge stopped, the attempts judged before it, one the provider cut short among them (`2 of 3
-   * passed`), or null when none was.
-   */
-  tally: string | null;
-  /**
-   * Why an attempt it could not judge stopped it before its gate decided: `the provider unavailable`
-   * when the provider stayed unavailable attempt after attempt (`unavailableStop`), else `attempt 4
-   * not judged`. Null for a run that was decided.
-   */
-  undecided: string | null;
-  /** The attempts the provider cut short, each counted against either verdict: `2 cut short by the provider, counted against either verdict`. Null when none was, and for a run an attempt stopped. */
-  cutShort: string | null;
-  /**
-   * The bound that bears on its verdict, at the confidence it was decided at: `rate >= 0.76 (95%)`, or
-   * against its baseline `drop <= 0.10 (95%)`. Null for a fixed count, a clean replay and a run an
-   * attempt stopped, and where the figures a report kept can't give one (a report from another
-   * version or another machine): the tally alone then.
-   */
-  bound: string | null;
-}
-
 /** The attempts the provider cut short, as a tally says them apart: `2 cut short by the provider, counted against either verdict`. */
 const cutNote = (n: number | undefined): string | null => (n ? `${n} cut short by the provider, counted against either verdict` : null);
 
@@ -270,16 +242,6 @@ export function verifyTally(r: VerifiedRun): VerifyTally {
   if (r.deterministic) return { tally: 'clean replay', undecided: null, cutShort: null, bound: null };
   if (r.baseline) return keptParts(r, r.baseline);
   return { tally: `${r.passes} of ${r.attempts.length} passed`, undecided: null, cutShort: cutNote(r.cutShort), bound: r.attempts.length ? gateBound(r.gate) : null };
-}
-
-/**
- * A run's tally as verify's line says it, from its parts (`verifyTally`), a part left out left out of
- * the line: `12 of 12 passed · rate >= 0.76 (95%)`; `17 of 18 passed (1 cut short by the provider,
- * counted against either verdict) · rate >= 0.60 (95%)`; `2 of 3 passed, attempt 4 not judged`.
- */
-export function verifyTallyLine(t: Partial<VerifyTally>): string {
-  const counted = [t.tally, t.undecided].filter(Boolean).join(', ');
-  return `${counted}${t.cutShort ? ` (${t.cutShort})` : ''}${t.bound ? ` · ${t.bound}` : ''}`;
 }
 
 /** A run's tally, as verify's line says it (`verifyTallyLine`). */
