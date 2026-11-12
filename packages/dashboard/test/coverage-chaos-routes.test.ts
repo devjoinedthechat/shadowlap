@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { messageOf, parseExpect, ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
+import { keptPresetBound, messageOf, parseExpect, ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
 import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
 import { lineage } from '../src/api.js';
-import { chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
+import { chaosMatrices, chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
 import { coverageLook, coveragePackArgs, coverageView, type CoverageView } from '../src/coverage.js';
 import { treeUse } from '../src/worktree.js';
 import type { GoldenSource } from '../src/tests.js';
@@ -314,8 +314,8 @@ describe('error-path presets', () => {
       expect(chaosOfRun(s, second)!.cells).toEqual([expect.objectContaining({ sessionId: 'N2', verdict: 'passed', runs: [{ runId: second, verdict: 'passed', passed: true, exitCode: 0, reason: null }] })]);
       // The family marks each attempt by its own session's verdict, so the Forks view keeps the first failed.
       const family = new Map(lineage(s, rec)!.map((n) => [n.runId, n.preset]));
-      expect(family.get(first)).toEqual({ label: 'tool timeout', verdict: 'failed' });
-      expect(family.get(second)).toEqual({ label: 'tool timeout', verdict: 'passed' });
+      expect(family.get(first)).toEqual({ label: 'tool timeout', verdict: 'failed', session: 'N1', callNo: 2, golden: 'goldens/inbox' });
+      expect(family.get(second)).toEqual({ label: 'tool timeout', verdict: 'passed', session: 'N2', callNo: 2, golden: 'goldens/inbox' });
       expect(family.get(rec)).toBeUndefined();
       // An attempt whose mark names no session that kept it: found by the result that lists it.
       const lost = s.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'inbox.mjs'], cwd: project }, startedAt: T0 + 200, meta: { chaos: { preset: 'empty', callNo: 2, session: 'GONE', attempt: 1, golden: 'goldens/inbox' } } }).runId;
@@ -323,7 +323,33 @@ describe('error-path presets', () => {
       s.startChaosSession({ sessionId: 'N3', startedAt: T0 + 200, command: ['shadowlap', 'test', 'goldens/inbox', '--chaos'], presets: ['empty'] });
       s.addChaosResult({ sessionId: 'N3', runId: rec, golden: 'goldens/inbox', preset: 'empty', verdict: 'passed', callNo: 2, passes: 1, attempts: 1, at: T0 + 202, data: { detail: 'list_inbox (#2) answered with nothing: the agent exited 0', runs: [{ runId: lost, verdict: 'passed', passed: true, exitCode: 0 }] } });
       expect(chaosOfRun(s, lost)!.cells.map((c) => [c.sessionId, c.preset])).toEqual([['N3', 'empty']]);
-      expect(lineage(s, rec)!.find((n) => n.runId === lost)!.preset).toEqual({ label: 'empty result', verdict: 'passed' });
+      expect(lineage(s, rec)!.find((n) => n.runId === lost)!.preset).toEqual({ label: 'empty result', verdict: 'passed', session: 'N3', callNo: 2, golden: 'goldens/inbox' });
+      // The matrix says what the panel draws: the newest session's command, what judged the attempts
+      // (a result kept before results kept a judge gives its checks with no source), the tool call hit.
+      expect(chaosOfRun(s, rec)).toMatchObject({ command: 'shadowlap test goldens/inbox --chaos', rule: null, judge: { source: null, checks: [] }, spent: 0, upstreamRequests: 0, toolCall: { name: 'list_inbox', callNo: 2 } });
+    } finally {
+      s.close();
+    }
+  });
+
+  it("keeps a matrix's bound, rule, judge and spend, as the CLI kept each result", () => {
+    const s = Store.open(':memory:');
+    try {
+      const rec = s.createRun({ mode: 'record', command: { argv: ['node', 'refund.mjs'], cwd: project }, startedAt: T0 }).runId;
+      s.endRun(rec, 'completed', T0 + 1);
+      s.startChaosSession({ sessionId: 'G1', startedAt: T0 + 2, command: ['shadowlap', 'replay', rec, '--chaos', '--expect', '{"tools":{"issue_refund":0}}'], presets: ['timeout', '429'] });
+      const gate = { good: 0.9, bad: 0.7, risk: 0.05, max: 20 };
+      const judge = { source: '--expect' as const, checks: ['issue_refund called 0 times'] };
+      const runs = (n: number) => Array.from({ length: n }, (_, i) => ({ runId: `A${i}`, verdict: 'passed' as const, passed: true, exitCode: 0 }));
+      s.addChaosResult({ sessionId: 'G1', runId: rec, preset: 'timeout', verdict: 'passed', callNo: 3, passes: 6, attempts: 6, at: T0 + 3, data: { target: { kind: 'tool', name: 'lookup_order' }, runs: runs(6), gate, spent: 0.012, upstreamRequests: 6, judge } });
+      s.addChaosResult({ sessionId: 'G1', runId: rec, preset: '429', verdict: 'inconclusive', callNo: 4, passes: 5, attempts: 8, at: T0 + 4, data: { target: { kind: 'api', name: 'model' }, runs: runs(8), gate, spent: 0.02, upstreamRequests: 9, judge, cutShort: 2 } });
+      const m = chaosOfRun(s, rec)!;
+      expect(m).toMatchObject({ command: `shadowlap replay ${rec} --chaos --expect '{"tools":{"issue_refund":0}}'`, rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', judge, spent: 0.032, upstreamRequests: 15, toolCall: { name: 'lookup_order', callNo: 3 } });
+      expect(m.cells.map((c) => c.bound)).toEqual([keptPresetBound({ gate, verdict: 'passed', reason: null, passes: 6, attempts: 6 }), keptPresetBound({ gate, verdict: 'inconclusive', reason: null, passes: 5, attempts: 8, cutShort: 2 })]);
+      expect(m.cells[0].bound).toMatch(/^rate >= /);
+      expect(m.cells[1].bound).toMatch(/^rate [\d.]+ to [\d.]+ \(95%\)$/);
+      // Every reader gets the same matrix: what Tests and Needs a look read too.
+      expect(chaosMatrices(s)).toEqual([m]);
     } finally {
       s.close();
     }

@@ -1,4 +1,4 @@
-import { CHAOS_PRESETS, isChaosPreset, messageOf, parsePresets, PRESET_LABELS, presetHits, recorderGone, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { CHAOS_PRESETS, isChaosPreset, keptGate, keptPresetBound, messageOf, parsePresets, PRESET_LABELS, presetHits, quoteArgv, recorderGone, recordingRule, type ChaosJudge, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type StoreOf } from '@shadowlap/engine';
 
 /**
  * Error-path presets as the dashboard shows them: the results `test --chaos` and `replay --chaos`
@@ -35,6 +35,11 @@ export interface ChaosCell {
    */
   runs: Array<{ runId: string; verdict: AttemptVerdict; passed: boolean; exitCode: number; reason: string | null }>;
   gate: Record<string, unknown> | null;
+  /** Under a sequential gate, its bound beside the tally, as the CLI printed it: `rate >= 0.43 (95%)`; else null. */
+  bound: string | null;
+  /** What its attempts spent, and the requests they sent upstream. */
+  spent: number;
+  upstreamRequests: number;
   at: number;
   sessionId: string;
 }
@@ -48,6 +53,21 @@ export interface ChaosMatrix {
   /** When the newest of them ran. */
   at: number;
   counts: { passed: number; failed: number; inconclusive: number; notApplicable: number };
+  /** The newest session's command, `shadowlap replay … --chaos`; null once the store no longer holds that session. */
+  command: string | null;
+  /** The gate that decided them, stated once (`gate: tells 90%+ from 70%- …`), or null when none did. */
+  rule: string | null;
+  /**
+   * What judged every attempt besides the agent exiting 0 and where it came from, as the newest
+   * result kept it; one kept before results kept it gives its last attempt's checks, with no source.
+   * Null when no attempt ran.
+   */
+  judge: { source: ChaosJudge['source'] | null; checks: string[] } | null;
+  /** What every attempt spent, and the requests they sent upstream. */
+  spent: number;
+  upstreamRequests: number;
+  /** The tool call the tool presets hit, or null when none did. */
+  toolCall: { name: string; callNo: number } | null;
 }
 
 export interface ChaosSessionView {
@@ -120,13 +140,52 @@ function cellOf(r: ChaosResult): ChaosCell {
       return { runId: x.runId, verdict, passed: x.passed, exitCode: x.exitCode, reason };
     }),
     gate: d.gate ?? null,
+    bound: boundOf(r),
+    spent: d.spent ?? 0,
+    upstreamRequests: d.upstreamRequests ?? 0,
     at: r.at,
     sessionId: r.sessionId,
   };
 }
 
+/** A result's bound as the CLI printed it beside its tally (the engine's rule): none under a fixed count, or a gate it can't read. */
+function boundOf(r: ChaosResult): string | null {
+  const gate = keptGate(r.data?.gate);
+  return gate ? keptPresetBound({ gate, verdict: r.verdict, reason: r.data?.reason ?? null, passes: r.passes, attempts: r.attempts, cutShort: r.data?.cutShort }) : null;
+}
+
+/** What judged a recording's presets: the newest result that ran an attempt, as it kept its judge, else its last attempt's checks. */
+function judgeOf(list: readonly ChaosResult[]): ChaosMatrix['judge'] {
+  const ran = [...list].sort((a, b) => b.at - a.at).find((r) => r.attempts > 0);
+  if (!ran) return null;
+  if (ran.data?.judge) return ran.data.judge;
+  return { source: null, checks: (ran.data?.runs?.at(-1)?.checks ?? []).map((c) => c.label) };
+}
+
+/** The rule its gates decided by, stated once, in the engine's words; a gate it can't read states none. */
+function ruleOf(list: readonly ChaosResult[]): string | null {
+  return recordingRule(list.flatMap((r) => {
+    const gate = keptGate(r.data?.gate);
+    return gate ? [{ attempts: r.attempts, gate, verdict: r.verdict, reason: r.data?.reason ?? null }] : [];
+  }));
+}
+
+/** A session's command as `shadowlap …`, each read once; null for one the store no longer holds. */
+type CommandOf = (sessionId: string) => string | null;
+
+function commandsOf(store: StoreOf<'chaos'>): CommandOf {
+  const read = new Map<string, string | null>();
+  return (sessionId) => {
+    if (!read.has(sessionId)) {
+      const s = store.getChaosSession(sessionId);
+      read.set(sessionId, s ? quoteArgv(s.command) : null);
+    }
+    return read.get(sessionId) ?? null;
+  };
+}
+
 /** A matrix per golden and recording: two goldens that hold the same recording have one each. */
-function matrices(results: readonly ChaosResult[]): ChaosMatrix[] {
+function matrices(results: readonly ChaosResult[], commandOf: CommandOf): ChaosMatrix[] {
   const byKey = new Map<string, ChaosResult[]>();
   for (const r of results) {
     const key = `${r.golden ?? ''}\n${r.runId}`;
@@ -138,12 +197,21 @@ function matrices(results: readonly ChaosResult[]): ChaosMatrix[] {
     .map((list) => {
       const cells = list.map(cellOf).sort((a, b) => order(a.preset) - order(b.preset));
       const n = (v: ChaosVerdict) => cells.filter((c) => c.verdict === v).length;
+      const at = Math.max(...cells.map((c) => c.at));
+      const sum = (k: 'spent' | 'upstreamRequests') => cells.reduce((t, c) => t + c[k], 0);
+      const tool = cells.find((c) => c.target?.kind === 'tool' && c.callNo !== null);
       return {
         runId: list[0]!.runId,
         golden: list[0]!.golden,
         cells,
-        at: Math.max(...cells.map((c) => c.at)),
+        at,
         counts: { passed: n('passed'), failed: n('failed'), inconclusive: n('inconclusive'), notApplicable: n('not-applicable') },
+        command: commandOf(cells.find((c) => c.at === at)!.sessionId),
+        rule: ruleOf(list),
+        judge: judgeOf(list),
+        spent: sum('spent'),
+        upstreamRequests: sum('upstreamRequests'),
+        toolCall: tool ? { name: tool.target!.name, callNo: tool.callNo! } : null,
       };
     })
     .sort((a, b) => b.at - a.at || a.runId.localeCompare(b.runId) || (a.golden ?? '').localeCompare(b.golden ?? ''));
@@ -178,7 +246,7 @@ const onGoldens = (s: ChaosSession): boolean => s.command[1] === 'test';
 
 /** Every recording's presets, and the newest sessions. */
 export function chaosView(store: StoreOf<'chaos'>, o: { sessions?: number } = {}): ChaosView {
-  return { presets: PRESET_INFO, matrices: matrices(store.latestChaosResults()), sessions: store.listChaosSessions({ limit: o.sessions ?? 20 }).map((s) => sessionView(store, s)) };
+  return { presets: PRESET_INFO, matrices: matrices(store.latestChaosResults(), commandsOf(store)), sessions: store.listChaosSessions({ limit: o.sessions ?? 20 }).map((s) => sessionView(store, s)) };
 }
 
 /** A session's results on one recording (every session's, under an empty session id), read once for every attempt of a family that asks. */
@@ -218,15 +286,15 @@ function attemptResults(store: StoreOf<'chaos'>, run: RunRecord, read: SessionRe
 export function chaosOfRun(store: StoreOf<'recording' | 'chaos'>, runId: string): ChaosMatrix | null {
   const run = store.getRun(runId);
   if (!run) return null;
-  const latest = store.latestChaosResults();
-  const own = matrices(latest.filter((r) => r.runId === run.runId))[0];
+  const commandOf = commandsOf(store);
+  const own = matrices(store.latestChaosResults(run.runId), commandOf)[0];
   if (own) return own;
   const chaos = run.meta?.chaos;
   if (!chaos || !run.parentRunId) return null;
-  const decided = matrices(attemptResults(store, run))[0];
+  const decided = matrices(attemptResults(store, run), commandOf)[0];
   if (decided) return decided;
   const golden = typeof chaos.golden === 'string' ? chaos.golden : null;
-  return matrices(latest.filter((r) => r.runId === run.parentRunId && r.golden === golden))[0] ?? null;
+  return matrices(store.latestChaosResults(run.parentRunId).filter((r) => r.golden === golden), commandOf)[0] ?? null;
 }
 
 /** How a preset's attempt came out, by its preset's verdict, as a family's tree marks it. */
@@ -234,6 +302,10 @@ export interface PresetMark {
   /** The preset in words: `tool timeout`. */
   label: string;
   verdict: AttemptVerdict;
+  /** The session it was decided in, so the Forks view draws one node a session; the call it hit; the golden it ran for. */
+  session: string;
+  callNo: number | null;
+  golden: string | null;
 }
 
 /**
@@ -244,11 +316,13 @@ export interface PresetMark {
 export function presetMarks(store: StoreOf<'chaos'>, runs: readonly RunRecord[]): Map<string, PresetMark> {
   const out = new Map<string, PresetMark>();
   const read: SessionResults = new Map();
+  const commandOf = commandsOf(store);
   for (const run of runs) {
     if (!run.meta?.chaos) continue;
-    for (const c of matrices(attemptResults(store, run, read))[0]?.cells ?? []) {
+    const m = matrices(attemptResults(store, run, read), commandOf)[0];
+    for (const c of m?.cells ?? []) {
       const x = c.runs.find((a) => a.runId === run.runId);
-      if (x) out.set(run.runId, { label: c.label, verdict: x.verdict });
+      if (x) out.set(run.runId, { label: c.label, verdict: x.verdict, session: c.sessionId, callNo: c.callNo, golden: m!.golden });
     }
   }
   return out;
@@ -289,12 +363,12 @@ export function presetsSummary(m: ChaosMatrix, kept: (runId: string) => boolean 
 
 /** Every recording's presets as their matrices, newest first, without the sessions: what Needs a look and Tests read. */
 export function chaosMatrices(store: StoreOf<'chaos'>): ChaosMatrix[] {
-  return matrices(store.latestChaosResults());
+  return matrices(store.latestChaosResults(), commandsOf(store));
 }
 
 /** A Tests row's presets: the newest matrix of a golden, by its name. */
 export function chaosOfGolden(store: StoreOf<'chaos'>, golden: string): ChaosMatrix | null {
-  return matrices(store.latestChaosResults().filter((r) => r.golden === golden))[0] ?? null;
+  return matrices(store.latestChaosResults().filter((r) => r.golden === golden), commandsOf(store))[0] ?? null;
 }
 
 /** The `chaos` job's presets and tool, checked: `--presets` and `--chaos-tool` for the command. */
