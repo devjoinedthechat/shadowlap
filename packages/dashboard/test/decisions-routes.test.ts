@@ -215,6 +215,14 @@ describe('the decision routes', () => {
     expect(retirements.notices.map((n) => n.model)).toEqual(['claude-sonnet-4-5-20250929']);
   });
 
+  it('reads what the working tree sends the runs as a job of its own, offline, titled as the CLI says it', async () => {
+    const read = await startJob(dash, { kind: 'decisions-read', goldens: ['goldens/refund'], runs: [failed], scope: 'billing' });
+    expect(read.status).toBe(202);
+    expect(await read.json()).toMatchObject({ kind: 'decisions-read', title: 'Reading what your working tree sends' });
+    expect(spawned.at(-1)).toEqual(['decisions', failed, 'goldens/refund', '--scope', 'billing', '--from-code', '--dry-run']);
+    expect((await startJob(dash, { kind: 'decisions-read' })).status).toBe(400);
+  });
+
   it('builds the decisions job from what the page names, and refuses what it cannot check', async () => {
     const asked = await startJob(dash, { kind: 'decisions', goldens: ['goldens/refund'], runs: [failed], model: 'claude-sonnet-5-5', set: { temperature: 0 }, samples: 3 });
     expect(asked.status).toBe(202);

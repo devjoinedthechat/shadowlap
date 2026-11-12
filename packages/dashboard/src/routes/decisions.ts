@@ -1,5 +1,5 @@
 import type { RouteContext } from '../context.js';
-import { decisionSessions, decisionsJob, limitsRefused, migrateJob, retirementsView, verifyFlaggedJob } from '../decisions.js';
+import { decisionSessions, decisionsJob, decisionsReadJob, limitsRefused, READING_TREE, migrateJob, retirementsView, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
 import { outcomeWork } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
@@ -88,6 +88,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // A golden's pack is read from the project's folder, which is where a job runs the CLI.
   const folder = (b: { project: { path: string } | null }) => b.project?.path ?? process.cwd();
   ctx.jobs.registerJobKind('decisions', { title: () => 'Previewing a change', build: (req, b) => decisionsJob(req, b.store, goldens(), folder(b)) });
+  ctx.jobs.registerJobKind('decisions-read', { title: () => READING_TREE, build: (req, b) => decisionsReadJob(req, b.store, goldens(), folder(b)) });
   ctx.jobs.registerJobKind('migrate', { title: () => 'Migrating', build: (req, b) => migrateJob(req, b.store, goldens(), folder(b)) });
   ctx.jobs.registerJobKind('decisions-verify', { title: () => 'Verifying the changed runs', build: (req, b) => verifyFlaggedJob(req, b.store, folder(b)) });
 }

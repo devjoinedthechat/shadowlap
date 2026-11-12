@@ -261,6 +261,26 @@ export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, golde
   return { args, title, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
 }
 
+/** The drawer's row for a read of what the working tree sends, as the CLI's own line begins. */
+export const READING_TREE = 'Reading what your working tree sends';
+
+/**
+ * What `--from-code` reads, as a job: `shadowlap decisions <targets> --from-code --dry-run`, `{ runs?,
+ * goldens?, scope?, yes? }`. Each run is replayed offline from the working tree with nothing sent, so
+ * it holds the tree as a reader (worktree.ts) and asks the consent a sent golden's command needs; its
+ * answer is the job's `result` (the CLI's `decisions-read`), which Preview changed prompt reads.
+ */
+export function decisionsReadJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
+  const targets = targetArgs(store, req, goldens);
+  if ('error' in targets) return targets;
+  const scope = scopeArgs(req.scope);
+  if ('error' in scope) return scope;
+  const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
+  if ('ask' in consent) return consent.ask;
+  const args = [...decisionsArgv({ targets: targets.args, scope: scope.scope, fromCode: true }), '--dry-run', ...consent.yes];
+  return { args, title: READING_TREE, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
+}
+
 /** `shadowlap migrate` as a job: `{ to, goldens?, runs?, from?, scope?, set?, yes? }`; every golden when none are named. */
 export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
   if (typeof req.to !== 'string' || !MODEL.test(req.to)) return { error: 'to is the model to switch to, such as claude-sonnet-5-5' };
