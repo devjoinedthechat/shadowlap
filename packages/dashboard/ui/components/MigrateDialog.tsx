@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
-import { migrateArgv } from '../../src/decisions-argv.js';
 import { JOB_KINDS } from '../api.js';
 import type { MigrateEstimateView } from '../estimates-api.js';
 import { FixJobButton, useConsentStart } from '../fixes/FixJobButton.js';
 import { useLoad } from '../hooks.js';
-import { quoteArg } from '../job-title.js';
+import { migrateCommand, type MigrateSwitch } from '../migrate-command.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
 import { ActionButton } from './ActionButton.js';
@@ -22,19 +21,9 @@ import { Dialog } from './Dialog.js';
 /** Migrate to <model>'s one card, on every press of it. */
 export const MIGRATE_CARD = 'Verify runs the agent live from the switched calls, writes stubbed';
 
-/** What one migration switches: to `to`, from `from`, on the goldens named (paths), else the runs. */
-export interface MigrateSwitch {
-  from: readonly string[];
-  to: string;
-  goldens: readonly string[];
-  runs?: readonly string[];
-}
-
 /** The `migrate` job's fields: every golden where it names none and no run. */
 const fieldsOf = (s: MigrateSwitch): Record<string, unknown> => ({ to: s.to, ...(s.from.length ? { from: [...s.from] } : {}), ...(s.goldens.length ? { goldens: [...s.goldens] } : s.runs?.length ? { runs: [...s.runs] } : {}) });
 
-/** The command the job runs, quoted as a shell takes it. */
-export const migrateCommand = (s: MigrateSwitch): string => ['shadowlap', ...migrateArgv({ to: s.to, targets: s.goldens.length ? s.goldens : (s.runs ?? []), from: s.from })].map(quoteArg).join(' ');
 
 /** What a switch bills and the preview that asked it already; nothing in an exported copy or a read-only dashboard, undefined while it is worked out. */
 export function useMigrateEstimate(s: MigrateSwitch, ask = true): { estimate: Estimate | null | undefined; preview: MigrateEstimateView['preview'] } {
