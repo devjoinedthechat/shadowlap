@@ -53,8 +53,8 @@ export interface FixDetail extends FixRow {
   /** The check as the oracle's labels: what a verdict must check to count for the fix. */
   oracle: string[];
   failingRuns: FixRunRef[];
-  /** The runs that failed its check, which its header's link opens under Runs › Failed, for the link's card: in the pooled `fix` read alone (read-jobs.ts), null from a `fixDetail` built on the server's thread, or where none are there now. */
-  failedCheck: FailedCheck | null;
+  /** The runs that failed its check, which its header's link opens under Runs › Failed, for the link's card: in the pooled `fix` read alone (read-jobs.ts), null where none are there now. A `fixDetail` built on the server's thread, as `fix show --json` prints it, leaves it out. */
+  failedCheck?: FailedCheck | null;
   goodRuns: FixRunRef[];
   openedBy: string | null;
   upstreamRequests: number;
@@ -199,7 +199,6 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     expect,
     oracle: fix.check.oracle,
     failingRuns: rec.failing.map((id) => runRef(store, id)),
-    failedCheck: null,
     goodRuns: rec.good.map((id) => runRef(store, id)),
     openedBy: fix.data.openedBy ?? null,
     upstreamRequests: cost.upstreamRequests,
