@@ -51,7 +51,7 @@ export function goldensLeftWaiting(store: StoreOf<'decisions' | 'tests'>): Golde
   const out: GoldenLeftWaiting[] = [];
   for (const row of store.listDecisionSessions({ kind: 'migrate', limit: 200 })) {
     if (!row.applied) continue;
-    const kept = store.getDecisionSession(row.sessionId)?.data ?? {};
+    const kept = store.decisionReport(row.sessionId) ?? {};
     const from = Array.isArray(kept.from) ? kept.from.filter((m): m is string => typeof m === 'string') : [];
     const to = typeof kept.to === 'string' ? kept.to : '';
     for (const g of row.applied.outdated) {
@@ -122,7 +122,7 @@ export function migrationOfPreview(store: StoreOf<'decisions'>, previewId: strin
   const asked = store.decisionRunIds(previewId);
   for (const row of store.listDecisionSessions({ kind: 'migrate', limit: 200 })) {
     if (row.at < preview.at) break;
-    const kept = store.getDecisionSession(row.sessionId)?.data ?? {};
+    const kept = store.decisionReport(row.sessionId) ?? {};
     if (!sameSwitch(preview.data, { to: typeof kept.to === 'string' ? kept.to : '', from: strings(kept.from) })) continue;
     const runs = new Set(store.decisionRunIds(row.sessionId));
     if (asked.every((id) => runs.has(id))) return row.sessionId;
@@ -139,7 +139,7 @@ export function newestMigrationsFrom(store: StoreOf<'decisions'>, models: readon
   for (const row of store.listDecisionSessions({ kind: 'migrate', limit: 200 })) {
     if (found.size === models.length) break;
     const open = models.filter((m) => !found.has(m));
-    const kept = store.getDecisionSession(row.sessionId)?.data ?? {};
+    const kept = store.decisionReport(row.sessionId) ?? {};
     const from = strings(kept.from);
     for (const m of open) if (from.some((f) => sameEither(f, m))) found.set(m, { sessionId: row.sessionId, kept, applied: row.applied });
   }

@@ -28,7 +28,7 @@ export type MigrateEstimateJob = { kind: 'migrate-estimate'; to: string; from: s
  */
 export function newestPreviewOf(store: Store, to: string, from: readonly string[], runs: readonly string[]): { sessionId: string; verified: boolean } | null {
   for (const row of store.listDecisionSessions({ kind: 'decisions', limit: 200 })) {
-    const kept = store.getDecisionSession(row.sessionId)?.data ?? {};
+    const kept = store.decisionReport(row.sessionId) ?? {};
     if (!sameSwitch(kept, { to, from })) continue;
     const asked = new Set(store.decisionRunIds(row.sessionId));
     if (!runs.every((id) => asked.has(id))) continue;

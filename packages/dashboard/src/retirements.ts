@@ -10,7 +10,8 @@ import type { GoldenSource } from './tests.js';
 /** A model that retires, with the goldens whose recordings call it. */
 export type RetiringModel = RetirementNotice & { goldens: string[]; scopes: string[] };
 
-type Model = { provider: string | null; model: string; scopes: string[] };
+/** A model a recording calls: the scopes its calls were made in, and how many calls it made. */
+type Model = { provider: string | null; model: string; scopes: string[]; calls: number };
 
 /**
  * The models each golden's recording calls, by run, kept per store: a finished recording never
@@ -31,7 +32,8 @@ export function modelsOf(store: StoreOf<'recording'>, runId: string): Model[] {
     if (!model) continue;
     const provider = c.meta.provider ?? c.end?.meta.provider ?? null;
     const key = `${String(provider)}\u0000${model}`;
-    const m = seen.get(key) ?? { provider, model, scopes: [] };
+    const m = seen.get(key) ?? { provider, model, scopes: [], calls: 0 };
+    m.calls += 1;
     // The scopes its calls were made in (the agent's own, or a subagent's), for Migrate's start page.
     if (typeof c.meta.scope === 'string' && c.meta.scope && !m.scopes.includes(c.meta.scope)) m.scopes.push(c.meta.scope);
     seen.set(key, m);

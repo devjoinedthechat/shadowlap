@@ -10,8 +10,8 @@ import type { GoldenSource } from './tests.js';
  * What Changes › Migrate opens on, as `GET /api/migrate/start` answers it: how many goldens the
  * project has, each model their recordings call that retires (its notice, the goldens and scopes that
  * call it, its platform's name and owner, and whether a migration from it checked it), and the models
- * the goldens call, most used first, for Switch from. A pooled read: it reads every golden's calls,
- * kept per run once a run has ended.
+ * the goldens call, most used first, for Switch from. A pooled read: it reads every golden's calls
+ * once, kept per run once a run has ended (modelsOf).
  */
 
 export type MigrateStartJob = { kind: 'migrate-start'; goldens: GoldenSource[] };
@@ -62,12 +62,12 @@ export function migrateStart(store: Store, goldens: readonly GoldenSource[], now
   const use = new Map<string, MigrateUse>();
   for (const g of goldens) {
     if (!g.runId || !store.getRun(g.runId)) continue;
-    const calls = store.getCalls(g.runId);
+    // Counted where the models are read, kept per run once it has ended: no golden's calls read again.
     for (const m of modelsOf(store, g.runId)) {
       const key = `${String(m.provider)}\u0000${m.model}`;
       const u = use.get(key) ?? { model: m.model, provider: m.provider, calls: 0, goldens: 0, family: modelFamily(m.model) };
       u.goldens += 1;
-      u.calls += calls.filter((c) => c.kind === 'api' && (c.end?.meta.model ?? c.meta.model) === m.model).length;
+      u.calls += m.calls;
       use.set(key, u);
     }
   }

@@ -108,17 +108,21 @@ addPaletteSource(({ app, go }) => {
 });
 
 // Migrate <a> to <b> for each model the goldens call that retires with a replacement: Migrate opens
-// and asks there, as its start page's button does. What retires is Migrate's own read, asked each
-// time the palette opens and kept for the next time. Migrate verifies from the working tree, so like
-// Preview changed prompt it waits while a job holds the tree, dimmed, saying why; it is left out on a
-// read-only dashboard.
+// and asks there, as its start page's button does. What retires is Migrate's own read, kept for the
+// next time and asked again as the palette opens once it is older than RETIRING_FRESH: the palette
+// builds its rows again whenever any source's answer lands, and each read reads the goldens on the
+// pool. Migrate verifies from the working tree, so like Preview changed prompt it waits while a job
+// holds the tree, dimmed, saying why; it is left out on a read-only dashboard.
 let retiringRead: readonly MigrateRetiring[] = [];
 let readingRetiring = false;
+let retiringAt = 0;
+const RETIRING_FRESH = 15_000;
 const retiringKey = (list: readonly MigrateRetiring[]): string => list.map((n) => `${n.model}>${n.replacements[0] ?? ''}:${n.goldens.join(',')}`).join(' ');
 addPaletteSource(({ app, go }) => {
   if (app.exported || app.actionsOff || !app.hasKind(JOB_KINDS.migrate)) return [];
-  if (!readingRetiring) {
+  if (!readingRetiring && Date.now() - retiringAt >= RETIRING_FRESH) {
     readingRetiring = true;
+    retiringAt = Date.now();
     void app.client.migrateStart().then(
       (v) => {
         readingRetiring = false;
