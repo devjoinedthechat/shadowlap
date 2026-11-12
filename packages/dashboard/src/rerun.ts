@@ -1,4 +1,4 @@
-import { fieldValue, type StepRerun } from '@shadowlap/engine';
+import { fieldValue, GATE_MAX_ATTEMPTS, KEPT_DEFAULTS, type StepRerun } from '@shadowlap/engine';
 
 /**
  * The arguments Run blame again, Run more attempts and Verify again run `shadowlap` with, built from a
@@ -64,6 +64,8 @@ const RERUN_FLAGS: Readonly<Record<RerunKind, Readonly<Record<string, FlagRule>>
     '--from': { value: MODEL },
     '--live-tool': { value: NAME },
     '--margin': { value: SHARE, check: (v) => Number(v) > 0 && Number(v) < 1 },
+    // A good run's pairs: a pulled record's held to what Run more attempts gives one here.
+    '--kept-max': { value: /^\d{1,4}$/, check: (v) => Number(v) >= 1 && Number(v) <= GATE_MAX_ATTEMPTS, pulledMax: 2 * KEPT_DEFAULTS.max },
     '--baseline': { value: /^(?:paired|history)$/ },
     '--fail-fast': { value: null },
     '--base': { value: REVISION, check: (v) => !v.includes('..'), own: true },

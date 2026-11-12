@@ -24,7 +24,7 @@ const rerun = (flags: string[], command: string[] | null = null): StepRerun => (
 
 describe('the flags a kept blame or verify runs again with', () => {
   it('takes the flags it allows, with values of their shape, in the order kept', () => {
-    const flags = ['--from', 'gpt-4o-2024-08-06', '--live-tool', 'search_web', '--margin', '0.1', '--baseline', 'paired', '--fail-fast', '--writes', 'block', '--reads', 'replay', '--budget', '0.5', '--timeout', '120'];
+    const flags = ['--from', 'gpt-4o-2024-08-06', '--live-tool', 'search_web', '--margin', '0.1', '--kept-max', '300', '--baseline', 'paired', '--fail-fast', '--writes', 'block', '--reads', 'replay', '--budget', '0.5', '--timeout', '120'];
     expect(rerunFlags('verify', rerun(flags), { pulled: false })).toEqual({ flags, command: null, left: [], dropped: {} });
     expect(rerunFlags('blame', rerun(['--scan', '3', '--writes', 'stub']), { pulled: false })!.flags).toEqual(['--scan', '3', '--writes', 'stub']);
   });
@@ -50,6 +50,8 @@ describe('the flags a kept blame or verify runs again with', () => {
       ['--timeout', '-5'],
       ['--margin', '1'],
       ['--margin', '0'],
+      ['--kept-max', '0'],
+      ['--kept-max', '1001'],
       ['--budget', '-1'],
       ['--budget', '0'],
       ['--base', '-c'],
@@ -75,6 +77,8 @@ describe('the flags a kept blame or verify runs again with', () => {
     }
     // A name in another script, or with an accent, is a name like any other.
     expect(rerunFlags('verify', rerun(['--live-tool', 'buscar_café']), { pulled: true })!.flags).toEqual(['--live-tool', 'buscar_café']);
+    // A pulled verdict's good runs take no more pairs than Run more attempts gives one here.
+    expect(rerunFlags('verify', rerun(['--kept-max', '900']), { pulled: true })!.flags).toEqual(['--kept-max', '400']);
     expect(fieldArgs({ system: 'Antworte kurz: Größe in mm' })).toEqual(['--set', 'system=Antworte kurz: Größe in mm']);
   });
 
