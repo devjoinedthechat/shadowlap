@@ -294,7 +294,7 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   }
 });
 
-test('a preview’s link opens Preview and a migration’s Changes on Verdicts, and neither Preview, Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
+test('a preview’s link opens Preview and a migration’s its report on Migrate, and neither Preview, Migrate, Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
   const { origin, token } = dash();
   const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
   const { sessions } = (await get('decisions')) as { sessions: Array<{ kind: 'decisions' | 'migrate'; href: string }> };
@@ -308,12 +308,15 @@ test('a preview’s link opens Preview and a migration’s Changes on Verdicts, 
   expect(await key.evaluate((k) => [getComputedStyle(k).display, getComputedStyle(k.closest('.dmx')!).containerName])).toEqual(['block', 'matrix']);
   const migration = sessions.find((s) => s.kind === 'migrate')?.href;
   expect(migration, 'the demo’s migration').toMatch(/^#\/changes\/migrate\//);
-  await openPage(page, migration!.slice(1), 'main#view table.vdt tbody tr');
-  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/changes');
+  await openPage(page, migration!.slice(1), 'main#view .mgverdict');
+  expect(await page.evaluate(() => location.hash)).toBe(migration);
+  await expect(page.locator('main#view a[aria-current="page"]', { hasText: 'Migrate' })).toHaveCount(1);
   const { lead } = (await get('verdicts')) as { lead: { key: string } | null };
   expect(lead, 'the demo’s newest revision a session ran every golden at').not.toBeNull();
   await page.setViewportSize({ width: 390, height: 844 });
   await openPage(page, '/changes', 'main#view table.vdt tbody tr');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  await openPage(page, migration!.slice(1), 'main#view .mgverdict');
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   // A key can hold a `+`, which the token link stops at: the page goes there from Verdicts.
   await page.evaluate((key) => {
@@ -325,6 +328,44 @@ test('a preview’s link opens Preview and a migration’s Changes on Verdicts, 
   await openPage(page, preview!.slice(1), 'main#view .dmx button.dc');
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
   expect(await key.evaluate((k) => [getComputedStyle(k).display, getComputedStyle(k).gridTemplateColumns.split(' ').length])).toEqual(['grid', 2]);
+});
+
+test('Migrate’s bare tab, the demo’s migration with its pull request body shown, Migrate to…’s menu and the dialogs have no serious or critical axe violation, and a phone never scrolls the pages sideways', async ({ page, request }) => {
+  const { origin, token } = dash();
+  const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token } })).json()) as { sessions: Array<{ kind: string; href: string }> };
+  const migration = sessions.find((s) => s.kind === 'migrate')?.href;
+  expect(migration, 'the demo’s migration').toMatch(/^#\/changes\/migrate\//);
+  const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    // The bare tab: a retiring model's start page, Switch from and To, or the newest migration.
+    await openPage(page, '/changes/migrate', 'main#view :is(.mgstart, .mgverdict)');
+    expect(await seriousViolations(page), `the bare tab at ${width}px`).toEqual([]);
+    expect(await sideways(), `the bare tab at ${width}px`).toBe(0);
+    await openPage(page, migration!.slice(1), 'main#view .mgverdict');
+    // Shown once, it stays shown on the same migration's page.
+    const body = page.locator('main#view .mgpr button.linkbtn');
+    if ((await body.count()) && (await body.getAttribute('aria-expanded')) !== 'true') await body.click();
+    if (await body.count()) await page.waitForSelector('main#view .mgpr .prbody.md', { state: 'visible' });
+    expect(await seriousViolations(page), `the migration at ${width}px`).toEqual([]);
+    expect(await sideways(), `the migration at ${width}px`).toBe(0);
+    // Migrate to…'s menu, the dialog a model in it asks in, and Apply config change's where offered.
+    await page.locator('main#view .chbar button', { hasText: 'Migrate to…' }).click();
+    await page.waitForSelector('.fkm [role="menuitemradio"]', { state: 'visible' });
+    expect(await seriousViolations(page), `Migrate to… at ${width}px`).toEqual([]);
+    await page.locator('.fkm [role="menuitemradio"]').first().click();
+    await page.waitForSelector('.dialog', { state: 'visible' });
+    expect(await seriousViolations(page), `Migrate’s dialog at ${width}px`).toEqual([]);
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.dialog', { state: 'detached' });
+    const apply = page.locator('main#view .mgverdict .actions button', { hasText: 'Apply config change' });
+    if (await apply.count()) {
+      await apply.click();
+      await page.waitForSelector('.dialog', { state: 'visible' });
+      expect(await seriousViolations(page), `Apply config change? at ${width}px`).toEqual([]);
+      await page.keyboard.press('Escape');
+    }
+  }
 });
 
 test.describe('a preview on a touch screen', () => {
