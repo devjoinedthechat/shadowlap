@@ -335,7 +335,6 @@ table.gt span.gev small { font-size: inherit; }
 .rpg .wib { margin: 0 8px 0 10px; }
 .rpx .rprule { margin-top: 2px; }
 .rpx .astrip { max-width: none; margin: 2px 0 6px; }
-.astrip .acsep { flex: none; width: 1px; height: 18px; margin: 0 4px; background: var(--dim); }
 .rpck { display: block; }
 .rpx .rpnote { margin-top: 6px; }
 .rpx .rpcap { margin-top: 10px; }
@@ -371,5 +370,3 @@ pre.report.tail { margin: 10px 0 0; padding: 10px 12px; font-size: 11px; white-s
   .rbox > pre.report { white-space: pre; overflow-x: auto; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
   .rbox > pre.report:focus-visible { -webkit-mask-image: none; mask-image: none; }
 }
-/* forced colours: the hairline where this session took over is drawn in the text colour */
-@media (forced-colors: active) { .astrip .acsep { forced-color-adjust: none; background: CanvasText; } }
