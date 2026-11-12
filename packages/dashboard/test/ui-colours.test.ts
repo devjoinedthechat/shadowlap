@@ -132,6 +132,8 @@ describe('what each colour may mean', () => {
   it('draws a write in teal, on the run page, in Compare and in Settings → Tools, never in the failure red', () => {
     expect(value('.eff.write', 'color')).toBe('var(--k-write)');
     expect(value('.tchip.w em', 'color')).toBe('var(--k-write)');
+    // The Trust table's write, its name in the write's colour.
+    expect(value('.trusttab td code.wr', 'color')).toBe('var(--k-write)');
     // What a fork did differently: the change of rank 1 is a write, its words and its tool teal.
     expect(value('.fdiff li.r1 .rk', 'color')).toBe('var(--k-write)');
     expect(value('.fdiff b.w', 'color')).toBe('var(--k-write)');

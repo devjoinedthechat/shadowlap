@@ -179,6 +179,7 @@
     // the page of them browser/matrix.spec.ts measures in a real browser.
     "packages/dashboard/test/ui-matrix.test.ts",
     "packages/dashboard/test/ui-injection-results.test.ts",
+    "packages/dashboard/test/ui-injection-jobs.test.ts",
     "packages/dashboard/test/matrix-page.tsx",
     // This renders the status bar, which measures what fits it.
     "packages/dashboard/test/ui-status-bar.test.ts",
