@@ -6,7 +6,8 @@ import { buildInjectionStore, type InjectionStore } from './injection-fixture.js
 /**
  * Injection tests' results in a real browser, on a project real commands made for them
  * (injection-fixture.ts): the run tested draws its newest test's finding, whose Show results opens
- * the matrix in the inspector's place; a cell opens its attempt at the canary write, on Request with
+ * the matrix in the inspector's place, or, where the finding's script didn't come, a line in its
+ * place whose Retry loads the page again; a cell opens its attempt at the canary write, on Request with
  * the canary marked, and Esc comes back to the cell, focused and in view. Calls and Turns tag each
  * untrusted read, its card naming the model call that reads it, and the fork menu's header says so.
  * The attempt's proof picks each call it names on the tab that shows it. The Forks view files both
@@ -85,6 +86,23 @@ test("the run's finding says what its test found, and Show results opens its mat
   await toggle.click();
   await expect(page.locator(`${PANEL} .rmx`)).toHaveCount(0);
   await expect(toggle).toHaveText('Show results');
+});
+
+test("the run's finding whose code didn't come says so in its place, with Retry, the page whole, and draws once Retry loads it again", async ({ page }) => {
+  const part = /\/assets\/chunks\/InjectionFinding-\w+\.js$/;
+  await page.route(part, (route) => route.abort());
+  await openPage(page, `/run/${tested()}`, 'run', here());
+  const line = page.locator(`${FINDING} .loaderr`);
+  await expect(line).toBeVisible();
+  await expect(line).toContainText('This finding’s code didn’t come from the dashboard server. Retry loads the page again.');
+  await expect(page.locator('main#view .rhead .rnm')).toBeVisible();
+  await expect(page.locator('.toasts .toast')).toHaveCount(0);
+  await expectAccessible(page);
+  // The server sends it: Retry loads the page again, and the finding draws.
+  await page.unroute(part);
+  await line.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.locator(`${FINDING} .bk`)).toHaveText('injection test');
+  await expect(page.locator(`${FINDING} .loaderr`)).toHaveCount(0);
 });
 
 test('a cell opens its attempt at the canary write, the canary marked on Request, and Esc comes back to the cell', async ({ page }) => {

@@ -3,14 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useMenu } from '../ui/components/Popover.js';
 import { ToastHost } from '../ui/components/Toast.js';
 import { RunBlameButton } from '../ui/fixes/RunBlame.js';
+import type { InjectionFinding } from '../ui/injection/model.js';
 import { SERVED_PARTS } from '../ui/pages/served.js';
 import { BuilderFailed } from '../ui/run/check-part.js';
+import { FindingsBar, forgetOpenFindings } from '../ui/run/FindingsBar.js';
 import { NextStepButton } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction, ToastKind } from '../ui/toast.js';
-import type { NextStep, RunDetail } from '../ui/types.js';
+import type { CheckView, NextStep, RunDetail } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -20,8 +22,9 @@ import { render, type Rendered } from './ui-render.js';
  * toast, in LoadFailed's words, with Retry, which loads the page again once the server is back. Nothing
  * is drawn in the part's place, so the focus stays on the button pressed, which no longer says it is
  * open, and the next press says it again. The parts drawn in place keep their own: the check builder
- * says so in a small dialog in its place, and an injection test's results in the panel. Here their
- * scripts fail to come, as when the dashboard stopped.
+ * says so in a small dialog in its place, an injection test's results in the panel, and its finding
+ * in the finding's place among the run's findings. Here their scripts fail to come, as when the
+ * dashboard stopped.
  */
 
 const { refused } = vi.hoisted(() => ({
@@ -36,11 +39,13 @@ vi.mock('../ui/fixes/RunBlameAsks.js', refused);
 vi.mock('../ui/run/StepDialogs.js', refused);
 vi.mock('../ui/injection/SecurityReportDialog.js', refused);
 vi.mock('../ui/injection/InjectionResults.js', refused);
+vi.mock('../ui/injection/InjectionFinding.js', refused);
 vi.mock('../ui/checks/Builder.js', refused);
 
 const RUN = '01M5GRX8K406H4KHQ7DEKYWTSZ';
 const MENU = 'This menu’s code didn’t come from the dashboard server. Retry loads the page again.';
 const DIALOG = 'This dialog’s code didn’t come from the dashboard server. Retry loads the page again.';
+const FINDING = 'This finding’s code didn’t come from the dashboard server. Retry loads the page again.';
 const PAUSED = 'Paused until the dashboard server is back';
 
 const run = {
@@ -70,6 +75,14 @@ function SecurityRow() {
   return createElement('div', null, createElement('button', { type: 'button', className: 'secrow', onClick: () => setOpen(true) }, 'Security report'), open ? createElement(Report, { resultId: 'inj_1', mode: 'plant', runId: RUN, onClose: () => setOpen(false) }) : null);
 }
 
+/** The injection test kept for the run, its gate failed: a finding of a failure's weight. */
+const INJECTION: InjectionFinding = { resultId: 'inj_1', gate: 'failed', label: 'injection test', line: 'send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed)', golden: null };
+const PASSED: CheckView = { label: 'send_email called 0 times', ok: true, status: 'passed', detail: 'called 0 times' };
+
+/** The run's findings as its page draws them, with the injection test kept for it. */
+const findings = (detail: RunDetail, checks: CheckView[] = []) =>
+  createElement(FindingsBar, { run: detail, blame: null, rescued: null, checks, offers: null, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined, notes: [], injection: INJECTION });
+
 interface Said {
   text: string;
   kind: ToastKind;
@@ -81,6 +94,7 @@ afterEach(async () => {
   await r?.unmount();
   r = null;
   vi.unstubAllGlobals();
+  forgetOpenFindings();
 });
 
 /**
@@ -226,5 +240,45 @@ describe('a part drawn in place, whose code didn’t come', () => {
     await r!.wait(20);
     expect(said).toEqual([]);
     expect(r!.all('.toast')).toHaveLength(0);
+  });
+
+  it('says so of an injection test’s finding where the finding goes, with its Retry, the run’s other findings still drawn, and no toast', async () => {
+    // A failed test leads a run whose checks passed: its line in the finding's place, with its Retry,
+    // and the bar's toggle at its end, which still opens the rest.
+    const { said, paused, conn, bar } = await served(findings(run, [PASSED]));
+    await r!.until('the finding’s line', () => r!.all('.loaderr').length === 1);
+    const slots = () => r!.one('#findings').children.map((s) => [s.className, s.getAttribute('data-finding')]);
+    expect(slots()).toEqual([
+      ['banner wrap', 'injection'],
+      ['banner live ck fx', null],
+    ]);
+    const lost = r!.one('[data-finding="injection"]');
+    const line = lost.querySelector('.loaderr')!;
+    expect(line.getAttribute('role')).toBe('alert');
+    expect(line.querySelector('p span:not(.st)')!.textContent).toBe(FINDING);
+    expect(lost.querySelectorAll('button').map((b) => b.textContent)).toEqual(['Retry', '2 findings']);
+    await r!.click(r!.one('.findings .fmore'));
+    expect(r!.one('#findings').className).toBe('findings open');
+    expect(r!.one('.findings .banner.ck').textContent).toContain('send_email called 0 times');
+    // Retry loads the page again once the server is back, and waits while it can't be reached.
+    conn.offline = true;
+    await r!.click(r!.byText('.loaderr button', 'Retry'));
+    expect(bar.reload).not.toHaveBeenCalled();
+    expect(paused).toEqual([PAUSED]);
+    conn.offline = false;
+    await r!.click(r!.byText('.loaderr button', 'Retry'));
+    expect(bar.reload).toHaveBeenCalledTimes(1);
+    expect(said).toEqual([]);
+    // Behind the finding that leads the bar, its line waits with the bar closed, as the finding would.
+    await r!.unmount();
+    r = null;
+    const after = await served(findings({ ...run, notRecorded: { tools: ['Bash'], hosts: [] } }));
+    await r!.until('the finding’s line', () => r!.all('.loaderr').length === 1);
+    expect(slots()).toEqual([
+      ['banner blame', null],
+      ['banner wrap fx', 'injection'],
+    ]);
+    expect(r!.one('.findings .fmore').textContent).toBe('2 findings');
+    expect(after.said).toEqual([]);
   });
 });

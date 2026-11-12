@@ -2352,7 +2352,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
 - **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's dialogs and the check it asks for, Share's eval dataset, OpenTelemetry trace and Security report dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
 - **A run's menus**, Share's, the fork menu and the header's **…**, each have a script of their own. Each is asked for once the pointer or the focus reaches its button, or a row's fork button, so it opens at once.
-- **An injection test's finding and its results** have scripts of their own, which load once the pointer or the focus reaches Show results. So do an attempt's proof and marks.
+- **An injection test's finding** has a script of its own, which loads as the run's page first draws it. A finding whose script can't be loaded says so in its place, with **Retry**. Its results have their own script, asked for once the pointer or the focus reaches **Show results**. An attempt's proof and marks have theirs too, which load as the attempt's page opens.
 - **The structural diff** a finding's diff draws has a script of its own as well. Both scripts, and a finished run's diff, are asked for once the pointer or the focus reaches Show diff, so it opens at once. The diff is kept while the page is open.
 - **What a fork did differently**, a finding of a fork's page alone, has a script of its own. It is asked for with the differences, once the fork has ended, so the two come together.
 - **The check builder** has a script of its own, asked for as its menu opens, or as the pointer or the focus reaches the inspector's **Add check…**. A builder whose script can't be loaded says so in a small dialog in its place, with **Retry**.
@@ -2845,7 +2845,7 @@ Settings is checked at a phone's width too: no tab scrolls sideways, each row's 
 
 When the server stops answering (the dashboard was stopped), a row under the top bar says what the page last loaded, that actions are paused, and the command that starts it again. On a phone it is one line, with the rest behind **Why**.
 
-What needs the server waits in its place, dimmed, and a press says why: *Paused until the dashboard server is back*. Reading what was loaded goes on. The page tries again after 5, 10, 20 and then every 30 seconds. A page, a view, a menu or a dialog whose code couldn't be loaded meanwhile says so, and its **Retry** loads the page again once the server is back; see [Each page's code loads when it opens](#each-pages-code-loads-when-it-opens).
+What needs the server waits in its place, dimmed, and a press says why: *Paused until the dashboard server is back*. Reading what was loaded goes on. The page tries again after 5, 10, 20 and then every 30 seconds. A page, a view, a finding, a menu or a dialog whose code couldn't be loaded meanwhile says so, and its **Retry** loads the page again once the server is back; see [Each page's code loads when it opens](#each-pages-code-loads-when-it-opens).
 
 ### The dashboard refuses the link
 

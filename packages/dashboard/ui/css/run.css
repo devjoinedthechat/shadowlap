@@ -820,6 +820,8 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .banner.ck > .st i { flex: none; transform: translateY(-1px); }
 .findings.open .banner.fx, .findings.open .rnote.fx { display: flex; }
 .findings.open .fdiff.fx { display: block; }
+/* a finding whose script didn't come (pages/served.tsx): LoadFailed's line in its place, inside the finding's gutters and hairline */
+.findings .banner > .loaderr { flex: 1 1 280px; margin: 0; padding: 0; border: 0; }
 .findings .fmore { flex: none; margin-left: auto; }
 .findings .banner .end + .fmore { margin-left: 0; }
 .findings .fmore .caret { width: 10px; height: 10px; margin-left: 4px; transition: transform .15s; }

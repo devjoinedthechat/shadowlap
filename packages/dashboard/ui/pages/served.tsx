@@ -4,7 +4,7 @@ import { onShow, type OnShowOptions } from '../components/OnShow.js';
 import { Skeleton } from '../components/States.js';
 import { useLatest } from '../hooks.js';
 import { BuilderLost } from '../run/check-part.js';
-import type { MoreMenuProps, ServedParts } from '../served-parts.js';
+import type { InjectionFindingProps, MoreMenuProps, ServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 
 /** How a part that opens on a press stands, by its props: open unless they say otherwise, and how it closes. */
@@ -37,7 +37,7 @@ function PressLost({ what, open, close }: { what: 'menu' | 'dialog'; open: boole
  * The one `failed` of the parts that open on a press: Share's menu and the Security report it opens,
  * the fork menu, the header's …, Run blame's dialogs and the steps' dialogs, each a `menu` or a
  * `dialog` in the toast's words. The parts drawn in place keep their own: the check builder's
- * BuilderLost and the results panel's LoadFailed.
+ * BuilderLost, the results panel's LoadFailed and an injection test's finding's (FindingLost).
  */
 const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): OnShowOptions<P> => ({
   failed: (props) => {
@@ -45,6 +45,21 @@ const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): On
     return <PressLost what={what} open={open} close={close} />;
   },
 });
+
+/**
+ * In the place of an injection test's finding, once its script didn't come: LoadFailed's line in the
+ * finding's slot of the run's findings bar, rather than nothing, which would hide what the test found.
+ * As the finding would, it hides while the bar is closed under the finding that leads it (`fx`), and
+ * where it leads the bar, it keeps the bar's toggle at its end (`more`), so the rest still opens.
+ */
+function FindingLost({ fx, more }: Pick<InjectionFindingProps, 'fx' | 'more'>) {
+  return (
+    <div className={`banner wrap${fx ? ' fx' : ''}`} data-finding="injection">
+      <LoadFailed what="finding" />
+      {more}
+    </div>
+  );
+}
 
 /**
  * The parts only the served dashboard draws (served-parts.ts), each a script of its own that loads the
@@ -60,7 +75,8 @@ export const SERVED_PARTS: ServedParts = {
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks), failed('dialog', closes)),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog), failed('dialog', closes)),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog), failed('dialog', closes)),
-  InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding)),
+  InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding), { failed: (p) => <FindingLost fx={p.fx} more={p.more} /> }),
+  // A line inside an attempt's finding, which the run's page draws: nothing in its place if its script didn't come.
   Proof: onShow(() => import('../injection/Proof.js').then((m) => m.Proof)),
   attemptPage: () => import('../injection/AttemptPage.js').then((m) => m.ATTEMPT_PAGE),
   // The matrix's script starts as the panel's comes, so Show results opens on both.
