@@ -193,7 +193,7 @@ addPaletteSource(({ app, route, go }) => {
     .map((g) => ({
       group: 'Actions' as const,
       label: ACTIONS.runInjectionTest.label,
-      hint: `shadowlap injection ${shortId(g.runId ?? g.recording)}`,
+      hint: `shadowlap injection ${g.runId ? shortId(g.runId) : g.path}`,
       match: `security prompt injection untrusted ${g.name}`,
       typed: true,
       job: true,

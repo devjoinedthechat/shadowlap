@@ -5,6 +5,7 @@ import { forkMenu, forkMenuTitle, forkRowLine, menuLabel } from '../actions.js';
 import { ActionButton } from '../components/ActionButton.js';
 import type { TipEst } from '../components/HoverCard.js';
 import { tipEst } from '../components/JobButton.js';
+import type { RunEstimates } from '../estimates-api.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { ACTIONS, confirmWords } from '../labels.js';
@@ -33,6 +34,8 @@ export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommi
   const { hasKind } = useApp();
   // What each row bills at this call, asked as the menu opens on it: its answer redraws the menu in place.
   const estimates = useRunEstimates(run.run.runId, call ? call.call.callNo : undefined);
+  // Run injection test…'s, in the whole run's answer: asked once for the run, never again at each call.
+  const whole = useRunEstimates(run.run.runId, onTest ? null : undefined);
   // Find breaking commit's, from the commit its offer starts at, asked as the menu opens.
   const bisectPrice = useBisectEstimate(bisectQuery(run.run.runId, offers?.bisect));
   // Add check… first at a tool call's own row, never at the head's Fork button: given only where the call takes it.
@@ -110,7 +113,7 @@ export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommi
               <small>{m.flag}</small>
             </ActionButton>
           ))}
-          {onTest ? <TestRow runId={runId} reads={[...(untrusted?.values() ?? [])]} estimate={estimates?.injection} onTest={onTest} onClose={onClose} /> : null}
+          {onTest ? <TestRow runId={runId} reads={[...(untrusted?.values() ?? [])]} whole={whole} onTest={onTest} onClose={onClose} /> : null}
           <ActionButton
             role="menuitem"
             why={blocked}
@@ -143,8 +146,9 @@ const UNTRUSTED_LINE = '"tools": { "<name>": { "trust": "untrusted" } }';
  * row, not the engine's, since the terminal has no injection test. With no untrusted read it waits,
  * its toast's way out Settings → Tools, where a read is marked.
  */
-function TestRow({ runId, reads, estimate, onTest, onClose }: { runId: string; reads: readonly UntrustedView[]; estimate: Estimate | null | undefined; onTest: TestOpener; onClose: () => void }) {
+function TestRow({ runId, reads, whole, onTest, onClose }: { runId: string; reads: readonly UntrustedView[]; whole: RunEstimates | null | undefined; onTest: TestOpener; onClose: () => void }) {
   const id = shortId(runId);
+  const estimate = whole === undefined ? undefined : (whole?.injection ?? null);
   const none = reads.length ? null : `No untrusted read in ${id}`;
   return (
     <ActionButton

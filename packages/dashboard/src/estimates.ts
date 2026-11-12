@@ -40,6 +40,7 @@ import {
   type Store,
   type StoredBlame,
   type InjectionPlan,
+  packRecording,
   type ToolTrust,
 } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from './api.js';
@@ -48,7 +49,8 @@ import { nextBlameRule } from './fix-blame-step.js';
 import { acceptedVerdict, sprtGate } from './fix-shared.js';
 import { verdictRule, verifyLeftExpected } from './fix-verify-step.js';
 import { fixDetail } from './fixes.js';
-import { causePrices, gatePrice, injectionPrice } from './injection-plan.js';
+import { causePrice, gatePrice, injectionPrice } from './injection-plan.js';
+import { CANT_READ_RECORDING } from './injection-security.js';
 import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, newestGate } from './next-step.js';
 import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
@@ -108,8 +110,13 @@ export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: 
  */
 export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runId: string | null; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
 
-/** Run injection test…'s and Pack with injection gate…'s dialogs: the plan picked on a run, priced as a test (or, `gate`, as each session's gate). */
-export type InjectionEstimateJob = { kind: 'injection-estimate'; runId: string; plan: InjectionPlan; gate: boolean; prices?: Record<string, Price>; tools?: ToolTrust };
+/**
+ * A dialog's price. Run injection test…'s and Pack with injection gate…'s: the plan picked, priced as
+ * a test (or, `gate`, as each session's gate), on a run of the store, or on the recording a golden's
+ * pack holds where the store doesn't (`pack`, the golden's folder). Find cause…'s: one read made
+ * neutral (`clean`), as the dialog picks it.
+ */
+export type InjectionEstimateJob = { kind: 'injection-estimate'; runId: string; pack?: string; clean?: number; plan: InjectionPlan; gate: boolean; prices?: Record<string, Price>; tools?: ToolTrust };
 
 export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob | DecisionEstimatesJob | InjectionEstimateJob;
 
@@ -117,10 +124,8 @@ export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob 
 export interface RunEstimates {
   blame: Estimate | null;
   actions: Record<string, Estimate>;
-  /** Run injection test… at the plan nobody picked, as its openers' cards and its dialog's first cost line say it. */
-  injection: Estimate | null;
-  /** Find cause… on each untrusted read, by the read's call number. */
-  cause: Record<number, Estimate>;
+  /** Run injection test… at the plan nobody picked, as its openers' cards and its dialog's first cost line say it: in the whole run's answer (no `at`) alone. */
+  injection?: Estimate | null;
 }
 
 /** How a fork menu row at call `call` changes the run, as its estimate reads it, by the row's key; null for one that bills by another rule, or nothing. */
@@ -149,15 +154,6 @@ function firstCallOf(calls: readonly CallRecord[], call: CallRecord): number {
   return calls.find((c) => c.kind === 'tool' && c.name === call.name)?.callNo ?? call.callNo;
 }
 
-/** Find cause…'s prices on a run's reads; none where its calls can't be read, as estimateOf leaves a line out. */
-function causeOf(runId: string, tools: ToolTrust | undefined, pricing: Pricing): Record<number, Estimate> {
-  try {
-    return causePrices(runId, tools)(pricing);
-  } catch {
-    return {};
-  }
-}
-
 async function runEstimates(store: Store, job: RunEstimatesJob): Promise<ReadAnswer> {
   const run = lookupRun(store, job.runId);
   if (!run) {
@@ -177,21 +173,38 @@ async function runEstimates(store: Store, job: RunEstimatesJob): Promise<ReadAns
   const body: RunEstimates = {
     blame: await estimateOf(blamePrice(run.runId).price!, pricing),
     actions,
-    injection: await estimateOf(injectionPrice(run.runId, job.tools), pricing),
-    cause: causeOf(run.runId, job.tools, pricing),
+    // The whole run's alone: a menu opened at each call asks its rows again, never this.
+    ...(job.at === null ? { injection: await estimateOf(injectionPrice(run.runId, job.tools), pricing) } : {}),
   };
   return answer(body, { tagged: true });
 }
 
 /** A dialog's plan's answer: `{ estimate }`, null where it can't be worked out (the line is then left out). */
 async function injectionPlanEstimate(store: Store, job: InjectionEstimateJob): Promise<ReadAnswer> {
+  if (job.pack !== undefined) return packPlanEstimate(job.pack, job);
   const run = lookupRun(store, job.runId);
   if (!run) {
     const no = noSuchRun(store, job.runId);
     return failed(no.status, no.message);
   }
-  const price = job.gate ? gatePrice(run.runId, job.tools, job.plan) : injectionPrice(run.runId, job.tools, job.plan);
-  return answer({ estimate: await estimateOf(price, pricingOf(store, job.prices)) }, { tagged: true });
+  return answer({ estimate: await estimateOf(dialogPrice(run.runId, job), pricingOf(store, job.prices)) }, { tagged: true });
+}
+
+const dialogPrice = (runId: string, job: InjectionEstimateJob) => (job.clean !== undefined ? causePrice(runId, job.tools, job.clean) : job.gate ? gatePrice(runId, job.tools, job.plan) : injectionPrice(runId, job.tools, job.plan));
+
+/** A plan on a golden whose recording only its pack holds, priced from the pack, read into a store of its own, then closed. */
+async function packPlanEstimate(folder: string, job: InjectionEstimateJob): Promise<ReadAnswer> {
+  let pack: ReturnType<typeof packRecording>;
+  try {
+    pack = packRecording(folder);
+  } catch {
+    return failed(404, CANT_READ_RECORDING);
+  }
+  try {
+    return answer({ estimate: await estimateOf(dialogPrice(pack.run.runId, job), pricingOf(pack.store, job.prices)) }, { tagged: true });
+  } finally {
+    pack.store.close();
+  }
 }
 
 /** A fix's answer: each of its page's billed buttons, and each Verify step's by its verdict's id. */

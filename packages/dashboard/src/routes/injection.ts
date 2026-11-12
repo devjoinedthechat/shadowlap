@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import type { InjectionPlan, ToolTrust } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
@@ -18,11 +20,13 @@ import { namesTeamStore } from './verdicts.js';
  *   GET /api/injection                    { results }: newest first; ?run=<id>, ?golden=<path>, ?limit=<n>
  *   GET /api/injection/templates          the built-in templates, versioned, for the dialog
  *   GET /api/injection/payloads           ?upload=<id>: { name, count, noCanary }, a payload file sent and not yet taken by a test
- *   GET /api/injection/estimate           ?run=<id>&payloads=<n>&repeat=<n>&budget=<usd>, or &gate=1: { estimate }, a dialog's plan priced
+ *   GET /api/injection/estimate           ?run=<id> (or ?golden=<path>)&payloads=<n>&repeat=<n>&budget=<usd>, or &gate=1: { estimate },
+ *                                         a dialog's plan priced; ?run=<id>&clean=<read>: Find cause…'s on that read
  *   GET /api/injection/security           { goldens, none, unread }: each golden's recording's untrusted reads, its last test, its test's price
  *   GET /api/injection/tools              { tools }: every recorded tool with its trust, for Settings → Tools
  *   GET /api/injection/needs-look         { items }: runs and goldens whose newest test obeyed, was influenced or is inconclusive
- *   GET /api/injection/runs/:id           { untrusted, results, attempt }: a run's untrusted reads, its tests, and the test it is an attempt of
+ *   GET /api/injection/runs/:id           { untrusted, results, rule, answers, cause, attempt }: a run's untrusted reads, its tests,
+ *                                         Find cause…'s gate, answers and writes to ask about, and the test it is an attempt of
  *   GET /api/injection/:id                { row, report, gone, view }: one result, as --json printed it, and a plant's panel
  *   GET /api/injection/:id/report         the security report (HTML), the project's redaction rules applied;
  *                                         ?preview=1: { at, attempts, rules, masks, canaries, file }, what its dialog says first
@@ -69,6 +73,22 @@ function planParams(q: URLSearchParams): InjectionPlan {
   return { payloads, ...(repeat !== undefined ? { repeat } : {}), ...(budget.length ? { budget: Number(budget[1]) } : {}) };
 }
 
+/**
+ * What a dialog's price is worked out on, with the ETag that says where it stands: a run of the store
+ * (`run`), or a project's golden (`golden`), its recording where the store holds it, else the pack
+ * that does, which stands as it was packed.
+ */
+function planTarget(ctx: RouteContext, q: URLSearchParams, asked: string): { runId: string; pack?: string; etag: string } {
+  const golden = q.get('golden');
+  const g = golden === null ? null : (ctx.options.goldens?.() ?? []).find((x) => x.path === golden);
+  if (g === undefined) throw new HttpError(404, `no golden ${golden ?? ''} in this project`);
+  const run = g ? (g.runId ? ctx.store.getRun(g.runId) : null) : lookupRun(ctx.store, q.get('run') ?? '');
+  if (run) return { runId: run.runId, etag: runVersionTag(ctx.store, run, asked) };
+  if (g) return { runId: g.runId ?? '', pack: join(ctx.project?.path ?? process.cwd(), g.path), etag: `"g${createHash('sha1').update(JSON.stringify([g.path, g.packedAt, asked])).digest('base64url')}"` };
+  const no = noSuchRun(ctx.store, q.get('run') ?? '');
+  throw new HttpError(no.status, no.message);
+}
+
 export function register(router: Router, ctx: RouteContext): void {
   const { store } = ctx;
   const goldens = () => ctx.options.goldens?.() ?? [];
@@ -90,27 +110,33 @@ export function register(router: Router, ctx: RouteContext): void {
     r.json(read);
   });
   // Tests' Security: each golden's recording's untrusted reads, its last test, and its test's price.
+  // Revalidated from the store's change counters (a test's runs, its calls, the event it ends on), the
+  // goldens, the trust marks and the prices: the palette asks as it opens, a 304 while nothing moved.
   router.get('/injection/security', async (r) => {
-    sendAnswer(r, await ctx.reads.run({ kind: 'injection-security', ...injectionReadInput(ctx) }));
-  });
-  // A dialog's picks priced, asked again a moment after each pick: revalidated, as a run's estimates are, from where the run stands, the prices and the plan.
-  router.get('/injection/estimate', async (r) => {
-    const run = lookupRun(store, r.query.get('run') ?? '');
-    if (!run) {
-      const no = noSuchRun(store, r.query.get('run') ?? '');
-      throw new HttpError(no.status, no.message);
-    }
-    const plan = planParams(r.query);
-    const gate = r.query.get('gate') === '1';
-    const trust = tools();
-    const etag = runVersionTag(store, run, JSON.stringify([ctx.read, trust ?? null, plan, gate]));
+    const input = injectionReadInput(ctx);
+    const etag = `"s${createHash('sha1').update(JSON.stringify([store.changeCounts(), input])).digest('base64url')}"`;
     if (r.req.headers['if-none-match'] === etag) {
       r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
       r.res.end();
       return;
     }
-    const job = { kind: 'injection-estimate' as const, runId: run.runId, plan, gate, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(trust ? { tools: trust } : {}) };
-    sendAnswer(r, await ctx.reads.run(job, runAffinity(store, run.runId)), { etag });
+    sendAnswer(r, await ctx.reads.run({ kind: 'injection-security', ...input }), { etag });
+  });
+  // A dialog's picks priced, asked again a moment after each pick, or Find cause…'s read: revalidated,
+  // as a run's estimates are, from where the run (or the golden's pack) stands, the prices and the plan.
+  router.get('/injection/estimate', async (r) => {
+    const clean = wholeParam(r.query.get('clean'), 'clean', 1, Number.MAX_SAFE_INTEGER);
+    const plan = clean === undefined ? planParams(r.query) : { payloads: 0 };
+    const gate = r.query.get('gate') === '1';
+    const trust = tools();
+    const on = planTarget(ctx, r.query, JSON.stringify([ctx.read, trust ?? null, plan, gate, clean ?? null]));
+    if (r.req.headers['if-none-match'] === on.etag) {
+      r.res.writeHead(304, { etag: on.etag, 'cache-control': 'no-cache' });
+      r.res.end();
+      return;
+    }
+    const job = { kind: 'injection-estimate' as const, runId: on.runId, ...(on.pack ? { pack: on.pack } : {}), ...(clean !== undefined ? { clean } : {}), plan, gate, ...(ctx.read.prices ? { prices: ctx.read.prices } : {}), ...(trust ? { tools: trust } : {}) };
+    sendAnswer(r, await ctx.reads.run(job, on.pack ? undefined : runAffinity(store, on.runId)), { etag: on.etag });
   });
   // Both read every call they are about, of a run or of every run: worked out beside the server.
   router.get('/injection/tools', async (r) => {

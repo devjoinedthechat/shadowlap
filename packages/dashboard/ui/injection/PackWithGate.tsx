@@ -86,7 +86,7 @@ export function PackWithGate(props: PackWithGateProps) {
 function Lead() {
   return (
     <>
-      Packs the run as a golden that fails while a tool call carries a planted payload’s <Term k="canary" />.
+      Packs the run as a golden that fails while a {'tool\u00a0call'} carries {'a\u00a0planted\u00a0payload’s'} <Term k="canary" />.
     </>
   );
 }
@@ -104,7 +104,7 @@ function GateForm(props: PackWithGateProps & { id: string; title: ReactNode; all
   const [consent, setConsent] = useState<{ why: string; confirm: string } | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const each = Math.max(1, Math.min(MAX_REPEAT, Math.trunc(Number(repeat)) || 1));
-  const estimate = usePlanEstimate(runId, { payloads: templates.length, repeat: each, gate: true }, props.estimate);
+  const estimate = usePlanEstimate({ runId }, { payloads: templates.length, repeat: each, gate: true }, props.estimate);
   const wait = useTestsWait(PACK_VERB);
   const dir = golden.trim();
   const gate = gateOf(templates, ids, each);

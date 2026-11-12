@@ -218,8 +218,10 @@ export interface Client extends ChangesApi, TestsApi {
   injectionPreview(resultId: string): Promise<ReportPreview>;
   /** The built-in templates, versioned (`GET /api/injection/templates`): Run injection test's chips. */
   injectionTemplates(): Promise<TemplateSet>;
-  /** A plan picked on a run, priced on the server as a test, or (`gate`) as each session's gate (`GET /api/injection/estimate`). */
+  /** A plan picked on a run, or a golden's pack, priced on the server as a test, or (`gate`) as each session's gate (`GET /api/injection/estimate`). */
   injectionEstimate(q: InjectionPlanQuery): Promise<Estimate>;
+  /** Find cause… on one of a run's untrusted reads, priced on the server (`GET /api/injection/estimate?clean=`). */
+  injectionCauseEstimate(runId: string, read: number): Promise<Estimate>;
   /** A payload file once it is sent (`GET /api/injection/payloads?upload=`): its name, how many payloads, and those with no `{{canary}}`, by id. */
   injectionPayloads(uploadId: string): Promise<PayloadsRead>;
   /** Tests' Security (`GET /api/injection/security`): each golden's recording's untrusted reads, its last test or gate, and its test's price. */
@@ -560,7 +562,9 @@ function longRunReads(request: Request): Pick<Client, 'outcome' | 'nextStep' | '
 
 /** A plan Run injection test… or Pack with injection gate… picked: how many payloads, attempts each, Stop at $. */
 export interface InjectionPlanQuery {
-  runId: string;
+  /** The run it plants in; null for a golden whose recording only its pack holds (`golden`), priced from the pack. */
+  runId: string | null;
+  golden?: string | null | undefined;
   payloads: number;
   repeat?: number | undefined;
   budget?: number | null | undefined;
@@ -568,7 +572,7 @@ export interface InjectionPlanQuery {
   gate?: boolean | undefined;
 }
 
-type InjectionReads = 'injectionRun' | 'injectionResults' | 'injectionResult' | 'injectionPreview' | 'injectionTemplates' | 'injectionEstimate' | 'injectionPayloads' | 'injectionSecurity';
+type InjectionReads = 'injectionRun' | 'injectionResults' | 'injectionResult' | 'injectionPreview' | 'injectionTemplates' | 'injectionEstimate' | 'injectionCauseEstimate' | 'injectionPayloads' | 'injectionSecurity';
 
 /** What the pages read of injection tests (`/api/injection`): a run's, and what its dialogs ask. */
 function injectionReads(request: Request): Pick<Client, InjectionReads> {
@@ -579,7 +583,8 @@ function injectionReads(request: Request): Pick<Client, InjectionReads> {
     injectionResult: (resultId) => request(`injection/${id(resultId)}`),
     injectionPreview: (resultId) => request<ReportPreview>(`injection/${id(resultId)}/report?preview=1`),
     injectionTemplates: () => request<TemplateSet>('injection/templates'),
-    injectionEstimate: (p) => request<{ estimate: Estimate }>(`injection/estimate?run=${id(p.runId)}&payloads=${p.payloads}${p.repeat ? `&repeat=${p.repeat}` : ''}${p.budget ? `&budget=${p.budget}` : ''}${p.gate ? '&gate=1' : ''}`).then((r) => r.estimate),
+    injectionEstimate: (p) => request<{ estimate: Estimate }>(`injection/estimate?${p.runId ? `run=${id(p.runId)}` : `golden=${id(p.golden ?? '')}`}&payloads=${p.payloads}${p.repeat ? `&repeat=${p.repeat}` : ''}${p.budget ? `&budget=${p.budget}` : ''}${p.gate ? '&gate=1' : ''}`).then((r) => r.estimate),
+    injectionCauseEstimate: (runId, read) => request<{ estimate: Estimate }>(`injection/estimate?run=${id(runId)}&clean=${read}`).then((r) => r.estimate),
     injectionPayloads: (uploadId) => request<PayloadsRead>(`injection/payloads?upload=${id(uploadId)}`),
     injectionSecurity: () => request<SecurityRead>('injection/security'),
   };
@@ -699,6 +704,7 @@ export function createExportedClient(data: StaticPayload): Client {
     // A copy runs no test, so nothing in it asks what one would plant or bill.
     injectionTemplates: readOnly,
     injectionEstimate: readOnly,
+    injectionCauseEstimate: readOnly,
     injectionPayloads: readOnly,
     injectionSecurity: () => Promise.reject(new ApiError(404, 'this is an exported copy, and injection tests are not part of it')),
     // Held for each run that diverged, at the call it diverged at; another call's is the store's to read.

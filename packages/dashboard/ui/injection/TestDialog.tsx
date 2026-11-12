@@ -105,8 +105,10 @@ export function TestDialog(props: TestDialogProps) {
   const asked = useLoad(() => (props.reads || !props.runId ? null : client.injectionRun(props.runId)), `${props.runId ?? props.golden ?? ''}:test-reads`);
   const reads = props.reads ?? asked.data?.untrusted ?? (props.runId ? null : []);
   const failed = set.error ?? asked.error;
-  const id = props.runId || props.recording ? shortId(props.runId ?? props.recording ?? '') : (props.golden ?? '');
-  const title = namedIn(`${confirmWords(ACTIONS.runInjectionTest.label)} on ${id}`, id);
+  // The title names the recording; the command runs on the golden where the store doesn't hold it.
+  const named = props.runId || props.recording ? shortId(props.runId ?? props.recording ?? '') : (props.golden ?? '');
+  const id = props.runId ? shortId(props.runId) : (props.golden ?? '');
+  const title = namedIn(`${confirmWords(ACTIONS.runInjectionTest.label)} on ${named}`, named);
   if (!set.data || !reads) {
     return (
       <Dialog title={title} lead={<Lead />} doc={LEAD_DOC} warn={failed ? { text: errorText(failed), tone: 'red' } : null} ok={confirmWords(ACTIONS.runInjectionTest.label)} okWhy={failed ? errorText(failed) : 'Reading what the test plants in'} onClose={props.onClose}>
@@ -135,7 +137,7 @@ function TestForm(props: TestDialogProps & { id: string; title: ReturnType<typeo
   const [consent, setConsent] = useState<{ why: string; confirm: string } | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const payloads = picks.templates.length + (fileRead(picks.file)?.read.count ?? 0);
-  const estimate = usePlanEstimate(runId, { payloads, repeat: attempts(picks), budget: stopAt(picks) }, props.estimate);
+  const estimate = usePlanEstimate({ runId, golden: props.golden }, { payloads, repeat: attempts(picks), budget: stopAt(picks) }, props.estimate);
   const askAbove = useSpending();
   const busy = useTreeBusy('reads', 'test it');
   const fields = () => {

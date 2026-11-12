@@ -157,10 +157,13 @@ test("Run injection test… from the fork menu puts its picks, attempts and Stop
 
 test('Find cause… on the write asks of the read it starts on, the command following the pick, and starts the search', async ({ page }) => {
   const { runId } = store();
-  const facts = (await api<{ cause: Array<{ write: number; name: string; reads: number[]; pick: number }> }>(page, `injection/runs/${runId}`)).cause[0]!;
+  const read = await api<{ untrusted: Array<{ callNo: number; readAt: number | null }>; cause: Array<{ write: number; name: string; pick: number }> }>(page, `injection/runs/${runId}`);
+  const facts = read.cause[0]!;
+  // The reads before the write are the run's own untrusted reads that a model call reads.
+  const reads = read.untrusted.filter((u) => u.readAt !== null && u.callNo < facts.write).map((u) => u.callNo);
   expect(facts.name).toBe('send_email');
-  expect(facts.reads.length).toBe(5);
-  const other = facts.reads.find((r) => r !== facts.pick)!;
+  expect(reads.length).toBe(5);
+  const other = reads.find((r) => r !== facts.pick)!;
   const job = await fakeJob(page, `Finding cause: testing #${other}`);
   await openPage(page, `/run/${runId}/${facts.write}`, 'run', here());
   const link = page.locator('#insp button[data-act="injcause"]');
@@ -172,7 +175,7 @@ test('Find cause… on the write asks of the read it starts on, the command foll
   const radios = dialog.locator('.injreads input[type="radio"]');
   await expect(radios).toHaveCount(5);
   await expect(dialog.locator('.cmdline')).toHaveText(new RegExp(`--clean\\s${facts.pick}\\s--write\\s${facts.write}$`));
-  await radios.nth(facts.reads.indexOf(other)).check();
+  await radios.nth(reads.indexOf(other)).check();
   await expect(dialog.locator('.cmdline')).toHaveText(new RegExp(`--clean\\s${other}\\s--write\\s${facts.write}$`));
   await expectAccessible(page);
 

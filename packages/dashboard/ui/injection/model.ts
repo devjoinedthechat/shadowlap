@@ -20,7 +20,7 @@ export interface InjectionFinding {
   golden: string | null;
 }
 
-/** Find cause… on a recorded run, as the server words it: each live write after an untrusted read, the run's untrusted reads, its `--clean` answers, causes first, and the gate's rule. */
+/** Find cause… on a recorded run, as the server words it: each live write after an untrusted read, the run's untrusted reads a model call reads, its `--clean` answers, causes first, and the gate's rule. */
 export interface CauseView {
   facts: RunInjection['cause'];
   answers: RunInjection['answers'];
@@ -44,7 +44,7 @@ export const NO_INJECTION: RunInjectionView = { untrusted: new Map(), finding: n
 function causeView(read: RunInjection): CauseView | null {
   const facts = read.cause ?? [];
   const answers = read.answers ?? [];
-  return facts.length || answers.length ? { facts, answers, rule: read.rule, reads: read.untrusted } : null;
+  return facts.length || answers.length ? { facts, answers, rule: read.rule, reads: read.untrusted.filter((u) => u.readAt !== null) } : null;
 }
 
 /** The result a run's finding shows, and Share's Security report saves: its newest plant test that has ended. */

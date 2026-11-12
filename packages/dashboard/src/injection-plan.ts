@@ -1,4 +1,4 @@
-import { causeEstimate, type Estimate, injectionEstimate, injectionGateEstimate, injectionTemplates, type InjectionPlan, type ToolTrust, untrustedReads } from '@shadowlap/engine';
+import { causeEstimate, type Estimate, injectionEstimate, injectionGateEstimate, injectionTemplates, type InjectionPlan, noEstimate, type ToolTrust, type UntrustedRead, untrustedReads } from '@shadowlap/engine';
 import { defaultTemplates } from './injection-defaults.js';
 import type { Pricing } from './pricing.js';
 
@@ -13,10 +13,13 @@ export function defaultPayloads(reads: number): number {
   return defaultTemplates(reads)?.length ?? injectionTemplates().templates.length;
 }
 
+/** The untrusted reads a test plants in: those a model call reads, as the estimators and the CLI count them; one no model call follows is never planted in. */
+const plantedReads = (p: Pricing, runId: string, tools: ToolTrust | undefined): UntrustedRead[] => untrustedReads(p.raw(runId), tools).reads.filter((r) => r.readAt !== null);
+
 /** Run injection test… on a run: the plan picked (`plan`), else the one nobody picked (one attempt a payload, three clean replays). */
 export function injectionPrice(runId: string, tools: ToolTrust | undefined, plan?: InjectionPlan): (p: Pricing) => Estimate {
   return (p) => {
-    const reads = untrustedReads(p.raw(runId), tools).reads;
+    const reads = plantedReads(p, runId, tools);
     return injectionEstimate(p.calls(runId), reads, plan ?? { payloads: defaultPayloads(reads.length) });
   };
 }
@@ -24,15 +27,15 @@ export function injectionPrice(runId: string, tools: ToolTrust | undefined, plan
 /** Pack with injection gate…: what each test session's gate bills, at the plan picked, else at the one nobody picked. */
 export function gatePrice(runId: string, tools: ToolTrust | undefined, plan?: Omit<InjectionPlan, 'budget'>): (p: Pricing) => Estimate {
   return (p) => {
-    const reads = untrustedReads(p.raw(runId), tools).reads;
+    const reads = plantedReads(p, runId, tools);
     return injectionGateEstimate(p.calls(runId), reads, plan ?? { payloads: defaultPayloads(reads.length) });
   };
 }
 
-/** Find cause… on each untrusted read of a run, by the read's call number: the read made neutral, up to its gate's attempts. */
-export function causePrices(runId: string, tools: ToolTrust | undefined): (p: Pricing) => Record<number, Estimate> {
+/** Find cause… on one untrusted read of a run, as its dialog picks it: the read made neutral, up to its gate's attempts. */
+export function causePrice(runId: string, tools: ToolTrust | undefined, read: number): (p: Pricing) => Estimate {
   return (p) => {
-    const calls = p.calls(runId);
-    return Object.fromEntries(untrustedReads(p.raw(runId), tools).reads.map((r) => [r.callNo, causeEstimate(calls, r)]));
+    const r = untrustedReads(p.raw(runId), tools).reads.find((x) => x.callNo === read);
+    return r ? causeEstimate(p.calls(runId), r) : noEstimate('cause', `#${read} is no untrusted read of this run`);
   };
 }

@@ -6,7 +6,7 @@ import type { SecurityRead, SecurityRow } from '../src/injection-security.js';
 import type { CallDetail, JobView } from '../ui/api.js';
 import { answerWords } from '../ui/injection/answer-words.js';
 import { CauseFinding } from '../ui/injection/CauseFinding.js';
-import { causeCommand, causeRead, FindCause } from '../ui/injection/FindCause.js';
+import { causeCommand, causeRead, FindCause, readsBefore } from '../ui/injection/FindCause.js';
 import { resultsToOpen } from '../ui/injection/job-footer.js';
 import { gateEntryText, PackWithGate } from '../ui/injection/PackWithGate.js';
 import { SecurityPanel, SecurityTable } from '../ui/injection/SecurityPanel.js';
@@ -196,7 +196,7 @@ describe('Run injection test…’s dialog', () => {
     expect(r!.one('.dialog .dwarn').textContent).toBe('It stopped early');
     expect([count(), r!.one('.dialog .injwhy').textContent]).toEqual(['2 of 12', '· fewer to start: 9 reads multiply the cost']);
     expect(pressed()).toEqual(['system-notice', 'user-urgent']);
-    expect(r!.one('.dialog .dfacts').textContent).toBe('Plants in#4 get_ticket, #6 read_1, #8 read_2 and 6 more');
+    expect(r!.one('.dialog .dfacts').textContent).toBe('Plants in#4\u00a0get_ticket, #6\u00a0read_1, #8\u00a0read_2 and 6 more');
     expect(cmd()).toContain('shadowlap injection 01K5CQ4N7G --templates system-notice,user-urgent');
   });
 
@@ -267,7 +267,7 @@ describe('Run injection test…’s dialog', () => {
     expect(runs).toEqual([RUN]);
     expect(r!.one('.dialog .dwarn').textContent).toBe('≈$410 at these picks: set Stop at $ to stop it there');
     // A read no model call reads is never planted in.
-    expect(r!.one('.dialog .dfacts').textContent).toBe('Plants in#4 get_ticket and #6 read_1');
+    expect(r!.one('.dialog .dfacts').textContent).toBe('Plants in#4\u00a0get_ticket and #6\u00a0read_1');
   });
 });
 
@@ -278,7 +278,7 @@ describe('Run injection test…’s openers', () => {
   /** The fork menu at #4, its whole run's Run injection test… opening the dialog on the run's untrusted reads. */
   async function menu(untrusted: UntrustedView[], toasts: Array<[string, ToastAction | undefined]>) {
     const opened: unknown[] = [];
-    const client = { estimates: { runEstimates: async () => ({ blame: null, actions: {}, injection: price(0.8), cause: {} }) } };
+    const client = { estimates: { runEstimates: async () => ({ blame: null, actions: {}, injection: price(0.8) }) } };
     r = await render(createElement(AppContext.Provider, { value: app({}, toasts, client) }, createElement(ForkMenu, { anchor: null as unknown as HTMLElement, run, call, offers: null, onPick: () => undefined, onFindCommit: () => undefined, onClose: () => undefined, onTest: (reads, estimate) => void opened.push([reads, estimate]), untrusted: new Map(untrusted.map((u) => [u.callNo, u])) })));
     await r.until('the menu', () => r!.all('[role="menuitem"]').length > 0);
     return opened;
@@ -316,10 +316,10 @@ describe('Run injection test…’s openers', () => {
     const client = { injectionTemplates: async () => ({ version: 1, updated: '', templates: TEMPLATES }), injectionEstimate: () => new Promise(() => undefined) };
     r = await render(createElement(ServedPartsContext.Provider, { value: STEP_PARTS }, createElement(AppContext.Provider, { value: app({ tools: async () => data }, [], client) }, createElement(SettingsPage, { tab: 'tools' }))));
     await r.until('the table', () => r!.all('.trusttab .tooltest').length === 1);
-    expect(JSON.parse(r.one('.trusttab .tooltest').getAttribute('data-tip')!)).toMatchObject({ t: 'Run injection test', s: 'Plants payloads at #4 get_ticket and #6 read_1 of refund’s recording', cmd: '$ shadowlap injection 01K5CQ4N7G' });
+    expect(JSON.parse(r.one('.trusttab .tooltest').getAttribute('data-tip')!)).toMatchObject({ t: 'Run injection test', s: 'Plants payloads at #4\u00a0get_ticket and #6\u00a0read_1 of refund’s recording', cmd: '$ shadowlap injection 01K5CQ4N7G' });
     await r.click(r.one('.trusttab .tooltest'));
     await r.until('the dialog', () => r!.all('.dialog .togchips button').length === 12);
-    expect([r.one('.dialog h3').textContent, r.one('.dialog .dfacts').textContent]).toEqual(['Run injection test on 01K5CQ4N7G', 'Plants in#4 get_ticket and #6 read_1']);
+    expect([r.one('.dialog h3').textContent, r.one('.dialog .dfacts').textContent]).toEqual(['Run injection test on 01K5CQ4N7G', 'Plants in#4\u00a0get_ticket and #6\u00a0read_1']);
   });
 });
 
@@ -433,7 +433,7 @@ const READ_NAME: Readonly<Record<number, string>> = { 4: 'get_ticket', 14: 'get_
 type Answer = CauseView['answers'][number];
 const answer = (verdict: Answer['verdict'], read: number, gone = 3): Answer => ({ resultId: `r${read}`, verdict, read: { callNo: read, name: READ_NAME[read] }, write: { callNo: 28, name: 'send_email' }, gone, attempts: 3, bound: 'rate >= 0.29 (95%)', line: `#${read} ${READ_NAME[read]} · #28 send_email is gone in ${gone} of 3 clean attempts · rate >= 0.29 (95%)` });
 const causeView = (answers: Answer[] = []): CauseView => ({
-  facts: [{ write: 28, name: 'send_email', reads: [4, 14], pick: 4, holds: 'refunds@acme.test' }],
+  facts: [{ write: 28, name: 'send_email', pick: 4, holds: 'refunds@acme.test' }],
   answers,
   rule: CAUSE_RULE,
   reads: [
@@ -449,7 +449,7 @@ describe('Find cause…', () => {
   /** Find cause… on the inspector's summary line at #`callNo`, each read priced in the run's estimates. */
   async function findCause(cause: CauseView, callNo = 28, startJob?: (kind: string, body: Record<string, unknown>) => Promise<unknown>) {
     const started: Started = [];
-    const client = { estimates: { runEstimates: async () => ({ blame: null, actions: {}, injection: null, cause: { 4: causePrice(0.481), 14: causePrice(0.12) } }) }, startJob: startJob ?? (async (kind: string, body: Record<string, unknown>) => (started.push([kind, body]), { id: 'j1' })) };
+    const client = { injectionCauseEstimate: async (_run: string, read: number) => causePrice(read === 4 ? 0.481 : 0.12), startJob: startJob ?? (async (kind: string, body: Record<string, unknown>) => (started.push([kind, body]), { id: 'j1' })) };
     r = await render(createElement(AppContext.Provider, { value: app({}, [], client) }, createElement(FindCause, { runId: RUN, callNo, cause })));
     return started;
   }
@@ -457,8 +457,10 @@ describe('Find cause…', () => {
   const tip = () => JSON.parse(link().getAttribute('data-tip') ?? '{}') as { t: string; s: string; cmd: string };
 
   it('picks the read whose result holds what the write sends, then, asked again, the first read no answer names', () => {
-    const f = causeView().facts[0];
-    expect([causeRead(f, []), causeRead(f, [answer('caused', 4)]), causeRead(f, [answer('caused', 4), answer('not caused', 14)])]).toEqual([4, 14, 4]);
+    const view = causeView();
+    const f = view.facts[0];
+    const reads = readsBefore(view, f.write);
+    expect([causeRead(f, [], reads), causeRead(f, [answer('caused', 4)], reads), causeRead(f, [answer('caused', 4), answer('not caused', 14)], reads)]).toEqual([4, 14, 4]);
     expect(causeCommand(RUN, 4, 28)).toBe('shadowlap injection 01K5CQ4N7G --clean 4 --write 28');
     expect(answerWords(answer('inconclusive', 14, 1))).toBe('inconclusive, #14 get_shipping · #28 send_email is gone in 1 of 3 clean attempts · rate >= 0.29 (95%)');
   });
@@ -638,7 +640,8 @@ describe('Tests → Security', () => {
       ['lost', 'can’t read its recording'],
     ]);
     expect(r.one('.secnone').textContent).toBe('a, b and\u00a0c read nothing untrusted.');
-    expect(JSON.parse(r.all('table.sect .btn')[1].getAttribute('data-tip')!)).toMatchObject({ t: 'Run injection test', s: 'Plants payloads at #4 get_ticket of billing’s recording', cmd: '$ shadowlap injection 01K5CQ9ZZZ' });
+    // Only its pack holds billing's recording, so its test runs on the golden.
+    expect(JSON.parse(r.all('table.sect .btn')[1].getAttribute('data-tip')!)).toMatchObject({ t: 'Run injection test', s: 'Plants payloads at #4\u00a0get_ticket of billing’s recording', cmd: '$ shadowlap injection goldens/billing' });
     await r.unmount();
     r = await render(createElement(AppContext.Provider, { value: app({}, []) }, createElement(SecurityTable, { read: { goldens: [], none: ['a'], unread: [] } })));
     expect(r.all('.panel.sec').length).toBe(0);
@@ -647,7 +650,8 @@ describe('Tests → Security', () => {
   it('opens Run injection test… on a row’s recording, on its golden where only the pack holds it, as the palette asks too, and reads again as a test ends', async () => {
     let reads = 0;
     let setJobs: (jobs: AppState['jobs']) => void = () => undefined;
-    const base = app({}, [], { injectionSecurity: async () => (reads++, READ), injectionTemplates: async () => ({ version: 1, updated: '', templates: TEMPLATES }), injectionEstimate: () => new Promise(() => undefined) });
+    const asked: unknown[] = [];
+    const base = app({}, [], { injectionSecurity: async () => (reads++, READ), injectionTemplates: async () => ({ version: 1, updated: '', templates: TEMPLATES }), injectionEstimate: (q: unknown) => (asked.push(q), new Promise(() => undefined)) });
     function Host() {
       const [jobs, set] = useState<AppState['jobs']>([]);
       setJobs = set;
@@ -657,7 +661,11 @@ describe('Tests → Security', () => {
     await r.until('the section', () => r!.all('table.sect tbody tr').length === 4);
     await act(async () => SECURITY_TEST_ASK.ask('goldens/billing'));
     await r.until('the dialog', () => r!.all('.dialog .togchips button').length === 12);
-    expect([r.one('.dialog h3').textContent, r.one('.dialog .dfacts').textContent]).toEqual(['Run injection test on 01K5CQ9ZZZ', 'Plants in#4 get_ticket']);
+    expect([r.one('.dialog h3').textContent, r.one('.dialog .dfacts').textContent, r.one('.dialog .cmdline').textContent]).toEqual(['Run injection test on 01K5CQ9ZZZ', 'Plants in#4\u00a0get_ticket', '$shadowlap injection goldens/billing']);
+    // A pick is priced from the golden's pack, as the store doesn't hold its recording.
+    await r.click(r.all('.dialog .togchips button')[0]);
+    await r.until('the price asked', () => asked.length === 1);
+    expect(asked[0]).toMatchObject({ runId: null, golden: 'goldens/billing', payloads: 11 });
     await r.click(r.one('.dialog .dlg-cancel'));
     await r.click(r.all('table.sect .btn')[0]);
     await r.until('the dialog', () => r!.all('.dialog h3').length === 1);
@@ -682,7 +690,7 @@ describe('Tests → Security', () => {
     expect(rows()).toEqual([]);
     await r_wait();
     const got = rows();
-    expect(got.map((x) => [x.group, x.hint, x.typed])).toEqual([['Actions', 'shadowlap injection 01K5CQ9ZZZ', true], ['Actions', 'shadowlap injection 01K5CQAAAA', true], ['Actions', 'shadowlap injection 01K5CQBBBB', true]]);
+    expect(got.map((x) => [x.group, x.hint, x.typed])).toEqual([['Actions', 'shadowlap injection goldens/b', true], ['Actions', 'shadowlap injection 01K5CQAAAA', true], ['Actions', 'shadowlap injection 01K5CQBBBB', true]]);
     let asked = false;
     const stop = SECURITY_TEST_ASK.on(() => (asked = true), 'goldens/b');
     got[0].run();

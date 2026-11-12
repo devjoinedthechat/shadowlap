@@ -22,19 +22,21 @@ export interface PlanPicks {
 /**
  * What the picks bill, from the server: the opener's price for the plan nobody picked, then asked
  * again 250 ms after a pick, the last answer kept until the next comes. A golden whose recording
- * only its pack holds is priced by its opener alone.
+ * only its pack holds (`runId` null) is priced from its pack.
  */
-export function usePlanEstimate(runId: string | null, plan: PlanPicks, first: Estimate | null | undefined): Estimate | null | undefined {
+export function usePlanEstimate(on: { runId: string | null; golden?: string | null | undefined }, plan: PlanPicks, first: Estimate | null | undefined): Estimate | null | undefined {
   const { client } = useApp();
   const [estimate, setEstimate] = useState(first);
   const { payloads, repeat, budget = null, gate = false } = plan;
+  const { runId } = on;
+  const golden = runId ? null : (on.golden ?? null);
   const key = `${payloads}:${repeat}:${budget ?? ''}`;
   const priced = useRef(first === undefined ? null : key);
   useEffect(() => {
-    if (!runId || !payloads || priced.current === key) return;
+    if ((!runId && !golden) || !payloads || priced.current === key) return;
     let alive = true;
     const t = setTimeout(() => {
-      void client.injectionEstimate({ runId, payloads, repeat, budget, ...(gate ? { gate } : {}) }).then(
+      void client.injectionEstimate({ runId, ...(golden ? { golden } : {}), payloads, repeat, budget, ...(gate ? { gate } : {}) }).then(
         (e) => {
           if (!alive) return;
           priced.current = key;
@@ -47,7 +49,7 @@ export function usePlanEstimate(runId: string | null, plan: PlanPicks, first: Es
       alive = false;
       clearTimeout(t);
     };
-  }, [client, runId, payloads, repeat, budget, gate, key]);
+  }, [client, runId, golden, payloads, repeat, budget, gate, key]);
   return estimate;
 }
 

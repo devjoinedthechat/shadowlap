@@ -35,6 +35,7 @@ export interface SecurityRow {
   recording: string;
   /** When it was recorded: the newest golden's recording comes first. */
   at: number;
+  /** Its untrusted reads a model call reads, where a test plants. */
   reads: UntrustedView[];
   last: SecurityLast | null;
   /** Run injection test… at the plan nobody picked. */
@@ -70,9 +71,9 @@ function lastTest(store: Store, path: string, recording: string): SecurityLast |
   return { resultId: r.resultId, verdict: resultGate(r)!, line: injectionLine(r), gate: r.golden !== null };
 }
 
-/** A recording's untrusted reads and its default plan's price, read from the store that holds it. */
+/** A recording's untrusted reads a model call reads, where a test plants (one no model call follows is never planted in), and its default plan's price, read from the store that holds it. */
 async function readsOf(store: Store, run: RunRecord, o: InjectionReadInput): Promise<{ reads: UntrustedView[]; estimate: Estimate | null }> {
-  const reads = untrustedView(store.getCalls(run.runId), o.tools);
+  const reads = untrustedView(store.getCalls(run.runId), o.tools).filter((r) => r.readAt !== null);
   const pricing = pricingOf(store, o.prices);
   const estimate = reads.length ? await estimateOf((p) => injectionEstimate(p.calls(run.runId), reads, { payloads: defaultPayloads(reads.length) }), pricing) : null;
   return { reads, estimate };
@@ -121,7 +122,7 @@ export interface ToolTest {
   golden: string | null;
   /** `<golden>’s recording`, or the run's short id. */
   whose: string;
-  /** Every untrusted read of that run, where the test plants. */
+  /** That run's untrusted reads a model call reads, where the test plants. */
   reads: UntrustedView[];
   estimate: Estimate | null;
 }

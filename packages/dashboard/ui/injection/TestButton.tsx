@@ -11,7 +11,7 @@ import { TestDialogPart } from './test-part.js';
 export interface TestTarget {
   runId: string | null;
   golden: string | null;
-  /** The recording's id, for the card's command and the title where `runId` is null; else the golden names it. */
+  /** The recording's id, for the dialog's title where `runId` is null; the command runs on the golden. */
   recording?: string | undefined;
   reads: readonly UntrustedView[];
   estimate: Estimate | null;
@@ -28,7 +28,7 @@ export function TestButton({ test, sub, className = 'btn sm tooltest', asked }: 
   const ask = asked?.ask;
   const key = asked?.key;
   useEffect(() => ask?.on(() => setOpen(true), key), [ask, key]);
-  const id = test.runId || test.recording ? shortId(test.runId ?? test.recording ?? '') : (test.golden ?? '');
+  const id = test.runId ? shortId(test.runId) : (test.golden ?? '');
   return (
     <>
       <JobButton className={className} form estimate={test.estimate} tip={confirmWords(ACTIONS.runInjectionTest.label)} sub={sub} command={`$ shadowlap injection ${id}`} start={() => setOpen(true)} ask={() => setOpen(true)}>

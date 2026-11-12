@@ -44,7 +44,7 @@ type Sent = { key: string; sent: Record<string, unknown> | undefined };
 /** The run page's menu and its runner, the server pricing the call as `answer` says (never, for one that hasn't answered). */
 /** A run's estimates as the menu reads them: its rows', with no injection test or cause priced. */
 type Rows = Pick<RunEstimates, 'blame' | 'actions'>;
-const full = (e: Rows): RunEstimates => ({ injection: null, cause: {}, ...e });
+const full = (e: Rows): RunEstimates => ({ injection: null, ...e });
 
 async function page(threshold: Spending, answer: Rows | 'never' | ((model?: string | null) => Rows), o: { rows?: ActionLike[]; forkAt?: number | null } = {}) {
   resetSpending(threshold);

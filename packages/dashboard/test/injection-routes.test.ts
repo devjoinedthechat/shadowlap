@@ -535,7 +535,7 @@ describe('what the run page draws of a kept test', () => {
     expect(securityOffer(store, attemptRun)).toEqual({ resultId: 'inj-01CLEAN', mode: 'clean' });
   });
 
-  it('price a dialog\'s picks on the server, refusing what the job would refuse, and list each golden\'s untrusted reads for Security', async () => {
+  it('price a dialog\'s picks on the server, refusing what the job would refuse, Find cause\'s one read at a time, and answer Security, a 304 while nothing moved', async () => {
     const priced = await api(`injection/estimate?run=${recording.runId}&payloads=2&repeat=3&budget=0.50`);
     expect(priced.status).toBe(200);
     expect(((await priced.json()) as { estimate: { kind: string } | null }).estimate).toMatchObject({ kind: 'injection' });
@@ -546,11 +546,21 @@ describe('what the run page draws of a kept test', () => {
     expect(await (await api(`injection/estimate?run=${recording.runId}&payloads=2&repeat=0`)).json()).toMatchObject({ error: 'repeat is a whole number from 1 to 100' });
     expect((await api(`injection/estimate?run=${recording.runId}`)).status).toBe(400);
     expect((await api('injection/estimate?run=01NOSUCHRUN00000000000000&payloads=1')).status).toBe(404);
-    // A run's own estimates carry the plan nobody picked and Find cause's on each untrusted read.
-    const own = (await (await api(`runs/${recording.runId}/estimates`)).json()) as { injection: unknown; cause: Record<string, unknown> };
-    expect(own).toHaveProperty('injection');
-    expect(own.cause).toEqual(expect.any(Object));
-    const security = (await (await api('injection/security')).json()) as { goldens: Array<{ path: string; reads: Array<{ name: string }> }>; none: string[] };
-    expect(security.goldens.map((g) => [g.path, g.reads.map((r) => r.name)])).toEqual([['goldens/research', ['fetch_page', 'search']]]);
+    // Find cause… asks one read's price; a golden is priced on its recording, and a path no golden has is a 404.
+    const cause = (await (await api(`injection/estimate?run=${recording.runId}&clean=1`)).json()) as { estimate: { kind: string } };
+    expect(cause.estimate).toMatchObject({ kind: 'cause' });
+    expect(await (await api(`injection/estimate?run=${recording.runId}&clean=0`)).json()).toMatchObject({ error: 'clean is a whole number from 1 to 9007199254740991' });
+    expect(((await (await api('injection/estimate?golden=goldens/research&payloads=2')).json()) as { estimate: { kind: string } }).estimate).toMatchObject({ kind: 'injection' });
+    expect((await api('injection/estimate?golden=goldens/nosuch&payloads=2')).status).toBe(404);
+    // The whole run's estimates carry the plan nobody picked; the menu's at a call, and Find cause's, are asked apart.
+    const own = (await (await api(`runs/${recording.runId}/estimates`)).json()) as Record<string, unknown>;
+    expect([Object.keys(own).sort(), Object.keys((await (await api(`runs/${recording.runId}/estimates?at=1`)).json()) as object).sort()]).toEqual([['actions', 'blame', 'injection'], ['actions', 'blame']]);
+    const asked = await api('injection/security');
+    const security = (await asked.json()) as { goldens: Array<{ path: string; reads: Array<{ name: string }> }>; none: string[] };
+    // Its recording's untrusted reads come after its last model call, if any: nothing reads a payload there, so it reads nothing untrusted.
+    expect([security.goldens, security.none]).toEqual([[], ['research']]);
+    // Asked again while nothing moved, as the palette asks it as it opens: a 304.
+    const again = await fetch(`${dash.url}/api/injection/security`, { headers: { 'x-shadowlap-token': dash.token, 'if-none-match': asked.headers.get('etag') ?? '' } });
+    expect([asked.headers.get('etag')?.startsWith('"s'), again.status]).toEqual([true, 304]);
   });
 });
