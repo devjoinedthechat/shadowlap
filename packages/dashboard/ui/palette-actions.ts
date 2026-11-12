@@ -90,6 +90,14 @@ addPaletteSource(({ app }) => {
   return [{ group: 'Actions', label: ACTIONS.calibrate.label, hint: held ?? 'propose normalizers', job: true, ...(held ? { wait: held } : {}), run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.calibrate, {}))) }];
 });
 
+// Rescan coverage reads the imported runs and the goldens on disk again, as Not covered's button
+// does: the server never holds a scan for another job, so it waits only as every action does. It is
+// left out on a read-only dashboard.
+addPaletteSource(({ app }) => {
+  if (app.exported || !app.hasKind(JOB_KINDS.coverage)) return [];
+  return [{ group: 'Actions', label: ACTIONS.rescanCoverage.label, hint: 'shadowlap coverage', job: true, run: () => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.coverage, {}))) }];
+});
+
 // The way to the team store's setup: Set up the team store while the project has none, Continue
 // setting up the store while a setup is under way. What the setup's route says is read each time
 // the palette opens, and kept for the next time.
