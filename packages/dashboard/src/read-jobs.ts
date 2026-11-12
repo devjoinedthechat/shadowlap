@@ -36,7 +36,6 @@ import { searchBehind, searchRecorded, type SearchAnswer } from './search-hits.j
 import { setupUnderWay } from './store-setup.js';
 import { localRunSet, teamStoreStatus, type TeamStoreInput } from './team-store.js';
 import type { GoldenSource } from './tests.js';
-import { toolReads } from './tool-reads.js';
 import { readTraining, sourceFixes, trainingView, type PairFilter } from './training.js';
 
 export type { ReadAnswer } from './read-registry.js';
@@ -116,8 +115,6 @@ type CoreJob =
   | { kind: 'injection-run'; runId: string; tools?: ToolTrust }
   /** Every tool the store's recordings called, with its trust, for Settings → Tools (injection.ts). */
   | { kind: 'tool-trust'; tools?: ToolTrust }
-  /** What Settings → Tools reads of the store, every tool call by its name and effect and the MCP servers calls came through (tool-reads.ts). */
-  | { kind: 'tool-reads' }
   /**
    * What projects' stores say, for the project switcher and a project's setup (engine `storeFacts`,
    * which reads every run), by project id: the store this job reads for the one with no `dbPath`, the
@@ -331,7 +328,6 @@ const CORE_READS: ReadTable<CoreJob> = {
   },
   'injection-run': (store, job) => (store.getRun(job.runId) ? answer(runInjection(store, job.runId, job.tools), { tagged: true }) : failed(404, `no run ${job.runId}`)),
   'tool-trust': (store, job) => answer(toolTrust(store, job.tools), { tagged: true }),
-  'tool-reads': (store) => answer(toolReads(store)),
   'store-facts': (store, job) => storeFactsOf(store, job.stores),
   training: (store, job) => answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, redactRules: job.redactRules, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true }),
   fix: (store, job) => fixPage(store, job),

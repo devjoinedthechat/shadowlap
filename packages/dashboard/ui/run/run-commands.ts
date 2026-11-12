@@ -36,16 +36,16 @@ function leadCommands(run: RunDetail, o: { exported: boolean; actionsOff: string
   return items;
 }
 
-/**
- * This run, in the palette, while its page is open: its next step first, as the header's lime button
- * has it, then what else the page offers, none of them said twice.
- */
 /** Run injection test…, after Fork at #n…: where the run reads something untrusted, never on an attempt (no `open`) or a live run, nor while the lime step is that test. */
 export function testRow(runId: string, reads: number, o: { live: boolean; exported: boolean; next: NextStep | null; open: (() => void) | undefined }): PaletteCommand[] {
   if (!o.open || o.exported || o.live || !reads || o.next?.key === 'injection-test') return [];
   return [{ group: 'This run', label: ACTIONS.runInjectionTest.label, hint: `shadowlap injection ${shortId(runId)}`, match: 'security prompt injection untrusted', job: true, run: o.open }];
 }
 
+/**
+ * This run, in the palette, while its page is open: its next step first, as the header's lime button
+ * has it, then what else the page offers, none of them said twice.
+ */
 export function useRunCommands(o: {
   run: RunDetail;
   selected: number | null;

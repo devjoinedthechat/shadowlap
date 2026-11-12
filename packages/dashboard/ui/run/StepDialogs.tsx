@@ -31,7 +31,6 @@ export interface StepDialogProps {
   onClose: () => void;
 }
 
-
 const CHANGES = { label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' };
 const packRules = (offers: RunOffers | null) => redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null);
 

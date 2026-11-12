@@ -25,7 +25,8 @@ import { normalizeAddArgs } from './volatile.js';
  * HTTP status… and Run live from here; a tool call gets Override result…, Fail with tool error…,
  * Plant instruction… (reads only), Force <tool> live and Run live from here; a recorded user input
  * gets Override user reply… and Run live from here. Then the whole run: Repeat 5 times, Replay with
- * writes stubbed, and in the terminal UI Find breaking commit….
+ * writes stubbed, and in the terminal UI Find breaking commit…. The dashboard's fork menu adds its own
+ * row there, Run injection test…, before its Find breaking commit…: the terminal has no injection test.
  */
 
 export interface Action {

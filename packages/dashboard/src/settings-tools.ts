@@ -2,6 +2,7 @@ import { isObject, parseToolTrust, type Effect, type ToolTrust, type TrustSource
 import { toolTrust, type ToolTrustRow } from './injection.js';
 import type { ToolsRead, ToolTest } from './injection-security.js';
 import { toolReads, type ToolReads } from './tool-reads.js';
+import { trustLine } from './tool-trust.js';
 import { type ConfigInfo, loadConfigFile, type SettingsContext } from './settings-shared.js';
 import { type ClientConfigBlock, clientConfigs, type McpRecordedServer, type McpServerRow, mcpServers, recordedMcpServers } from './settings-mcp.js';
 import { mcpClientConfig, readShippedDoc } from './settings-docs.js';
@@ -127,7 +128,7 @@ function trustCells(name: string, t: ToolTrustRow | undefined, tests: Record<str
     trust: t?.trust ?? 'trusted',
     from: t?.from ?? null,
     where: t?.where ?? null,
-    flip: t?.flip ?? `"tools": { ${JSON.stringify(name)}: { "trust": "untrusted" } }`,
+    flip: t?.flip ?? trustLine(name, 'untrusted'),
     input: t?.input ?? false,
     test: Object.hasOwn(tests, name) ? tests[name]! : null,
   };

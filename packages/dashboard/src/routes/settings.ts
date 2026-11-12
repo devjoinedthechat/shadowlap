@@ -43,7 +43,7 @@ import { settingsFolder } from './settings-edits.js';
  * exactly the runs that dry run listed, or nothing; when it listed none but found blobs nothing
  * uses or unused space, a plain `gc`, which deletes no run and gives that back).
  *
- * The CI tab reads the tests feature's `GET /api/ci/workflows`; nothing for it is served here.
+ * The CI tab reads `GET /api/ci/workflows`, served by routes/ci.ts; nothing for it is served here.
  */
 
 /** Unused space worth a clean-up of its own when no run is old enough: 1 MB, as `gc` counts it. */
