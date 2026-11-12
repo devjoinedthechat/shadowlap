@@ -490,7 +490,8 @@ describe('a golden that may fork, whose attempt fails a check other than its jud
     config({ tests: { 'goldens/half': { fork: true } } });
     const rec = await record({ VARIANT: 'plain' });
     expect((await shadowlap(['pack', rec, 'goldens/half'])).code).toBe(0);
-    config({ tests: { 'goldens/half': { fork: true, repeat: 4, passes: 4, expect: { answer: { includes: ['issued'] }, judge: [judge({})] } } } });
+    // An output check, which the attempt checks on what the agent printed before it asks any judge.
+    config({ tests: { 'goldens/half': { fork: true, repeat: 4, passes: 4, expect: { output: { includes: ['issued'] }, judge: [judge({})] } } } });
     const before = asked();
     // The agent issues the refund in attempts 1 and 3, and declines it in 2 and 4.
     alternated = 0;
@@ -498,19 +499,19 @@ describe('a golden that may fork, whose attempt fails a check other than its jud
     expect(t.code, t.out).toBe(1);
     expect(asked() - before).toBe(2);
     expect(t.result.runs.map((r) => r.verdict)).toEqual(['passed', 'failed', 'passed', 'failed']);
-    // The attempts that failed their answer check asked nothing: their judge is not applicable, with why, at no cost.
+    // The attempts that failed their output check asked nothing: their judge is not applicable, with why, at no cost.
     for (const r of [t.result.runs[1], t.result.runs[3]]) {
       expect(judgeCalls(r.runId)).toEqual([]);
       expect(keptChecks(r.runId).find((c) => c.judge)).toMatchObject({ status: 'not-applicable', ok: true, detail: JUDGE_NOT_ASKED, judge: { verdict: null, source: null, cost: null } });
     }
-    // Those that passed it asked live, and got a verdict.
+    // Those that passed it asked live, and got a verdict: what they printed reached that check before the judges.
     for (const r of [t.result.runs[0], t.result.runs[2]]) {
       expect(judgeCalls(r.runId)).toHaveLength(1);
       expect(keptChecks(r.runId).find((c) => c.judge)).toMatchObject({ status: 'passed', judge: { verdict: 'yes', source: 'live' } });
     }
     // An attempt's line says what failed alone: the judge it didn't ask is neither inconclusive nor failed.
-    expect(t.result.message).toBe('2 of 4 attempts passed, 4 needed. Attempt 2: check failed: final answer includes "issued", but not found in the final answer');
-    expect(t.out).toMatch(/attempt 2 {2}✗ check failed: final answer includes "issued", but not found in the final answer\n/);
+    expect(t.result.message).toBe('2 of 4 attempts passed, 4 needed. Attempt 2: check failed: output includes "issued", but not found in the output');
+    expect(t.out).toMatch(/attempt 2 {2}✗ check failed: output includes "issued", but not found in the output\n/);
     expect(t.out).not.toMatch(/; 1 (inconclusive|more check failed)/);
     // The shown attempt's own checks: its judge wasn't asked there, though attempts 1 and 3 asked it.
     expect(t.out).toContain(`– judge "issued" answers yes: not applicable · ${JUDGE_NOT_ASKED}`);
