@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { ScopeBar } from '../ui/run/parts.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { RunDetail } from '../ui/types.js';
@@ -118,5 +119,19 @@ describe('a run’s header', () => {
     expect(link).toContain('target="_blank" rel="noopener noreferrer"');
     expect(JSON.parse(/data-tip="([^"]*)"/.exec(link)![1].replace(/&quot;/g, '"'))).toMatchObject({ t: 'Open in Langfuse', s: `The trace it was imported from, ${id}, on cloud.langfuse.com` });
     expect(header(detail({ state: { status: 'completed', kind: 'recording', outcome: { kind: 'none' }, failed: false } }))).not.toContain('Open in');
+  });
+});
+
+describe('the run’s agents chips', () => {
+  it('say each agent’s word and count apart', () => {
+    const calls = [
+      { callNo: 1, scope: 'customer', kind: 'api' },
+      { callNo: 2, scope: 'agent', kind: 'api' },
+      { callNo: 3, scope: 'agent', kind: 'tool' },
+    ];
+    const run = { run: { runId: '01M781NKXK0SFB6W51R56AKDAE' }, calls } as unknown as RunDetail;
+    const html = renderToStaticMarkup(createElement(ScopeBar, { run, scopes: ['agent', 'customer'], scope: 'all', onScope: () => undefined }));
+    const words = [...html.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map((m) => m[1].replace(/<[^>]*>/g, ''));
+    expect(words).toEqual(['All 3', 'agent 2', 'customer 1']);
   });
 });
