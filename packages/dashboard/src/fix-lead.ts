@@ -61,14 +61,16 @@ function verifyLead(rec: FixRecords): FixLead | null {
 
 /**
  * An open fix's lead: what its spent repair's last verdict left, blame again, a crash's own step once
- * no model rescued it (`crash`: Find breaking commit, then Revert), blame with a stronger model, or
- * Run repair when it can run the agent.
+ * no model rescued it (`crash`: Find breaking commit, then Revert) while the fix still holds its run,
+ * blame with a stronger model, or Run repair when it can run the agent. A crashed run that a check
+ * given since passed left the fix (runsLeft): its step is its own, and Run repair blames the runs the
+ * fix holds.
  */
 function openLead(rec: FixRecords, actions: FixActions, o: FixLeadOptions): FixLead | null {
   if (repairSpent(rec)) return verifyLead(rec);
   const again = actions.blameAgain;
   if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, soFar: again.soFar, lastGood: again.lastGood, underCheck: again.underCheck };
-  if (o.crash) return crashLead(o.crash.runId, o.crash.step);
+  if (o.crash && rec.failing.includes(o.crash.runId)) return crashLead(o.crash.runId, o.crash.step);
   const stronger = actions.blameStronger;
   if (stronger) return { key: 'blame-stronger', label: ACTIONS.runBlameStronger.label, command: stronger.command, use: 'reads' };
   // A repair that would end "No fix to try" runs nothing: the row opens the fix, which says why.
