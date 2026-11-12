@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { commandIsImported, decisionsName, goldenNeedsConsent, importedCommandSource, messageOf, quoteArgv, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store, type StoreOf } from '@shadowlap/engine';
+import { codeChangeNeeded, commandIsImported, decisionsName, goldenNeedsConsent, importedCommandSource, messageOf, quoteArgv, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
-import { codeChangeNeeded, DecisionsError, storeTarget, verifyFields, type DecisionsSettings, type DecisionTarget } from './decisions.js';
+import { DecisionsError, storeTarget, verifyFields, type DecisionsSettings, type DecisionTarget } from './decisions.js';
 import { verifyRuns } from './decisions-verify-runs.js';
 import { importGolden } from './golden-test.js';
 import { rawExpectFor } from './goldens.js';
@@ -34,8 +34,15 @@ export interface SessionVerify {
   passes: MigrateRunPass[] | null;
 }
 
+/** Where each golden diverges once the config change is in doesn't move with a verify: kept as migrate found it. */
+function keptDiverges(passes: MigrateRunPass[], kept: unknown): MigrateRunPass[] {
+  const runs = (kept as { runs?: MigrateRunPass[] } | undefined)?.runs ?? [];
+  const at = new Map(runs.map((x) => [x.runId, x.diverges ?? null]));
+  return passes.map((x) => ({ ...x, diverges: at.get(x.runId) ?? null }));
+}
+
 /** A session by its id, or a prefix of one that names a single session. */
-function findSession(store: StoreOf<'decisions'>, id: string): ReturnType<Store['getDecisionSession']> {
+export function findSession(store: StoreOf<'decisions'>, id: string): ReturnType<Store['getDecisionSession']> {
   const exact = store.getDecisionSession(id);
   if (exact) return exact;
   if (!/^(dc|mg)-[0-9A-Za-z]{4,}$/.test(id)) return null;
@@ -143,7 +150,7 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
           return null;
         }
       };
-      passes = passesOf(runs, toVerify, merged, recorded);
+      passes = keptDiverges(passesOf(runs, toVerify, merged, recorded), data.passes);
       next = { ...data, decisions: { ...(data.decisions as Record<string, unknown>), verify: merged }, passes: { verdict: merged.verdict, runs: passes } };
     } else next = { ...data, verify: merged };
     store.putDecisionSession({ sessionId: session.sessionId, kind: session.kind, at: session.at, change: session.change, actor: session.actor, revision: session.revision, data: next, runs: session.runRows.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.rank, changed: r.changed, data: r.data })) });

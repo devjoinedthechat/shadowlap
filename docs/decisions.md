@@ -446,9 +446,11 @@ What changes
   besides: 1 read added or removed, 1 read asked differently
 
 What still passes
-  goldens/research             passed · kept, verified · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)
+  goldens/research             passed · kept, verified · 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)
   kept unless it drops 10+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs
   1 of 1 run verified end to end
+  ! once applied, goldens/research (#3) diverges on $.model: it replays exactly
+    re-record it under claude-haiku-4-5: shadowlap test goldens/research --update
 
 What it costs
   per run      ≈$0.043 → ≈$0.014 (−67%) · 12,700 → 12,700 tokens
@@ -491,10 +493,11 @@ Each run's verdict is *passed*, *failed* or *inconclusive*. A run verified says 
 - *inconclusive*, when its gate ran out of attempts between its bounds or an attempt could not be judged;
 - *unsettled*, when its attempts stopped before they settled it (the budget, Ctrl-C).
 
-It gives its tally and the bound of its pass rate, or for a run kept against its baseline both tallies and the bound on its drop, under the rule that decided it, each rule stated once. An attempt that could not be judged is counted apart, never as one that failed (*2 of 2, attempt 3 not judged*).
+It gives its tally and the bound of its pass rate, or for a run kept against its baseline both tallies and the bound on its drop, under the rule that decided it, each rule stated once. The words are verify's own. An attempt that could not be judged is counted apart, never as one that failed (*2 of 2 passed, attempt 3 not judged*), and so is a provider that stayed unavailable (*the provider unavailable*).
 
 - **Unchanged.** A run the preview cleared is *unchanged*: it is not run end to end, and its recording's own verdict under its checks stands. The first line claims only what ran: *keeps the run it verified passing*, or, when none ran, *decided the same in the preview*.
 - **Not judged.** A run with a text-only change a judge check reads that could not be judged is *inconclusive* (`not-judged`): the words might read otherwise.
+- **Left behind.** A golden that replays exactly, not marked `fork`, sends the model it was recorded with. Once the config change is in, it diverges on `$.model` at its first call with that model, until it is re-recorded under the new one. The report names each before anything is applied, with the command that re-records them. Which agent reads the files the patch changes can't be told, so it names every such golden; [`migrate apply`](#apply-the-config-change) replays them to see.
 
 ### What to set
 
@@ -531,7 +534,7 @@ Migrate ends with two files, both written to `.shadowlap/migrations/<id>/`:
 - **a pull request body** with the four blocks, which names the command it was checked with, a key on it masked as in a pack.
 
 ```sh
-git apply .shadowlap/migrations/mg-01M58W9A7S6YD9QC6C83ES8EP4/config.patch
+shadowlap migrate apply mg-01M58W9A7S
 gh pr create --title "Switch claude-sonnet-4-5-20250929 to claude-haiku-4-5" --body-file .shadowlap/migrations/mg-01M58W9A7S6YD9QC6C83ES8EP4/pull-request.md
 ```
 
@@ -545,11 +548,43 @@ gh pr create --title "Switch claude-sonnet-4-5-20250929 to claude-haiku-4-5" --b
 - inside a longer string;
 - in `shadowlap.config.json`, whose prices and judges name models of their own.
 
+**What else it takes out.** In code, the patch takes out with the model each field What to set leaves out that is set to a literal on a line of its own, with a comma after it, in the call whose model it switches (`temperature=0,`). The report says so on the file's line (`eval_conversation.py  1 place, temperature left out`). Every other field stays for you, and the report says which (`by hand: leave top_p out, as What to set says: the patch changes the model alone`):
+
+- a field in JSON, YAML, TOML or `.env` config, where a line taken out can leave a file its reader refuses;
+- a field set to something other than a literal;
+- a field set elsewhere than in that call;
+- a field given with `--set`, and a field What to set gives a value.
+
 When no string names the model (it comes from an environment variable or a deployment setting), the report says where to set it instead.
 
 The pull request body shows what the project's redaction rules leave of the values it quotes.
 
 **Exit status.** Migrate exits 1 when a verified run breaks. A report that settles nothing (a step got no answer, a run that needed verify went unverified, the budget ran out) exits 3 unless `--inconclusive warn`.
+
+### Apply the config change
+
+`shadowlap migrate apply <id>` puts the config change in your working tree, for you to review before you commit:
+
+```sh
+shadowlap migrate apply mg-01M58W9A7S
+```
+
+It applies a migration only when the report is all clear and the patch is the whole switch. It refuses one that breaks runs or settles nothing, one with no config change, and one that leaves a field for you: change that field by hand, then `git apply` the patch.
+
+1. **It checks the patch** as `fix apply` checks a repair's: the migration's own file, unchanged since, naming only the files it switched, each a plain file git sees, reached through no link.
+2. **It applies it** with `git apply`. A patch already in the tree is only marked applied. A tree whose changes conflict with it is left alone, with what to do.
+3. **It replays your goldens offline**, in a store that nothing keeps, and names each that now diverges on `$.model`, with its call:
+
+```text
+▸ replaying the goldens offline, in a store of their own that nothing keeps: 2 goldens
+    ✗ goldens/research: diverged at call 3 (api POST /v1/messages) · ~ $.model
+    the other 1 doesn't diverge on it
+  ! 1 golden diverges on the model the config change switched (claude-sonnet-4-5-20250929 → claude-haiku-4-5): goldens/research
+    re-record it under claude-haiku-4-5 once the switch is what you meant: shadowlap test goldens/research --update
+✓ mg-01M58W9A7S applied · 1 golden to update
+```
+
+A compiled agent replays its old build unless you rebuild it first: pass `--build <command>`, as for `fix apply`. The migration keeps its applied state, and Activity says *Config change applied*.
 
 ### Once the old model is gone
 
