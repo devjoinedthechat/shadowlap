@@ -4,6 +4,11 @@
  * that run. No imports: the browser's bundle uses this file as it is.
  */
 
+/** A model's name as a preview's job takes it, and its dialog's field. */
+export const MODEL_NAME = /^[\w.:@/-]{1,200}$/;
+/** A request field's name: letters, digits, `_` and dots, a dotted name a path. */
+export const FIELD_NAME = /^[A-Za-z_][\w.]{0,99}$/;
+
 /** The most runs, or goldens, one preview takes: its job refuses more, and Runs' Preview change waits past it. */
 export const PREVIEW_MAX = 500;
 

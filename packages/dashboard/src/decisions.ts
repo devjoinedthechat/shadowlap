@@ -3,7 +3,7 @@ import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } 
 import { lookupRun } from './api.js';
 import { gateArg, sprtGate } from './fix-shared.js';
 import { moreOf, type PreviewMore } from './decision-more.js';
-import { decisionsArgv, fromFlags, PREVIEW_MAX, scopeFlags, setFlags, tooManyToPreview } from './decisions-argv.js';
+import { decisionsArgv, FIELD_NAME, fromFlags, MODEL_NAME, PREVIEW_MAX, scopeFlags, setFlags, tooManyToPreview } from './decisions-argv.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { type RetiringModel, retiringModels } from './retirements.js';
@@ -161,8 +161,8 @@ export function retirementsView(store: StoreOf<'recording'>, goldens: readonly G
 
 // ---- jobs ----
 
-const MODEL = /^[\w.:@/-]{1,200}$/;
-const FIELD = /^[A-Za-z_][\w.]{0,99}$/;
+const MODEL = MODEL_NAME;
+const FIELD = FIELD_NAME;
 
 /** The request's fields to set, checked: each a field name and its value as `--set` gives it (`fieldValue`), which JSON can carry. */
 function setArgs(raw: unknown): Array<[string, string]> | { error: string } {

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type ReactNode, type ReactElement } from 'react';
 import { consentAsked } from '../actions.js';
 import { ConsentDialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
@@ -57,19 +57,10 @@ export function FixJobButton({
   const app = useApp();
   const busy = useTreeBusy('reads', verb);
   const [asking, setAsking] = useState(false);
-  const [consent, setConsent] = useState<{ why: string; confirm: string; fields: Record<string, unknown> } | null>(null);
+  const { start, consent } = useConsentStart(kind, fields);
   if (app.exported) return null;
   const missing = app.hasKind(kind) ? null : 'This dashboard doesn’t run it: run the command in a terminal.';
   const why = missing ?? busy;
-  const start = (more: Record<string, unknown>) =>
-    app.client.startJob(kind, { ...fields, ...more }).then(
-      (job) => app.watchJob(Promise.resolve(job)),
-      (err: unknown) => {
-        const asked = more.yes === undefined ? consentAsked(err) : null;
-        if (asked) setConsent({ ...asked, fields: more });
-        else refusedPress(app, kind, fields, err);
-      },
-    );
   return (
     <>
       <JobButton {...priced} form={form ?? (!('estimate' in priced) && !!ask)} className={`${className}${lead ? ' lime' : ''}`} why={why} tip={tip} command={`$ ${command}`} start={(sent) => void start(sent)} ask={() => setAsking(true)}>
@@ -81,14 +72,34 @@ export function FixJobButton({
             () => setAsking(false),
           )
         : null}
-      {consent ? (
-        <ConsentDialog
-          why={consent.why}
-          ok="Run command"
-          onClose={() => setConsent(null)}
-          onOk={() => app.guard(() => void start({ ...consent.fields, yes: consent.confirm }))}
-        />
-      ) : null}
+      {consent}
     </>
   );
+}
+
+/**
+ * Starts a job of `kind` with `fields` and what the press adds (its estimate), following it in the
+ * drawer; a command it runs that needs a yes (a 409 with the command) asks first in ConsentDialog, and
+ * the same start goes again with the yes; `started` once it runs. Fixes' buttons and a new preview's
+ * dialogs start this way.
+ */
+export function useConsentStart(kind: string, fields: Record<string, unknown>, started?: () => void): { start: (more: Record<string, unknown>) => Promise<void>; consent: ReactElement | null } {
+  const app = useApp();
+  const [consent, setConsent] = useState<{ why: string; confirm: string; fields: Record<string, unknown> } | null>(null);
+  const start = (more: Record<string, unknown>) =>
+    app.client.startJob(kind, { ...fields, ...more }).then(
+      (job) => {
+        app.watchJob(Promise.resolve(job));
+        started?.();
+      },
+      (err: unknown) => {
+        const asked = more.yes === undefined ? consentAsked(err) : null;
+        if (asked) setConsent({ ...asked, fields: more });
+        else refusedPress(app, kind, fields, err);
+      },
+    );
+  return {
+    start,
+    consent: consent ? <ConsentDialog why={consent.why} ok="Run command" onClose={() => setConsent(null)} onOk={() => app.guard(() => void start({ ...consent.fields, yes: consent.confirm }))} /> : null,
+  };
 }
