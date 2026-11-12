@@ -549,7 +549,7 @@ describe('what the run page draws of a kept test', () => {
     // Find cause… asks one read's price; a golden is priced on its recording, and a path no golden has is a 404.
     const cause = (await (await api(`injection/estimate?run=${recording.runId}&clean=1`)).json()) as { estimate: { kind: string } };
     expect(cause.estimate).toMatchObject({ kind: 'cause' });
-    expect(await (await api(`injection/estimate?run=${recording.runId}&clean=0`)).json()).toMatchObject({ error: 'clean is a whole number from 1 to 9007199254740991' });
+    expect(await (await api(`injection/estimate?run=${recording.runId}&clean=0`)).json()).toMatchObject({ error: 'clean is a call number: a whole number, 1 or more' });
     expect(((await (await api('injection/estimate?golden=goldens/research&payloads=2')).json()) as { estimate: { kind: string } }).estimate).toMatchObject({ kind: 'injection' });
     expect((await api('injection/estimate?golden=goldens/nosuch&payloads=2')).status).toBe(404);
     // The whole run's estimates carry the plan nobody picked; the menu's at a call, and Find cause's, are asked apart.

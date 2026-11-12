@@ -62,6 +62,14 @@ function wholeParam(raw: string | null, key: string, min: number, max: number): 
   return n;
 }
 
+/** Find cause's read to make neutral, by its call number, from the query string; undefined when absent. */
+function readParam(raw: string | null): number | undefined {
+  if (raw === null) return undefined;
+  const n = Number(raw);
+  if (!(Number.isInteger(n) && n >= 1)) throw new HttpError(400, 'clean is a call number: a whole number, 1 or more');
+  return n;
+}
+
 /** A dialog's picks as the estimators take them: the payloads planted, attempts each, and Stop at $ (checked as the job checks it). */
 function planParams(q: URLSearchParams): InjectionPlan {
   const payloads = wholeParam(q.get('payloads'), 'payloads', 0, MAX_PAYLOADS);
@@ -125,7 +133,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // A dialog's picks priced, asked again a moment after each pick, or Find cause…'s read: revalidated,
   // as a run's estimates are, from where the run (or the golden's pack) stands, the prices and the plan.
   router.get('/injection/estimate', async (r) => {
-    const clean = wholeParam(r.query.get('clean'), 'clean', 1, Number.MAX_SAFE_INTEGER);
+    const clean = readParam(r.query.get('clean'));
     const plan = clean === undefined ? planParams(r.query) : { payloads: 0 };
     const gate = r.query.get('gate') === '1';
     const trust = tools();
