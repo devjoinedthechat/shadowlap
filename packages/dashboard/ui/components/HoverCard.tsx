@@ -220,6 +220,14 @@ function show(el: HTMLElement, x: number | null, by: By, describes = el): void {
   tell();
 }
 
+/** A card whose words change while it shows says them anew: a status's, loaded as the focus reached it. */
+function reread(): void {
+  const d = shown ? read(shown.el) : null;
+  if (!shown || !d || JSON.stringify(d) === JSON.stringify(shown.d)) return;
+  shown = { ...shown, d };
+  tell();
+}
+
 /** Whether a card shows. */
 export const tipShowing = (): boolean => shown !== null;
 
@@ -438,8 +446,8 @@ export function HoverCardLayer() {
     };
   }, []);
 
-  // Every element with a card takes the focus or is named by it, however it came into the page, and a
-  // card whose element has left the page goes with it.
+  // Every element with a card takes the focus or is named by it, however it came into the page, a card
+  // whose element has left the page goes with it, and one whose element's words changed says them.
   useEffect(() => {
     if (typeof MutationObserver !== 'function') return;
     let frame = 0;
@@ -448,6 +456,7 @@ export function HoverCardLayer() {
         frame = 0;
         markTipTargets(document.body);
         if (shown && !shown.el.isConnected) hideTip();
+        else reread();
       });
     };
     soon();

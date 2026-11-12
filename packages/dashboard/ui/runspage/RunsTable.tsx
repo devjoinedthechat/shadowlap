@@ -14,7 +14,7 @@ import { navigate } from '../router.js';
 import { useWindow } from '../run/window-hook.js';
 import { kindWord, outcomeOf, runOrigins, runSource, runSpent, sideStatus, TODAY, type OutcomeOf, type RunLike, type RunOutcomeWords, type RunSort } from '../runs.js';
 import { tipCard } from '../components/HoverCard.js';
-import { outcomeTip } from '../outcome-tip.js';
+import { outcomeTip } from '../outcome-card.js';
 import type { ChipCounts, RunListItem } from '../types.js';
 import { EmptyLine } from '../components/States.js';
 import { localTitle } from './bulk.js';
@@ -200,7 +200,7 @@ export function RunsTable({
   );
 }
 
-/** A row's Status on hover: what judged it and each check, as the run's first fact has it (outcome-tip.ts). */
+/** A row's Status on hover: what judged it and each check, as the run's first fact has it (outcome-card.ts). */
 function statusTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf }): string {
   const tip = outcomeTip(r, out);
   return tipCard(tip.title, tip.rows.map(([label, value, color]) => ({ label, value, color })), tip.sub);

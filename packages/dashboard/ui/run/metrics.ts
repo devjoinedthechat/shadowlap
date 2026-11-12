@@ -3,7 +3,7 @@ import { baselineWritesWords, EVERY_WRITE_AGAIN } from '../../../engine/src/trus
 import { approx, ktok, money, num, receiptDuration } from '../format.js';
 import type { InjectionFact } from '../injection/model.js';
 import type { OriginCounts } from '../origins.js';
-import { outcomeTip, type OutcomeTip } from '../outcome-tip.js';
+import { type CardAsk, outcomeSaid, type OutcomeTip } from '../outcome-tip.js';
 import { outcomeOf, type RunLike, type RunOutcomeWords } from '../runs.js';
 import type { AttemptOutcome } from './banner.js';
 import type { PresetAttempt } from './preset.js';
@@ -110,8 +110,12 @@ export interface OutcomeFact {
   callNo: number | null;
   /** Judged by checks its family's goldens added after it was recorded, or rules on calls changed since its import. */
   today: boolean;
-  /** Its hover, the card Runs' Status shows too (outcome-tip.ts); none for an attempt that passed, which needs no why. */
+  /** Its hover where it is worked out here: an attempt's verdict, an injection test's, a run still being judged; none for an attempt that passed, which needs no why. */
   tip: OutcomeTip | null;
+  /** Its hover where its checks say how it came out, or that none judges it: the card Runs' Status shows too (outcome-card.ts), worked out once the page has loaded it. */
+  card: CardAsk | null;
+  /** What a screen reader is told of it, kept on the page: the check it names, or the line under its card's title. */
+  said: string | null;
 }
 
 /** What else says how the run came out: a fork blame rescued a run with, an error-path preset's verdict, an attempt's (banner.ts's attemptOutcome), an injection test's replay's. */
@@ -134,7 +138,7 @@ const TITLE: Readonly<Record<NonNullable<InjectionFact['verdict']>, string>> = {
  * it rests on has come (a clean attempt's writes and a baseline's, from the injection read), when
  * its checks say it.
  */
-function injectionFact(i: InjectionFact): Omit<OutcomeFact, 'today'> | null {
+function injectionFact(i: InjectionFact): Omit<OutcomeFact, 'today' | 'card' | 'said'> | null {
   if (i.role === 'clean') return !i.gone ? null : i.gone[0] !== undefined ? { tone: 'err', words: 'write gone at', callNo: i.gone[0], tip: null } : { tone: 'mu', words: EVERY_WRITE_AGAIN, callNo: null, tip: null };
   if (i.role === 'baseline') return i.writes === null ? null : { tone: 'mu', words: baselineWritesWords(i.writes, num), callNo: null, tip: null };
   const v = i.verdict;
@@ -149,7 +153,7 @@ function injectionFact(i: InjectionFact): Omit<OutcomeFact, 'today'> | null {
  * why under it, or `inconclusive`; an attempt's `interrupted` muted, `inconclusive` amber with the
  * check it couldn't decide. A failed attempt says what its checks say (null here), else `failed`.
  */
-function verdictFact(v: FactVerdicts): (Omit<OutcomeFact, 'callNo' | 'today'> & { callNo?: number | null }) | null {
+function verdictFact(v: FactVerdicts): (Omit<OutcomeFact, 'callNo' | 'today' | 'card' | 'said'> & { callNo?: number | null }) | null {
   if (v.rescued) return { tone: 'ok', words: 'passed', tip: null };
   if (v.injection) return injectionFact(v.injection);
   const p = v.preset;
@@ -184,14 +188,14 @@ export function toolsToCheck(calls: readonly { kind: string; input?: boolean }[]
  */
 export function outcomeFact(r: RunLike, o: { tools: number; pending?: boolean; offered?: boolean } & FactVerdicts): OutcomeFact {
   const verdict = verdictFact(o);
-  if (verdict) return { callNo: null, ...verdict, today: false };
-  if (o.pending) return { tone: 'mu', words: '…', callNo: null, today: false, tip: { title: 'Judging it by its checks', sub: 'Read from all its calls, beside the server.', rows: [], said: 'judging it by its checks' } };
+  if (verdict) return { callNo: null, ...verdict, today: false, card: null, said: verdict.tip?.said ?? null };
+  if (o.pending) return { tone: 'mu', words: '…', callNo: null, today: false, tip: { title: 'Judging it by its checks', sub: 'Read from all its calls, beside the server.', rows: [], said: 'judging it by its checks' }, card: null, said: 'judging it by its checks' };
   const out = outcomeOf(r);
-  const tip = outcomeTip(r, out, o.tools, !!o.offered);
   // A failed attempt whose checks say nothing still failed.
-  if ((out.of === 'none' || out.of === 'fork') && o.attempt?.tone === 'no') return { tone: 'err', words: 'failed', callNo: null, today: false, tip: card('Failed', null) };
-  if (out.of === 'none' || out.of === 'fork') return { tone: 'mu', words: 'no checks', callNo: null, today: false, tip };
-  return { tone: factTone(out.tone), words: out.at?.words ?? out.text, callNo: out.at?.callNo ?? null, today: !!out.today, tip };
+  if ((out.of === 'none' || out.of === 'fork') && o.attempt?.tone === 'no') return { tone: 'err', words: 'failed', callNo: null, today: false, tip: card('Failed', null), card: null, said: null };
+  const judged = { tip: null, card: { r, out, tools: o.tools, offered: !!o.offered }, said: outcomeSaid(r, out) };
+  if (out.of === 'none' || out.of === 'fork') return { tone: 'mu', words: 'no checks', callNo: null, today: false, ...judged };
+  return { tone: factTone(out.tone), words: out.at?.words ?? out.text, callNo: out.at?.callNo ?? null, today: !!out.today, ...judged };
 }
 
 /** The first fact's tone as Status draws it: what Runs sets with no dot (an interrupted run) or a neutral one (a fork's writes) is no verdict, so muted. */
