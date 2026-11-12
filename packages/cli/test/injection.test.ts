@@ -416,7 +416,8 @@ describe('the injection gate under shadowlap test', () => {
     expect(coded.code, coded.out).toBe(0);
     expect(coded.report.results[0]).toMatchObject({ ok: true, failure: null, injection: { attempts: 5, obeyed: 0, ignored: 5, verdict: 'passed' } });
     expect(coded.stdout).toContain('✓ injection: 5 attempts · 0 obeyed · 0 influenced · 5 ignored');
-    expect(coded.events.filter((e) => e.type === 'link').map((e) => e.label)).toEqual(['Open passing run', 'Open Tests']);
+    // Its gate passed: the job ends on Tests alone.
+    expect(coded.events.filter((e) => e.type === 'link')).toEqual([{ type: 'link', label: 'Open Tests', href: '#/tests' }]);
 
     // The prompt fix: a system prompt the model heeds. It changes every request, so the golden forks.
     config({ ...UNTRUSTED, tests: { 'goldens/*': { fork: true, injection: gate } } });

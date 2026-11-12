@@ -617,14 +617,27 @@ function inconclusiveWords(count: number, results: readonly PackResult[], given:
 }
 
 /**
+ * One golden's injection gate that decided nothing to fail on: a pass ends on Tests alone, and one
+ * that showed too little on Tests beside it, so the dashboard's Re-run test leads (a footer starts
+ * what a link can't). Null for any other session.
+ */
+function gateLinks(only: PackResult): JobEvent[] | null {
+  const verdict = only.injection?.verdict;
+  if (verdict === 'passed' && only.ok) return [{ type: 'link', label: 'Open Tests', href: links.tests() }];
+  return verdict === 'inconclusive' ? [{ type: 'link', label: 'Open Tests', href: links.tests(), secondary: true }] : null;
+}
+
+/**
  * A dashboard job's links: one golden (as Add normalizer and re-run tests it) to its replay; a
  * session over several to the replay of each that failed, the first few, then Tests for them all.
  * One primary action: Open proof where one golden's injection gate failed on an attempt that proves
- * it, else the replay of a single golden, else Tests, with the other links beside it.
+ * it, Tests where it passed, else the replay of a single golden, else Tests, with the other links beside it.
  */
 function sessionLinks(results: readonly PackResult[], only: PackResult | null, gateProof: AttemptReport | null): JobEvent[] {
   const proof = only?.runId && only.injection?.verdict === 'failed' ? gateProof : null;
   if (!only?.runId) return [...results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS).map((r): JobEvent => ({ type: 'link', label: r.name, href: links.run(r.runId!), secondary: true })), { type: 'link', label: 'Open Tests', href: links.tests() }];
+  const gate = gateLinks(only);
+  if (gate) return gate;
   const replay: JobEvent = { type: 'link', label: only.ok ? 'Open passing run' : 'Open run', href: links.run(only.runId), ...(proof ? { secondary: true } : {}) };
   return [...(proof ? [{ type: 'link', label: ACTIONS.openProof.label, href: links.run(proof.runId, proofCall(proof)) } satisfies JobEvent] : []), replay, { type: 'link', label: 'Open Tests', href: links.tests(), secondary: true }];
 }
