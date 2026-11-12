@@ -361,15 +361,21 @@ function verdictsGate(store: StoreOf<'fixes'>, ids: readonly unknown[]): SprtGat
   return { kind: 'sprt', ...SPRT_DEFAULTS };
 }
 
+/** Why Run more attempts' `max` or `keptMax` can't be taken, as its job and its estimate refuse it; null for whole numbers up to 1000, or none. */
+export function limitsRefused(max: unknown, keptMax: unknown): string | null {
+  const whole = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= GATE_MAX_ATTEMPTS);
+  if (!whole(max)) return `max is the most attempts a run takes, a whole number up to ${GATE_MAX_ATTEMPTS}`;
+  return whole(keptMax) ? null : `keptMax is the most pairs a good run takes, a whole number up to ${GATE_MAX_ATTEMPTS}`;
+}
+
 /**
  * Run more attempts' limits, as `decisions --verify` takes them: `max`, the most attempts a failing
  * run takes, as `--gate` with the figures the session's verify was decided by and only its max
  * raised; and `keptMax`, the most pairs a good run takes, as `--kept-max`.
  */
 function limitArgs(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<typeof decisionSession>>, req: JobRequest): string[] | { error: string } {
-  const whole = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= GATE_MAX_ATTEMPTS);
-  if (!whole(req.max)) return { error: `max is the most attempts a run takes, a whole number up to ${GATE_MAX_ATTEMPTS}` };
-  if (!whole(req.keptMax)) return { error: `keptMax is the most pairs a good run takes, a whole number up to ${GATE_MAX_ATTEMPTS}` };
+  const refused = limitsRefused(req.max, req.keptMax);
+  if (refused) return { error: refused };
   // The gate's other figures kept as they were, with a good run's pairs raised alone too.
   const raised = typeof req.max === 'number' || typeof req.keptMax === 'number';
   const gate = raised ? gateArg({ ...(sessionGate(store, session) ?? { kind: 'sprt', ...SPRT_DEFAULTS }), ...(typeof req.max === 'number' ? { max: req.max } : {}) }, SPRT_DEFAULTS) : [];

@@ -1,5 +1,5 @@
 import type { RouteContext } from '../context.js';
-import { decisionSessions, decisionsJob, migrateJob, retirementsView, verifyFlaggedJob } from '../decisions.js';
+import { decisionSessions, decisionsJob, limitsRefused, migrateJob, retirementsView, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
 import { outcomeWork } from '../outcome-work.js';
 import { sendAnswer } from '../read-pool.js';
@@ -24,6 +24,16 @@ import { verifyRule } from './estimates.js';
  */
 
 const KINDS = new Set(['decisions', 'migrate']);
+
+/** Run more attempts' raised limits from the query (`?max=&keptMax=`), refused in its job's words. */
+function limitsParam(q: URLSearchParams): { max?: number; keptMax?: number } {
+  const read = (name: string) => (q.has(name) ? Number(q.get(name)) : undefined);
+  const max = read('max');
+  const keptMax = read('keptMax');
+  const refused = limitsRefused(max, keptMax);
+  if (refused) throw new HttpError(400, refused);
+  return { ...(max !== undefined ? { max } : {}), ...(keptMax !== undefined ? { keptMax } : {}) };
+}
 
 /**
  * How the project compares a step's two decisions, for an opened cell's cost line: whether it redacts,
@@ -62,7 +72,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const { byId } = loadRunIndex(ctx.store);
     const calls = ctx.store.decisionRunIds(r.params.id!).reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
     const runIds = r.query.getAll('runId').map((id) => id.trim()).filter(Boolean).slice(0, 500);
-    const job = { kind: 'decision-estimates' as const, sessionId: r.params.id!, runIds, work: outcomeWork(ctx), rule: verifyRule(ctx), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+    const job = { kind: 'decision-estimates' as const, sessionId: r.params.id!, runIds, work: outcomeWork(ctx), rule: verifyRule(ctx), ...limitsParam(r.query), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
     sendAnswer(r, await ctx.reads.run(job, { calls }));
   });
 

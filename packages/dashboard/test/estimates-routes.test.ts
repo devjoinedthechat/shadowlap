@@ -24,6 +24,7 @@ import {
   resolveFix,
   runBisectEstimate,
   selectedRuns,
+  SPRT_DEFAULTS,
   Store,
   testsEstimate,
   updateEstimate,
@@ -448,9 +449,17 @@ describe('a kept preview’s Verify', () => {
       const all = await get<DecisionEstimates>('decisions/dc-01M5000000000000000000000V/estimates');
       expect(all.verify).toEqual(expected([[rows[0], true], [rows[1], false], [rows[2], true]]));
       expect(all.verify!.parts).toEqual(['up to 80 attempts a failing run, 200 pairs a good one', 'live from the first model call, writes stubbed']);
+      // Each run in its role, for Verify's rows.
+      expect(all.runs).toEqual([{ runId: checked, role: 'target' }, { runId: passing, role: 'good' }, { runId: broken, role: 'target' }]);
+      // Run more attempts' raised limits, as its job passes them: verify's gate with its max raised, and a good run's pairs.
+      const more = await get<DecisionEstimates>('decisions/dc-01M5000000000000000000000V/estimates?max=160&keptMax=400');
+      expect(more.verify).toEqual(plain(verifyEstimate([decisionRunCost(rows[0], true), decisionRunCost(rows[1], false), decisionRunCost(rows[2], true)], { rule: { ...RULE, gate: { kind: 'sprt', ...SPRT_DEFAULTS, max: 160 }, keptMax: 400 }, live: 'first', writes: 'stub' })));
+      expect(more.verify!.parts[0]).toBe('up to 160 attempts a failing run, 400 pairs a good one');
+      expect((await api('decisions/dc-01M5000000000000000000000V/estimates?max=1001')).status).toBe(400);
+      expect((await api('decisions/dc-01M5000000000000000000000V/estimates?keptMax=two')).status).toBe(400);
       // One run, named by a prefix; one the preview cleared has nothing to verify.
       expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing.slice(0, 22)}`)).verify).toEqual(expected([[rows[1], false]]));
-      expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${cleared}`)).verify).toBeNull();
+      expect(await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${cleared}`)).toEqual({ verify: null, runs: [] });
       // Several, as Preview names the runs no verify took yet: each priced in its role; one the preview cleared among them, nothing to verify there.
       expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing}&runId=${broken}`)).verify).toEqual(expected([[rows[1], false], [rows[2], true]]));
       expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing}&runId=${cleared}`)).verify).toBeNull();
