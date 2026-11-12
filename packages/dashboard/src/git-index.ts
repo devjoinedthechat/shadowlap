@@ -4,29 +4,33 @@ import { dirname, join, resolve } from 'node:path';
 /** Each folder's repository index, once found: a request then stats one file. */
 const found = new Map<string, string>();
 
-/** The index of the repository `dir` is in: its `.git` folder's, or the one a worktree's `.git` file names; null outside one. */
+/** Where `at/.git` keeps the repository's metadata: that folder, or the one a worktree's `.git` file names; undefined where there is no `.git`. */
+function gitDirAt(at: string): string | null | undefined {
+  const dotGit = join(at, '.git');
+  const st = statSync(dotGit, { throwIfNoEntry: false });
+  if (!st) return undefined;
+  if (st.isDirectory()) return dotGit;
+  const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'));
+  return m ? resolve(at, m[1]!.trim()) : null;
+}
+
+/** The index of the repository `dir` is in, found by walking up from it; null outside one, or where it can't be read. */
 function indexOf(dir: string): string | null {
   const known = found.get(dir);
   if (known) return known;
-  for (let at = resolve(dir); ; at = dirname(at)) {
-    const dotGit = join(at, '.git');
-    const st = statSync(dotGit, { throwIfNoEntry: false });
-    if (st) {
-      let gitDir: string | null = dotGit;
-      if (!st.isDirectory()) {
-        try {
-          const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'));
-          gitDir = m ? resolve(at, m[1]!.trim()) : null;
-        } catch {
-          gitDir = null;
-        }
+  try {
+    for (let at = resolve(dir); ; at = dirname(at)) {
+      const gitDir = gitDirAt(at);
+      if (gitDir !== undefined) {
+        if (gitDir === null) return null;
+        const index = join(gitDir, 'index');
+        found.set(dir, index);
+        return index;
       }
-      if (!gitDir) return null;
-      const index = join(gitDir, 'index');
-      found.set(dir, index);
-      return index;
+      if (dirname(at) === at) return null;
     }
-    if (dirname(at) === at) return null;
+  } catch {
+    return null;
   }
 }
 
@@ -37,6 +41,10 @@ function indexOf(dir: string): string | null {
  */
 export function gitIndexStamp(dir: string): string {
   const index = indexOf(dir);
-  const st = index ? statSync(index, { throwIfNoEntry: false }) : undefined;
-  return st ? `${st.size}:${st.mtimeMs}` : '';
+  try {
+    const st = index ? statSync(index, { throwIfNoEntry: false }) : undefined;
+    return st ? `${st.size}:${st.mtimeMs}` : '';
+  } catch {
+    return '';
+  }
 }
