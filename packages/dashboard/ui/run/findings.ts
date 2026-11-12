@@ -1,12 +1,12 @@
 import type { ForkDifferences } from '../../src/fork-differences.js';
-import type { InjectionFinding } from '../injection/model.js';
+import type { CauseView, InjectionFinding } from '../injection/model.js';
 import type { Banner } from './banner.js';
 import type { RunNote } from './notes.js';
 
 /**
  * What a run's page found, as one bar (FindingsBar.tsx): the run's own finding (banner.ts), what its
- * fork did differently from its parent, what it did not record, its notes (notes.ts), and the
- * injection test kept for it (injection/model.ts), each a finding, the most telling first: a failure, then what needs a look, then the rest, each kind in
+ * fork did differently from its parent, what it did not record, its notes (notes.ts), the
+ * injection test kept for it and its `--clean` answers (injection/model.ts), each a finding, the most telling first: a failure, then what needs a look, then the rest, each kind in
  * that order within its weight. No DOM here: the tests import it.
  */
 
@@ -15,7 +15,7 @@ export type Severity = 0 | 1 | 2;
 
 export interface Finding {
   key: string;
-  kind: Banner['kind'] | 'differences' | RunNote['kind'] | 'injection';
+  kind: Banner['kind'] | 'differences' | RunNote['kind'] | 'injection' | 'cause';
   sev: Severity;
   /** The finding in a few words, for the card that lists the others: its label, or what it leads with. */
   says: string;
@@ -25,6 +25,8 @@ export interface Finding {
   note?: RunNote;
   differences?: ForkDifferences;
   injection?: InjectionFinding;
+  /** The run's `--clean` answers (injection/CauseFinding.tsx). */
+  cause?: CauseView;
 }
 
 /** The colour each weight is listed in, on the card of the others. */
@@ -83,18 +85,23 @@ const ofBanner = (key: string, b: Banner): Finding => ({ key, kind: b.kind, sev:
 
 /** A kept test's weight: a failed gate a failure, one that showed too little to say a look, one that passed neither. */
 const GATE_SEVERITY: Readonly<Record<InjectionFinding['gate'], Severity>> = { failed: 2, inconclusive: 1, passed: 0 };
+/** Find cause's lead answer's weight: a cause a failure, one the gate couldn't decide a look, a read that caused nothing neither. */
+const CAUSE_SEVERITY: Readonly<Record<CauseView['answers'][number]['verdict'], Severity>> = { caused: 2, inconclusive: 1, 'not caused': 0 };
 
 /**
  * Every finding a run has, sorted: by weight, then in the order they come, the run's own first, then
  * what its fork did differently (once that has come), what it did not record, its notes, then the
- * injection test kept for it, so at one weight the run's own findings come before its tests'.
+ * injection test kept for it and Find cause's answers, so at one weight the run's own findings come
+ * before its tests'.
  */
-export function runFindings(i: { own: Banner | null; differences: ForkDifferences | null; notRecorded: Banner | null; notes: readonly RunNote[]; injection?: InjectionFinding | null | undefined }): Finding[] {
+export function runFindings(i: { own: Banner | null; differences: ForkDifferences | null; notRecorded: Banner | null; notes: readonly RunNote[]; injection?: InjectionFinding | null | undefined; cause?: CauseView | null | undefined }): Finding[] {
   const all: Finding[] = [];
   if (i.own) all.push(ofBanner('own', i.own));
   if (i.differences) all.push({ key: 'differences', kind: 'differences', sev: 0, says: DIFFERENCES_HEADING, body: true, differences: i.differences });
   if (i.notRecorded) all.push(ofBanner('not-recorded', i.notRecorded));
   i.notes.forEach((n, at) => all.push({ key: `note:${n.kind}:${at}`, kind: n.kind, sev: NOTE_SEVERITY[n.tone], says: n.label, body: !!(n.tools?.length || n.hint), note: n }));
   if (i.injection) all.push({ key: 'injection', kind: 'injection', sev: GATE_SEVERITY[i.injection.gate], says: `${i.injection.label} ${i.injection.gate}`, body: false, injection: i.injection });
+  const lead = i.cause?.answers[0];
+  if (lead) all.push({ key: 'cause', kind: 'cause', sev: CAUSE_SEVERITY[lead.verdict], says: `${lead.verdict} · #${lead.read.callNo} ${lead.read.name}`, body: true, cause: i.cause! });
   return all.map((f, at) => ({ f, at })).sort((a, b) => b.f.sev - a.f.sev || a.at - b.at).map((x) => x.f);
 }

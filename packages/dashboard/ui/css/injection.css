@@ -48,3 +48,21 @@ mark.ins-plant { background: color-mix(in srgb, var(--o-over) 14%, transparent);
 
 /* Plant instruction…'s Judged by: the checks as --expect takes them, in mono with no ligatures. */
 .dialog input.cvin { font-family: var(--mono); font-size: 12.5px; font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+
+/* Find cause… on the inspector's summary line, after Add check…, as quiet as it; a 32px tap on a touch screen */
+.ihead .iask { margin-left: auto; flex: none; padding-left: 10px; min-height: 24px; font-size: 12px; }
+.ihead .ckins + .iask, .ihead .iask + .iedit { margin-left: 0; }
+@media (pointer: coarse) {
+  .ihead .iask { position: relative; }
+  .ihead .iask::after { content: ''; position: absolute; inset: -6px -2px; }
+}
+
+/* Find cause's answers: a read that caused nothing muted, never lime; each further answer and the gate's rule on a line of their own */
+.banner.wrap.mu .bk, .banner.wrap.mu .bn { color: var(--dim); }
+.banner .injmore { flex-basis: 100%; }
+.banner .injmore p { margin: 0; }
+.banner .injline2 { font-size: 13.5px; color: var(--faint); }
+.banner .injrule { font-size: 12px; color: var(--faint); }
+.injreads { margin-bottom: 12px; }
+.injreads label span { min-width: 0; }
+.injreads small { overflow-wrap: anywhere; }

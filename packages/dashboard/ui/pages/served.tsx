@@ -18,6 +18,8 @@ export const SERVED_PARTS: ServedParts = {
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks)),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog)),
   TestDialog: onShow(() => import('../injection/TestDialog.js').then((m) => m.TestDialog)),
+  FindCause: onShow(() => import('../injection/FindCause.js').then((m) => m.FindCause)),
+  CauseFinding: onShow(() => import('../injection/CauseFinding.js').then((m) => m.CauseFinding)),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog)),
   InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding)),
   Proof: onShow(() => import('../injection/Proof.js').then((m) => m.Proof)),

@@ -19,8 +19,9 @@ import { presetAttempt } from './preset.js';
  * - `rescued`: where the fork that rescued its parent's blame sets out, by the server's `rescuedBy` or
  *   the parent's blame (`parent`, rescuedAt);
  * - `injection`: the injection tests it was in (injection/model.ts): its untrusted reads and, for an
- *   attempt, what was planted where, read once, since that reads every call of the run; and the
- *   finding of its newest test, from its results as runs move.
+ *   attempt, what was planted where, read once, since that reads every call of the run, and again
+ *   as a Find cause… ends, for its answer; and the finding of its newest test, from its results as
+ *   runs move.
  */
 export function useRunExtras(run: RunDetail, parent: RunDetail | null, forkAt: number | null) {
   const { client, exported, runsTick } = useApp();
@@ -31,8 +32,10 @@ export function useRunExtras(run: RunDetail, parent: RunDetail | null, forkAt: n
   const preset = useMemo(() => presetAttempt(presets, runId), [presets, runId]);
   const unrecorded = useLoad(() => (live ? null : client.unrecorded(runId)), `${runId}:unrecorded:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
-  const tested = useLoad(() => (live ? null : client.injectionRun(runId)), `${runId}:injection:${live ? 'live' : 'ended'}`).data ?? null;
   const results = useLoad(() => (live ? null : client.injectionResults(runId)), `${runId}:injection-results:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data?.results ?? null;
+  // Read again as a Find cause… ends, so its answer shows.
+  const asked = results?.filter((r) => r.mode === 'clean' && !r.running).length ?? 0;
+  const tested = useLoad(() => (live ? null : client.injectionRun(runId)), `${runId}:injection:${live ? 'live' : 'ended'}`, asked).data ?? null;
   const injection = useMemo(() => runInjectionView(tested, results), [tested, results]);
   return { offers, preset, notes, rescued: rescuedAt(run, parent, forkAt), injection };
 }

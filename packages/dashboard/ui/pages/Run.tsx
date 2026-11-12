@@ -367,7 +367,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   return (
     <div className="rv">
       <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} onTest={tests.menu} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} injection={injection.attempt} />} judged={judged} />
-      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} injection={injection.finding} attempt={injection.attempt} onPick={pickProof} />
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} injection={injection.finding} cause={injection.cause} attempt={injection.attempt} onPick={pickProof} />
       <StripBar strip={{ calls: stripCalls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: inScopeFn, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
@@ -395,7 +395,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           </div>
         </section>
         <InspectorPlace panel={panel} run={run} onClose={closePanel} onPick={select} results={results}>
-          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} injection={injection.attempt} check={check.check} />
+          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} injection={injection.attempt} check={check.check} cause={injection.cause} />
         </InspectorPlace>
       </div>
       {actions.dialog}
