@@ -50,8 +50,8 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, dir: string = cw
     let stdout = '';
     // A job's events, when SHADOWLAP_EVENTS_FD names the pipe, as the dashboard reads them.
     let events = '';
-    child.stdout.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    child.stdout!.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
+    child.stderr!.on('data', (d: Buffer) => (out += d.toString()));
     (child.stdio[3] as NodeJS.ReadableStream).on('data', (d: Buffer) => (events += d.toString()));
     child.on('close', (code) => resolve({ code, out, stdout, events: events.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) }));
   });
@@ -278,6 +278,15 @@ describe('shadowlap decisions', () => {
   it('reads what the working tree sends with --dry-run, and stops there: nothing asked, no session kept; a preview it keeps leads to Open preview', async () => {
     const runId = await record();
     const noEmail = { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' };
+    const sessions = () => {
+      const store = Store.open(db);
+      try {
+        return store.listDecisionSessions({ limit: 10_000 }).length;
+      } finally {
+        store.close();
+      }
+    };
+    const before = sessions();
     const r = await shadowlap(['decisions', runId, '--from-code', '--dry-run', '--json'], noEmail);
     expect(r.code, r.out).toBe(0);
     const read = json<{ kind: string; fromCode: { calls: number; instructions: { before: string; after: string } | null }; runs: Array<{ runId: string; golden: string | null; changed: number[]; refused: string | null }> }>(r);
@@ -287,12 +296,7 @@ describe('shadowlap decisions', () => {
     // Every model call of the run sends the working tree's prompt, each counted once.
     expect(read.runs).toEqual([{ runId, golden: null, changed: expect.arrayContaining([expect.any(Number)]), refused: null }]);
     expect(read.runs[0].changed).toHaveLength(read.fromCode.calls);
-    const store = Store.open(db);
-    try {
-      expect(store.listDecisionSessions({ limit: 10 })).toEqual([]);
-    } finally {
-      store.close();
-    }
+    expect(sessions()).toBe(before);
     const asks = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-4-6', '--dry-run'], noEmail);
     expect(asks.code).toBe(2);
     expect(asks.out).toContain('--dry-run reads what --from-code reads, and stops there: give it with --from-code alone');
