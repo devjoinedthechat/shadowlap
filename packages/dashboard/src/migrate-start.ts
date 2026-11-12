@@ -1,4 +1,4 @@
-import { andList, longDate, retirementTable, type Store } from '@shadowlap/engine';
+import { andList, longDate, modelFamily, retirementTable, type Store } from '@shadowlap/engine';
 import { checkedWords, newestMigrationsFrom } from './migrate-applied.js';
 import { when } from './needs-look/retire.js';
 import { goldenName, plural } from './needs-look/row.js';
@@ -45,6 +45,8 @@ export interface MigrateUse {
   provider: string | null;
   calls: number;
   goldens: number;
+  /** Its family, as the model field groups it. */
+  family: 'claude' | 'openai' | 'gemini' | null;
 }
 
 export interface MigrateStartView {
@@ -63,7 +65,7 @@ export function migrateStart(store: Store, goldens: readonly GoldenSource[], now
     const calls = store.getCalls(g.runId);
     for (const m of modelsOf(store, g.runId)) {
       const key = `${String(m.provider)}\u0000${m.model}`;
-      const u = use.get(key) ?? { model: m.model, provider: m.provider, calls: 0, goldens: 0 };
+      const u = use.get(key) ?? { model: m.model, provider: m.provider, calls: 0, goldens: 0, family: modelFamily(m.model) };
       u.goldens += 1;
       u.calls += calls.filter((c) => c.kind === 'api' && (c.end?.meta.model ?? c.meta.model) === m.model).length;
       use.set(key, u);

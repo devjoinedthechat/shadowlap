@@ -69,7 +69,7 @@ const plainPress = (e: MouseEvent): boolean => e.button === 0 && !e.metaKey && !
 
 export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSession; row: Row; callNo: number }) {
   const cell = row.cells.find((c) => c.callNo === callNo) ?? null;
-  const close = href.changeSession('decisions', session.sessionId);
+  const close = href.changeSession(session.kind, session.sessionId);
   const shut = useCellClose(close);
   useEffect(() => {
     if (!reveal) return;
@@ -237,7 +237,7 @@ function RangeLine({ session, row, callNo }: { session: PreviewSession; row: Row
       {others.map((x, i) => (
         <Fragment key={x.callNo}>
           {i ? ', ' : null}
-          <Link href={href.changeSession('decisions', session.sessionId, row.runId, x.callNo)}>
+          <Link href={href.changeSession(session.kind, session.sessionId, row.runId, x.callNo)}>
             #{x.callNo}
           </Link>{' '}
           <span className="dlm">rank {x.rank}</span>

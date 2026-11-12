@@ -1,19 +1,16 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo } from 'react';
+import { Fragment, useEffect, useLayoutEffect } from 'react';
 import { ApiError } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { tipCard } from '../components/HoverCard.js';
-import { Icon } from '../components/Icon.js';
 import { Link } from '../components/Link.js';
 import { MigrateButton } from '../components/MigrateDialog.js';
 import { NewPreviewMenu, NO_GOLDENS, PreviewWayButtons, usePreviewDialog } from '../components/NewPreviewMenu.js';
-import { Picker } from '../components/Picker.js';
-import { useMenu } from '../components/Popover.js';
 import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
 import { glossed } from '../components/Term.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { forgetPreviewSession, notePreviewSession } from '../changes-tab.js';
-import { nextStep, sessionHint, verdictState } from '../decisions.js';
+import { nextStep, verdictState } from '../decisions.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { PREVIEW_ASK } from '../page-ask.js';
@@ -22,10 +19,11 @@ import { navigate } from '../router.js';
 import { Unshown } from '../shell/unshown.js';
 import { useApp } from '../state.js';
 import type { Tone } from '../components/Status.js';
-import type { DecisionSessionView, PreviewSession, PreviewView } from '../types.js';
+import type { PreviewSession, PreviewView } from '../types.js';
 import { DecisionCellPanel, revealCell } from './DecisionCell.js';
 import { moreTip, PreviewVerifyButton, type VerifyRow } from './VerifyAsk.js';
 import { DecisionMatrix } from './DecisionMatrix.js';
+import { SessionPicker } from './SessionPicker.js';
 
 /**
  * Changes › Preview: what a change decides differently at each model call of your recorded runs,
@@ -106,7 +104,7 @@ function PreviewBody({ id, run, call, onMissing }: PreviewTabProps) {
   return (
     <>
       <div className="chbar">
-        <SessionPicker sessions={sessions} shown={session} />
+        <SessionPicker kind="decisions" sessions={sessions} shown={session} />
         <span className="sp" />
         <NewPreviewMenu target={{ goldens: 'all', count: list.data!.goldens }} lime={anotherChange(session.view)} why={list.data!.goldens ? null : NO_GOLDENS} />
       </div>
@@ -156,58 +154,6 @@ const EVERY_GOLDEN = { goldens: 'all' } as const;
 
 /** Another change is the next step once verify rejected the shown preview's and left nothing to verify or attempt: New preview turns lime. */
 const anotherChange = (v: PreviewSession['view']): boolean => verdictState(v) === 'verified' && v.verdict.word === 'rejected' && !nextStep(v.next);
-
-/** The previews picker: the one shown by its name, then its goldens or runs and when, fitted to the rest; a pick opens it. */
-function SessionPicker({ sessions, shown }: { sessions: readonly DecisionSessionView[]; shown: PreviewSession }) {
-  const menu = useMenu();
-  const id = shown.sessionId;
-  const listed = sessions.find((s) => s.sessionId === id) ?? null;
-  const hint = listed ? sessionHint(listed) : '';
-  return (
-    <span className="pick">
-      <button className="rpick dpick" type="button" aria-haspopup="listbox" aria-expanded={menu.open} aria-label={`Preview: ${shown.view.name}${hint ? `, ${hint}` : ''}`} onClick={(e) => menu.toggle(e.currentTarget)}>
-        <span className="pid">{shown.view.name}</span>
-        <span className="rab">{hint}</span>
-        <Icon name="caret" className="caret" />
-      </button>
-      {menu.anchor ? <SessionList anchor={menu.anchor} sessions={sessions} picked={id} onClose={menu.close} /> : null}
-    </span>
-  );
-}
-
-function SessionList({ anchor, sessions, picked, onClose }: { anchor: HTMLElement; sessions: readonly DecisionSessionView[]; picked: string; onClose: () => void }) {
-  const items = useMemo(
-    () =>
-      sessions.map((s) => {
-        const hint = sessionHint(s, { full: true });
-        return {
-          id: s.sessionId,
-          text: `${s.name} ${s.change} ${hint}`,
-          current: s.sessionId === picked,
-          node: (
-            <>
-              <span className="pid">{s.name}</span>
-              <span className="rab">{hint}</span>
-            </>
-          ),
-        };
-      }),
-    [sessions, picked],
-  );
-  return (
-    <Picker
-      anchor={anchor}
-      label="Previews"
-      placeholder="Filter by model, field or golden"
-      items={items}
-      onClose={onClose}
-      onPick={(sid) => {
-        onClose();
-        if (sid !== picked) navigate(href.changeSession('decisions', sid));
-      }}
-    />
-  );
-}
 
 const VERIFY_TONE: Record<string, Tone> = { accepted: 'ok', rejected: 'err', inconclusive: 'warn' };
 
