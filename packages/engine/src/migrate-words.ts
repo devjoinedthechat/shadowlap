@@ -64,6 +64,27 @@ export function besidesWords(d: { counts: DecisionCounts; runs: ReadonlyArray<{ 
   return [c[3] && `${c[3]} read added or removed`, c[4] && `${c[4]} read asked differently`, c[5] && `${c[5]} text only${how ? ` (${how})` : ''}`].filter(Boolean).join(', ');
 }
 
+/** What changes says with no write, stop or judged change: `No write, stop or judged change in the steps asked`, where some steps weren't asked. */
+export const noChangeWords = (notAsked: boolean): string => `No write, stop or judged change${notAsked ? ' in the steps asked' : ''}`;
+
+/** What changed besides writes, stops and judged changes, as its line says it: `besides: 1 read added or removed`; empty when nothing did. */
+export function besidesLine(d: Parameters<typeof besidesWords>[0]): string {
+  const c = d.counts;
+  return c[3] + c[4] + c[5] ? `besides: ${besidesWords(d)}` : '';
+}
+
+/** Why verify didn't run, as What still passes says it: `Not verified yet: <reason>; <reason>`; empty when it ran or no reason was kept. */
+export const notVerifiedYet = (reasons: readonly string[]): string => (reasons.length ? `Not verified yet: ${reasons.join('; ')}` : '');
+
+/** What to set when the new model takes every field as recorded: `Only the model: claude-haiku-4-5`. */
+export const onlyTheModel = (to: string, code: CodeMark = plainCode): string => `Only the model: ${code(to)}`;
+
+/** The flags verify took What to set as: `verify takes them as: --set temperature=1`; empty with none. */
+export const verifyFlagsLine = (flags: readonly string[], code: CodeMark = plainCode): string => (flags.length ? `verify takes them as: ${code(flags.join(' '))}` : '');
+
+/** A field given with `--set`, as What to set lists it: `temperature=1`, then `as given` after it. */
+export const givenField = (field: string, value: unknown, code: CodeMark = plainCode): string => code(`${field}=${fieldValue(value)}`);
+
 /** What to set for one field, in words: `temperature` left out, `thinking` = `{"type":"adaptive"}`, `max_completion_tokens` in place of `max_tokens`. */
 export function remedyText(f: Pick<DecisionRemedy, 'field' | 'value' | 'leftOut' | 'renamedTo'>, code: CodeMark = plainCode): string {
   if (f.renamedTo) return `send ${code(f.renamedTo)} in place of ${code(f.field)}, with the value it has`;
@@ -186,7 +207,7 @@ export function staysWords(runs: ReadonlyArray<Pick<MigratePassRun, 'golden' | '
   const untouched = o.diverged ? goldens.filter((x) => x.diverges && !o.diverged!.includes(x.golden!)).length : 0;
   const never = goldens.filter((x) => x.stays === 'no-call').length;
   const forks = o.short ? `${fork} marked fork ${fork === 1 ? 'passes on its checks' : 'pass on their checks'}` : `${fork} golden${fork === 1 ? ' marked fork passes on its checks wherever it forks' : 's marked fork pass on their checks wherever they fork'}`;
-  return [fork ? forks : '', untouched ? `${untouched} ${untouched === 1 ? 'runs an agent' : 'run agents'} the patch doesn’t touch` : '', never ? `${never} never ${never === 1 ? 'sends' : 'send'} ${from.join(' or ')}` : ''].filter(Boolean).join(o.short ? ', ' : ', and ');
+  return [fork ? forks : '', untouched ? `${untouched} ${untouched === 1 ? 'runs an agent' : 'run agents'} the patch doesn't touch` : '', never ? `${never} never ${never === 1 ? 'sends' : 'send'} ${from.join(' or ')}` : ''].filter(Boolean).join(o.short ? ', ' : ', and ');
 }
 
 /** The goldens a migration's config change leaves behind, each with the first call it makes with a model the switch changes, and the command that re-records them. */
@@ -210,6 +231,12 @@ export interface MigrateCosts {
   tokensPerRun: { before: number; after: number };
   endToEnd: { recorded: Footprint; now: Footprint } | null;
   checking: { decisions: number; judge: number; verify: number };
+}
+
+/** What it costs, line by line under the labels the terminal and the dashboard give them: per run, end to end where verify ran some, and checking it. */
+export function migrateCostLines(c: MigrateCosts, o: { judged: boolean; unknown: readonly string[] }): Array<{ label: 'per run' | 'end to end' | 'checking it'; text: string }> {
+  const w = migrateCostWords(c, o);
+  return [{ label: 'per run', text: w.perRun }, ...(w.endToEnd ? [{ label: 'end to end' as const, text: w.endToEnd }] : []), { label: 'checking it', text: w.checking }];
 }
 
 /**

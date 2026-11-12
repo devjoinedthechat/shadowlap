@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { argsDelta, besidesWords, changePct, controlOpen, credentialFreeCommandLine, decisionLine, endToEndWords, fieldValue, byHandNote, handOf, judgeOpen, leftBehindLines, leftBehindOf, leftBehindSentence, leftOutInFile, migrateApplyProblem, migrateCostWords, migrateHeadline, migratePassWords, migrateRules, namedInSentence, RANK_LABELS, remedyText, safeLine, sameModel, shortSessionId, usdOrUnknown, verifiedCount, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type LeftBehind, type RetirementNotice, type SprtGate, type Store, type StoreOf, type VerifyTally } from '@shadowlap/engine';
+import { argsDelta, besidesLine, changePct, controlOpen, credentialFreeCommandLine, decisionLine, endToEndWords, fieldValue, givenField, byHandNote, handOf, judgeOpen, leftBehindLines, leftBehindOf, leftBehindSentence, leftOutInFile, migrateApplyProblem, migrateCostLines, migrateHeadline, migratePassWords, migrateRules, namedInSentence, noChangeWords, notVerifiedYet, onlyTheModel, RANK_LABELS, verifyFlagsLine, remedyText, safeLine, sameModel, shortSessionId, usdOrUnknown, verifiedCount, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type LeftBehind, type RetirementNotice, type SprtGate, type Store, type StoreOf, type VerifyTally } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -142,6 +142,10 @@ const name = (r: { runId: string; golden: string | null }) => r.golden ?? shortI
 /** The goldens the config change leaves behind, each with the first call it makes with a model the switch changes, and the command that re-records them. */
 export const leftBehind = (r: Pick<MigrateReport, 'passes'>): { left: LeftBehind[]; update: string } => leftBehindOf(r.passes.runs);
 
+/** A line of the engine's words as a sentence starts it, or as the terminal lists it under its heading. */
+const upperFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
+
 /** The fields the config change takes out, each once, in the order it found them. */
 const takenOut = (c: ConfigChange | null): string[] => [...new Set((c?.leftOut ?? []).map((x) => x.field))];
 
@@ -154,7 +158,8 @@ function passesBlock(r: Omit<MigrateReport, 'pullRequest' | 'files'>, tick: (s: 
   if (rules.length === 1) lines.push('', `Verified by ${tick('shadowlap verify')}, ${rules[0]!.rule}.`);
   else if (rules.length) lines.push('', `Verified by ${tick('shadowlap verify')}, each run under the rule that decided it:`, '', ...rules.map((g) => `- ${g.runs.map(name).join(', ')}: ${g.rule}`));
   lines.push('', `${verifiedCount(r.passes.runs)}.`);
-  if (r.decisions.verify?.verdict === 'not-run' && r.decisions.verify.reasons.length) lines.push('', `Not verified yet: ${r.decisions.verify.reasons.join('; ')}.`);
+  const notRun = r.decisions.verify?.verdict === 'not-run' ? notVerifiedYet(r.decisions.verify.reasons) : '';
+  if (notRun) lines.push('', `${notRun}.`);
   for (const w of r.decisions.verify?.warnings ?? []) lines.push('', `Note: ${w}.`);
   const { left, update } = leftBehind(r);
   if (left.length) lines.push('', leftBehindSentence(left, r.to, update, tick));
@@ -164,7 +169,7 @@ function passesBlock(r: Omit<MigrateReport, 'pullRequest' | 'files'>, tick: (s: 
 /** What to set in the pull request: each field and why, those given, and where the model is named, with what the config change takes out. */
 function setBlock(r: Omit<MigrateReport, 'pullRequest' | 'files'>, tick: (s: string) => string): string[] {
   const lines = ['', '### What to set', ''];
-  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`Only the model: ${r.to}.`);
+  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`${onlyTheModel(r.to)}.`);
   for (const f of r.set.fields) lines.push(`- ${remedyText(f, tick)}: ${f.why}`);
   for (const [k, v] of Object.entries(r.set.given)) lines.push(`- ${tick(k)} = ${tick(fieldValue(v))} (given)`);
   if (r.configChange?.files.length) lines.push('', namedInSentence(r.configChange.files.map((f) => f.path), takenOut(r.configChange), tick));
@@ -184,11 +189,11 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   const lines: string[] = [`## ${title}`, '', `Checked with \`${credentialFreeCommandLine(r.command)}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and ${verifiedCount(r.passes.runs)}.`];
   for (const n of r.retirements.filter((x) => r.from.includes(x.model))) lines.push('', `> ${n.text} ([source](${n.source}))`);
   lines.push('', '### What changes', '');
-  if (!r.changes.steps.length) lines.push(`No write, stop or judged change${r.decisions.counts.notAsked ? ' in the steps asked' : ''}.`);
+  if (!r.changes.steps.length) lines.push(`${noChangeWords(!!r.decisions.counts.notAsked)}.`);
   for (const s of r.changes.steps.slice(0, 12)) lines.push(`- ${name(s)} #${s.callNo}: ${s.detail}${s.arguments.length ? `: ${s.arguments.map(tick).join(', ')}` : ` (${tick(s.recorded)} → ${tick(s.now)})`}`);
   if (r.changes.steps.length > 12) lines.push(`- and ${r.changes.steps.length - 12} more`);
-  const c = r.decisions.counts;
-  if (c[3] + c[4] + c[5]) lines.push('', `Besides: ${besidesWords(r.decisions)}.`);
+  const besides = besidesLine(r.decisions);
+  if (besides) lines.push('', `${upperFirst(besides)}.`);
   lines.push(...passesBlock(r, tick));
   lines.push('', '### What it costs', '', costsSentence(r));
   lines.push(...setBlock(r, tick));
@@ -369,10 +374,10 @@ function firstLine(r: MigrateReport): string {
 /** What changes: each write, stop and judged change, then what changed besides. */
 function changesLines(r: MigrateReport): string[] {
   const lines = ['', p.bold('What changes')];
-  if (!r.changes.steps.length) lines.push(`  no write, stop or judged change${r.decisions.counts.notAsked ? ' in the steps asked' : ''}`);
+  if (!r.changes.steps.length) lines.push(`  ${lowerFirst(noChangeWords(!!r.decisions.counts.notAsked))}`);
   for (const s of r.changes.steps) lines.push(`  ${s.rank === 1 ? p.red(`rank ${s.rank}`) : p.yellow(`rank ${s.rank}`)}  ${safeLine(name(s))} #${s.callNo}  ${safeLine(s.detail)}`, ...(s.arguments.length ? s.arguments.map((a) => p.dim(`          ${a}`)) : [p.dim(`          ${s.recorded} → ${s.now}`)]));
-  const c = r.decisions.counts;
-  if (c[3] + c[4] + c[5]) lines.push(p.dim(`  besides: ${besidesWords(r.decisions)}`));
+  const besides = besidesLine(r.decisions);
+  if (besides) lines.push(p.dim(`  ${besides}`));
   return lines;
 }
 
@@ -398,17 +403,17 @@ function passesLines(r: MigrateReport): string[] {
 function costsLines(r: MigrateReport): string[] {
   // Asking's models and the judge's with no price: what they cost is not in the figures.
   const unknown = [...new Set([...r.decisions.cost.unknownModels, ...(r.decisions.judge?.unknownModels ?? [])])];
-  const w = migrateCostWords(r.costs, { judged: !!r.decisions.judge, unknown });
-  return ['', p.bold('What it costs'), `  per run      ${w.perRun}`, ...(w.endToEnd ? [`  end to end   ${w.endToEnd}`] : []), p.dim(`  checking it  ${w.checking}`)];
+  const lines = migrateCostLines(r.costs, { judged: !!r.decisions.judge, unknown }).map((l) => (l.label === 'checking it' ? p.dim : String)(`  ${l.label.padEnd(13)}${l.text}`));
+  return ['', p.bold('What it costs'), ...lines];
 }
 
 /** What to set: each field and why, those given, and the flags verify took them as. */
 function setLines(r: MigrateReport): string[] {
   const lines = ['', p.bold('What to set')];
-  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`  only the model: ${r.to}`);
+  if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`  ${lowerFirst(onlyTheModel(r.to))}`);
   for (const f of r.set.fields) lines.push(`  ${remedyText(f)}  ${p.dim(safeLine(f.why))}`);
-  for (const [k, v] of Object.entries(r.set.given)) lines.push(`  ${k}=${fieldValue(v)}  ${p.dim('as given')}`);
-  if (r.set.flags.length) lines.push(p.dim(`  verify takes them as: ${r.set.flags.join(' ')}`));
+  for (const [k, v] of Object.entries(r.set.given)) lines.push(`  ${givenField(k, v)}  ${p.dim('as given')}`);
+  if (r.set.flags.length) lines.push(p.dim(`  ${verifyFlagsLine(r.set.flags)}`));
   return lines;
 }
 

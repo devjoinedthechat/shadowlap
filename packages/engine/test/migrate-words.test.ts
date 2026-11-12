@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { codeChangeNeeded, emptyCounts, type DecisionRemedy, type MigratePasses } from '../src/decisions.js';
-import { besidesWords, byHandNote, handOf, handWords, leftBehindLines, leftBehindSentence, leftOutInFile, leftOutNote, migrateApplyProblem, migrateHeadline, namedInSentence, remedyText, staysWords, type MigrateApplyInput } from '../src/migrate-words.js';
+import { besidesLine, besidesWords, byHandNote, givenField, handOf, handWords, leftBehindLines, leftBehindSentence, leftOutInFile, leftOutNote, migrateApplyProblem, migrateCostLines, migrateHeadline, namedInSentence, noChangeWords, notVerifiedYet, onlyTheModel, remedyText, staysWords, verifyFlagsLine, type MigrateApplyInput } from '../src/migrate-words.js';
 
 /**
  * A migration's report in words, the same wherever it shows: `shadowlap migrate`'s terminal report and
@@ -36,6 +36,21 @@ describe('what a migration reports besides', () => {
     const d = { counts: { ...emptyCounts(), 3: 1, 4: 2, 5: 2 }, runs: [{ decisions: [judged, open] }] } as unknown as Parameters<typeof besidesWords>[0];
     expect(besidesWords(d)).toBe('1 read added or removed, 2 read asked differently, 2 text only (1 judged as recorded, 1 not judged)');
     expect(besidesWords({ counts: emptyCounts(), runs: [] })).toBe('');
+    expect(besidesLine(d)).toBe('besides: 1 read added or removed, 2 read asked differently, 2 text only (1 judged as recorded, 1 not judged)');
+    expect(besidesLine({ counts: emptyCounts(), runs: [] })).toBe('');
+  });
+
+  it('words the lines the terminal, the pull request and the page share: no change, not verified, only the model, the flags, a given field and the costs', () => {
+    expect([noChangeWords(false), noChangeWords(true)]).toEqual(['No write, stop or judged change', 'No write, stop or judged change in the steps asked']);
+    expect([notVerifiedYet(['the agent asks for a key']), notVerifiedYet([])]).toEqual(['Not verified yet: the agent asks for a key', '']);
+    expect([onlyTheModel('claude-new'), onlyTheModel('claude-new', tick)]).toEqual(['Only the model: claude-new', 'Only the model: `claude-new`']);
+    expect([verifyFlagsLine(['--set', 'temperature=1'], tick), verifyFlagsLine([])]).toEqual(['verify takes them as: `--set temperature=1`', '']);
+    expect([givenField('temperature', 1), givenField('stop', ['a'], tick)]).toEqual(['temperature=1', '`stop=["a"]`']);
+    const costs = { perRun: { before: 0.04, after: 0.03 }, tokensPerRun: { before: 1200, after: 900 }, endToEnd: null, checking: { decisions: 0.01, judge: 0, verify: 0.02 } };
+    expect(migrateCostLines(costs, { judged: false, unknown: [] })).toEqual([
+      { label: 'per run', text: '≈$0.040 → ≈$0.030 (−25%) · 1,200 → 900 tokens' },
+      { label: 'checking it', text: '≈$0.010 asking, ≈$0.020 verifying' },
+    ]);
   });
 
   it('says what to set for each field, and what the hand still does', () => {
@@ -107,7 +122,7 @@ describe('why the goldens a switch leaves alone replay as recorded', () => {
   ];
   it('says it short for Apply config change’s Diverges row, and whole for migrate apply, counting only once the replay named what diverged', () => {
     expect(staysWords(runs, ['claude-old'], { short: true })).toBe('1 marked fork passes on its checks, 2 never send claude-old');
-    expect(staysWords(runs, ['claude-old', 'claude-older'], { diverged: ['goldens/left'] })).toBe('1 golden marked fork passes on its checks wherever it forks, and 1 runs an agent the patch doesn’t touch, and 2 never send claude-old or claude-older');
+    expect(staysWords(runs, ['claude-old', 'claude-older'], { diverged: ['goldens/left'] })).toBe("1 golden marked fork passes on its checks wherever it forks, and 1 runs an agent the patch doesn't touch, and 2 never send claude-old or claude-older");
     expect(staysWords(runs.slice(0, 2), ['claude-old'])).toBe('');
   });
 });
