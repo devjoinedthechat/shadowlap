@@ -42,10 +42,10 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
  * A run's status loads its card (outcome-card) as the pointer or the focus first reaches it.
  * The dialogs a list row's step asks in load as the step first asks: a fix's lead's (LeadDialog, on Fixes and Needs a look), and Needs a look's Find breaking commit's and Update golden's.
  */
-const PARTS = ['ActionDialog', 'AttemptPage', 'Builder', 'CauseFinding', 'CheckDialog', 'CheckMenu', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'FindCause', 'ForkDifferences', 'ForkMenu', 'ForksView', 'InjectionFinding', 'InjectionResults', 'JsonDiff', 'LeadDialog', 'MoreMenu', 'OtelDialog', 'PackWithGate', 'Palette', 'Proof', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'ResultsMatrix', 'RevisionPage', 'RunBlameAsks', 'RunDialogs', 'SecurityReportDialog', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TestDialog', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs', 'outcome-card'];
+const PARTS = ['ActionDialog', 'AttemptPage', 'Builder', 'CauseFinding', 'CheckDialog', 'CheckMenu', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'FindCause', 'ForkDifferences', 'ForkMenu', 'ForksView', 'InjectionFinding', 'InjectionResults', 'JsonDiff', 'LeadDialog', 'MoreMenu', 'OtelDialog', 'PackWithGate', 'Palette', 'PresetsDialog', 'Proof', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'ResultsMatrix', 'RevisionPage', 'RunBlameAsks', 'RunDialogs', 'SecurityReportDialog', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TestDialog', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs', 'outcome-card'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
-/** The parts the copy shows, in its one script: a run's views but Calls, the card its status shows on hover, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset…, Export OpenTelemetry trace… and Security report it opens; Run blame's dialogs with the check a blame asks for (CheckDialog), and the check menu with the builder its pick opens; the dialogs a run's steps ask in, Run injection test…'s and Pack with injection gate…'s among them; an injection test's results, and the matrix they draw; a kept test's finding, which offers them; what only an injection attempt's page draws, its proof and its marks. */
+/** The parts the copy shows, in its one script: a run's views but Calls, the card its status shows on hover, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset…, Export OpenTelemetry trace… and Security report it opens; Run blame's dialogs with the check a blame asks for (CheckDialog), and the check menu with the builder its pick opens; the dialogs a run's steps ask in, Run injection test…'s and Pack with injection gate…'s among them; Run error-path presets…'s; an injection test's results, and the matrix they draw; a kept test's finding, which offers them; what only an injection attempt's page draws, its proof and its marks. */
 const COPY_PARTS = ['ActionDialog', 'ContextView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'Palette', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs', 'outcome-card'];
 
 /**
@@ -201,6 +201,7 @@ describe('the dashboard’s scripts', () => {
     expect(held.has('ui/checks/Builder.tsx')).toBe(false);
     expect(held.has('ui/run/StepDialogs.tsx')).toBe(false);
     expect(held.has('ui/injection/SecurityReportDialog.tsx')).toBe(false);
+    expect(held.has('ui/presets/PresetsDialog.tsx')).toBe(false);
     // The parts its pages show are in its one script: a file has no server to load them from.
     const shown = dynamicImports(metafile).filter((d) => held.has(d.by));
     for (const part of COPY_PARTS) expect(PARTS).toContain(part);

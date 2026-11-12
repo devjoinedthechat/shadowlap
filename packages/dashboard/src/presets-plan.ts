@@ -66,6 +66,13 @@ export type PresetsPlanJob = {
   prices?: Record<string, Price>;
 };
 
+/** What the dialog asks the plan for: the presets picked (none named, what the command runs), the tool, and whether `--expect` has checks. */
+export interface PresetsPicks {
+  presets?: readonly string[] | undefined;
+  tool?: string | null | undefined;
+  expect?: boolean | undefined;
+}
+
 /** What the dialog asks and draws, for the picks it was asked with. */
 export interface PresetsPlan {
   /** The recording the presets run on: the run, or the recording a clean or test replay came from. */

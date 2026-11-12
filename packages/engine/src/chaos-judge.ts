@@ -1,3 +1,4 @@
+import { CHAOS_EXPECT_EXAMPLE } from './chaos.js';
 import type { TestSpec } from './checks/grammar.js';
 import { checkLabels } from './checks/labels.js';
 import { DEFAULT_CHAOS, type ChaosSpec } from './checks/tests-entry.js';
@@ -61,7 +62,7 @@ export const JUDGED_FROM: Readonly<Record<Exclude<ChaosJudge['source'], 'exit'>,
 
 /** The hint under a table whose presets only the exit status judged: what would say more, in two lines. */
 export function judgedOnExit(where: 'chaos.expect' | '--expect'): string {
-  const example = `{"tools":{"issue_refund":"<= 1"}}`;
+  const example = CHAOS_EXPECT_EXAMPLE;
   const first = 'Each preset was judged on the agent exiting 0 alone: no checks say what an error path must do.';
   return where === '--expect' ? `${first}\nSay it with --expect, such as --expect '${example}'.` : `${first}\nSay it in its tests entry, as "chaos": { "expect": ${example} }, or as upper bounds on write tools in its "expect".`;
 }

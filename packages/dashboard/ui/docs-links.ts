@@ -27,6 +27,7 @@ export const DOCS = {
   forceLive: { page: 'interventions#force-a-tool-live', what: 'Interventions' },
   changedPrompt: { page: 'interventions#apply-a-changed-prompt-from-a-later-call', what: 'Interventions' },
   injectionTests: { page: 'injection#what-a-test-does', what: 'Injection tests' },
+  errorPaths: { page: 'error-paths#on-any-run', what: 'Error-path presets' },
   injectionGate: { page: 'injection#gate-ci-on-it', what: 'Injection tests' },
   injectionReport: { page: 'injection#the-security-report', what: 'Injection tests' },
   proveCause: { page: 'injection#prove-cause-on-an-incident', what: 'Injection tests' },

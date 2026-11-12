@@ -35,6 +35,9 @@ export const PRESET_LABELS: Readonly<Record<ChaosPreset, string>> = {
   '500': 'provider 500',
 };
 
+/** The checks an error path must pass, as the CLI's hint and the dashboard's field show them by example. */
+export const CHAOS_EXPECT_EXAMPLE = '{"tools":{"issue_refund":"<= 1"}}';
+
 /** The length an oversized result grows to by default, in characters: past what a model's context takes. */
 export const OVERSIZE_CHARS = 1_000_000;
 

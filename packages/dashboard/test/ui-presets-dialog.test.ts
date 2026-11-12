@@ -1,0 +1,202 @@
+import { createElement } from 'react';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
+import type { ActionItem } from '../ui/api.js';
+import { decidedWords, expectCaption, goldenJudged, presetsCommand, PresetsDialog, sentPicks, whereWords } from '../ui/presets/PresetsDialog.js';
+import { useActionRunner } from '../ui/run/actions.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
+import { AppContext, type AppState } from '../ui/state.js';
+import type { ToastAction } from '../ui/toast.js';
+import type { PresetsPlan } from '../ui/types.js';
+import { render, type Rendered } from './ui-render.js';
+import { shownNow } from './ui-served-now.js';
+
+/**
+ * Run error-path presets…'s dialog: the presets as toggle chips, the tool they hit and where, what
+ * judges and decides each attempt, the command as picked and what it bills, from the server's plan,
+ * asked again a moment after a pick. Its confirm starts `chaos` with exactly the fields the command
+ * shows, and a command someone else recorded asks first, in the consent dialog.
+ */
+
+const RUN = '01K5CQ4N7GZ3W8X2V6B9TDRM4P';
+const ALL = ['timeout', 'empty', 'malformed', 'oversized', '429', '500'] as const;
+const price = (usd: number, o: Partial<Estimate> = {}): Estimate => ({ kind: 'presets', usd, ceiling: true, parts: [], ...o });
+
+const PLAN: PresetsPlan = {
+  target: RUN,
+  golden: null,
+  presets: [...ALL],
+  choices: [
+    { name: 'lookup_order', callNo: 2 },
+    { name: 'get_policy', callNo: 4 },
+  ],
+  tool: 'lookup_order',
+  at: { tool: { callNo: 2, name: 'lookup_order' }, model: { callNo: 3, name: 'POST /v1/messages' } },
+  judge: { source: 'exit', checks: [], from: null },
+  expect: '{"tools":{"issue_refund":"<= 200"}}',
+  gate: { repeat: 1, passes: 1 },
+  rule: '1 of 1 attempts must pass',
+  runsHere: null,
+  estimate: price(0.054),
+};
+
+const GOLDEN: PresetsPlan = { ...PLAN, golden: 'goldens/refund', presets: ['timeout', '429'], expect: null, judge: { source: 'write-limits', checks: ['issue_refund called at most 1 time'], from: "the write limits of the golden's expect" }, gate: { repeat: 3, passes: 2 }, rule: '2 of 3 attempts must pass' };
+
+type Started = Array<[string, Record<string, unknown>]>;
+
+function app(client: Record<string, unknown>, toasts: Array<[string, ToastAction | undefined]>): AppState {
+  return {
+    client: { startJob: async () => ({}), jobs: async () => [], ...client },
+    meta: { project: { id: 'support-agent', name: 'support-agent', path: '/work/support-agent' } },
+    runs: [],
+    feeds: {},
+    jobs: [],
+    actionsOff: null,
+    hasKind: () => true,
+    guard: (fn: () => void) => (fn(), true),
+    watchJob: () => undefined,
+    toast: (t: string, _kind?: string, action?: ToastAction) => void toasts.push([t, action]),
+  } as unknown as AppState;
+}
+
+let r: Rendered | null = null;
+afterEach(async () => {
+  await r?.unmount();
+  r = null;
+});
+
+async function dialog(first: PresetsPlan, client: Record<string, unknown> = {}) {
+  const started: Started = [];
+  const asked: unknown[] = [];
+  const toasts: Array<[string, ToastAction | undefined]> = [];
+  const all = {
+    presetsPlan: (_id: string, q: Record<string, unknown>) => (Object.keys(q).length ? asked.push(q) : undefined, Promise.resolve(Object.keys(q).length ? { ...first, estimate: price(0.018) } : first)),
+    startJob: async (kind: string, body: Record<string, unknown>) => (started.push([kind, body]), { id: 'j1' }),
+    ...client,
+  };
+  r = await render(createElement(AppContext.Provider, { value: app(all, toasts) }, createElement(PresetsDialog, { runId: RUN, onClose: () => undefined })));
+  await r.until('the dialog reads the plan', () => r!.all('.dialog .togchips button').length === 6);
+  return { started, asked, toasts };
+}
+
+const ok = () => r!.one('.dialog .dlg-ok');
+const cmd = () => r!.one('.dialog .cmdline').textContent ?? '';
+const rows = () => r!.all('.dialog .dfacts > div').map((d) => [d.querySelector('dt')?.textContent, d.querySelector('dd')?.textContent]);
+const pressed = () => r!.all('.dialog .togchips button').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
+
+describe('Run error-path presets…’s words', () => {
+  it('names only the flags the picks change, the checks typed for a run, and --yes for a command someone else recorded', () => {
+    const picks = { presets: [...ALL], tool: 'lookup_order', expect: '' };
+    expect(presetsCommand(PLAN, sentPicks(PLAN, picks))).toBe('shadowlap replay 01K5CQ4N7G --chaos');
+    const some = sentPicks(PLAN, { presets: ['timeout', '500'], tool: 'get_policy', expect: ' {"tools":{"issue_refund":0}} ' });
+    expect(some).toEqual({ presets: ['timeout', '500'], tool: 'get_policy', expect: '{"tools":{"issue_refund":0}}' });
+    expect(presetsCommand({ ...PLAN, runsHere: { command: 'node agent.mjs', from: 'the team store', by: 'dana' } }, some)).toBe('shadowlap replay 01K5CQ4N7G --chaos --presets timeout,500 --chaos-tool get_policy --expect \'{"tools":{"issue_refund":0}}\' --yes');
+    // A golden's presets run as its test, its entry's list the default; it takes no --expect.
+    expect(sentPicks(GOLDEN, { presets: ['timeout', '429'], tool: 'lookup_order', expect: '{"tools":{}}' })).toEqual({});
+    expect(presetsCommand(GOLDEN, sentPicks(GOLDEN, { presets: [...ALL], tool: 'lookup_order', expect: '' }))).toBe('shadowlap test goldens/refund --chaos --presets timeout,empty,malformed,oversized,429,500');
+  });
+
+  it('says where the provider presets hit, what judges and what decides each attempt', () => {
+    expect(whereWords(PLAN.at)).toBe('and model call #3, which reads its answer');
+    expect(whereWords({ tool: { none: 'no tool call' }, model: { callNo: 1, name: 'POST /v1/messages' } })).toBe('and model call #1');
+    expect(whereWords({ ...PLAN.at, model: { none: 'the recording makes no model call' } })).toBe('no model call: the provider presets are not applicable');
+    expect(goldenJudged(GOLDEN, 'goldens/refund')).toEqual({ value: 'issue_refund called at most 1 time', quiet: 'the write limits of refund’s expect' });
+    expect(goldenJudged({ judge: { source: 'chaos.expect', checks: ['escalate called at least 1 time'], from: 'chaos.expect' } }, 'goldens/refund')).toEqual({ value: 'escalate called at least 1 time', quiet: 'refund’s chaos.expect' });
+    expect(goldenJudged({ judge: { source: 'exit', checks: [], from: null } }, 'goldens/refund')).toEqual({ value: 'the agent exiting 0 alone', quiet: 'refund’s expect sets no limit on a write' });
+    expect(expectCaption(PLAN.judge)).toBe('what every attempt must do besides exiting 0; empty, the exit alone');
+    expect(expectCaption(GOLDEN.judge)).toBe("what every attempt must do besides exiting 0; empty, each attempt is judged by the write limits of the golden's expect");
+    expect([decidedWords(PLAN), decidedWords(GOLDEN), decidedWords({ gate: { good: 0.95, bad: 0.7, risk: 0.05, max: 10 }, rule: 'a sequential test, at most 10 attempts' })]).toEqual(['one attempt each', '2 of 3 attempts must pass, as its golden repeats', 'its chaos.gate: a sequential test, at most 10 attempts']);
+  });
+});
+
+describe('Run error-path presets…’s dialog', () => {
+  it('draws a run’s plan: every preset on, the tool it hits and where, the checks its own failed check prefills, the command and its price', async () => {
+    await dialog(PLAN);
+    expect(r!.one('.dialog h3').textContent).toBe('Run error-path presets on 01K5CQ4N7G');
+    expect(pressed()).toEqual(['tool timeout', 'empty result', 'malformed JSON', 'oversized result', 'provider 429', 'provider 500']);
+    expect(r!.one('.dialog .togchips').getAttribute('role')).toBe('group');
+    expect(rows().map(([k]) => k)).toEqual(['Presets', 'At', 'Judged by', 'Decided by']);
+    expect(r!.all('.dialog select option').map((o) => o.textContent)).toEqual(['lookup_order · #2, the first read', 'get_policy · #4']);
+    expect(r!.one('.dialog .cxat > span').textContent).toBe('and model call #3, which reads its answer');
+    expect(r!.one('.dialog label.cxj input').value).toBe('{"tools":{"issue_refund":"<= 200"}}');
+    expect(r!.one('.dialog label.cxj small').textContent).toBe('what every attempt must do besides exiting 0; empty, the exit alone');
+    expect(rows().at(-1)).toEqual(['Decided by', 'one attempt each']);
+    expect(cmd()).toBe('$shadowlap replay 01K5CQ4N7G --chaos --expect \'{"tools":{"issue_refund":"<= 200"}}\'');
+  });
+
+  it('asks the plan again a moment after a pick, waits on Pick at least one preset with none, and starts with exactly the fields the command shows', async () => {
+    const { asked, started } = await dialog(PLAN);
+    await r!.click(r!.byText('.dialog .togchips button', 'malformed JSON'));
+    await r!.fire(r!.one('.dialog select'), 'change', { target: { value: 'get_policy' } } as never);
+    await r!.type(r!.one('.dialog label.cxj input'), '');
+    expect(cmd()).toBe('$shadowlap replay 01K5CQ4N7G --chaos --presets timeout,empty,oversized,429,500 --chaos-tool get_policy');
+    await r!.wait(100);
+    expect(asked).toEqual([]);
+    await r!.until('the plan for the picks', () => asked.length === 1);
+    expect(asked).toEqual([{ presets: ['timeout', 'empty', 'oversized', '429', '500'], tool: 'get_policy' }]);
+    // Nothing picked: the confirm waits, and says why where the price was.
+    for (const p of ['tool timeout', 'empty result', 'oversized result', 'provider 429', 'provider 500']) await r!.click(r!.byText('.dialog .togchips button', p));
+    expect([ok().getAttribute('aria-disabled'), r!.one('.dialog .dcost').textContent]).toEqual(['true', 'Pick at least one preset']);
+    await r!.click(r!.byText('.dialog .togchips button', 'provider 429'));
+    await r!.until('the price of the picks', () => asked.length === 2);
+    await r!.until('the dialog is ready', () => ok().getAttribute('aria-disabled') !== 'true');
+    await r!.click(ok());
+    expect(started).toEqual([['chaos', { runId: RUN, presets: ['429'], tool: 'get_policy', estimate: { usd: 0.018, ceiling: true } }]]);
+  });
+
+  it('runs a command someone else recorded only once the consent dialog has its yes, resending the same fields', async () => {
+    const started: Started = [];
+    const startJob = async (kind: string, body: Record<string, unknown>) => {
+      started.push([kind, body]);
+      if (!body.confirmed) throw Object.assign(new Error('This run came from the team store: each preset runs its command (node agent.mjs). Confirm to run it.'), { status: 409, confirm: 'c-1' });
+      return { id: 'j1' };
+    };
+    await dialog({ ...PLAN, expect: null, runsHere: { command: 'node agent.mjs', from: 'the team store', by: 'dana' } }, { startJob });
+    expect(rows()[0]).toEqual(['Runs here', 'node agent.mjsrecorded by dana, from the team store']);
+    expect(r!.all('.dialog .dfacts > div')[0].getAttribute('class')).toBe('amber');
+    expect(cmd()).toBe('$shadowlap replay 01K5CQ4N7G --chaos --yes');
+    await r!.click(ok());
+    await r!.until('the consent dialog', () => r!.one('.dialog h3').textContent === 'Run command from team store');
+    await r!.click(ok());
+    expect(started.map(([, b]) => b)).toEqual([
+      { runId: RUN, estimate: { usd: 0.054, ceiling: true } },
+      { runId: RUN, estimate: { usd: 0.054, ceiling: true }, confirmed: 'c-1' },
+    ]);
+  });
+
+  it('runs a golden’s presets as its test: its entry’s presets on, its checks and gate said, no field to type', async () => {
+    const { started } = await dialog(GOLDEN);
+    expect(pressed()).toEqual(['tool timeout', 'provider 429']);
+    expect(r!.all('.dialog label.cxj')).toHaveLength(0);
+    expect(rows().slice(2)).toEqual([
+      ['Judged by', 'issue_refund called at most 1 timethe write limits of refund’s expect'],
+      ['Decided by', '2 of 3 attempts must pass, as its golden repeats'],
+    ]);
+    expect(cmd()).toBe('$shadowlap test goldens/refund --chaos');
+    await r!.click(ok());
+    expect(started).toEqual([['chaos', { golden: 'goldens/refund', estimate: { usd: 0.054, ceiling: true } }]]);
+  });
+});
+
+describe('Run error-path presets…’s opener', () => {
+  /** The fork menu's whole run hands its row to the run page's runner, as a press of the row does. */
+  function Opener({ row }: { row: ActionItem }) {
+    const { run, dialog } = useActionRunner(RUN);
+    return createElement('div', null, createElement('button', { className: 'go', onClick: () => run({ action: row, callNo: null }) }, 'go'), dialog);
+  }
+  const ROW = { key: 'c', label: 'Run error-path presets…', flag: '--chaos', group: 'run', asksFirst: true, disabled: null } as unknown as ActionItem;
+
+  it('opens the dialog from the fork menu’s row, which the served dashboard hands in, and says why where the row is off', async () => {
+    const toasts: Array<[string, ToastAction | undefined]> = [];
+    const client = { presetsPlan: async () => PLAN, startJob: async () => ({ id: 'j1' }) };
+    const page = (row: ActionItem) => createElement(AppContext.Provider, { value: app(client, toasts) }, createElement(ServedPartsContext.Provider, { value: { PresetsDialog: shownNow(PresetsDialog) } }, createElement(Opener, { row })));
+    r = await render(page(ROW));
+    await r.click(r.one('button.go'));
+    await r.until('the dialog', () => r!.all('.dialog .togchips button').length === 6);
+    expect(r.one('.dialog h3').textContent).toBe('Run error-path presets on 01K5CQ4N7G');
+    await r.unmount();
+    r = await render(page({ ...ROW, disabled: 'A preset’s attempt: run the presets on its recording' }));
+    await r.click(r.one('button.go'));
+    expect([r.all('.dialog').length, toasts.map(([t]) => t)]).toEqual([0, ['A preset’s attempt: run the presets on its recording']]);
+  });
+});

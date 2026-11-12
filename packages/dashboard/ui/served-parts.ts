@@ -10,6 +10,7 @@ import type { PackWithGate } from './injection/PackWithGate.js';
 import type { Proof } from './injection/Proof.js';
 import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
 import type { TestDialog } from './injection/TestDialog.js';
+import type { PresetsDialog } from './presets/PresetsDialog.js';
 import type { BuilderProps } from './run/check-part.js';
 import type { CheckMenu } from './run/CheckMenu.js';
 import type { ForkMenu } from './run/ForkMenu.js';
@@ -34,6 +35,7 @@ export type TestDialogProps = ComponentProps<typeof TestDialog>;
 export type PackWithGateProps = ComponentProps<typeof PackWithGate>;
 export type FindCauseProps = ComponentProps<typeof FindCause>;
 export type CauseFindingProps = ComponentProps<typeof CauseFinding>;
+export type PresetsDialogProps = ComponentProps<typeof PresetsDialog>;
 
 /**
  * The parts a page draws only where the dashboard runs, never in an exported copy, handed in by the
@@ -47,7 +49,8 @@ export type CauseFindingProps = ComponentProps<typeof CauseFinding>;
  * Run injection test… (its fork menu, step and palette rows are the served dashboard's) nor Pack with
  * injection gate…, no Find cause… nor the answers it finds, and no Share to download a report from;
  * a copy keeps no attempt's read, so an attempt's page there draws no proof and marks nothing,
- * test/ui-injection-results.test.ts).
+ * test/ui-injection-results.test.ts; nor Run error-path presets…, whose fork menu and palette rows are
+ * the served dashboard's).
  */
 export interface ServedParts {
   /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
@@ -68,6 +71,8 @@ export interface ServedParts {
   StepDialog?: OnShow<StepDialogProps>;
   /** Run injection test…'s dialog (injection/TestDialog.tsx): the fork menu's whole run, the lime step, a read's row on Settings → Tools, Tests' Security and the palette open it. Loaded as it first shows. */
   TestDialog?: OnShow<TestDialogProps>;
+  /** Run error-path presets…'s dialog (presets/PresetsDialog.tsx): the fork menu's whole run, a golden's row on Tests and the palette open it. Loaded as it first shows. */
+  PresetsDialog?: OnShow<PresetsDialogProps>;
   /** Pack with injection gate…'s dialog (injection/PackWithGate.tsx), which the run's lime step opens where a read caused a write or an attempt obeyed. Loaded as it first shows. */
   PackWithGate?: OnShow<PackWithGateProps>;
   /** Find cause… on a write after an untrusted read, the inspector's link and its dialog (injection/FindCause.tsx): loaded as the inspector first shows on a run that has a write to ask about. */
