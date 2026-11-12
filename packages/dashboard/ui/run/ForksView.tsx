@@ -27,7 +27,7 @@ import type { InjectionRow } from '../types.js';
  * Each injection test kept for a run, a gate's and a --clean answer's too, is one node under it, its
  * replays drawn in it (injection/TestNode.tsx); a test whose result is gone stays a `--repeat` bundle.
  * A session's error-path presets on a recording are one node under it, its attempts drawn in it
- * (presets/PresetsNode.tsx).
+ * (presets/PresetsNode.tsx); an attempt something was made from is a node under it, with what was made.
  */
 
 /**
@@ -144,8 +144,17 @@ export function ForksView({ runId }: { runId: string }) {
     // The run's kept injection tests, after its forks and bundles, oldest first as they are.
     const own = rows.filter((r) => r.runId === parent).sort((a, b) => a.at - b.at);
     for (const r of own) items.push(<TestNode key={r.resultId} row={r} runs={replays.get(r.resultId) ?? []} current={runId} rule={once(r.rule)} />);
-    // Its error-path presets, a session's attempts a node, oldest first.
-    for (const attempts of (parent && presets.get(parent)) || []) items.push(<PresetsNode key={`presets:${attempts[0]!.preset.session}`} attempts={attempts} current={runId} />);
+    // Its error-path presets, a session's attempts a node, oldest first; under it, an attempt something
+    // was made from (a fork, a Repeat, a fix's bundle, a test) with what was made of it.
+    for (const attempts of (parent && presets.get(parent)) || []) {
+      const key = `presets:${attempts[0]!.preset.session}`;
+      items.push(<PresetsNode key={key} attempts={attempts} current={runId} />);
+      const made = attempts.flatMap((a) => {
+        const sub = family(a.runId);
+        return sub ? [node(a), <Fragment key={`${a.runId}:kids`}>{sub}</Fragment>] : [];
+      });
+      if (made.length) items.push(<div key={`${key}:made`} className="fkids">{made}</div>);
+    }
     if (!items.length) return null;
     return parent === null ? <>{items}</> : <div className="fkids">{items}</div>;
   };

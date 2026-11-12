@@ -34,6 +34,7 @@ const ATTEMPT = '01M5GRZVY1P4DYJZVXZ6F0KEMM';
 const PASSED = '01M5GRZW2G2G43STN6FXX48NAN';
 const SECOND = '01M5GRZWPAE7H60Y55J79W68Y5';
 const UNSURE = '01M5GRZWTW1SF8QP95NKPCK624';
+const FORK = '01M5GRZX3D6M0Q2V8KJH4TB7SE';
 
 const WHY = 'the agent exited with code 1 (TimeoutError: list_inbox timed out)';
 const matrix: ChaosMatrix = {
@@ -180,14 +181,17 @@ describe('a preset’s attempts in the Forks view', () => {
       node(PASSED, REC, 'tool timeout #2', 'completed', 3, mark('tool timeout', 'passed', 'S1')),
       node(UNSURE, REC, 'provider 500 #3', 'completed', 4, mark('provider 500', 'inconclusive', 'S1')),
       node(SECOND, REC, 'tool timeout #2', 'completed', 9, mark('tool timeout', 'passed', 'S2')),
+      // A fork made from the attempt that failed, after Open proof.
+      node(FORK, ATTEMPT, 'retry the read once', 'completed', 12),
     ];
     // No matrix to read: the family's tree goes by the lineage alone.
     const client = { lineage: () => Promise.resolve(nodes), fixBundles: () => Promise.resolve([]), injectionResults: () => Promise.resolve({ results: [] }), runChaos: () => Promise.reject(new Error('not asked')) } as unknown as Client;
     const app = { client, exported: false, meta: null, runs: [], live: [], feeds: {}, tick: 0, runsTick: 0, jobs: [], hasKind: () => true };
     r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: ATTEMPT })));
     await r.until('the family to load', () => r!.all('[data-node="presets"]').length === 2);
-    // The attempts are no forks of their own: the recording, then a node a session.
-    expect(r.all('.fam > .fnode, .fkids > .fnode').length).toBe(3);
+    // The attempts are no forks of their own: the recording, then a node a session, and the one
+    // attempt something was made from, with the fork made of it.
+    expect(r.all('.fam > .fnode, .fkids > .fnode').length).toBe(5);
     const [first, second] = r.all('[data-node="presets"]');
     expect(first.querySelector('.fbt')!.textContent).toBe('error-path presets');
     // The session's totals as the CLI and the activity feed word them: passed and failed always.
@@ -199,6 +203,14 @@ describe('a preset’s attempts in the Forks view', () => {
     expect(first.querySelectorAll('.al a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${ATTEMPT}/2`, `#/run/${UNSURE}/3`]);
     expect(first.querySelector('.al .an')!.textContent).toBe(' · tool timeout · attempt 1 · failed');
     expect(second.querySelector('.f2')!.textContent).toBe('passed · 1 passed, 0 failed · 1 attempt');
+    // What was made from an attempt is drawn under its session's node, under that attempt, so the fork keeps its place in the family.
+    const fork = r.one(`a.fnode[href="#/run/${FORK}/2"]`);
+    const own = fork.parentNode!;
+    const made = own.parentNode!;
+    expect([own.className, made.className]).toEqual(['fkids', 'fkids']);
+    expect(made.parentNode).toBe(first.parentNode);
+    expect(made.querySelector('a.fnode')!.getAttribute('href')).toBe(`#/run/${ATTEMPT}/2`);
+    expect(made.querySelector('a.fnode')!.className).toContain('here');
   });
 });
 
