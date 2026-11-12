@@ -70,6 +70,14 @@ export class FixIdError extends Error {
   }
 }
 
+/** A fix that isn't open, asked to take another check: it keeps the one its verdict was given under (changeFixCheck). */
+export class FixNotOpenError extends Error {
+  constructor(readonly fix: Pick<StoredFix, 'fixId' | 'status'>) {
+    super(`${fix.fixId} is ${fix.status}: its check is the one its verdict was given under`);
+    this.name = 'FixNotOpenError';
+  }
+}
+
 /**
  * Finds a fix by its id or a unique prefix of it, with or without `fx-`, in any case. Null when
  * nothing matches, or when no id characters are given (`fx-` alone); a prefix that matches several
@@ -507,13 +515,13 @@ export interface FixCheckChange {
  * Gives an open fix another check, with how it judged the fix's runs, at once: what was made under
  * the one before keeps it (madeUnderOldCheck), and the runs it judged otherwise leave the fix
  * (runsLeft). Nothing is written for the check the fix has (`changed` false). A fix that isn't open
- * keeps the check its verdict counted under: that throws, as an unknown fix does.
+ * keeps the check its verdict was given under: that throws a FixNotOpenError, and an unknown fix an Error.
  */
 export function changeFixCheck(store: StoreOf<'fixes'>, fixId: string, c: FixCheckChange): { changed: boolean; fix: StoredFix; previous: StoredFix['check'] } {
   return store.transaction(() => {
     const fix = store.getFix(fixId);
     if (!fix) throw new Error(`unknown fix ${fixId}`);
-    if (fix.status !== 'open') throw new Error(`${fixId} is ${fix.status}: its check is the one its verdict counted under`);
+    if (fix.status !== 'open') throw new FixNotOpenError(fix);
     const changed = store.setFixCheck(fixId, c.check, { at: c.at ?? Date.now(), actor: c.actor ?? null, judged: c.judged });
     return { changed, fix: store.getFix(fixId)!, previous: fix.check };
   }, 'immediate');

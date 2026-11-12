@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { changeFixCheck, checkKey, fixLabelInfo, fixOfRun, fixRecords, leftFixLinkSql, madeUnderOldCheck, recordBlame, recordVerdict, runsLeft, shownBlame, Store, type StoredFix } from '../src/index.js';
+import { changeFixCheck, checkKey, FixNotOpenError, fixLabelInfo, fixOfRun, fixRecords, leftFixLinkSql, madeUnderOldCheck, recordBlame, recordVerdict, runsLeft, shownBlame, Store, type StoredFix } from '../src/index.js';
 import { blameReport, EXPECT, makeRun, ORACLE, verifyReport } from './fix-fixtures.js';
 
 const require = createRequire(import.meta.url);
@@ -95,7 +95,9 @@ describe("a fix's check, changed", () => {
     expect(store.fixChecks(fix.fixId)).toHaveLength(1);
 
     store.updateFix(fix.fixId, { status: 'verified', verifiedAt: 3_000 });
-    expect(() => changeFixCheck(store, fix.fixId, { check: emailCheck, judged: { failing: {}, good: {} } })).toThrow(`${fix.fixId} is verified`);
+    const closed = () => changeFixCheck(store, fix.fixId, { check: emailCheck, judged: { failing: {}, good: {} } });
+    expect(closed).toThrow(FixNotOpenError);
+    expect(closed).toThrow(`${fix.fixId} is verified: its check is the one its verdict was given under`);
     expect(() => changeFixCheck(store, 'fx-NOSUCHFIX', { check: emailCheck, judged: { failing: {}, good: {} } })).toThrow('unknown fix fx-NOSUCHFIX');
     expect(store.getFix(fix.fixId)?.check).toEqual(fix.check);
   });
