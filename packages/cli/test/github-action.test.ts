@@ -583,18 +583,21 @@ describe('the pull request comment the GitHub Action keeps', () => {
     const change = { rank: 1, kind: 'write-added', tool: 'issue_refund', effect: 'write', before: null, after: {}, detail: 'issue_refund is called' };
     const asked = { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'issue_refund', args: { order_id: 'A-1042' }, effect: 'write' }], text: '' };
     const decided = { counts: { 1: 1, 2: 0, 3: 0, 4: 0, 5: 0, same: 4, notAsked: 0, untouched: 0 }, flagged: ['run-1'], runs: [{ runId: 'run-1', golden: 'testing/golden/reference-agent', refused: null, decisions: [{ callNo: 2, majority: 1, changes: [change], recorded: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'Let me ask a lead.' }, now: asked }] }] };
-    writeFileSync(
-      cli,
-      [
-        "import { appendFileSync, writeFileSync } from 'node:fs';",
-        'const args = process.argv.slice(2);',
-        'const at = (flag) => args[args.indexOf(flag) + 1];',
-        `appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');`,
-        `if (args.includes('decisions')) { process.stdout.write(JSON.stringify(${JSON.stringify(decided)})); process.exit(0); }`,
-        `writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S-PR', revision: null, passed: 1, failed: 0, inconclusive: 0, interrupted: false, costPerRun: { before: 0.041, after: 0.043 }, results: [${JSON.stringify(result)}] }));`,
-        "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 golden passed\\n');",
-      ].join('\n'),
-    );
+    /** The CLI as the job runs it: `decisions` does what `asked` says, and test reports one golden that passed with its injection gate. */
+    const fakeCli = (asked: string) =>
+      writeFileSync(
+        cli,
+        [
+          "import { appendFileSync, writeFileSync } from 'node:fs';",
+          'const args = process.argv.slice(2);',
+          'const at = (flag) => args[args.indexOf(flag) + 1];',
+          `appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');`,
+          `if (args.includes('decisions')) { ${asked} }`,
+          `writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S-PR', revision: null, passed: 1, failed: 0, inconclusive: 0, interrupted: false, costPerRun: { before: 0.041, after: 0.043 }, results: [${JSON.stringify(result)}] }));`,
+          "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 golden passed\\n');",
+        ].join('\n'),
+      );
+    fakeCli(`process.stdout.write(JSON.stringify(${JSON.stringify(decided)})); process.exit(0);`);
     const seen = () => readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as string[]);
     const store = join(dir, 'ci.db');
     const inputs = { RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, STORE: store, DECISIONS: 'true' };
@@ -623,6 +626,23 @@ describe('the pull request comment the GitHub Action keeps', () => {
     // Without decisions, the comment carries the cost and the injection gates alone.
     expect(comments[0].body).not.toContain('#### Decisions');
     expect(comments[0].body).toContain('#### Injection');
+
+    // A decisions run that refuses, or stops without a report, never fails the job: the log says why, and the comment goes up without its part.
+    for (const [why, asked, said] of [
+      ['a refusal', "process.stdout.write(JSON.stringify({ error: { message: 'the store has no test session S-PR' } })); process.exit(2);", 'the pull request comment has no decisions: the store has no test session S-PR'],
+      ['a run that stopped', 'process.exit(1);', 'the pull request comment has no decisions: shadowlap decisions did not finish (exit 1); its output is above'],
+    ] as const) {
+      fakeCli(asked);
+      rmSync(log, { force: true });
+      comments.length = 0;
+      const failed = await onPullRequest(inputs, 'northwind/agent', { SHADOWLAP_CLI: cli });
+      expect(failed.code, `${why}: ${failed.out}`).toBe(0);
+      expect(seen().map((args) => args.includes('decisions')), why).toEqual([false, true]);
+      expect(failed.out, why).toContain(said);
+      expect(comments, why).toHaveLength(1);
+      expect(comments[0].body, why).not.toContain('#### Decisions');
+      expect(comments[0].body, why).toContain('\nCost per run: ≈$0.041 → ≈$0.043 (+5%)\n\n#### Injection\n\n✅ `testing/golden/reference-agent` · passed');
+    }
   }, 120_000);
 });
 
