@@ -4,6 +4,7 @@ import { moreOf, type PreviewMore } from './decision-more.js';
 import { decisionSession, runDecisions, sessionGate, sessionKeptMax, sessionReport } from './decisions.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsWithin } from './run-about.js';
+import { migrateView, type MigrateView } from './migrate-view.js';
 import { loadRunIndex } from './run-index.js';
 import { ROW_CALLS_BUDGET } from './runs-list.js';
 import { previewVerdictOf, type PreviewVerdict } from './verdicts.js';
@@ -126,7 +127,7 @@ export interface PreviewView {
   clock: 'auto' | 'exact' | null;
 }
 
-export type PreviewSession = Record<string, unknown> & { sessionId: string; kind: 'decisions' | 'migrate'; matrix: Array<DecisionRow & PreviewRowFacts>; view: PreviewView };
+export type PreviewSession = Record<string, unknown> & { sessionId: string; kind: 'decisions' | 'migrate'; matrix: Array<DecisionRow & PreviewRowFacts>; view: PreviewView; migration?: MigrateView };
 
 /** A band's colour by its rank, as a cell draws it: a write, a stop, a read, else the same or words. */
 const band = (r: number) => (r === 1 ? 'w' : r === 2 ? 's' : r === 3 || r === 4 ? 'r' : 'm');
@@ -259,9 +260,12 @@ function keptReport(r: Partial<PreviewReport>): PreviewReport {
   };
 }
 
+/** A migration's own view beside its preview's; nothing for a preview. */
+const migrationOf = (store: Store, session: NonNullable<ReturnType<typeof decisionSession>>, sessionId: string, verdict: PreviewVerdict): { migration?: MigrateView } => (session.kind === 'migrate' ? { migration: migrateView(store, session, sessionId, verdict) } : {});
+
 /** One kept session, its matrix's rows with their facts and its `view`; null for an id the store doesn't keep. `redacted`: the project has redaction rules; `clock`, its clock (PreviewView). */
-export function previewSession(store: Store, sessionId: string, o: { redacted?: boolean; clock?: 'auto' | 'exact' | null; keptMax?: number | null } = {}): PreviewSession | null {
-  const session = decisionSession(store, sessionId);
+export function previewSession(store: Store, sessionId: string, o: { redacted?: boolean; clock?: 'auto' | 'exact' | null; keptMax?: number | null; shared?: boolean } = {}): PreviewSession | null {
+  const session = decisionSession(store, sessionId, { shared: o.shared === true });
   const verdict = session && previewVerdictOf(store, sessionId);
   if (!session || !verdict) return null;
   const report = keptReport(sessionReport(session) as unknown as Partial<PreviewReport>);
@@ -302,17 +306,18 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     redacted: o.redacted === true,
     clock: o.clock === undefined ? 'auto' : o.clock,
   };
-  return { ...session, sessionId, matrix, view };
+  // A migration is worded whole here too, for Changes › Migrate (migrate-view.ts).
+  return { ...session, sessionId, matrix, view, ...migrationOf(store, session, sessionId, verdict) };
 }
 
 /** One kept session for Changes' Preview, as `GET /api/decisions/:id` answers it. */
-export type DecisionSessionJob = { kind: 'decision-session'; sessionId: string; redacted?: boolean; clock?: 'auto' | 'exact' | null; keptMax?: number | null };
+export type DecisionSessionJob = { kind: 'decision-session'; sessionId: string; redacted?: boolean; clock?: 'auto' | 'exact' | null; keptMax?: number | null; shared?: boolean };
 
 /** A run's decisions under each session that asked it again, for its Decisions view, as `GET /api/runs/:id/decisions` answers it. */
 export type RunDecisionsJob = { kind: 'run-decisions'; runId: string; keptMax?: number | null };
 
 function sessionRead(store: Store, job: DecisionSessionJob): ReadAnswer {
-  const session = previewSession(store, job.sessionId, { redacted: job.redacted === true, clock: job.clock === undefined ? 'auto' : job.clock, keptMax: job.keptMax ?? null });
+  const session = previewSession(store, job.sessionId, { redacted: job.redacted === true, clock: job.clock === undefined ? 'auto' : job.clock, keptMax: job.keptMax ?? null, shared: job.shared === true });
   return session ? answer(session, { tagged: true }) : failed(404, `no session ${job.sessionId.slice(0, 40)}`);
 }
 

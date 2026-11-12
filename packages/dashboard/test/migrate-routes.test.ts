@@ -3,11 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { emptyCounts, NO_TOKENS, Store } from '@shadowlap/engine';
+import { CLEARED, emptyCounts, NO_TOKENS, Store } from '@shadowlap/engine';
 import { DONE, LOOKUP, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { decisionSession } from '../src/decisions.js';
 import { appliedState, goldensLeftWaiting } from '../src/migrate-applied.js';
+import type { MigrateView } from '../src/migrate-view.js';
 
 /**
  * A migration over HTTP and in the store, past its report: the `migrate-apply` job and what it
@@ -84,6 +85,24 @@ describe('the migrate-apply job', () => {
     const none = await startJob(dash, { kind: 'migrate-apply', migrationId: NO_FILE });
     expect(none.status).toBe(409);
     expect(((await none.json()) as { error: string }).error).toBe(`mg-01M5000000 has no config change: no string in the project's code or config names claude-sonnet-4-5, so set claude-sonnet-5-5 where your agent reads its model`);
+  });
+});
+
+describe('a migration’s view', () => {
+  const view = async (id: string) => ((await (await api(dash, `decisions/${id}`)).json()) as { migration: MigrateView }).migration;
+
+  it('words a migration on the server: its headline, the golden it leaves behind, What to set, and Apply offered with what the job runs', async () => {
+    const m = await view(CLEAR);
+    expect([m.word.text, m.headline, m.next]).toEqual(['nothing to verify', { tone: 'pass', text: 'claude-sonnet-5-5 decided the same in the preview', rest: 'claude-sonnet-4-5 → claude-sonnet-5-5, 1 run' }, 'apply']);
+    expect(m.passes.runs.map((x) => [x.golden, x.verdict, x.words, x.leftBehind])).toEqual([['goldens/refund', 'passed', CLEARED, 'diverges at #1 on `$.model` once applied']]);
+    expect([m.passes.verified, m.set.only, m.changes.none, m.changes.sub]).toEqual(['0 of 1 run verified end to end', 'Only the model: claude-sonnet-5-5', 'No write, stop or judged change.', 'the calls made with claude-sonnet-4-5, asked under claude-sonnet-5-5']);
+    expect(m.apply).toEqual({ files: ['agent.py'], leftOut: [], leftBehind: [{ golden: 'goldens/refund', callNo: 1 }], others: 0, command: 'shadowlap migrate apply mg-01M5000000' });
+    expect([m.config.sub, m.config.apply, m.applied]).toEqual(['`agent.py` · 1 place', `git apply .shadowlap/migrations/${CLEAR}/config.patch`, null]);
+  });
+
+  it('offers no Apply where migrate apply would refuse it, saying why in its words', async () => {
+    const m = await view(NO_FILE);
+    expect([m.next, m.config.sub, 'why' in m.apply && m.apply.why]).toEqual([null, 'no file names the model', `mg-01M5000000 has no config change: no string in the project's code or config names claude-sonnet-4-5, so set claude-sonnet-5-5 where your agent reads its model`]);
   });
 });
 

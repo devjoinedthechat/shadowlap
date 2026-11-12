@@ -9,12 +9,13 @@ import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity } from '../run-index.js';
 import type { GoldenSource } from '../tests.js';
 import { verifyRule } from './estimates.js';
+import { namesTeamStore } from './verdicts.js';
 
 /**
  * The decision diff (`shadowlap decisions`, `migrate`), for the Changes page and a run's Decisions view:
  *
  *   GET /api/decisions[?kind=decisions|migrate][&limit=]   the sessions kept, newest first (50, at most 200), and how many goldens the project has
- *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, its matrix, and its `view` (decision-view.ts), beside the server
+ *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, its matrix, its `view` (decision-view.ts), and a migration's `migration` (migrate-view.ts) with its applied state, beside the server
  *   GET /api/decisions/:id/estimates[?runId=…][&max=&keptMax=]   what its Verify bills (estimates.ts), on every run it could not clear or those the runIds name, at Run more attempts' limits where given
  *   POST /api/decisions/estimates { runs?, goldens?, model?, set?, from?, scope?, samples?, fromCode?, changed? }   what a new preview asks and bills (preview-estimate.ts), each way's card while no change is named; changes nothing
  *   GET /api/model-choices                       the models a preview's field offers beside the runs' own: each provider's own listing, and why one couldn't be listed (model-listing.ts)
@@ -85,7 +86,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/decisions/:id', async (r) => {
     const { byId } = loadRunIndex(ctx.store);
     const calls = ctx.store.decisionRunIds(r.params.id!).reduce((n, id) => n + (byId.get(id)?.calls ?? 0), 0);
-    sendAnswer(r, await ctx.reads.run({ kind: 'decision-session', sessionId: r.params.id!, ...comparedBy(ctx), keptMax: verifyRule(ctx).keptMax }, { calls }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'decision-session', sessionId: r.params.id!, ...comparedBy(ctx), keptMax: verifyRule(ctx).keptMax, shared: namesTeamStore(ctx.project?.path) }, { calls }));
   });
 
   // What a new preview would ask and bill, beside the server, by the runs' calls: the change as its
