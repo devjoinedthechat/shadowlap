@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
 import { JOB_KINDS } from '../api.js';
 import { useOfflineLink } from '../components/ActionButton.js';
