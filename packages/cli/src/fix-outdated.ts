@@ -7,8 +7,8 @@ import { goldenName, projectGoldens } from './goldens.js';
 import { takeoverReader } from './tasks.js';
 
 /**
- * After `shadowlap fix apply` puts a patch in: the project's other goldens that now diverge on what
- * it changed. A prompt or a tool description goes into every request the agent sends, so a golden
+ * After `shadowlap fix apply` or `shadowlap migrate apply` puts a patch in: the project's other
+ * goldens that now diverge on what it changed. A prompt or a tool description goes into every request the agent sends, so a golden
  * recorded before the change replays differently from its first model call, fails the next test,
  * and, when it may fork, forks there, before its task's takeover. Each is replayed offline, as
  * `shadowlap test` replays a golden that may not fork, in a store of its own that nothing keeps,
@@ -21,8 +21,10 @@ import { takeoverReader } from './tasks.js';
 export interface OutdatedGolden {
   /** As the test history names it: the pack folder relative to the project. */
   golden: string;
-  /** The call it diverged at, and the request field the patch changed there. */
+  /** The call it diverged at, its kind and name as the replay gives them (`api`, `POST /v1/messages`), and the request field the patch changed there. */
   callNo: number;
+  kind: string;
+  name: string;
   path: string;
 }
 
@@ -30,7 +32,7 @@ export interface OutdatedGolden {
 const CHECK_MS = 120_000;
 
 /** The goldens checked (none when the project has no other), and those the patch left behind. */
-export async function outdatedGoldens(store: Store, o: { cwd: string; goldens: string; patch: string; skip: readonly string[]; log: (line: string) => void }): Promise<{ checked: number; outdated: OutdatedGolden[] }> {
+export async function outdatedGoldens(store: Store, o: { cwd: string; goldens: string; patch: string; skip: readonly string[]; log: (line: string) => void; checking?: (n: number) => string }): Promise<{ checked: number; outdated: OutdatedGolden[] }> {
   const skip = new Set(o.skip.map((g) => goldenName(g, o.cwd)));
   const listed = projectGoldens(o.cwd, o.goldens).filter((g) => !g.error && !skip.has(g.path));
   // Replayed in a store of their own, every golden would read as imported: the project's store says which this machine recorded.
@@ -47,7 +49,7 @@ export async function outdatedGoldens(store: Store, o: { cwd: string; goldens: s
   }
   const takeoverAt = takeoverReader(o.cwd, store);
   const text = patchText(o.patch);
-  o.log(`  checking the project's other goldens against the patch: ${others.length} replayed offline`);
+  o.log(o.checking ? o.checking(others.length) : `  checking the project's other goldens against the patch: ${others.length} replayed offline`);
   const out: OutdatedGolden[] = [];
   const scratch = Store.open(':memory:');
   try {
@@ -72,7 +74,7 @@ export async function outdatedGoldens(store: Store, o: { cwd: string; goldens: s
         const takeover = takeoverAt(dir);
         if (takeover === null || d.callNo >= takeover) continue;
       }
-      out.push({ golden: g.path, callNo: d.callNo, path: changed.path });
+      out.push({ golden: g.path, callNo: d.callNo, kind: d.kind, name: d.name, path: changed.path });
     }
   } finally {
     scratch.close();

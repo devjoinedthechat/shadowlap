@@ -379,7 +379,7 @@ describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
     const result = json(applied);
     expect(result).toMatchObject({ fixId, status: 'applied', patch: 'applied', repairId: report.repairId, tests: 'passed' });
     // It replays the other goldens offline and names the one that diverges on what the patch changed.
-    expect(result.outdated).toEqual([{ golden: 'goldens/good-refund', callNo: 1, path: '$.system' }]);
+    expect(result.outdated).toEqual([{ golden: 'goldens/good-refund', callNo: 1, kind: 'api', name: expect.any(String), path: '$.system' }]);
     expect(result.update).toBe('shadowlap test goldens/good-refund --update');
     expect(applied.out).toContain("checking the project's other goldens against the patch: 1 replayed offline");
     expect(applied.out).toContain('! 1 golden diverges on what the patch changed (#1 $.system): goldens/good-refund');
