@@ -7,7 +7,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { Store, unpackRun } from '@shadowlap/engine';
 import { exportHtml, type StaticPayload } from '../src/index.js';
 import { createExportedClient } from '../ui/api.js';
+import '../ui/palette-actions.js';
+import { paletteSources, type PaletteContext } from '../ui/palette-sources.js';
 import { CopyPages } from '../ui/pages/copy.js';
+import { testRow } from '../ui/run/run-commands.js';
 import { useRoute } from '../ui/router.js';
 import { AppProvider } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -176,6 +179,29 @@ describe('an exported copy', () => {
     await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
     expect(r!.all('[data-finding="injection"]')).toHaveLength(0);
     expect(r!.all('[data-act="results"]')).toHaveLength(0);
+  });
+
+  it('runs no injection test, so it offers no Run injection test…, Find cause… nor Pack with injection gate…, and loads none of their dialogs', async () => {
+    // The page's code that loads their scripts: the parts the served entry hands in, which a copy's
+    // entry never does, so the copy's script holds none of them (COPY_PARTS in test/ui-bundle-size.test.ts).
+    for (const part of ['TestDialog', 'PackWithGate', 'FindCause', 'CauseFinding', 'CheckMenu']) expect([part, loadersOf(new RegExp(`\\b${part}\\.js['"]`))]).toEqual([part, ['pages/served.tsx']]);
+    // A copy holds no test's read: no untrusted read, so its write has no Find cause…, and no finding of an answer.
+    const write = store.getCalls(runId).find((c) => c.name === 'send_email')!.callNo;
+    await open([forkId, runId], `#/run/${runId}/${write}`);
+    await r!.until('the call’s inspector', () => r!.all('.insp').length === 1);
+    expect(r!.all('[data-act="injcause"], [data-finding="cause"], .dialog')).toHaveLength(0);
+    // Nor its palette: this run's row and Security's typed rows are the served dashboard's.
+    expect(testRow(runId, 3, { live: false, exported: true, next: null, open: () => undefined })).toEqual([]);
+    const ctx = { app: { exported: true, actionsOff: null, hasKind: () => true }, route: { page: 'run', id: runId, call: write, view: null }, go: () => undefined } as unknown as PaletteContext;
+    const rows = paletteSources().flatMap((source) => {
+      try {
+        return source(ctx);
+      } catch {
+        // A source that reads more of the app than this stand-in holds offers nothing here.
+        return [];
+      }
+    });
+    expect(rows.filter((x) => x.label === 'Run injection test…')).toEqual([]);
   });
 
   it('never opens Export OpenTelemetry trace…: Share’s menu alone loads its dialog, and a copy draws no Share', () => {

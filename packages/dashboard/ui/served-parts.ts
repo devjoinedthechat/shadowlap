@@ -44,8 +44,10 @@ export type CauseFindingProps = ComponentProps<typeof CauseFinding>;
  * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the check menu or the builder; a
  * copy's next step is only ever Compare, so it draws no Run blame either, and no step that asks; a
  * copy keeps no injection results, so its run page draws no test's finding to open them from, no
- * Run injection test… (its fork menu and step are the served dashboard's) nor Pack with injection gate…, no Find cause… nor the answers it finds, and no Share to download a report from; a copy keeps no attempt's read, so an attempt's page there
- * draws no proof and marks nothing, test/ui-injection-results.test.ts).
+ * Run injection test… (its fork menu, step and palette rows are the served dashboard's) nor Pack with
+ * injection gate…, no Find cause… nor the answers it finds, and no Share to download a report from;
+ * a copy keeps no attempt's read, so an attempt's page there draws no proof and marks nothing,
+ * test/ui-injection-results.test.ts).
  */
 export interface ServedParts {
   /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
