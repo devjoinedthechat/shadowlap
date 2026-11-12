@@ -214,6 +214,12 @@ describe('an exported copy', () => {
     expect(rows.filter((x) => x.label === 'Run injection test…')).toEqual([]);
   });
 
+  it('keeps Failed a filter over its runs, so draws no issues, which the served dashboard alone hands in', async () => {
+    await open([forkId, runId], '#/runs?types=failed');
+    await r!.until('Failed picked', () => r!.all('.tbar .chips button[aria-pressed="true"]').some((b) => b.childNodes[0]?.textContent === 'Failed'));
+    expect(r!.all('table.issues')).toHaveLength(0);
+  });
+
   it('never opens Export OpenTelemetry trace…: Share’s menu alone loads its dialog, and a copy draws no Share', () => {
     // The page's code that loads the dialog's script: Share's menu, and nothing a copy draws, so the
     // copy's script holds none of it (COPY_PARTS in test/ui-bundle-size.test.ts).

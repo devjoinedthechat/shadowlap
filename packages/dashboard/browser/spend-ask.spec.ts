@@ -94,6 +94,24 @@ test('Never ask starts a priced fork at once, and Run repair still asks', async 
   await expect(dialog).toHaveCount(0);
 });
 
+test('a card shown before the run’s estimates answer gains its price as they do', async ({ page }) => {
+  await holdSpending(page, null);
+  // The estimates answer only once the card has shown without them, as they can on a busy machine.
+  let release = () => {};
+  const cardShown = new Promise<void>((done) => (release = done));
+  await page.route(/\/api\/runs\/[^/]+\/estimates(\?.*)?$/, async (route) => {
+    await cardShown;
+    await route.continue();
+  });
+  await openPage(page, `/run/${demoId('ticket')}`, 'run');
+  await page.locator('#forkBtn').click();
+  await page.locator(`${MENU} [role="menuitem"]`, { hasText: RUN_LIVE }).hover();
+  await expect(page.locator('.tip[role="tooltip"]')).toBeVisible();
+  await expect(page.locator(CARD)).toHaveCount(0);
+  release();
+  await expect(page.locator(CARD)).toHaveText(/^≈\$[\d.,]+ · starts at once$/);
+});
+
 for (const [width, height] of [
   [1440, 900],
   [390, 844],

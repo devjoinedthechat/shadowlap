@@ -13,6 +13,8 @@ export interface MetaInput {
   address: string | null;
   jobKinds: string[];
   uploadLimit: number | null;
+  /** Open in editor's form on this machine (editor.ts); null where it can't open one. */
+  editor: string | null;
   project: ProjectView | null;
 }
 
@@ -43,6 +45,7 @@ export function metaView(store: StoreOf<'recording' | 'cleanup' | 'readModels'>,
     live: liveRuns(store),
     jobKinds: input.jobKinds,
     uploadLimit: input.uploadLimit,
+    editor: input.editor,
     project: input.project,
   };
 }

@@ -1,5 +1,6 @@
 import { JOB_KINDS } from '../api.js';
 import { shortId } from '../format.js';
+import { testsBusy } from '../goldens.js';
 import { ACTIONS } from '../labels.js';
 import type { FixLead, VerifyStep } from '../types.js';
 import { pluralS } from '../../../engine/src/words.js';
@@ -28,6 +29,8 @@ export const LEAD_KIND: Readonly<Record<FixLead['key'], string>> = {
   more: JOB_KINDS.verify,
   again: JOB_KINDS.verify,
   'verify-left': JOB_KINDS.verify,
+  bisect: JOB_KINDS.bisect,
+  revert: JOB_KINDS.revert,
 };
 
 /** What a lead does once the working tree is free, as its wait says it: "repair once it is done". */
@@ -39,6 +42,8 @@ export const LEAD_VERB: Readonly<Record<FixLead['key'], string>> = {
   more: 'run more attempts',
   again: 'verify again',
   'verify-left': 'verify it',
+  bisect: 'find the breaking commit',
+  revert: 'revert it',
 };
 
 /** A lead whose dialog shows the fix's detail, read when it is pressed: the rest ask from the lead's own fields. */
@@ -59,13 +64,25 @@ export function leadCard(lead: FixLead): string | null {
       return lead.pending ? capital(lead.pending) : lead.label === ACTIONS.applyFix.label ? 'Asks first: it changes your working tree' : null;
     case 'verify-left':
       return verifyLeftCard(lead.runs);
+    case 'bisect':
+    case 'revert':
+      // A crash's own step, in the words its run's page gives it.
+      return lead.step.sub ?? null;
     default:
       return verifyTip({ kind: lead.key, max: lead.max });
   }
 }
 
-/** Why a lead can't start now, or null: a job this dashboard doesn't run, or one holding the working tree it would use. */
-export function leadWait(lead: FixLead, o: { jobs: readonly TreeJob[]; folder: string | null; hasKind: (kind: string) => boolean }): string | null {
+/** A job leadWait reads: one using the working tree, and what Tests' waits read of it. */
+export type LeadJob = TreeJob & Parameters<typeof testsBusy>[0][number];
+
+/**
+ * Why a lead can't start now, or null: a job this dashboard doesn't run, or one holding the working
+ * tree it would use. A crash's Find breaking commit and Revert wait for Tests' jobs too, as on its
+ * run's page (`stepJob`): Revert, which changes the tree, for every job using it.
+ */
+export function leadWait(lead: FixLead, o: { jobs: readonly LeadJob[]; folder: string | null; projectId?: string | null; hasKind: (kind: string) => boolean }): string | null {
   if (!o.hasKind(LEAD_KIND[lead.key])) return 'This dashboard doesn’t run it: run the command in a terminal.';
-  return treeBusy(o.jobs, lead.use, LEAD_VERB[lead.key], o.folder);
+  const tests = lead.key === 'bisect' || lead.key === 'revert' ? testsBusy(o.jobs, LEAD_VERB[lead.key], o.projectId ?? null) : null;
+  return tests ?? treeBusy(o.jobs, lead.use, LEAD_VERB[lead.key], o.folder);
 }

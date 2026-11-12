@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ACTIONS, askConsent, commandIsImported, goldenNeedsConsent, goldenPath, hasRecordedCommand, importedCommandSource, quoteArgv, saidYes, setupJobArgs, type ProjectHost, type RunRecord } from '@shadowlap/engine';
 import type { ProjectConfig, RouteContext } from './context.js';
+import { packWait } from './projects.js';
 import type { JobBuildContext, JobBuildResult, JobKind, JobRequest } from './jobs.js';
 import { gateAsk, gateStep } from './pack-gate.js';
 import { sessionBusy, testsBusy } from './routes/tests.js';
@@ -29,7 +30,7 @@ import { keptGoldenAsk, type LiveQuestion } from './tests-live.js';
  * that command (consent.ts): one question, naming what its test runs live too where it does.
  */
 
-const KEEP_VERB = 'keep it as a test';
+const KEEP_VERB = 'pack it as a golden';
 const PACK_VERB = 'pack it';
 
 /** The job kind, for any run, and for the setup's recording where `setup` holds the projects. */
@@ -93,7 +94,11 @@ function anyRun(ctx: RouteContext, req: JobRequest, { store, project, projectId 
   return asked ?? job;
 }
 
-/** Keep it as a test: the setup's recording packed as a golden, then its test; once it is packed (here or in a terminal), the test alone. */
+/**
+ * The setup's Pack: its recording packed as a golden, then its test; once it is packed (here or in
+ * a terminal), the test alone. Either waits, as the page's button does, while a write tool isn't
+ * wrapped or was wrapped since the recording (`packWait`): a stale page or a second tab is refused.
+ */
 function setupRun(ctx: RouteContext, h: ProjectHost<ProjectConfig>, req: JobRequest, place: JobBuildContext): JobBuildResult {
   const { store, projectId } = place;
   if (!projectId) return anyRun(ctx, req, place);
@@ -102,7 +107,9 @@ function setupRun(ctx: RouteContext, h: ProjectHost<ProjectConfig>, req: JobRequ
   if (typeof req.project === 'string' && req.project && req.project !== projectId) return { error: `The dashboard switched to ${projectId}. Open ${req.project} again to keep its golden.`, status: 409 };
   const setup = h.setup(projectId);
   const run = setup.run;
-  if (!run || setup.live || !setup.steps.recorded) return { error: 'Record a first run before you keep it as a test.', status: 409 };
+  if (!run || setup.live || !setup.steps.recorded) return { error: 'Record a run before you pack it as a golden.', status: 409 };
+  const wait = packWait({ findings: entry.setup.findings, setup, packed: !!setup.golden });
+  if (wait) return { error: wait.text, status: 409 };
   const asked = typeof req.golden === 'string' && req.golden.trim() ? req.golden : (setup.golden ?? '');
   const check = goldenPath(asked, { folder: entry.path, runId: run.runId });
   if (!check.ok) return { error: check.error };

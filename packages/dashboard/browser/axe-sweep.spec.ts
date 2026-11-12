@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from '@playwright/test';
+import { expect, test, type Page, type Request, type Route } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
 import { routeTestsFixture } from './tests-fixture.js';
 
@@ -7,7 +7,8 @@ import { routeTestsFixture } from './tests-fixture.js';
  * each view, its inspector's tabs, its menus and dialogs, Fixes and each fix's steps, Tests and its
  * dialogs, a gated golden's evidence, Settings' tabs, the team store's setup, the palette, the shortcuts on every kind of page,
  * a toast with Undo and the bar that says the dashboard can't be reached; and again on a phone, 390 px
- * wide. Any serious or critical violation fails, named with the state it was found in.
+ * wide, with a not-found page of each kind and Runs while its table loads and once its read failed.
+ * Any serious or critical violation fails, named with the state it was found in.
  */
 
 /** The demo's runs by name, each by its id: every run the demo names. */
@@ -70,6 +71,38 @@ const at = (page: Page, path: string, drawn = 'main#view') => async () => {
   await settled(page);
 };
 const run = (page: Page, id: string, view = '') => at(page, `/run/${id}${view ? `/${view}` : ''}`, 'run');
+/** A link that names nothing: the not-found page, drawn once the other projects were asked whether one holds it. */
+const NOT_FOUND = 'main#view .ph h1:text-is("Nothing here")';
+/**
+ * Runs with its table's read held, its rows drawn as quiet bars, then answered 500, the error line
+ * with Retry in the table's place. The table reads `/api/runs/page?…`; the shell's own run list,
+ * `/api/runs`, answers as ever. Opened from another page, so Runs starts its read anew.
+ */
+function runsTableHeld(page: Page): Array<[string, () => Promise<void>]> {
+  const TABLE = /\/api\/runs\/page/;
+  const held: Route[] = [];
+  const fail = (route: Route) => route.fulfill({ status: 500, body: '' });
+  // Held, then answered 500. The route goes only once nothing is held: its going lets what it holds through.
+  let answer = (route: Route) => void held.push(route);
+  const loading = async () => {
+    const open = apiRequests(page);
+    await page.route(TABLE, (route) => answer(route));
+    await openPage(page, '/runs', 'main#view .runsec .rskrun');
+    // Every other read back, so axe reads the page as it stays while the table waits.
+    await expect.poll(() => [...open].map((r) => new URL(r.url()).pathname).filter((p) => p !== '/api/runs/page'), { timeout: 60_000, intervals: [25] }).toEqual([]);
+    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  };
+  const failed = async () => {
+    answer = (route) => void fail(route);
+    await Promise.all(held.splice(0).map(fail));
+    await settled(page, { shows: 'main#view .runsec .loaderr' });
+    await page.unroute(TABLE);
+  };
+  return [
+    ['Runs while its table loads on a phone', loading],
+    ['Runs when its table’s read failed on a phone', failed],
+  ];
+}
 /** Changes' Verdicts, drawn with its rows. */
 const VERDICTS = 'main#view table.vdt tbody tr';
 /**
@@ -95,6 +128,31 @@ const presetsRecording = (page: Page) => async () => {
   const m = view.matrices.find((x) => x.golden === 'goldens/refund-in-limit') ?? view.matrices[0];
   if (!m) throw new Error('the demo store has no error-path presets');
   await run(page, m.runId)();
+};
+/** Changes' Preview, drawn with its matrix's cells; an opened cell, drawn with its head; a run's Decisions view, drawn with its session's line. */
+const PREVIEW = 'main#view .dmx button.dc';
+const CELL = 'main#view .dcell .dch';
+const DVIEW = 'main#view .dview .dvhead';
+/** The demo's preview, a cell of it opened and its run's Decisions view, by the addresses the API gives. */
+async function previewed(page: Page): Promise<{ preview: string; cell: string; view: string }> {
+  const { origin, token } = dash();
+  const get = async <T>(path: string) => (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json()) as T;
+  const { sessions } = await get<{ sessions: Array<{ kind: string; sessionId: string }> }>('decisions');
+  const s = sessions.find((x) => x.kind === 'decisions');
+  if (!s) throw new Error('the demo store has no preview');
+  const { matrix } = await get<{ matrix: Array<{ runId: string; inStore: boolean }> }>(`decisions/${s.sessionId}`);
+  const runId = matrix.find((r) => r.inStore)?.runId;
+  if (!runId) throw new Error('the demo’s preview names no run the store holds');
+  const mine = (await get<{ sessions: Array<{ sessionId: string; href: string; changes: string }> }>(`runs/${runId}/decisions`)).sessions.find((x) => x.sessionId === s.sessionId)!;
+  return { preview: `/changes/decisions/${s.sessionId}`, cell: mine.changes.slice(1), view: mine.href.slice(1) };
+}
+const previews = async (page: Page, on = ''): Promise<Array<[string, () => Promise<void>]>> => {
+  const p = await previewed(page);
+  return [
+    [`Preview${on}`, at(page, p.preview, PREVIEW)],
+    [`a preview’s opened cell${on}`, at(page, p.cell, CELL)],
+    [`a run’s Decisions view${on}`, at(page, p.view, DVIEW)],
+  ];
 };
 const click = (page: Page, selector: string, text?: string, o: { shows?: string; hides?: string } = {}) => async () => {
   apiRequests(page);
@@ -130,7 +188,7 @@ test.describe.configure({ timeout: 300_000 });
 test('every page and Settings tab has no serious or critical axe violation', async ({ page }) => {
   const pages = ['/', '/runs', '/runs?types=capture', '/runs?types=test', '/runs?types=failed', '/runs?q=label%3Agood', '/fixes', '/tests', '/training', '/training/tasks', '/compare', '/new'];
   const settings = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
-  const changes: Array<[string, () => Promise<void>]> = [['/changes', at(page, '/changes', VERDICTS)], ['a revision’s page', revision(page)], ['/compare with a row open', compareOpen(page)]];
+  const changes: Array<[string, () => Promise<void>]> = [['/changes', at(page, '/changes', VERDICTS)], ['a revision’s page', revision(page)], ['/compare with a row open', compareOpen(page)], ...(await previews(page))];
   expect(await sweep(page, [...pages.map((p): [string, () => Promise<void>] => [p, at(page, p)]), ...changes, ...settings.map((t): [string, () => Promise<void>] => [`Settings → ${t}`, at(page, `/settings/${t}`)])])).toEqual([]);
 });
 
@@ -139,7 +197,7 @@ test('every run of the demo, and every view of a few, has no serious or critical
   // A capture's Turns (litellm's, whose model called no tool, hold nothing that takes the focus) and a chat's too.
   const views = ['ticket', 'override', 'batchFork', 'eval', 'litellm', 'chat'].flatMap((name) => {
     const id = dash().runs[name] as string;
-    return ['turns', 'context', 'timeline', 'forks', 'provenance'].map((v): [string, () => Promise<void>] => [`run ${name} · ${v}`, run(page, id, v)]);
+    return ['turns', 'context', 'timeline', 'forks', 'provenance', 'decisions'].map((v): [string, () => Promise<void>] => [`run ${name} · ${v}`, run(page, id, v)]);
   });
   expect(await sweep(page, [...all, ...views])).toEqual([]);
 });
@@ -307,7 +365,7 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
   await page.setViewportSize({ width: 390, height: 844 });
   const states: Array<[string, () => Promise<void>]> = [];
   for (const p of ['/', '/runs', '/runs?types=failed', '/fixes', '/tests', '/training', '/compare', '/new', '/setup/store']) states.push([`${p} on a phone`, at(page, p)]);
-  states.push(['/changes on a phone', at(page, '/changes', VERDICTS)], ['a revision’s page on a phone', revision(page)], ['/compare with a row open on a phone', compareOpen(page)]);
+  states.push(['/changes on a phone', at(page, '/changes', VERDICTS)], ['a revision’s page on a phone', revision(page)], ['/compare with a row open on a phone', compareOpen(page)], ...(await previews(page, ' on a phone')));
   for (const t of ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store']) states.push([`Settings → ${t} on a phone`, at(page, `/settings/${t}`)]);
   for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step} on a phone`, at(page, `/fixes/${fx}${step}`, 'fix')]);
   for (const name of ['ticket', 'litellm', 'batchFork']) {
@@ -315,6 +373,9 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
     for (const v of ['', 'turns', 'timeline']) states.push([`run ${name}${v ? ` · ${v}` : ''} on a phone`, run(page, id, v)]);
   }
   states.push(['Runs on a phone', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import capture… on a phone', click(page, 'main#view button', 'Import capture…', { shows: DIALOG })], ['Runs · import closed on a phone', escape(page)]);
+  // A link that names nothing, of each kind; then Runs while its table loads, and once its read failed.
+  for (const p of ['/nowhere', '/run/01ZZZZZZZZZZZZZZZZZZZZZZZZ', '/fixes/fx-nope']) states.push([`${p} on a phone`, at(page, p, NOT_FOUND)]);
+  states.push(...runsTableHeld(page));
   expect(await sweep(page, states)).toEqual([]);
 });
 

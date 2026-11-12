@@ -7,7 +7,6 @@ import type { ChecksConfig } from '../checks-api.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { ConsentDialog, Dialog, pressWayOn } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
-import { Skeleton } from '../components/States.js';
 import { Term } from '../components/Term.js';
 import { useTestsWait } from '../fixes/tree.js';
 import { shortId } from '../format.js';
@@ -19,7 +18,7 @@ import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { GateEntry, UntrustedView } from '../types.js';
 import { readsWords } from './reads-words.js';
-import { TemplatePicks, usePlanEstimate } from './TemplatePicks.js';
+import { ReadsWait, TemplatePicks, usePlanEstimate } from './TemplatePicks.js';
 import './job-footer.js';
 
 /*
@@ -74,8 +73,8 @@ export function PackWithGate(props: PackWithGateProps) {
   const title = namedIn(`Pack ${id} with injection gate?`, id);
   if (!set.data || !run.data || !config.data) {
     return (
-      <Dialog title={title} lead={<Lead />} doc={DOC} warn={failed ? { text: errorText(failed), tone: 'red' } : null} ok={OK} okWhy={failed ? errorText(failed) : 'Reading what the gate plants in'} onClose={props.onClose}>
-        {failed ? null : <Skeleton what="the run’s untrusted reads" lines={3} />}
+      <Dialog title={title} lead={<Lead />} doc={DOC} ok={OK} okWhy={failed ? 'What the gate plants in didn’t load' : 'Reading what the gate plants in'} onClose={props.onClose}>
+        <ReadsWait loads={[set, run, config]} />
       </Dialog>
     );
   }

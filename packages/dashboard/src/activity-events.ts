@@ -1,4 +1,4 @@
-import { ACTIONS, confirmWords, goldenWords, isObject, presetTotals, type StoredEvent } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, DECISIONS_ID, goldenWords, isObject, presetTotals, type StoredEvent } from '@shadowlap/engine';
 import type { ActivityIcon } from './views.js';
 import { links } from './links.js';
 
@@ -31,9 +31,17 @@ const flagged = (d: Record<string, unknown>) => (Number(d.flagged) ? ` · ${Numb
 const labels = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
-  // A session of `shadowlap decisions` or `migrate` (the Changes page opens one), by its name; one
-  // kept before events had a name, by its change. One that settled nothing says why, as its page does.
-  ['decisions.done', (_e, d) => (typeof d.why === 'string' && d.why ? { kind: 'fork', outcome: 'warn', text: `Preview inconclusive · ${previewName(d)} on ${runs(d)} · ${d.why}` } : { kind: 'fork', text: `Previewed ${previewName(d)} on ${runs(d)}${flagged(d)}` })],
+  // A session of `shadowlap decisions` or `migrate`, by its name; one kept before events had a name,
+  // by its change. One that settled nothing says why, as its page does. A preview opens on its tab
+  // under Changes, at its session; a migration, its run if it has one, until its tab lands.
+  [
+    'decisions.done',
+    (e, d) => {
+      const at = e.ref && DECISIONS_ID.test(e.ref) ? { href: links.changeSession('decisions', e.ref) } : {};
+      if (typeof d.why === 'string' && d.why) return { kind: 'fork', outcome: 'warn', text: `Preview inconclusive · ${previewName(d)} on ${runs(d)} · ${d.why}`, ...at };
+      return { kind: 'fork', text: `Previewed ${previewName(d)} on ${runs(d)}${flagged(d)}`, ...at };
+    },
+  ],
   [
     'migrate.done',
     (_e, d) => {

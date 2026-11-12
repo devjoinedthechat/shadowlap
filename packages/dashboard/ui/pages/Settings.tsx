@@ -21,9 +21,9 @@ import { ToolsTab } from './settings/Tools.js';
  * Settings (`#/settings/<tab>`): how this project records, replays and shares, most of it kept in
  * shadowlap.config.json beside its code, one tab per address. Matching, Redaction, CI
  * (`#/settings/ci`, still opened by `#/settings/alerts`), Coding agents, Tools, Project (still
- * opened by `#/settings/plan`) and Store. It is the one page a project with no runs can open:
- * nothing here needs a run. A project that can't be opened (its folder is gone) says so in its
- * header, as its setup does, with Remove project…; its tabs turn their edits off (`useFolderGone`).
+ * opened by `#/settings/plan`) and Store. Nothing here needs a run, so it opens as it is in a project
+ * with none. A project that can't be opened (its folder is gone) says so in its header, as every
+ * other page does in its place, with Remove project…; its tabs turn their edits off (`useFolderGone`).
  */
 export function SettingsPage({ tab }: { tab: string | null }) {
   const { meta } = useApp();

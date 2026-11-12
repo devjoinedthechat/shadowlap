@@ -1,9 +1,13 @@
-import { commandIsImported, type DecisionRun, type DecisionStep, fieldValue, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, judgedOutcome, quoteArgv, retirementTable, type StoreOf } from '@shadowlap/engine';
+import { commandIsImported, type DecisionRun, fieldValue, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyWords } from '@shadowlap/engine';
+import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { type RetiringModel, retiringModels } from './retirements.js';
 import { optionLike, type GoldenSource } from './tests.js';
+import { sessionFacts } from './verdicts.js';
+
+export { decisionRow, type DecisionCell, type DecisionRow, type RowEnding, type ViewStep } from './decision-cells.js';
 
 /**
  * The decision diff as the dashboard reads it (`shadowlap decisions`, `migrate`): the sessions the
@@ -12,53 +16,32 @@ import { optionLike, type GoldenSource } from './tests.js';
  * migrate and verify what a session flagged. Plain functions of the store, for the Changes page.
  */
 
-/** A session in the list: what changed, over how many runs, how many flagged, and where to open it (its page under Changes). */
+/**
+ * A session in the list: what changed, over how many runs, how many flagged, and where to open it (its
+ * page under Changes); its name (`decisionsName`), how many of its runs came from a golden and whether
+ * to call them goldens (every one did) or runs, and its samples a step. `actor` is who ran it, which a
+ * page shows only where checks are shared.
+ */
 export interface DecisionSessionView {
   sessionId: string;
   kind: 'decisions' | 'migrate';
   at: number;
   change: string;
+  name: string;
   runs: number;
+  goldens: number;
+  unit: 'golden' | 'run';
+  samples: number | null;
   flagged: number;
   actor: string | null;
   revision: string | null;
   href: string;
 }
 
-/**
- * One model call in a run's row of the matrix: its rank (the most consequential change any sample
- * showed; 0 the same, null not asked), the rank most of its samples show (`majority`, which flags
- * the run), how often it changed, for a cell drawn split, and how the judge checks that read a
- * text-only change came out (`judge`).
- */
-export interface DecisionCell {
-  callNo: number;
-  step: number;
-  rank: number | null;
-  majority: number | null;
-  changed: number;
-  answered: number;
-  /**
-   * For a text-only change a judge check reads (judgedOutcome): `inconclusive` when the step waits on
-   * a judge (the words of a sample could not be judged, and its samples don't flag it without them),
-   * else `changed` when a check comes out otherwise for the new words (the cell ranks 2), `unchanged`
-   * when every one came out as recorded; null when no check read it.
-   */
-  judge: 'changed' | 'inconclusive' | 'unchanged' | null;
-}
-
-/** A run's row of the matrix, its cells in call order. */
-export interface DecisionRow {
-  runId: string;
-  golden: string | null;
-  /** How the row is titled: the golden's name, else the run's short id. */
-  title: string;
-  rank: number | null;
-  cells: DecisionCell[];
-}
-
 export interface DecisionsListView {
   sessions: DecisionSessionView[];
+  /** The project's goldens: with none, a page waits for one before it offers a preview on every golden. */
+  goldens: number;
   /** The models the project's goldens use that retire, for Needs a look. */
   retirements: RetirementsView;
 }
@@ -69,30 +52,20 @@ export interface RetirementsView {
   notices: RetiringModel[];
 }
 
-/** A run's part of a session, opened at its most consequential change (`decisionRow`'s cells), else at its start. */
-function runHref(runId: string, data: unknown): string {
-  let run: DecisionRun | null;
-  try {
-    run = typeof data === 'string' ? (JSON.parse(data) as DecisionRun) : (data as DecisionRun);
-  } catch {
-    run = null;
-  }
-  const cells = run && Array.isArray(run.decisions) ? decisionRow(run).cells : [];
-  const ranked = cells.filter((c) => typeof c.rank === 'number' && c.rank > 0).sort((a, b) => a.rank! - b.rank! || a.callNo - b.callNo)[0];
-  return links.run(runId, ranked?.callNo ?? null);
+/** A row's most consequential call, the one its links open: its lowest rank, the first such call; null when none changed. */
+export function telling(row: Pick<DecisionRow, 'cells'>): number | null {
+  const ranked = row.cells.filter((c) => typeof c.rank === 'number' && c.rank > 0).sort((a, b) => a.rank! - b.rank! || a.callNo - b.callNo)[0];
+  return ranked?.callNo ?? null;
 }
 
 /** The sessions the store keeps, newest first, each opening at its own page under Changes (a preview's tab, a migration's). */
-export function decisionSessions(store: StoreOf<'decisions'>, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
-  return store.listDecisionSessions(o).map((s) => ({ ...s, href: links.changeSession(s.kind, s.sessionId) }));
-}
-
-/** A run's row: its model calls in call order, each with its rank. */
-export function decisionRow(run: DecisionRun): DecisionRow {
-  const cells = [...run.decisions]
-    .sort((a, b) => a.callNo - b.callNo)
-    .map((s: DecisionStep): DecisionCell => ({ callNo: s.callNo, step: s.step, rank: s.rank ?? (s.samples.answered ? 0 : null), majority: s.majority ?? (s.samples.answered === 1 ? s.rank : null) ?? (s.samples.answered ? 0 : null), changed: s.samples.changed, answered: s.samples.answered, judge: judgedOutcome(s) }));
-  return { runId: run.runId, golden: run.golden, title: run.golden ?? run.runId.slice(0, 10), rank: run.rank, cells };
+export function decisionSessions(store: StoreOf<'decisions'> & Store, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
+  const rows = store.listDecisionSessions(o);
+  const facts = sessionFacts(store, rows.map((s) => s.sessionId));
+  return rows.map((s) => {
+    const f = facts.get(s.sessionId);
+    return { ...s, name: f?.name ?? s.change, goldens: f?.goldens ?? 0, unit: f?.unit ?? 'run', samples: f?.samples ?? null, href: links.changeSession(s.kind, s.sessionId) };
+  });
 }
 
 /**
@@ -105,21 +78,68 @@ export function decisionSession(store: StoreOf<'decisions'>, sessionId: string):
   const s = store.getDecisionSession(sessionId);
   if (!s) return null;
   const runs = s.runRows.map((r) => r.data as unknown as DecisionRun);
-  const matrix = runs.map(decisionRow);
   if (s.kind === 'migrate') {
     const decisions = { ...((s.data.decisions as Record<string, unknown> | undefined) ?? {}), runs };
-    return { ...s.data, kind: 'migrate', decisions, matrix };
+    return { ...s.data, kind: 'migrate', decisions, matrix: runs.map((r) => decisionRow(r)) };
   }
-  return { ...s.data, kind: 'decisions', runs, matrix };
+  const fromCode = !!(s.data.change as { fromCode?: unknown } | undefined)?.fromCode;
+  return { ...s.data, kind: 'decisions', runs, matrix: runs.map((r) => decisionRow(r, { fromCode })) };
 }
 
-/** A run's decisions under each session that asked its model calls again, newest first, for its page's Decisions view. */
-export function runDecisions(store: StoreOf<'decisions'>, runId: string, limit = 10): { runId: string; sessions: Array<{ sessionId: string; kind: 'decisions' | 'migrate'; at: number; change: string; rank: number | null; changed: number; href: string; row: DecisionRow; run: DecisionRun }> } {
+/** A run's part of one session, for its Decisions view. */
+export interface RunDecisionsSession {
+  sessionId: string;
+  kind: 'decisions' | 'migrate';
+  at: number;
+  change: string;
+  name: string;
+  samples: number | null;
+  rank: number | null;
+  changed: number;
+  /** Its Decisions view at the run's most consequential call; `changes`, its cell on Changes. */
+  href: string;
+  changes: string;
+  row: DecisionRow;
+  /** The steps its view lists, ranked first, each worded (`viewSteps`). */
+  steps: ViewStep[];
+  run: DecisionRun;
+  /** Whether the session left it to verify (`toVerify`; a session kept before it said which, the flagged). */
+  toVerify: boolean;
+  /** What verify found of it: its outcome, its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`), and the rule it was decided by. Null until verify took it. */
+  verified: { outcome: string; tally: string; rule: string | null } | null;
+}
+
+/** A run's decisions under each session that asked its model calls again, newest first, for its page's Decisions view; with the line about later steps where one did. */
+export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string, limit = 10): { runId: string; sessions: RunDecisionsSession[]; later: typeof LATER_STEPS | null } {
+  const rows = store.decisionsOfRun(runId, limit);
+  const facts = sessionFacts(store, rows.map((r) => r.sessionId));
   return {
     runId,
-    sessions: store.decisionsOfRun(runId, limit).map((r) => {
+    later: rows.length ? LATER_STEPS : null,
+    sessions: rows.map((r) => {
       const run = r.data as unknown as DecisionRun;
-      return { sessionId: r.sessionId, kind: r.kind, at: r.at, change: r.change, rank: r.rank, changed: r.changed, href: runHref(runId, run), row: decisionRow(run), run };
+      const f = facts.get(r.sessionId);
+      const row = decisionRow(run);
+      const call = telling(row);
+      const v = f?.verify && f.verify.verdict !== 'not-run' ? f.verify : null;
+      const entry = v?.runs.find((x) => x.runId === runId) ?? null;
+      return {
+        sessionId: r.sessionId,
+        kind: r.kind,
+        at: r.at,
+        change: r.change,
+        name: f?.name ?? r.change,
+        samples: f?.samples ?? null,
+        rank: r.rank,
+        changed: r.changed,
+        href: links.run(runId, call, 'decisions'),
+        changes: links.changeSession(r.kind, r.sessionId, runId, call),
+        row,
+        steps: viewSteps(run),
+        run,
+        toVerify: !!f?.toVerify.includes(runId),
+        verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), rule: entry.rule ?? v?.rule ?? null } : null,
+      };
     }),
   };
 }
@@ -257,25 +277,33 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
 /** A session's report: a decisions session's own, a migration's decisions. */
 export const sessionReport = (session: NonNullable<ReturnType<typeof decisionSession>>) => (session.kind === 'migrate' ? session.decisions : session) as { flagged?: unknown; toVerify?: unknown; runs?: DecisionRun[]; change?: { fromCode?: unknown } };
 
+/** The run of `among` that `w` names, by its id or a prefix of 6 or more. */
+const namedRun = (among: readonly string[], w: unknown): string | undefined => among.find((id) => id === w || (typeof w === 'string' && w.length >= 6 && id.startsWith(w)));
+
 /**
- * The runs a session's Verify takes, as `decisions --verify <session> [run]` picks them: those it
- * could not clear (`toVerify`; a session kept before it said which, the ones it flagged), or the one
- * `runId` names among them, by its id or a prefix of 6 or more. Why there are none, when none.
+ * The runs a session's Verify takes, as `decisions --verify <session> [run…]` picks them: those it
+ * could not clear (`toVerify`; a session kept before it said which, the ones it flagged), or those
+ * `named` names among them (a run id, or a list of them; an empty list names none), each by its id or
+ * a prefix of 6 or more. Why there are none, when none, naming each run named that it cleared or never asked.
  */
-export function runsToVerify(session: NonNullable<ReturnType<typeof decisionSession>>, runId?: unknown): string[] | { error: string; status: number } {
+export function runsToVerify(session: NonNullable<ReturnType<typeof decisionSession>>, named?: unknown): string[] | { error: string; status: number } {
   const report = sessionReport(session);
   const listed = Array.isArray(report.toVerify) ? report.toVerify : report.flagged;
-  let ids = (Array.isArray(listed) ? listed : []).filter((id): id is string => typeof id === 'string');
-  if (runId !== undefined) {
-    ids = ids.filter((id) => id === runId || (typeof runId === 'string' && runId.length >= 6 && id.startsWith(runId)));
-    if (!ids.length) return { error: 'this session cleared that run: there is nothing to verify', status: 404 };
-  }
-  return ids.length ? ids : { error: 'this session cleared every run: there is nothing to verify', status: 409 };
+  const ids = (Array.isArray(listed) ? listed : []).filter((id): id is string => typeof id === 'string');
+  const wanted: unknown[] = named === undefined ? [] : Array.isArray(named) ? named : [named];
+  if (!wanted.length) return ids.length ? ids : { error: 'this session cleared every run: there is nothing to verify', status: 409 };
+  const missing = wanted.filter((w) => !namedRun(ids, w));
+  const asked = session.matrix.map((row) => row.runId);
+  const shown = (ws: unknown[]) => ws.map((w) => String(w).slice(0, 40)).join(', ');
+  const strangers = missing.filter((w) => !namedRun(asked, w));
+  if (strangers.length) return { error: `this session asked no run ${shown(strangers)}`, status: 404 };
+  if (missing.length) return { error: `this session cleared ${shown(missing)}: ${missing.length === 1 ? 'it has' : 'they have'} nothing to verify`, status: 409 };
+  return [...new Set(wanted.map((w) => namedRun(ids, w)!))];
 }
 
 /**
  * Verify the runs a session could not clear, the page's primary action: `shadowlap decisions --verify
- * <session>` (with the one `runId` names), which verifies each run under its own checks (its
+ * <session>` (with the one `runId` names, or those `runIds` name, the runs no verify took yet), which verifies each run under its own checks (its
  * golden's, or for a run named by id those of the recording it comes from), one verify per set of
  * checks, in the role its recording plays under them, with the session's change, and keeps what it
  * finds in the session.
@@ -284,7 +312,10 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
-  const flagged = runsToVerify(session, req.runId);
+  if (req.runIds !== undefined && (!Array.isArray(req.runIds) || req.runIds.length > 500)) return { error: 'runIds is a list of the runs to verify' };
+  // A list naming none names none, as the estimate takes it: every run left to verify.
+  const named = Array.isArray(req.runIds) && req.runIds.length ? req.runIds : req.runId;
+  const flagged = runsToVerify(session, named);
   if (!Array.isArray(flagged)) return flagged;
   const runs = flagged.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null);
   if (runs.length < flagged.length) return { error: 'a run this session flagged is no longer in the store', status: 409 };
@@ -299,7 +330,7 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
     req.yes,
   );
   if ('ask' in consent) return consent.ask;
-  const args = ['decisions', '--verify', req.sessionId, ...(req.runId !== undefined ? [flagged[0]!] : []), ...consent.yes];
+  const args = ['decisions', '--verify', req.sessionId, ...(named !== undefined ? flagged : []), ...consent.yes];
   return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} end to end`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
 }
 

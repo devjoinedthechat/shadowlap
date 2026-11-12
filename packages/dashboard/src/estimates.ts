@@ -109,7 +109,7 @@ export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: 
  * one `runId` names, as `decisions --verify` takes them. `work` is the config's tests, as the
  * outcome's reads take it, which give each run's checks; `rule` the config's `verify`.
  */
-export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runId: string | null; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
+export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runIds: string[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
 
 /**
  * A dialog's price. Run injection test…'s and Pack with injection gate…'s: the plan picked, priced as
@@ -398,7 +398,7 @@ async function decisionEstimates(store: Store, job: DecisionEstimatesJob): Promi
   const session = decisionSession(store, job.sessionId);
   if (!session) return failed(404, `no session ${job.sessionId.slice(0, 40)}`);
   const report = sessionReport(session);
-  const ids = runsToVerify(session, job.runId ?? undefined);
+  const ids = runsToVerify(session, job.runIds.length ? job.runIds : undefined);
   const picked = (Array.isArray(ids) ? ids : []).map((id) => ({ row: report.runs?.find((r) => r.runId === id), run: store.getRun(id) }));
   if (!picked.length || picked.some((p) => !p.row || !p.run)) return answer({ verify: null } satisfies DecisionEstimates, { tagged: true });
   const entries = parseWork(job.work)?.entries ?? [];

@@ -8,6 +8,7 @@ import { EXPORT_KINDS, exportDatasetJob, exportHarJob, exportHtmlJob, exportOtel
 import { choicesInCheckout } from '../commits-here.js';
 import { goldensOf } from '../outcome-work.js';
 import { runOffers } from '../run-offers.js';
+import { foundHere } from '../found-here.js';
 
 /**
  * The run page beyond the run itself: `GET /api/runs/:id/offers` (what the page offers to do with a
@@ -58,7 +59,9 @@ export function register(router: Router, ctx: RouteContext): void {
     const offers = runOffers(store, r.params.id!, { redact, config, goldens: goldensOf(ctx), head, dir: ctx.project?.path ?? null });
     if (!offers) throw new HttpError(404, `no run ${r.params.id!}`);
     // Find breaking commit offers only commits this checkout has: a teammate's pulled run names theirs.
-    r.tagged(offers.bisect ? { ...offers, bisect: await choicesInCheckout(ctx.project?.path, offers.bisect) } : offers);
+    // A crash's first bad commit is served as every found commit is (found-here.ts).
+    const [bisect, commit] = await Promise.all([offers.bisect && choicesInCheckout(ctx.project?.path, offers.bisect), offers.commit && foundHere(offers.commit, ctx.project?.path)]);
+    r.tagged({ ...offers, bisect, ...(offers.commit !== undefined ? { commit } : {}) });
   });
 
   // Every call of the run: worked out beside the server (read-pool.ts).

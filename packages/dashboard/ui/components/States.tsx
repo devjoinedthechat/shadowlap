@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { ApiError } from '../api.js';
 import { useApp } from '../state.js';
 import { CodeBox } from './CodeBox.js';
 import { Copy } from './Copy.js';
@@ -100,4 +101,14 @@ export function ErrorState({ word = 'couldn’t load', children, retry, retryLab
       ) : null}
     </section>
   );
+}
+
+/**
+ * The line a page's error state says when its read failed: the server's own sentence where it sent
+ * one (a read that took too long says `…, so it was stopped`), else the status it answered; any
+ * other failure, its own message. Every page's error line reads it, so a timeout reads alike on all.
+ */
+export function failedRead(err: Error): string {
+  if (!(err instanceof ApiError)) return err.message;
+  return err.message && err.message !== `HTTP ${err.status}` ? err.message : `The dashboard server answered ${err.status} for this page’s data.`;
 }

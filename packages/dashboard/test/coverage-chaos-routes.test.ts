@@ -71,13 +71,25 @@ const PARSE_REFUSAL = (() => {
   throw new Error('parseExpect took a count of "twice"');
 })();
 
-/** Starts a job; one that started is waited for, so the next starts on goldens nothing else is using. */
 /** The goldens the dashboard is given: the project's one, and any a test adds for a moment. */
 const goldens: GoldenSource[] = [];
 
+/**
+ * What a job's start answered, read once and handed back as a response of its own. On Node 22 a
+ * clone dropped while the job is waited for cancels the original's body once the collector takes it
+ * (undici 6), and the original then reads as consumed: under load, `res.clone()` failed that way.
+ */
+const readOnce = async (res: Response): Promise<{ res: Response; text: string }> => {
+  const text = await res.text();
+  return { res: new Response(text, { status: res.status, headers: res.headers }), text };
+};
+
+/** Starts a job; one that started is waited for, so the next starts on goldens nothing else is using. */
 const startJob = async (body: unknown, o: { wait?: boolean } = {}) => {
-  const res = await api('jobs', { method: 'POST', body: JSON.stringify(body) });
-  if (res.status === 202 && o.wait !== false) await jobDone(((await res.clone().json()) as { id: string }).id);
+  const started = await api('jobs', { method: 'POST', body: JSON.stringify(body) });
+  if (started.status !== 202 || o.wait === false) return started;
+  const { res, text } = await readOnce(started);
+  await jobDone((JSON.parse(text) as { id: string }).id);
   return res;
 };
 
@@ -97,7 +109,7 @@ beforeAll(async () => {
   store.endRun(packRun, 'completed', T0 + 1);
 
   store.saveCoverageScan({ scanId: 'S1', at: T0, runs: 3, groups: 2, uncovered: 1, goldens: 1, actor: 'dana@example.com', data: { goldens: ['goldens/escalate'] } }, [group({}), group({ key: 'bbbb000011112222', behaviour: { path: ['lookup_order', 'escalate'], writes: ['escalate'], unknown: [], outcome: 'answered' }, runs: 1, runIds: ['C1'], coveredBy: ['goldens/escalate'], nearest: null, command: null })]);
-  // The last --pack found the agent no longer does what production did: Keep it as a test may pack it as a golden that forks.
+  // The last --pack found the agent no longer does what production did: the setup's Pack may pack it as a golden that forks.
   store.saveCoveragePack({ key: 'aaaa000011112222', at: T0 - 500, golden: null, runId: null, from: 'C1', mode: null, reason: 'not-reproduced', why: 'node agent.mjs B-7 doesn\'t reproduce C1: diverged at call 1 (api POST /v1/messages), where the agent sends something else now', command: { argv: ['node', 'agent.mjs', 'B-7'], from: 'REC1' } });
 
   store.startChaosSession({ sessionId: 'X1', startedAt: T0 + 2, command: ['shadowlap', 'test', 'goldens/forecast', '--chaos'], presets: ['timeout', 'malformed', '429'] });
@@ -489,9 +501,10 @@ describe('a dashboard over projects', () => {
     const projectDash = await startDashboard({ projects: host, spawnCli: (args: string[]) => (ran.push(args), spawn(process.execPath, ['-e', ''], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'] })) });
     const headers = { 'x-shadowlap-token': projectDash.token, 'content-type': 'application/json' };
     const post = async (body: unknown) => {
-      const res = await fetch(`${projectDash.url}/api/jobs`, { method: 'POST', headers, body: JSON.stringify(body) });
-      if (res.status !== 202) return res;
-      const { id } = (await res.clone().json()) as { id: string };
+      const started = await fetch(`${projectDash.url}/api/jobs`, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (started.status !== 202) return started;
+      const { res, text } = await readOnce(started);
+      const { id } = JSON.parse(text) as { id: string };
       for (let i = 0; i < 200; i++) {
         const job = (await (await fetch(`${projectDash.url}/api/jobs/${id}`, { headers })).json()) as { done: boolean };
         if (job.done) break;

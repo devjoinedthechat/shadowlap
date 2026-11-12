@@ -11,7 +11,7 @@ import { useApp } from '../state.js';
  * not-found should that script fail to come.
  *
  * Declared here, apart from the pages that show it, since the page list shows it too: a link into a
- * project with no runs yet asks before the setup takes the page (pages/lazy.tsx). So an exported copy,
+ * project that can't be opened asks before the setup takes the page (pages/lazy.tsx). So an exported copy,
  * built from the pages it shows (main-copy.tsx), takes it with them and not the page list, and the
  * bundle size test pins this one part the page list shows.
  */

@@ -117,6 +117,7 @@ export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommi
           <ActionButton
             role="menuitem"
             why={blocked}
+            whyAct={offers?.bisect?.onTests ? { label: 'Open Tests', run: () => navigate(href.tests()) } : undefined}
             tip={confirmWords(bisect.label)}
             sub={bisect.hint}
             command={bisectCardCommand(offers?.bisect ?? unknownBisect(runId))}

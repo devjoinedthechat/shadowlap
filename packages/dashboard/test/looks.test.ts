@@ -86,7 +86,7 @@ describe('the upgrades’ results in Needs a look', () => {
     expect(all[0].runId).toBe(failedRun);
   });
 
-  it('lists a preview whose flagged runs no verify accepted, opening the run at the call whose decision changed', () => {
+  it('lists a preview whose flagged runs no verify accepted, opening its cell on Preview, and a migration’s run, at the call whose decision changed', () => {
     const refund = run();
     const step = (callNo: number, majority: number | null) => ({ callNo, step: callNo, rank: majority, majority, samples: { asked: 1, answered: 1, changed: majority ? 1 : 0, ranks: [majority ?? 0] }, changes: [] });
     const decisionRun = { runId: refund, golden: 'goldens/forecast', rank: 1, decisions: [step(3, null), step(5, 1), step(7, 2)] };
@@ -104,7 +104,7 @@ describe('the upgrades’ results in Needs a look', () => {
     store.putDecisionSession({ sessionId: 'dc-01M5000000000000000000000F', kind: 'decisions', at: NOW - 6_000, change: 'temperature=1', actor: null, revision: null, data: { flagged: [], verify: null }, runs: [{ runId: refund, golden: 'goldens/forecast', rank: null, changed: 0, data: { ...decisionRun, rank: null, decisions: [step(3, null)] } }] });
     expect(items().filter((i) => i.kind === 'decisions')).toEqual([
       { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the model gpt-5-mini', detail: 'a migration: a write, stop or judged change · verify rejected it', key: 'attn:decisions:mg-01M5000000000000000000000D', group: 'tests', step: null, href: `#/run/${refund}/5`, runId: refund, fixId: null, at: NOW - 7_000 },
-      { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the prompt and tools in the working tree', detail: 'a preview: a write, stop or judged change · not verified yet', key: 'attn:decisions:dc-01M5000000000000000000000A', group: 'tests', step: null, href: `#/run/${refund}/5`, runId: refund, fixId: null, at: NOW - 9_000 },
+      { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the prompt and tools in the working tree', detail: 'a preview: a write, stop or judged change · not verified yet', key: 'attn:decisions:dc-01M5000000000000000000000A', group: 'tests', step: null, href: `#/changes/decisions/dc-01M5000000000000000000000A/${refund}/5`, runId: refund, fixId: null, at: NOW - 9_000 },
     ]);
   });
 
@@ -123,7 +123,7 @@ describe('the upgrades’ results in Needs a look', () => {
     expect(decisions()).toEqual([]);
     // An older preview that also flagged a run the migration never asked again: its line, for that run alone.
     session('dc-01M5000000000000000000000C', 'decisions', NOW - 20_000, { flagged: [ticket, third], verify: null }, [ticket, third]);
-    expect(decisions()).toEqual([expect.objectContaining({ title: '1 run decides differently under the model claude-haiku-4-5', detail: 'a preview: a write, stop or judged change · not verified yet', href: `#/run/${third}/17`, runId: third, at: NOW - 20_000 })]);
+    expect(decisions()).toEqual([expect.objectContaining({ title: '1 run decides differently under the model claude-haiku-4-5', detail: 'a preview: a write, stop or judged change · not verified yet', href: `#/changes/decisions/dc-01M5000000000000000000000C/${third}/17`, runId: third, at: NOW - 20_000 })]);
     // A newer migration flagged that run too, and its verify rejected it: the line is the migration's, once.
     session('mg-01M5000000000000000000000D', 'migrate', NOW - 1_000, { flagged: [third], decisions: { flagged: [third] }, passes: { verdict: 'rejected', runs: [] } }, [third]);
     expect(decisions()).toEqual([expect.objectContaining({ title: '1 run decides differently under the model claude-haiku-4-5', detail: 'a migration: a write, stop or judged change · verify rejected it', runId: third, at: NOW - 1_000 })]);
@@ -201,7 +201,21 @@ describe('the upgrades’ results in Needs a look', () => {
     const group = (o: Partial<StoredCoverageGroup>): StoredCoverageGroup => ({ key: 'aaaa000011112222', scanId: 'S1', behaviour: { path: ['lookup_order', 'issue_refund'], writes: ['issue_refund'], unknown: [], outcome: 'answered' }, runs: 1, runIds: ['GONE', capture], sources: ['prod.har'], firstSeen: NOW - 9_000, lastSeen: NOW - 5_000, coveredBy: [], nearest: null, command: null, packed: null, ...o });
     store.saveCoverageScan({ scanId: 'S1', at: NOW - 1_000, runs: 2, groups: 2, uncovered: 1, goldens: 1, actor: null, data: null }, [group({}), group({ key: 'bbbb000011112222', coveredBy: ['goldens/forecast'] })]);
     const rows = items();
-    expect(rows.at(-1)).toEqual({ kind: 'coverage', icon: 'cap', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund, in prod.har', key: 'attn:coverage:aaaa000011112222', group: 'tests', step: { of: 'pack', key: 'aaaa000011112222', label: 'Pack as golden', fork: false }, href: '#/tests?at=notcovered', runId: capture, fixId: null, at: NOW - 1_000 });
+    expect(rows.at(-1)).toEqual({
+      kind: 'coverage',
+      icon: 'cap',
+      title: '1 behaviour seen in production has no golden',
+      detail: 'the newest: lookup_order → issue_refund, in prod.har',
+      key: 'attn:coverage:aaaa000011112222',
+      group: 'tests',
+      step: { of: 'pack', key: 'aaaa000011112222', label: 'Pack as golden', fork: false },
+      href: '#/tests?at=notcovered',
+      runId: capture,
+      fixId: null,
+      at: NOW - 1_000,
+      // Advice, stating every behaviour no golden covers: the key stays `coverage` whichever is newest.
+      advice: { key: 'coverage', facts: ['aaaa000011112222'], until: 'Until another behaviour has no golden', dismissed: false },
+    });
     // Once a pack found the agent no longer does it, the step asks for the checks a golden that forks is judged by.
     store.saveCoveragePack({ key: 'aaaa000011112222', at: NOW - 500, golden: null, runId: null, from: capture, mode: null, reason: 'not-reproduced', why: 'the agent sent another request at call 2', command: null });
     expect(items().at(-1)?.step).toEqual({ of: 'pack', key: 'aaaa000011112222', label: 'Pack with checks…', fork: true });

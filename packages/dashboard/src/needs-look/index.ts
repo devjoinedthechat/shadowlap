@@ -16,7 +16,7 @@ import { security } from './security.js';
 import { goldenName, type HeldGolden, type LookSource, type LookWork, type NeedsLook, type NeedsLookRow, plural } from './row.js';
 import { local, setup } from './store.js';
 
-export type { HeldGolden, LookSource, LookStep, LookWork, NeedsLook, NeedsLookRow } from './row.js';
+export type { HeldGolden, LookAdvice, LookSource, LookStep, LookWork, NeedsLook, NeedsLookRow } from './row.js';
 
 /**
  * Needs a look, as a registry of the places its rows come from, each with its group, its order in
@@ -42,8 +42,12 @@ export function ordered(sources: readonly LookSource[]): LookSource[] {
 
 const ORDERED = ordered(SOURCES);
 
-/** Every row, by group, then by its source's order, each source's rows in its own order: past the cap, one line for the rest. */
-export function needsLook(w: LookWork, sources: readonly LookSource[] = ORDERED): NeedsLook {
+/**
+ * Every row, by group, then by its source's order, each source's rows in its own order: past the cap,
+ * one line for the rest, which is no advice. Nothing here is put away yet: withDismissals
+ * (dismissals.ts) reads what was, and gives the list its stamp.
+ */
+export function needsLook(w: LookWork, sources: readonly LookSource[] = ORDERED): Omit<NeedsLook, 'dismissals'> {
   const items: NeedsLookRow[] = [];
   for (const s of sources) {
     const rows = s.rows(w);
@@ -62,7 +66,7 @@ export function needsLook(w: LookWork, sources: readonly LookSource[] = ORDERED)
 /**
  * What every source reads, read once: Fixes' list, the goldens failing now, each failing golden's
  * step, and the goldens each open fix holds, a golden being held when its failing run is the fix's
- * and its step is that fix's, or a crash's Find breaking commit.
+ * and its step is that fix's, or a crash's Find breaking commit or Revert.
  */
 export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: StoreNote | null; patchInTree?: PatchCheck | undefined; rewriteHere?: RewriteCheck | undefined; repairer?: string | null; budget?: number | undefined; next: NextStepWork | null; now: number; week: LookWork['week']; index: RunIndex }): LookWork {
   let reads: StepReads | null = null;
@@ -76,7 +80,7 @@ export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: Stor
   const held = new Map<string, HeldGolden[]>();
   for (const t of failing) {
     const step = steps.get(t.golden);
-    if (!t.fixId || !t.runId || !open.has(t.fixId) || !step || (step.key !== 'fix' && step.key !== 'bisect')) continue;
+    if (!t.fixId || !t.runId || !open.has(t.fixId) || !step || (step.key !== 'fix' && step.key !== 'bisect' && step.key !== 'revert')) continue;
     held.set(t.fixId, [...(held.get(t.fixId) ?? []), { golden: t.golden, name: goldenName(t.golden), runId: t.runId, step }]);
   }
   return {

@@ -1,5 +1,6 @@
 import { ACTIONS } from '@shadowlap/engine';
 import { coverageNewest } from '../coverage.js';
+import { adviceOf } from './advice.js';
 import type { LookSource } from './row.js';
 
 /**
@@ -7,7 +8,8 @@ import type { LookSource } from './row.js';
  * `/api/coverage` serves the line, opening Tests at Not covered. Its step packs the newest one (Pack
  * as golden), or, once the last `--pack` found the agent no longer does it, asks for the checks a
  * golden that forks is judged by (Pack with checks…). Keyed by that behaviour, so a pack that covers
- * it moves the row on to the next one.
+ * it moves the row on to the next one. Advice: it states every uncovered behaviour, so a golden
+ * packed for one keeps it put away, and a behaviour seen since brings it back.
  */
 export const coverage: LookSource = {
   id: 'coverage',
@@ -18,6 +20,6 @@ export const coverage: LookSource = {
     if (!newest) return [];
     const { kind, icon, title, detail, href, runId, fixId, at } = newest.look;
     const label = (newest.forkable ? ACTIONS.packWithChecks : ACTIONS.packBehaviour).label;
-    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: { of: 'pack', key: newest.key, label, fork: newest.forkable }, href, runId, fixId, at }];
+    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: { of: 'pack', key: newest.key, label, fork: newest.forkable }, href, runId, fixId, at, advice: adviceOf('coverage', newest.uncovered) }];
   },
 };

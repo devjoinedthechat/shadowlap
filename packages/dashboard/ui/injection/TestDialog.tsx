@@ -9,7 +9,6 @@ import { consentAsked } from '../actions.js';
 import { JOB_KINDS } from '../api.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
-import { Skeleton } from '../components/States.js';
 import { Term } from '../components/Term.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { plural, shortId } from '../format.js';
@@ -20,7 +19,7 @@ import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { UntrustedView } from '../types.js';
 import { readsWords } from './reads-words.js';
-import { TemplatePicks, usePlanEstimate } from './TemplatePicks.js';
+import { ReadsWait, TemplatePicks, usePlanEstimate } from './TemplatePicks.js';
 import './job-footer.js';
 
 /*
@@ -111,8 +110,8 @@ export function TestDialog(props: TestDialogProps) {
   const title = namedIn(`${confirmWords(ACTIONS.runInjectionTest.label)} on ${named}`, named);
   if (!set.data || !reads) {
     return (
-      <Dialog title={title} lead={<Lead />} doc={LEAD_DOC} warn={failed ? { text: errorText(failed), tone: 'red' } : null} ok={confirmWords(ACTIONS.runInjectionTest.label)} okWhy={failed ? errorText(failed) : 'Reading what the test plants in'} onClose={props.onClose}>
-        {failed ? null : <Skeleton what="the run’s untrusted reads" lines={3} />}
+      <Dialog title={title} lead={<Lead />} doc={LEAD_DOC} ok={confirmWords(ACTIONS.runInjectionTest.label)} okWhy={failed ? 'What the test plants in didn’t load' : 'Reading what the test plants in'} onClose={props.onClose}>
+        <ReadsWait loads={[set, asked]} />
       </Dialog>
     );
   }

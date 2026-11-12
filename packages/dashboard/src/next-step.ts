@@ -7,7 +7,10 @@ import {
   checkStatus,
   confirmWords,
   GATE_REPEAT,
+  GATE_TOO_LITTLE,
+  goldenLiveParts,
   goldenRerunEstimate,
+  goldenWords,
   hasRecordedCommand,
   injectionAgainEstimate,
   isObject,
@@ -56,8 +59,9 @@ import { runJudged, type OutcomeWork, type RunJudged } from './run-outcome.js';
 import { callTotals, priced as pricedTotals } from './run-stats.js';
 import { fixedBy } from './runs-filter.js';
 import { runStates, type RunRow, type RunState } from './runs-list.js';
-import { liveReasons } from './tests-live.js';
-import { bisectAnswers, bisectChoices, gateResultView, standingAnswer, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectAnswer, type BisectChoices, type GoldenSource } from './tests.js';
+import { liveReasons, type LiveReason } from './tests-live.js';
+import { bisectChoices, gateResultView, underChecks, unjudgedOffline, unreadable, verdictOfResult, type BisectChoices, type GoldenSource } from './tests.js';
+import { bisectAnswers, standingAnswer, type BisectAnswer, type FoundCommit } from './tests-bisect.js';
 
 /**
  * The one next step of a run (A12): what its page's lime button leads with, worked out here from how
@@ -75,8 +79,9 @@ import { bisectAnswers, bisectChoices, gateResultView, standingAnswer, underChec
  * - an injection attempt that obeyed, while no golden is packed or unpacked from the recording it
  *   tested: Pack with injection gate…;
  * - any other attempt: Compare with parent, failed or not, since it is one sample of many;
- * - a test replay whose agent exited (a crash): Find breaking commit, Run blame plain beside it, until
- *   the commit is named;
+ * - a test replay whose agent exited (a crash): Find breaking commit, Run blame plain beside it; once
+ *   the commit is named, Revert, Run blame beside it, unless the golden was tested since the answer
+ *   with changes on top of a commit, when the rules below decide;
  * - a recording's newest injection test: Open proof where it failed, Run injection test… where it
  *   stopped early, Re-run injection test (Re-run test for a golden's gate) where it showed too
  *   little to say; a read proven to have caused a write, in a recording no golden is made from yet:
@@ -110,7 +115,14 @@ export interface NextStepWork {
   prices?: Record<string, Price>;
 }
 
-export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'more-attempts' | 'bisect' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
+/**
+ * What a list's steps read of the project, as one key its kept rows are tagged by: the goldens (each
+ * one's mode, gate, checks, injection test and judges), the config's tests and normalize, and its
+ * folder. Not the prices or the tools: only a step's estimate reads them, asked for on its own.
+ */
+export const listedWorkKey = (work: NextStepWork | null): string => (work ? JSON.stringify([work.goldens, work.tests ?? null, work.normalize ?? null, work.dir]) : '');
+
+export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'more-attempts' | 'bisect' | 'revert' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
 
 /** A step as a list's row carries it: which one, its words, where it opens when it is a link, why it can't start when it can't, and what it says it does: none of which reads a call. */
 export interface NextStepRow {
@@ -155,6 +167,8 @@ export type NextStep = StepWords &
     | { key: 'rerun-test' | 'gate-again'; golden: string }
     | { key: 'more-attempts'; golden: string }
     | { key: 'bisect'; golden: string; starts: boolean; blame: BlameBeside | null }
+    /** `merge`: the commit is a merge, reverted against its first parent (`-m 1`); `live`: why its golden's test runs live (`liveReasons`), as the question it asks through liveAsk lists it; none where it replays offline. */
+    | { key: 'revert'; golden: string; rev: string; merge: boolean; live: LiveReason[]; blame: BlameBeside | null }
     | { key: 'rule' }
     | { key: 'injection-test'; runId: string }
     | { key: 'injection-again'; runId: string; job: InjectionAgain }
@@ -162,7 +176,7 @@ export type NextStep = StepWords &
     | { key: 'pack-gate'; runId: string; folder: string; gate: GateEntry }
   );
 
-/** Run blame, plain beside a crash's Find breaking commit: the check it would use, and what its hover says, runs and bills. */
+/** Run blame, plain beside a crash's Find breaking commit or Revert: the check it would use, and what its hover says, runs and bills. */
 export interface BlameBeside {
   offer: BlameOffer;
   sub: string;
@@ -482,26 +496,65 @@ function bisectPrice(f: Facts, source: GoldenSource, result: TestResult | null, 
   return { price, reads: result?.data?.attempts?.runs ?? [] };
 }
 
-/** A crash: its commit leads, found offline and free from the newest commit its golden passed at, with Run blame beside it, until the commit is named. */
+/** What Revert runs, as a person would type it: the commit undone, uncommitted (a merge against its first parent), then its golden's test. */
+export const revertCommand = (rev: string, merge: boolean, golden: string): string => `git revert --no-commit ${merge ? '-m 1 ' : ''}${rev} && ${commandLine(['test', golden])}`;
+
+/**
+ * A crash: its commit leads, found offline and free from the newest commit its golden passed at, with
+ * Run blame beside it; once the commit is named, Revert (revertStep).
+ */
 function crashStep(f: Facts): Decided | null {
   const t = f.tested();
   const { row, store } = f;
-  if (!t || !row.failed || !crashed(row, t.result) || f.reads.standing(t.golden)?.found) return null;
+  if (!t || !row.failed || !crashed(row, t.result)) return null;
+  const blame = f.fix()?.fix ? null : blameOffer(store, f.record, f.work?.tests, f.fix);
+  const beside: Pick<Decided & { key: 'bisect' }, 'blame' | 'beside'> = blame ? { blame: { offer: blame, sub: 'Whether an answer of the model’s lost the run', command: blameCommand(row.runId, blame, false) }, beside: blamePrice(row.runId) } : { blame: null };
+  const found = f.reads.standing(t.golden)?.found;
+  if (found) return revertStep(f, t, found, beside);
   const c = f.choices();
   if (!c || c.unavailable) return null;
   const good = commitName(c.good);
   const starts = !!good && !c.live;
-  const blame = f.fix()?.fix ? null : blameOffer(store, f.record, f.work?.tests, f.fix);
   return {
     key: 'bisect',
     label: starts ? confirmWords(ACTIONS.findBreakingCommit.label) : ACTIONS.findBreakingCommit.label,
     golden: t.golden,
     starts,
-    blame: blame ? { offer: blame, sub: 'Whether an answer of the model’s lost the run', command: blameCommand(row.runId, blame, false) } : null,
-    ...(blame ? { beside: blamePrice(row.runId) } : {}),
+    ...beside,
     command: bisectCommand(t.golden, good, commitName(c.bad)),
     sub: starts ? GOLDEN_JOB_WORDS.replaysSince(good) : 'Asks for a commit where it still worked, then replays it at the commits between',
     ...bisectPrice(f, t.source, t.result, c.good, c.bad),
+  };
+}
+
+/**
+ * Revert, once Find breaking commit named a crash's commit: the commit undone in the working tree,
+ * uncommitted, then its golden tested, priced as Re-run test, with Run blame plain beside it. Its
+ * sentence names the golden and says how its test runs, in its estimate's parts where it runs live,
+ * since its card shows only the amount. None where the answer names no commit, or where the golden's
+ * newest result, newer than the answer, was tested with changes on top of a commit (reverted already,
+ * or other work in the tree): fix or blame then decide, as they did before the search.
+ */
+function revertStep(f: Facts, t: TestedGolden, found: FoundCommit, beside: Pick<Decided & { key: 'revert' }, 'blame' | 'beside'>): Decided | null {
+  const rev = commitName(found.rev);
+  const newest = f.reads.results(t.golden)[0];
+  if (!rev || (newest && newest.at > found.at && newest.revision?.endsWith('+dirty'))) return null;
+  const merge = found.change?.merge === true;
+  const live = liveReasons(t.source);
+  const parts = goldenLiveParts({ fork: live.some((w) => w.kind === 'fork'), injection: live.some((w) => w.kind === 'injection') });
+  const then = `then ${goldenWords(t.golden)} ${parts.length ? `tested: ${parts.join('; ')}` : 'replayed offline'}`;
+  return {
+    key: 'revert',
+    label: ACTIONS.revert.label,
+    golden: t.golden,
+    rev,
+    merge,
+    live,
+    ...beside,
+    title: `${ACTIONS.revert.label} ${rev}`,
+    sub: found.subject ? `${found.subject}: undone in your working tree, ${then}` : `Undone in your working tree, ${then}`,
+    command: revertCommand(rev, merge, t.golden),
+    price: () => goldenRerunPrice(f.store, t.source, t.result),
   };
 }
 
@@ -529,8 +582,8 @@ function causedAWrite(results: readonly StoredInjectionResult[]): boolean {
 /** Why a test stopped short and what to do about it: its budget's the advice to spend it better, any other stop in its own words. */
 const stopWords = (reason: string): string => (/\bbudget\b/.test(reason) ? 'It stopped at its budget: test with fewer templates, or a higher budget' : `It stopped early (${reason}): test it again`);
 
-/** Re-run test's card, where a golden's injection gate showed too little to say: on its run's page and on Needs a look's row. */
-export const gateAgainSub = (why: string | null | undefined): string => `Its injection gate showed too little to say: ${why ?? 'no attempt decided'}`;
+/** Re-run test's card, where a golden's injection gate showed too little to say, in the engine's words (trust-words.ts): on its run's page and on Needs a look's row. */
+export const gateAgainSub = (why: string | null | undefined): string => `${GATE_TOO_LITTLE.charAt(0).toUpperCase()}${GATE_TOO_LITTLE.slice(1)}: ${why ?? 'no attempt decided'}`;
 
 /** What a recording's newest finished plant leads with: its proof when it failed, running again when it showed too little; null when it says nothing to do. */
 function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
@@ -581,13 +634,28 @@ export function failureKey(text: string): string {
   return t.replace(/ \(#\d+\)| #\d+/g, '').replace(/\d+(\.\d+)?/g, 'N');
 }
 
-/** The fix that holds the same failure as these words, one not yet applied first; null for a failure of its own. */
-export function fixByFailure(fixes: readonly StoredFix[], failed: string): StoredFix | null {
-  const key = failureKey(failed);
-  const holds = (f: StoredFix) => [...f.check.oracle, ...f.check.text.split('; ')].some((part) => failureKey(part) === key);
-  const found = fixes.filter(holds);
-  return found.find((f) => f.status !== 'applied') ?? found[0] ?? null;
+/**
+ * The fix that holds the same failure as the words it is asked, one not yet applied first; null for a
+ * failure of its own. Each fix's oracle and check are keyed once, so Runs' issues ask it of every
+ * failed run in one read (issues.ts).
+ */
+export function fixesByFailure(fixes: readonly StoredFix[]): (failed: string) => StoredFix | null {
+  const holding = new Map<string, StoredFix[]>();
+  for (const f of fixes) {
+    for (const key of new Set([...f.check.oracle, ...f.check.text.split('; ')].map(failureKey))) {
+      const held = holding.get(key);
+      if (held) held.push(f);
+      else holding.set(key, [f]);
+    }
+  }
+  return (failed) => {
+    const found = holding.get(failureKey(failed)) ?? [];
+    return found.find((f) => f.status !== 'applied') ?? found[0] ?? null;
+  };
 }
+
+/** The fix that holds the same failure as these words, as `fixesByFailure` finds it. */
+export const fixByFailure = (fixes: readonly StoredFix[], failed: string): StoredFix | null => fixesByFailure(fixes)(failed);
 
 /**
  * The rules on calls a capture's import failed it on, as `--expect` takes them, from the config's
@@ -721,6 +789,9 @@ function plainStep(step: Decided): NextStep {
   return plain;
 }
 
+/** Open fix, as a run the fix holds leads with: what Runs' issue of a fix leads with once its runs are blamed (issues.ts). */
+export const openFixStep = (fix: StoredFix): NextStep => plainStep(fixStep(fix, fix.check.text));
+
 /** A run's next step, without what it bills, or null for a run the store doesn't have. */
 export function nextStepOf(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; reads?: StepReads } = {}): NextStep | null {
   const step = decided(store, runId, work, o);
@@ -760,7 +831,7 @@ export async function pricedNextStep(store: Store, runId: string, work: NextStep
   const own = await priced(step);
   const other = await priced(step.beside);
   const about = step.about ? aboutLine(store, reads.index, step.about) : null;
-  return { ...plain, ...(about ? { sub: about } : {}), ...own, ...(other.later ? { later: true as const } : {}), ...(plain.key === 'bisect' && plain.blame && other.estimate ? { blame: { ...plain.blame, estimate: other.estimate } } : {}) };
+  return { ...plain, ...(about ? { sub: about } : {}), ...own, ...(other.later ? { later: true as const } : {}), ...((plain.key === 'bisect' || plain.key === 'revert') && plain.blame && other.estimate ? { blame: { ...plain.blame, estimate: other.estimate } } : {}) };
 }
 
 /** The Replay a run's header keeps beside its next step: on a clean or a test replay, its recording's. Null for a run the store doesn't have. */
@@ -878,6 +949,24 @@ export function listedStep(store: Store, runId: string, work: NextStepWork | nul
   } catch {
     return undefined;
   }
+}
+
+/** A crash's own step: Find breaking commit, then Revert once that named the commit. */
+export type CrashStep = Extract<NextStep, { key: 'bisect' | 'revert' }>;
+
+/**
+ * A test replay's listed step where its agent exited with an error and the step is a crash's
+ * (`crashStep`): what a fix whose blame found no call that rescues the run leads with
+ * (fix-crash.ts). Null for a diverged test's Find breaking commit, a run whose step is another (a
+ * later replay passed it), and a record that can't be read.
+ */
+export function crashStepOf(store: Store, runId: string, work: NextStepWork | null, reads: StepReads): CrashStep | null {
+  const step = listedStep(store, runId, work, { reads });
+  const found = reads.index.byId.get(runId);
+  if ((step?.key !== 'bisect' && step?.key !== 'revert') || !found) return null;
+  const row = asListed(found, reads.state(runId));
+  const tested = testedGolden({ store, row, work });
+  return tested && crashed(row, tested.result) ? step : null;
 }
 
 /**

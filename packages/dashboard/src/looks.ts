@@ -63,7 +63,7 @@ function flaggedOf(data: Record<string, unknown>): string[] {
  * settled it (a migration of a model a preview flagged runs under, whose verify accepted them,
  * settles the preview); one that flagged it again is that session's line. A session with flagged runs
  * left is a line, opening the first still in the store at the first call whose decision most of its
- * samples changed.
+ * samples changed: a preview's on its cell on Preview, a migration's on the run's page.
  */
 function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>): NeedsLookRow[] {
   const sessions = store.listDecisionSessions({ limit: 50 });
@@ -109,7 +109,8 @@ function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>)
       title: `${plural(n, 'run decides', 'runs decide')} differently under ${s.change}`,
       detail: `${s.kind === 'migrate' ? 'a migration' : 'a preview'}: a write, stop or judged change · ${state}`,
       step: null,
-      href: first ? links.run(first, callNo) : links.runs(),
+      // A preview's line opens its cell on Preview (a gone run's, the session); a migration's opens the run until its tab draws one.
+      href: s.kind === 'decisions' ? links.changeSession('decisions', s.sessionId, first, callNo ?? null) : first ? links.run(first, callNo) : links.runs(),
       runId: first,
       fixId: null,
       at: s.at,

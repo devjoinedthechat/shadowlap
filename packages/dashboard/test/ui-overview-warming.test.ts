@@ -53,7 +53,9 @@ describe('the Overview while the runs’ totals are added up', () => {
       return createElement(AppContext.Provider, { value: app(tick) }, createElement(OverviewPage));
     }
     r = await render(createElement(Host));
-    await r.until('how far it has got', () => r!.all('[role="status"]').length === 1);
+    // The Overview's loading has a status of its own: the warming line takes its place.
+    await r.until('how far it has got', () => r!.document.body.textContent.includes('runs so far'));
+    expect(r.all('[role="status"]')).toHaveLength(1);
     expect(r.one('[role="status"]').textContent).toContain('120 of 9,000 runs so far');
     // Asked again a second later, without a change in the runs.
     await r.wait(WARMING_ASK_MS + 100);

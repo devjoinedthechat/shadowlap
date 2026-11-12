@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import type { PayloadTemplate } from '../../../engine/src/injection.js';
+import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { toggled, ToggleChips } from '../components/ToggleChips.js';
+import type { Loaded } from '../hooks.js';
 import { useApp } from '../state.js';
 
 /*
@@ -85,4 +87,14 @@ export function TemplatePicks({ all, why, picked, onPick }: { all: readonly Payl
       <ToggleChips chips={all} picked={picked} labelledBy={head} onToggle={(id) => onPick(toggled(ids, picked, id))} />
     </>
   );
+}
+
+/**
+ * The dialog's body until its reads come: the run's untrusted reads as quiet bars, or a read that
+ * failed in the line every page says (`failedRead`), with Retry, which asks again what failed.
+ */
+export function ReadsWait({ loads }: { loads: readonly Loaded<unknown>[] }) {
+  const failed = loads.find((l) => l.error)?.error;
+  if (!failed) return <Skeleton what="the run’s untrusted reads" lines={3} />;
+  return <ErrorState retry={() => loads.forEach((l) => l.error && l.reload())}>{failedRead(failed)}</ErrorState>;
 }

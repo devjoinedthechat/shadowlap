@@ -18,8 +18,8 @@ import { closePanelOn, panelOn } from './panel-state.js';
  * on the page, ↓ and ↑ in the views, the selected call taking the focus so they go on from it; 1 to
  * 4, v, n, p; [ and ] through the list you came from; +, - and ← → as they are; and r, c, b and f,
  * which press the header's buttons, so a key does what its button does and waits as it waits. A run
- * without the button has no key. Esc closes a finding's panel (its diff, its results) before it
- * leaves the page.
+ * without the button has no key. Esc closes a finding's panel (its diff, its change, its results)
+ * before it leaves the page.
  */
 
 export interface RunKeyState<C extends { callNo: number }> {
@@ -106,10 +106,10 @@ async function stepRun(runId: string, d: 1 | -1, runs: readonly RunLike[] | null
 }
 
 /**
- * Esc on a run: the diff or the results in the inspector's place close first, the finding's toggle
- * taking the focus if the focus was inside them (InspectorPanel.tsx). The panel is open once its frame
- * shows, whether what it holds has come, is on its way or failed to come (it loads the first time it
- * opens).
+ * Esc on a run: the diff, the change or the results in the inspector's place close first, the
+ * finding's toggle taking the focus if the focus was inside them (InspectorPanel.tsx). The panel is
+ * open once its frame shows, whether what it holds has come, is on its way or failed to come (it loads
+ * the first time it opens).
  */
 export function closePanel(runId: string): boolean {
   const panel = panelOn(runId);

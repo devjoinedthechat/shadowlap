@@ -43,6 +43,13 @@ export function testsEstimate(live: number, last: { results: ReadonlyArray<Sessi
   return { kind: 'tests', usd: spend.usd, ceiling: false, parts: ['what the last session spent live'], last: { usd: spend.usd, attempts: null } };
 }
 
+/**
+ * How a golden's test runs live, in its estimate's parts (goldenRerunEstimate): from where it forks,
+ * writes blocked, for one marked fork, then from each read its injection gate plants in, writes
+ * stubbed. None for one that replays offline. A card whose price shows only an amount says them in
+ * its sentence (Revert's).
+ */
+export const goldenLiveParts = (runs: { fork: boolean; injection: boolean }): string[] => [...(runs.fork ? [FORK_LIVE] : []), ...(runs.injection ? [INJECTION_PART] : [])];
 
 /**
  * Run test on one golden of Tests, as its session runs it, `runs` saying whether any of it runs
@@ -54,7 +61,7 @@ export function testsEstimate(live: number, last: { results: ReadonlyArray<Sessi
 export function goldenRerunEstimate(runs: { live: boolean; fork: boolean; injection: boolean }, last: SessionResult | null, gate: Pick<PlantReport, 'totals' | 'baselines' | 'cost'> | null): Estimate {
   if (!runs.injection) return goldenTestEstimate(runs.live, last);
   if (!runs.fork) return injectionAgainEstimate(gate);
-  const parts = [FORK_LIVE, INJECTION_PART];
+  const parts = goldenLiveParts(runs);
   if (!last?.data) return noEstimate('tests', 'no estimate until it has run once', parts);
   if (!gate) return noEstimate('tests', 'no estimate until its injection test has run once', parts);
   return testsEstimate(1, { results: [last], injection: [gate.cost] });

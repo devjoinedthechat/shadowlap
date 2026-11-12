@@ -2,11 +2,11 @@ import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { VERDICTS_WINDOW } from '../src/verdicts.js';
 import { ApiError, type Client } from '../ui/api.js';
-import { changesHref, comparePairHref, forgetComparePair, noteChangesTab, noteComparePair } from '../ui/changes-tab.js';
+import { changesHref, comparePairHref, forgetComparePair, forgetPreviewSession, noteChangesTab, noteComparePair, notePreviewSession } from '../ui/changes-tab.js';
 import { ChangesHead } from '../ui/changes/Head.js';
 import { chipEmpty, kindLine, moreLimit, rowTone, verdictHref, VERDICTS_MAX, VERDICTS_STEP } from '../ui/changes/model.js';
 import { RevisionPage } from '../ui/changes/RevisionPage.js';
-import { VerdictsTab } from '../ui/changes/Verdicts.js';
+import { forgetVerdictsKept, VerdictsTab } from '../ui/changes/Verdicts.js';
 import { rememberList } from '../ui/fixes/data.js';
 import { minuteStamp } from '../ui/format.js';
 import { ChangesPage } from '../ui/pages/Changes.js';
@@ -166,6 +166,13 @@ describe('Changes’ addresses', () => {
     expect(parseRoute('#/changes/verdicts/..%2Fetc')).toEqual({ page: 'changes', tab: 'verdicts', id: null });
     expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A')).toEqual({ page: 'changes', tab: 'decisions', id: 'dc-01M5000000000000000000000A' });
     expect(parseRoute('#/changes/migrate')).toEqual({ page: 'changes', tab: 'migrate', id: null });
+    // A run's row opens its most telling step; a call, its cell. A call that isn't a number is dropped; a run that can't be an id, or more parts, is no page.
+    expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A/01M5MXZ7H9ABCDEF')).toEqual({ page: 'changes', tab: 'decisions', id: 'dc-01M5000000000000000000000A', run: '01M5MXZ7H9ABCDEF' });
+    expect(parseRoute('#/changes/migrate/mg-01M5000000000000000000000B/01M5MXZ7H9ABCDEF/17')).toEqual({ page: 'changes', tab: 'migrate', id: 'mg-01M5000000000000000000000B', run: '01M5MXZ7H9ABCDEF', call: 17 });
+    expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A/01M5MXZ7H9ABCDEF/x')).toEqual({ page: 'changes', tab: 'decisions', id: 'dc-01M5000000000000000000000A', run: '01M5MXZ7H9ABCDEF' });
+    expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A/not-a-run').page).toBe('notfound');
+    expect(parseRoute('#/changes/decisions/dc-01M5000000000000000000000A/01M5MXZ7H9ABCDEF/17/more').page).toBe('notfound');
+    expect(parseRoute('#/changes/verdicts/d2e8a1f/more').page).toBe('notfound');
     expect(parseRoute('#/changes/other')).toMatchObject({ page: 'notfound' });
     expect(parseRoute('#/changes/verdicts/d2e8a1f/more')).toMatchObject({ page: 'notfound' });
   });
@@ -191,6 +198,8 @@ describe('Changes’ addresses', () => {
     expect(crumbs('#/changes/verdicts/d2e8a1f', { exported: false, unshown: true })).toEqual([{ label: 'Changes', href: '#/changes' }, { label: 'Verdicts', href: '#/changes', face: 'word' }]);
     expect(crumbs(`#/compare/${REC}/${FORK}`)).toEqual([{ label: 'Changes', href: '#/changes' }, { label: 'Compare', face: 'word' }]);
     expect(crumbs('#/compare', { exported: true, unshown: false })).toEqual([{ label: 'Compare' }]);
+    // A preview reads as its tab, unlinked, never by its id.
+    for (const hash of ['#/changes/decisions', `#/changes/decisions/dc-01M5000000000000000000000A/${REC}/3`]) expect(crumbs(hash)).toEqual([{ label: 'Changes', href: '#/changes' }, { label: 'Preview', face: 'word' }]);
     // A revision's page says it can't show one by its own key, which the crumbs and the title read.
     expect(unshownKey(parseRoute('#/changes/verdicts/d2e8a1f'))).toBe('changes:d2e8a1f');
     expect(unshownKey(parseRoute('#/changes'))).toBeNull();
@@ -237,7 +246,20 @@ describe('the tab Changes comes back to', () => {
     expect(goTarget({ exported: false, meta: META }, 't')).toBe('#/tests');
   });
 
-  it('is where Go to’s Changes row goes, a row found by verdicts and by compare', async () => {
+  it('opens Preview at the session it last showed, and on the newest once that one is gone', () => {
+    const first = freshProject();
+    noteChangesTab('decisions');
+    expect(changesHref()).toBe('#/changes/decisions');
+    notePreviewSession('dc-01M5000000000000000000000A');
+    expect(changesHref()).toBe('#/changes/decisions/dc-01M5000000000000000000000A');
+    freshProject();
+    expect(changesHref()).toBe('#/changes');
+    showProject(first);
+    forgetPreviewSession();
+    expect(changesHref()).toBe('#/changes/decisions');
+  });
+
+  it('is where Go to’s Changes row goes, a row found by verdicts, by compare and by preview', async () => {
     freshProject();
     noteChangesTab('compare');
     noteComparePair(REC, FORK);
@@ -246,9 +268,9 @@ describe('the tab Changes comes back to', () => {
     const shell = { conn: 'ok', runCommands: [], palette: true, setPalette: () => undefined, setSideOpen: () => undefined, setHelp: () => undefined } as const;
     page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>, shell as unknown as Partial<AppState>) }, createElement(Palette, { route: { page: 'overview' } })));
     const rows = () => page!.all('.palit').filter((el) => el.querySelector('.pl')?.textContent === 'Changes');
-    for (const typed of ['verdicts', 'compare']) {
+    for (const typed of ['verdicts', 'compare', 'preview']) {
       await page.type(page.one('.palin input'), typed);
-      expect(rows().map((el) => el.querySelector('.ph2')?.textContent), typed).toEqual(['verdicts, compare']);
+      expect(rows().map((el) => el.querySelector('.ph2')?.textContent), typed).toEqual(['verdicts, compare, preview']);
     }
     await page.click(rows()[0]);
     expect(location.hash).toBe(`#/compare/${REC}/${FORK}`);
@@ -264,14 +286,16 @@ describe('the head', () => {
     expect(page.one('.ph p').textContent).toBe('What a change does to your agent, on its own recorded runs.');
     expect(page.one('nav.stabs').getAttribute('aria-label')).toBe('Changes');
     const tabs = page.all('nav.stabs a');
-    // No tab before its page: a preview's and a migration's join with theirs.
+    // No tab before its page: a migration's joins with its own.
     expect(tabs.map((a) => [a.textContent, a.getAttribute('href'), a.getAttribute('aria-current')])).toEqual([
       ['Verdicts', '#/changes', 'page'],
       ['Compare', '#/compare', null],
+      ['Preview', '#/changes/decisions', null],
     ]);
     expect(tabs.map(tip)).toEqual([
       { t: 'Every change checked, and its verdict', rows: [], cmd: '$ shadowlap test goldens/*' },
       { t: 'Compare two runs, call by call', rows: [], cmd: '$ shadowlap diff <a> <b>' },
+      { t: 'Preview what a change decides differently', rows: [], cmd: '$ shadowlap decisions <runs> --model <model>' },
     ]);
     // Compare's tab follows the pair it last showed, named by short ids, once Compare notes it.
     noteComparePair(REC, FORK);
@@ -352,10 +376,10 @@ describe('Verdicts', () => {
     expect(table()[3].querySelector('td.vdc a code')!.textContent).toBe('c91d0f4');
     // Each word in the API's colour: not verified is open, in amber, never muted.
     expect(table().map((tr) => tr.querySelector('.st')!.className)).toEqual(['st err', 'st warn', 'st ok', 'st ok']);
-    // A row opens its revision's page or its fix's Verify step; a preview's opens nothing until its tab lands.
+    // A row opens its revision's page, its preview on Preview, or its fix's Verify step.
     expect(table().map((tr) => [tr.querySelector('a.rowa')?.getAttribute('href') ?? null, tr.className || null])).toEqual([
       ['#/changes/verdicts/d2e8a1f', null],
-      [null, 'still'],
+      ['#/changes/decisions/dc-01M5000000000000000000000A', null],
       ['#/fixes/fx-01M5000000000000000000000D/verify/vf-01M5000000000000000000000C', null],
       ['#/changes/verdicts/c91d0f4', null],
     ]);
@@ -404,12 +428,11 @@ describe('Verdicts', () => {
     await page!.click(chip('Test sessions'));
     await page!.until('the sessions’ line', () => shown(page!.one('p.emptyline')).startsWith('No test session'));
     expect(shown(page!.one('p.emptyline'))).toBe('No test session yet. Each one CI runs on a pull request lands here.');
-    // The command a line names is code, kept whole.
+    // The previews' line names the tab a preview is made on.
     await page!.click(chip('Previews'));
-    await page!.until('the previews’ line', () => page!.all('p.emptyline code').length === 1);
-    expect(shown(page!.one('p.emptyline'))).toBe('No preview yet. shadowlap decisions previews a change before it ships.');
-    expect(page!.one('p.emptyline code').textContent).toBe('shadowlap decisions');
-    expect(chipEmpty('previews')).toEqual([{ words: 'No preview yet.' }, { code: 'shadowlap decisions' }, { words: 'previews a change before it ships.' }]);
+    await page!.until('the previews’ line', () => shown(page!.one('p.emptyline')).startsWith('No preview'));
+    expect(shown(page!.one('p.emptyline'))).toBe('No preview yet. Preview a change on the Preview tab, before it ships.');
+    expect(chipEmpty('previews')).toEqual([{ words: 'No preview yet. Preview a change on the Preview tab, before it ships.' }]);
     await page!.click(chip('All'));
     await page!.unmount();
     await open(() => Promise.resolve(view([])));
@@ -425,7 +448,7 @@ describe('Verdicts', () => {
     expect(page!.all('.skel table.vdt tbody tr')).toHaveLength(5);
     await page!.unmount();
     let tries = 0;
-    await open(() => (++tries === 1 ? Promise.reject(new ApiError(500, 'boom')) : Promise.resolve(view(rows))));
+    await open(() => (++tries === 1 ? Promise.reject(new ApiError(500, 'HTTP 500')) : Promise.resolve(view(rows))));
     await page!.until('the error', () => page!.all('.loaderr').length === 1);
     expect(page!.one('.loaderr p').children.map(shown)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
     await page!.click(page!.byText('.loaderr button', 'Retry'));
@@ -433,7 +456,7 @@ describe('Verdicts', () => {
   });
 
   it('says a chip’s read failed in place of another chip’s rows, under the chips', async () => {
-    await open((kind) => (kind === 'previews' ? Promise.reject(new ApiError(503, 'busy')) : Promise.resolve(view(rows))));
+    await open((kind) => (kind === 'previews' ? Promise.reject(new ApiError(503, 'HTTP 503')) : Promise.resolve(view(rows))));
     await page!.until('the rows', () => table().length === 4);
     await page!.click(chip('Previews'));
     await page!.until('the error', () => page!.all('.loaderr').length === 1);
@@ -473,7 +496,7 @@ describe('Verdicts', () => {
     const many = Array.from({ length: 120 }, (_, i) => preview({ id: `dc-${i}`, sessionId: `dc-${i}`, at: AT - i }));
     const all = { all: 120, sessions: 0, previews: 120, verifies: 0 };
     let tries = 0;
-    const asked = await open((_kind, limit) => (limit > VERDICTS_STEP && ++tries === 1 ? Promise.reject(new ApiError(500, 'boom')) : Promise.resolve(view(many.slice(0, limit), { counts: all }))));
+    const asked = await open((_kind, limit) => (limit > VERDICTS_STEP && ++tries === 1 ? Promise.reject(new ApiError(500, 'HTTP 500')) : Promise.resolve(view(many.slice(0, limit), { counts: all }))));
     await page!.until('the rows', () => table().length === VERDICTS_STEP);
     await page!.click(page!.one('button.attn-more'));
     await page!.until('the error', () => page!.all('.loaderr').length === 1);
@@ -487,6 +510,24 @@ describe('Verdicts', () => {
     await page!.click(chip('All'));
   });
 
+  it('keeps each project’s own chip: another project’s list starts at All, and the first comes back to its own', async () => {
+    forgetVerdictsKept();
+    const answer = (kind: VerdictsKind) => Promise.resolve(kind === 'verifies' ? view([verify()], { counts: counted(rows) }) : view(rows));
+    const first = freshProject();
+    await open(answer);
+    await page!.until('the rows', () => table().length === rows.length);
+    await page!.click(chip('Verifies'));
+    await page!.until('the verifies', () => table().length === 1);
+    await page!.unmount();
+    freshProject();
+    expect(await open(answer)).toEqual([['all', VERDICTS_STEP]]);
+    await page!.unmount();
+    showProject(first);
+    expect(await open(answer)).toEqual([['verifies', VERDICTS_STEP]]);
+    await page!.unmount();
+    forgetVerdictsKept();
+  });
+
   it('works out each row’s colour, kind line, link and how far Show more reads', () => {
     expect(VERDICTS_MAX).toBe(VERDICTS_WINDOW);
     expect([rowTone('ok'), rowTone('no'), rowTone('y'), rowTone(null)]).toEqual(['ok', 'err', 'warn', 'mu']);
@@ -496,6 +537,8 @@ describe('Verdicts', () => {
     expect(kindLine(preview({ kind: 'migration', revision: null, by: 'ci' }))).toEqual([{ words: 'migration' }, { words: 'ci' }]);
     expect(kindLine(session({ revision: null, subject: null, title: 'Tested with no revision' }))).toEqual([{ words: 'test session' }]);
     expect(verdictHref(session({ key: 'd2e8a1f+dirty' }))).toBe('#/changes/verdicts/d2e8a1f%2Bdirty');
+    // A preview opens on Preview; a migration leads nowhere until its tab lands.
+    expect(verdictHref(preview())).toBe('#/changes/decisions/dc-01M5000000000000000000000A');
     expect(verdictHref(preview({ kind: 'migration' }))).toBeNull();
     expect(moreLimit({ shown: 50, limit: 50, count: 120 })).toBe(100);
     expect(moreLimit({ shown: 120, limit: 150, count: 120 })).toBeNull();
@@ -573,7 +616,8 @@ describe('a revision’s page', () => {
       ['refund-in-limit', 'passed', '8/8 replayed', '#/tests'],
     ]);
     expect([shown(decisions.querySelector('header h2')), shown(decisions.querySelector('header .sub'))]).toEqual(['Decisions', 'the previews asked at this revision']);
-    expect(decisions.querySelectorAll('tbody tr').map((tr) => [...cellText(tr.children[0]), ...cellText(tr.children[1]), tr.className])).toEqual([['Model switch to claude-haiku-4-5', `preview · ${minuteStamp(AT - 60_000)}`, 'not verified', '2 of 3 runs to verify', 'still']]);
+    expect(decisions.querySelectorAll('tbody tr').map((tr) => [...cellText(tr.children[0]), ...cellText(tr.children[1]), tr.className])).toEqual([['Model switch to claude-haiku-4-5', `preview · ${minuteStamp(AT - 60_000)}`, 'not verified', '2 of 3 runs to verify', '']]);
+    expect(decisions.querySelector('tbody tr a.rowa')!.getAttribute('href')).toBe('#/changes/decisions/dc-01M5000000000000000000000A');
     expect(page!.one('.cmdline.chcmd').textContent).toContain('shadowlap test goldens/* --repeat 3');
     expect(page!.one('#unshown').textContent).toBe('false');
   });
@@ -608,15 +652,27 @@ describe('Changes’ page', () => {
     await page.until('the rows', () => page!.all('table.vdt tbody tr').length === 1);
   });
 
-  it('opens a preview’s and a migration’s address on Verdicts, until their tabs land', async () => {
-    for (const tab of ['decisions', 'migrate'] as const) {
-      const bar = addressBar(`#/changes/${tab}/dc-01M5000000000000000000000A`);
-      page = await render(createElement(AppContext.Provider, { value: app({ verdicts: () => Promise.resolve(view([preview()])) }) }, createElement(ChangesPage, { tab, id: 'dc-01M5000000000000000000000A' })));
-      await page.until(`${tab}’s address`, () => bar.hash === '#/changes');
-      expect(page.one('.ph h1').textContent).toBe('Changes');
-      await page.unmount();
-      page = null;
-    }
+  it('opens a migration’s address on Verdicts, until its tab lands', async () => {
+    const bar = addressBar('#/changes/migrate/mg-01M5000000000000000000000B');
+    page = await render(createElement(AppContext.Provider, { value: app({ verdicts: () => Promise.resolve(view([preview()])) }) }, createElement(ChangesPage, { tab: 'migrate', id: 'mg-01M5000000000000000000000B' })));
+    await page.until('the migration’s address', () => bar.hash === '#/changes');
+    expect(page.one('.ph h1').textContent).toBe('Changes');
+  });
+
+  it('opens a preview’s address on Preview, its tab current under the head and the address kept', async () => {
+    freshProject();
+    const bar = addressBar('#/changes/decisions/dc-01M5000000000000000000000A');
+    // Not in this store, nor in another project's: the page asks once, then says so under the head.
+    const asked: string[] = [];
+    const holding = (what: string, ids: readonly string[]) => (asked.push(`${what} ${ids.join(' ')}`), Promise.resolve({ current: { id: 'support-agent', name: 'support-agent' }, held: null }));
+    const client = { decisionSessions: () => Promise.resolve({ sessions: [], goldens: 0, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')), projects: { holding } };
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' })));
+    await page.until('the Preview tab', () => page!.all('.empty.tall').length === 1);
+    expect(page.all('nav.stabs a').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)).toEqual(['Preview']);
+    expect(bar.hash).toBe('#/changes/decisions/dc-01M5000000000000000000000A');
+    expect(shown(page.one('.empty.tall'))).toBe('No preview dc-01M5000000000000000000000A. Open Preview');
+    await page.wait(20);
+    expect(asked).toEqual(['preview dc-01M5000000000000000000000A']);
   });
 });
 
