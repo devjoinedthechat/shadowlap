@@ -222,6 +222,15 @@ describe('ease of use', () => {
     store.close();
   });
 
+  it('calls an imported recording’s calls live, as the dashboard does, and only what they cost captured', async () => {
+    const { store, runId } = goldenStore();
+    const { lastFrame } = renderAt(<App store={store} runId={runId} columns={160} rows={30} />, 160, 30);
+    const frame = await frameWith(lastFrame, '> #1');
+    expect(frame).toMatch(/\b\d+ live\b/);
+    expect(frame).not.toMatch(/(?:^|\s)\d+ captured/m);
+    store.close();
+  });
+
   it('summarizes the run in the header, focuses panes, filters, and jumps between notable calls', async () => {
     const { store, runId } = goldenStore();
     const fork = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' } });
