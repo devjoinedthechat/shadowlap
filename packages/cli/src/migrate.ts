@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { argsDelta, byRule, controlOpen, credentialFreeCommandLine, fieldValue, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
+import { argsDelta, byRule, changePct, CLEARED, controlOpen, credentialFreeCommandLine, endToEndWords, fieldValue, judgeOpen, RANK_LABELS, safeLine, decisionLine, usdOrUnknown, verifiedCount, verifiedWords, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -111,42 +111,11 @@ export interface MigrateReport {
   stopReason: string | null;
 }
 
-/**
- * A verified run's tally after its outcome: ` · 12 of 12 · rate >= 0.76 (95%)`, and an attempt that
- * could not be judged apart, never as one that failed: ` · 2 of 2, attempt 3 not judged`. Nothing for
- * a run verify didn't take, or one kept before tallies were.
- */
-const tallyWords = (x: Pick<MigrateRunPass, 'tally'>): string => {
-  const t = x.tally;
-  if (!t) return '';
-  const tally = t.undecided ? `${t.attempts > 1 ? `${t.passes} of ${t.attempts - 1}, ` : ''}attempt ${t.attempts} not judged` : `${t.passes} of ${t.attempts}${t.baseline ? `, baseline ${t.baseline.passes} of ${t.baseline.attempts}` : ''}`;
-  return ` · ${tally}${t.bound ? ` · ${t.bound}` : ''}`;
-};
-
-/** How verify found a run, after its verdict: `kept, verified · 12 of 12 · rate >= 0.76 (95%)`; an outcome that is the verdict word (inconclusive) is said once. */
-const verifiedWords = (x: Pick<MigrateRunPass, 'verdict' | 'outcome' | 'tally'>): string => `${x.outcome === x.verdict ? '' : `${x.outcome}, `}verified${tallyWords(x)}`;
-
-/** How many of the runs were run end to end, for What still passes: `3 of 4 runs verified end to end`. */
-const verifiedCount = (r: Pick<MigrateReport, 'passes'>): string => {
-  const all = r.passes.runs.length;
-  return `${r.passes.runs.filter((x) => x.verified).length} of ${all} run${all === 1 ? '' : 's'} verified end to end`;
-};
-
-/** What the runs verified cost a run end to end, in words: `4,000 → 5,000 input tokens (+25%) · ≈$0.014 → ≈$0.018 (+29%)`. */
-const endToEndWords = (e: NonNullable<MigrateReport['costs']['endToEnd']>): string => {
-  const tokens = (n: number) => Math.round(n).toLocaleString('en-US');
-  const moved = pct(e.recorded.inputTokens, e.now.inputTokens);
-  return `${tokens(e.recorded.inputTokens)} → ${tokens(e.now.inputTokens)} input tokens${/^ \([+−]0%\)$/.test(moved) ? '' : moved}${e.recorded.cost !== null && e.now.cost !== null ? ` · ${usd(e.recorded.cost)} → ${usd(e.now.cost)}${pct(e.recorded.cost, e.now.cost)}` : ''}`;
-};
-
 /** What it costs, for the pull request. */
 const costsSentence = (r: Omit<MigrateReport, 'pullRequest' | 'files'>): string => {
   const { perRun, endToEnd, checking } = r.costs;
-  return `Per run: ${usd(perRun.before)} → ${usd(perRun.after)}${pct(perRun.before, perRun.after)}. ${endToEnd ? `End to end: ${endToEndWords(endToEnd)}. ` : ''}Checking it cost ${usd(checking.decisions + checking.judge + checking.verify)}.`;
+  return `Per run: ${usdOrUnknown(perRun.before)} → ${usdOrUnknown(perRun.after)}${changePct(perRun.before, perRun.after)}. ${endToEnd ? `End to end: ${endToEndWords(endToEnd)}. ` : ''}Checking it cost ${usdOrUnknown(checking.decisions + checking.judge + checking.verify)}.`;
 };
-
-/** What a run the preview cleared rests on, in words. */
-const CLEARED = "the same decisions, no write and no check it can't read: not run end to end";
 
 /** How a run came to its verdict, in words. */
 const passWords = (x: MigrateRunPass): string => (x.verified ? verifiedWords(x) : x.outcome === 'unchanged' ? CLEARED : x.outcome);
@@ -330,8 +299,6 @@ export function modelMentions(cwd: string, from: readonly string[], to: string):
   return touched.length || listed.length ? { files: touched, patch, review: listed } : null;
 }
 
-const pct = (a: number | null, b: number | null) => (a === null || b === null ? '' : a === 0 ? '' : ` (${b >= a ? '+' : '−'}${Math.round((Math.abs(b - a) / a) * 100)}%)`);
-const usd = (n: number | null) => (n === null ? 'unknown' : `≈${formatUsd(n)}`);
 const name = (r: { runId: string; golden: string | null }) => r.golden ?? shortId(r.runId);
 
 /** What to set for one field, in words: `temperature` left out, `thinking` = `{"type":"adaptive"}`, `max_completion_tokens` in place of `max_tokens`. */
@@ -350,7 +317,7 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   const title = r.from.length === 1 ? `Switch ${r.from[0]!} to ${r.to}` : `Switch the model to ${r.to}`;
   const runs = r.decisions.runs.length;
   const tick = (s: string) => `\`${s}\``;
-  const lines: string[] = [`## ${title}`, '', `Checked with \`${credentialFreeCommandLine(r.command)}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and ${verifiedCount(r)}.`];
+  const lines: string[] = [`## ${title}`, '', `Checked with \`${credentialFreeCommandLine(r.command)}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and ${verifiedCount(r.passes.runs)}.`];
   for (const n of r.retirements.filter((x) => r.from.includes(x.model))) lines.push('', `> ${n.text} ([source](${n.source}))`);
   lines.push('', '### What changes', '');
   if (!r.changes.steps.length) lines.push(`No write, stop or judged change${r.decisions.counts.notAsked ? ' in the steps asked' : ''}.`);
@@ -364,7 +331,7 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
   const rules = verifiedRules(r);
   if (rules.length === 1) lines.push('', `Verified by ${tick('shadowlap verify')}, ${rules[0]!.rule}.`);
   else if (rules.length) lines.push('', `Verified by ${tick('shadowlap verify')}, each run under the rule that decided it:`, '', ...rules.map((g) => `- ${g.runs.map(name).join(', ')}: ${g.rule}`));
-  lines.push('', `${verifiedCount(r)}.`);
+  lines.push('', `${verifiedCount(r.passes.runs)}.`);
   if (r.decisions.verify?.verdict === 'not-run' && r.decisions.verify.reasons.length) lines.push('', `Not verified yet: ${r.decisions.verify.reasons.join('; ')}.`);
   for (const w of r.decisions.verify?.warnings ?? []) lines.push('', `Note: ${w}.`);
   lines.push('', '### What it costs', '', costsSentence(r));
@@ -558,14 +525,14 @@ export function formatMigrate(r: MigrateReport): string {
   const rules = verifiedRules(r);
   if (rules.length === 1) lines.push(p.dim(`  ${safeLine(rules[0]!.rule)}`));
   else for (const g of rules) lines.push(p.dim(`  ${safeLine(g.rule)}: ${g.runs.map((x) => safeLine(name(x))).join(', ')}`));
-  lines.push(p.dim(`  ${verifiedCount(r)}`));
+  lines.push(p.dim(`  ${verifiedCount(r.passes.runs)}`));
   lines.push('', p.bold('What it costs'));
-  lines.push(`  per run      ${usd(r.costs.perRun.before)} → ${usd(r.costs.perRun.after)}${pct(r.costs.perRun.before, r.costs.perRun.after)} · ${r.costs.tokensPerRun.before.toLocaleString('en-US')} → ${r.costs.tokensPerRun.after.toLocaleString('en-US')} tokens`);
+  lines.push(`  per run      ${usdOrUnknown(r.costs.perRun.before)} → ${usdOrUnknown(r.costs.perRun.after)}${changePct(r.costs.perRun.before, r.costs.perRun.after)} · ${r.costs.tokensPerRun.before.toLocaleString('en-US')} → ${r.costs.tokensPerRun.after.toLocaleString('en-US')} tokens`);
   if (r.costs.endToEnd) lines.push(`  end to end   ${endToEndWords(r.costs.endToEnd)}`);
   // Asking's models and the judge's with no price: what they cost is not in the figures.
   const unknown = [...new Set([...r.decisions.cost.unknownModels, ...(r.decisions.judge?.unknownModels ?? [])])];
   const unpriced = unknown.length ? ` (no price for ${unknown.join(', ')}: add it under "prices" in shadowlap.config.json)` : '';
-  lines.push(p.dim(`  checking it  ${usd(r.costs.checking.decisions)} asking, ${r.decisions.judge ? `${usd(r.costs.checking.judge)} judging, ` : ''}${usd(r.costs.checking.verify)} verifying${unpriced}`));
+  lines.push(p.dim(`  checking it  ${usdOrUnknown(r.costs.checking.decisions)} asking, ${r.decisions.judge ? `${usdOrUnknown(r.costs.checking.judge)} judging, ` : ''}${usdOrUnknown(r.costs.checking.verify)} verifying${unpriced}`));
   lines.push('', p.bold('What to set'));
   if (!r.set.fields.length && !Object.keys(r.set.given).length) lines.push(`  only the model: ${r.to}`);
   for (const f of r.set.fields) lines.push(`  ${remedyText(f)}  ${p.dim(safeLine(f.why))}`);

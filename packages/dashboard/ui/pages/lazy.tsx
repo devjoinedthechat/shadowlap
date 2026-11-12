@@ -62,11 +62,12 @@ export const SetupPage = onOpen<{ asked?: boolean }>(() => import('./Setup.js').
 export const StoreSetupPage = onOpen(() => import('./settings/StoreSetup.js').then((m) => m.StoreSetupPage));
 
 /**
- * The dashboard's page for a route, or the project's setup in its place: on every page but Settings
- * while the project has no runs, and on the Overview while its setup isn't finished
- * (`setupShowsOn`). Until that can be told, the page waits rather than flashing. A link to a run, a
- * fix or a pair asks first whether another project holds it (pages/held-elsewhere.tsx), the one part
- * this list shows itself.
+ * The dashboard's page for a route, or the project's setup in its place: on the Overview while the
+ * project has no runs or its setup isn't finished, and on every page but Settings of a project that
+ * can't be opened, which says so there (`setupShowsOn`). Until that can be told, the page waits
+ * rather than flashing. A link to a run, a fix, a pair or a preview in a project that can't be
+ * opened asks first whether another project holds it (pages/held-elsewhere.tsx), the one part this
+ * list shows itself; in any other project the page opens and its own not-found asks.
  */
 export function DashboardPages({ route }: { route: Route }) {
   const { exported, meta, runs } = useApp();
@@ -89,7 +90,7 @@ function PageFor({ route }: { route: Route }) {
       // RunPage keeps; another run starts the page empty there.
       return <RunPage id={route.id} call={route.call} view={route.view} />;
     case 'changes':
-      return <ChangesPage tab={route.tab} id={route.id} />;
+      return <ChangesPage tab={route.tab} id={route.id} run={route.run} call={route.call} />;
     case 'compare':
       return <ComparePage a={route.a} b={route.b} call={route.call} />;
     case 'fixes':

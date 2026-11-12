@@ -3,6 +3,7 @@ import type { StoreOf } from '@shadowlap/engine';
 import { chaosMatrices, presetsSummary } from './chaos.js';
 import { coverageNewest } from './coverage.js';
 import { links } from './links.js';
+import { adviceOf } from './needs-look/advice.js';
 import type { LookSource, LookWork, NeedsLookRow } from './needs-look/row.js';
 import type { GoldenList, GoldenSource } from './tests.js';
 
@@ -61,7 +62,7 @@ function flaggedOf(data: Record<string, unknown>): string[] {
  * settled it (a migration of a model a preview flagged runs under, whose verify accepted them,
  * settles the preview); one that flagged it again is that session's line. A session with flagged runs
  * left is a line, opening the first still in the store at the first call whose decision most of its
- * samples changed.
+ * samples changed: a preview's on its cell on Preview, a migration's on the run's page.
  */
 function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>): NeedsLookRow[] {
   const sessions = store.listDecisionSessions({ limit: 50 });
@@ -107,7 +108,8 @@ function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>)
       title: `${plural(n, 'run decides', 'runs decide')} differently under ${s.change}`,
       detail: `${s.kind === 'migrate' ? 'a migration' : 'a preview'}: a write, stop or judged change · ${state}`,
       step: null,
-      href: first ? links.run(first, callNo) : links.runs(),
+      // A preview's line opens its cell on Preview (a gone run's, the session); a migration's opens the run until its tab draws one.
+      href: s.kind === 'decisions' ? links.changeSession('decisions', s.sessionId, first, callNo ?? null) : first ? links.run(first, callNo) : links.runs(),
       runId: first,
       fixId: null,
       at: s.at,
@@ -142,7 +144,11 @@ export const presetsUnsure: LookSource = {
   rest: (n) => ({ icon: 'warn', title: `${plural(n, 'more error-path test')} inconclusive`, detail: 'each on its run, under Runs', href: links.runs() }),
 };
 
-/** `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it, keyed by the newest behaviour no golden covers. */
+/**
+ * `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it,
+ * keyed by the newest behaviour no golden covers. Advice: it states every uncovered behaviour, so a
+ * golden packed for one keeps it put away, and a behaviour seen since brings it back.
+ */
 export const coverage: LookSource = {
   id: 'coverage',
   group: 'tests',
@@ -151,7 +157,7 @@ export const coverage: LookSource = {
     const newest = coverageNewest(w.store);
     if (!newest) return [];
     const { kind, icon, title, detail, href, runId, fixId, at } = newest.look;
-    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at }];
+    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at, advice: adviceOf('coverage', newest.uncovered) }];
   },
 };
 

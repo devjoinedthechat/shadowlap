@@ -1,9 +1,12 @@
-import { checkStatus, checkWords, fixLabelInfo, type FixRecords, fixRecords, lostWords, outcomeLabel, shownBlame, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { fixLabelInfo, type FixRecords, fixRecords, lostWords, shownBlame, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { failedWords } from '../failed-words.js';
 import { fixActions } from '../fix-actions.js';
+import { fixCrash } from '../fix-crash.js';
 import { fixLead, type FixLead } from '../fix-lead.js';
 import { changeWords } from '../fix-list.js';
-import { checksOf, fixHref, noAnswerLost, short } from '../fix-shared.js';
+import { capturedFailure, fixHref, noAnswerLost, short } from '../fix-shared.js';
 import { type NeedsLookItem, repairLeft } from '../fix-summary.js';
+import { issueKeyOfRun } from '../issues.js';
 import { links } from '../links.js';
 import { unblamedListedStep } from '../next-step.js';
 import { aboutsUpTo } from '../run-about.js';
@@ -23,11 +26,12 @@ const recordsOf = (w: LookWork, fixId: string): FixRecords | null => {
   return fix ? fixRecords(w.store, fix) : null;
 };
 
-/** The fix's lead, as its row on Fixes leads with it: from what its page's buttons would run (fix-actions.ts, fix-lead.ts). */
+/** The fix's lead, as its row on Fixes leads with it: from what its page's buttons would run (fix-actions.ts, fix-lead.ts), a crash's from its run's step (fix-crash.ts). */
 function leadOf(w: LookWork, rec: FixRecords): FixLead | null {
   const repairer = w.repairer ?? null;
   const actions = fixActions(w.store, rec, { label: fixLabelInfo(w.store, rec.fix).label, repairer, patchInTree: w.patchInTree, rewriteHere: w.rewriteHere });
-  return fixLead(rec, actions, { repairer });
+  const b = rec.fix.status === 'open' ? shownBlame(rec) : null;
+  return fixLead(rec, actions, { repairer, crash: b?.outcome === 'unrescuable' ? fixCrash(w.store, b, { work: w.next, reads: w.reads }) : null });
 }
 
 /** Main's row, kept first under Failing: the fix's page says why it doesn't hold. */
@@ -40,22 +44,18 @@ export const broken: LookSource = {
 };
 
 /**
- * What a failed run failed on, as its page says it: where it was lost or diverged (`outcomeLabel`),
- * else its first failed check with what it saw (`send_email called at most 1 time, but called 2
- * times`, `checkWords`), a capture's as its import judged it, else that it failed.
+ * What a failed run failed on, in the words Runs' issues and Fixes' row say it (failed-words.ts):
+ * its first failed check with what it saw (`send_email called at most 1 time, but called 2 times`),
+ * a capture's as its import judged it, the agent's exit, else that it failed.
  */
-function failedWords(w: LookWork, runId: string): string {
+function failedOf(w: LookWork, runId: string): string {
   const row = w.index.byId.get(runId);
-  const o = row?.outcome;
-  if (o?.kind === 'lost' || o?.kind === 'diverged') return outcomeLabel(o);
-  const run = w.store.getRun(runId);
-  const check = run ? checksOf(run, row).find((c) => checkStatus(c) === 'failed') : undefined;
-  return check ? checkWords(check, ', but ') : o?.kind === 'check-failed' && o.check ? o.check : 'failed';
+  return row ? failedWords(row, { capture: capturedFailure(row) ? w.store.getRun(runId) : null }) : 'failed';
 }
 
 /**
  * This week's failed runs that no blame and no fix holds, as one row: how many, the newest by its id
- * with what it failed on (`failedWords`), and Run blame on the newest where its page leads with it. It opens Runs on Failed for this week's days. Older ones stay on Runs and on Fixes.
+ * with what it failed on (`failedOf`), and Run blame on the newest where its page leads with it. It opens Runs on Failed for this week's days, with the newest's issue open (`issue`). Older ones stay on Runs and on Fixes.
  */
 export const unblamed: LookSource = {
   id: 'unblamed',
@@ -80,9 +80,10 @@ export const unblamed: LookSource = {
       kind: 'unblamed',
       icon: 'fail',
       title: unblamedTitle(n),
-      detail: `${n > 1 ? 'newest ' : ''}${short(runId)} · ${failedWords(w, runId)}`,
+      detail: `${n > 1 ? 'newest ' : ''}${short(runId)} · ${failedOf(w, runId)}`,
       step,
       href: links.runs({ types: 'failed', from: w.week.first, to: w.week.last }),
+      issue: issueKeyOfRun(w.store, w.index, runId),
       runId,
       fixId: null,
       at: newest.at,
@@ -118,8 +119,8 @@ export function openFixWords(rec: FixRecords): string {
 
 /**
  * Each open fix: its title, its words, and each golden it holds (` · refund-in-limit fails on
- * Tests`), as one cause is one row. A held crash's Find breaking commit leads, else the fix's lead,
- * as its row on Fixes leads (`leadOf`). It opens the fix, at Blame unless blame found the call.
+ * Tests`), as one cause is one row. A held crash's Find breaking commit or Revert leads, else the
+ * fix's lead, as its row on Fixes leads (`leadOf`). It opens the fix, at Blame unless blame found the call.
  */
 export const openFixes: LookSource = {
   id: 'openFixes',
@@ -131,9 +132,9 @@ export const openFixes: LookSource = {
       if (!rec) return [];
       const b = shownBlame(rec);
       const held: HeldGolden[] = w.held.get(f.fixId!) ?? [];
-      const bisect = held.find((h) => h.step.key === 'bisect');
+      const crash = held.find((h) => h.step.key === 'bisect' || h.step.key === 'revert');
       const lead = leadOf(w, rec);
-      const step: LookStep | null = bisect ? { of: 'run', runId: bisect.runId, step: bisect.step } : lead ? { of: 'fix', fixId: f.fixId!, lead } : null;
+      const step: LookStep | null = crash ? { of: 'run', runId: crash.runId, step: crash.step } : lead ? { of: 'fix', fixId: f.fixId!, lead } : null;
       const found = b?.outcome === 'blamed' && !!b.report.blamed;
       const row: NeedsLookRow = { key: `attn:fix:${fixHref(f.fixId!)}`, group: 'failing', kind: 'open', icon: 'blame', title: f.title, detail: openFixWords(rec) + held.map((h) => ` · ${h.name} fails on Tests`).join(''), step, href: found ? fixHref(f.fixId!) : fixHref(f.fixId!, 'blame'), runId: null, fixId: f.fixId, at: f.at };
       return [row];

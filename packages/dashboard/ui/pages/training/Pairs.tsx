@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
 import type { PairGroupView, TrainingView } from '../../api.js';
-import { Chips, EmptyState } from '../../components/bits.js';
+import { Chips } from '../../components/bits.js';
 import { Section } from '../../components/Section.js';
 import { plural, shortId } from '../../format.js';
 import { useListKeys } from '../../list-keys.js';
 import { navigate } from '../../router.js';
 import { filterGroups, type PairChip } from '../../training.js';
+import { TabEmpty } from './TabEmpty.js';
 
 /**
  * Training → Pairs, in sections as the design draws it (pairsTab): no heading to repeat the tab, the
@@ -21,7 +22,7 @@ export function PairsTab({ view }: { view: TrainingView }) {
   const groups = p.empty ? [] : filterGroups(p.groups, chip);
   const groupInFocus = useListKeys({ rows: groups, keyOf: (g) => g.key, root: groupsBox, open: (g) => navigate(g.href) });
   const sourceInFocus = useListKeys({ rows: p.empty ? [] : p.sources, keyOf: (s) => s.key, root: sourcesBox, open: (s) => navigate(s.href) });
-  if (p.empty) return <EmptyState title={p.empty.title} text={p.empty.text} command={p.empty.command} />;
+  if (p.empty) return <TabEmpty empty={p.empty} />;
   return (
     <>
       <section className="panel sec pairsec">

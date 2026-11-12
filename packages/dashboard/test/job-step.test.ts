@@ -63,6 +63,15 @@ describe('a job’s server step', () => {
     expect(out.code).toBe(0);
   });
 
+  it('runs after a job’s git step, as a revert’s, and before the first command it sits before', async () => {
+    const ran: string[] = [];
+    const out = await run({ args: ['test', 'goldens/x'], git: { args: ['--version'], ok: 'git answered', doing: 'Asking git', verb: 'ask it' }, step: step(0, { lines: ['written'] }, ran) });
+    expect(ran).toEqual(['step']);
+    expect(out.code).toBe(0);
+    expect(out.lines[0]).toBe('$ git --version');
+    expect(out.lines.slice(2)).toEqual(['git answered', 'written', '$ shadowlap test goldens/x', 'args ["test","goldens/x"]']);
+  });
+
   it('ends the job where it refuses, with its code, and runs nothing after it', async () => {
     const out = await run({ args: ['pack', 'r1', 'goldens/x'], then: [['test', 'goldens/x']], step: step(1, { lines: ['goldens/x is packed without its gate: it changed'], code: 1 }, []) });
     expect(out.code).toBe(1);

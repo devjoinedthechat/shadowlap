@@ -4,6 +4,7 @@ import { focusQuiet, wantCallFocus } from '../focus-manager.js';
 import { sameRun } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { parseRoute } from '../route.js';
+import type { RunOffers } from '../types.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
 import { Skeleton } from '../components/States.js';
@@ -12,11 +13,11 @@ import { closePanelOn, openDiff, usePanel, type Panel } from './panel-state.js';
 
 /**
  * What a finding opens takes the inspector's place beside the calls, so the list keeps its place and
- * its first row doesn't move: a fork's or a diverged test's diff, an injection test's or the error-path
- * presets' results (the page's body for them, components/FindingPanel.tsx), and a bisect's change later
- * in the same place. One at a time, until it is hidden or a call is picked, a link in it to one of the
- * run's calls too, which gives the inspector back; so do the inspector's keys, 1 to 4. Which is open
- * is kept in panel-state.ts.
+ * its first row doesn't move: a fork's or a diverged test's diff, the change at the first bad commit
+ * Find breaking commit named for a crash, and an injection test's or the error-path presets' results
+ * (the page's body for them, components/FindingPanel.tsx). One at a time, until it is hidden or a call
+ * is picked, a link in it to one of the run's calls too, which gives the inspector back; so do the
+ * inspector's keys, 1 to 4. Which is open is kept in panel-state.ts.
  */
 
 /**
@@ -42,14 +43,15 @@ export function warmDiff(client: Pick<Client, 'requestDiff'>, runId: string, liv
 }
 
 /**
- * Where the focus goes as a panel closes from inside it: the finding's toggle that opened it, or,
- * where that finding is folded away, the findings' button that opens them.
+ * Where the focus goes as a panel closes from inside it: the finding's toggle that opened it (Show
+ * diff, Show change, or the Show results naming its key, by the panel's kind), or, where that finding
+ * is folded away, the findings' button that opens them.
  */
 export function panelToggle(panel: Panel | null): HTMLElement | null {
   const toggle =
     panel?.kind === 'results'
       ? ([...document.querySelectorAll<HTMLElement>('#view [data-act="results"]')].find((b) => b.getAttribute('data-which') === panel.key) ?? null)
-      : document.querySelector<HTMLElement>('#view [data-act="diff"]');
+      : document.querySelector<HTMLElement>(`#view [data-act="${panel?.kind === 'change' ? 'change' : 'diff'}"]`);
   if (toggle?.getClientRects().length) return toggle;
   return document.querySelector<HTMLElement>('#view .findings .fmore') ?? toggle;
 }
@@ -100,21 +102,23 @@ export function usePickInView(select: (n: number) => void, selected: number | nu
 
 /**
  * The panel open on a run's page, for that run alone: `showDiff` and `onToggleDiff` for the diff's
- * toggle, `close` for every pick of a call. One opened on the page below 1160px is brought into view;
- * one the page comes back to, kept open from a visit before, leaves the page where it starts.
+ * toggle, `showChange` and `onToggleChange` for the first bad commit's, `close` for every pick of a
+ * call. One opened on the page below 1160px is brought into view; one the page comes back to, kept
+ * open from a visit before, leaves the page where it starts.
  */
 export function useFindingPanel(runId: string) {
   const panel = usePanel(runId);
   const showDiff = panel?.kind === 'diff';
+  const showChange = panel?.kind === 'change';
   const close = useCallback(() => closePanelOn(runId), [runId]);
-  const shown = panel ? (panel.kind === 'results' ? `results:${panel.key}` : 'diff') : null;
+  const shown = panel ? (panel.kind === 'results' ? `results:${panel.key}` : panel.kind) : null;
   const was = useRef({ runId, shown });
   useEffect(() => {
     const before = was.current;
     was.current = { runId, shown };
     if (shown && before.runId === runId && before.shown !== shown) inspectorInView();
   }, [runId, shown]);
-  return { panel, showDiff, onToggleDiff: () => (showDiff ? closePanelOn(runId) : openDiff(runId)), close };
+  return { panel, showDiff, onToggleDiff: () => (showDiff ? closePanelOn(runId) : openDiff(runId)), showChange, onToggleChange: () => (showChange ? closePanelOn(runId) : openDiff(runId, 'change')), close };
 }
 
 /** The prefix of an injection test's results' key: `injection:<result id>`, its finding's `which`. */
@@ -132,21 +136,31 @@ export function useResultsBodies(runId: string): (key: string) => ReactNode {
 
 /**
  * The inspector (`children`), or in its place the panel a finding opened: its title and Hide over the
- * diff or the results, one column at the inspector's width. The page gives the results' body by their
- * key (`results`); results it has no body for leave the inspector as it is, as a run with no diff does.
- * `onPick` is the page's pick of a call, which a link in the panel to one of the run's calls makes.
- * The diff's title names the call it shows: the divergence's, or once the answer came the one it
- * shows (after a tool a fork changed, the next model call).
+ * diff, the change at the first bad commit (the page's `offers`) or the results, one column at the
+ * inspector's width. The page gives the results' body by their key (`results`); a panel with nothing
+ * to show leaves the inspector as it is, as a run with no diff does. `onPick` is the page's pick of a
+ * call, which a link in the panel to one of the run's calls makes. The diff's title names the call it
+ * shows: the divergence's, or once the answer came the one it shows (after a tool a fork changed, the
+ * next model call).
  */
-export function InspectorPlace({ panel, run, onClose, onPick, results, children }: { panel: Panel | null; run: RunDetail; onClose: () => void; onPick: (n: number) => void; results?: ((key: string) => ReactNode) | undefined; children: ReactNode }) {
+export function InspectorPlace({ panel, run, offers = null, onClose, onPick, results, children }: { panel: Panel | null; run: RunDetail; offers?: RunOffers | null; onClose: () => void; onPick: (n: number) => void; results?: ((key: string) => ReactNode) | undefined; children: ReactNode }) {
   const runId = run.run.runId;
   const [shown, setShown] = useState<{ runId: string; at: number } | null>(null);
   const onAt = useCallback((at: number) => setShown({ runId, at }), [runId]);
+  // A part the served dashboard hands in, as a copy never shows a change (served-parts.ts).
+  const { ChangeBox } = useServedParts();
   const body = panel?.kind === 'results' ? (results?.(panel.key) ?? null) : null;
   if (panel && body)
     return (
       <PanelFrame title="Results" hide="Hide results" panel={panel} onClose={onClose} onPick={onPick}>
         {body}
+      </PanelFrame>
+    );
+  const commit = offers?.commit;
+  if (panel?.kind === 'change' && commit?.change?.hunk && ChangeBox)
+    return (
+      <PanelFrame title="The change at the first bad commit" hide="Hide change" panel={panel} onClose={onClose} onPick={onPick}>
+        <ChangeBox rev={commit.rev} change={commit.change} />
       </PanelFrame>
     );
   const d = run.run.divergence;
@@ -192,7 +206,7 @@ function PanelFrame({ title, hide, panel, onClose, onPick, children }: { title: 
     if (held) wantCallFocus(n);
   };
   return (
-    <section className="insp fpanel" id="insp" aria-label={title}>
+    <section className="insp fpanel" id="insp" aria-label={title} data-kind={panel.kind}>
       <div className="ihead fhead">
         <span className="ct">{title}</span>
         <span className="nav">

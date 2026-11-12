@@ -298,6 +298,8 @@
 
 
 .dialog pre.fxpatch { margin: 10px 0 0; max-height: 40vh; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A fix's patch and the change Revert undoes are code boxes (CodeBox `lines`): their sides as the box's own, so an added line's ground reaches its edges. */
+.dialog pre.codebox.fxpatch { padding: 10px 14px; }
 
 .dialog .ondisk.first { margin-top: 0; }
 

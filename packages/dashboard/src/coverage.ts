@@ -39,7 +39,7 @@ export interface CoverageGroupView {
    * command it runs, and the agent's command it would reproduce the capture with: the one a run here
    * sent the same first request with, or null when nothing says, and the dialog asks for it (with
    * `{message}` where the agent's input goes). `forkable` when the last `--pack` found the agent no
-   * longer does this: Keep it as a test then packs it as a golden that forks, with the checks the
+   * longer does this: the setup's Pack then packs it as a golden that forks, with the checks the
    * dialog asks for (`fork: true, expect`).
    */
   pack: { key: string; args: string[]; command: string[] | null; commandFrom: string | null; forkable: boolean } | null;
@@ -154,15 +154,18 @@ export function coverageLook(store: StoreOf<'recording' | 'coverage'>): Coverage
   return coverageNewest(store)?.look ?? null;
 }
 
-/** The coverage line, with the key of the newest behaviour no golden covers, which Needs a look keys its row by. */
-export function coverageNewest(store: StoreOf<'recording' | 'coverage'>): { look: CoverageLook; key: string } | null {
+/**
+ * The coverage line, with the key of the newest behaviour no golden covers, which Needs a look keys
+ * its row by, and every uncovered behaviour's key, the facts its advice states.
+ */
+export function coverageNewest(store: StoreOf<'recording' | 'coverage'>): { look: CoverageLook; key: string; uncovered: string[] } | null {
   const scan = store.listCoverageScans(1)[0] ?? null;
   if (!scan) return null;
   const uncovered = store.coverageGroups().filter((g) => !g.coveredBy.length);
   const newest = [...uncovered].sort((a, b) => b.lastSeen - a.lastSeen)[0];
   if (!newest) return null;
   const runId = newest.runIds.find((id) => store.getRun(id) !== null) ?? null;
-  return { look: lookOf(uncovered.length, { path: newest.behaviour.path, sources: newest.sources }, runId, scan.at), key: newest.key };
+  return { look: lookOf(uncovered.length, { path: newest.behaviour.path, sources: newest.sources }, runId, scan.at), key: newest.key, uncovered: uncovered.map((g) => g.key) };
 }
 
 /** The longest check JSON a pack request may carry, as the fix jobs take theirs. */

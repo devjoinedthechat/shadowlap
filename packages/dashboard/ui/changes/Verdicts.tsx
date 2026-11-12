@@ -1,9 +1,8 @@
-import { Fragment, useRef, useState, type ReactNode } from 'react';
-import { ApiError } from '../api.js';
+import { Fragment, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Chips } from '../components/bits.js';
 import { Words } from '../components/Copy.js';
 import { Link } from '../components/Link.js';
-import { EmptyLine, EmptyState, ErrorState, Skeleton } from '../components/States.js';
+import { EmptyLine, EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { Status } from '../components/Status.js';
 import { rowOpen, ShowMore } from '../components/Table.js';
 import { VerdictLine } from '../components/VerdictLine.js';
@@ -11,6 +10,7 @@ import { minuteStamp } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
+import { onShownProject, shownProject } from '../projects-api.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
 import type { SessionVerdict, VerdictRow, VerdictsKind, VerdictsView } from '../types.js';
@@ -26,23 +26,37 @@ import { chipEmpty, kindLine, leadFacts, leadIsOpen, moreLimit, rowTone, titledB
  * shared, through a team store.
  */
 
-/** The chip and how far the list reads, kept while the page is open in this tab: back from a revision's page the list reads as far as it was left, so Esc finds its row. A new chip reads from the top. */
-let kept: { chip: VerdictsKind; limit: number } = { chip: 'all', limit: VERDICTS_STEP };
+/**
+ * The chip and how far the list reads, kept per project while the page is open in this tab, as
+ * changes-tab.ts keeps the tab: back from a revision's page the list reads as far as it was left, so
+ * Esc finds its row. A new chip reads from the top; another project's list starts at All.
+ */
+type Kept = { chip: VerdictsKind; limit: number };
+const kept = new Map<string, Kept>();
+const keptNow = (): Kept => kept.get(shownProject() ?? '') ?? { chip: 'all', limit: VERDICTS_STEP };
+
+/** Forgets every project's chip and limit: a test's own start. */
+export function forgetVerdictsKept(): void {
+  kept.clear();
+}
 
 /** What knows a row to the list keys: where it leads, else its own id. */
 const rowKey = (row: VerdictRow) => verdictHref(row) ?? row.id;
 
 export function VerdictsTab() {
   const { client, runsTick, feeds } = useApp();
-  const [shown, setShown] = useState(kept);
-  const show = (next: typeof kept) => {
-    kept = next;
-    setShown(next);
+  const project = useSyncExternalStore(onShownProject, shownProject);
+  const [held, setHeld] = useState(() => ({ project, ...keptNow() }));
+  // Another project's page reads its own chip and limit, at once, never this one's.
+  const shown = held.project === project ? held : { project, ...keptNow() };
+  const show = (next: Kept) => {
+    kept.set(project ?? '', next);
+    setHeld({ project, ...next });
   };
   const { chip, limit } = shown;
   // The chip in the refresh, not the key: the rows stay until another chip's come. The answer says which chip and how many it is for.
   const loaded = useLoad(() => client.verdicts(chip, limit).then((view) => ({ chip, limit, view })), 'verdicts', `${chip}:${limit}:${runsTick}:${feeds.tests ?? 0}:${feeds.decisions ?? 0}:${feeds.fixes ?? 0}`);
-  const failed = loaded.error ? <ErrorState retry={loaded.reload}>{failedWords(loaded.error)}</ErrorState> : null;
+  const failed = loaded.error ? <ErrorState retry={loaded.reload}>{failedRead(loaded.error)}</ErrorState> : null;
   if (!loaded.data) return failed ?? <Loading />;
   const { view } = loaded.data;
   if (view.counts.all === 0) return failed ?? <EmptyState title="No change checked yet" text="Each test session CI runs checks the change it was given, and each preview a change you might make. Their verdicts collect here, newest first." copy command="shadowlap test goldens/*" />;
@@ -60,9 +74,6 @@ export function VerdictsTab() {
     </>
   );
 }
-
-/** What the page says when its data couldn't be read: the status the server answered, else what went wrong. */
-const failedWords = (err: Error) => (err instanceof ApiError ? `The dashboard server answered ${err.status} for this page’s data.` : err.message);
 
 /** The newest revision's verdict, whatever the chip: its revision and tally, the change, and the way into its page, lime while it failed or couldn't decide. */
 function Lead({ lead }: { lead: SessionVerdict }) {

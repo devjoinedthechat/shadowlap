@@ -16,7 +16,8 @@ import { useApp } from '../state.js';
 import { flagText } from './banner.js';
 import { lineageRunLike, modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
 import { copyRules, endpointSamples, exportedLine, lineageWords, recordedScopes, tallyProviders, upstreamParts } from './provenance.js';
-import { preloadsOf, preloadWords, viaWords } from './notes.js';
+import { viaWords } from './notes.js';
+import { preloadsOf, preloadWords } from './preloads.js';
 import { useWindow } from './window-hook.js';
 
 /**

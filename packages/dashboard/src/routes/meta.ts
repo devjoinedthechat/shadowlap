@@ -1,4 +1,5 @@
 import type { RouteContext } from '../context.js';
+import { editorForm } from '../editor.js';
 import { metaView } from '../meta.js';
 import type { Router } from '../router.js';
 
@@ -15,6 +16,7 @@ export function register(router: Router, ctx: RouteContext): void {
         address: ctx.address(),
         jobKinds: ctx.jobs.kindNames(),
         uploadLimit: ctx.project && !ctx.readOnly ? ctx.uploads.maxBytes : null,
+        editor: ctx.project ? editorForm(ctx.options.editor) : null,
         project: ctx.project,
       }),
     ),

@@ -41,11 +41,11 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
  * The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land.
  * The dialogs a list row's step asks in load as the step first asks: a fix's lead's (LeadDialog, on Fixes and Needs a look), and Needs a look's Find breaking commit's and Update golden's.
  */
-const PARTS = ['ActionDialog', 'AttemptPage', 'Builder', 'CauseFinding', 'CheckDialog', 'CheckMenu', 'ContextView', 'DatasetDialog', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'FindCause', 'ForkDifferences', 'ForkMenu', 'ForksView', 'InjectionFinding', 'InjectionResults', 'JsonDiff', 'LeadDialog', 'MoreMenu', 'OtelDialog', 'PackWithGate', 'Palette', 'Proof', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'ResultsMatrix', 'RevisionPage', 'RunBlameAsks', 'RunDialogs', 'SecurityReportDialog', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TestDialog', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
+const PARTS = ['ActionDialog', 'AttemptPage', 'Builder', 'CauseFinding', 'ChangeBox', 'CheckDialog', 'CheckMenu', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'FailedIssues', 'FindCause', 'ForkDifferences', 'ForkMenu', 'ForksView', 'InjectionFinding', 'InjectionResults', 'JsonDiff', 'LeadDialog', 'MoreMenu', 'OtelDialog', 'PackWithGate', 'Palette', 'Preview', 'Proof', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'ResultsMatrix', 'RevertDialog', 'RevisionPage', 'RunBlameAsks', 'RunDialogs', 'RunNotes', 'SecurityReportDialog', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TestDialog', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
-/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset…, Export OpenTelemetry trace… and Security report it opens; Run blame's dialogs with the check a blame asks for (CheckDialog), and the check menu with the builder its pick opens; the dialogs a run's steps ask in, Run injection test…'s and Pack with injection gate…'s among them; an injection test's results, and the matrix they draw; a kept test's finding, which offers them; what only an injection attempt's page draws, its proof and its marks. */
-const COPY_PARTS = ['ActionDialog', 'ContextView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'Palette', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
+/** The parts the copy shows, in its one script: a run's views but Calls, the words of a run's notes, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset…, Export OpenTelemetry trace… and Security report it opens; the fork menu and the header's …; Run blame's dialogs with the check a blame asks for (CheckDialog), and the check menu with the builder its pick opens; Runs › Failed as issues; Revert's dialog and the change box; the dialogs a run's steps ask in, Run injection test…'s and Pack with injection gate…'s among them; Find cause… and the answers it finds; an injection test's results, and the matrix they draw; a kept test's finding, which offers them; what only an injection attempt's page draws, its proof and its marks. */
+const COPY_PARTS = ['ActionDialog', 'ContextView', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'Palette', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RunDialogs', 'RunNotes', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
 
 /**
  * The parts heavy enough that they must wait for a script of their own (`onShow`), by their modules:
@@ -142,7 +142,7 @@ describe('the dashboard’s scripts', () => {
     expect(names(parts)).toEqual(PARTS);
     for (const p of parts) expect(firstInputs.has(p.entry) || p.shownWith.has(p.entry), `${p.name} waits for its own script`).toBe(false);
     // The page list declares no part, and shows one part itself: the In page, which a link into a
-    // project with no runs yet shows in the setup's place, declared in a module the pages showing it
+    // project that can't be opened shows in the setup's place, declared in a module the pages showing it
     // import too, so an exported copy takes it with its pages and not the page list (OnShow.tsx).
     const listed = new Set(metafile.inputs['ui/pages/lazy.tsx'].imports.filter((i) => i.kind === 'import-statement').map((i) => i.path));
     const listShows = dynamicImports(metafile).filter((d) => listed.has(d.by) && d.by.startsWith('ui/pages/'));
@@ -191,7 +191,7 @@ describe('the dashboard’s scripts', () => {
     expect(held.has('ui/main.tsx')).toBe(false);
     // Nor what only the served dashboard draws, which it hands in (ui/served-parts.ts): a copy draws
     // no Share, no Fork at #n, no …, no Run blame and no Add check…, and its actions wait, so no step
-    // asks in a dialog there.
+    // asks in a dialog there; and it keeps Failed a filter, so draws no issues.
     expect(held.has('ui/pages/served.tsx')).toBe(false);
     expect(held.has('ui/run/ShareMenu.tsx')).toBe(false);
     expect(held.has('ui/run/ForkMenu.tsx')).toBe(false);
@@ -200,6 +200,8 @@ describe('the dashboard’s scripts', () => {
     expect(held.has('ui/checks/Builder.tsx')).toBe(false);
     expect(held.has('ui/run/StepDialogs.tsx')).toBe(false);
     expect(held.has('ui/injection/SecurityReportDialog.tsx')).toBe(false);
+    expect(held.has('ui/runspage/FailedIssues.tsx')).toBe(false);
+    expect(held.has('ui/runspage/IssuesTable.tsx')).toBe(false);
     // The parts its pages show are in its one script: a file has no server to load them from.
     const shown = dynamicImports(metafile).filter((d) => held.has(d.by));
     for (const part of COPY_PARTS) expect(PARTS).toContain(part);

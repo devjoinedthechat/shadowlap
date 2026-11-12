@@ -1,5 +1,6 @@
 import { Dialog } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
+import { failedRead } from '../components/States.js';
 import { minuteStamp, plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
@@ -47,7 +48,7 @@ export function SecurityReportDialog({ resultId, mode, runId, onClose }: { resul
       onClose={onClose}
       onOk={download}
     >
-      {preview.error ? <div className="ibar err">{errorText(preview.error)}</div> : null}
+      {preview.error ? <div className="ibar err">{failedRead(preview.error)}</div> : null}
       {p?.masks.map((m) => (
         <div className="injmask" key={`${m.at}:${m.before}`}>
           <span className="chip">{m.at}</span>
