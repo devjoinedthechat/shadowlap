@@ -1232,7 +1232,7 @@ Its subcommands take these flags:
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes | — |
-| `--expect <json\|@file>` | `fix check`: the check, an expect object as `blame` takes it | — |
+| `--expect <json\|@file>` | `fix check`: the fix's new check, an expect object as under `expect` in `shadowlap.config.json` tests | — |
 | `--name <run>=<name>` | `fix apply`: the name of the golden copied from a fixed run, at most 64 characters and not a name Windows keeps (repeatable) | The fix's label |
 | `--goldens <dir>` | `fix apply`: where the recordings go | `goldens` |
 | `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them | — |
@@ -1434,14 +1434,18 @@ it. With a team store, the latest rename on any machine is the one every machine
 Gives an open fix another check, as `--expect` takes it. Its failing and good runs are judged by it
 again from what they recorded, judges included, with nothing replayed. A failing run it passes and
 a good run it fails leave the fix, though Shadowlap keeps them. A run none of its checks applies to
-passes, and leaves as well.
+fails nothing, so it leaves as well (*not applicable*). Each run prints as [`check`](#check) prints
+it, after its role, and a run that leaves says so.
 
 - **What stays.** Every blame, repair and verdict keeps the check it ran under. A verdict counts for
   the fix only when it checked the fix's check, so one made under the check before stops counting.
-- **Refused, with exit status 2.** A fix that is verified or applied keeps the check its accepted
-  verdict counted under: add the check to the golden that guards it instead. A check none of the
-  failing runs fails as recorded would no longer be this failure. So is a check holding a hidden
-  character, and one that doesn't read. Nothing changes.
+- **Refused, with exit status 2.** Nothing changes when it refuses:
+  - A fix that is verified or applied keeps the check its accepted verdict was given under: add the
+    check to the golden that guards it instead.
+  - It refuses a check none of the failing runs fails as recorded, since the fix would no longer be
+    this failure.
+  - It refuses a fix none of whose failing runs is left in the store to judge the check on.
+  - It also refuses a check holding a hidden character, and one that doesn't read.
 - **The check it has** changes nothing, with exit status 0.
 
 `fix check --json` prints `{ fixId, status, check, previous, runs, left, uncounted, next }`:
@@ -1455,7 +1459,8 @@ passes, and leaves as well.
 
 Each of its runs (`runId`, `role`, `outcome`, `na`, `why`, `checks`) is as the check judged it.
 `role` is `failing` or `good`, and `outcome` is `passed`, `failed`, `inconclusive`, or `gone` from
-the store. `na` says it passed only because none of its checks applied.
+the store. `na` says none of its checks applied: it failed nothing, so its `outcome` is `passed`, and
+it reads *not applicable*.
 
 ### `fix pr`
 
