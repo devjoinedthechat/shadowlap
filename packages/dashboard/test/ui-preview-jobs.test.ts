@@ -36,12 +36,14 @@ const step = (callNo: number, rank: DecisionStep['rank']): DecisionStep => ({
   samples: { asked: 2, answered: 2, changed: rank === null ? 0 : 2, ranks: [rank ?? 0, rank ?? 0] },
   model: { recorded: 'claude-sonnet-4-5-20250929', asked: 'claude-haiku-4-5' },
   tokens: { before: null, after: null },
-  cost: { before: null, after: null },
+  cost: { before: null, after: null, spent: 0 },
+  thinkingStripped: 0,
   error: null,
 });
 const runOf = (runId: string, golden: string | null, decisions: DecisionStep[]): DecisionRun => {
-  const rank = decisions.reduce<number | null>((m, s) => (s.rank !== null && (m === null || s.rank < m) ? s.rank : m), null);
-  return { runId, golden, rank, flagged: rank === 1, steps: decisions.length, asked: decisions.length, refused: null, decisions, tokens: NO_TOKENS, cost: { before: null, after: null } } as unknown as DecisionRun;
+  const ranks = decisions.map((d) => d.rank).filter((r): r is NonNullable<typeof r> => r !== null);
+  const rank = ranks.length ? (Math.min(...ranks) as DecisionRun['rank']) : null;
+  return { runId, golden, steps: decisions.length, asked: decisions.length, rank, majority: rank, counts: emptyCounts(), cost: { before: 0.04, after: 0.02, spent: 0.02 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions, warnings: [] };
 };
 const shown = (el: { textContent: string } | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 
@@ -98,7 +100,8 @@ describe('a kept preview’s verify', () => {
 
   beforeAll(() => {
     store = Store.open(':memory:');
-    const kept = store;
+    // The DOM pass reads the engine as built and its fixtures as sources: the one store, either way.
+    const kept = store as unknown as Parameters<typeof recordRun>[0];
     a = recordRun(kept, [LOOKUP, POLICY, REFUND, DONE], { model: 'claude-sonnet-4-5-20250929' }).run.runId;
     b = recordRun(kept, [LOOKUP, POLICY, DONE], { model: 'claude-sonnet-4-5-20250929' }).run.runId;
     const runs = [runOf(a, 'goldens/refund', [step(1, null), step(3, 1)]), runOf(b, null, [step(1, null), step(3, null)])];
