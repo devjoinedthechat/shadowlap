@@ -46,13 +46,16 @@ switch (args[0]) {
     break;
   case 'stubborn': {
     // `shadowlap replay` with an agent that ignores SIGTERM: the CLI reports its run, passes a
-    // SIGTERM on to the agent and waits for it, as runUnderSidecar does.
+    // SIGTERM on to the agent and waits for it, as runUnderSidecar does. It listens before the agent
+    // starts, as AgentStop does: on a machine swapping hard this process could stall after the spawn
+    // until the agent had printed its pid, and a stop then ended it by default, taking the agent too.
     if (args[1]) emit({ type: 'run', runId: args[1], role: 'new' });
-    const agent = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => console.log('agent ignores SIGTERM')); setInterval(() => {}, 1000); console.log('agent ' + process.pid);"], { stdio: 'inherit' });
+    let agent = null;
     process.on('SIGTERM', () => {
       console.log('passing SIGTERM on');
-      agent.kill('SIGTERM');
+      agent?.kill('SIGTERM');
     });
+    agent = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => console.log('agent ignores SIGTERM')); setInterval(() => {}, 1000); console.log('agent ' + process.pid);"], { stdio: 'inherit' });
     agent.on('exit', (code, signal) => {
       console.log(`agent exited ${signal ?? code}`);
       process.exit(1);
