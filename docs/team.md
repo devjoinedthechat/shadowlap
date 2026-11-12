@@ -195,6 +195,8 @@ Each part of a run syncs its own way:
 
 **An edit in the bucket.** Anyone your admin lets write to the bucket could edit a run there. Such an edit can't change how a run on your machine replays, or whom it names as its author.
 
+**What you dismiss** on the Overview stays on this machine: a push never sends it, and a pull never brings anyone's.
+
 ### Runs still recording
 
 - **Queued.** A run still recording is queued, and goes to the store when the command that recorded it ends it. `run`, `replay` (with `--repeat` too), `serve`, `blame` and `verify` push what was queued as they finish.
