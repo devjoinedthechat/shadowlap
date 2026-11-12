@@ -2066,6 +2066,7 @@ to your code. Each of its `runs` has these fields:
 | `outcome` | How it came out (below) |
 | `tally` | For a run verify took: its `passes`, `attempts`, `bound` (exact under the gate's stopping), the `rule` that decided it, `undecided` and `parts` (below); else `null` |
 | `diverges` | Once the config change is in, where a golden that replays exactly diverges: `callNo`, its first switched call, and `path`, `$.model`. Else `null` |
+| `stays` | Why a golden replays as recorded once switched: `fork`, it passes on its checks wherever it forks; `no-call`, it sends no switched model. Else absent |
 
 A tally's `bound`, `rule`, `undecided` and `parts` are as in the decisions report's
 [`verify`](#decisions-report-as-json).

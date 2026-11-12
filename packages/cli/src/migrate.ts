@@ -73,6 +73,12 @@ export interface MigrateRunPass {
    * names the model.
    */
   diverges: { callNo: number; path: '$.model' } | null;
+  /**
+   * Why a golden stays as recorded once the config change is in: `fork`, its tests entry marks it
+   * fork, so it passes on its checks wherever it forks; `no-call`, it makes no call with a model the
+   * switch changes. Absent for a run, a golden that diverges, and when no file names the model.
+   */
+  stays?: 'fork' | 'no-call';
 }
 
 export interface MigrateReport {
@@ -216,16 +222,19 @@ export function passesOf(runs: readonly DecisionRun[], toVerify: readonly string
  * Marks each golden the config change leaves behind (`diverges`): one that replays exactly, since a
  * golden marked `fork` passes on its checks wherever it forks, and makes a call with a model the
  * switch changes, at the first such call. Which agent reads the files the patch changes can't be told,
- * so every such golden is named, "once applied": `migrate apply` replays them to see.
+ * so every such golden is named, "once applied": `migrate apply` replays them to see. Each other
+ * golden says why it stays as recorded (`stays`).
  */
-function markDiverges(passes: MigrateRunPass[], runs: readonly DecisionRun[], targets: readonly DecisionTarget[], from: readonly string[]): void {
+export function markDiverges(passes: MigrateRunPass[], runs: readonly DecisionRun[], targets: readonly DecisionTarget[], from: readonly string[]): void {
   for (const x of passes) {
     const t = targets.find((y) => y.run.runId === x.runId);
-    // Its tests entry says whether `shadowlap test` lets it fork, whatever checks verify took.
-    if (!x.golden || !t || t.spec?.fork) continue;
+    if (!x.golden || !t) continue;
     const steps = runs.find((r) => r.runId === x.runId)?.decisions ?? [];
     const first = steps.filter((d) => from.some((m) => sameModel(d.model.recorded, m))).sort((a, b) => a.callNo - b.callNo)[0];
-    if (first) x.diverges = { callNo: first.callNo, path: '$.model' };
+    // Its tests entry says whether `shadowlap test` lets it fork, whatever checks verify took.
+    if (!first) x.stays = 'no-call';
+    else if (t.spec?.fork) x.stays = 'fork';
+    else x.diverges = { callNo: first.callNo, path: '$.model' };
   }
 }
 

@@ -7,7 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, Store, type DecisionRemedy, type DecisionRun, type DecisionsVerify } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
-import { formatMigrate, modelMentions, passesOf, pullRequestBody, type MigrateReport, type MigrateRunPass } from '../src/migrate.js';
+import { type DecisionTarget } from '../src/decisions.js';
+import { formatMigrate, markDiverges, modelMentions, passesOf, pullRequestBody, type MigrateReport, type MigrateRunPass } from '../src/migrate.js';
 import { quoteArgv } from '../src/ui.js';
 import { departures } from './json-shapes.js';
 
@@ -476,6 +477,25 @@ describe("migrate's first line", () => {
     const [alone] = passesOf([run], ['R0'], verify(0, 1), () => true);
     expect(formatMigrate({ ...r, passes: { verdict: 'incomplete', runs: [alone] } })).toContain('inconclusive · verified · attempt 1 not judged\n');
     expect(formatMigrate(r)).not.toMatch(/2 of 3|0 of 1/);
+  });
+
+  it('marks each golden a switch leaves behind at its first call with the old model, and why each other golden stays as recorded', () => {
+    const step = (callNo: number, model: string) => ({ callNo, model: { recorded: model } });
+    const runs = [
+      { runId: 'R0', golden: 'goldens/replays', decisions: [step(3, 'claude-new'), step(2, 'claude-old')] },
+      { runId: 'R1', golden: 'goldens/forks', decisions: [step(1, 'claude-old')] },
+      { runId: 'R2', golden: 'goldens/other', decisions: [step(1, 'gpt-5')] },
+      { runId: 'R3', golden: null, decisions: [step(1, 'claude-old')] },
+    ] as unknown as DecisionRun[];
+    const targets = runs.map((r) => ({ run: { runId: r.runId }, spec: r.golden === 'goldens/forks' ? { fork: true } : {} })) as unknown as DecisionTarget[];
+    const passes = runs.map((r) => ({ runId: r.runId, golden: r.golden, verdict: 'passed', outcome: 'unchanged', verified: false, tally: null, diverges: null })) as MigrateRunPass[];
+    markDiverges(passes, runs, targets, ['claude-old']);
+    expect(passes.map((x) => [x.diverges, x.stays])).toEqual([
+      [{ callNo: 2, path: '$.model' }, undefined],
+      [null, 'fork'],
+      [null, 'no-call'],
+      [null, undefined],
+    ]);
   });
 
   it('names the command it was checked with in the pull request body, with a key its command line carries masked', () => {
