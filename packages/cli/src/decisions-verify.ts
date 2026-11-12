@@ -115,6 +115,7 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
       opts: input.opts,
       store,
       targets,
+      session: session.sessionId,
       fields: verifyFields(change, remedies),
       from: change.from,
       settings: input.settings,

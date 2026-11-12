@@ -71,6 +71,7 @@ export function register(program: Command): void {
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--fail-fast', 'start nothing new once a run has failed')
     .option('--margin <share>', `a good run that forks is kept unless its pass rate drops this much or more below its baseline's: 0.1 is 10 points (default: verify.margin in shadowlap.config.json, else ${KEPT_DEFAULTS.margin})`, parseMargin)
+    .option('--kept-max <n>', `the most pairs a good run that forks takes against its baseline, or attempts against its history (default: verify.max in shadowlap.config.json, else ${KEPT_DEFAULTS.max}, or a --gate max off its default)`, parseIntArg)
     .option('--baseline <source>', 'what a good run is compared with: paired, the same run under the code before the change, attempt for attempt; or history, its golden\'s test history (default: verify.baseline, else paired)', parseChoice(['paired', 'history'] as const))
     .option('--base <rev>', 'with a paired baseline: the commit before the change (default: HEAD, when the working tree has a change)')
     .option('--build <command>', 'with a paired baseline at a commit: build its checkout before its attempts, e.g. "npm run build"')

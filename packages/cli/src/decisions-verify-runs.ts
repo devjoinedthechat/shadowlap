@@ -6,7 +6,7 @@ import { type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
 import { runVerify } from './verify.js';
 
-type VerifyRunsInput = { opts: GlobalOpts; store: Store; targets: DecisionTarget[]; fields: Record<string, unknown>; from: string[] | null; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; prices: Record<string, Price> | undefined; budget: number | null; log: (line: string) => void; blocked?: string | null };
+type VerifyRunsInput = { opts: GlobalOpts; store: Store; targets: DecisionTarget[]; session?: string | null; fields: Record<string, unknown>; from: string[] | null; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; prices: Record<string, Price> | undefined; budget: number | null; log: (line: string) => void; blocked?: string | null };
 
 /** A golden's or a run's checks, and the runs judged by them: one verify per set. */
 interface ChecksGroup {
@@ -39,7 +39,7 @@ function planOf(g: ChecksGroup, input: VerifyRunsInput) {
     return { parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && commandIsImported(t.run), role };
   });
   const role = (r: VerifyRole) => runs.filter((x) => x.role === r).map((x) => x.parent.runId);
-  const line = verifyCommand({ fixes: role('target').map((id) => shortId(id)), keeps: role('good').map((id) => shortId(id)) }, { expect: g.json ?? null, attempts: v.attempts, passes: !v.gate && v.needed !== Math.ceil(0.8 * v.attempts) ? v.needed : undefined, gate: v.gate, fields: input.fields, from: input.from ?? undefined, liveTools: [], writes: v.writes, reads: 'live', budget: null, timeoutMs: s.timeoutMs, argv: s.argv });
+  const line = verifyCommand({ fixes: role('target').map((id) => shortId(id)), keeps: role('good').map((id) => shortId(id)) }, { expect: g.json ?? null, attempts: v.attempts, passes: !v.gate && v.needed !== Math.ceil(0.8 * v.attempts) ? v.needed : undefined, gate: v.gate, keptMax: v.keptMax ?? undefined, fields: input.fields, from: input.from ?? undefined, liveTools: [], writes: v.writes, reads: 'live', budget: null, timeoutMs: s.timeoutMs, argv: s.argv });
   return { g, runs, line };
 }
 
@@ -82,10 +82,10 @@ export async function verifyRuns(input: VerifyRunsInput): Promise<DecisionsVerif
     const report = await runVerify({
       opts: input.opts,
       runs,
-      settings: { attempts: v.attempts, needed: v.needed, gate: v.gate, concurrency: 1, fields: input.fields, ...(input.from?.length ? { fromModels: input.from } : {}), failFast: false, spec: g.spec, expect: g.json ?? null, writes: v.writes, reads: 'live', liveTools: [], budget: remaining, timeoutMs: s.timeoutMs, guard: s.guard },
+      settings: { attempts: v.attempts, needed: v.needed, gate: v.gate, ...(v.keptMax ? { keptMax: v.keptMax } : {}), concurrency: 1, fields: input.fields, ...(input.from?.length ? { fromModels: input.from } : {}), failFast: false, spec: g.spec, expect: g.json ?? null, writes: v.writes, reads: 'live', liveTools: [], budget: remaining, timeoutMs: s.timeoutMs, guard: s.guard },
       log,
     });
-    const kept = recordVerifyFix(input.opts, report, { expect: g.json ?? null, command: line });
+    const kept = recordVerifyFix(input.opts, report, { expect: g.json ?? null, command: line, session: input.session ?? null });
     if (kept) out.verifyIds.push(kept.verdict.verifyId);
     out.commands.push(line);
     out.spent += report.spent;

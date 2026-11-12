@@ -264,13 +264,14 @@ const runArgs = (r: RunSpecs): string[] => [...(r.fixes?.length ? ['--fixes', ..
 
 const gateArgs = (gate: SprtGate | null, attempts: number, passes: number | undefined) => gateFlags(gate, SPRT_DEFAULTS, { attempts, passes });
 
-export type VerifyFlags = StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; gate: SprtGate | null; fields: Record<string, unknown>; from?: readonly string[] | undefined; liveTools: string[]; failFast?: boolean; margin?: number | undefined; baseline?: 'paired' | 'history' | undefined; base?: string | undefined; build?: string | null | undefined };
+export type VerifyFlags = StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; gate: SprtGate | null; keptMax?: number | undefined; fields: Record<string, unknown>; from?: readonly string[] | undefined; liveTools: string[]; failFast?: boolean; margin?: number | undefined; baseline?: 'paired' | 'history' | undefined; base?: string | undefined; build?: string | null | undefined };
 
 /** Which model calls the change's fields change, and the tools it runs live. */
 const changeArgs = (f: VerifyFlags): string[] => [...(f.from ?? []).flatMap((m) => ['--from', m]), ...f.liveTools.flatMap((t) => ['--live-tool', t])];
 
 /** How good runs were kept, when given (against what, from which commit, by what margin), and the step's flags. */
 const keptArgs = (f: VerifyFlags): string[] => [
+  ...(f.keptMax !== undefined ? ['--kept-max', String(f.keptMax)] : []),
   ...(f.margin !== undefined ? ['--margin', String(f.margin)] : []),
   ...(f.baseline ? ['--baseline', f.baseline] : []),
   ...(f.base ? ['--base', f.base] : []),
@@ -366,8 +367,12 @@ export function recordBlameFix(
   }
 }
 
-/** Keeps a verify's verdict, whatever it was, and links it to the fix of its runs, with the flags it ran with (`verifyRerun`). */
-export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: { expect?: unknown; command: string; rerun?: StepRerun | null }): RecordedVerdict | null {
+/**
+ * Keeps a verify's verdict, whatever it was, and links it to the fix of its runs, with the flags it
+ * ran with (`verifyRerun`); a kept preview's verify names its session in the event, which the feed
+ * words by it.
+ */
+export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: { expect?: unknown; command: string; rerun?: StepRerun | null; session?: string | null }): RecordedVerdict | null {
   let store: Store | null = null;
   try {
     store = openStore(opts);
@@ -378,7 +383,7 @@ export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: {
       kind: `verify.${report.verdict}`,
       actor: actor(),
       ref: counted[0] ?? recorded.fixes[0]?.fix.fixId ?? recorded.verdict.verifyId,
-      data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3) },
+      data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3), ...(input.session ? { session: input.session } : {}) },
     });
     return recorded;
   } catch (err) {
