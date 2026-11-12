@@ -132,6 +132,13 @@ afterAll(async () => {
 });
 
 describe('shadowlap migrate apply', () => {
+  // --to is checked in migrate's own action, so commander doesn't ask it of `migrate apply` too.
+  it('still refuses a migrate without --to, with exit 2 and the required option named', async () => {
+    const r = await shadowlap(['migrate', 'goldens/refund']);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("error: required option '--to <model>' not specified");
+  });
+
   it('refuses what it can not apply, saying why, with exit 2, and changes nothing', async () => {
     const before = readFileSync(join(cwd, 'agent.config.json'), 'utf8');
     const refused = async (id: string, words: string | RegExp) => {
@@ -195,7 +202,7 @@ describe('shadowlap migrate apply', () => {
     expect(text.out).toMatch(new RegExp(`\\n {4}✗ goldens/research: diverged at call ${at} \\(api POST /v1/messages\\) · ~ \\$\\.model\\n`));
     // The golden marked fork passes on its checks wherever it forks: never named.
     expect(text.out).not.toContain('✗ goldens/forks');
-    expect(text.out).toContain('\n    the others don’t diverge on it: 1 golden marked fork passes on its checks wherever it forks\n');
+    expect(text.out).toContain("\n    the others don't diverge on it: 1 golden marked fork passes on its checks wherever it forks\n");
     expect(text.out).toContain(`\n  ! 1 golden diverges on the model the config change switched (${FROM} → ${TO}): goldens/research\n    re-record it under ${TO} once the switch is what you meant: shadowlap test goldens/research --update\n`);
     expect(text.stdout).toBe(`✓ ${short} applied · 1 golden to update\n`);
 

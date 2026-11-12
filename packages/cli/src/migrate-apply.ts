@@ -110,7 +110,8 @@ async function replayGoldens(store: Store, r: KeptMigration, text: string, o: Mi
   const others = check.checked - outdated.length;
   // Why the others replay as recorded, by migrate's marks; their count where the marks don't say.
   const why = staysWords(r.passes.runs, r.from, { diverged: outdated.map((g) => g.golden) });
-  if (check.checked) o.log(outdated.length ? (others ? (why ? `    the others don’t diverge on it: ${why}` : `    the other ${others} ${others === 1 ? "doesn't" : 'don’t'} diverge on it`) : '') : `    none of them diverges on it${why ? `: ${why}` : ''}`);
+  const said = !outdated.length ? `    none of them diverges on it${why ? `: ${why}` : ''}` : !others ? '' : why ? `    the others don't diverge on it: ${why}` : `    the other ${others} ${others === 1 ? "doesn't" : "don't"} diverge on it`;
+  if (check.checked && said) o.log(said);
   if (!outdated.length) return { outdated, update: null };
   const update = quoteArgv(['shadowlap', 'test', ...outdated.map((g) => g.golden), '--update']);
   const n = outdated.length;
