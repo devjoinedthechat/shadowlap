@@ -296,6 +296,7 @@ describe('lime', () => {
     '.psk.done.s-verify i': 'a fix’s Verify step that passed, on its Fixes row',
     '.stepper .done.s-verify .k i': 'a fix’s Verify step that passed, its dot in the stepper of the fix’s page',
     '.plist.checks li.met::before': 'a requirement met',
+    '.gpstrip .pc.ok': 'a golden’s error-path preset that passed, a cell of its presets strip',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
@@ -415,6 +416,8 @@ describe('amber', () => {
     '.cb-row .cm.inc': 'a recording the check being built can’t decide',
     '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
     '.injdlg .injfile small.err': 'a payload file Run injection test… can’t read, so the test plants none of it: a look before pressing',
+    '.gpstrip .pc.warn': 'a golden’s error-path preset that couldn’t decide, a cell of its presets strip: inconclusive',
+    '.cvst': 'Not covered: a behaviour production did that the agent no longer does, so a pack can’t reproduce it as it is: a look',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
