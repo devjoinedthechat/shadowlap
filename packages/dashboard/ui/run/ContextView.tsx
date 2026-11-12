@@ -181,6 +181,16 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
 }
 
 /**
+ * Whether the label under bar `i` is drawn: every `every`th bar's, and the open call's bar's whatever
+ * the step; when that bar is off the step, its neighbours draw none, so its label never touches theirs.
+ */
+function labelled(i: number, every: number, open: number): boolean {
+  if (i === open) return true;
+  if (open >= 0 && open % every !== 0 && Math.abs(i - open) === 1) return false;
+  return i % every === 0;
+}
+
+/**
  * The chart: the input's axis and gridlines beside the bars, the output's own axis running down from
  * the baseline beside its bars (context-axis.ts), and the call numbers under both. The axes are drawn
  * for the eye alone: each bar's card and the table say the numbers.
@@ -196,6 +206,7 @@ function ContextChart({ ms, misses, max, labelMisses, selected, onSelect }: { ms
   const every = Math.max(1, Math.ceil(bars.length / (many ? 12 : 22)));
   const modelNos = new Set(ms.map((c) => c.callNo));
   const holds = (b: ContextBar) => selected !== null && selected >= b.first && selected <= b.last && modelNos.has(selected);
+  const open = bars.findIndex(holds);
   const h = (v: number) => `${((v / max) * 100).toFixed(2)}%`;
   return (
     <div className="cplot">
@@ -250,7 +261,7 @@ function ContextChart({ ms, misses, max, labelMisses, selected, onSelect }: { ms
       <div className={`clabels${many ? ' many' : ''}`}>
         {bars.map((b, i) => (
           <span key={b.first} className={holds(b) ? 'sel' : undefined}>
-            {i % every === 0 ? `#${num(b.first)}` : ''}
+            {labelled(i, every, open) ? `#${num(b.first)}` : ''}
           </span>
         ))}
       </div>
