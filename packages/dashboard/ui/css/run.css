@@ -835,11 +835,11 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .findings .banner .end + .fmore { margin-left: 0; }
 .findings .fmore .caret { width: 10px; height: 10px; margin-left: 4px; transition: transform .15s; }
 .findings.open .fmore .caret { transform: rotate(180deg); }
-/* below 400px a finding's buttons wrap under each other, where a 21px target's reach overlaps the next: each is 24px tall
-   itself, with no reach past its own box */
+/* below 400px a finding's buttons wrap under each other: each is 24px tall itself, and the rows they wrap to stand 8px apart
+   or more, so the 4px each takes above and below, as every link-style button does, reaches no neighbour */
 @media (max-width: 399px) {
   .findings :is(.banner .linkbtn, .fmore) { min-height: 24px; margin: 0; }
-  .findings :is(.banner .linkbtn, .fmore)::after { inset: 0; }
+  .findings .banner:is(.wrap, .ck) { row-gap: 8px; }
 }
 @media (max-width: 1000px) { .findings .banner, .findings .rnote, .findings .fdiff { padding-left: 16px; padding-right: 16px; } }
 
