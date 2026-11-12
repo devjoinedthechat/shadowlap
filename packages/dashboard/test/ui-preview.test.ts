@@ -371,7 +371,7 @@ describe('the Preview page', () => {
     await p.until('the verdict', () => !!p.one('.dverdict .actions button'));
     await p.click(p.byText('.dverdict .actions button', 'Migrate to claude-haiku-4-5'));
     await p.until('the ask', () => p.all('.dialog').length === 1);
-    expect([shown(p.one('.dialog h3')), shown(p.one('.dialog header p')), shown(p.one('.dialog .dcost'))]).toEqual([
+    expect([shown(p.one('.dialog h3')), shown(p.one('.dialog header p > span:not([hidden])')), shown(p.one('.dialog .dcost'))]).toEqual([
       'Migrate claude-sonnet-4-5-20250929 to claude-haiku-4-5',
       'Asks claude-sonnet-4-5-20250929’s calls again under claude-haiku-4-5 and verifies the runs whose decisions change.',
       'Billed by your provider',

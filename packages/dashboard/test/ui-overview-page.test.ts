@@ -261,7 +261,7 @@ describe('a retiring model’s row', () => {
     await overview({ summary: { ...week, needsLook: { items: [retire], total: 1, dismissals: 0 } } });
     await r!.click(r!.byText('.arow .ast .btn', 'Migrate to claude-sonnet-5-5'));
     await r!.until('the ask', () => r!.all('.dialog').length === 1);
-    expect([text(r!.one('.dialog h3')), text(r!.one('.dialog header p')), text(r!.one('.dialog .dcost'))]).toEqual([
+    expect([text(r!.one('.dialog h3')), text(r!.one('.dialog header p > span:not([hidden])')), text(r!.one('.dialog .dcost'))]).toEqual([
       'Migrate claude-sonnet-4-5 to claude-sonnet-5-5',
       'Asks claude-sonnet-4-5’s calls again under claude-sonnet-5-5 and verifies the runs whose decisions change.',
       'Billed by your provider',

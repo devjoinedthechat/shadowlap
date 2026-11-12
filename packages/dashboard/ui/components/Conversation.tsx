@@ -3,6 +3,7 @@ import type { CallDetail, Turn, TurnBlock } from '../api.js';
 import { asJson, num } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
+import { CodeText } from './Copy.js';
 import { Switch } from './Switch.js';
 
 /**
@@ -161,7 +162,8 @@ function MessageBlock({ block, format, names }: { block: TurnBlock; format: bool
     case 'tool_call':
       return (
         <div className="tu">
-          <span className="ar">→</span> <b>{block.name}</b> {JSON.stringify(block.input)}
+          {/* its arguments break only between them: after a comma or a run of opening braces, a short object whole */}
+          <span className="ar">→</span> <b>{block.name}</b> <CodeText>{JSON.stringify(block.input)}</CodeText>
         </div>
       );
     case 'tool_result': {

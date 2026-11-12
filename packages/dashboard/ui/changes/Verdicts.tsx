@@ -59,7 +59,7 @@ export function VerdictsTab() {
   const failed = loaded.error ? <ErrorState retry={loaded.reload}>{failedRead(loaded.error)}</ErrorState> : null;
   if (!loaded.data) return failed ?? <Loading />;
   const { view } = loaded.data;
-  if (view.counts.all === 0) return failed ?? <EmptyState title="No change checked yet" text="Each test session CI runs checks the change it was given, and each preview a change you might make. Their verdicts collect here, newest first." copy command="shadowlap test goldens/*" />;
+  if (view.counts.all === 0) return failed ?? <EmptyState title="No change checked yet" text="Each test session CI runs checks the change it was given, and each preview a change you might make. Their verdicts collect here, newest first." command="shadowlap test goldens/*" />;
   // A chip's read that failed leaves another chip's rows: the error stands in their place. A Show
   // more that failed leaves the rows read: the error, with Retry, stands in its button's place.
   const stale = loaded.data.chip !== chip;

@@ -156,7 +156,7 @@ describe('Settings → CI', () => {
     ]) {
       expect(r!.all(`#${id} header .switch[aria-label="${label}"]`)).toHaveLength(1);
     }
-    expect(r!.one('#workflow header .sub').textContent).toBe('built from the switches below');
+    expect(r!.one('#workflow header .sub').textContent.replace(/\u00a0/g, ' ')).toBe('built from the switches below');
     // The repository's file is the one the switches build: nothing to write.
     expect(r!.one('#workflow .wfstate').textContent).toBe(`The same as your repository’s ${FILE}.`);
     expect(r!.all('#workflow header .btn')).toHaveLength(0);
@@ -337,7 +337,7 @@ describe('Settings → CI: Gates', () => {
   it('previews a gate as its figures change, asking only for those that differ from the defaults, with Reset and the golden’s entry', async () => {
     const s = fakeServer(DEFAULTS_FILE);
     await open(s);
-    expect(r!.one('#gates header .sub').textContent).toBe('try figures, then copy the golden’s entry');
+    expect(r!.one('#gates header .sub').textContent.replace(/\u00a0/g, ' ')).toBe('try figures, then copy the golden’s entry');
     expect(s.gate).toHaveBeenLastCalledWith('suiteRisk=0.05', expect.anything());
     expect(r!.all('#gates select').map((x) => x.getAttribute('aria-label'))).toEqual(['Good', 'Bad', 'Risk', 'Max']);
     expect(plain(r!.one('#gates .gdef'))).toBe('The defaults: what "gate": {} stands for, as refund-flow-budget uses it.');

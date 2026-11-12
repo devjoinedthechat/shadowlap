@@ -152,7 +152,7 @@ describe('Revert', () => {
   it('asks what it does, about which commit, then the test, the change undone, and what the test bills, and starts the revert of that commit', async () => {
     const { a, started } = app();
     page = await render(dialog(a));
-    expect(page.one('.dialog header p').textContent).toBe('Undoes the commit in your working tree, uncommitted, for you to review.');
+    expect(page.one('.dialog header p > span:not([hidden])').textContent.replace(/\u00a0/g, ' ')).toBe('Undoes the commit in your working tree, uncommitted, for you to review.');
     expect(page.one('.dwarn').textContent).toBe('1 of the commit’s files is outside this project, and git reverts it too');
     const facts = page.all('.dfacts > div').map((d) => ({ label: d.querySelector('dt')!.textContent, value: d.querySelector('dd')!.textContent, tone: d.getAttribute('class') }));
     expect(facts.map((f) => f.label)).toEqual(['Commit', 'Untested', 'Then']);
@@ -206,7 +206,7 @@ describe('Revert', () => {
       const a = app({}, { startJob: startJob as never }).a;
       page = await render(within(a, createElement(RevertDialog, { step: STEP, found: FOUND, estimate: FREE, runId: REC, onClose: () => void (closed += 1) })));
       await page.click(page.byText('.dialog button', 'Revert'));
-      await page.until('the question', () => page!.one('.dialog h3').textContent === 'Run command from imported pack');
+      await page.until('the question', () => page!.one('.dialog h3').textContent.replace(/\u00a0/g, ' ') === 'Run command from imported pack');
       expect(page.one('.dwarn').textContent).toBe(why);
       expect(page.focused()).toBe(page.one('.dlg-cancel'));
       expect([started.length, closed]).toEqual([1, 0]);

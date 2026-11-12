@@ -12,11 +12,15 @@ import { Fragment } from 'react';
 /**
  * The parts of a dotted line, each with its dot, the dot kept with the part before it so no line
  * starts with one: a part of `max` characters or fewer is kept whole, one of up to `soft` whole but
- * on a phone, where it may wrap (`kc`), and a longer one may wrap between its words.
+ * on a phone, where it may wrap (`kc`), and a longer one may wrap between its words. A part that may
+ * wrap keeps its dot with its last word by a no-break space, so a dot ends a line and never starts one.
  */
 export function dotParts(text: string, max = 44, soft = max): Array<{ text: string; keep: 'whole' | 'soft' | null }> {
   const parts = text.split(' · ').filter((p) => p !== '');
-  return parts.map((p, i) => ({ text: `${p}${i < parts.length - 1 ? ' ·' : ''}`, keep: p.length <= max ? 'whole' : p.length <= soft ? 'soft' : null }));
+  return parts.map((p, i) => {
+    const keep = p.length <= max ? 'whole' : p.length <= soft ? 'soft' : null;
+    return { text: `${p}${i < parts.length - 1 ? (keep === 'whole' ? ' ·' : '\u00a0·') : ''}`, keep };
+  });
 }
 
 /** A line of parts joined by dots, broken only after a dot: a part of `max` characters or fewer never breaks inside. */

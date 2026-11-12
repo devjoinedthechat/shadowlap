@@ -75,7 +75,7 @@ describe('an action on someone else’s run', () => {
     await page.click(page.one('.go'));
     await page.until('the question', () => page.all('[role="dialog"]').length === 1);
     const dialog = page.one('[role="dialog"]');
-    expect(dialog.textContent).toContain('Run command from imported pack');
+    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('Run command from imported pack');
     expect(dialog.textContent).toContain('Runs a command someone else recorded, on this machine.');
     // The server's words as they are, the amber line, shared with the terminal UI.
     expect(page.one('[role="dialog"] .dwarn').textContent).toBe(why(''));
@@ -128,7 +128,7 @@ describe('an action on someone else’s run', () => {
     await page.type(field, 'Be brief.');
     // Its confirm is the menu item's name, without the ellipsis.
     await page.click(page.byText('.dlg-ok', 'Inject instruction'));
-    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run command from imported pack')));
+    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.replace(/\u00a0/g, ' ').includes('Run command from imported pack')));
     await page.click(page.byText('.dlg-ok', 'Run command'));
     await page.until('the job', () => watched.length === 1);
     expect(asked).toEqual([
@@ -193,7 +193,7 @@ describe('a fork repeated five times', () => {
     await page.click(page.one('.go'));
     await page.until('the question', () => page.all('[role="dialog"]').length === 1);
     const dialog = page.one('[role="dialog"]');
-    expect(dialog.textContent).toContain('Repeat fork 5 times');
+    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('Repeat fork 5 times');
     expect(dialog.textContent).toContain('5 attempts, live from the fork, writes fenced');
     // Nothing to fill in: no field, and nothing is sent before its confirm.
     expect(page.all('[role="dialog"] input, [role="dialog"] textarea')).toEqual([]);

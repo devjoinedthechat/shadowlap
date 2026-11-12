@@ -56,7 +56,7 @@ export function DotPieces({ text, max, cut, aboutOf }: { text: string; max: numb
               <Pieces parts={cut(p.text)} aboutOf={aboutOf} />
             </span>
           ) : (
-            <Pieces parts={cut(p.text.replace(/ ·$/, '\u00a0·'))} aboutOf={aboutOf} />
+            <Pieces parts={cut(p.text)} aboutOf={aboutOf} />
           )}
         </Fragment>
       ))}

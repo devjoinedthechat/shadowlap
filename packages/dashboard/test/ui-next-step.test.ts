@@ -331,7 +331,7 @@ describe('the run page’s next step', () => {
     expect(started).toEqual([]);
     // A diverged test's dialogs are a part of their own: it comes as its script does.
     await page.until('its dialog', () => page!.all('.dialog h3').length > 0);
-    expect(page.one('.dialog h3').textContent).toContain('Update refund-in-limit?');
+    expect(page.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toContain('Update refund-in-limit?');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['test-update', { golden: GOLDEN, estimate: { usd: 0.03, ceiling: false } }]]);
   });
@@ -343,7 +343,7 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Update golden'));
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
-    expect(dialog.querySelector('h3')?.textContent).toBe('Update refund-in-limit?');
+    expect(dialog.querySelector('h3')?.textContent.replace(/\u00a0/g, ' ')).toBe('Update refund-in-limit?');
     expect(dialog.textContent).toContain('Asks the judge once');
     expect(dialog.textContent).toContain('its judge’s one call');
     await page.click(page.one('.dialog .dlg-ok'));

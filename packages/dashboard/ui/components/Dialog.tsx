@@ -10,6 +10,7 @@ import { InSlot } from '../overlays/slots.js';
 import { dialogOnSwitch, noteDialogDropped, onShownProject, shownProject } from '../projects-api.js';
 import type { PromptChoice } from '../types.js';
 import { CommandRow, type CommandRowProps } from './CommandRow.js';
+import { Copy, textOf, titled } from './Copy.js';
 import { CostLine, useCostStick, type CostLineProps } from './CostLine.js';
 import { DialogFacts, factId, inCode, shownFacts, type DialogFactRows } from './DialogFacts.js';
 import { ActionButton } from './ActionButton.js';
@@ -156,13 +157,45 @@ export function pressWayOn(from: EventTarget): void {
   if (ok && !ok.disabled) ok.click();
 }
 
-/** The docs page a lead ends on, in a new tab; its arrow is drawn only, so a screen reader says the page's name alone. */
-function DocLink({ doc }: { doc: DocKey }) {
+/**
+ * The docs page a lead ends on, in a new tab; its arrow is drawn only, so a screen reader says the
+ * page's name alone. An element whose children are its words, so the lead's `Copy` reads them and
+ * keeps it with the sentence before it where the two fit a line.
+ */
+function docLink(doc: DocKey) {
   const link = DOCS[doc];
   return (
     <a className="more dlgdoc" href={docsHref(link)} target="_blank" rel="noopener">
       {link.what} in the docs<span aria-hidden="true">{'\u00a0→'}</span>
     </a>
+  );
+}
+
+/**
+ * A dialog's title and lead: the title's words glued (`titled`), the lead set as copy with its docs
+ * link inside it, and the lead as written in a hidden span first, which the description reads, so a
+ * screen reader hears it once and never the breaks the setting adds.
+ */
+function DialogHead({ id, title, lead, doc }: Pick<DialogProps, 'title' | 'lead' | 'doc'> & { id: string }) {
+  const head = titled(title);
+  return (
+    <header>
+      <h3 id={id} aria-label={head['aria-label']}>
+        {head.children}
+      </h3>
+      {lead || doc ? (
+        <p>
+          <span id={`${id}lead`} hidden>
+            {textOf(lead)}
+          </span>
+          <Copy as="span" phrases>
+            {lead}
+            {doc ? ' ' : null}
+            {doc ? docLink(doc) : null}
+          </Copy>
+        </p>
+      ) : null}
+    </header>
   );
 }
 
@@ -343,16 +376,7 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
           if (asking && !t.closest('.dlg-keep, .dlg-discard')) keepEditing(false);
         }}
       >
-        <header>
-          <h3 id={id}>{title}</h3>
-          {lead || doc ? (
-            <p>
-              <span id={`${id}lead`}>{lead}</span>
-              {doc ? ' ' : null}
-              {doc ? <DocLink doc={doc} /> : null}
-            </p>
-          ) : null}
-        </header>
+        <DialogHead {...{ id, title, lead, doc }} />
         {hasBody ? <DialogBody {...{ id, warn, facts, factsUnder, runs, command, cost, body, children }} /> : null}
         <footer>
           {asking ? null : footNote}

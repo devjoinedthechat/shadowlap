@@ -97,15 +97,15 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
   it('offers no store setup, which would write into the file every command refuses', async () => {
     r = await page(app({ client: { store: async () => store(BROKEN) } }), 'store');
     await r.until('the tab', () => r!.all('.settab .stepempty').length > 0);
-    expect(r.one('.settab .stepempty h2').textContent).toBe('The store can’t be read');
-    expect(r.one('.settab .stepempty p').textContent).toBe('Settings reads the team store from shadowlap.config.json, which can’t be read until it is fixed.');
+    expect(r.one('.settab .stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('The store can’t be read');
+    expect(r.one('.settab .stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe('Settings reads the team store from shadowlap.config.json, which can’t be read until it is fixed.');
     expect(r.all('.settab .stepempty a, .settab .stepempty button')).toHaveLength(0);
   });
 
   it('offers Set up team store for a file that reads and names none', async () => {
     r = await page(app({ client: { store: async () => store(null) } }), 'store');
     await r.until('the tab', () => r!.all('.settab .stepempty').length > 0);
-    expect(r.one('.settab .stepempty h2').textContent).toBe('No store yet');
+    expect(r.one('.settab .stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('No store yet');
     expect(r.byText('.settab .stepempty a', 'Set up team store').getAttribute('href')).toBe('#/setup/store');
   });
 
@@ -125,7 +125,7 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
       await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
       await r.click(r.byText('.settab header button', button));
       await r.until('the dialog', () => r!.all('.dialog').length === 1);
-      expect([r.one('.dialog header h3').textContent, r.one('.dialog .dlg-ok').textContent]).toEqual([name, name]);
+      expect([r.one('.dialog header h3').textContent.replace(/\u00a0/g, ' '), r.one('.dialog .dlg-ok').textContent.replace(/\u00a0/g, ' ')]).toEqual([name, name]);
       await r.unmount();
       r = null;
     }
@@ -136,7 +136,7 @@ describe('Settings for a project whose folder is gone', () => {
   it('says so in its header, turns every edit off with why, and shows no rules it can’t read', async () => {
     r = await page(app({ missing: true, client: { matching: async () => matching(null) } }), 'matching');
     await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
-    expect(r.one('.ph h1').textContent).toBe('Can’t open research-agent');
+    expect(r.one('.ph h1').textContent.replace(/\u00a0/g, ' ')).toBe('Can’t open research-agent');
     expect(r.byText('.ph button', 'Remove project…').disabled).toBe(false);
     const why = 'research-agent’s folder is gone: put it back or remove the project';
     const add = r.byText('.settab header button', 'Add normalizer…');
@@ -159,8 +159,8 @@ describe('Settings for a project whose folder is gone', () => {
   it('offers no store setup there', async () => {
     r = await page(app({ missing: true, client: { store: async () => store(null) } }), 'store');
     await r.until('the tab', () => r!.all('.settab .stepempty').length > 0);
-    expect(r.one('.settab .stepempty h2').textContent).toBe('The store can’t be read');
-    expect(r.one('.settab .stepempty p').textContent).toBe('Settings reads the team store from shadowlap.config.json, in the project’s folder, which is gone.');
+    expect(r.one('.settab .stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('The store can’t be read');
+    expect(r.one('.settab .stepempty p').textContent.replace(/\u00a0/g, ' ')).toBe('Settings reads the team store from shadowlap.config.json, in the project’s folder, which is gone.');
     expect(r.all('.settab .stepempty a, .settab .stepempty button')).toHaveLength(0);
   });
 });
@@ -222,7 +222,7 @@ describe('Coding agents, as the design has it', () => {
     expect(rows(r)[2]).toBe('.agents/skillsfound · Shadowlap’s skills, edited hereReplace with 0.1.0’s copy…');
     await r.click(r.byText('.agentfiles button', 'Replace with 0.1.0’s copy…'));
     expect(startJob).not.toHaveBeenCalled();
-    expect(r.one('.dialog h3').textContent).toBe('Replace skills with 0.1.0’s copy?');
+    expect(r.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Replace skills with 0.1.0’s copy?');
     await r.click(r.byText('.dialog button', 'Replace skills'));
     expect(startJob).toHaveBeenCalledWith('skill-install', { agent: 'agents', replace: true });
 

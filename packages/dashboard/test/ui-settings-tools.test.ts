@@ -54,7 +54,7 @@ describe('Settings → Tools', () => {
     r = await page(app({ tools: async () => tools([]) }), 'tools');
     await r.until('the tab', () => r!.all('.egrp.mcp').length > 0);
     expect(r.one('.settab .panel.sec h2').textContent).toBe('Tools');
-    expect(r.one('.settab .panel.sec .sub').textContent).toBe('what a fork runs again');
+    expect(r.one('.settab .panel.sec .sub').textContent.replace(/\u00a0/g, ' ')).toBe('what a fork runs again');
     expect(r.one('.settab .panel.sec .pbody p.muted').textContent).toBe(SETTLED);
     // With no config to copy, nothing folds.
     expect(r.all('.wftog')).toHaveLength(0);

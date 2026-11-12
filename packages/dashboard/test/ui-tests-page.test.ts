@@ -135,10 +135,10 @@ describe('the Tests page', () => {
   it('says CI runs replay goldens offline and fork goldens live, with the one command docs/gating.md has, to copy', async () => {
     const page = await open();
     // golden defined at its first use: its definition a hidden part of the paragraph.
-    expect(page.one('.ph p').textContent).toMatch(/^Every golden.+ CI runs, and how it did at each revision\.$/);
+    expect(page.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toMatch(/^Every golden.+ CI runs, and how it did at each revision\.$/);
     expect(all(page.one('.ph p'), '.term').map((t) => t.textContent.slice(0, 6))).toEqual(['golden']);
     expect(page.all('button').map((b) => b.textContent.trim())).not.toContain('Copy CI command');
-    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
+    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent.replace(/\u00a0/g, ' ') === 'In CI'))!;
     expect(ci.textContent).toContain('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
     expect(ci.textContent).not.toContain('throwaway store');
     expect(one(ci, '.cmdline').textContent).toBe(`$shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
@@ -153,8 +153,8 @@ describe('the Tests page', () => {
   it('says an injection test runs live too, and needs the keys, when a golden has one, and that a short history only warns whatever the goldens', async () => {
     // No gate against history here: the store need not be kept, and a short history still only warns.
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, injection: true } : x.path === 'goldens/budget' ? { ...x, gate: null } : x)));
-    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
-    expect(all(ci, 'p.muted')[0].textContent).toBe('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
+    const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent.replace(/\u00a0/g, ' ') === 'In CI'))!;
+    expect(all(ci, 'p.muted')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
     expect(ci.textContent).not.toContain('keep-history');
   });
 
@@ -167,7 +167,7 @@ describe('the Tests page', () => {
     await page.click(all(panel, 'button').find((b) => b.textContent.trim() === 'Update golden')!);
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
-    expect(all(dialog, 'h2, h3')[0].textContent).toBe('Update judged?');
+    expect(all(dialog, 'h2, h3')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Update judged?');
     expect(dialog.textContent).toContain('nothing is re-recorded');
     // No card and no Diverged list: nothing diverged, and the title names the golden.
     expect(all(dialog, '.rmp, .ondisk.first')).toHaveLength(0);
@@ -310,7 +310,7 @@ describe('Tests\' states, parts and keys', () => {
     expect(late.one('.loaderr p > span:not(.st)').textContent).toBe('The goldens took longer than 10 s to read, so it was stopped');
     const empty = await drawn({});
     await empty.until('the empty state', () => empty.all('.stepempty').length === 1);
-    expect([empty.one('.stepempty h2').textContent, empty.all('.stepempty .cmdline').length]).toEqual(['No goldens yet', 1]);
+    expect([empty.one('.stepempty h2').textContent.replace(/\u00a0/g, ' '), empty.all('.stepempty .cmdline').length]).toEqual(['No goldens yet', 1]);
     const none = await drawn({ app: { runs: [] } });
     await none.until('the empty state', () => none.all('.stepempty').length === 1);
     expect(none.all('.stepempty .cmdline')).toHaveLength(0);
@@ -329,7 +329,7 @@ describe('Tests\' states, parts and keys', () => {
     g.location = { hash: '#/tests' };
     const p = (r = await render(page(started, [], undefined, { app: { runs } })));
     await p.until('the step', () => p.all('.stepempty .actions .btn.lime').length === 1);
-    expect([p.one('.stepempty .actions .btn.lime').textContent, p.one('.stepempty .cli code').textContent, p.all('.stepempty .cmdline').length]).toEqual(['Pack 01K5CQ4N7G as golden…', '$ shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g', 0]);
+    expect([p.one('.stepempty .actions .btn.lime').textContent, p.one('.stepempty .cli code').textContent, p.all('.stepempty .cmdline').length]).toEqual(['Pack 01K5CQ4N7G as golden…', '$shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g', 0]);
     await p.click(p.one('.stepempty .actions .btn.lime'));
     await p.until('the dialog', () => p.all('.dialog').length === 1);
     expect(all(p.one('.dialog'), 'h2, h3')[0].textContent).toBe('Pack 01K5CQ4N7G as golden?');
@@ -359,7 +359,7 @@ describe('Tests\' states, parts and keys', () => {
     expect([scope.name, items.map((i) => [i.label, i.hint])]).toEqual(['judged', [['Open run', expect.stringMatching(/^01M5H2DKE9/)], ['Update golden', 'shadowlap test goldens/judged --update']]]);
     items[1].run();
     await page.until('the dialog', () => page.all('.dialog').length === 1);
-    expect(all(page.one('.dialog'), 'h2, h3')[0].textContent).toBe('Update judged?');
+    expect(all(page.one('.dialog'), 'h2, h3')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Update judged?');
     // One with no run and no report has nothing to offer: ⌘K opens the whole palette, and Enter nothing.
     expect(goldenRowScope({ name: 'passes', runId: null }, () => page.one('.page') as unknown as ParentNode)).toBeNull();
   });

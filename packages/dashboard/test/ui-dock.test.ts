@@ -167,10 +167,10 @@ describe('the drawer', () => {
   it('says what a billed job costs beside running, and aloud in words', async () => {
     const { Host, on } = page([entry(job({ title: 'Blaming', kind: 'blame', args: ['blame', 'X'], estimate: { usd: 10.88, ceiling: true } }))]);
     r = await render(createElement(Host));
-    expect(r.one('.drawer .st2').textContent).toBe('running · at most ≈$10.88');
+    expect(r.one('.drawer .st2').textContent.replace(/\u00a0/g, ' ')).toBe('running · at most ≈$10.88');
     expect(r.one('.drawer .sr[role="status"]').textContent).toBe('Blaming, running, at most about $10.88');
     await act(async () => on.set(end({ result: { outcome: 'blamed', blamed: { callNo: 5 } } })));
-    expect(r.one('.drawer .st2').textContent).toBe('lost at #5 · exit 0');
+    expect(r.one('.drawer .st2').textContent.replace(/\u00a0/g, ' ')).toBe('lost at #5 · exit 0');
   });
 
   it('keeps each word of the log whole, its spaces as printed', async () => {
@@ -236,7 +236,7 @@ describe('the drawer', () => {
     await act(async () => on.set(end({}, '✓ Replay clean: 30/30 calls replayed')));
     expect(r.one('#jtitle').textContent).toBe('Replayed');
     expect(r.one('.drawer .st2').className).toContain('ok');
-    expect(r.one('.drawer .st2').textContent).toBe('reproduced · exit 0');
+    expect(r.one('.drawer .st2').textContent.replace(/\u00a0/g, ' ')).toBe('reproduced · exit 0');
     expect(r.all('.drawer .spin')).toHaveLength(0);
     expect(labels(r)).toEqual(['Hide log', 'Close']);
     expect(r.one('#jlog').getAttribute('aria-expanded')).toBe('true');

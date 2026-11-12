@@ -283,7 +283,7 @@ describe('the head', () => {
     page = await render(createElement(AppContext.Provider, { value: app({}) }, createElement(ChangesHead, { tab: 'verdicts' })));
     expect(page.one('.ph .eyebrow').textContent).toBe('support-agent · diffs');
     expect(page.one('.ph h1').textContent).toBe('Changes');
-    expect(page.one('.ph p').textContent).toBe('What a change does to your agent, on its own recorded runs.');
+    expect(page.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toBe('What a change does to your agent, on its own recorded runs.');
     expect(page.one('nav.stabs').getAttribute('aria-label')).toBe('Changes');
     const tabs = page.all('nav.stabs a');
     // No tab before its page: a migration's joins with its own.
@@ -437,7 +437,7 @@ describe('Verdicts', () => {
     await page!.unmount();
     await open(() => Promise.resolve(view([])));
     await page!.until('the empty state', () => page!.all('.stepempty h2').length === 1);
-    expect(page!.one('.stepempty h2').textContent).toBe('No change checked yet');
+    expect(page!.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('No change checked yet');
     expect(page!.one('.stepempty .cmdline').textContent).toContain('shadowlap test goldens/*');
     expect(page!.all('.chips')).toHaveLength(0);
   });
@@ -686,7 +686,7 @@ describe('Compare under Changes', () => {
     page = await render(createElement(AppContext.Provider, { value: app({}, { runs: [] }) }, createElement(ComparePage, { a: null, b: null })));
     expect(page.one('.ph h1').textContent).toBe('Changes');
     expect(page.one('nav.stabs a[aria-current="page"]').textContent).toBe('Compare');
-    expect(page.one('.stepempty h2').textContent).toBe('Compare needs two runs');
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Compare needs two runs');
     expect(changesHref()).toBe('#/compare');
   });
 
@@ -707,7 +707,7 @@ describe('Compare under Changes', () => {
     page = await render(createElement(AppContext.Provider, { value: app(gone as unknown as Partial<Client>, { runs: [listed(REC), listed(FORK)] }) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the pair forgotten', () => changesHref() === '#/compare');
     await page.until('the not-found', () => page!.all('.stepempty h2').length === 1);
-    expect(page.one('.stepempty h2').textContent).toBe('Not in this store');
+    expect(page.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Not in this store');
   });
 
   it('keeps a head of its own in an exported copy, with no tabs, and notes nothing', async () => {
@@ -716,7 +716,7 @@ describe('Compare under Changes', () => {
     const client = { run: (id: string) => Promise.resolve(detail(id)), compare: () => new Promise(() => undefined) };
     page = await render(createElement(AppContext.Provider, { value: app(client as Partial<Client>, { exported: true, meta: null, runs: [listed(REC), listed(FORK)] }) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the pickers', () => page!.all('.pickers').length === 1);
-    expect([page.one('.ph .eyebrow').textContent, page.one('.ph h1').textContent, page.one('.ph p').textContent]).toEqual(['exported copy', 'Compare', 'Two runs of this copy, call by call.']);
+    expect([page.one('.ph .eyebrow').textContent.replace(/\u00a0/g, ' '), page.one('.ph h1').textContent.replace(/\u00a0/g, ' '), page.one('.ph p').textContent.replace(/\u00a0/g, ' ')]).toEqual(['exported copy', 'Compare', 'Two runs of this copy, call by call.']);
     expect(page.all('nav.stabs')).toHaveLength(0);
     await page.wait(10);
     expect(changesHref()).toBe('#/changes');

@@ -113,9 +113,9 @@ describe('an exported copy', () => {
     await open([forkId], `#/run/${runId}`);
     // The page's header, as any page has it: not found, Nothing here, what was missing and the way back.
     await r!.until('what the copy says', () => r!.all('.ph h1').length > 0);
-    expect(r!.one('.ph h1').textContent).toBe('Nothing here');
+    expect(r!.one('.ph h1').textContent.replace(/\u00a0/g, ' ')).toBe('Nothing here');
     expect(r!.one('.ph .eyebrow').textContent).toBe('not found');
-    expect(r!.one('.ph').textContent).toContain(`No run ${runId} in this copy. Open Runs`);
+    expect(r!.one('.ph').textContent.replace(/\u00a0/g, ' ')).toContain(`No run ${runId} in this copy. Open Runs`);
     expect(r!.one('.ph a.more').getAttribute('href')).toBe('#/runs');
   });
 

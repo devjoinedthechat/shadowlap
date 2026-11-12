@@ -116,7 +116,7 @@ describe('Settings’ shell', () => {
     await r.until('Matching', () => r!.all('.settab section').length > 0);
     expect(r.one('.ph .eyebrow').textContent).toBe('research-agent · project settings');
     expect(r.one('.ph h1').textContent).toBe('Settings');
-    expect(r.one('.ph p').textContent).toBe('How this project records, replays and shares.');
+    expect(r.one('.ph p').textContent.replace(/\u00a0/g, ' ')).toBe('How this project records, replays and shares.');
     // Links, as an address each, never the tabs pattern: seven, the one shown marked as the page.
     expect(r.all('nav.stabs a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Matching', '#/settings/matching'],

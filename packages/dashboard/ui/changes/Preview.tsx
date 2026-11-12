@@ -112,7 +112,7 @@ function NoPreview({ goldens }: { goldens: number }) {
         </p>
       </EmptyState>
     );
-  return <EmptyState title="Preview a change on your goldens" text={text} copy command="shadowlap decisions goldens/* --model <model>" />;
+  return <EmptyState title="Preview a change on your goldens" text={text} command="shadowlap decisions goldens/* --model <model>" />;
 }
 
 /** The previews picker: the one shown by its name, then its goldens or runs and when, fitted to the rest; a pick opens it. */

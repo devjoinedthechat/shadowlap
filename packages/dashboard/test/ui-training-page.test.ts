@@ -108,7 +108,7 @@ describe('the Training page', () => {
     expect(r.document.body.textContent).not.toContain('from failures you fixed');
     // The facts under the header, the last export last and quieter, its card saying what it wrote: main's words, Exported.
     const facts = r.all('.pfacts .metric');
-    expect(facts.map((f) => f.textContent)).toEqual(['0pairs', '2of 4 tasks ready', '0exported']);
+    expect(facts.map((f) => f.textContent.replace(/\u00a0/g, ' '))).toEqual(['0pairs', '2of 4 tasks ready', '0exported']);
     expect(facts[2].querySelector('b')!.className).toBe('q');
     expect(JSON.parse(facts[2].getAttribute('data-tip')!)).toMatchObject({ t: 'Exported', s: 'nothing exported yet' });
     expect(r.document.body.textContent).not.toContain('Left this machine');
@@ -145,7 +145,7 @@ describe('the Training page', () => {
     await r.type(r.all('.dialog select')[1], 'medium');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence medium --format trl --out .shadowlap/exports/pairs.jsonl');
     // Titled and confirmed with its button's name, without the ellipsis.
-    expect(r.one('.dialog h3').textContent).toBe('Export pairs');
+    expect(r.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Export pairs');
     await r.click(r.byText('.dialog button', 'Export pairs'));
     expect(started).toEqual([{ kind: 'pairs', fields: { format: 'trl', minConfidence: 'medium' } }]);
   });

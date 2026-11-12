@@ -65,7 +65,7 @@ function app(over: Partial<AppState> & { client?: Partial<Client> } = {}): AppSt
 const watched = (j: JobView, open = true): WatchedJob => ({ job: j, lines: j.lines, open });
 
 /** The drawer's header, as a person reads it: the job's title, then how it stands. */
-const header = (r: Rendered) => `${r.one('.drawer header b').textContent} · ${r.one('.drawer header .st2').textContent}`;
+const header = (r: Rendered) => `${r.one('.drawer header b').textContent} · ${r.one('.drawer header .st2').textContent}`.replace(/\u00a0/g, ' ');
 
 let r: Rendered | null = null;
 afterEach(async () => {
@@ -133,7 +133,7 @@ describe('Stop in the job drawer', () => {
     const j = REPAIR();
     r = await render(createElement(AppContext.Provider, { value: app({ client: { stopJob } as unknown as Client, jobs: [watched(j)] }) }, createElement(JobDrawer)));
     await r.click(r.byText('.drawer header button', 'Stop'));
-    expect(r.one('.dialog h3').textContent).toBe('Stop repair');
+    expect(r.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Stop repair');
     expect(r.one('.dialog header p').textContent).toContain('Stops the repair, which reports what it found so far.');
     expect(r.one('.dialog .dfacts').textContent).toBe('Changesnothing in your working tree');
     // Keep it running: the dialog goes, the repair goes on.

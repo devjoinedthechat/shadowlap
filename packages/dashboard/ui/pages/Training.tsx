@@ -120,7 +120,8 @@ function TasksTab({ view }: { view: TrainingView }) {
   // Updating a golden runs the agent from the working tree: not while a repair or an apply changes it.
   const busy = useTreeBusy('reads', 'update the golden');
   const t = view.tasks;
-  if (t.error) return <EmptyState title="The tasks can’t be read" text={t.error} command="shadowlap tasks" />;
+  // a message the server wrote, kept as written
+  if (t.error) return <EmptyState title="The tasks can’t be read" text={t.error} copy={false} command="shadowlap tasks" />;
   if (t.empty) return <TabEmpty empty={t.empty} />;
   // A task its test's early fork blocks: Update golden, off with the reason when nothing can run.
   const updateOff = actionsOff ?? busy;

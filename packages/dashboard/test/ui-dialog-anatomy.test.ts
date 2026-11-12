@@ -96,7 +96,7 @@ function appWith(over: Record<string, unknown> = {}): AppState {
 /** Reads a dialog as it is drawn, against what it promises. */
 function holds(page: Rendered, want: Expect): void {
   const dialog = page.one('[role="dialog"]');
-  const title = page.one('[role="dialog"] h3').textContent;
+  const title = page.one('[role="dialog"] h3').textContent.replace(/\u00a0/g, ' ');
   if (typeof want.title === 'string') expect(title).toBe(want.title);
   else expect(title).toMatch(want.title);
   expect(title, 'verb and object').toMatch(VERB);

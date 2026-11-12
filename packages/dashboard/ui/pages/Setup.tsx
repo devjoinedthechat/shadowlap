@@ -166,6 +166,7 @@ export function ProblemHeader({ id, name, problem }: { id: string; name: string;
         eyebrow={name}
         title={`Can’t open ${name}`}
         text={problem}
+        copy={false}
         actions={
           <ActionButton className="btn" onClick={() => setRemoving(true)}>
             Remove project…

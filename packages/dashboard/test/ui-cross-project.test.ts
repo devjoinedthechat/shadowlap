@@ -411,7 +411,7 @@ describe('a run’s page and a fix’s', () => {
     for (const [hash, draw, words] of pages)
       for (const o of [{ copy: true }, { oneStore: true }]) {
         const said = await openPage(hash, draw, { ...o, here: ELSE });
-        await page!.until(`${hash}’s not-found`, () => page!.document.body.textContent.includes(words));
+        await page!.until(`${hash}’s not-found`, () => page!.document.body.textContent.replace(/\u00a0/g, ' ').includes(words));
         await page!.wait(20);
         expect(said.filter((l) => l.startsWith('holding')), hash).toEqual([]);
         expect(page!.one('.tabtitle').textContent, hash).not.toMatch(/^In /);
@@ -445,7 +445,7 @@ describe('Compare', () => {
     expect(said).toEqual([`run ${A}`, `holding run ${A}`]);
     await page!.click(page!.one('.ph .actions button'));
     await page!.until('the run drawn there', () => page!.all('.stepempty h2').length === 1);
-    expect(page!.one('.stepempty h2').textContent).toBe('Nothing to compare yet');
+    expect(page!.one('.stepempty h2').textContent.replace(/\u00a0/g, ' ')).toBe('Nothing to compare yet');
     expect(said.slice(2)).toEqual([`select ${THERE}`, 'reload', `run ${A}`]);
   });
 
