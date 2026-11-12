@@ -28,7 +28,7 @@ export type { QueuedWrites } from './store.js';
 export { ulidNow } from './store/core.js';
 export type { FixCheckEntry, FixCheckJudged, FixData, FixLink, FixLinkKind, FixRunOutcome, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 export { FIX_RUN_OUTCOMES } from './store.js';
-export { FIX_STATUSES, FixIdError, FixNotOpenError, GOOD_LABEL, applyGoldens, applyLeft, changeFixCheck, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixLinksOfRun, fixOfRun, fixRecords, joinableFix, leavesFix, leftFixLinkSql, madeUnderOldCheck, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, runsLeft, setFixTitle, settleAppliedFixes, standingBasis, standingIn, standingOn, verdictCounts } from './fixes.js';
+export { FIX_STATUSES, FixIdError, FixNotOpenError, GOOD_LABEL, applyGoldens, applyLeft, changeFixCheck, checkKey, cleanTitle, coversCheck, fixAmong, fixCost, fixLabelInfo, fixLabels, fixLinksOfRun, fixOfRun, fixRecords, joinableFix, leavesFix, leftFixLinkSql, madeUnderOldCheck, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, runsLeft, setFixTitle, settleAppliedFixes, standingBasis, standingIn, standingOn, verdictCounts } from './fixes.js';
 export type { BlameToRecord, FixCheckChange, FixCost, FixRecords, FixStanding, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, StandingBasis, StandingRun, StandingVerdict, VerdictToRecord } from './fixes.js';
 // A run by its full id or the unique prefix the CLI prints, for the dashboard's routes and the fix jobs.
 export { lookupRun } from './run-lookup.js';
@@ -242,7 +242,7 @@ export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
 // in, its answer's decision against the recorded one, ranked by consequence; the providers' model
 // retirement dates; and the sessions the store keeps.
 export { promptOf, promptParts, samePrompt, withoutEarlierThinking, withPrompt, type RequestPrompt } from './prompt.js';
-export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LABELS, STOP_WORDS, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, promoteByJudge, sameModel, shownSample, stepDelta, unjudgedSample } from './decisions.js';
+export { DECISIONS_ID, INCONCLUSIVE_STEP, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, MIGRATE_ID, NO_TOKENS, OWN_VARIATION, RANK_LABELS, STOP_WORDS, WITHIN_VARIATION, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionStepState, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, judgeWords, majorityRank, minorityChange, minorityNotes, modelFamily, percentChange, promoteByJudge, sameModel, samplesWords, shownSample, stepDelta, stepsAsked, tokenTotal, unchangedRunWords, unjudgedSample, unsettledWords, withinVariationLine, type DecisionStepState } from './decisions.js';
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
@@ -250,8 +250,10 @@ export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, m
 // What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
+export { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, type VerifiedTally } from './verified-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
+export { UNTESTED_WORDS } from './bisect-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,
 // and the most characters one takes, as a judge's name in a check does.
 export { asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, type GoldenNameProblem } from './golden-names.js';
@@ -283,7 +285,7 @@ export { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES
 export { BLAME_SCAN, blameBound, blameEstimate, blameRules, blameSteps, probedCalls, probedInScope, type BlameBound, type BlameEstimateOptions, type BlameRule, type BlameRules } from './estimates/blame.js';
 export { keptMaxOf, lastVerify, VERIFY_LIVE, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type LastVerify, type VerifyEstimateOptions, type VerifyLimits, type VerifyRule, type VerifyRunCost } from './estimates/verify.js';
 export { REPAIR_CANDIDATES, REPAIR_VERIFIES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, wholeRun, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
-export { bisectCommits, bisectEstimate, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
+export { bisectCommits, bisectEstimate, goldenLiveParts, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
 export { CLEAN_GATE, causeEstimate, GATE_REPEAT, injectionAgainEstimate, injectionEstimate, injectionGateEstimate, presetsEstimate, type InjectionPlan } from './estimates/injection.js';
 export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';
 export { askedInScope, defaultFrom, modelUse, type ModelUse } from './switch-from.js';

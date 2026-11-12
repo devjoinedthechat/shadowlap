@@ -1,17 +1,17 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 /**
- * What a finding opened in the inspector's place on a run's page (InspectorPanel.tsx): its diff, or
- * results, `key` naming which (`injection:<result id>`, `presets`). One at a time on a run's page, the
- * newest opened. Kept here, outside the page, so it outlives a visit to another run: a cell of the
- * results opens its attempt's run, and Esc comes back to them still open. Each run keeps its results
- * while another opens its own or a diff; a diff is one at a time across runs, the newest opened, as
- * the mock's Show diff is. A pick of a call gives the inspector back on its own run's page only, never
- * on the run you came from.
+ * What a finding opened in the inspector's place on a run's page (InspectorPanel.tsx): its diff, the
+ * change at its first bad commit, or results, `key` naming which (`injection:<result id>`, `presets`).
+ * One at a time on a run's page, the newest opened. Kept here, outside the page, so it outlives a
+ * visit to another run: a cell of the results opens its attempt's run, and Esc comes back to them
+ * still open. Each run keeps its results while another opens its own or a diff; a diff or a change is
+ * one at a time across runs, the newest opened, as the mock's Show diff is. A pick of a call gives the
+ * inspector back on its own run's page only, never on the run you came from.
  */
-export type Panel = { runId: string; kind: 'diff' } | { runId: string; kind: 'results'; key: string };
+export type Panel = { runId: string; kind: 'diff' } | { runId: string; kind: 'change' } | { runId: string; kind: 'results'; key: string };
 
-/** The run whose diff is open, if any. */
+/** The run whose diff or change is open, if any. */
 let diff: Panel | null = null;
 /** Each run's open results, by its id. */
 const results = new Map<string, Panel>();
@@ -35,10 +35,10 @@ export function usePanel(runId: string): Panel | null {
   return useSyncExternalStore(subscribe, read, read);
 }
 
-/** Opens a run's diff in place of its results. Another run's diff closes; its results stay. */
-export function openDiff(runId: string): void {
+/** Opens a run's diff, or the change at its first bad commit (`kind`), in place of its results. Another run's diff or change closes; its results stay. */
+export function openDiff(runId: string, kind: 'diff' | 'change' = 'diff'): void {
   results.delete(runId);
-  diff = { runId, kind: 'diff' };
+  diff = { runId, kind };
   changed();
 }
 

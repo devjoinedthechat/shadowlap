@@ -1,6 +1,8 @@
 import { agentCallsOf, type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, blameStateWord, blameSteps, probedInScope, describeBlocks, describeRescue, expectArgs, failureReason, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, madeUnderOldCheck, pinWords, probeBound, probeFinding, probeInterval, probeTally, probeWord, type PulledFrom, rescueRule, type RunRecord, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
 import { judgesOf, type FixJudge } from './fix-list.js';
+import type { FixCrash } from './fix-crash.js';
+import type { FoundCommit } from './tests-bisect.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, gateMarks, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate, type StepLine } from './fix-shared.js';
 
@@ -107,7 +109,23 @@ export interface BlameStep {
    * neither runs (the fix's check left its run, or its fields make no command). Null otherwise.
    */
   oldCheck: { text: string; next: 'again' | 'stronger' | null; command: string | null } | null;
+  /**
+   * Where no model rescued a test replay that crashed, whose own step is Find breaking commit or
+   * Revert (fix-crash.ts): the first bad commit once that named it, whether its golden replays offline
+   * (its search "offline and free"), and whether a stronger model asked again too. Null otherwise.
+   */
+  crash: BlameCrash | null;
 }
+
+/** A crash's facts, as the Blame step's note and its commit line read them. */
+export interface BlameCrash {
+  commit: FoundCommit | null;
+  offline: boolean;
+  stronger: boolean;
+}
+
+/** The crash's facts of a blame whose run crashed, as fix-crash.ts found them. */
+const crashOf = (r: BlameReport, crash: FixCrash | null): BlameCrash | null => (crash ? { commit: crash.commit, offline: crash.offline, stronger: typeof r.rescue?.fields.model === 'string' } : null);
 
 
 /**
@@ -212,7 +230,7 @@ const exitedFirst = (run: RunRecord | null): boolean => run !== null && failureR
  * A blame as the Blame step shows it. `fallback` is the fix's own blame command, which a pulled
  * blame shows when its fields can't be made into one.
  */
-export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, b: StoredBlame, fallback: string, oldCheck: BlameStep['oldCheck'] = null): BlameStep {
+export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, b: StoredBlame, fallback: string, more: { oldCheck?: BlameStep['oldCheck']; crash?: FixCrash | null } = {}): BlameStep {
   // The gate as it can be read: a malformed one reads as none, the fixed count's words then.
   const r = { ...b.report, gate: sprtGate(b.report.gate) };
   const run = store.getRun(b.runId);
@@ -270,7 +288,8 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
     pulled: b.pulled ?? null,
     hrefs: { run: runHref(b.runId), lostAt: blamedCall ? runHref(b.runId, blamedCall) : null, rescued: contrast ? runHref(contrast.rescuedRunId) : null },
     evidence: blameEvidence(b.report),
-    oldCheck,
+    oldCheck: more.oldCheck ?? null,
+    crash: crashOf(r, more.crash ?? null),
   };
 }
 

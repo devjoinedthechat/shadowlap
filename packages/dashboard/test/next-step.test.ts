@@ -226,9 +226,9 @@ describe('a run’s next step', () => {
     expect(step(crashedTest(rec2), work([source(rec2)]))).toMatchObject({ key: 'bisect', label: 'Find breaking commit…', starts: false });
     other.close();
     store = held;
-    // Once the commit is named, the change is the code's: blame leads, until Revert… comes.
+    // Once the commit is named, the change is the code's: Revert leads, Run blame plain beside it.
     recordEvent(store, { kind: 'bisect.found', ref: GOLDEN, runId: crash, data: { first: { rev: 'ccccccc', subject: 'Log the total', author: 'a', date: 'b' }, why: 'exit', answered: { at: T0 + 2 * MIN, ok: false } } });
-    expect(step(crash, work([source(rec)]))).toMatchObject({ key: 'blame' });
+    expect(step(crash, work([source(rec)]))).toMatchObject({ key: 'revert', label: 'Revert', rev: 'ccccccc', blame: { offer: { from: 'exit' } } });
   });
 
   it('leads a recording by its newest injection test: its proof, a test its budget stopped, one that showed too little', () => {

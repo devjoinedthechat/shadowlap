@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CodeBox } from '../components/CodeBox.js';
 import { Dialog } from '../components/Dialog.js';
 import { DialogSteps, DialogTip } from '../components/DialogFacts.js';
 import { ACTIONS, confirmWords } from '../labels.js';
@@ -83,14 +84,7 @@ export function PatchDialog({ fix, diff, onClose }: { fix: FixDetail; diff: stri
   const file = fix.actions.apply?.patchFile;
   return (
     <Dialog title="Show patch" lead={fix.rung === 'merged' ? `The fix as repair handed it over, on main since ${fix.pr?.number == null ? 'its pull request' : `PR #${fix.pr.number}`} merged.` : 'The fix as repair handed it over, in your working tree since you applied it.'} doc="repairHandover" facts={file ? [{ label: 'Path', value: <code>{file}</code>, wide: true }] : []} onClose={onClose}>
-      <pre className="fxcode fxpatch">
-        {patchLines(diff).map((l, i) => (
-          <span key={i} className={l.tone ?? undefined}>
-            {l.text}
-            {'\n'}
-          </span>
-        ))}
-      </pre>
+      <CodeBox lines={patchLines(diff)} className="fxpatch" />
     </Dialog>
   );
 }
@@ -125,14 +119,7 @@ export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; la
       {/* What the fields name, once the goldens folder was read; else every recording, as far as the page knows. */}
       <DialogSteps steps={applySteps(apply, { count: apply.held ? names.offered.length : apply.goldens, to: copiedTo(names) })} />
       {apply.diff ? (
-        <pre className="fxcode fxpatch">
-          {patchLines(apply.diff).map((l, i) => (
-            <span key={i} className={l.tone ?? undefined}>
-              {l.text}
-              {'\n'}
-            </span>
-          ))}
-        </pre>
+        <CodeBox lines={patchLines(apply.diff)} className="fxpatch" />
       ) : null}
       {fields}
     </Dialog>

@@ -5,6 +5,7 @@ import { type NoVerifyLeft, verifyLeftOr } from '../fix-actions.js';
 import { type FixCheckPreviewJob, hiddenCheckWords, notOpenWords } from '../fix-check.js';
 import { patchMerged, patchToCheck } from '../fix-shared.js';
 import { APPLY_GOLDENS, fixBundles, fixDetail, patchesToCheck, pulledPatchesToCheck } from '../fixes.js';
+import { foundServing } from '../found-here.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree, rewritesHere } from '../patch-in-tree.js';
@@ -89,6 +90,9 @@ async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes' | 'team'>, fi
     ...(check ? { inTree: patches.map((p): [string, boolean | null] => [p, check(p)]) } : {}),
     ...(here ? { refusedHere: pulled.map((r): [string, string | null] => [r.repairId, here(r.repairId)]) } : {}),
     ...(project ? { project } : {}),
+    // A crash's way on is its run's next step (fix-crash.ts), and its first bad commit is served as every route serves one.
+    next: nextStepWork(ctx),
+    serving: await foundServing(project),
   });
 }
 

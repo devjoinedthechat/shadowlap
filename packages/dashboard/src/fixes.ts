@@ -20,11 +20,13 @@ import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, acceptedVerdict, commandLine, counting, type FixActions, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, runHref, short, shownRepair, type StepKey } from './fix-shared.js';
 import { blameStep, type BlameStep, oldBlameNote } from './fix-blame-step.js';
 import { fixActions, type GoldensFolder } from './fix-actions.js';
+import type { FixCrash } from './fix-crash.js';
 import { fixLead, type FixLead } from './fix-lead.js';
 import { repairStep, type RepairStep } from './fix-repair-step.js';
 import { verifyStep, type VerifyStep } from './fix-verify-step.js';
 import { aboutsUpTo, SUMMARY_CALLS_BUDGET } from './run-about.js';
 import { loadRunIndex } from './run-index.js';
+import type { FailedCheck } from './issues.js';
 export { type StepState, type FixStep, type FixRow, type FixList, fixList } from './fix-list.js';
 export { type BlameStep } from './fix-blame-step.js';
 export { type CandidateVerdict, type RepairStep } from './fix-repair-step.js';
@@ -52,6 +54,8 @@ export interface FixDetail extends FixRow {
   /** The check as the oracle's labels: what a verdict must check to count for the fix. */
   oracle: string[];
   failingRuns: FixRunRef[];
+  /** The runs that failed its check, which its header's link opens under Runs › Failed, for the link's card: in the pooled `fix` read alone (read-jobs.ts), null where none are there now. A `fixDetail` built on the server's thread, as `fix show --json` prints it, leaves it out. */
+  failedCheck?: FailedCheck | null;
   goodRuns: FixRunRef[];
   /** The runs a check given since left out of it (`fix check`): failing runs it passes and good runs it fails. */
   left: { failing: string[]; good: string[] };
@@ -179,6 +183,9 @@ export function withAbouts(store: Store, d: FixDetail): FixDetail {
   };
 }
 
+/** An open fix's crash path: a crashed test replay no model rescued leads with its own step, Find breaking commit then Revert, where the caller can work it out (fix-crash.ts). */
+const openCrash = (fix: StoredFix, b: StoredBlame | null, crash: ((b: StoredBlame) => FixCrash | null) | undefined): FixCrash | null => (b && fix.status === 'open' && crash ? crash(b) : null);
+
 /**
  * One fix, every step as its page shows it. Null for an id that matches no fix, or several.
  * `repairer` is the one shadowlap.config.json names, if any: the repair commands use it.
@@ -188,7 +195,7 @@ export function withAbouts(store: Store, d: FixDetail): FixDetail {
  * repair's patch there, and `goldensFolder` what the project's goldens folder holds of the goldens
  * apply copies and what else: this stays a read of the store without them.
  */
-export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder } = {}): FixDetail | null {
+export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder; crash?: (b: StoredBlame) => FixCrash | null } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -220,6 +227,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
   };
   const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v, commands.verify));
   const actions = fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs });
+  const crash = openCrash(fix, b, options.crash);
   return {
     ...row,
     expect,
@@ -233,10 +241,10 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions,
-    lead: fixLead(rec, actions, { repairer: configured }),
+    lead: fixLead(rec, actions, { repairer: configured, crash }),
     rung: rungOf(rec),
     pr: prOf(rec),
-    blame: b ? blameStep(store, b, commands.blame, oldBlameNote(rec, b, actions)) : null,
+    blame: b ? blameStep(store, b, commands.blame, { oldCheck: oldBlameNote(rec, b, actions), crash }) : null,
     blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, range: lostRange(x.report.range), confidence: x.report.confidence })),
     repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p), commands.repair) : null,
     repairs: [...rec.repairs].reverse().map((x) => {

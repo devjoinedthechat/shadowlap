@@ -117,6 +117,10 @@ describe('shadowlap bisect', () => {
     expect(sh('git', ['status', '--porcelain']), 'nothing left in the working tree').toBe('');
     const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
     expect(store.listEvents({ kinds: ['bisect.found'] })[0]).toMatchObject({ ref: 'goldens/summary', data: { commit: rev['Ask for brevity'], subject: 'Ask for brevity', good: rev['Start the ticket agent'], bad: rev['Mark summaries as drafts'], first: { rev: rev['Ask for brevity'], subject: 'Ask for brevity', author: 'Ravi' }, replays: 4, tokens: 0, upstreamRequests: 0 } });
+    // Its change is kept with it, against its first parent: the file the answer opens is the first
+    // the commit changed that could have broken the agent and is still there, past BROKEN, which it
+    // deleted and has no hunk to show.
+    expect((store.listEvents({ kinds: ['bisect.found'] })[0].data as { first: { change: unknown } }).first.change).toEqual({ file: 'prompt.txt', files: ['BROKEN', 'prompt.txt'], hunk: '@@ -1 +1 @@\n-You summarize support tickets.\n+You summarize support tickets. Be brief.', line: 1, cut: false, merge: false });
     store.close();
   });
 
@@ -124,7 +128,8 @@ describe('shadowlap bisect', () => {
     const r = await shadowlap(['bisect', 'goldens/brief', '--good', rev['Mention the prompt'], '--expect', '{"output":{"excludes":"DRAFT"}}', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as { outcome: string; first: { short: string; why: string }; steps: Array<{ short: string; ok: boolean; result: string }>; commits: number; tokens: number };
-    expect(report).toMatchObject({ outcome: 'found', commits: 1, tokens: 0, first: { short: rev['Mark summaries as drafts'], why: 'check failed: output doesn\'t include "DRAFT", but found in the output' } });
+    // The commit packed goldens/brief too: a golden is never the file the answer opens.
+    expect(report).toMatchObject({ outcome: 'found', commits: 1, tokens: 0, first: { short: rev['Mark summaries as drafts'], why: 'check failed: output doesn\'t include "DRAFT", but found in the output', change: { file: 'marker.txt', files: expect.arrayContaining(['goldens/brief/run.json', 'marker.txt']), hunk: '@@ -1 +1 @@\n-\n+DRAFT: ', line: 1, cut: false, merge: false } } });
     expect(report.steps.map((s) => [s.short, s.ok])).toEqual([[rev['Mark summaries as drafts'], false], [rev['Mention the prompt'], true]]);
 
     const byRun = await shadowlap(['bisect', recordedRun.slice(0, 12), '--good', rev['Start the ticket agent'], '--bad', rev['Mention the prompt']]);
@@ -405,7 +410,8 @@ describe('a good commit on a branch that was merged', () => {
     const r = await run(['bisect', 'goldens/merged', '--good', at['Feature prompt'], '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as { outcome: string; commits: number; first: { short: string }; steps: Array<{ short: string }> };
-    expect(report).toMatchObject({ outcome: 'found', commits: 1, first: { short: at['Merge'] } });
+    // Its change is what it brought into the line: against its first parent, reverted with -m 1.
+    expect(report).toMatchObject({ outcome: 'found', commits: 1, first: { short: at['Merge'], change: { file: 'prompt.txt', files: ['prompt.txt'], hunk: '@@ -1 +1 @@\n-You summarize support tickets.\n+You summarize support tickets. Be brief.', line: 1, merge: true } } });
     expect(report.steps.map((x) => x.short)).not.toContain(at['Main one']);
     expect(report.steps.map((x) => x.short)).not.toContain(at['Main two']);
   });

@@ -25,6 +25,19 @@ export type LookStep =
   | { of: 'push'; label: string; command: string }
   | { of: 'migrate'; label: string; from: string[]; to: string; goldens: string[]; command: string };
 
+/**
+ * What makes a row advice (advice.ts): its key, the same for as long as it is the same advice (never
+ * the row's key, which may follow what it names); the facts it states now, each once, sorted; when
+ * it comes back once put away, Dismiss's hover; and whether it is put away (the engine's
+ * stillDismissed, dismissals.ts). Only advice has one: a failure is never advice.
+ */
+export interface LookAdvice {
+  key: string;
+  facts: string[];
+  until: string;
+  dismissed: boolean;
+}
+
 /** One row of Needs a look. */
 export interface NeedsLookRow {
   /** Unique on the list, and the same from one look to the next: `attn:<what>:<what its step acts on>`. */
@@ -53,13 +66,25 @@ export interface NeedsLookRow {
   name?: string;
   /** A golden's report on Tests (`report-<name>`), which its row scrolls to. */
   report?: string;
+  /** The failed runs nobody has blamed: the issue on Runs › Failed of the newest, which the row opens (issues.ts); null where Failed doesn't count it. */
+  issue?: string | null;
+  /** Advice, which its owner may put away (Dismiss); none on a failure. */
+  advice?: LookAdvice;
 }
 
 export interface NeedsLook {
-  /** Every row, by group, then by its source's order. */
+  /** Every row, by group, then by its source's order: advice put away stays in its place, so the page can fold it. */
   items: NeedsLookRow[];
-  /** Everything that needs a look, the panel's count: a row each, a line for the rest of a source as many as it stands for. */
+  /**
+   * What is left to look at, the panel's count: a row each, a line for the rest of a source as many
+   * as it stands for, and none for advice put away.
+   */
   total: number;
+  /**
+   * The store's dismissals counter as it stood before the dismissals were read: a page that put
+   * advice away holds its own view until a list at or past its write's counter arrives.
+   */
+  dismissals: number;
 }
 
 /** A golden an open fix holds: its failure is that fix's, so the fix's row names it and it has none of its own. */

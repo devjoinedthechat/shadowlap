@@ -68,7 +68,7 @@ export const SHAPES = {
   // check: recordings judged by checks, nothing replayed; and each check as it came out, wherever a command prints one.
   check: { section: 'check', fields: ['expect', 'recordings', 'counts', 'unchecked', 'notes'] },
   checkRecording: { section: 'check', fields: ['runId', 'pack', 'labels', 'source', 'outcome', 'why', 'checks'] },
-  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive'] },
+  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive', 'notApplicable'] },
   checkResult: { section: 'check', fields: ['status', 'ok', 'label', 'detail'] },
   init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'fence', 'hardcodedBaseUrls', 'unrecordedModels', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
   // The coding agents' plugin and rule, put into a project (skill-install.test.ts).
@@ -137,6 +137,8 @@ export const SHAPES = {
   bisectTarget: { section: 'bisect', grows: true, fields: ['kind', 'name', 'runId'] },
   bisectCommit: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'author', 'date'] },
   bisectStep: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'ok', 'skipped', 'result', 'seconds'] },
+  // The first bad commit's change (first.change), held exactly to its table.
+  bisectChange: { section: 'bisect', list: "or null when git couldn't say", fields: ['file', 'files', 'hunk', 'line', 'cut', 'merge'] },
   // Injection tests: the report of injection --json, per run tested by planting or by --clean.
   injection: { section: 'injection', list: 'Otherwise, with `--json` it prints', fields: ['templates', 'results', 'totals', 'verdict', 'passed', 'html'] },
   injectionTotals: { section: 'injection', list: '`totals` adds up', fields: ['runs', 'attempts', 'obeyed', 'influenced', 'ignored', 'inconclusive'] },

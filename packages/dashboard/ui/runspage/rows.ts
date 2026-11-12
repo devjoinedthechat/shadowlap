@@ -6,6 +6,7 @@
  * shows). No DOM here: the tests import it.
  */
 
+import { filterTerms } from '../../src/links.js';
 import { indexingNote } from '../palette.js';
 import type { ChipCounts } from '../types.js';
 
@@ -31,6 +32,15 @@ export function warmingLine(w: { done: number; total: number; what?: 'verdicts' 
   if (o.filtered) return `The about lines of ${of} runs are known so far: runs among the rest may match too. The table fills in as they are worked out.`;
   if (o.bySpent) return `What ${of} runs spent is added up so far: the rest may sort higher. The table reorders as they are.`;
   return null;
+}
+
+/**
+ * The verdicts a read still works out, where they change what the page shows: every read judges the
+ * runs Failed counts by their family's checks, but only Failed's rows, or a `status:` term's, wait on
+ * them; under another chip they change no more than Failed's count, and the page says nothing of them.
+ */
+export function shownWarming<W extends { done: number; total: number; what?: 'verdicts' }>(w: W | null, o: { chip: string; q: string }): W | null {
+  return w?.what === 'verdicts' && o.chip !== 'failed' && !filterTerms(o.q).statuses.length ? null : w;
 }
 
 /** The line under the table's head while what it shows is still coming: what is worked out (`warmingLine`), else what the search index has yet to read for the filter's words. */

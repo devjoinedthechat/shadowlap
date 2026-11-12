@@ -135,7 +135,7 @@ describe('the failed runs nobody has blamed', () => {
   it('says what failed by the agent’s exit when no check failed, and offers Run blame only where the run’s page leads with it', () => {
     const run = makeRun(store, { calls: ['api', 'tool', 'api'] });
     const row = fixesView(store).unblamed!;
-    expect(row).toMatchObject({ runId: run, failed: null, checks: [] });
+    expect(row).toMatchObject({ runId: run, failed: 'the agent exited with an error', checks: [] });
     expect(row.next).toMatchObject({ key: 'blame', label: 'Run blame' });
     // A run that made no model call can't be blamed: no step.
     store.close();

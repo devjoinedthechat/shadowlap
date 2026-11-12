@@ -171,6 +171,29 @@ describe('what each colour may mean', () => {
     expect(value('.seg button', 'min-height')).toBe('24px');
     expect(value('.seg a', 'min-height')).toBe('24px');
     expect(value('.attempts a', 'min-height')).toBe('24px');
+    // Needs a look's ×, drawn 22px, takes taps a pixel past its edge on each side: 24px.
+    expect([value('.arow .adis', 'width'), value('.arow .adis', 'height'), value('.arow .adis', 'position')]).toEqual(['22px', '22px', 'relative']);
+    expect([value('.arow .adis::after', 'position'), value('.arow .adis::after', 'inset')]).toEqual(['absolute', '-1px']);
+  });
+
+  it('mutes a dismissed row of Needs a look by its colours, never by fading it', () => {
+    expect([value('.arow.off .t', 'color'), value('.arow.off .glyph', 'color')]).toEqual(['var(--dim)', 'var(--faint)']);
+    const faded = rules().filter((r) => r.selectors.some((x) => x.startsWith('.arow.off')) && /(^|;)\s*opacity\s*:/.test(r.body));
+    expect(faded.map((r) => r.selectors.join(', '))).toEqual([]);
+  });
+
+  it('hides a × that waits (read-only, offline) at rest as one that runs, and shows it at half strength wherever it shows', () => {
+    // The rule for what waits and is no button of its own style leaves the × to its own look, which hides it at rest.
+    const waits = styleRules().filter((r) => r.selectors.some((x) => x.startsWith('[data-why][aria-disabled="true"]:not(')));
+    expect(waits.flatMap((r) => r.selectors)).toEqual(['[data-why][aria-disabled="true"]:not(.btn, .linkbtn, .rk, .switch, .pop button, .adis)']);
+    expect(value('.arow .adis', 'opacity')).toBe('0');
+    for (const shown of ['.arow:hover .adis[aria-disabled="true"]', '.arow:focus-within .adis[aria-disabled="true"]', '.arow .adis[aria-disabled="true"]:focus-visible']) expect([value(shown, 'opacity'), value(shown, 'cursor')], shown).toEqual(['.5', 'not-allowed']);
+    const touch = styleRules().filter((r) => r.conditions.some((c) => /hover:\s*none/.test(c)));
+    expect(touch.find((r) => r.selectors.includes('.arow .adis'))?.decls).toEqual([['opacity', '1']]);
+    expect(touch.find((r) => r.selectors.includes('.arow .adis[aria-disabled="true"]'))?.decls).toEqual([
+      ['opacity', '.5'],
+      ['cursor', 'not-allowed'],
+    ]);
   });
 
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {
@@ -271,6 +294,9 @@ describe('lime', () => {
     '.psk.done.s-verify i': 'a fix’s Verify step that passed, on its Fixes row',
     '.stepper .done.s-verify .k i': 'a fix’s Verify step that passed, its dot in the stepper of the fix’s page',
     '.plist.checks li.met::before': 'a requirement met',
+    '.dsv.ok b': 'a preview’s run that verify kept passing or fixed: its word',
+    '.dlead .dlv.ok b': 'an opened cell’s run that verify kept passing or fixed: its word',
+    '.djudge b.ok': 'a judge check that passed',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
@@ -390,6 +416,19 @@ describe('amber', () => {
     '.cb-row .cm.inc': 'a recording the check being built can’t decide',
     '.cb-row.y .cb-d': 'a fix’s run the check being built would change for it: a failing run it passes, a good one it fails, or one it can’t settle',
     '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
+    'i.dg.s': 'a preview key’s swatch for a change of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
+    'i.dg.jw': 'a preview key’s swatch for a step that waits on a judge: its ring',
+    '.dc.s': 'a decision cell of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
+    '.dc.jw': 'a decision cell that waits on a judge: its ring',
+    '.dc.split i.s': 'a split decision cell’s samples of rank 2: a look',
+    '.dsd.q2': 'a preview row’s most telling change, of rank 2: a look',
+    '.dsy': 'what a preview couldn’t ask or judge: a run it refused, a step that waits on a judge, a warning',
+    '.dsv.y b': 'a preview’s run that verify found inconclusive: its word',
+    '.dnotes': 'the warnings under a preview’s matrix: what couldn’t be asked or judged',
+    '.dlead .dlv.y b': 'an opened cell’s run that verify found inconclusive: its word',
+    '.drk.q2': 'a change of rank 2’s label: a look',
+    '.dside.q2': 'an opened cell’s decision now, of rank 2: its edge, a look',
+    '.djudge b.y': 'a judge check that couldn’t decide',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {

@@ -13,8 +13,9 @@ import { Command, Copy } from './Copy.js';
  * never over the menu its button opened or a dialog's footer. A pointer waits 400 ms for it, and the
  * next one shows at once while one was showing; the keyboard's focus shows one at once and keeps it
  * as Tab scrolls the page to its control; a tap on a touch screen toggles one on a fact that is no
- * link or button and in no row that acts on the tap. It goes when its element or its page does. While
- * it shows, its element points at it with `aria-describedby`, and an element with a card and no action
+ * link or button and in no row that acts on the tap. It changes as its element's card does, and goes
+ * when its element or its page does. While it shows, its element points at it with `aria-describedby`,
+ * and an element with a card and no action
  * of its own takes the focus (`markTipTargets`), so what a hover shows is never only a hover's.
  */
 
@@ -176,6 +177,8 @@ interface Shown {
   /** What points at the card: its element, or the control in it that has the focus (a link in a line). */
   describes: HTMLElement;
   d: Tip;
+  /** The element's `data-tip` as it was read, so a change to it is seen (`reread`). */
+  raw: string | null;
   by: By;
   /** Where the pointer came onto a wide row, which the card starts near. */
   x: number | null;
@@ -216,7 +219,22 @@ function show(el: HTMLElement, x: number | null, by: By, describes = el): void {
   if (!d) return;
   if (shown && shown.describes !== describes) undescribe(shown.describes);
   describe(describes);
-  shown = { el, describes, d, by, x };
+  shown = { el, describes, d, raw: el.getAttribute('data-tip'), by, x };
+  tell();
+}
+
+/**
+ * The card that shows, read again from its element. One whose element's card changed while it showed is
+ * redrawn: a price that came after the card did, as a run's estimates can on a busy machine, which
+ * would otherwise never show on it. One whose element has no card any more goes.
+ */
+function reread(): void {
+  if (!shown) return;
+  const raw = shown.el.getAttribute('data-tip');
+  if (raw === shown.raw) return;
+  const d = read(shown.el);
+  if (!d) return hideTip();
+  shown = { ...shown, d, raw };
   tell();
 }
 
@@ -438,8 +456,8 @@ export function HoverCardLayer() {
     };
   }, []);
 
-  // Every element with a card takes the focus or is named by it, however it came into the page, and a
-  // card whose element has left the page goes with it.
+  // Every element with a card takes the focus or is named by it, however it came into the page; the
+  // card that shows follows its element's card as it changes, and goes once its element has left the page.
   useEffect(() => {
     if (typeof MutationObserver !== 'function') return;
     let frame = 0;
@@ -448,6 +466,7 @@ export function HoverCardLayer() {
         frame = 0;
         markTipTargets(document.body);
         if (shown && !shown.el.isConnected) hideTip();
+        else reread();
       });
     };
     soon();

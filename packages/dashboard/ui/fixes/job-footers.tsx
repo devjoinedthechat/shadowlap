@@ -60,7 +60,7 @@ function NextStepFooter({ job, plain }: { job: JobView; plain?: boolean }) {
   const lead = fresh && !accepted(job) ? (page?.fix.lead ?? null) : null;
   const jobs = useServerJobs(!!lead);
   if (!fixId || !page || !lead) return null;
-  const why = leadWait(lead, { jobs, folder: app.meta?.project?.path ?? null, hasKind: app.hasKind });
+  const why = leadWait(lead, { jobs, folder: app.meta?.project?.path ?? null, projectId: app.meta?.project?.id ?? null, hasKind: app.hasKind });
   return <RowStep fixId={fixId} lead={lead} why={why} version={String(page.at)} className={plain ? 'btn' : 'btn lime'} fix={page.fix} />;
 }
 

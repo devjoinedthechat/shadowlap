@@ -65,7 +65,8 @@ export function sessionLine(view: { verdict: Pick<NonNullable<TestsView['verdict
 /**
  * The jobs that replay or rewrite the goldens on disk, by what each is doing, as the server tells
  * them apart: while one runs in a project, another is refused there (409), so its button waits.
- * Find breaking commit counts when it searches a golden; on a run, it touches no golden.
+ * Find breaking commit counts when it searches a golden; on a run, it touches no golden. Revert tests
+ * a golden once git has reverted its first bad commit.
  */
 const TEST_FAMILY = new Map<string, string>([
   ['test', 'a test session'],
@@ -73,6 +74,7 @@ const TEST_FAMILY = new Map<string, string>([
   ['normalize-and-test', 'a normalizer and its re-run'],
   ['pack-test', 'a new golden being packed and tested'],
   ['bisect', confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase()],
+  ['revert', 'a revert'],
 ]);
 
 type FamilyJob = { kind?: string | undefined; args?: readonly string[] | undefined; done: boolean; project?: { id: string } | undefined };

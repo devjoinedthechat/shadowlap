@@ -1,5 +1,6 @@
 import { emptyOriginCounts, importedRecording, sumCacheUse, type OriginCounts, type RunAbout, type RunKind, type Store } from '@shadowlap/engine';
 import { fixesSummary, type PatchCheck, type RewriteCheck } from './fixes.js';
+import { withDismissals } from './dismissals.js';
 import { lookWork, type NeedsLook, needsLook } from './needs-look/index.js';
 import type { NextStepWork } from './next-step.js';
 import { aboutsUpTo } from './run-about.js';
@@ -145,17 +146,19 @@ export interface FixesFunnel {
   spent: number;
 }
 
-export type { LookStep, NeedsLook, NeedsLookRow } from './needs-look/index.js';
+export type { LookAdvice, LookStep, NeedsLook, NeedsLookRow } from './needs-look/index.js';
 
 /**
  * The team store as Needs a look reads it: how many runs are only on this machine, as the store's
  * status counts them for Settings → Store and the CLI (`onlyLocal`): by run, a run counted once
  * when it or the attempts filed under it aren't in the store's index yet, as the Runs page tags it.
- * `setup`: the next step of a setup started on the setup page and not finished.
+ * `localRuns`: the ids of every one of them (`localRunSet`, never the status's first 500), the facts
+ * the row's advice states. `setup`: the next step of a setup started on the setup page and not finished.
  */
 export interface StoreNote {
   name: string;
   onlyLocal: number;
+  localRuns: readonly string[];
   setup?: { step: number; title: string } | null;
 }
 
@@ -299,7 +302,7 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
     },
     cache: weekCache(store, index, week.from, options.budget),
     fixes: { ...fixes.funnel, open: fixes.open, readyToApply: fixes.readyToApply, broken: fixes.broken, attempts: fixes.attempts, spent: fixes.spent },
-    needsLook: needsLook(lookWork(store, { goldens, teamStore: options.teamStore ?? null, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, repairer: options.repairer ?? null, budget: options.budget, next: options.next ?? null, now, week: { ...week, first: weekDays[0]!.key, last: today.key }, index })),
+    needsLook: withDismissals(needsLook(lookWork(store, { goldens, teamStore: options.teamStore ?? null, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, repairer: options.repairer ?? null, budget: options.budget, next: options.next ?? null, now, week: { ...week, first: weekDays[0]!.key, last: today.key }, index })), store),
   };
 }
 

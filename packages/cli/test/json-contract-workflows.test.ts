@@ -205,10 +205,10 @@ console.log((await res.json()).content.map((b) => b.text ?? '').join(''));
       const j = json(r);
       expect(j.outcome).toBe('found');
       hold([['bisect', j], ['bisectTarget', j.target], ['bisectCommit', j.good], ['bisectCommit', j.bad], ['bisectStep', first(j.steps)]]);
-      // The first bad commit is a commit, with why it fails there.
-      const { why, ...commit } = j.first as { why: string };
+      // The first bad commit is a commit, with why it fails there and what it changed.
+      const { why, ...commit } = j.first as { why: string; change: unknown };
       expect(why).toContain('diverged at call 1');
-      hold([['bisectCommit', commit]]);
+      hold([['bisectCommit', commit], ['bisectChange', commit.change]]);
     } finally {
       rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
