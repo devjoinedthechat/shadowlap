@@ -202,6 +202,8 @@ export const ROUTES: readonly RouteState[] = [
   route('/setup'),
   route('/setup/store'),
   ...['/nowhere', '/run/01ZZZZZZZZZZZZZZZZZZZZZZZZ', '/fixes/fx-nope'].map((p) => route(p, NOT_FOUND)),
+  // Runs keeps its calendar open for the page's life once shown (a link opened in the page doesn't reload it): after every other Runs route.
+  { name: '/runs with its calendar', path: () => '/runs', drawn: 'main#view table.runst tbody tr', then: (p) => click(p, 'main#view button.linkbtn[aria-expanded="false"]', 'Calendar', { shows: 'main#view .calgrid' })() },
   // Answers the demo can't give: kept last, as they stay routed for the page's life.
   { name: 'Tests with a gated golden’s evidence open', path: () => '/tests', drawn: 'main#view table.gt', fixture: routeTestsFixture, then: (p) => click(p, 'main#view button.gev', undefined, { shows: 'main#view tr.gevrow .alist' })() },
 ];

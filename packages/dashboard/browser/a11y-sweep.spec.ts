@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, openPage, seriousViolations, sideways } from './dashboard.js';
+import { dash, demoId, openPage, seriousViolations, sideways, startJob } from './dashboard.js';
 import { ROUTES, show, type RouteState } from './routes.js';
 
 /**
@@ -61,9 +61,40 @@ function underFloor(page: Page): Promise<string[]> {
   });
 }
 
-test('every route on a 390px phone has no serious or critical axe violation, scrolls nothing sideways, and draws no label under 11px', async ({ page }) => {
+/**
+ * Visually hidden text (`.sr`, and the copies of its style) where it is read: none of it makes the
+ * page wider or taller than it is without it, and each sits on its own row, within a row's padding of
+ * the box that holds it, never sent to the top of a list or the corner of the page.
+ */
+function hiddenText(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    const hidden = [...document.querySelectorAll<HTMLElement>('body *')].filter((el) => {
+      const s = getComputedStyle(el);
+      return s.position === 'absolute' && s.getPropertyValue('clip') === 'rect(0px, 0px, 0px, 0px)' && el.getClientRects().length > 0;
+    });
+    const size = () => `${document.documentElement.scrollWidth}×${document.documentElement.scrollHeight}`;
+    const drawn = size();
+    const was = hidden.map((el) => el.style.display);
+    for (const el of hidden) el.style.display = 'none';
+    const without = size();
+    hidden.forEach((el, i) => (el.style.display = was[i]!));
+    if (drawn !== without) out.push(`hidden text stretches the page from ${without} to ${drawn}`);
+    const name = (el: Element) => `${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')}`;
+    for (const el of hidden) {
+      let up = el.parentElement;
+      while (up && getComputedStyle(up).display === 'contents') up = up.parentElement;
+      if (!up) continue;
+      const [a, b] = [el.getBoundingClientRect(), up.getBoundingClientRect()];
+      if (a.top < b.top - 24 || a.top > b.bottom + 24) out.push(`${name(el)} “${(el.textContent ?? '').trim().slice(0, 30)}” sits ${Math.round(a.top - b.top)}px from the top of its ${name(up)}`);
+    }
+    return out;
+  });
+}
+
+test('every route on a 390px phone has no serious or critical axe violation, scrolls nothing sideways, draws no label under 11px, and keeps its hidden text where it is read', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  expect(await over(page, async () => [...(await seriousViolations(page)), ...(await reach(page)), ...(await underFloor(page))])).toEqual([]);
+  expect(await over(page, async () => [...(await seriousViolations(page)), ...(await reach(page)), ...(await underFloor(page)), ...(await hiddenText(page))])).toEqual([]);
 });
 
 test('every route at 320px has no serious or critical axe violation and scrolls nothing sideways, unless the table says why', async ({ page }) => {
@@ -80,7 +111,8 @@ interface Heading {
 /** The headings of what `ariaSnapshot` reads, in reading order: what is hidden from a screen reader, or inert, is left out. */
 async function headings(page: Page, root = 'body'): Promise<Heading[]> {
   const tree = await page.locator(root).first().ariaSnapshot();
-  return [...tree.matchAll(/- heading(?: "((?:[^"\\]|\\.)*)")? \[level=(\d)\]/g)].map((m) => ({ level: Number(m[2]), name: m[1] ?? '' }));
+  // YAML quotes a line holding a quote or a colon whole, its own quotes doubled.
+  return [...tree.matchAll(/- ('?)heading(?: "((?:[^"\\]|\\.)*)")? \[level=(\d)\]/g)].map((m) => ({ level: Number(m[3]), name: m[1] ? (m[2] ?? '').replaceAll("''", "'") : (m[2] ?? '') }));
 }
 
 /** What breaks the outline: not one h1, the h1 not first, or a heading more than a level under the one before. */
@@ -195,11 +227,25 @@ function forcedSelection(page: Page): Promise<string[]> {
   });
 }
 
-test('every route at 1440px keeps its heading outline and, in a forced-colours theme, its marks, its selection and axe’s rules', async ({ page }) => {
+/** A command's `$` that a screen reader would read: each is drawn for the eye only, the command read without it. */
+function prompts(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    const walk = document.createTreeWalker(document.getElementById('root')!, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const up = n.parentElement!;
+      if (!/^\s*\$(\s|$)/.test(n.nodeValue ?? '') || n.previousSibling || up.closest('[aria-hidden="true"], .sr')) continue;
+      if (up.textContent.trim() === '$' || /^(code|pre)$/i.test(up.tagName)) out.push(`a $ read aloud in ${up.tagName.toLowerCase()}.${String(up.className).trim().split(/\s+/).join('.')} “${up.textContent.trim().slice(0, 30)}”`);
+    }
+    return out;
+  });
+}
+
+test('every route at 1440px keeps its heading outline, a command’s $ for the eye only and, in a forced-colours theme, its marks, its selection and axe’s rules', async ({ page }) => {
   let marks = 0;
   expect(
     await over(page, async () => {
-      const found = outlineBreaks(await headings(page));
+      const found = [...outlineBreaks(await headings(page)), ...(await prompts(page))];
       marks += await noteMarks(page);
       await page.emulateMedia({ forcedColors: 'active' });
       await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
@@ -238,4 +284,322 @@ test('the offline bar is said once, by one live region that was on the page befo
   expect(await page.locator('[role="status"]').evaluateAll((all) => all.filter((s) => /Retrying in/.test(s.textContent ?? '')).length)).toBe(0);
   expect(await page.locator('.connbar').ariaSnapshot()).not.toMatch(/Offline · actions paused/);
   await page.unroute('**/api/**');
+});
+
+/**
+ * The names a screen reader hears for each `role` under `root`, from the accessibility tree, in order.
+ * The snapshot is YAML: a line holding a quote or a colon is quoted whole, its own quotes doubled.
+ */
+async function names(page: Page, root: string, role: string): Promise<string[]> {
+  const tree = await page.locator(root).first().ariaSnapshot();
+  return [...tree.matchAll(new RegExp(`- ('?)${role} "((?:[^"\\\\]|\\\\.)*)"`, 'g'))].map((m) => JSON.parse(`"${m[1] ? m[2]!.replaceAll("''", "'") : m[2]!}"`) as string);
+}
+
+/** Each run row's whole about line and the status a screen reader hears after it, as the page draws them. */
+function aboutRows(page: Page, rows: string): Promise<Array<{ id: string; about: string | null; cut: boolean; status: string | null }>> {
+  return page.locator(rows).evaluateAll((all) =>
+    all.map((a) => {
+      const about = a.querySelector<HTMLElement>('.rab[data-about]');
+      const st = a.querySelector<HTMLElement>('[data-gives]');
+      const heard = st && st.dataset.give !== '2' ? (st).innerText.replace(/^\s*·/, '').replace(/\s+/g, ' ').trim() : '';
+      return { id: a.querySelector('code')?.textContent?.trim() ?? '', about: about?.dataset.about ?? null, cut: !!about && (about.dataset.gone !== undefined || !!about.querySelector('[aria-hidden="true"]')), status: heard || null };
+    }),
+  );
+}
+
+/** Each row's link names its run by its whole about line, the status after it heard apart by its `·`. */
+function wholeLines(rows: Awaited<ReturnType<typeof aboutRows>>, said: string[]): string[] {
+  const out: string[] = [];
+  rows.forEach((r, i) => {
+    const name = said[i] ?? '';
+    if (!name.includes(r.id)) out.push(`row ${i} is named “${name}”, not by its run ${r.id}`);
+    else if (r.about && !name.includes(r.status ? `${r.about} · ${r.status}` : r.about)) out.push(`${r.id} is named “${name}”`);
+    if (/·\s*·/.test(name)) out.push(`${r.id} says two dots: “${name}”`);
+  });
+  return out;
+}
+
+test('on a 390px phone each run’s link says its whole about line, however short the line drawn, then its status heard apart', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, '/', 'overview');
+  const recent = await aboutRows(page, 'main#view .rrows a.rrow');
+  expect(wholeLines(recent, await names(page, 'main#view .rrows', 'link'))).toEqual([]);
+  await page.locator('button.menu-toggle').click();
+  await expect(page.locator('aside#side.open')).toBeVisible();
+  const side = await aboutRows(page, 'aside#side .runs a.run');
+  expect(wholeLines(side, await names(page, 'aside#side .runs', 'link'))).toEqual([]);
+  // The sidebar's drawer is narrow: some line was drawn shorter, or gave up its place.
+  expect(side.some((r) => r.cut)).toBe(true);
+});
+
+test('a screen reader hears apart the parts the margins draw apart, and each settings control by its row', async ({ page }) => {
+  await openPage(page, '/', 'overview');
+  expect(wholeLines(await aboutRows(page, 'main#view .rrows a.rrow'), await names(page, 'main#view .rrows', 'link'))).toEqual([]);
+  // Runs: the calendar's busiest day and failed count, each with what it counts; a chip's word and its count.
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  await page.locator('main#view button.linkbtn[aria-expanded="false"]', { hasText: 'Calendar' }).click();
+  await page.waitForSelector('main#view .calkv');
+  const told = await page.locator('.calkv dd > span:not(.calwho):has(> small)').evaluateAll((all) =>
+    all.map((s) => {
+      const lead = [...s.childNodes].filter((n) => !(n instanceof Element && n.matches('small, .srsp'))).map((n) => n.textContent).join('');
+      return `${lead.trim()} ${s.querySelector('small')!.textContent.trim()}`;
+    }),
+  );
+  expect(told.length).toBeGreaterThan(0);
+  const cal = await page.locator('.calkv').ariaSnapshot();
+  for (const t of told) expect(cal).toContain(t);
+  const chips = await page.locator('main#view .chips button:has(b)').evaluateAll((all) => all.map((b) => `${[...b.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join('').trim()} ${b.querySelector('b')!.textContent}`));
+  expect(chips.length).toBeGreaterThan(0);
+  expect(await names(page, 'main#view', 'button')).toEqual(expect.arrayContaining(chips));
+  // A run's calls: the kind, the name, the effect and the detail as words, and "fork 17". (No run of the demo's has agents: test/ui-run-state.test.ts reads their chips.)
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  const cells = await names(page, 'main#view table.calls tbody', 'cell');
+  const parts = await page.locator('main#view table.calls td.name:has(> .eff)').evaluateAll((all) =>
+    all.map((td) => `${td.querySelector(':scope > small')!.textContent} ${[...td.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join('').trim()} ${td.querySelector(':scope > .eff')!.textContent}`),
+  );
+  expect(parts.length).toBeGreaterThan(0);
+  for (const p of parts) expect(cells.some((c) => c.startsWith(p))).toBe(true);
+  expect(cells.filter((c) => /^fork \d+$/.test(c))).toHaveLength(1);
+  // The strip's key: each origin's word and its count.
+  expect(await names(page, '#olegend', 'button')).toEqual(expect.arrayContaining([expect.stringMatching(/^\S+ [\d,]+$/)]));
+  expect((await names(page, '#olegend', 'button')).filter((n) => !/^\S.* [\d,]+$/.test(n))).toEqual([]);
+  expect(cells.filter((c) => /^(tool|model|human|clk|rnd)\S/.test(c) || /\S→/.test(c))).toEqual([]);
+  // Training's tabs: the word and its count.
+  await openPage(page, '/training', 'main#view .stabs a');
+  expect(await names(page, 'main#view .stabs', 'link')).toEqual([expect.stringMatching(/^Pairs [\d,]+$/), expect.stringMatching(/^Tasks [\d,]+$/)]);
+  // Settings: a control named by its row's label and described by its line.
+  await openPage(page, '/settings/ci', 'main#view .settab > :not(.skel)');
+  for (const id of ['alertSecret', 'cifixBudget', 'cifixRepairer']) {
+    const control = page.locator(`#${id}`);
+    if (!(await control.count())) continue;
+    await expect(control).toHaveAccessibleName((await page.locator(`#${id}-name`).textContent())!.trim());
+    await expect(control).toHaveAccessibleDescription((await page.locator(`#${id}-help`).textContent())!.trim());
+  }
+  await expect(page.locator('#alertSecret')).toHaveCount(1);
+});
+
+test('in a forced-colours theme the fork’s cell in the strip keeps its mark, a 2px band in the text colour round it', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  await page.emulateMedia({ forcedColors: 'active' });
+  const [shadow, want] = await page.locator('.cells button.mark').first().evaluate((b) => {
+    const probe = (c: string) => {
+      const p = document.createElement('i');
+      p.style.color = c;
+      document.body.append(p);
+      const v = getComputedStyle(p).color;
+      p.remove();
+      return v;
+    };
+    const [text, ground] = [probe('CanvasText'), probe('Canvas')];
+    return [getComputedStyle(b).boxShadow, `${text} 0px 0px 0px 1px inset, ${ground} 0px 0px 0px 2px, ${text} 0px 0px 0px 4px`];
+  });
+  expect(shadow).toBe(want);
+});
+
+/** The chart's labels a reader sees that touch the one before: each drawn label's text box, left to right. */
+function labelsTouch(page: Page): Promise<string[]> {
+  return page.locator('main#view .clabels').first().evaluate((row) => {
+    const out: string[] = [];
+    let last: { t: string; right: number } | null = null;
+    for (const span of row.querySelectorAll<HTMLElement>(':scope > span')) {
+      if (!span.textContent || getComputedStyle(span).visibility === 'hidden') continue;
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      const box = range.getBoundingClientRect();
+      if (last && box.left < last.right + 2) out.push(`${last.t} and ${span.textContent} touch`);
+      last = { t: span.textContent, right: box.right };
+    }
+    return out;
+  });
+}
+
+test('below 400px a chart of eleven or more calls labels every other one, never two touching, the open call’s label always shown', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const sizes: number[] = [];
+  for (const name of ['override', 'batch', 'batchFork']) {
+    await openPage(page, `/run/${demoId(name)}/context`, 'run');
+    const bars = page.locator('main#view .cbars .cbar');
+    const n = await bars.count();
+    sizes.push(n);
+    expect(await labelsTouch(page), `${n} calls`).toEqual([]);
+    // The second label drawn says the step: a call off it opened, then one on it.
+    const step = await page.locator('main#view .clabels > span').evaluateAll((all) => all.findIndex((s, i) => i > 0 && !!s.textContent));
+    for (const at of [Math.max(1, Math.floor(step / 2)), step + 1, step]) {
+      // A bar is a pixel or two wide on a phone, under its neighbours' cards: a click on it, not a pointer's.
+      await bars.nth(at).evaluate((b) => (b as HTMLElement).click());
+      const open = page.locator('main#view .clabels > span.sel');
+      await expect(open).toHaveCount(1);
+      expect(await open.evaluate((s) => !!s.textContent && getComputedStyle(s).visibility !== 'hidden'), `${n} calls, #${at} open`).toBe(true);
+      expect(await labelsTouch(page), `${n} calls, #${at} open`).toEqual([]);
+    }
+  }
+  // A chart labelled every other call by the rule, and one thinned already past 22 calls.
+  expect(sizes.some((n) => n >= 11 && n <= 22) && sizes.some((n) => n > 22)).toBe(true);
+});
+
+/** The Tab stops in document order: what Tab and Shift+Tab move between. */
+function tabStops(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const stops = [...document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]')].filter(
+      (el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' && !el.closest('[inert]'),
+    );
+    (window as unknown as { __stops: HTMLElement[] }).__stops = stops;
+    return stops.length;
+  });
+}
+
+test('a call the browser brings into view above the calls list stops clear of the list’s head, which without the scroll padding it would sit under', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 640 });
+  await openPage(page, `/run/${demoId('batch')}`, 'run');
+  // The list draws only the rows near its view, and moves its own keys' rows clear of the head
+  // already (window-hook.ts): this is what the browser scrolls itself, for a screen reader's cursor,
+  // find in page or a focus it doesn't place. A row's fold caret is laid under the head, then shown.
+  const under = (padding: string) =>
+    page.evaluate((padding) => {
+      const body = document.querySelector<HTMLElement>('main#view .vbody')!;
+      body.style.scrollPaddingTop = padding;
+      const el = [...body.querySelectorAll<HTMLElement>('tbody .tcaret')].find((e) => e.checkVisibility({ visibilityProperty: true }))!;
+      body.scrollTop = 0;
+      const head = body.querySelector('thead')!.getBoundingClientRect();
+      body.scrollTop = el.getBoundingClientRect().top - head.top - 4;
+      const placed = head.bottom - el.getBoundingClientRect().top;
+      el.scrollIntoView({ block: 'nearest' });
+      return [placed, head.bottom - el.getBoundingClientRect().top];
+    }, padding);
+  const [placed, kept] = await under('');
+  expect(placed).toBeGreaterThan(0.5);
+  expect(kept).toBeLessThanOrEqual(0.5);
+  expect((await under('0px'))[1]).toBeGreaterThan(0.5);
+});
+
+test('on a 390px phone with a job’s drawer docked, Tab to a control below the fold stops it clear of the drawer, its $ drawn for the eye only', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await startJob(page);
+  await page.waitForSelector('body.docked section.drawer');
+  expect(await page.locator('section.drawer pre .p').first().evaluate((l) => l.querySelector('[aria-hidden="true"]')?.textContent)).toBe('$');
+  await page.evaluate(() => {
+    location.hash = '#/runs';
+  });
+  await page.locator('main#view table.runst tbody tr').first().waitFor();
+  await tabStops(page);
+  const under = async (padding: string) => {
+    const placed = await page.evaluate((padding) => {
+      document.documentElement.style.scrollPaddingBottom = padding;
+      const drawer = document.querySelector('section.drawer')!.getBoundingClientRect();
+      const stops = (window as unknown as { __stops: HTMLElement[] }).__stops;
+      const at = stops.findIndex((el, i) => i > 0 && el.closest('main#view') && el.getBoundingClientRect().top + scrollY > drawer.top + 200 && !el.closest('.vbody'));
+      if (at < 0) return false;
+      // Just inside the window, under the drawer's top.
+      scrollTo(0, stops[at]!.getBoundingClientRect().top + scrollY - drawer.top - 8);
+      stops[at - 1]!.focus({ preventScroll: true });
+      (window as unknown as { __want: HTMLElement }).__want = stops[at]!;
+      return true;
+    }, padding);
+    expect(placed, 'a Tab stop below the fold').toBe(true);
+    await page.keyboard.press('Tab');
+    return page.evaluate(() => {
+      const want = (window as unknown as { __want: HTMLElement }).__want;
+      return document.activeElement === want ? want.getBoundingClientRect().bottom - document.querySelector('section.drawer')!.getBoundingClientRect().top : NaN;
+    });
+  };
+  expect(await under('')).toBeLessThanOrEqual(0.5);
+  expect(await under('0px')).toBeGreaterThan(0.5);
+});
+
+/** A hit area a touch screen claims: its box and how far it reaches past it, at least `size` across. */
+interface Target {
+  name: string;
+  sel: string;
+  size?: [number, number];
+  /** How far the hit area reaches past the box (its ::before or ::after): top, right, bottom, left. */
+  reach?: [number, number, number, number];
+  /** Spaced rather than grown: a `size` square round its middle may hold a gap, never another control. */
+  spaced?: boolean;
+}
+
+/** Taps just inside each edge of each target's hit area: each lands on the target, or for a spaced one never on another control; and the area is as big as it claims. */
+function taps(page: Page, t: Target): Promise<string[]> {
+  return page.evaluate((t) => {
+    const out: string[] = [];
+    const control = (n: Element | null) => n?.closest('a[href], button, input, select, textarea, summary, label, [role="button"], [tabindex]:not([tabindex="-1"])') ?? null;
+    const name = (el: Element) => `${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} “${(el.textContent ?? '').trim().slice(0, 20)}”`;
+    const els = [...document.querySelectorAll<HTMLElement>(t.sel)].filter((el) => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').slice(0, 10);
+    if (!els.length) return [`${t.name}: none drawn`];
+    for (const el of els) {
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      const b = el.getBoundingClientRect();
+      const [cx, cy] = [b.left + b.width / 2, b.top + b.height / 2];
+      const [top, right, bottom, left] = t.reach ?? [0, 0, 0, 0];
+      const [w, h] = t.size ?? [0, 0];
+      const area = t.spaced ? { l: cx - w / 2, r: cx + w / 2, t: cy - h / 2, b: cy + h / 2 } : { l: b.left - left, r: b.right + right, t: b.top - top, b: b.bottom + bottom };
+      if (area.r - area.l < w - 0.5 || area.b - area.t < h - 0.5) out.push(`${t.name} ${name(el)}: ${Math.round(area.r - area.l)}×${Math.round(area.b - area.t)}, under ${w}×${h}`);
+      const edges: Array<[number, number, string]> = [
+        [area.l + 1, cy, 'left'],
+        [area.r - 1, cy, 'right'],
+        [cx, area.t + 1, 'top'],
+        [cx, area.b - 1, 'bottom'],
+      ];
+      for (const [x, y, edge] of edges) {
+        const hit = document.elementFromPoint(x, y);
+        const ok = !!hit && (el.contains(hit) || (!!t.spaced && (!control(hit) || control(hit) === control(el))));
+        if (!ok) out.push(`${t.name} ${name(el)}: a tap at its ${edge} edge lands on ${hit ? name(hit) : 'nothing'}`);
+      }
+    }
+    return out;
+  }, t);
+}
+
+test.describe('on a touch screen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test('each hit area a page claims takes the tap at its edges, and never a neighbour’s', async ({ page }) => {
+    // A label of the demo's own, routed onto a run, so its × is drawn.
+    const good = demoId('good');
+    await page.route(new RegExp(`/api/runs/${good}(\\?.*)?$`), async (route) => {
+      const res = await route.fetch();
+      const json = (await res.json()) as { run: { meta?: { labels?: string[] } } };
+      json.run.meta = { ...json.run.meta, labels: [...(json.run.meta?.labels ?? []), 'refunds'] };
+      await route.fulfill({ response: res, json });
+    });
+    const pages: Array<[string, string, Target[]]> = [
+      [
+        '/runs',
+        'main#view table.runst tbody tr',
+        [
+          { name: 'a run’s checkbox cell', sel: 'main#view table.runst td.selcell .selhit', size: [44, 44] },
+          { name: 'a calendar day', sel: 'main#view .calgrid button.cd', size: [24, 24], spaced: true },
+        ],
+      ],
+      ['/', 'overview', [{ name: 'a fact that is a link', sel: 'main#view a.metric', reach: [4, 0, 4, 0] }]],
+      [
+        `/run/${good}`,
+        'run',
+        [
+          { name: 'a strip cell', sel: 'main#view .cells button', size: [0, 24] },
+          { name: 'a label’s ×', sel: 'main#view .labelbar .chip button', size: [24, 24], reach: [7, 12, 6, 5] },
+          { name: 'the inspector’s Add check', sel: 'main#view .ihead .ckins', size: [0, 32], reach: [4, 2, 4, 2] },
+        ],
+      ],
+      [`/run/${demoId('batch')}`, 'run', [{ name: 'a group’s caret', sel: 'main#view table.calls .tcaret', reach: [3, 5, 3, 5] }]],
+      [`/fixes/${demoId('refundFix')}/blame`, 'fix', [{ name: 'a blamed call’s column', sel: 'main#view .callrow .cn' }]],
+      [`/fixes/${demoId('refundFix')}/verify`, 'fix', [{ name: 'the attempts’ caret', sel: 'main#view .xbtn', size: [32, 32], reach: [5, 5, 5, 5] }]],
+      ['/settings/project', 'main#view .settab > :not(.skel)', [{ name: 'a spending choice', sel: 'main#view .setrow.spend .seg button', reach: [6, 0, 6, 0] }]],
+    ];
+    const found: string[] = [];
+    for (const [path, drawn, targets] of pages) {
+      await openPage(page, path, drawn);
+      if (path === '/runs') await page.locator('main#view button.linkbtn[aria-expanded="false"]', { hasText: 'Calendar' }).click();
+      for (const t of targets) found.push(...(await taps(page, t)).map((p) => `${path}: ${p}`));
+    }
+    expect(found).toEqual([]);
+  });
+
+  test('a tap at the edge of a run’s checkbox cell picks the run and never opens it', async ({ page }) => {
+    await openPage(page, '/runs', 'main#view table.runst tbody tr');
+    const cell = page.locator('main#view table.runst td.selcell .selhit').first();
+    const b = (await cell.boundingBox())!;
+    await page.touchscreen.tap(b.x + b.width - 2, b.y + 2);
+    await expect(page.locator('main#view table.runst tbody tr').first().locator('td.selcell input')).toBeChecked();
+    expect(new URL(page.url()).hash).toMatch(/^#\/runs/);
+  });
 });
