@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { Words } from './Copy.js';
 
 /**
  * Decision 9 on every page: a gate's verdict is its word, its tally and its Wilson bound (against
@@ -30,7 +31,15 @@ export function DotLine({ text, max = 44, soft }: { text: string; max?: number; 
       {dotParts(text, max, soft ?? max).map((p, i) => (
         <Fragment key={i}>
           {i ? ' ' : null}
-          {p.keep ? <span className={p.keep === 'whole' ? 'nw' : 'kc'}>{p.text}</span> : p.text}
+          {p.keep === 'whole' ? (
+            <span className="nw">{p.text}</span>
+          ) : p.keep ? (
+            <span className="kc">
+              <Words>{p.text}</Words>
+            </span>
+          ) : (
+            <Words>{p.text}</Words>
+          )}
         </Fragment>
       ))}
     </>

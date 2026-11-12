@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { DecisionCells } from '../changes/DecisionCells.js';
 import { SrSpace } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { CodeText } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { ErrorState } from '../components/States.js';
 import { glossed } from '../components/Term.js';
@@ -134,29 +135,29 @@ function Step({ st, sel, onSelect }: { st: ViewStep; sel: boolean; onSelect: (n:
           </>
         )}
         <Said detail={st.detail} />
-        {st.within ? <span className="dlm">{` · ${st.within}`}</span> : null}
-        {st.short ? <span className="dlm">{` · ${st.short}`}</span> : null}
-        {st.waits ? <span className="dsy">{' · waits on a judge'}</span> : null}
+        {st.within ? <span className="dlm">{`\u00a0· ${st.within}`}</span> : null}
+        {st.short ? <span className="dlm">{`\u00a0· ${st.short}`}</span> : null}
+        {st.waits ? <span className="dsy">{'\u00a0· waits on a judge'}</span> : null}
       </p>
       <p className="dvs2">
         <span className="k">
           recorded
           <SrSpace />
         </span>
-        <code>{st.recorded}</code>
+        <CodeText>{st.recorded}</CodeText>
       </p>
       <p className="dvs2">
         <span className="k">
           now
           <SrSpace />
         </span>
-        <code>{st.now}</code>
+        <CodeText>{st.now}</CodeText>
         {st.delta ? <span className="dlm">{st.delta}</span> : null}
       </p>
       {st.args.map((a) => (
         <p key={a} className="dvs2 dargs">
           <span className="k" />
-          <code>{a}</code>
+          <CodeText>{a}</CodeText>
         </p>
       ))}
     </div>

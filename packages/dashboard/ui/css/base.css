@@ -293,7 +293,9 @@ p.muted { margin: 0 0 12px; }
    word; headings and captions balance. Copy decides a block of copy by its measure, whatever a page's own rule says. */
 body { text-wrap: pretty; }
 p, .setrow span, .stepper .m { text-wrap: pretty; }
-.inote, .fnode .f2, .checks span { text-wrap: balance; }
+.inote, .checks span { text-wrap: balance; }
+/* a family's line is dot parts, each a nowrap piece: never balanced (A4) */
+.fnode .f2 { text-wrap: pretty; }
 /* Needs a look's line is nowrap parts beside a part that may break anywhere: never balanced, which crashed Chromium */
 .attn .d { text-wrap: pretty; }
 p code, .ph p code { white-space: nowrap; }

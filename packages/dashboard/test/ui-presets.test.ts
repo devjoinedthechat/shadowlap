@@ -171,7 +171,7 @@ describe('a preset’s attempts in the Forks view', () => {
     await r.until('the family to load', () => r!.all('.fnode .f2').length === 4);
     const [, failed, passed, unsure] = r.all('.fnode .f2');
     expect(failed.querySelector('em')!.textContent).toBe('preset failed');
-    expect(failed.textContent.startsWith('preset failed · ')).toBe(true);
+    expect(failed.textContent.replace(/\u00a0/g, ' ').startsWith('preset failed · ')).toBe(true);
     expect(passed.querySelector('em')).toBeNull();
     expect(unsure.querySelector('em.inc')!.textContent).toBe('preset inconclusive');
   });

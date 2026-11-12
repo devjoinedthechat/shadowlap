@@ -88,7 +88,7 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
       <div className="cstats">
         <div>
           <b>{ktok(wholeInput(big.usage!))}</b>
-          <span>largest context · #{big.callNo}</span>
+          <span>{`largest context\u00a0· #${big.callNo}`}</span>
         </div>
         <div>
           <b>{Math.round(share * 100)}%</b>

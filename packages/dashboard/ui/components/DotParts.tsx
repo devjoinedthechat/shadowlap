@@ -1,4 +1,5 @@
 import { Children, Fragment, isValidElement, type ReactNode } from 'react';
+import { Words } from './Copy.js';
 
 /**
  * Parts each kept whole where their line holds them, an inline block ending in its dot (a cost line's,
@@ -27,8 +28,9 @@ export function DotBlocks({ parts, className }: { parts: readonly ReactNode[]; c
  * whole keeps its dot and stays on one line, so the line breaks only after a dot, never inside a
  * figure ("cost: blame ≈$0.054"); a longer one keeps its dot with its last word. `DotNodes` draws it.
  */
-export function DotParts({ parts }: { parts: readonly string[] }) {
-  return <DotNodes parts={parts.map((p) => ({ text: p, node: p }))} />;
+export function DotParts({ parts, max = 44 }: { parts: readonly string[]; max?: number }) {
+  // a part kept whole never breaks, so only a longer one's words are glued and kept whole
+  return <DotNodes parts={parts.map((p) => ({ text: p, node: p.length <= max ? p : <Words>{p}</Words> }))} max={max} />;
 }
 
 /**

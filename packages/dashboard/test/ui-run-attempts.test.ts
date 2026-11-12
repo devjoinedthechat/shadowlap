@@ -327,12 +327,12 @@ describe('the Forks view', () => {
     const client = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]) };
     page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ForksView, { runId: '0TEST3'.padEnd(26, '0') })));
     await page.until('the family to load', () => page!.all('.fnode').length > 0);
-    const titles = page.all('.fnode .f1 code').map((c) => c.textContent);
+    const titles = page.all('.fnode .f1 code').map((c) => c.textContent.replace(/\u00a0/g, ' '));
     expect(titles).toContain('test · refund-over-limit');
     expect(titles.filter((t) => t.startsWith('0TEST'))).toEqual([]);
-    const bundle = page.all('.fnode').find((n) => n.textContent.includes('test · refund-over-limit'))!;
+    const bundle = page.all('.fnode').find((n) => n.textContent.replace(/\u00a0/g, ' ').includes('test · refund-over-limit'))!;
     expect(bundle.className).toContain('here');
-    expect(bundle.textContent).toContain('forked 5 attempts, 5 passed · ≈$0.088');
+    expect(bundle.textContent.replace(/\u00a0/g, ' ')).toContain('forked 5 attempts, 5 passed · ≈$0.088');
     expect(page.all('.fnode .attempts span').map((s) => s.textContent)).toEqual([1, 2, 3, 4, 5].map((k) => `0TEST${k}0000 · checks 1 of 1`));
     expect(titles.some((t) => t.startsWith('0OTHER'))).toBe(true);
   });
@@ -349,9 +349,9 @@ describe('the Forks view', () => {
     const client = { lineage: () => Promise.resolve(lineage), fixBundles: () => Promise.resolve([]) };
     page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ForksView, { runId: '0GATE2'.padEnd(26, '0') })));
     await page.until('the family to load', () => page!.all('.fnode').length > 0);
-    const bundle = page.all('.fnode').find((n) => n.textContent.includes('test · refund-over-limit'))!;
+    const bundle = page.all('.fnode').find((n) => n.textContent.replace(/\u00a0/g, ' ').includes('test · refund-over-limit'))!;
     // The verdict word, the tally and the Wilson bound, with what the attempts spent; never a bare count of passes.
-    expect(page.one('.fnode.here .f2').textContent).toBe('inconclusive · 3 of 5 · rate 0.23 to 0.88 (95%) · ≈$0.088gate: tells 90%+ from 70%- at <= 5% risk, up to 5 attempts');
+    expect(page.one('.fnode.here .f2').textContent.replace(/\u00a0/g, ' ')).toBe('inconclusive · 3 of 5 · rate 0.23 to 0.88 (95%) · ≈$0.088gate: tells 90%+ from 70%- at <= 5% risk, up to 5 attempts');
     expect(page.all('.fnode .frule').map((r) => r.textContent)).toEqual(['gate: tells 90%+ from 70%- at <= 5% risk, up to 5 attempts']);
     expect(bundle.textContent).not.toContain('3 passed');
   });
