@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { commandIsImported, goldenNeedsConsent, importedCommandSource, messageOf, quoteArgv, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store, type StoreOf } from '@shadowlap/engine';
+import { commandIsImported, decisionsName, goldenNeedsConsent, importedCommandSource, messageOf, quoteArgv, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
@@ -10,6 +10,9 @@ import { importGolden } from './golden-test.js';
 import { rawExpectFor } from './goldens.js';
 import { passesOf, type MigrateRunPass } from './migrate.js';
 import { openStore, type GlobalOpts } from './shared.js';
+
+/** A preview's name, which the feed words its verify's events by; a migration's keeps a fix's words until its page links it. */
+const previewName = (kind: string, change: DecisionsChange | undefined): { sessionName?: string } => (kind === 'decisions' ? { sessionName: decisionsName({ kind: 'decisions', change: change ?? null }) } : {});
 
 /**
  * `shadowlap decisions --verify <session>`: verify the runs a kept session could not clear, without asking
@@ -116,6 +119,7 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
       store,
       targets,
       session: session.sessionId,
+      ...previewName(session.kind, report?.change),
       fields: verifyFields(change, remedies),
       from: change.from,
       settings: input.settings,

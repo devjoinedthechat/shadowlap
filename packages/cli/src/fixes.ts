@@ -369,10 +369,10 @@ export function recordBlameFix(
 
 /**
  * Keeps a verify's verdict, whatever it was, and links it to the fix of its runs, with the flags it
- * ran with (`verifyRerun`); a kept preview's verify names its session in the event, which the feed
- * words by it.
+ * ran with (`verifyRerun`); a kept preview's verify names its session in the event, with the
+ * session's name and the runs it verified, which the feed words it by.
  */
-export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: { expect?: unknown; command: string; rerun?: StepRerun | null; session?: string | null }): RecordedVerdict | null {
+export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: { expect?: unknown; command: string; rerun?: StepRerun | null; session?: string | null; name?: string | null }): RecordedVerdict | null {
   let store: Store | null = null;
   try {
     store = openStore(opts);
@@ -383,7 +383,7 @@ export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: {
       kind: `verify.${report.verdict}`,
       actor: actor(),
       ref: counted[0] ?? recorded.fixes[0]?.fix.fixId ?? recorded.verdict.verifyId,
-      data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3), ...(input.session ? { session: input.session } : {}) },
+      data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3), ...(input.session ? { session: input.session, ...(input.name ? { name: input.name, runs: report.runs.length } : {}) } : {}) },
     });
     return recorded;
   } catch (err) {

@@ -6,7 +6,7 @@ import { type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
 import { runVerify } from './verify.js';
 
-type VerifyRunsInput = { opts: GlobalOpts; store: Store; targets: DecisionTarget[]; session?: string | null; fields: Record<string, unknown>; from: string[] | null; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; prices: Record<string, Price> | undefined; budget: number | null; log: (line: string) => void; blocked?: string | null };
+type VerifyRunsInput = { opts: GlobalOpts; store: Store; targets: DecisionTarget[]; session?: string | null; sessionName?: string | null; fields: Record<string, unknown>; from: string[] | null; settings: Pick<DecisionsSettings, 'thenVerify' | 'argv' | 'timeoutMs' | 'guard'>; prices: Record<string, Price> | undefined; budget: number | null; log: (line: string) => void; blocked?: string | null };
 
 /** A golden's or a run's checks, and the runs judged by them: one verify per set. */
 interface ChecksGroup {
@@ -85,7 +85,7 @@ export async function verifyRuns(input: VerifyRunsInput): Promise<DecisionsVerif
       settings: { attempts: v.attempts, needed: v.needed, gate: v.gate, ...(v.keptMax ? { keptMax: v.keptMax } : {}), concurrency: 1, fields: input.fields, ...(input.from?.length ? { fromModels: input.from } : {}), failFast: false, spec: g.spec, expect: g.json ?? null, writes: v.writes, reads: 'live', liveTools: [], budget: remaining, timeoutMs: s.timeoutMs, guard: s.guard },
       log,
     });
-    const kept = recordVerifyFix(input.opts, report, { expect: g.json ?? null, command: line, session: input.session ?? null });
+    const kept = recordVerifyFix(input.opts, report, { expect: g.json ?? null, command: line, session: input.session ?? null, name: input.sessionName ?? null });
     if (kept) out.verifyIds.push(kept.verdict.verifyId);
     out.commands.push(line);
     out.spent += report.spent;

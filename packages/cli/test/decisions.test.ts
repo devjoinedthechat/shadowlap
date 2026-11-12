@@ -331,7 +331,8 @@ describe('shadowlap decisions', () => {
     expect(json<{ verify: NonNullable<DecisionsReport['verify']> }>(pairs).verify.commands).toEqual([`shadowlap verify --keeps ${runId.slice(0, 10)} --gate '{"bad":0.1,"max":4}' --kept-max 3`]);
     const events = Store.open(db);
     try {
-      expect(events.listEvents({ kinds: ['verify.accepted'] })[0]).toMatchObject({ data: { session: report.decisionsId } });
+      // With the session's name and the runs it verified, which the feed words it by.
+      expect(events.listEvents({ kinds: ['verify.accepted'] })[0]).toMatchObject({ data: { session: report.decisionsId, name: 'Changed prompt and tools', runs: 1 } });
     } finally {
       events.close();
     }

@@ -116,10 +116,11 @@ const EVENT_TEXT = new Map<string, Describe>([
   ],
   ['repair.accepted', (e, d) => ({ kind: 'fixok', text: `Repair accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
   ['repair.empty', (e, d) => ({ kind: 'fixbad', text: `Repair found no fix · ${str(d.why) ?? str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
-  ['verify.accepted', (e, d) => ({ kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
-  ['verify.rejected', (e, d) => ({ kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
+  // A kept preview's verify (`decisions --verify`) is worded by its session's name and opens the preview.
+  ['verify.accepted', (e, d) => previewVerify(d, 'fixok', 'Verified', num(d.runs) !== null ? `${num(d.runs)!} kept` : null) ?? { kind: 'fixok', text: `Verify accepted · ${str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
+  ['verify.rejected', (e, d) => previewVerify(d, 'fixbad', 'Verify rejected the change', rejection(d)) ?? { kind: 'fixbad', text: `Verify rejected · ${rejection(d) ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
   // A verify that settled nothing: why, by its first reason (a run left inconclusive, the provider gone).
-  ['verify.incomplete', (e, d) => ({ kind: 'fixinc', outcome: 'warn', text: `Verify inconclusive · ${strings(d.reasons)[0] ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) })],
+  ['verify.incomplete', (e, d) => previewVerify(d, 'fixinc', 'Verify inconclusive', strings(d.reasons)[0] ?? null) ?? { kind: 'fixinc', outcome: 'warn', text: `Verify inconclusive · ${strings(d.reasons)[0] ?? str(d.title) ?? e.ref ?? ''}`, href: verifyHref(e.ref, d) }],
   // A fix with no patch (verified on the working tree, or with a change of request fields) was only marked applied, as its page says.
   ['fix.applied', (e, d) => ({ kind: 'fixok', text: `${d.patch === 'none' ? 'Marked applied' : 'Patch applied'} · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref) })],
   ['pairs.exported', (_e, d) => ({ kind: 'train', text: `Exported ${plural(num(d.pairs) ?? num(d.count) ?? 0, 'preference pair')}`, href: links.training() })],
@@ -178,6 +179,17 @@ const EVENT_TEXT = new Map<string, Describe>([
 ]);
 
 /** A verify's page: under its fix, at the verdict when the event names it. */
+/**
+ * A kept preview's verify, as the feed tells it: `Verified · Model switch to claude-haiku-4-5: 2 kept`,
+ * linked to the preview. Null for any other verify, a migration's too, which keeps a fix's words.
+ */
+function previewVerify(d: Record<string, unknown>, kind: 'fixok' | 'fixbad' | 'fixinc', lead: string, why: string | null): EventText | null {
+  const id = str(d.session);
+  const name = str(d.name);
+  if (!id || !name || !/^dc-[\w-]+$/.test(id)) return null;
+  return { kind, ...(kind === 'fixinc' ? { outcome: 'warn' as const } : {}), text: `${lead} · ${name}${why ? `: ${why}` : ''}`, href: links.changeSession('decisions', id) };
+}
+
 function verifyHref(ref: string | null, d: Record<string, unknown>): string {
   const verifyId = str(d.verifyId);
   return ref && FIX_ID.test(ref) && verifyId && /^[\w-]+$/.test(verifyId) ? links.fixes(ref, 'verify', verifyId) : fixHref(ref, 'verify');
