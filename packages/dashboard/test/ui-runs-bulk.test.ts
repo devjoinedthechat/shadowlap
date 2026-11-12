@@ -27,6 +27,7 @@ import { render, type Rendered } from './ui-render.js';
 
 const A = '01M5H2DJ1WDXDJVF85FRE4DWH5';
 const B = '01M5H2DJR44BY5EG2RQD7M4TXP';
+const C = '01M5H2DJZZ4BY5EG2RQD7M4TXQ';
 const RUNS: PickedRun[] = [
   { runId: A, status: 'failed', startedAt: 1, attempts: 28 },
   { runId: B, status: 'completed', startedAt: 2, attempts: 16 },
@@ -285,7 +286,7 @@ describe('the bulk bar’s Delete beside the dashboard’s toast', () => {
 describe('the bulk bar’s words', () => {
   it('says the design’s words, Delete counting every run picked', async () => {
     r = await render(setup().element);
-    expect(r.all('.bulkbar button').map((b) => b.textContent.trim())).toEqual(['Add label…', 'Pack', 'Export dataset…', 'Compare', 'Delete 2 runs', 'Clear selection']);
+    expect(r.all('.bulkbar button').map((b) => b.textContent.trim())).toEqual(['Add label…', 'Pack', 'Export dataset…', 'Preview change', 'Compare', 'Delete 2 runs', 'Clear selection']);
     await r.unmount();
     r = await render(setup([], RUNS.slice(0, 1)).element);
     expect(r.byText('.bulkbar button', 'Delete 1 run').getAttribute('aria-disabled')).toBeNull();
@@ -306,10 +307,39 @@ describe('the bulk bar’s words', () => {
       await r.click(b);
       expect(lastToast(s)[0]).toBe('Still recording: try when it ends');
     }
+    // Preview change waits too: a preview asks the calls a recording holds.
+    const preview = r.byText('.bulkbar button', 'Preview change');
+    expect(preview.getAttribute('data-why')).toBe('Still recording: try when it ends');
+    expect(JSON.parse(preview.getAttribute('data-tip')!)).toMatchObject({ t: 'Preview change on runs picked', s: 'Waits until the recording ends: a preview asks the calls it recorded' });
     expect(r.all('.dialog')).toHaveLength(0);
     await r.unmount();
     r = await render(setup([], [live[0], { ...live[0], runId: B }]).element);
     expect(r.byText('.bulkbar button', 'Pack').getAttribute('data-why')).toBe('Still recording: try when they end');
+    expect(r.byText('.bulkbar button', 'Preview change').getAttribute('data-why')).toBe('Still recording: try when they end');
+  });
+
+  it('offers Preview change on the runs picked that ended, its menu on them, waiting past the 500 a preview takes, and none where the dashboard previews nothing', async () => {
+    // The menu places itself in the window.
+    vi.stubGlobal('innerWidth', 1440);
+    vi.stubGlobal('innerHeight', 900);
+    r = await render(setup([], [...RUNS, { runId: C, status: 'running', startedAt: 3 }]).element);
+    const preview = r.byText('.bulkbar button', 'Preview change');
+    expect(preview.getAttribute('aria-disabled')).toBeNull();
+    expect(preview.getAttribute('aria-haspopup')).toBe('menu');
+    expect(JSON.parse(preview.getAttribute('data-tip')!)).toMatchObject({ t: 'Preview change on runs picked' });
+    await r.click(preview);
+    // The ended two, not the one still recording.
+    expect(text(r, '.fkm .pk')).toBe('On 2 runs');
+    expect(r.all('.fkm [role="menuitem"] b').map((b) => b.textContent)).toEqual(['Preview model switch…', 'Preview changed prompt', 'Preview field change…']);
+    await r.unmount();
+    const many: PickedRun[] = Array.from({ length: 501 }, (_, i) => ({ runId: `01M5H2DJMANY${String(i).padStart(14, '0')}`, status: 'completed', startedAt: i }));
+    r = await render(setup([], many).element);
+    expect(r.byText('.bulkbar button', 'Preview change').getAttribute('data-why')).toBe('At most 500 runs are previewed at once: 501 are picked');
+    await r.unmount();
+    const off = setup();
+    r = await render(createElement(AppContext.Provider, { value: { ...(off.element.props as { value: AppState }).value, hasKind: (k: string) => k !== 'decisions' } }, createElement(BulkBar, { runs: RUNS, store: false, clear: off.clear, onDone: off.onDone })));
+    expect(r.all('.bulkbar button').map((b) => b.textContent.trim())).not.toContain('Preview change');
+    vi.unstubAllGlobals();
   });
 });
 
