@@ -1,5 +1,6 @@
 import { ACTIONS } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
+import { MODEL_NAME } from '../decisions-argv.js';
 import { decisionSessions, decisionsJob, decisionsReadJob, limitsRefused, READING_TREE, migrateApplyJob, migrateJob, previewRequest, retirementsView, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
 import { modelChoices } from '../model-listing.js';
@@ -21,6 +22,7 @@ import { namesTeamStore } from './verdicts.js';
  *   GET /api/model-choices                       the models a preview's field offers beside the runs' own: each provider's own listing, and why one couldn't be listed (model-listing.ts)
  *   GET /api/runs/:id/decisions                  a run's decisions under each session that asked it again, beside the server
  *   GET /api/retirements                         the models the goldens use that retire, by the table that ships
+ *   GET /api/migrate/estimate?to=&from=&golden=   what Migrate to <model> bills (migrate-estimate.ts), on the goldens named or every golden, and the newest preview of the same switch
  *   GET /api/migrate/start                       what Migrate opens on (migrate-start.ts): the goldens' retiring models with their goldens, scopes and the migration that checked each, and the models in use
  *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }
  *   POST /api/jobs { kind: "migrate", to, goldens?, runs?, from?, scope?, set?, yes? }   every golden when none are named
@@ -148,6 +150,18 @@ export function register(router: Router, ctx: RouteContext): void {
     const listed = goldens();
     const { byId } = loadRunIndex(ctx.store);
     sendAnswer(r, await ctx.reads.run({ kind: 'migrate-start', goldens: listed }, { calls: listed.reduce((n, g) => n + ((g.runId && byId.get(g.runId)?.calls) || 0), 0) }));
+  });
+
+  // What Migrate to <model> bills on the goldens named (every golden when none is), and the newest preview of the same switch: beside the server.
+  router.get('/migrate/estimate', async (r) => {
+    const to = r.query.get('to') ?? '';
+    if (!MODEL_NAME.test(to)) throw new HttpError(400, 'to is the model to switch to, such as claude-sonnet-5-5');
+    const from = r.query.getAll('from').filter((m) => MODEL_NAME.test(m)).slice(0, 20);
+    const named = new Set(r.query.getAll('golden'));
+    const listed = goldens().filter((g) => !named.size || named.has(g.path));
+    const { byId } = loadRunIndex(ctx.store);
+    const job = { kind: 'migrate-estimate' as const, to, from, goldens: listed, work: outcomeWork(ctx), rule: verifyRule(ctx), ...(ctx.read.prices ? { prices: ctx.read.prices } : {}) };
+    sendAnswer(r, await ctx.reads.run(job, { calls: listed.reduce((n, g) => n + ((g.runId && byId.get(g.runId)?.calls) || 0), 0) }));
   });
 
   // A golden's pack is read from the project's folder, which is where a job runs the CLI.

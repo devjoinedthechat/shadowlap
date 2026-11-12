@@ -117,6 +117,17 @@ describe('Migrate’s start read', () => {
   });
 });
 
+describe('Migrate’s price', () => {
+  it('prices Migrate to on the goldens, names no preview of the switch where none was made, and refuses a model it can’t take', async () => {
+    const res = await api(dash, 'migrate/estimate?to=claude-sonnet-5-5&from=claude-sonnet-4-5');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { estimate: { label?: string } | null; preview: unknown };
+    expect(body.estimate).not.toBeNull();
+    expect(body.preview).toBeNull();
+    expect((await api(dash, 'migrate/estimate?to=')).status).toBe(400);
+  });
+});
+
 describe('a migration’s applied state', () => {
   it('reads null until applied, then each golden left behind waiting until a result of it at or after the apply passed', () => {
     expect(decisionSession(store, CLEAR)!.applied).toBeNull();

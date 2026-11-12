@@ -1,0 +1,48 @@
+import { migrateEstimate, recordedChecks, recordedRole, type Price, type Store } from '@shadowlap/engine';
+import type { ConfigVerifyRule } from './estimates.js';
+import { estimateOf, pricingOf } from './pricing.js';
+import { answer, type ReadAnswer, type ReadTable } from './read-registry.js';
+import { parseWork, type OutcomeWork } from './run-outcome.js';
+import type { GoldenSource } from './tests.js';
+
+/**
+ * What Migrate to <model> bills, as `GET /api/migrate/estimate` answers it: migrate's ceiling over the
+ * goldens it asks (migrateEstimate: the switched calls asked again, then each golden verified, a
+ * golden whose recording fails its checks up to the gate's most attempts, one that passes in pairs),
+ * and the newest preview of the same switch, which the dialog names. A pooled read: it judges each
+ * golden's recording by its checks and reads its calls.
+ */
+
+export type MigrateEstimateJob = { kind: 'migrate-estimate'; to: string; from: string[]; goldens: GoldenSource[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
+
+/** The newest preview of the same switch: a decisions session whose model is `to` and whose from-models hold `from`, and whether verify ran on it. */
+export function newestPreviewOf(store: Store, to: string, from: readonly string[]): { sessionId: string; verified: boolean } | null {
+  for (const row of store.listDecisionSessions({ kind: 'decisions', limit: 200 })) {
+    const kept = store.getDecisionSession(row.sessionId)?.data as { change?: { model?: unknown; from?: unknown }; verify?: { verdict?: unknown } | null } | undefined;
+    const models = Array.isArray(kept?.change?.from) ? kept.change.from : [];
+    if (kept?.change?.model !== to || !from.every((m) => models.includes(m))) continue;
+    return { sessionId: row.sessionId, verified: !!kept.verify && kept.verify.verdict !== 'not-run' };
+  }
+  return null;
+}
+
+async function migrateEstimates(store: Store, job: MigrateEstimateJob): Promise<ReadAnswer> {
+  const entries = parseWork(job.work)?.entries ?? [];
+  const live = job.goldens.flatMap((g) => {
+    const run = g.runId ? store.getRun(g.runId) : null;
+    return run ? [{ golden: g, run }] : [];
+  });
+  const estimate = await estimateOf(
+    (p) =>
+      migrateEstimate(
+        live.map(({ golden, run }) => ({ calls: p.calls(run.runId), failed: recordedRole(store, run, recordedChecks(entries, store, run, job.work?.dir ?? process.cwd(), golden.path)?.spec ?? null, job.prices) === 'target' })),
+        { to: job.to, from: job.from, rule: job.rule, ...(job.prices ? { prices: job.prices } : {}) },
+      ),
+    pricingOf(store, job.prices),
+  );
+  return answer({ estimate, preview: newestPreviewOf(store, job.to, job.from) }, { tagged: true });
+}
+
+export const MIGRATE_ESTIMATE_READS: ReadTable<MigrateEstimateJob> = {
+  'migrate-estimate': (store, job) => migrateEstimates(store, job),
+};
