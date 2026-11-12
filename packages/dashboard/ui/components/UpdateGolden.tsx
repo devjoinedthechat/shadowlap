@@ -4,6 +4,7 @@ import { eitherWay, type UpdatePlan } from '../update-plan.js';
 import { CommandRow } from './CommandRow.js';
 import { CostLine } from './CostLine.js';
 import { Dialog, type WayOn } from './Dialog.js';
+import { Code, Copy } from './Copy.js';
 import { DialogSteps } from './DialogFacts.js';
 
 /** A command's name over it, with its way to unfold on a phone, where two commands wouldn't leave a sheet room for the rest. */
@@ -91,9 +92,7 @@ export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClos
       ) : null}
       {plan.advise ? steps : null}
       {plan.note ? (
-        <p className="dlgnote fieldhint">
-          {plan.note.map((part, i) => (typeof part === 'string' ? <span key={i}>{part}</span> : <code key={i}>{part.code}</code>))}
-        </p>
+        <Copy className="dlgnote fieldhint">{plan.note.map((part, i) => (typeof part === 'string' ? part : <Code key={i}>{part.code}</Code>))}</Copy>
       ) : null}
       {instead ? <CommandName name={plan.ok} controls={`${id}update`} open={shown.update} onToggle={() => setShown({ ...shown, update: !shown.update })} /> : null}
     </Dialog>

@@ -49,7 +49,7 @@ describe('the card for a refused session token', () => {
   it('says the token isn’t this dashboard’s, from a restart or another dashboard', async () => {
     r = await card(async () => '');
     expect(r.one('#connT').textContent).toBe('This link’s session token isn’t this dashboard’s');
-    expect(r.one('#connD').textContent).toBe('It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:');
+    expect(r.one('#connD').textContent.replace(/\u00a0/g, ' ')).toBe('It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:');
     expect(r.one('.connblock').getAttribute('aria-describedby')).toBe('connD');
     // One command box, with its own Copy, and the card's one lime way out.
     expect(r.one('.cb .cmdline').textContent).toContain('shadowlap dashboard');

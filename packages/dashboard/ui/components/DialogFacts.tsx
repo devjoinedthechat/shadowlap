@@ -1,4 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { asWords, Code, Copy, Words } from './Copy.js';
 import { tipCard } from './HoverCard.js';
 
 /** What decides whether to press, as a row: a label of a word or two, its value and the value's quiet part under it. */
@@ -22,16 +23,36 @@ export const shownFacts = (rows: DialogFactRows | undefined): DialogFact[] => (r
 /** A toned row's id, to name it in the dialog's description. */
 export const factId = (id: string, at: number) => `${id}f${at}`;
 
-/** Words that name something in code say it between backticks, as a dialog's words kept apart from its markup do. */
+/**
+ * Words that name something in code say it between backticks, as a dialog's words kept apart from its
+ * markup do: each drawn by `Code`, whole up to 32 characters, a longer path breaking only after a slash.
+ */
 export function inCode(words: ReactNode): ReactNode {
   if (typeof words !== 'string' || !words.includes('`')) return words;
-  return words.split('`').map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+  return words.split('`').map((part, i) => (i % 2 ? <Code key={i}>{part}</Code> : part));
+}
+
+/** Short words no `Copy` sets (a cost line's part, a quiet clause) glued by `Words`, a name between backticks drawn by `Code`. */
+export function codeWords(words: ReactNode): ReactNode {
+  if (typeof words !== 'string') return words;
+  return words.split('`').map((part, i) => (i % 2 ? <Code key={i}>{part}</Code> : part ? <Words key={i}>{part}</Words> : null));
 }
 
 /** A quiet part's clauses after a middle dot each stay whole on a narrow line: the mock's `.dph`. */
 function quietWords(words: ReactNode): ReactNode {
-  if (typeof words !== 'string' || !words.includes(' · ')) return inCode(words);
-  return words.split(' · ').map((part, i) => (i ? <Fragment key={i}>{'\u00a0· '}<span className="dph">{inCode(part)}</span></Fragment> : <Fragment key={i}>{inCode(part)}</Fragment>));
+  if (typeof words !== 'string' || !words.includes(' · ')) return codeWords(words);
+  return words.split(' · ').map((part, i) => (i ? <Fragment key={i}>{'\u00a0· '}<span className="dph">{codeWords(part)}</span></Fragment> : <Fragment key={i}>{codeWords(part)}</Fragment>));
+}
+
+/** A row's value: words set as a lead is (`Copy` with phrases), a name in code inside; one long token (`wide`) and a node as they are. */
+function valueOf(f: DialogFact): ReactNode {
+  return typeof f.value === 'string' && !f.wide ? (
+    <Copy as="span" phrases>
+      {inCode(f.value)}
+    </Copy>
+  ) : (
+    inCode(f.value)
+  );
 }
 
 /**
@@ -47,7 +68,7 @@ export function DialogFacts({ rows, id }: { rows: DialogFactRows; id?: string | 
         <div key={i} id={f.tone && id ? factId(id, i) : undefined} className={[f.tone, f.wide ? 'wide' : ''].filter(Boolean).join(' ') || undefined}>
           <dt>{f.label}</dt>
           <dd>
-            {inCode(f.value)}
+            {valueOf(f)}
             {f.quiet ? <small>{quietWords(f.quiet)}</small> : null}
           </dd>
         </div>
@@ -102,8 +123,8 @@ export function DialogSteps({ steps, head = 'What happens', className = '' }: { 
         {steps.map((s, i) => (
           <li key={i}>
             <i aria-hidden="true">{i + 1}</i>
-            <span>{s.what}</span>
-            {s.where ? <small>{s.where}</small> : null}
+            <span>{asWords(s.what)}</span>
+            {s.where ? <small>{asWords(s.where)}</small> : null}
           </li>
         ))}
       </ul>

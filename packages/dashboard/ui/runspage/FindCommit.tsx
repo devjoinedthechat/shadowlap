@@ -11,6 +11,7 @@ import type { BisectChoices } from '../types.js';
 import { bisectQuery, useBisectEstimate } from './bisect-estimate.js';
 import { bisectBadFact, bisectCommand, bisectCost, bisectRequest, bisectUpTo, FLAKY_NOTE, revisionTally } from './find-commit.js';
 import { ACTIONS, confirmWords } from '../labels.js';
+import { Copy } from '../components/Copy.js';
 
 /**
  * Find breaking commit, from the calendar: the first failure on the days picked is where it started
@@ -56,7 +57,7 @@ export function FindCommitDialog({ runId, choices, earlier = null, onClose }: { 
         onPick={setPicked}
         onType={setTyped}
       />
-      {choices.fork && !estimate?.card ? <p className="dlgnote fieldhint">{FLAKY_NOTE}</p> : null}
+      {choices.fork && !estimate?.card ? <Copy className="dlgnote fieldhint">{FLAKY_NOTE}</Copy> : null}
     </Dialog>
   );
 }

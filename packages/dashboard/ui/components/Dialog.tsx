@@ -89,6 +89,8 @@ export interface DialogWarning {
   text: ReactNode;
   /** Red acts for real, and is answered as a delete is: the confirm red, the focus on Cancel. */
   tone?: 'amber' | 'red' | undefined;
+  /** An error's message as the server wrote it (a failed save's): drawn as written, since a no-break space would spoil a path or a command in it. */
+  written?: boolean;
 }
 
 export interface DialogProps {
@@ -206,16 +208,26 @@ function describedBy(id: string, { warn, facts, factsUnder, lead }: Pick<DialogP
   return ids.length ? ids.join(' ') : undefined;
 }
 
+/** The amber or red line: words set as a lead is (`Copy` with phrases); an error's message as written, and a node, as they are. */
+function WarnLine({ id, warn }: { id: string; warn: DialogWarning }) {
+  const className = `dwarn${warn.tone === 'red' ? ' red' : ''}`;
+  return typeof warn.text === 'string' && !warn.written ? (
+    <Copy id={`${id}warn`} className={className} phrases>
+      {inCode(warn.text)}
+    </Copy>
+  ) : (
+    <p id={`${id}warn`} className={className}>
+      {inCode(warn.text)}
+    </p>
+  );
+}
+
 /** The body's slots, in order, after the header. */
 function DialogBody({ id, warn, facts, children, factsUnder, runs, command, cost, body }: Pick<DialogProps, 'warn' | 'facts' | 'children' | 'factsUnder' | 'runs' | 'command' | 'cost'> & { id: string; body: RefObject<HTMLDivElement | null> }) {
   const row = typeof command === 'string' || Array.isArray(command) ? { command: command as string | readonly string[] } : (command as CommandRowProps | null | undefined);
   return (
     <div className="db" ref={body}>
-      {warn ? (
-        <p id={`${id}warn`} className={`dwarn${warn.tone === 'red' ? ' red' : ''}`}>
-          {inCode(warn.text)}
-        </p>
-      ) : null}
+      {warn ? <WarnLine id={id} warn={warn} /> : null}
       <DialogFacts rows={facts ?? []} id={`${id}a`} />
       {children}
       <DialogFacts rows={factsUnder ?? []} id={`${id}b`} />
@@ -552,7 +564,7 @@ export function PromptDialog({
             </label>
           </div>
           {field}
-          <p className="muted fieldhint">{startFrom.note}</p>
+          <Copy className="muted fieldhint">{startFrom.note}</Copy>
         </>
       ) : label || select ? (
         <div className="form one">

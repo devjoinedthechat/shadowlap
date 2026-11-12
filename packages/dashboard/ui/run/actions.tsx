@@ -18,6 +18,7 @@ import { sentEstimate } from '../spending.js';
 import { isFork, rowPriced, useRunEstimates, type RowPrice } from './estimates.js';
 import { onShow } from '../components/OnShow.js';
 import type { CheckEntry } from './check-entry.js';
+import { Copy } from '../components/Copy.js';
 
 /** The dialog an action asks in, a part of its own: it loads the first time an action asks something first (OnShow.tsx). */
 const ActionDialog = onShow(() => import('./ActionDialog.js').then((m) => m.ActionDialog));
@@ -166,7 +167,9 @@ export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommi
       <div className="pk">{call.forkTitle ?? forkMenuTitle({ ...c, ...(c.input ? { input: true } : {}) }, shortName)}</div>
       {capture && replay ? (
         <>
-          <div className="pnote">A capture has no command. Replay it with yours first; every fork works on that replay.</div>
+          <Copy as="div" className="pnote">
+            A capture has no command. Replay it with yours first; every fork works on that replay.
+          </Copy>
           <ActionButton role="menuitem" tip={confirmWords(menuLabel(replay))} sub="Gives the capture your command; every fork works on that replay" command={`$ shadowlap replay ${shortId(runId)} -- <your command>`} onClick={() => pick(replay, null)}>
             <b>{menuLabel(replay)}</b>
             <small>replay</small>
@@ -191,7 +194,11 @@ export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommi
               <small>{m.flag}</small>
             </ActionButton>
           ))}
-          {menu.call.length === 0 ? <div className="pnote">Nothing forks at this call.</div> : null}
+          {menu.call.length === 0 ? (
+            <Copy as="div" className="pnote">
+              Nothing forks at this call.
+            </Copy>
+          ) : null}
           <hr />
           <div className="pk">The whole run</div>
           {menu.run.map((m) => (

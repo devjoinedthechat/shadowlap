@@ -155,7 +155,7 @@ describe('Edit and fork in the inspector', () => {
     await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.replace(/\u00a0/g, ' ').includes('Run command from imported pack')));
     // Nothing ran yet; the dialog shows the command the server named.
     expect(sent.jobs).toEqual([]);
-    expect(page.one('[role="dialog"] .dwarn').textContent).toBe(why);
+    expect(page.one('[role="dialog"] .dwarn').textContent.replace(/\u00a0/g, ' ')).toBe(why);
     // Confirmed, the same upload goes with the yes: the question's confirm.
     await page.click(page.byText('.dlg-ok', 'Run command'));
     await page.until('the fork to start', () => sent.jobs.length === 1);
@@ -191,7 +191,7 @@ describe('Edit and fork in the inspector', () => {
   it('says so first when the run came from someone else’s pack', async () => {
     const page = await open(detail({ label: 'This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs. Result for #16 lookup_policy, as JSON:' }), { uploads: [], jobs: [] });
     await edit(page);
-    expect(page.one('.dwarn').textContent).toBe('This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs');
+    expect(page.one('.dwarn').textContent.replace(/\u00a0/g, ' ')).toBe('This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs');
   });
 });
 

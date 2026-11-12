@@ -61,7 +61,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
     if (del) nameInput.current?.focus();
   }, [del]);
 
-  if (failed) return <Dialog title="Remove project" lead="Takes the project off the dashboard; nothing on disk changes." doc="removingProject" warn={{ text: failed.replace(/\.$/, '') }} onClose={onClose} />;
+  if (failed) return <Dialog title="Remove project" lead="Takes the project off the dashboard; nothing on disk changes." doc="removingProject" warn={{ text: failed.replace(/\.$/, ''), written: true }} onClose={onClose} />;
   if (!view) return null;
 
   const zone = view.deleteZone;

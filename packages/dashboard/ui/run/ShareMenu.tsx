@@ -14,6 +14,7 @@ import { redactRuleCount } from './provenance.js';
 import { defaultPackFolder, htmlCopyVia, REDACTION_SETTINGS, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING_CARD, type ShareKey } from './share.js';
 import { PACK_HOLDS, packRunCommand, redactsFact } from './share-steps.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { Copy } from '../components/Copy.js';
 
 /** Export dataset…'s and Export OpenTelemetry trace…'s dialogs: rarely opened from a run's page, so each a part of its own, which loads as it first shows. */
 const DatasetDialog = onShow(() => import('../components/DatasetDialog.js').then((m) => m.DatasetDialog));
@@ -111,13 +112,13 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
         );
       })}
       <hr />
-      <div className="pnote">
+      {/* A menu holds menu items only: the way to the rules is one, as a screen reader moves through them. */}
+      <Copy as="div" className="pnote">
         {note.text}{' '}
-        {/* A menu holds menu items only: the way to the rules is one, as a screen reader moves through them. */}
         <a className="more nw" role="menuitem" href={href.settings('redaction')}>
           {REDACTION_SETTINGS}
         </a>
-      </div>
+      </Copy>
     </Popover>
   );
 }

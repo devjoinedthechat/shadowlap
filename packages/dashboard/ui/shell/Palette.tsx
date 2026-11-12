@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, t
 import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { changesHref } from '../changes-tab.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
-import { fontOf, widthIn } from '../components/Copy.js';
+import { Copy, fontOf, widthIn } from '../components/Copy.js';
 import { Modal } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { isMac } from '../dom.js';
@@ -443,7 +443,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           )}
           {note ? (
             <div className="palnote" role="status">
-              {note}
+              <Copy as="span">{note}</Copy>
             </div>
           ) : null}
         </div>
@@ -501,7 +501,7 @@ function OfflineLine() {
   return (
     <p className="paloff" id="palOff">
       <span className="cdot" aria-hidden="true" />
-      Offline: actions paused until the dashboard server is back.
+      <Copy as="span">Offline: actions paused until the dashboard server is back.</Copy>
     </p>
   );
 }

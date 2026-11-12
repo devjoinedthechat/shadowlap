@@ -254,7 +254,7 @@ function Body(props: BuilderProps & BodyProps) {
   const head = headOf(props, s.golden);
   const runId = fromCall ? props.run.run.runId : null;
   return (
-    <Dialog title={head.title} lead={head.lead} doc="checks" className="ckb" scrim="ignore" dirty={snapOf(s.picked ? s.golden : null, s) !== opened} warn={warn ? { text: warn } : null} {...ways} onOk={save} onClose={props.onClose}>
+    <Dialog title={head.title} lead={head.lead} doc="checks" className="ckb" scrim="ignore" dirty={snapOf(s.picked ? s.golden : null, s) !== opened} warn={warn ? { text: warn, written: true } : null} {...ways} onOk={save} onClose={props.onClose}>
       <RulePicker
         settled={d.settled}
         units={s.units}

@@ -1,8 +1,10 @@
-import { Fragment, useEffect, type ReactNode, type RefObject } from 'react';
+import { useEffect, type ReactNode, type RefObject } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { FORK_LIVE } from '../../../engine/src/cost-words.js';
 import { costLine } from '../../../engine/src/estimates/spending.js';
-import { inCode } from './DialogFacts.js';
+import { Words } from './Copy.js';
+import { codeWords } from './DialogFacts.js';
+import { DotBlocks } from './DotParts.js';
 import { tipCard } from './HoverCard.js';
 
 export interface CostLineProps {
@@ -31,44 +33,37 @@ function estimateParts(e: CostEstimate): ReactNode[] {
 
 /** A part as the line says it: `live where a replay forks` on a card of its own, saying what a run whose replay doesn't fork costs. */
 function partOf(part: ReactNode): ReactNode {
-  if (typeof part !== 'string' || !part.startsWith(FORK_LIVE.part)) return inCode(part);
+  if (typeof part !== 'string' || !part.startsWith(FORK_LIVE.part)) return codeWords(part);
   return (
     <>
       <span className="dtip" tabIndex={0} data-tip={tipCard(FORK_LIVE.card.title, [], FORK_LIVE.card.line)}>
-        {FORK_LIVE.part}
+        <Words>{FORK_LIVE.part}</Words>
       </span>
-      {inCode(part.slice(FORK_LIVE.part.length))}
+      {codeWords(part.slice(FORK_LIVE.part.length))}
     </>
   );
 }
 
 /** The price as the line says it: on a card of its own, a Tab stop, where the estimate has one. */
 function priceOf(e: CostEstimate, price: string): ReactNode {
-  if (!e.card || e.usd === null) return price;
+  if (!e.card || e.usd === null) return <Words>{price}</Words>;
   return (
     <span className="dtip" tabIndex={0} data-tip={tipCard(e.card.title, [], e.card.lines.join('\n'))}>
-      {price}
+      <Words>{price}</Words>
     </span>
   );
 }
 
 /**
  * What a dialog bills, in one quiet line: the price, then each part kept whole, so a line too narrow
- * for all of it breaks after a dot. It holds the foot of the body while the body scrolls.
+ * for all of it breaks after a dot, each part's words glued. It holds the foot of the body while the
+ * body scrolls.
  */
 export function CostLine({ price, parts = [], flow = false, estimate }: CostLineProps) {
-  const all = estimate ? estimateParts(estimate) : [<b key="price">{price}</b>, ...parts.map(partOf)];
+  const all = estimate ? estimateParts(estimate) : [<b key="price">{codeWords(price)}</b>, ...parts.map(partOf)];
   return (
     <p className={`dlgnote dcost${flow ? ' flow' : ''}`}>
-      {all.map((part, i) => (
-        <Fragment key={i}>
-          <span className="dcp">
-            {part}
-            {i < all.length - 1 ? '\u00a0·' : null}
-          </span>
-          {i < all.length - 1 ? ' ' : null}
-        </Fragment>
-      ))}
+      <DotBlocks parts={all} className="dcp" />
     </p>
   );
 }

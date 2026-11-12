@@ -78,7 +78,7 @@ describe('an action on someone else’s run', () => {
     expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('Run command from imported pack');
     expect(dialog.textContent).toContain('Runs a command someone else recorded, on this machine.');
     // The server's words as they are, the amber line, shared with the terminal UI.
-    expect(page.one('[role="dialog"] .dwarn').textContent).toBe(why(''));
+    expect(page.one('[role="dialog"] .dwarn').textContent.replace(/\u00a0/g, ' ')).toBe(why(''));
     expect(watched).toEqual([]);
     await page.click(page.byText('.dlg-ok', 'Run command'));
     await page.until('the job', () => watched.length === 1);
@@ -194,7 +194,7 @@ describe('a fork repeated five times', () => {
     await page.until('the question', () => page.all('[role="dialog"]').length === 1);
     const dialog = page.one('[role="dialog"]');
     expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('Repeat fork 5 times');
-    expect(dialog.textContent).toContain('5 attempts, live from the fork, writes fenced');
+    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('5 attempts, live from the fork, writes fenced');
     // Nothing to fill in: no field, and nothing is sent before its confirm.
     expect(page.all('[role="dialog"] input, [role="dialog"] textarea')).toEqual([]);
     expect(asked).toEqual([]);

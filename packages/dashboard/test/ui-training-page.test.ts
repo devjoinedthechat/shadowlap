@@ -90,7 +90,7 @@ function page(tab: 'pairs' | 'tasks', started: Array<{ kind: string; fields: Rec
   return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TrainingPage, { tab }));
 }
 
-const text = (r: Rendered, selector: string) => r.all(selector).map((el) => el.textContent.trim());
+const text = (r: Rendered, selector: string) => r.all(selector).map((el) => el.textContent.replace(/\u00a0/g, ' ').trim());
 
 let r: Rendered | null = null;
 afterEach(async () => {
@@ -138,7 +138,7 @@ describe('the Training page', () => {
     // Its card, as Score model…'s: the action's name without the ellipsis, and what it runs.
     expect(JSON.parse(r.byText('button', 'Export pairs…').getAttribute('data-tip')!)).toEqual({ t: 'Export pairs', s: 'Asks the format and the confidence first', rows: [], cmd: '$ shadowlap export pairs' });
     await r.click(r.byText('button', 'Export pairs…'));
-    expect(r.one('.dialog .dfacts').textContent).toBe('Redactsby 3 rulesthe store never changesWrites.shadowlap/exports/pairs.jsonlthe job’s drawer offers it for download');
+    expect(r.one('.dialog .dfacts').textContent.replace(/\u00a0/g, ' ')).toBe('Redactsby 3 rulesthe store never changesWrites.shadowlap/exports/pairs.jsonlthe job’s drawer offers it for download');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');
     expect(r.all('.dialog select')[0].children.map((o) => o.textContent)).toEqual(['OpenAI preference fine-tuning', 'prompt, chosen, rejected (TRL)']);
     await r.type(r.all('.dialog select')[0], 'trl');

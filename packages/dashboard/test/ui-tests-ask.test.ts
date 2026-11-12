@@ -432,7 +432,7 @@ describe('a live session’s question, answered by Spending', () => {
     for (const estimate of [null, undefined, FREE]) {
       const { page, sent } = await rerun(null, estimate);
       expect(dialog(page)?.querySelectorAll('h3')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Re-run flaky');
-      expect(dialog(page)?.querySelectorAll('.dcost')[0].textContent).toContain('Billed by your provider');
+      expect(dialog(page)?.querySelectorAll('.dcost')[0].textContent.replace(/\u00a0/g, ' ')).toContain('Billed by your provider');
       expect(page.all('.dialog .dlgcost')).toHaveLength(0);
       expect(yeses(sent)).toEqual([]);
       await page.click(page.one('.dialog .dlg-cancel'));

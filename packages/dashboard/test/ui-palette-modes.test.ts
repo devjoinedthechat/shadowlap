@@ -87,7 +87,7 @@ describe('Search or jump to, as the dashboard stands', () => {
     expect(tests.getAttribute('aria-disabled')).toBe('true');
     // It keeps its hint and says paused at its right; the line under the field says why, once.
     expect(tests.querySelector('.paltag')?.textContent).toBe('paused');
-    expect(r.all('.paloff').map((el) => el.textContent)).toEqual(['Offline: actions paused until the dashboard server is back.']);
+    expect(r.all('.paloff').map((el) => el.textContent.replace(/\u00a0/g, ' '))).toEqual(['Offline: actions paused until the dashboard server is back.']);
     expect(r.one('.palin input').getAttribute('aria-describedby')).toBe('palOff');
     await r.click(tests);
     expect(startJob).not.toHaveBeenCalled();

@@ -204,7 +204,7 @@ describe('the run page’s next step', () => {
     await page.click(page.one('.dialog .dlg-ok'));
     // Its check is asked in a dialog of its own, a part that loads the first time it opens.
     await page.until('its check to be asked', () => page!.all('.dialog textarea').length === 1);
-    expect(page.one('.dialog').textContent).toContain('What a passing run must do, as an outcome check’s expect object');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('What a passing run must do, as an outcome check’s expect object');
     expect(page.one('.dialog .cmdline').textContent).toContain(`shadowlap blame ${REC.slice(0, 10)} --expect '<check>' -- python agent.py`);
   });
 
@@ -345,7 +345,7 @@ describe('the run page’s next step', () => {
     const dialog = page.one('.dialog');
     expect(dialog.querySelector('h3')?.textContent.replace(/\u00a0/g, ' ')).toBe('Update refund-in-limit?');
     expect(dialog.textContent).toContain('Asks the judge once');
-    expect(dialog.textContent).toContain('its judge’s one call');
+    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('its judge’s one call');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(started).toEqual([['test-update', { golden: GOLDEN }]]);
   });
@@ -412,9 +412,9 @@ describe('the run page’s next step', () => {
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
     // Why the last test leads to it, in its one amber line, then what it bills, price first.
-    expect(dialog.querySelector('.dwarn')?.textContent).toBe('It showed too little to say: no model read it');
-    expect(dialog.querySelector('.dcost')?.textContent).toContain('≈$3.11, as the last test’s 6 attempts');
-    expect(dialog.querySelector('.dcost')?.textContent).toContain('live from each read, writes stubbed');
+    expect(dialog.querySelector('.dwarn')?.textContent?.replace(/\u00a0/g, ' ')).toBe('It showed too little to say: no model read it');
+    expect(dialog.querySelector('.dcost')?.textContent?.replace(/\u00a0/g, ' ')).toContain('≈$3.11, as the last test’s 6 attempts');
+    expect(dialog.querySelector('.dcost')?.textContent?.replace(/\u00a0/g, ' ')).toContain('live from each read, writes stubbed');
     expect(dialog.textContent).toContain(`shadowlap injection ${REC.slice(0, 10)} --templates system-notice --repeat 2`);
     await page.click(page.one('.dialog .dlg-ok'));
     // The job keeps the estimate the card and the Cost line said, for its drawer.
@@ -505,11 +505,11 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
     await page.click(page.one('.dialog .dlg-ok'));
     // Refused: the dialog stays, with what was typed and why.
-    expect(page.one('.dialog').textContent).toContain('already holds a golden. Give this one another name');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('already holds a golden. Give this one another name');
     await page.type(page.one('.dialog input'), 'goldens/other');
     await page.click(page.one('.dialog .dlg-ok'));
     // A recording from elsewhere: the question, then the job again with its yes.
-    expect(page.one('.dialog').textContent).toContain('came from the team store');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('came from the team store');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: 'goldens/other' }, { runId: REC, golden: 'goldens/other', yes: 'c'.repeat(32) }]);
   });
@@ -532,10 +532,10 @@ describe('the run page’s next step', () => {
     page = await render(both(detail({ state: passedState, next }), null, a));
     await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
     await page.click(page.one('.dialog .dlg-ok'));
-    expect(page.one('.dialog').textContent).toContain('came from the team store');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('came from the team store');
     await page.click(page.one('.dialog .dlg-ok'));
     // The folder was taken in the meantime: the Pack dialog again, saying so, the folder still the one tried.
-    expect(page.one('.dialog').textContent).toContain('already holds a golden. Give this one another name');
+    expect(page.one('.dialog').textContent.replace(/\u00a0/g, ' ')).toContain('already holds a golden. Give this one another name');
     expect(page.one('.dialog input').value).toBe(folder);
     expect(sent).toEqual([{ runId: REC, golden: folder }, { runId: REC, golden: folder, yes: 'c'.repeat(32) }]);
   });
@@ -548,9 +548,9 @@ describe('the run page’s next step', () => {
     await page.click(page.byText('.rhead .actions button', 'Pack with injection gate…'));
     const dialog = page.one('.dialog');
     expect(dialog.textContent).toContain(`"${folder}": { "injection": { "obeyed": 0, "repeat": 3 } }`);
-    expect(dialog.textContent).toContain('≈$1.95 every test session, in CI too');
+    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('≈$1.95 every test session, in CI too');
     // It says the entry is yours to add, for the folder as you name it.
-    expect(dialog.textContent).toContain('you add the entry below to shadowlap.config.json');
+    expect(dialog.textContent.replace(/\u00a0/g, ' ')).toContain('you add the entry below to shadowlap.config.json');
     await page.type(page.one('.dialog input'), 'goldens/refund');
     expect(page.one('.dialog').textContent).toContain('"goldens/refund": { "injection": { "obeyed": 0, "repeat": 3 } }');
     expect(page.one('.dialog').textContent).not.toContain(`"${folder}"`);

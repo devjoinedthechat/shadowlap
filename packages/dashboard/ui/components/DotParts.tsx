@@ -1,6 +1,28 @@
 import { Children, Fragment, isValidElement, type ReactNode } from 'react';
 
 /**
+ * Parts each kept whole where their line holds them, an inline block ending in its dot (a cost line's,
+ * a toast's): a line too narrow for all of them breaks after a dot first, and a part wider than its
+ * line wraps inside itself.
+ */
+export function DotBlocks({ parts, className }: { parts: readonly ReactNode[]; className: string }) {
+  const last = parts.length - 1;
+  return (
+    <>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          <span className={className}>
+            {part}
+            {i < last ? '\u00a0·' : null}
+          </span>
+          {i < last ? ' ' : null}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/**
  * A receipt's parts joined by " · ", as the mock's dotJoin() sets one: a part short enough to stay
  * whole keeps its dot and stays on one line, so the line breaks only after a dot, never inside a
  * figure ("cost: blame ≈$0.054"); a longer one keeps its dot with its last word. `DotNodes` draws it.

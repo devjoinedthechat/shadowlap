@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { tokenInUse } from '../api.js';
 import { CodeBox, CopyButton } from '../components/CodeBox.js';
+import { Code, Copy } from '../components/Copy.js';
 import { Icon } from '../components/Icon.js';
 import { pastedLink } from '../connection.js';
 import { DOCS, docsHref } from '../docs-links.js';
@@ -57,7 +58,7 @@ export function OfflineBar() {
         </button>
         {/* What Why discloses, next after it as a screen reader moves on: it shows only when asked for. */}
         <span className="cw" id="connWhyText">
-          <span className="cwt">Can’t reach the dashboard server, so this shows what loaded{when}.</span> <span className="cwa">Start it again:</span>
+          <Copy as="span" className="cwt" phrases>{`Can’t reach the dashboard server, so this shows what loaded${when}.`}</Copy> <span className="cwa">Start it again:</span>
         </span>
         <span className="cc">
           <span className="cwith">start it with </span>
@@ -131,7 +132,7 @@ export function ExpiredCard() {
           <Icon name="clock" />
         </span>
         <h1 id="connT">This link’s session token isn’t this dashboard’s</h1>
-        <p id="connD">It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:</p>
+        <Copy id="connD">It was restarted, or the link is from another one. Open the link it printed when it started, or start it again:</Copy>
         <CodeBox command="shadowlap dashboard" />
         <p className="cbdoc">
           <a className="more dlgdoc" href={docsHref(DOCS.sessionTokens)} target="_blank" rel="noopener">
@@ -163,9 +164,9 @@ export function Gate() {
           <Icon name="keys" />
         </span>
         <h1 id="gateT">Open the dashboard from its link</h1>
-        <p>
-          Recordings hold prompts and tool data, so the dashboard serves them only to the link <code>shadowlap dashboard</code> prints. That link carries a session token for this run of the dashboard.
-        </p>
+        <Copy>
+          Recordings hold prompts and tool data, so the dashboard serves them only to the link <Code>shadowlap dashboard</Code> prints. That link carries a session token for this run of the dashboard.
+        </Copy>
         {/* outside the app, where no toast can come from: its Copy says Copied on itself */}
         <CodeBox command="shadowlap dashboard" />
       </div>

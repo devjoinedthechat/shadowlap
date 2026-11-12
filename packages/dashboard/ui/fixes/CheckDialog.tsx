@@ -6,6 +6,7 @@ import { namedIn } from '../components/Id.js';
 import { shortId } from '../format.js';
 import { ACTIONS } from '../labels.js';
 import { parseCheck } from './model.js';
+import { Copy } from '../components/Copy.js';
 
 /**
  * The check a blame needs, typed as JSON. It is read before anything is sent, and the dialog stays
@@ -61,7 +62,7 @@ export function CheckDialog({ runId, line, command = null, cost = { price: 'Bill
           />
         </label>
       </div>
-      <p className="muted fieldhint">What a passing run must do, as an outcome check’s expect object</p>
+      <Copy className="muted fieldhint">What a passing run must do, as an outcome check’s expect object</Copy>
       {error ? (
         <p className="fieldnote err" role="alert">
           {error}

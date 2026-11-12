@@ -135,7 +135,7 @@ describe('Stop in the job drawer', () => {
     await r.click(r.byText('.drawer header button', 'Stop'));
     expect(r.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Stop repair');
     expect(r.one('.dialog header p').textContent).toContain('Stops the repair, which reports what it found so far.');
-    expect(r.one('.dialog .dfacts').textContent).toBe('Changesnothing in your working tree');
+    expect(r.one('.dialog .dfacts').textContent.replace(/\u00a0/g, ' ')).toBe('Changesnothing in your working tree');
     // Keep it running: the dialog goes, the repair goes on.
     await r.click(r.byText('.dialog button', 'Keep it running'));
     expect(r.all('.dialog')).toHaveLength(0);

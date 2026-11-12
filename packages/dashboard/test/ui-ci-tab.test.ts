@@ -214,7 +214,7 @@ describe('Settings → CI', () => {
     await r!.click(r!.byText('#workflow header .btn', 'Write file'));
     expect(r!.one('[role="dialog"] header h3').textContent).toBe(`Write ${FILE}?`);
     expect(r!.all('[role="dialog"] header p span')[0].textContent).toBe('Adds the workflow the switches build to your repository.');
-    expect(r!.one('[role="dialog"] .db').textContent).toContain('your working tree');
+    expect(r!.one('[role="dialog"] .db').textContent.replace(/\u00a0/g, ' ')).toContain('your working tree');
     expect(r!.all('[role="dialog"] pre.wfcode span.add')).toHaveLength(view.workflow.added);
     await r!.click(r!.one('[role="dialog"] .dlg-ok'));
     await r!.until('the file written', () => r!.one('#workflow .wfstate').textContent.startsWith('The same'));
