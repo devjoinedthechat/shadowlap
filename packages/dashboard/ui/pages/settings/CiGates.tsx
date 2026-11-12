@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { messageOf } from '../../../../engine/src/message-of.js';
 import { ApiError } from '../../api.js';
 import { CodeBox } from '../../components/CodeBox.js';
+import { Copy } from '../../components/Copy.js';
 import { tipCard } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
 import { Section } from '../../components/Section.js';
@@ -154,41 +155,41 @@ export function Gates({ view, o, set }: { view: CiWorkflowsView; o: CiWorkflowOp
     >
       <div className="alertgrid">
         <div className="pbody cimain">
-          <p className="muted">
-            <span className="ln">A golden marked fork runs live from where it forks, so its attempts vary.</span> <span className="ln">Its gate decides as they come in, at the risk it states.</span>
-          </p>
+          <Copy className="muted">A golden marked fork runs live from where it forks, so its attempts vary. Its gate decides as they come in, at the risk it states.</Copy>
           {FIGURES[kind].map((f) => {
             const v = shown(f.k);
             return (
               <div className="setrow tight" key={f.k}>
                 <div>
                   <b>{f.b}</b>
-                  <span>{typeof f.s === 'function' ? f.s(shown('risk') ?? 0.05) : f.s}</span>
+                  <Copy as="span">{typeof f.s === 'function' ? f.s(shown('risk') ?? 0.05) : f.s}</Copy>
                 </div>
                 <Select label={f.b} value={v === undefined ? '' : String(v)} off={off} options={(v === undefined || f.opts.includes(v) ? f.opts : [...f.opts, v].sort((a, b) => a - b)).map((x) => ({ value: String(x), label: f.f(x) }))} onChange={(x) => setFigure(f.k, Number(x))} />
               </div>
             );
           })}
           {off ? (
-            <p className="gdef">Paused until the dashboard server is back: the preview is the last it worked out.</p>
+            <Copy className="gdef">Paused until the dashboard server is back: the preview is the last it worked out.</Copy>
           ) : changed ? (
-            <p className="gdef">
+            <Copy className="gdef">
               These differ from the defaults: <code>{stands}</code> stands for {andList(FIGURES[kind].map((f) => <span key={f.k} className="nw">{f.f(defaults[f.k] ?? 0)}</span>))}.{' '}
               <button className="linkbtn" type="button" onClick={() => ((tried.figures[kind] = {}), setFigures({}))}>
                 Reset
               </button>
-            </p>
+            </Copy>
           ) : (
-            <p className="gdef">
+            <Copy className="gdef">
               The defaults: what <code>{stands}</code> stands for
               {uses.length ? <>, as {andList(uses.map((u) => <code key={u}>{u}</code>))} {uses.length === 1 ? 'uses it' : 'use it'}</> : null}.
-            </p>
+            </Copy>
           )}
           <span className="k cineeds">in CI</span>
           <div className="setrow tight">
             <div>
               <b id="inconclusive-name">An inconclusive golden</b>
-              <span id="inconclusive-help">{INCONCLUSIVE_WORDS[inc]}</span>
+              <Copy as="span" id="inconclusive-help">
+                {INCONCLUSIVE_WORDS[inc]}
+              </Copy>
             </div>
             <SegmentedControl
               items={[
@@ -264,7 +265,7 @@ function Preview({ p, inc, odds, setOdds }: { p: GatePreview; inc: 'fail' | 'war
   return (
     <div className="pbody teamside gprev">
       <span className="k">what it tells apart</span>
-      <p className="gsays">{p.sentence}</p>
+      <Copy className="gsays">{p.sentence}</Copy>
       <span className="k">what it takes, for a golden on its own</span>
       <ul className="cilist">
         {takes.map(([label, value, t]) => (
@@ -310,9 +311,9 @@ function Preview({ p, inc, odds, setOdds }: { p: GatePreview; inc: 'fail' | 'war
           </table>
         </div>
       </div>
-      <p className="gnote">
+      <Copy className="gnote">
         {g.kind === 'sprt' ? `Between ${pct(g.bad)} and ${pct(g.good)} either verdict can come, so a verdict states the test, never the agent’s rate.` : `A collapse fails nearly always; a drop just past ${Math.round(g.drop * 100)} points, only sometimes.`} With {p.ci.goldens} {sprt ? `forked goldens of ${agent}` : `such goldens of ${agent}, as its history says`}, <span className="nw">{red} of CI runs</span> go red{idle ? ' for nothing' : ''}.
-      </p>
+      </Copy>
     </div>
   );
 }

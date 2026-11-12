@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
 import { CodeBox } from '../../components/CodeBox.js';
+import { Code, Copy, Words } from '../../components/Copy.js';
 import { ConfirmDialog } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
 import type { CodingAgentsSettings } from '../../settings-api.js';
@@ -32,7 +33,7 @@ export function AgentsTab() {
   if (!data) return <Loading title="Coding agents" />;
   const skill = data.skill;
   const found = data.files.filter((f) => f.found);
-  const intro = <p className="muted">Coding agents need no MCP server: the CLI is their interface, and every command reads and writes JSON.</p>;
+  const intro = <Copy className="muted">Coding agents need no MCP server: the CLI is their interface, and every command reads and writes JSON.</Copy>;
   // Once the plugin is in the project, Claude Code has the section through its skills: CLAUDE.md
   // needs none. Once the skills are in .agents/skills, neither do the files of the agents that read them.
   const pluginHere = !!skill?.published && skill.claudeCode.state === 'current' && !skill.claudeCode.blocked;
@@ -54,7 +55,7 @@ export function AgentsTab() {
   const files = (
     <>
       {gone ? (
-        <p className="muted agentsgone">{FILES_GONE}</p>
+        <Copy className="muted agentsgone">{FILES_GONE}</Copy>
       ) : (
         <div className="agentfiles">
           {data.files
@@ -66,9 +67,15 @@ export function AgentsTab() {
               return (
                 <div key={f.path}>
                   <code>{f.path}</code>
-                  <span className={w.tone}>{w.text}</span>
+                  <span className={w.tone}>
+                    <Words>{w.text}</Words>
+                  </span>
                   {skills?.action && skill ? <InstallButton small action={skills.action} command={skill.agents.install?.command ?? null} sub={`writes ${orList(shared, 'and')} to ${skill.agents.path}, from the copy that comes with the CLI`} onClick={() => act('agents', skills.action!)} /> : null}
-                  {skills?.why ? <span className="warn agwhy">{skills.why}</span> : null}
+                  {skills?.why ? (
+                    <span className="warn agwhy">
+                      <Words>{skills.why}</Words>
+                    </span>
+                  ) : null}
                 </div>
               );
             })}
@@ -78,12 +85,12 @@ export function AgentsTab() {
         <>
           {/* Its Copy in the box's corner, Copy section. */}
           <CodeBox code={data.section} what="the section" className="md" />
-          <p className="hintx">Paste it into {!gone && found.length && !found.some((f) => f.mentions) ? orList(found.map((f) => f.path)) : 'CLAUDE.md, AGENTS.md or your rules file'}.</p>
+          <Copy className="hintx">Paste it into {!gone && found.length && !found.some((f) => f.mentions) ? orList(found.map((f) => f.path)) : 'CLAUDE.md, AGENTS.md or your rules file'}.</Copy>
         </>
       ) : (
-        <p className="muted">
-          The section to paste is in <code>{data.source}</code>, under “Instructions to give it”.
-        </p>
+        <Copy className="muted">
+          The section to paste is in <Code>{data.source}</Code>, under “Instructions to give it”.
+        </Copy>
       )}
     </>
   );
@@ -152,7 +159,7 @@ function SkillRow({ skill, gone, onAct }: { skill: NonNullable<CodingAgentsSetti
     <div className="setrow skrow">
       <div>
         <b>The skills</b>
-        <span>
+        <Copy as="span">
           {skill.skills.map((s, i) => (
             <Fragment key={s.name}>
               {i ? ', and ' : ''}
@@ -167,17 +174,21 @@ function SkillRow({ skill, gone, onAct }: { skill: NonNullable<CodingAgentsSetti
             </Fragment>
           ))}
           .
-        </span>
+        </Copy>
         {gone ? (
-          <span>{FILES_GONE}</span>
+          <Copy as="span">{FILES_GONE}</Copy>
         ) : w.installed ? (
-          <span>
-            Installed in <code>{offer.path}</code>
+          <Copy as="span">
+            Installed in <Code>{offer.path}</Code>
             {skill.version ? `, ${skill.version}` : ''}. Commit it, and everyone working on the project has it too.
-          </span>
+          </Copy>
         ) : (
           <>
-            {w.line ? <span className={w.tone || undefined}>{w.line}</span> : null}
+            {w.line ? (
+              <Copy as="span" className={w.tone || undefined}>
+                {w.line}
+              </Copy>
+            ) : null}
             {w.command ? <CodeBox command={w.command} className="skcmd" /> : null}
           </>
         )}

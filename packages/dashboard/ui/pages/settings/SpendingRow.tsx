@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { askWords, type Spending } from '../../../../engine/src/estimates/spending.js';
 import { parseSpending, SPENDING_PICKS, spendingField, spendingWords } from '../../../../engine/src/estimates/spending-row.js';
 import { useActionWait } from '../../components/ActionButton.js';
+import { Words } from '../../components/Copy.js';
 import { SegmentedControl } from '../../components/Segmented.js';
 import { coarsePointer } from '../../dom.js';
 import { showSpending, spendingNow, takeSpendingFocus, useSpending, type SpendingClient } from '../../spending.js';
@@ -89,7 +90,7 @@ export function SpendingRow() {
           {known
             ? spendingWords(v).map((line) => (
                 <span key={line} className="ln">
-                  {line}
+                  <Words>{line}</Words>
                 </span>
               ))
             : null}

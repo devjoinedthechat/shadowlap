@@ -10,6 +10,7 @@ import { useApp } from '../../state.js';
 import { CONFIG_FILE, ConfigProblem, LoadProblem, Loading, rulesUnreadable, SAVING, useEditor, useFolderGone, useSettingsData } from './common.js';
 import { RuleDialog, RuleTable, addedText, removeRule } from './RuleTable.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { Copy } from '../../components/Copy.js';
 import { Section } from '../../components/Section.js';
 
 /** The recording Calibrate replays, kept while the dashboard is open: the one picked, while its picker lists it. */
@@ -57,7 +58,7 @@ export function MatchingTab() {
         }
       >
         <div className="pbody">
-          <p className="muted">A replay forks at the first request that differs. Normalizers mask values the agent makes anew on every run before matching, and never touch what is stored.</p>
+          <Copy className="muted">A replay forks at the first request that differs. Normalizers mask values the agent makes anew on every run before matching, and never touch what is stored.</Copy>
         </div>
         <RuleTable
           list="normalize"
@@ -70,7 +71,9 @@ export function MatchingTab() {
         <div className="setrow">
           <div>
             <b id="clock-name">Dates and times</b>
-            <span id="clock-help">Dates within about a day of each run’s start match across days, so a golden recorded in June still replays in September.</span>
+            <Copy as="span" id="clock-help">
+              Dates within about a day of each run’s start match across days, so a golden recorded in June still replays in September.
+            </Copy>
           </div>
           <div className="seg" role="group" aria-labelledby="clock-name" aria-describedby="clock-help">
             {(['auto', 'exact'] as const).map((k) => (
@@ -138,7 +141,9 @@ function CalibrateRow({ cal, gone }: { cal: MatchingSettings['calibrate']; gone:
     <div className="setrow">
       <div>
         <b>Calibrate</b>
-        <span id="calibrate-help">Replays a recording offline with the same code until it is clean, and proposes a normalizer for every value that changed. No model calls; writes are blocked.</span>
+        <Copy as="span" id="calibrate-help">
+          Replays a recording offline with the same code until it is clean, and proposes a normalizer for every value that changed. No model calls; writes are blocked.
+        </Copy>
       </div>
       {pick ? (
         <RunPicker

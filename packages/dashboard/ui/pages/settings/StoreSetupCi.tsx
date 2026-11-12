@@ -63,9 +63,9 @@ export function PushFromCiStep({ view, state, ci, setCi, step, saving, off, save
                     {step.text}
                   </pre>
                   {step.notes.map((n) => (
-                    <p key={n} className="muted cinote">
+                    <Copy key={n} className="muted cinote">
                       {n}
-                    </p>
+                    </Copy>
                   ))}
                 </>
               ) : null}

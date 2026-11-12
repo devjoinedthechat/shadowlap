@@ -185,7 +185,7 @@ describe('Settings → Project', () => {
     const dd = dl.querySelectorAll('dd');
     expect(dd[0].textContent.replace(/\u00a0/g, ' ')).toBe('0.1.0 · open source, Apache-2.0 · no account, no limits on runs');
     expect(dd.slice(1, 3).map((d) => d.querySelector('code')?.textContent)).toEqual(['research-agent', '~/research-agent/.shadowlap/shadowlap.db']);
-    expect(dd[3].textContent).toBe('12 and 0 attempts');
+    expect(dd[3].textContent.replace(/\u00a0/g, ' ')).toBe('12 and 0 attempts');
     expect(dd[5].querySelector('code')?.textContent).toBe('127.0.0.1:4777');
     // Clean up old runs says what it does on its card: what it would free first, then it asks.
     const clean = r.byText('.settab .setfoot .btn', 'Clean up old runs');

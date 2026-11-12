@@ -15,7 +15,7 @@ import { AGAIN, CHANGES, keptFor } from './ci-kept.js';
 import { ConfigProblem, LoadProblem, Loading } from './common.js';
 import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
-import { Words } from '../../components/Copy.js';
+import { Copy, Words } from '../../components/Copy.js';
 import { ruleWords } from '../../components/Verdict.js';
 
 /**
@@ -129,14 +129,19 @@ function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView 
 }
 
 /** The action's comment on each pull request: its switch, what it carries, and what it needs. Its preview is port/pr-comment's. */
+/** What a CI feature that is off leaves undone, a line of its own under the panel's lead. */
+const OffNote = ({ children }: { children: string }) => (
+  <b className="offnote">
+    <Words>{children}</Words>
+  </b>
+);
+
 function PullRequestComment({ o, view, onSwitch }: { o: CiWorkflowOptions; view: CiWorkflowsView; onSwitch: (on: boolean) => void }) {
   return (
     <Section className={`set cip prpanel${o.comment ? '' : ' off'}`} id="pr-comment" title="Pull request comment" sub="the verdict on every pull request" actions={<Switch on={o.comment} label="Pull request comment" onChange={onSwitch} />}>
       <div className="pbody cimain">
-        <p className="muted">
-          <span className="ln">One comment on each pull request, kept current on every push:</span> <span className="ln">each golden’s verdict by its gate, beside the base branch’s last session.</span>
-          {o.comment ? null : <b className="offnote">{view.comment.offNote}</b>}
-        </p>
+        <Copy className="muted">One comment on each pull request, kept current on every push: each golden’s verdict by its gate, beside the base branch’s last session.</Copy>
+        {o.comment ? null : <OffNote>{view.comment.offNote}</OffNote>}
         <span className="k cineeds">it needs</span>
         <CiList rows={view.comment.needs} />
       </div>
@@ -150,21 +155,23 @@ function FixOnFailure({ o, view, set, onSwitch }: { o: CiWorkflowOptions; view: 
     <Section className={`set cip${o.fix ? '' : ' off'}`} id="fix-on-failure" title="Fix on failure" sub="a fix pull request when a rule breaks in CI" actions={<Switch on={o.fix} label="Fix on failure" onChange={onSwitch} />}>
       <div className="alertgrid">
         <div className="pbody cimain">
-          <p className="muted">
-            <span className="ln">When an outcome check fails, CI runs blame, repair and verify.</span> <span className="ln">If verify accepts a fix, CI opens a pull request with its evidence.</span>
-            {o.fix ? null : <b className="offnote">{f.offNote}</b>}
-          </p>
+          <Copy className="muted">When an outcome check fails, CI runs blame, repair and verify. If verify accepts a fix, CI opens a pull request with its evidence.</Copy>
+          {o.fix ? null : <OffNote>{f.offNote}</OffNote>}
           <div className="setrow tight">
             <div>
               <b id="cifixBudget-name">Budget per failing golden</b>
-              <span id="cifixBudget-help">Repair stops once it’s spent.</span>
+              <Copy as="span" id="cifixBudget-help">
+                Repair stops once it’s spent.
+              </Copy>
             </div>
             <Select id="cifixBudget" value={o.budget} options={f.budgets} onChange={(budget) => set({ budget })} />
           </div>
           <div className="setrow tight">
             <div>
               <b id="cifixRepairer-name">Repairer</b>
-              <span id="cifixRepairer-help">Proposes fixes; verify decides.</span>
+              <Copy as="span" id="cifixRepairer-help">
+                Proposes fixes; verify decides.
+              </Copy>
             </div>
             <Select id="cifixRepairer" value={o.repairer} options={f.repairers} onChange={(repairer) => set({ repairer })} />
           </div>
@@ -216,13 +223,18 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
         {pr.verify ? (
           <li>
             <i className="ok" />
-            verify: <Words>{ruleWords(pr.verify)}</Words>
+            {/* one flex item, so its words wrap as a line does rather than standing apart */}
+            <span>
+              verify: <Words>{ruleWords(pr.verify)}</Words>
+            </span>
           </li>
         ) : null}
         {pr.blame ? (
           <li>
             <i />
-            blame: <Words>{pr.blame}</Words>
+            <span>
+              blame: <Words>{pr.blame}</Words>
+            </span>
           </li>
         ) : null}
         <li>
@@ -247,21 +259,23 @@ function Alerts({ o, view, set, toggle }: { o: CiWorkflowOptions; view: CiWorkfl
     <Section className={`set cip${o.alerts ? '' : ' off'}`} id="alerts" title="Alerts" sub="a message in Slack when a golden fails in CI" actions={<Switch on={o.alerts} label="Alerts" onChange={(on) => toggle({ alerts: on }, `Alerts are ${on ? 'on' : 'off'}`)} />}>
       <div className="alertgrid">
         <div className="pbody cimain">
-          <p className="muted">
-            <span className="ln">The test step counts the goldens that failed.</span> <span className="ln">These steps post the count to Slack, then fail the job.</span>
-            {o.alerts ? null : <b className="offnote">{a.offNote}</b>}
-          </p>
+          <Copy className="muted">The test step counts the goldens that failed. These steps post the count to Slack, then fail the job.</Copy>
+          {o.alerts ? null : <OffNote>{a.offNote}</OffNote>}
           <div className="setrow tight">
             <div>
               <b id="onlyMain-name">Only for the {a.branch} branch</b>
-              <span id="onlyMain-help">Pull requests stay quiet; their checks already show it.</span>
+              <Copy as="span" id="onlyMain-help">
+                Pull requests stay quiet; their checks already show it.
+              </Copy>
             </div>
             <Switch on={o.onlyMain} labelledBy="onlyMain-name" describedBy="onlyMain-help" onChange={(onlyMain) => toggle({ onlyMain }, onlyMain ? `Alerts are for the ${a.branch} branch only` : 'Alerts are for every branch')} />
           </div>
           <div className="setrow tight">
             <div>
               <b id="alertSecret-name">Webhook secret</b>
-              <span id="alertSecret-help">The repository secret that holds the Slack webhook URL.</span>
+              <Copy as="span" id="alertSecret-help">
+                The repository secret that holds the Slack webhook URL.
+              </Copy>
             </div>
             <input id="alertSecret" className="inp" type="text" spellCheck={false} autoComplete="off" aria-labelledby="alertSecret-name" aria-describedby="alertSecret-help" value={o.secret} onChange={(e) => set({ secret: typedSecret(e.target.value) })} />
           </div>

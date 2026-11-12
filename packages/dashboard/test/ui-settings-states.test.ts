@@ -184,14 +184,14 @@ describe('Coding agents, as the design has it', () => {
     { path: '.github/copilot-instructions.md', agents: 'GitHub Copilot', found: false, type: null, mentions: false },
   ];
   const withFiles = (skill: SkillOffer, f = files()) => ({ ...agents(skill), files: f }) as unknown as CodingAgentsSettings;
-  const rows = (x: Rendered) => x.all('.agentfiles div').map((d) => d.textContent);
+  const rows = (x: Rendered) => x.all('.agentfiles div').map((d) => d.textContent.replace(/\u00a0/g, ' '));
 
   it('says coding agents need no MCP server, and puts Add the skills on the .agents/skills row', async () => {
     const startJob = vi.fn(async () => ({}));
     const watchJob = vi.fn();
     r = await page(app({ client: { agents: async () => withFiles(offer({ agents: shared('missing') })), startJob: startJob as unknown as Client['startJob'] }, watchJob }), 'agents');
     await r.until('the tab', () => r!.all('.agentfiles').length > 0);
-    expect(r.one('.settab .pbody p.muted').textContent).toBe('Coding agents need no MCP server: the CLI is their interface, and every command reads and writes JSON.');
+    expect(r.one('.settab .pbody p.muted').textContent.replace(/\u00a0/g, ' ')).toBe('Coding agents need no MCP server: the CLI is their interface, and every command reads and writes JSON.');
     // No row of its own for the skills, and none for the plugin, which isn't published; Cursor's rules and Copilot's file only where the project has them.
     expect(r.all('.settab .setrow')).toHaveLength(0);
     expect(rows(r)).toEqual(['CLAUDE.mdnot in this project', 'AGENTS.mdnot in this project', '.agents/skillsnot in this projectAdd the skills']);
@@ -252,7 +252,7 @@ describe('Coding agents, as the design has it', () => {
     await r.until('the tab', () => r!.all('.agentfiles').length > 0);
     const row = r.one('.setrow.skrow');
     expect(row.querySelector('b')!.textContent).toBe('The skills');
-    expect(row.querySelector('span')!.textContent).toBe(
+    expect(row.querySelector('span')!.textContent.replace(/\u00a0/g, ' ')).toBe(
       'setup-agent sets Shadowlap up for an agent, and debug-agent debugs it and checks every change to it: they package the section below for Claude Code, which uses each when a task calls for it, or on /shadowlap:setup-agent and /shadowlap:debug-agent.',
     );
     expect(row.querySelector('.cmdline')!.textContent).toBe('$shadowlap skill install claude-code');
@@ -276,7 +276,7 @@ describe('Coding agents, as the design has it', () => {
     published.claudeCode = { ...published.claudeCode, state: 'current' };
     r = await page(app({ client: { agents: async () => withFiles(published, files({ claude: true })) } }), 'agents');
     await r.until('the tab', () => r!.all('.agentfiles').length > 0);
-    expect(r.all('.skrow span').map((x) => x.textContent)).toContain('Installed in .claude/skills/shadowlap, 0.1.0. Commit it, and everyone working on the project has it too.');
+    expect(r.all('.skrow span').map((x) => x.textContent.replace(/\u00a0/g, ' '))).toContain('Installed in .claude/skills/shadowlap, 0.1.0. Commit it, and everyone working on the project has it too.');
     expect(r.one('.skrow .st').textContent).toBe('installed · 0.1.0');
     expect(r.all('.skrow button')).toHaveLength(0);
     expect(rows(r)[0]).toBe('CLAUDE.mdfound · the skills give Claude Code the section');
@@ -288,7 +288,7 @@ describe('Coding agents, as the design has it', () => {
     other.claudeCode = { ...other.claudeCode, state: 'other-version', installedVersion: '0.0.9', install: { job: { kind: 'skill-install', agent: 'claude-code', replace: true }, command: 'shadowlap skill install claude-code --force' } };
     r = await page(app({ client: { agents: async () => withFiles(other), startJob: startJob as unknown as Client['startJob'] } }), 'agents');
     await r.until('the tab', () => r!.all('.agentfiles').length > 0);
-    expect(r.one('.skrow span.warn').textContent).toBe('0.0.9 in the project.');
+    expect(r.one('.skrow span.warn').textContent.replace(/\u00a0/g, ' ')).toBe('0.0.9 in the project.');
     expect(r.one('.skrow .cmdline').textContent).toBe('$shadowlap skill install claude-code --force');
     await r.click(r.byText('.skrow button', 'Update to 0.1.0'));
     expect(startJob).toHaveBeenCalledWith('skill-install', { agent: 'claude-code', replace: true });
@@ -314,7 +314,7 @@ describe('Coding agents, as the design has it', () => {
   it('says the instruction files can’t be read while the folder is gone, and offers no install', async () => {
     r = await page(app({ missing: true, client: { agents: async () => withFiles(offer({ agents: shared('missing') })) } }), 'agents');
     await r.until('the tab', () => r!.all('.agentsgone').length > 0);
-    expect(r.one('.agentsgone').textContent).toBe('The instruction files can’t be read while the folder is gone.');
+    expect(r.one('.agentsgone').textContent.replace(/\u00a0/g, ' ')).toBe('The instruction files can’t be read while the folder is gone.');
     expect(r.all('.agentfiles')).toHaveLength(0);
     // The section's one Copy, in its box's corner.
     expect(r.all('.settab button').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy section']);
@@ -327,7 +327,7 @@ describe('the rest of Settings while its file or folder can’t be read', () => 
   it('says on Tools that the recorded calls and the MCP configs can’t be read while the folder is gone', async () => {
     r = await page(app({ missing: true, client: { tools: async () => tools } }), 'tools');
     await r.until('the tab', () => r!.all('.egrp').length > 0);
-    const text = r.one('.settab').textContent;
+    const text = r.one('.settab').textContent.replace(/\u00a0/g, ' ');
     expect(text).toContain('The recorded tool calls can’t be read while the folder is gone.');
     expect(text).toContain('The MCP configs can’t be read while the folder is gone.');
     expect(text).not.toContain('No tool calls recorded yet');
@@ -337,7 +337,7 @@ describe('the rest of Settings while its file or folder can’t be read', () => 
   it('still says there are none in a folder that is there', async () => {
     r = await page(app({ client: { tools: async () => tools } }), 'tools');
     await r.until('the tab', () => r!.all('.egrp').length > 0);
-    expect(r.one('.settab').textContent).toContain('No tool calls recorded yet');
+    expect(r.one('.settab').textContent.replace(/\u00a0/g, ' ')).toContain('No tool calls recorded yet');
   });
 
   it('shows no clock mode as chosen while the file can’t be read, or the folder is gone', async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Seg } from '../../components/bits.js';
 import { CodeBox } from '../../components/CodeBox.js';
+import { Copy, Words } from '../../components/Copy.js';
 import { Dialog } from '../../components/Dialog.js';
 import { Section } from '../../components/Section.js';
 import { DialogFacts } from '../../components/DialogFacts.js';
@@ -36,17 +37,17 @@ export function ToolsTab() {
   return (
     <Section className="set" title="Tools" sub="what a fork runs again">
       <div className="pbody">
-        <p className="muted">Declared in the agent’s code. After a fork, reads run live and writes are blocked or stubbed unless you allow them, so by default a replay never acts on the world twice.</p>
+        <Copy className="muted">Declared in the agent’s code. After a fork, reads run live and writes are blocked or stubbed unless you allow them, so by default a replay never acts on the world twice.</Copy>
       </div>
       {gone ? (
         <div className="egrp">
-          <p className="muted">{TOOLS_GONE}</p>
+          <Copy className="muted">{TOOLS_GONE}</Copy>
         </div>
       ) : none ? (
         <div className="egrp">
-          <p className="muted">
+          <Copy className="muted">
             No tool calls recorded yet. Wrap a tool with <code>tool()</code> from the SDK and say what it does (<code>pure</code>, <code>read</code> or <code>write</code>), and its calls are recorded with it.
-          </p>
+          </Copy>
         </div>
       ) : (
         <>
@@ -104,7 +105,7 @@ function ToolGroup({ title, tools, write }: { title: string; tools: ToolsSetting
           })}
         </div>
       ) : (
-        <p className="muted none">{write ? 'No write tools recorded.' : 'Every tool recorded is a write.'}</p>
+        <Copy className="muted none">{write ? 'No write tools recorded.' : 'Every tool recorded is a write.'}</Copy>
       )}
     </div>
   );
@@ -135,11 +136,11 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
   return (
     <div className="egrp mcp">
       <span className="k">tools from MCP servers</span>
-      <p className="muted">
+      <Copy className="muted">
         Put <code>shadowlap mcp</code> in front of a server in the client’s config. Its tool calls are then recorded, replayed and <Term k="fenced">fenced</Term> like any other tool. A tool marked <code>readOnlyHint</code> is read; any other is write, unless <code>mcp.effects</code> in the config says otherwise.
-      </p>
+      </Copy>
       {gone ? (
-        <p className="muted none">{MCP_GONE}</p>
+        <Copy className="muted none">{MCP_GONE}</Copy>
       ) : rows.length ? (
         <div className="tscroll mcptable" ref={box}>
           <table className="t">
@@ -159,7 +160,7 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
           </table>
         </div>
       ) : (
-        <p className="muted none">No MCP server in .mcp.json, .cursor/mcp.json or .vscode/mcp.json, and none recorded yet.</p>
+        <Copy className="muted none">No MCP server in .mcp.json, .cursor/mcp.json or .vscode/mcp.json, and none recorded yet.</Copy>
       )}
       {broken.map((f) => (
         <p key={f.path} className="fieldnote warn">
@@ -227,9 +228,9 @@ function ClientConfig({ block }: { block: ToolsSettings['mcp']['clientConfigs'][
         </div>
       ) : null}
       {(block.notes ?? []).map((n) => (
-        <p key={`${n.server}\u0000${n.text}`} className="fieldnote mcpnote">
+        <Copy key={`${n.server}\u0000${n.text}`} className="fieldnote mcpnote">
           <code>{n.server}</code>: {n.text}.
-        </p>
+        </Copy>
       ))}
     </>
   );
@@ -243,7 +244,7 @@ function McpServer({ row, focused }: { row: McpRow; focused: boolean }) {
         <code>{row.name}</code>
         {row.note ? (
           <small className={`mnote${row.line ? ' warn' : ''}`}>
-            {row.note}
+            <Words>{row.note}</Words>
             {row.line ? (
               <>
                 {' · '}
@@ -307,7 +308,7 @@ export function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp'
       title="Add MCP server"
       lead="Records an MCP server’s tool calls, replayed and fenced like any other tool."
       doc="mcp"
-      warn={notes ? { text: <AddServerNote notes={notes} /> } : null}
+      warn={notes ? { text: addServerNote(notes) } : null}
       command={shown?.line ?? placeholder}
       ok="Copy entry"
       okDisabled={!shown}
@@ -345,15 +346,18 @@ export function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp'
         </label>
       </div>
       <DialogFacts rows={[{ label: 'Effects', value: 'from each tool’s `readOnlyHint`', quiet: 'any other tool is a write' }]} />
-      <p className="muted mcphow">{transport === 'http' ? 'The client starts the proxy, and the proxy talks to the remote server over Streamable HTTP.' : 'The client starts the proxy, and the proxy starts the server.'}</p>
+      <Copy className="muted mcphow">{transport === 'http' ? 'The client starts the proxy, and the proxy talks to the remote server over Streamable HTTP.' : 'The client starts the proxy, and the proxy starts the server.'}</Copy>
       {entry ? <pre className="codebox">{entry}</pre> : null}
       {line.error && asked === target.trim() ? <p className="fieldnote err">{line.error.message}</p> : null}
     </Dialog>
   );
 }
 
-/** What Add MCP server… says about what it hid (`addServerNotes`): where the Basic header's variable is set, and what the copy has as typed. */
-function AddServerNote({ notes }: { notes: NonNullable<ReturnType<typeof addServerNotes>> }) {
+/**
+ * What Add MCP server… says about what it hid (`addServerNotes`): where the Basic header's variable is set, and what the copy
+ * has as typed. Its pieces, not an element of its own, so the warning's `Copy` sets its sentences rather than keeping one atom.
+ */
+function addServerNote(notes: NonNullable<ReturnType<typeof addServerNotes>>) {
   const KEEP_OUT = 'keep it out of a file you commit, or pass it in an environment variable.';
   const b = notes.basic;
   const ref = b ? <code>{`\${${b.name}}`}</code> : null;

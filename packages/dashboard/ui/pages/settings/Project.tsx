@@ -7,7 +7,7 @@ import { LoadProblem, Loading, useFolderGone, useSettingsData } from './common.j
 import { bytesText, sizeNote } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
 import { Section } from '../../components/Section.js';
-import { Code } from '../../components/Copy.js';
+import { Code, Words } from '../../components/Copy.js';
 import { DotParts } from '../../components/DotParts.js';
 import { SpendingRow } from './SpendingRow.js';
 
@@ -48,29 +48,43 @@ export function ProjectTab() {
           <code>{data.name}</code>
         </dd>
         <dt>Store</dt>
-        <dd title={data.store.path ?? undefined}>{data.shown.store ? <Code>{data.shown.store}</Code> : 'in memory: nothing is kept'}</dd>
+        <dd title={data.store.path ?? undefined}>{data.shown.store ? <Code>{data.shown.store}</Code> : <Words>in memory: nothing is kept</Words>}</dd>
         {/* With the folder gone there is no store to count: the store shown is an empty stand-in. */}
         <dt>Runs</dt>
         {gone ? (
-          <dd className="muted">not read: the folder is gone</dd>
+          <dd className="muted">
+            <Words>not read: the folder is gone</Words>
+          </dd>
         ) : (
           <dd>
-            {num(data.runs)} <small>and {num(data.attempts)} {data.attempts === 1 ? 'attempt' : 'attempts'}</small>
-            {data.running ? <small> · {data.running} recording now</small> : null}
-            {data.abandoned ? <small className="warn"> · {data.abandoned} left recording by a process that stopped; Clean up marks {data.abandoned === 1 ? 'it' : 'them'} interrupted</small> : null}
+            {num(data.runs)}{' '}
+            <small>
+              <Words>{`and ${num(data.attempts)} ${data.attempts === 1 ? 'attempt' : 'attempts'}`}</Words>
+            </small>
+            {/* each dot kept with the part before it */}
+            {data.running ? <small>{`\u00a0· `}<Words>{`${data.running} recording now`}</Words></small> : null}
+            {data.abandoned ? <small className="warn">{`\u00a0· `}<Words>{`${data.abandoned} left recording by a process that stopped; Clean up marks ${data.abandoned === 1 ? 'it' : 'them'} interrupted`}</Words></small> : null}
           </dd>
         )}
         <dt>Size</dt>
         {gone ? (
-          <dd className="muted">not read: the folder is gone</dd>
+          <dd className="muted">
+            <Words>not read: the folder is gone</Words>
+          </dd>
         ) : (
           <dd>
-            {bytesText(data.store.bytes)} <small>{sizeNote(data.store.free, data.running)}</small>
+            {bytesText(data.store.bytes)}{' '}
+            <small>
+              <DotParts parts={sizeNote(data.store.free, data.running).split(' · ')} />
+            </small>
           </dd>
         )}
         <dt>Dashboard</dt>
         <dd>
-          <code>{data.address ?? location.host}</code> <small>local only, refuses other hosts</small>
+          <code>{data.address ?? location.host}</code>{' '}
+          <small>
+            <Words>local only, refuses other hosts</Words>
+          </small>
         </dd>
       </dl>
       <SpendingRow />

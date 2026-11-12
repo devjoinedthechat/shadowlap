@@ -51,6 +51,7 @@
     "packages/dashboard/test/ui-overview-lists.test.ts",
     "packages/dashboard/test/ui-overview-page.test.ts",
     "packages/dashboard/test/ui-overview-runs.test.ts",
+    "packages/dashboard/test/ui-settings.test.ts",
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
     "packages/dashboard/test/ui-runs-status.test.ts",
     "packages/dashboard/test/ui-fix-page.test.ts",
