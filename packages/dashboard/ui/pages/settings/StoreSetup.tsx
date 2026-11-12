@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { PageHeader } from '../../components/bits.js';
 import { CodeBox } from '../../components/CodeBox.js';
-import { Command } from '../../components/Copy.js';
+import { Code, Command } from '../../components/Copy.js';
 import { Page } from '../../components/Page.js';
 import { Skeleton } from '../../components/States.js';
 import { VerdictLine } from '../../components/VerdictLine.js';
@@ -140,7 +140,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
               <div className="recline ok">
                 <span className="ic" />
                 <span>
-                  Connected <code>{store.url}</code> · list, write, read and delete work
+                  Connected <Code>{store.url}</Code>{'\u00a0· '}list, write, read and delete work
                 </span>
               </div>
               {view.check && (view.check.versioning === 'off' || view.check.versioning === 'suspended') ? (

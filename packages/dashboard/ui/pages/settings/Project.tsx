@@ -7,6 +7,8 @@ import { LoadProblem, Loading, useFolderGone, useSettingsData } from './common.j
 import { bytesText, sizeNote } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
 import { Section } from '../../components/Section.js';
+import { Code } from '../../components/Copy.js';
+import { DotParts } from '../../components/DotParts.js';
 import { SpendingRow } from './SpendingRow.js';
 
 /**
@@ -36,15 +38,17 @@ export function ProjectTab() {
       <dl className="kvs">
         <dt>Shadowlap</dt>
         <dd>
-          {version ? `${version} ` : null}
-          <small>{version ? '· ' : ''}open source, Apache-2.0 · no account, no limits on runs</small>
+          {version ? `${version}\u00a0· ` : null}
+          <small>
+            <DotParts parts={['open source, Apache-2.0', 'no account, no limits on runs']} />
+          </small>
         </dd>
         <dt>Name</dt>
         <dd>
           <code>{data.name}</code>
         </dd>
         <dt>Store</dt>
-        <dd title={data.store.path ?? undefined}>{data.shown.store ? <code>{data.shown.store}</code> : 'in memory: nothing is kept'}</dd>
+        <dd title={data.store.path ?? undefined}>{data.shown.store ? <Code>{data.shown.store}</Code> : 'in memory: nothing is kept'}</dd>
         {/* With the folder gone there is no store to count: the store shown is an empty stand-in. */}
         <dt>Runs</dt>
         {gone ? (

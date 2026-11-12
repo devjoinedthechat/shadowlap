@@ -3,6 +3,7 @@ import { PageHeader } from '../components/bits.js';
 import { EmptyState } from '../components/States.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
+import { Words } from '../components/Copy.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { expectProject, type AddProjectView } from '../projects-api.js';
@@ -150,7 +151,7 @@ export function NewProjectPage() {
                   >
                     <Icon name="folder" />
                     <span>
-                      <b>{f.display}</b>
+                      <b><Words glued={false}>{f.display}</Words></b>
                       <small>{f.note}</small>
                     </span>
                     {f.selected ? <i className="tick">✓</i> : null}

@@ -240,7 +240,7 @@ function drawOwn(plan: Pick<CopyPlan, 'text' | 'words' | 'long'>, from: number, 
           {pathPieces(word).map((p, i) => (
             <Fragment key={i}>
               {i ? <wbr /> : null}
-              <ts-w>{p}</ts-w>
+              {p.length > 20 ? <LongWord>{p}</LongWord> : <ts-w>{p}</ts-w>}
             </Fragment>
           ))}
         </Fragment>,

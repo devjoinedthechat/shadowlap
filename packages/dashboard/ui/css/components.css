@@ -302,6 +302,8 @@ ts-w.ts-a.ts-free { white-space: normal; }
 ts-w.ts-long { white-space: normal; }
 ts-w.ts-long > ts-p, code.ts-cb ts-p { white-space: nowrap; }
 ts-w.ts-long.whole { white-space: nowrap; }
+/* a long name's piece wider than its line, with no dot or hyphen to break after, breaks where it must */
+ts-w.ts-long:not(.whole) > ts-p { white-space: normal; overflow-wrap: break-word; }
 ts-w.ts-long.whole > wbr { display: none; }
 /* longer code breaks only where its pieces allow, and is whole where its line holds it */
 code.ts-cb { white-space: normal; overflow-wrap: normal; word-break: normal; }

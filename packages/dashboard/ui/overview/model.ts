@@ -133,6 +133,7 @@ export function keepParts(text: string): KeptPart[] {
     text
       .replace(/(\S+) called (\d+) (times?)\b/g, `$1${NB}called${NB}$2${NB}$3`)
       .replace(/ · /g, `${NB}· `)
+      .replace(/ → /g, `${NB}→ `)
       .replace(/\bused by /g, `used${NB}by `)
       .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
       .replace(/([a-z]+) on ([A-Z][a-z]{2}) (\d{1,2})(, \d{4})?/g, (_m, w: string, mo: string, d: string, y?: string) => `${w}${NB}on${NB}${mo}${NB}${d}${y ? `,${NB}${y.slice(2)}` : ''}`),

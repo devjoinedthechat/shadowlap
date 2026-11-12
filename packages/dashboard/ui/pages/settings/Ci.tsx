@@ -15,6 +15,8 @@ import { AGAIN, CHANGES, keptFor } from './ci-kept.js';
 import { ConfigProblem, LoadProblem, Loading } from './common.js';
 import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
+import { Words } from '../../components/Copy.js';
+import { ruleWords } from '../../components/Verdict.js';
 
 /**
  * CI (`#/settings/ci`; `#/settings/alerts`, as Alerts had it, opens it too): Your workflow first,
@@ -195,7 +197,7 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
         </svg>
         <b title={pr.title}>{pr.title}</b>
         {pr.fixId ? (
-          <span>
+          <span className="nw">
             <a href={href.fixes(pr.fixId)} title={`The fix this pull request would carry: ${pr.fixId}`}>
               {shortFixId(pr.fixId)}
             </a>
@@ -214,13 +216,13 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
         {pr.verify ? (
           <li>
             <i className="ok" />
-            verify: {pr.verify}
+            verify: <Words>{ruleWords(pr.verify)}</Words>
           </li>
         ) : null}
         {pr.blame ? (
           <li>
             <i />
-            blame: {pr.blame}
+            blame: <Words>{pr.blame}</Words>
           </li>
         ) : null}
         <li>

@@ -1,4 +1,5 @@
 import { ActionButton } from '../../components/ActionButton.js';
+import { Copy } from '../../components/Copy.js';
 import { href } from '../../route.js';
 import type { CiName, StoreSetupView } from '../../store-api.js';
 import type { SetupStepState } from './store-logic.js';
@@ -20,22 +21,22 @@ const LINE = 'CI pushes every test run, its report and each fix it opens, so the
 export function PushFromCiStep({ view, state, ci, setCi, step, saving, off, save, copy }: { view: StoreSetupView; state: SetupStepState; ci: CiName; setCi: (ci: CiName) => void; step: SetupCi | null; saving: boolean; off: string | null; save: Save; copy: (text: string, what: string) => void }) {
   if (state === 'done') {
     const github = (view.setup.ciProvider ?? 'github') === 'github';
-    if (view.setup.ci === 'skipped') return <p>{github ? 'Skipped. Turn on Push from CI any time on Settings → Store.' : 'Skipped. Turn on Push from CI any time on Settings → Store, where its step is too.'}</p>;
+    if (view.setup.ci === 'skipped') return <Copy>{github ? 'Skipped. Turn on Push from CI any time on Settings → Store.' : 'Skipped. Turn on Push from CI any time on Settings → Store, where its step is too.'}</Copy>;
     return github ? (
-      <p>
+      <Copy>
         Push from CI is on: Your workflow on Settings → CI pushes every test run, its report and each fix it opens, so the store covers every pull request.{' '}
         <a className="more nw" href={href.settings('ci')}>
           Write the workflow →
         </a>
-      </p>
+      </Copy>
     ) : (
-      <p>{LINE}</p>
+      <Copy>{LINE}</Copy>
     );
   }
   const github = !!step?.workflow;
   return (
     <>
-      <p>{github ? `${LINE} Your workflow on Settings → CI adds the push step, and CI needs its own access to the bucket, with short-lived credentials where your CI allows it.` : `${LINE} Give CI its own access to the bucket, with short-lived credentials where your CI allows it.`}</p>
+      <Copy>{github ? `${LINE} Your workflow on Settings → CI adds the push step, and CI needs its own access to the bucket, with short-lived credentials where your CI allows it.` : `${LINE} Give CI its own access to the bucket, with short-lived credentials where your CI allows it.`}</Copy>
       {state === 'cur' && view.ci ? (
         <>
           <div className="seg" role="group" aria-label="CI">

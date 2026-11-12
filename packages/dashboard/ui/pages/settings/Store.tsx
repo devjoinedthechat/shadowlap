@@ -16,6 +16,8 @@ import { storeLime } from './store-logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
 import { Section } from '../../components/Section.js';
 import { Switch } from '../../components/Switch.js';
+import { Code } from '../../components/Copy.js';
+import { DotParts } from '../../components/DotParts.js';
 
 /**
  * Store: the team store, the project's runs in a bucket you own. Free, with nothing hosted: push
@@ -130,7 +132,7 @@ function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettin
     <dl className="kvs">
       <dt>Bucket</dt>
       <dd>
-        <code>{s.url}</code> {s.region ? <small>{s.region}</small> : null} <small>{s.providerName}</small>
+        <Code>{s.url}</Code> {s.region ? <small>{s.region}</small> : null} <small>{s.providerName}</small>
       </dd>
       <dt>Who has access</dt>
       <dd>
@@ -159,14 +161,16 @@ function StoreFacts({ status: s, policy }: { status: Status; policy: StoreSettin
       <dd>
         {syncText(s.syncedAt)}{' '}
         <small>
-          {num(s.inStore)} {s.inStore === 1 ? 'run' : 'runs'} in the store · {num(s.onlyLocal)} only on this machine{s.queued ? ` · ${num(s.queued)} pushed when ${s.queued === 1 ? 'it ends' : 'they end'}` : ''}
+          <DotParts parts={[`${num(s.inStore)} ${s.inStore === 1 ? 'run' : 'runs'} in the store`, `${num(s.onlyLocal)} only on this machine`, ...(s.queued ? [`${num(s.queued)} pushed when ${s.queued === 1 ? 'it ends' : 'they end'}`] : [])]} />
         </small>
       </dd>
       {s.check ? (
         <>
           <dt>Last check</dt>
           <dd>
-            {s.check.ok ? 'access works' : 'access failed'} <small>{checkWords(s.check)}</small>
+            {s.check.ok ? 'access works' : 'access failed'} <small>
+              <DotParts parts={checkWords(s.check)} />
+            </small>
           </dd>
         </>
       ) : null}
@@ -268,10 +272,10 @@ function jobButton(app: ReturnType<typeof useApp>, kind: string, command: string
   return null;
 }
 
-/** The last `store check`, in words: when, encryption, versioning and object lock. */
-function checkWords(c: NonNullable<NonNullable<StoreSettings['status']>['check']>): string {
+/** The last `store check`, in words: when, encryption, versioning and object lock, each a part of its line. */
+function checkWords(c: NonNullable<NonNullable<StoreSettings['status']>['check']>): string[] {
   const when = new Date(c.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return [when, c.encryption ? `encrypted (${c.encryption})` : 'encryption unknown', `versioning ${c.versioning}`, `object lock ${c.objectLock}`].join(' · ');
+  return [when, c.encryption ? `encrypted (${c.encryption})` : 'encryption unknown', `versioning ${c.versioning}`, `object lock ${c.objectLock}`];
 }
 
 interface CopiedStep {

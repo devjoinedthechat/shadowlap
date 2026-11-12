@@ -183,7 +183,7 @@ describe('Settings → Project', () => {
     const dl = r.one('.settab dl.kvs');
     expect(dl.querySelectorAll('dt').map((d) => d.textContent)).toEqual(['Shadowlap', 'Name', 'Store', 'Runs', 'Size', 'Dashboard']);
     const dd = dl.querySelectorAll('dd');
-    expect(dd[0].textContent).toBe('0.1.0 · open source, Apache-2.0 · no account, no limits on runs');
+    expect(dd[0].textContent.replace(/\u00a0/g, ' ')).toBe('0.1.0 · open source, Apache-2.0 · no account, no limits on runs');
     expect(dd.slice(1, 3).map((d) => d.querySelector('code')?.textContent)).toEqual(['research-agent', '~/research-agent/.shadowlap/shadowlap.db']);
     expect(dd[3].textContent).toBe('12 and 0 attempts');
     expect(dd[5].querySelector('code')?.textContent).toBe('127.0.0.1:4777');
@@ -196,6 +196,6 @@ describe('Settings → Project', () => {
     addressBar('#/settings/project');
     r = await page('project', app({ version: null }));
     await r.until('Project', () => r!.all('.settab dl.kvs dd').length > 0);
-    expect(r.all('.settab dl.kvs dd')[0].textContent).toBe('open source, Apache-2.0 · no account, no limits on runs');
+    expect(r.all('.settab dl.kvs dd')[0].textContent.replace(/\u00a0/g, ' ')).toBe('open source, Apache-2.0 · no account, no limits on runs');
   });
 });
