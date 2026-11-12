@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { gateResult, injectionTemplates, Store, type AttemptReport, type InjectionGateData, type StoredCheck, type TestResult } from '@shadowlap/engine';
 import { failedRunsHref, goldenReports, judgeAsked, printedLines, withFailedRuns, type GoldenReport } from '../src/golden-report.js';
+import { issueKey } from '../src/issue-keys.js';
+import type { IssuesPage } from '../src/issues.js';
 import { links } from '../src/links.js';
 import { runJob } from '../src/read-jobs.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
@@ -350,19 +352,26 @@ describe('a first bad commit, a miss, a replay gone', () => {
 });
 
 describe('Failed runs →', () => {
-  it('counts a golden’s failed replays as Runs’ Failed view lists them, newest first, and opens that view', async () => {
+  it('counts a golden’s own failed replays, newest first, as its issue under Failed holds them where the link opens it', async () => {
     const store = Store.open(':memory:');
     const rec = addRun(store, { startedAt: 1_000, calls: 'rr' });
-    // Runs' words match a run's command too: a golden named as the agent's file is would match every replay.
-    const replay = (at: number, failed: boolean, golden = 'goldens/refund') => addRun(store, { parent: rec, startedAt: at, calls: 'r', argv: ['python', 'agent.py'], ...(failed ? { status: 'failed' as const } : {}), meta: { test: { golden, session: 's' } } });
+    // Runs' words match a run's command too, and a golden whose name starts another's: the count reads each replay's golden.
+    const replay = (at: number, failed: boolean, golden = 'goldens/refund') => addRun(store, { parent: rec, startedAt: at, calls: 'r', argv: ['python', 'refund_agent.py'], ...(failed ? { status: 'failed' as const } : {}), meta: { test: { golden, session: 's' } } });
     const failed = [replay(2_000, true), replay(3_000, true)];
     replay(4_000, false);
-    replay(5_000, true, 'goldens/other');
-    const answer = await runJob(store, { kind: 'tests-failed-runs', goldens: [{ golden: 'goldens/refund', name: 'refund' }, { golden: 'goldens/none', name: 'none' }], outcome: null }, { whole: true });
+    const late = replay(5_000, true, 'goldens/refund-late');
+    const answer = await runJob(store, { kind: 'tests-failed-runs', goldens: ['goldens/refund', 'goldens/refund-late', 'goldens/none'], outcome: null }, { whole: true });
     const runs = JSON.parse(answer.body) as Record<string, { count: number; ids: string[] }>;
-    expect(runs).toEqual({ 'goldens/refund': { count: 2, ids: [failed[1], failed[0]] } });
+    expect(runs).toEqual({ 'goldens/refund': { count: 2, ids: [failed[1], failed[0]] }, 'goldens/refund-late': { count: 1, ids: [late] } });
     const report = { golden: 'goldens/refund', name: 'refund', failedRuns: null } as unknown as GoldenReport;
-    expect(withFailedRuns({ 'goldens/refund': report }, runs, undefined)['goldens/refund'].failedRuns).toEqual({ href: links.runs({ q: 'type:test refund', types: 'failed' }), count: 2, ids: [failed[1], failed[0]] });
+    const link = withFailedRuns({ 'goldens/refund': report }, runs, undefined)['goldens/refund'].failedRuns!;
+    expect(link).toEqual({ href: links.runs({ q: 'type:test refund', types: 'failed' }), count: 2, ids: [failed[1], failed[0]] });
+    // Failed under the link's words holds both goldens' replays, the golden's own in its issue.
+    const key = issueKey.golden('goldens/refund');
+    const page = JSON.parse((await runJob(store, { kind: 'runs-issues', options: { q: 'type:test refund' }, outcome: null, next: null, open: [key] }, { whole: true })).body) as IssuesPage;
+    expect(page.total).toBe(3);
+    const issue = page.issues.find((x) => x.key === key);
+    expect([issue?.count, issue?.runs?.map((x) => x.runId)]).toEqual([link.count, link.ids]);
     store.close();
   });
 

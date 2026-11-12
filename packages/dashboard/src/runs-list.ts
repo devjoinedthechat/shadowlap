@@ -248,18 +248,6 @@ export function matchedRuns(store: Store, filter: RunFilter): { runs: IndexedRun
 }
 
 /**
- * Every run each of `filters` matches, as matchingRuns finds them, with the index walked once:
- * `within` asks what every one of them asks but its words (the same types, terms and dates), so
- * each one's words are matched only against the runs `within` keeps.
- */
-export function matchingRunsEach(store: Store, within: RunFilter, filters: readonly RunFilter[]): IndexedRun[][] {
-  const index = loadRunIndex(store);
-  const all = withLiveness(store, index);
-  const kept = all.filter(matcher(within, filterReads(store, index, all, within).reads).matches);
-  return filters.map((f) => kept.filter(matcher(f, filterReads(store, index, kept, f).reads).matches));
-}
-
-/**
  * The index's runs as the lists show them now: a run the store still marks running though nothing
  * records it (its recorder was killed, or ran out of memory, before ending it) is interrupted, as
  * the top bar's chip has it. Nothing adds to such a run or ends it until gc marks it interrupted;

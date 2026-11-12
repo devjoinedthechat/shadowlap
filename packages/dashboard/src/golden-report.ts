@@ -5,7 +5,7 @@ import { links } from './links.js';
 import { answer, type ReadTable } from './read-registry.js';
 import { judgeFor, type OutcomeWork } from './run-outcome.js';
 import { entriesBodies } from './request-diff.js';
-import { matchingRunsEach } from './runs-list.js';
+import { matchingRuns } from './runs-list.js';
 import type { BisectMiss, FoundCommit } from './tests-bisect.js';
 import { forkedWords } from './tests-evidence.js';
 import { causeOf, divergenceOf } from './tests-normalize.js';
@@ -104,7 +104,7 @@ export interface GoldenReport {
   parts: ReportPart[];
   /** The result's own run, while the store keeps it: Open run, or Open failing attempt for a golden of several attempts. */
   open: { label: string; href: string } | null;
-  /** Runs' Failed view of the golden's failed replays, with how many and the first five ids; null where there are none, or its step is a fix. */
+  /** The golden's own failed replays on Runs › Failed, where the link opens its issue: how many and the first five ids; null where there are none, or its step is a fix. */
   failedRuns: { href: string; count: number; ids: string[] } | null;
   hint: HintKey | null;
   /** The report as `shadowlap test` prints it. */
@@ -575,33 +575,36 @@ const FAILED_REPLAYS = 'type:test';
 /** Runs' filter for a golden's failed replays: its test replays, whose about line is its name, under Failed. Quoted where the name holds a space. */
 const failedRunsQuery = (name: string): string => `${FAILED_REPLAYS} ${/\s/.test(name) ? `"${name}"` : name}`;
 
-/** Where Failed runs → opens: Runs' Failed view of the golden's replays. */
+/** Where Failed runs → opens: Runs' Failed view of the golden's replays, where the link opens its issue. */
 export const failedRunsHref = (name: string): string => links.runs({ q: failedRunsQuery(name), types: 'failed' });
 
-/** Each golden's failed replays as Runs' Failed view lists them, by its path: how many, and the first five, newest first. */
-export type GoldenRunsJob = { kind: 'tests-failed-runs'; goldens: Array<{ golden: string; name: string }>; outcome?: OutcomeWork | null };
+/** Each golden's failed replays, by its path: how many, and the first five, newest first. */
+export type GoldenRunsJob = { kind: 'tests-failed-runs'; goldens: string[]; outcome?: OutcomeWork | null };
 
 /**
- * The pooled read: the runs Failed runs → opens, matched as Runs matches them (runs-list.ts, the same
- * filter and the same judge), so the count is what the link opens. Every run's index row is read
- * once, for the failed test replays, and each golden's name is matched among those alone: never on
- * the server's thread. A golden with none is left out.
+ * The pooled read: each golden's own failed replays, the test replays Runs lists under Failed (the
+ * same filter and judge as runs-list.ts) whose test is that golden (`meta.test.golden`), as the
+ * golden's issue there holds them. Never Runs' word search, which matches a run's command too, so a
+ * golden named as the agent's file would count every replay. Every run's index row is read once:
+ * never on the server's thread. A golden with none is left out.
  */
 export const GOLDEN_REPORT_READS: ReadTable<GoldenRunsJob> = {
   'tests-failed-runs': (store, job, { whole }) => {
-    const judge = judgeFor(store, job.outcome ?? null);
-    const filter = (q: string) => ({ q, types: ['failed' as const], known: !whole, judge });
-    const each = matchingRunsEach(store, filter(FAILED_REPLAYS), job.goldens.map((g) => filter(failedRunsQuery(g.name))));
-    const found: Record<string, { count: number; ids: string[] }> = {};
-    job.goldens.forEach((g, n) => {
-      const runs = each[n] ?? [];
-      if (runs.length) found[g.golden] = { count: runs.length, ids: runs.slice(0, 5).map((r) => r.runId) };
-    });
-    return answer(found);
+    const asked = new Set(job.goldens);
+    const found = new Map<string, { count: number; ids: string[] }>();
+    for (const r of matchingRuns(store, { q: FAILED_REPLAYS, types: ['failed'], known: !whole, judge: judgeFor(store, job.outcome ?? null) })) {
+      const golden = r.meta.test?.golden;
+      if (golden === undefined || !asked.has(golden)) continue;
+      const runs = found.get(golden) ?? { count: 0, ids: [] };
+      runs.count += 1;
+      if (runs.ids.length < 5) runs.ids.push(r.runId);
+      found.set(golden, runs);
+    }
+    return answer(Object.fromEntries(found));
   },
 };
 
-/** The reports with Runs' count of each golden's failed replays, where its step isn't a fix: a fix's failing runs are its fix's, which Open fix leads to. */
+/** The reports with each golden's own failed replays, where its step isn't a fix: a fix's failing runs are its fix's, which Open fix leads to. */
 export function withFailedRuns(reports: Record<string, GoldenReport>, runs: Record<string, { count: number; ids: string[] }> | null, steps: Record<string, { key: string }> | undefined): Record<string, GoldenReport> {
   const out: Record<string, GoldenReport> = {};
   for (const [golden, report] of Object.entries(reports)) {

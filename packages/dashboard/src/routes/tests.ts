@@ -261,13 +261,13 @@ export function register(router: Router, ctx: RouteContext): void {
   // Each golden that didn't pass with the step it leads with, as its replay's page leads, worked out
   // beside the server: the light form, which reads no call. Left out when that read fails: the page
   // then leads with Run tests. And its report (golden-report.ts), from its last result read by key,
-  // after the first bad commit is served as the card shows it, with Runs' count of its failed replays,
-  // which reads every run's row, so beside the server too.
+  // after the first bad commit is served as the card shows it, with its own failed replays under
+  // Runs › Failed, which reads every run's row, so beside the server too.
   const withSteps = async (view: TestsView): Promise<TestsAnswer> => {
     const listed = [...view.divergences, ...view.failures, ...view.inconclusive];
     if (!listed.length) return view;
     const reports = goldenReports(view, { store: ctx.store, goldens: goldens(), normalizers: normalizers(), project: ctx.project?.path ?? null });
-    const named = Object.values(reports).map((x) => ({ golden: x.golden, name: x.name }));
+    const named = Object.values(reports).map((x) => x.golden);
     const [steps, runs] = await Promise.all([
       pooled<Record<string, NextStep>>(() => ctx.reads.run({ kind: 'tests-steps', goldens: listed.map((d) => d.golden), next: nextStepWork(ctx) })),
       named.length ? pooled<Record<string, { count: number; ids: string[] }>>(() => ctx.reads.run({ kind: 'tests-failed-runs', goldens: named, outcome: projectWork(ctx).outcome })) : null,
