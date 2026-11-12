@@ -8,7 +8,6 @@ import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
 import { JobButton } from '../components/JobButton.js';
-import { onShow } from '../components/OnShow.js';
 import { Section } from '../components/Section.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { goldenName, justNow, minuteStamp, plural, shortId } from '../format.js';
@@ -22,7 +21,7 @@ import { useApp } from '../state.js';
 import { addressNow } from '../dom.js';
 import type { CoverageGroupView, CoverageView } from '../types.js';
 import { andList, asksNotCovered, coverageSaid, coverageShows, endOf, lastTried, lineSteps, NO_LONGER, nearestWords, packCommand, pathWords, triedWhy, whereOf, type LineStep, type Where } from './model.js';
-import type { PackDialogProps } from './PackDialog.js';
+import { PackDialogPart } from './part.js';
 
 /*
  * Tests › Not covered: what production did that no golden tests, a behaviour a row, from where it
@@ -30,10 +29,8 @@ import type { PackDialogProps } from './PackDialog.js';
  * longer does), its details on request, Rescan coverage at the head and the last scan in the foot.
  * The scan is the CLI's (`/api/coverage` reads the one it kept): read again as a scan or a pack
  * writes one, and as runs come in, which the foot then counts. It shows only where there is an
- * imported run to read. The pack dialogs wait for a script of their own (PackDialog.tsx).
+ * imported run to read. The pack dialogs are a part the served dashboard hands in (part.tsx).
  */
-
-const PackDialog = onShow<PackDialogProps>(() => import('./PackDialog.js').then((m) => m.PackDialog));
 
 /** The jobs whose end changes what it shows. */
 const ENDS = new Set<string>([JOB_KINDS.coverage, JOB_KINDS.coveragePack]);
@@ -160,7 +157,7 @@ function PackButton({ g, fork, quiet = false }: { g: CoverageGroupView; fork: bo
       <TestsJobButton verb="pack it" off={actionsOff} className="btn sm" card={{ tip: label, sub, command: `$ ${command}` }} onClick={() => setAsking(true)}>
         {label}
       </TestsJobButton>
-      {asking ? <PackDialog group={g} fork={fork} onClose={() => setAsking(false)} /> : null}
+      {asking ? <PackDialogPart group={g} fork={fork} onClose={() => setAsking(false)} /> : null}
     </>
   );
 }

@@ -11,6 +11,8 @@ import { packedGolden, packedTestAsk } from '../ui/not-covered/job-footer.js';
 import { coverageSaid, foldSteps, lineSteps, packCommand, rescanLeads, whereOf } from '../ui/not-covered/model.js';
 import { NotCovered } from '../ui/not-covered/NotCovered.js';
 import { LookStepButton } from '../ui/overview/steps.js';
+import { SERVED_PARTS } from '../ui/pages/served.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import type { CoverageGroupView, CoverageView, NeedsLookRow } from '../ui/types.js';
 
 /**
@@ -131,8 +133,11 @@ function view(over: Partial<CoverageView> = {}): CoverageView {
   };
 }
 
+/** `el` on the served dashboard, which hands in the parts, the pack dialog among them. */
+const served = (el: ReturnType<typeof createElement>) => createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, el);
+
 function tests(v: CoverageView | null, lime = true, over: Partial<AppState> & { startJob?: () => Promise<unknown> } = {}) {
-  return createElement(AppContext.Provider, { value: app({ hasKind: () => true, feeds: {}, ...over }) }, createElement(NotCovered, { v, lime }));
+  return createElement(AppContext.Provider, { value: app({ hasKind: () => true, feeds: {}, ...over }) }, served(createElement(NotCovered, { v, lime })));
 }
 
 describe('Tests › Not covered', () => {
@@ -293,7 +298,7 @@ describe('Needs a look’s coverage step', () => {
     const startJob = vi.fn(() => Promise.resolve({ id: 'j1' }));
     const value = app({ hasKind: () => true, feeds: {}, startJob });
     (value.client as unknown as Record<string, unknown>).coverage = () => Promise.resolve(view());
-    r = await render(createElement(AppContext.Provider, { value }, createElement(LookStepButton, { row, wait: () => null, version: '1' })));
+    r = await render(createElement(AppContext.Provider, { value }, served(createElement(LookStepButton, { row, wait: () => null, version: '1' }))));
     const button = r.one('.btn');
     expect(JSON.parse(button.getAttribute('data-tip')!)).toMatchObject({ t: 'Pack as golden', s: 'Asks first: replays 01M3S1C7QD offline with the agent’s command, and packs it when it reproduces', cmd: `$ shadowlap coverage --pack ${KEY}` });
     await r.click(button);
@@ -315,7 +320,7 @@ describe('Not covered’s keys', () => {
       return createElement(
         AppContext.Provider,
         { value: app({ hasKind: () => true, feeds: {}, palette: open, setPalette: setOpen, runKeys: { current: null } }) },
-        createElement('main', { id: 'view' }, createElement(NotCovered, { v, lime: true })),
+        createElement('main', { id: 'view' }, served(createElement(NotCovered, { v, lime: true }))),
         createElement(Keyboard),
         createElement(Palette, { route: { page: 'tests' } }),
       );

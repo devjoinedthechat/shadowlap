@@ -14,6 +14,7 @@ import { moreCard } from '../pages/tests-cards.js';
 import { EditCheckStep } from '../run/check-entry.js';
 import { stepCard } from '../run/next-step.js';
 import { sentEstimate } from '../spending.js';
+import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 import { useAsking, usePriced } from '../step-asks.js';
 import { type Job, type LookWait, type Price, RunStep, runStepJob, stepWhy, updateAsk, usePost } from '../steps/RunStep.js';
@@ -132,20 +133,23 @@ const PACK_FORK_SUB = 'Asks first: a golden that forks where the agent parts fro
 
 /**
  * Pack as golden, or Pack with checks… once the agent no longer does it: Not covered's dialog on the
- * newest behaviour no golden covers, read with the scan as it opens. Once the pack ends, its drawer's
- * Run test takes the focus, and the row then packs the next behaviour.
+ * newest behaviour no golden covers, read with the scan as it opens, its script asked for meanwhile
+ * (a part the served dashboard hands in). Once the pack ends, its drawer's Run test takes the focus,
+ * and the row then packs the next behaviour.
  */
 function PackStep({ s, runId, why }: { s: Extract<LookStep, { of: 'pack' }>; runId: string | null; why: string | null }) {
   const app = useApp();
+  const { PackDialog } = useServedParts();
   const [asking, show] = useAsking();
   const words = stepWords(s);
   const sub = words.sub ?? `Asks first: replays ${runId ? shortId(runId) : 'its newest run'} offline with the agent’s command, and packs it when it reproduces`;
   const open = () =>
     show(async (close) => {
-      const [view, m] = await Promise.all([app.client.coverage(), import('../not-covered/PackDialog.js')]);
+      PackDialog?.preload();
+      const view = await app.client.coverage();
       const group = view?.groups.find((g) => g.key === s.key && !g.covered);
       if (!group) throw new Error('The last coverage scan no longer has this behaviour without a golden: scan again');
-      return <m.PackDialog group={group} fork={s.fork} onClose={close} />;
+      return PackDialog ? <PackDialog group={group} fork={s.fork} onClose={close} /> : null;
     });
   return (
     <>

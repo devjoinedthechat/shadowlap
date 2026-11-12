@@ -10,6 +10,7 @@ import type { PackWithGate } from './injection/PackWithGate.js';
 import type { Proof } from './injection/Proof.js';
 import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
 import type { TestDialog } from './injection/TestDialog.js';
+import type { PackDialogProps } from './not-covered/PackDialog.js';
 import type { PresetsDialog } from './presets/PresetsDialog.js';
 import type { PresetsFinding } from './presets/PresetsFinding.js';
 import type { PresetsResults } from './presets/PresetsResults.js';
@@ -41,6 +42,7 @@ export type CauseFindingProps = ComponentProps<typeof CauseFinding>;
 export type PresetsDialogProps = ComponentProps<typeof PresetsDialog>;
 export type PresetsFindingProps = ComponentProps<typeof PresetsFinding>;
 export type PresetsResultsProps = ComponentProps<typeof PresetsResults>;
+export type { PackDialogProps };
 export type { FailedIssuesProps };
 
 /**
@@ -92,6 +94,8 @@ export interface ServedParts {
   PresetsFinding?: OnShow<PresetsFindingProps>;
   /** A recording's presets in the inspector's place (presets/PresetsResults.tsx), with the matrix they draw: loaded ahead as the pointer or the focus reaches Show results. */
   PresetsResults?: OnShow<PresetsResultsProps>;
+  /** Not covered's Pack as golden and Pack with checks… (not-covered/PackDialog.tsx): its rows on Tests and Needs a look's step open it. Loaded as it first shows. */
+  PackDialog?: OnShow<PackDialogProps>;
   /** Pack with injection gate…'s dialog (injection/PackWithGate.tsx), which the run's lime step opens where a read caused a write or an attempt obeyed. Loaded as it first shows. */
   PackWithGate?: OnShow<PackWithGateProps>;
   /** Find cause… on a write after an untrusted read, the inspector's link and its dialog (injection/FindCause.tsx): loaded as the inspector first shows on a run that has a write to ask about. */

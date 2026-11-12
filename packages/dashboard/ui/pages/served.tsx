@@ -37,8 +37,8 @@ function PressLost({ what, open, close }: { what: 'menu' | 'dialog'; open: boole
 /**
  * The one `failed` of the parts that open on a press: Share's menu and the Security report it opens,
  * the fork menu, the header's …, the check menu, Revert's dialog, Run blame's dialogs, the steps'
- * dialogs, Run injection test…'s, Run error-path presets…'s and Pack with injection gate…'s, each a
- * `menu` or a `dialog` in the toast's words. The parts drawn in place keep their own: the first bad
+ * dialogs, Run injection test…'s, Run error-path presets…'s, Not covered's pack dialogs and Pack with
+ * injection gate…'s, each a `menu` or a `dialog` in the toast's words. The parts drawn in place keep their own: the first bad
  * commit's change box's LoadFailed, the check builder's BuilderLost, Runs › Failed's issues'
  * LoadFailed, the injection and the presets results panels' LoadFailed, Find cause…'s (CauseLost),
  * and an injection test's finding's, the presets' finding's and Find cause's answers' (FindingLost).
@@ -94,6 +94,7 @@ export const SERVED_PARTS: ServedParts = {
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog), failed('dialog', closes)),
   TestDialog: onShow(() => import('../injection/TestDialog.js').then((m) => m.TestDialog), failed('dialog', closes)),
   PresetsDialog: onShow(() => import('../presets/PresetsDialog.js').then((m) => m.PresetsDialog), failed('dialog', closes)),
+  PackDialog: onShow(() => import('../not-covered/PackDialog.js').then((m) => m.PackDialog), failed('dialog', closes)),
   PackWithGate: onShow(() => import('../injection/PackWithGate.js').then((m) => m.PackWithGate), failed('dialog', closes)),
   FindCause: onShow(() => import('../injection/FindCause.js').then((m) => m.FindCause), { failed: (p) => <CauseLost callNo={p.callNo} cause={p.cause} /> }),
   CauseFinding: onShow(() => import('../injection/CauseFinding.js').then((m) => m.CauseFinding), { failed: (p) => <FindingLost finding="cause" fx={p.fx} more={p.more} /> }),

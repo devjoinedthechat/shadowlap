@@ -13,20 +13,21 @@ import { RunHeader } from '../ui/run/RunHeader.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction, ToastKind } from '../ui/toast.js';
-import type { CheckView, NextStep, RunDetail } from '../ui/types.js';
+import type { ChaosMatrix, CheckView, CoverageGroupView, NextStep, RunDetail } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
  * A part that opens on a press, whose code didn't come from the dashboard server: Share's menu, the
  * fork menu, the header's …, Add check…'s menu, Revert's dialog, Run blame's dialogs, the steps'
- * dialogs, Run injection test…'s, Pack with injection gate…'s and the Security report. The browser
+ * dialogs, Run injection test…'s, Run error-path presets…'s, Not covered's pack dialogs, Pack with
+ * injection gate…'s and the Security report. The browser
  * keeps a script's failure for as long as the page is open, so a press says so in the error toast, in
  * LoadFailed's words, with Retry, which loads the page again once the server is back. Nothing is
  * drawn in the part's place, so the focus stays on the button pressed, which no longer says it is
  * open, and the next press says it again. The parts drawn in place keep their own: the check builder
- * says so in a small dialog in its place, an injection test's results in the panel, its finding and
- * Find cause's answers in the finding's place among the run's findings, and Find cause…'s link on the
- * write it is drawn on. Here their scripts fail to come, as when the dashboard stopped.
+ * says so in a small dialog in its place, an injection test's results and a recording's presets' in
+ * the panel, the test's finding, the presets' and Find cause's answers in the finding's place among
+ * the run's findings, and Find cause…'s link on the write it is drawn on. Here their scripts fail to come, as when the dashboard stopped.
  */
 
 const { refused } = vi.hoisted(() => ({
@@ -49,6 +50,10 @@ vi.mock('../ui/injection/TestDialog.js', refused);
 vi.mock('../ui/injection/PackWithGate.js', refused);
 vi.mock('../ui/injection/FindCause.js', refused);
 vi.mock('../ui/injection/CauseFinding.js', refused);
+vi.mock('../ui/presets/PresetsDialog.js', refused);
+vi.mock('../ui/presets/PresetsFinding.js', refused);
+vi.mock('../ui/presets/PresetsResults.js', refused);
+vi.mock('../ui/not-covered/PackDialog.js', refused);
 
 const RUN = '01M5GRX8K406H4KHQ7DEKYWTSZ';
 const MENU = 'This menu’s code didn’t come from the dashboard server. Retry loads the page again.';
@@ -84,6 +89,21 @@ function SecurityRow() {
   return createElement('div', null, createElement('button', { type: 'button', className: 'secrow', onClick: () => setOpen(true) }, 'Security report'), open ? createElement(Report, { resultId: 'inj_1', mode: 'plant', runId: RUN, onClose: () => setOpen(false) }) : null);
 }
 
+/** Run error-path presets…' row, as the fork menu's whole run opens the dialog and its close comes back to the row. */
+function PresetsRow() {
+  const [open, setOpen] = useState(false);
+  const Presets = SERVED_PARTS.PresetsDialog!;
+  return createElement('div', null, createElement('button', { type: 'button', className: 'presetsrow', onClick: () => setOpen(true) }, 'Run error-path presets…'), open ? createElement(Presets, { runId: RUN, onClose: () => setOpen(false) }) : null);
+}
+
+/** Not covered's Pack as golden (or Pack with checks…, `fork`) on a behaviour's row, as its dialog opens on the press and closes back to the row. */
+function PackRow({ fork }: { fork: boolean }) {
+  const [open, setOpen] = useState(false);
+  const Pack = SERVED_PARTS.PackDialog!;
+  const group = { key: 'aaaa0000bbbb1111' } as unknown as CoverageGroupView;
+  return createElement('div', null, createElement('button', { type: 'button', className: fork ? 'packchecks' : 'packrow', onClick: () => setOpen(true) }, fork ? 'Pack with checks…' : 'Pack as golden'), open ? createElement(Pack, { group, fork, onClose: () => setOpen(false) }) : null);
+}
+
 /** Add check…'s menu at a call, as the inspector's link opens it, and its pick or Esc closes it. */
 function CheckRow() {
   const [at, setAt] = useState<HTMLElement | null>(null);
@@ -98,6 +118,9 @@ const CAUSE: CauseView = {
   rule: null,
   reads: [{ callNo: 4, name: 'get_ticket', from: 'config', readAt: 5 }],
 };
+
+/** Error-path presets run on the recording, one failed: a finding of a failure's weight, and the matrix Show results opens. */
+const PRESETS = { runId: RUN, golden: null, at: 1, counts: { passed: 1, failed: 1, inconclusive: 0, notApplicable: 0 }, command: null, rule: null, judge: null, spent: 0, upstreamRequests: 0, toolCall: null, cells: [] } as unknown as ChaosMatrix;
 
 /** The injection test kept for the run, its gate failed: a finding of a failure's weight. */
 const INJECTION: InjectionFinding = { resultId: 'inj_1', gate: 'failed', label: 'injection test', line: 'send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed)', golden: null };
@@ -205,7 +228,7 @@ describe('a part that opens on a press, whose code didn’t come', () => {
     }
   });
 
-  it('says so of Run blame’s dialogs, a step’s, Run injection test…’s, Pack with injection gate…’s, Revert’s and the Security report in the dialog’s words, the focus kept on the button, and again on the next press', async () => {
+  it('says so of Run blame’s dialogs, a step’s, Run injection test…’s, Run error-path presets…’s, Not covered’s two pack dialogs, Pack with injection gate…’s, Revert’s and the Security report in the dialog’s words, the focus kept on the button, and again on the next press', async () => {
     const step: NextStep = { key: 'update-golden', label: 'Update golden', golden: 'goldens/refund-in-limit', test: null, sub: 'Asks the judge once, live, and keeps its verdict in the pack', command: 'shadowlap test goldens/refund-in-limit --update' };
     const revert = { key: 'revert', label: 'Revert', golden: 'goldens/refund-in-limit', rev: 'ccccccc', merge: false, live: [], blame: null, title: 'Revert ccccccc', sub: 'Log the total: undone in your working tree, then refund-in-limit replayed offline', command: 'git revert --no-commit ccccccc && shadowlap test goldens/refund-in-limit' } as unknown as Extract<NextStep, { key: 'revert' }>;
     const stepRun = { run: { runId: RUN, parentRunId: null, status: 'completed', meta: {} }, actions: [], children: [], calls: [] } as unknown as RunDetail;
@@ -221,6 +244,9 @@ describe('a part that opens on a press, whose code didn’t come', () => {
         createElement(NextStepButton, { run: stepRun, step: gate, offers: null, onAction: () => undefined, onFindCommit: () => undefined }),
         createElement(RevertButton, { step: revert, found: null, estimate: null, runId: RUN }),
         createElement(SecurityRow),
+        createElement(PresetsRow),
+        createElement(PackRow, { fork: false }),
+        createElement(PackRow, { fork: true }),
       ),
     );
     const buttons: Array<[string, () => ReturnType<Rendered['one']>]> = [
@@ -230,6 +256,9 @@ describe('a part that opens on a press, whose code didn’t come', () => {
       ['Pack with injection gate…', () => r!.byText('button', 'Pack with injection gate…')],
       ['Revert', () => r!.byText('button', 'Revert')],
       ['Security report', () => r!.one('button.secrow')],
+      ['Run error-path presets…', () => r!.one('button.presetsrow')],
+      ['Pack as golden', () => r!.one('button.packrow')],
+      ['Pack with checks…', () => r!.one('button.packchecks')],
     ];
     for (const [name, button] of buttons) {
       for (const time of [1, 2]) {
@@ -268,19 +297,21 @@ describe('a part that opens on a press, whose code didn’t come', () => {
 });
 
 describe('a part drawn in place, whose code didn’t come', () => {
-  it('keeps its own: the check builder’s small dialog from its entry, and the results panel’s line, with no toast', async () => {
+  it('keeps its own: the check builder’s small dialog from its entry, and the results panels’ lines, with no toast', async () => {
     const { said } = await served(
       createElement(
         'div',
         null,
         createElement(BuilderFailed.Provider, { value: createElement('p', { className: 'nobuilder' }, 'the entry’s dialog') }, createElement(SERVED_PARTS.CheckBuilder!, { golden: 'goldens/refund-in-limit', edit: null, onClose: () => undefined })),
         createElement(SERVED_PARTS.InjectionResults!, { runId: RUN, resultId: 'inj_1' }),
+        createElement(SERVED_PARTS.PresetsResults!, { matrix: PRESETS, about: null }),
       ),
     );
-    await r!.until('both parts’ own fallbacks', () => r!.all('.nobuilder').length === 1 && r!.all('.loaderr').length === 1);
-    const line = r!.one('.loaderr');
-    expect(line.getAttribute('role')).toBe('alert');
-    expect(line.querySelector('p span:not(.st)')!.textContent).toBe('This panel’s code didn’t come from the dashboard server. Retry loads the page again.');
+    await r!.until('the parts’ own fallbacks', () => r!.all('.nobuilder').length === 1 && r!.all('.loaderr').length === 2);
+    for (const line of r!.all('.loaderr')) {
+      expect(line.getAttribute('role')).toBe('alert');
+      expect(line.querySelector('p span:not(.st)')!.textContent).toBe('This panel’s code didn’t come from the dashboard server. Retry loads the page again.');
+    }
     await r!.wait(20);
     expect(said).toEqual([]);
     expect(r!.all('.toast')).toHaveLength(0);
@@ -324,6 +355,18 @@ describe('a part drawn in place, whose code didn’t come', () => {
     ]);
     expect(r!.one('.findings .fmore').textContent).toBe('2 findings');
     expect(after.said).toEqual([]);
+  });
+
+  it('says so of the presets’ finding where the finding goes, with its Retry and the bar’s toggle, and no toast', async () => {
+    const { said } = await served(createElement(FindingsBar, { run, blame: null, rescued: null, checks: [PASSED], offers: null, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined, notes: [], presets: PRESETS }));
+    await r!.until('the finding’s line', () => r!.all('.loaderr').length === 1);
+    const lost = r!.one('[data-finding="presets"]');
+    expect(lost.className).toBe('banner wrap');
+    expect(lost.querySelector('.loaderr p span:not(.st)')!.textContent).toBe(FINDING);
+    expect(lost.querySelectorAll('button').map((b) => b.textContent)).toEqual(['Retry', '2 findings']);
+    await r!.wait(20);
+    expect(said).toEqual([]);
+    expect(r!.all('.toast')).toHaveLength(0);
   });
 
   it('says so of Find cause…’s link on the write it is drawn on alone, and of its answers where the finding goes, with no toast', async () => {
