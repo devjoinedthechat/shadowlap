@@ -12,7 +12,7 @@ import { FINISH_APPLYING, MARK_APPLIED } from '../../src/fix-lead-words.js';
 /**
  * How the Fixes pages read a fix: which rows a filter keeps, which step and verdict a URL opens, the
  * words beside each badge, the run's calls as the Blame step lines them up, the change a repair made
- * cut to what changed, and report.md as blocks. No DOM here: the tests import it.
+ * cut to what changed. report.md's blocks are components/Markdown.tsx's. No DOM here: the tests import it.
  */
 
 // ---------------------------------------------------------------------------------------------- the list
@@ -571,119 +571,6 @@ export function keepAt(name: string): string {
   return name.replace(/ · at (\S)/g, ' · at $1');
 }
 
-// ---------------------------------------------------------------------------------------------- report.md
-
-export type MdBlock =
-  | { kind: 'h'; level: number; text: string }
-  | { kind: 'p'; text: string }
-  | { kind: 'code'; lang: string; lines: string[] }
-  | { kind: 'table'; head: string[]; rows: string[][] }
-  | { kind: 'ul'; items: string[] };
-
-const BLOCK_START = /^(#{1,6}\s|```|\s*\||\s*[-*]\s+)/;
-
-/** Splits a table row on its pipes, leaving `\|` inside a cell as a pipe. */
-function cells(line: string): string[] {
-  const body = line.trim().replace(/^\|/, '').replace(/\|$/, '');
-  const out: string[] = [];
-  let cur = '';
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i]!;
-    if (ch === '\\' && body[i + 1] === '|') {
-      cur += '|';
-      i++;
-    } else if (ch === '|') {
-      out.push(cur.trim());
-      cur = '';
-    } else cur += ch;
-  }
-  out.push(cur.trim());
-  return out;
-}
-
-/**
- * report.md as blocks the page draws as React elements: headings, paragraphs, code fences, tables and
- * lists, which is all a repair report writes. Never HTML: the text stays text.
- */
-export function parseMarkdown(md: string): MdBlock[] {
-  const lines = md.replace(/\r\n?/g, '\n').split('\n');
-  const out: MdBlock[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i]!;
-    if (!line.trim()) {
-      i++;
-      continue;
-    }
-    const fence = /^```([\w-]*)\s*$/.exec(line);
-    if (fence) {
-      const body: string[] = [];
-      i++;
-      while (i < lines.length && !/^```\s*$/.test(lines[i]!)) body.push(lines[i++]!);
-      i++;
-      out.push({ kind: 'code', lang: fence[1] ?? '', lines: body });
-      continue;
-    }
-    const h = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (h) {
-      out.push({ kind: 'h', level: h[1]!.length, text: h[2]!.trim() });
-      i++;
-      continue;
-    }
-    if (line.trimStart().startsWith('|')) {
-      const rows: string[][] = [];
-      while (i < lines.length && lines[i]!.trimStart().startsWith('|')) rows.push(cells(lines[i++]!));
-      const sep = rows[1]?.every((c) => /^:?-{2,}:?$/.test(c)) ? 1 : -1;
-      out.push({ kind: 'table', head: rows[0] ?? [], rows: rows.filter((_, k) => k !== 0 && k !== sep) });
-      continue;
-    }
-    if (/^\s*[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i]!)) items.push(lines[i++]!.replace(/^\s*[-*]\s+/, ''));
-      out.push({ kind: 'ul', items });
-      continue;
-    }
-    const para = [line.trim()];
-    i++;
-    while (i < lines.length && lines[i]!.trim() && !BLOCK_START.test(lines[i]!)) para.push(lines[i++]!.trim());
-    out.push({ kind: 'p', text: para.join(' ') });
-  }
-  return out;
-}
-
-/** A table header of report.md as plain words, for the label a narrow panel shows above each value. */
-export const plainCell = (text: string): string => text.replace(/`/g, '').trim();
-
-/** A cell that reads as one token (a run id, a role, an outcome, a count) and so stays on one line while longer cells wrap. */
-export function cellKeepsWhole(text: string): boolean {
-  const t = plainCell(text);
-  return t.length <= 16 && !/\s/.test(t);
-}
-
-/**
- * Text cut where JSON in a narrow cell may wrap before it has to break a word: after each `,`, `:`,
- * `(` and `{` of a long word (`issue_refund({"order_id":"A-1042",…`). Words of plain text wrap at
- * their spaces as they are.
- */
-export function breakPoints(text: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  for (const piece of text.split(/(\s+)/)) {
-    if (piece.length <= 12 || /\s/.test(piece)) {
-      cur += piece;
-      continue;
-    }
-    const [first = '', ...rest] = piece.split(/(?<=[,:({])/);
-    cur += first;
-    for (const part of rest) {
-      out.push(cur);
-      cur = part;
-    }
-  }
-  out.push(cur);
-  return out;
-}
-
 /**
  * Text cut where it names a command-line flag, with its placeholder when it has one (`--stronger
  * <model>`, `--repairer`), so each is set as code that keeps to one line: a flag broken after its
@@ -703,19 +590,6 @@ export function flagParts(text: string): Array<{ flag: boolean; text: string }> 
   return out;
 }
 
-/** A line of report.md cut where it sets code in backticks. */
-export function inlineParts(text: string): Array<{ code: boolean; text: string }> {
-  const out: Array<{ code: boolean; text: string }> = [];
-  const re = /`([^`]+)`/g;
-  let at = 0;
-  for (let m = re.exec(text); m; m = re.exec(text)) {
-    if (m.index > at) out.push({ code: false, text: text.slice(at, m.index) });
-    out.push({ code: true, text: m[1]! });
-    at = m.index + m[0].length;
-  }
-  if (at < text.length) out.push({ code: false, text: text.slice(at) });
-  return out;
-}
 
 /**
  * How another blame of the fix came out, as the Blame step lists it after Also blamed: where it found

@@ -358,3 +358,38 @@ mark.jdw { color: var(--ink); border-radius: var(--r-mark); padding: 0 1px; }
 @media (forced-colors: active) { mark.jdw { text-decoration: underline 2px; text-underline-offset: 2px; } }
 /* What Show diff says under the diff (DiffNotes.tsx): a line a change, then the normalizers' commands in one box. */
 .diffpanel .hint .cmdline { margin-top: 10px; }
+
+/* Markdown (components/Markdown.tsx): a repair's report.md or a migration's pull request body, drawn from its blocks */
+.prbody.md h3 { margin: 0 0 6px; }
+.prbody.md h4 { font-size: 12.5px; }
+.prbody.md p { margin: 6px 0; }
+.prbody.md code { font-size: 12.5px; }
+/* a quote (a retirement's notice) is muted beside the body; a link is underlined, so it never reads by its colour alone */
+.prbody.md blockquote { margin: 6px 0; padding-left: 12px; border-left: 2px solid var(--line); color: var(--faint); }
+.prbody.md blockquote p { margin: 0; }
+.prbody.md a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+/* its sections the step shows around it open on request: the heading, a summary of it and a caret */
+.prbody.md h4.mdh { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prbody.md h4.mdh .mds { color: var(--faint); font-weight: 400; font-size: 12px; }
+.prbody.md h4.mdh .xbtn { margin-left: -4px; }
+.prbody pre.fxcode { margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--code); border: 1px solid var(--line); font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.fxcode .add { color: var(--add); }
+.fxcode .del { color: var(--del); }
+.fxtable { overflow-x: auto; margin: 0 0 12px; }
+.fxtable table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fxtable th { text-align: left; vertical-align: bottom; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.fxtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+/* a long cell (an answer, a candidate) wraps anywhere, so the table fits its panel; a run id or a role stays whole */
+.fxtable td.nw { white-space: nowrap; overflow-wrap: normal; }
+/* report.md in a panel under 560px wide (beside Handed over on a laptop, or on a phone): each row as
+   its headers and values, one under the other, so no column is ever out of view */
+.prbody { container: report / inline-size; }
+
+@container report (max-width: 560px) {
+  .fxtable table, .fxtable tbody, .fxtable tr, .fxtable td { display: block; }
+  .fxtable thead { display: none; }
+  .fxtable tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .fxtable td { padding: 2px 0; border: 0; }
+  .fxtable td::before { content: attr(data-h); display: block; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+}
