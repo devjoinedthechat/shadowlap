@@ -12,8 +12,8 @@ import type { LookGroup } from './groups.js';
  * A row's one step, small and plain at its end, as plain data: a link (Continue setup, Open fix,
  * Open proof, Open passing run), a run's next step as its page leads with it (with no estimate: a
  * list carries none, and the step asks for its own when pressed), a fix's lead (fix-lead.ts), a
- * golden's Run more attempts, Update golden or Re-run test, Push local runs, or Migrate to a model.
- * None: the row says `Open →`.
+ * golden's Run more attempts, Update golden or Re-run test, Push local runs, Migrate to a model, or
+ * Pack as golden for a behaviour no golden covers. None: the row says `Open →`.
  */
 export type LookStep =
   /** `attempt`: it opens an attempt (Open proof), which no list the page holds has, so it waits while the server is out of reach. */
@@ -24,7 +24,9 @@ export type LookStep =
   | { of: 'update'; golden: string; label: string; command: string }
   | { of: 'rerun'; golden: string; label: string; sub: string; command: string }
   | { of: 'push'; label: string; command: string }
-  | { of: 'migrate'; label: string; from: string[]; to: string; goldens: string[]; command: string };
+  | { of: 'migrate'; label: string; from: string[]; to: string; goldens: string[]; command: string }
+  /** Pack a behaviour no golden covers (`coverage-pack` with its key): `fork` once the agent no longer does it, which asks for checks. */
+  | { of: 'pack'; key: string; label: string; fork: boolean };
 
 /** One row of Needs a look. */
 export interface NeedsLookRow {

@@ -85,6 +85,9 @@ export function stepRun(s: LookStep | null): { kind: string; job: Job | null } |
       return { kind: JOB_KINDS.push, job: null };
     case 'migrate':
       return { kind: JOB_KINDS.migrate, job: null };
+    case 'pack':
+      // As Not covered's Pack as golden waits: on the test lane (src/routes/coverage.ts).
+      return { kind: JOB_KINDS.coveragePack, job: { verb: 'pack it', tests: true } };
   }
 }
 
@@ -114,6 +117,8 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
       return { sub: MIGRATE_SUB, command: `$ ${s.command}` };
     case 'rerun':
       return { sub: s.sub, command: `$ ${s.command}` };
+    case 'pack':
+      return { sub: null, command: `$ shadowlap coverage --pack ${s.key}${s.fork ? ' --fork' : ''}` };
   }
 }
 
@@ -192,6 +197,8 @@ export function LookStepButton({ row, wait, version }: { row: NeedsLookRow; wait
     case 'push':
     case 'migrate':
       return <StoreStep s={s} why={why} />;
+    case 'pack':
+      return <span className="go">Open →</span>;
     default:
       return <GoldenStep s={s} why={why} />;
   }

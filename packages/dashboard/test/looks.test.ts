@@ -63,7 +63,7 @@ describe('the upgrades’ results in Needs a look', () => {
     presets('goldens/gone', run(), [{ preset: 'timeout', verdict: 'failed', callNo: 2 }]);
     const rows = items().filter((i) => i.kind === 'presets');
     expect(rows).toEqual([
-      { kind: 'presets', icon: 'fail', title: 'Error-path presets failed: forecast', detail: '2 of 4 presets failed: tool timeout #2, provider 429 #3 · 1 inconclusive', key: 'attn:presets:goldens/forecast', group: 'failing', step: null, href: `#/run/${failing.timeout}`, runId: failing.timeout, fixId: null, at: expect.any(Number) },
+      { kind: 'presets', icon: 'fail', title: 'Error-path presets failed: forecast', detail: '2 of 4 presets failed: tool timeout #2, provider 429 #3 · 1 inconclusive', key: 'attn:presets:goldens/forecast', group: 'failing', step: { of: 'link', label: 'Open proof', href: `#/run/${failing.timeout}/2`, attempt: true }, href: `#/run/${failing.timeout}`, runId: failing.timeout, fixId: null, at: expect.any(Number) },
       { kind: 'presets', icon: 'warn', title: 'Error-path presets inconclusive: inbox', detail: '1 of 2 presets inconclusive: provider 500 #4', key: 'attn:presets:goldens/inbox', group: 'tests', step: null, href: `#/run/${unsure['500']}`, runId: unsure['500'], fixId: null, at: expect.any(Number) },
     ]);
   });
@@ -201,7 +201,10 @@ describe('the upgrades’ results in Needs a look', () => {
     const group = (o: Partial<StoredCoverageGroup>): StoredCoverageGroup => ({ key: 'aaaa000011112222', scanId: 'S1', behaviour: { path: ['lookup_order', 'issue_refund'], writes: ['issue_refund'], unknown: [], outcome: 'answered' }, runs: 1, runIds: ['GONE', capture], sources: ['prod.har'], firstSeen: NOW - 9_000, lastSeen: NOW - 5_000, coveredBy: [], nearest: null, command: null, packed: null, ...o });
     store.saveCoverageScan({ scanId: 'S1', at: NOW - 1_000, runs: 2, groups: 2, uncovered: 1, goldens: 1, actor: null, data: null }, [group({}), group({ key: 'bbbb000011112222', coveredBy: ['goldens/forecast'] })]);
     const rows = items();
-    expect(rows.at(-1)).toEqual({ kind: 'coverage', icon: 'cap', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund, in prod.har', key: 'attn:coverage:aaaa000011112222', group: 'tests', step: null, href: '#/tests?at=notcovered', runId: capture, fixId: null, at: NOW - 1_000 });
+    expect(rows.at(-1)).toEqual({ kind: 'coverage', icon: 'cap', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund, in prod.har', key: 'attn:coverage:aaaa000011112222', group: 'tests', step: { of: 'pack', key: 'aaaa000011112222', label: 'Pack as golden', fork: false }, href: '#/tests?at=notcovered', runId: capture, fixId: null, at: NOW - 1_000 });
+    // Once a pack found the agent no longer does it, the step asks for the checks a golden that forks is judged by.
+    store.saveCoveragePack({ key: 'aaaa000011112222', at: NOW - 500, golden: null, runId: null, from: capture, mode: null, reason: 'not-reproduced', why: 'the agent sent another request at call 2', command: null });
+    expect(items().at(-1)?.step).toEqual({ of: 'pack', key: 'aaaa000011112222', label: 'Pack with checks…', fork: true });
   });
 
   it('adds nothing for a store where the upgrades found nothing to look at', () => {
