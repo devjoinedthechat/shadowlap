@@ -329,7 +329,7 @@ Each issue's row shows:
 - **First seen** and **Last seen**: when the oldest and the newest of them started.
 - **Fix**: the fix's place on the ladder, as on Fixes, with *· 1 not blamed* for its runs nobody has blamed, or *passed* for a golden whose last result passed. At its end is the issue's next step.
 
-The next step starts from the row, as on [Needs a look](#needs-a-look): **Run blame** for the newest run nobody has blamed, or the golden's step, such as **Add normalizer and re-run** or **Find breaking commit**. **Open fix** opens the fix, and a capture's **Run blame** opens its page, which asks for your command first. An issue with no step links to its newest run, or to Tests.
+The next step starts from the row, as on [Needs a look](#needs-a-look): **Run blame** for the newest run nobody has blamed, or the golden's step, such as **Add normalizer and re-run**, **Find breaking commit**, or **Revert** once that names the commit, which always asks first. **Open fix** opens the fix, and a capture's **Run blame** opens its page, which asks for your command first. An issue with no step links to its newest run, or to Tests.
 
 The days and the filter's words narrow the issues as they narrow the table: an issue counts only the runs they keep. While the verdicts Failed counts by are worked out, the line above says so, as it does for `status:`. On a phone, each issue is a block.
 
@@ -2043,7 +2043,7 @@ A job only names goldens the project has on disk.
 
 #### Revert
 
-**Revert** undoes the first bad commit Find breaking commit named for a crash, in your working tree, and leaves it uncommitted for you to review. Then it tests the golden. It is offered on a crash's run page, on Tests, on its fix's page, on the rows of Fixes and Needs a look, and in Search or jump to. It asks first every time, in a dialog titled *Revert 9a3c5e0?* with no docs link:
+**Revert** undoes the first bad commit Find breaking commit named for a crash, in your working tree, and leaves it uncommitted for you to review. Then it tests the golden. It is offered on a crash's run page, on Tests, on its fix's page, on the rows of Fixes and Needs a look, on its golden's issue under Runs › Failed, and in Search or jump to. It asks first every time, in a dialog titled *Revert 9a3c5e0?* with no docs link:
 
 - **The commit**: its subject, then who made it where names show, and when.
 - **Untested**, in amber, for the commits just before it that couldn't be tested: the first bad commit may be among them.
