@@ -1,3 +1,4 @@
+import { aboutForms } from '../about.js';
 import { AboutLine } from '../components/About.js';
 import { FindingPanel, ResultsMatrixPart } from '../components/FindingPanel.js';
 import { tipCard } from '../components/HoverCard.js';
@@ -37,15 +38,20 @@ function cellOf(c: Cell, col: MatrixCol): MatrixCell {
   return { word: w, tally, bound: c.bound, href: opens ? href.run(opens, c.callNo) : null, tip: tipCard([c.label, w, tally, c.bound].filter(Boolean).join(' · '), rows, col.sub ?? c.reason) };
 }
 
-/** The matrix: the recording's one row, named in its label, against a column for each preset, its sub where the preset hit. */
+/**
+ * The matrix: the recording's one row, named by its short id in its label as the dialog's title names
+ * it, against a column for each preset, its sub where the preset hit. Its head keeps room for the
+ * about line's shortest form, so the line is cut at whole words, never given up.
+ */
 export function presetsMatrix(m: ChaosMatrix, about: RunAbout | null): Matrix {
   const cells = new Map(m.cells.map((c) => [c.preset, c]));
+  const id = shortId(m.runId);
   return {
     id: `presets-${m.runId}`,
-    label: `Error-path presets on ${m.runId}`,
+    label: `Error-path presets on ${id}`,
     rowInLabel: true,
     corner: 'run',
-    rows: [{ key: m.runId, label: m.runId, chip: m.golden ? goldenName(m.golden) : null, sub: about?.text ?? null }],
+    rows: [{ key: m.runId, label: id, chip: m.golden ? goldenName(m.golden) : null, sub: about?.text ?? null, subMin: about?.text ? (aboutForms(about).filter(Boolean).at(-1) ?? null) : null }],
     cols: m.cells.map((c) => ({ key: c.preset, label: c.label, sub: beforeOutcome(c.detail) })),
     cell: (_row, col) => {
       const c = cells.get(col.key);

@@ -276,8 +276,9 @@ describe('a recording’s presets on its page', () => {
 
   it('lays the recording out against each preset on the shared matrix: where each hit, its tally and the attempt that shows it', () => {
     const m = presetsMatrix(matrix, about);
-    expect([m.id, m.label, m.rowInLabel, m.corner]).toEqual([`presets-${REC}`, `Error-path presets on ${REC}`, true, 'run']);
-    expect(m.rows).toEqual([{ key: REC, label: REC, chip: 'list-inbox', sub: 'Lists the inbox' }]);
+    // Named by its short id, as the dialog's title names it; its head keeps room for the about line's shortest form.
+    expect([m.id, m.label, m.rowInLabel, m.corner]).toEqual([`presets-${REC}`, 'Error-path presets on 01M5GRZVBY', true, 'run']);
+    expect(m.rows).toEqual([{ key: REC, label: '01M5GRZVBY', chip: 'list-inbox', sub: 'Lists the inbox', subMin: 'Lists the inbox' }]);
     expect(m.cols.map((c) => [c.label, c.sub])).toEqual([
       ['tool timeout', 'list_inbox (#2) timed out'],
       ['empty result', 'list_inbox (#2) answered with nothing'],
