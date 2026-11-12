@@ -190,7 +190,7 @@ describe('Tests › Not covered', () => {
     expect(dd[0]).toBe('get_ticket → lookup_order → get_policy → check_stock → lookup_customer → lookup_history → issue_refund → send_email8 tool calls · writes issue_refund and send_email · then it answered');
     expect(dd[1]).toBe(`3 runs, the newest ${minuteStamp(NOW - 6_000_000)}: 01M3S1C7QD 01M3S1C7QE 01M3S1C7QFin prod.har and tickets.har`);
     // Seen links each run the store still holds, however old, and only those: not the app's list of the newest runs.
-    expect(r.all('dl#cvx-3f9a2c1d dd')[1]!.querySelectorAll('a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${RUN}`]);
+    expect(r.all('dl#cvx-3f9a2c1d dd')[1].querySelectorAll('a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${RUN}`]);
     expect(dd[2]).toBe('refund-flow-budget, the same for 2 steps; then it calls get_policy where the golden calls lookup_customer');
     expect(dd[3]).toBe(KEY);
     await r.click(rows()[1].querySelector('button.cvn')!);
