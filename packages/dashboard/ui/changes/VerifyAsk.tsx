@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { AskNote } from '../components/AskNote.js';
+import { SrSpace } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Id } from '../components/Id.js';
 import { glossed } from '../components/Term.js';
@@ -62,7 +63,13 @@ function VerifyRows({ rows, roles }: { rows: readonly VerifyRow[]; roles: Decisi
         return (
           <p key={r.runId}>
             <Id id={r.runId} list about={r.about} />
-            {r.golden ? <span className="chip">{r.golden.replace(/^goldens\//, '')}</span> : null}
+            <SrSpace />
+            {r.golden ? (
+              <>
+                <span className="chip">{r.golden.replace(/^goldens\//, '')}</span>
+                <SrSpace />
+              </>
+            ) : null}
             <span className="sp" />
             {r.verified ? (
               <span className={`dvr dsv ${outcomeTone(r.verified.outcome)}`}>
