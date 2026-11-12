@@ -1,4 +1,5 @@
 import { createContext, useContext, type ComponentProps } from 'react';
+import type { NewPreviewProps } from './changes/NewPreview.js';
 import type { OnShow } from './components/OnShow.js';
 import type { RunBlameAsks } from './fixes/RunBlameAsks.js';
 import type { BuilderProps } from './run/check-part.js';
@@ -15,7 +16,8 @@ export type RunBlameAsksProps = ComponentProps<typeof RunBlameAsks>;
  * holds none of their code, and a page that finds one missing draws nothing in its place. What keeps
  * each undrawn in a copy is pinned by a test (test/ui-exported-copy.test.ts: a copy's run page draws
  * no Share, so nothing there opens Share's menu, and no Add check…, so nothing opens the builder; a
- * copy's next step is only ever Compare, so it draws no Run blame either).
+ * copy's next step is only ever Compare, so it draws no Run blame either; New preview waits in a copy,
+ * as every server action does, so its menu never opens there).
  */
 export interface ServedParts {
   /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
@@ -24,6 +26,8 @@ export interface ServedParts {
   CheckBuilder?: OnShow<BuilderProps>;
   /** What Run blame asks in once pressed (fixes/RunBlameAsks.tsx), with the check a blame needs: loaded the first time one asks. */
   RunBlameAsks?: OnShow<RunBlameAsksProps>;
+  /** New preview's three dialogs (changes/NewPreview.tsx), which a pick in its menu opens (components/NewPreviewMenu.tsx): loaded ahead as the pointer or the focus reaches New preview. */
+  NewPreview?: OnShow<NewPreviewProps>;
 }
 
 export const ServedPartsContext = createContext<ServedParts>({});

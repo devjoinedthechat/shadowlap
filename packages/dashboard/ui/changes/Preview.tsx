@@ -8,6 +8,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Link } from '../components/Link.js';
 import { MigrateAsk } from '../components/MigrateAsk.js';
+import { NewPreviewMenu, PreviewWayButtons } from '../components/NewPreviewMenu.js';
 import { Picker } from '../components/Picker.js';
 import { useMenu } from '../components/Popover.js';
 import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
@@ -74,6 +75,8 @@ export function PreviewTab({ id, run, call, onMissing }: { id: string | null; ru
     <>
       <div className="chbar">
         <SessionPicker sessions={sessions} shown={session} />
+        <span className="sp" />
+        <NewPreviewMenu target={EVERY_GOLDEN} lime={anotherChange(session.view)} />
       </div>
       <Verdict session={session} />
       <DecisionMatrix session={session} open={opened ? { run: opened.row.runId, call: opened.callNo } : null} onOpen={(r, c, current) => openCell(session.sessionId, r, c, current)} />
@@ -114,8 +117,13 @@ function NoPreview({ goldens }: { goldens: number }) {
         </p>
       </EmptyState>
     );
-  return <EmptyState title="Preview a change on your goldens" text={text} copy command="shadowlap decisions goldens/* --model <model>" />;
+  return <EmptyState title="Preview a change on your goldens" text={text} step={<PreviewWayButtons target={EVERY_GOLDEN} />} copy command="shadowlap decisions goldens/* --model <model>" />;
 }
+
+const EVERY_GOLDEN = { goldens: 'all' } as const;
+
+/** Another change is the next step once verify rejected the shown preview's and left nothing to verify or attempt: New preview turns lime. */
+const anotherChange = (v: PreviewSession['view']): boolean => verdictState(v) === 'verified' && v.verdict.word === 'rejected' && !nextStep(v.next);
 
 /** The previews picker: the one shown by its name, then its goldens or runs and when, fitted to the rest; a pick opens it. */
 function SessionPicker({ sessions, shown }: { sessions: readonly DecisionSessionView[]; shown: PreviewSession }) {

@@ -174,7 +174,7 @@ describe('the Preview page', () => {
 
   const listed = (): DecisionSessionView => ({ sessionId: ID, kind: 'decisions', at: AT, change: 'the model claude-haiku-4-5', name: 'Model switch to claude-haiku-4-5', runs: 2, goldens: 1, unit: 'run', samples: 2, flagged: 1, actor: null, revision: null, href: `#/changes/decisions/${ID}` });
   const app = (client: Partial<Client>): AppState =>
-    ({ client: { jobs: () => Promise.resolve([]), estimates: { decisionEstimates: () => Promise.resolve({ verify: null }) }, ...client } as unknown as Client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined }) as unknown as AppState;
+    ({ client: { jobs: () => Promise.resolve([]), estimates: { decisionEstimates: () => Promise.resolve({ verify: null }), previewEstimates: () => Promise.resolve({ ways: null }) }, ...client } as unknown as Client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined }) as unknown as AppState;
   const open = async (client: Partial<Client>, id: string | null = null) => {
     page = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(PreviewTab, { id, run: null, call: null })));
     return page;
@@ -416,6 +416,9 @@ describe('the Preview page', () => {
     page = p;
     await p.until('the empty state', () => p.all('.stepempty').length === 1);
     expect(shown(p.one('.stepempty'))).toContain('shadowlap decisions goldens/* --model <model>');
+    // The three ways, the first lime, each card with the command its dialog runs.
+    expect(p.all('.stepempty .actions button').map(shown)).toEqual(['Preview model switch…', 'Preview changed prompt', 'Preview field change…']);
+    expect(p.all('.stepempty .actions .btn.lime').length).toBe(1);
     expect(verdictState(flagged.view)).toBe('flagged');
   });
 
