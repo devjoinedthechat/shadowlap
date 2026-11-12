@@ -149,4 +149,29 @@ describe('the Runs page', () => {
     expect(r.one('table.runst').getAttribute('aria-rowcount')).toBe('251');
     expect(r.all('section.panel .empty, section.panel .emptyline')).toHaveLength(0);
   });
+
+  it('says why the table may still change from a live region there before its first page, the line drawn for the eye only', async () => {
+    const location = { hash: '#/runs?q=refund', search: '', pathname: '/' };
+    vi.stubGlobal('location', location);
+    vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (location.hash = url.slice(url.indexOf('#'))) });
+    let first: (warming: { done: number; total: number } | null) => void = () => undefined;
+    const client = {
+      exported: false,
+      runsPage: () => new Promise((resolve) => (first = (warming) => resolve({ runs: [row(1)], total: 1, next: null, chipCounts: { all: 1, recording: 1, fork: 0, clean: 0, test: 0, capture: 0, failed: 0, local: 0 }, warming }))),
+      runsByDay: () => new Promise(() => undefined),
+      teamStore: () => Promise.resolve(null),
+      knownRuns: (ids: string[]) => Promise.resolve(ids),
+    } as unknown as Client;
+    const app = { client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, actionsOff: null, hasKind: () => false, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(RunsPage, { filter: { q: 'refund', types: 'all', sort: 'when', days: null } })));
+    // Before the first page, the region is there, empty.
+    const region = r.one('.said > [role="status"]');
+    expect(region.textContent).toBe('');
+    first({ done: 120, total: 9000 });
+    await r.until('the first page', () => r!.all('table.runst tbody tr[data-wi]').length > 0);
+    expect(r.one('.said > [role="status"]')).toBe(region);
+    expect(region.textContent).toBe('The about lines of 120 of 9,000 runs are known so far: runs among the rest may match too. The table fills in as they are worked out.');
+    const drawn = r.one('p.muted');
+    expect([drawn.textContent, drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual([region.textContent, 'true', false]);
+  });
 });

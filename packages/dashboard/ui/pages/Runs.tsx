@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type Client } from '../api.js';
-import { Chips, PageHeader } from '../components/bits.js';
+import { Chips, PageHeader, Said } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { EmptyLine, EmptyState } from '../components/States.js';
 import { ShowMore } from '../components/Table.js';
@@ -525,8 +525,9 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <RunsFilterField value={query} onChange={setQuery} onCommit={() => commitRuns({ ...f, q: query })} settled={q} total={table.total} loaded={table.loaded} />
       </div>
+      <Said words={warming} />
       {warming ? (
-        <p className="muted" role="status">
+        <p className="muted" aria-hidden="true">
           {warming}
         </p>
       ) : null}
