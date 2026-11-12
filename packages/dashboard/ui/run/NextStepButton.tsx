@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, type RunDetail, type RunOffers } from '../api.js';
 import { ActionButton, useOfflineLink } from '../components/ActionButton.js';
@@ -22,6 +22,7 @@ import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
 import { checksOf, runLikeOf } from './model.js';
 import { blameBesideCard, replayAction, stepCard, stepEstimate, stepJob, type StepCard } from './next-step.js';
+import { keepStep } from './kept-step.js';
 import { blameTitle } from './offers.js';
 import { PackAsGolden, StepDialogPart } from './PackAsGolden.js';
 import { TestDialogPart } from '../injection/test-part.js';
@@ -44,7 +45,11 @@ export function useWholeStep(run: RunDetail): RunDetail {
   const ask = !!run.next?.later && run.run.status !== 'running';
   const asked = useLoad(() => (ask ? client.nextStep(run.run.runId) : null), ask ? run.run.runId : 'none', run.next);
   const whole = ask ? asked.data?.next : null;
-  return useMemo(() => (whole ? { ...run, next: whole } : run), [run, whole]);
+  const done = useMemo(() => (whole ? { ...run, next: whole } : run), [run, whole]);
+  // Kept for a drawer whose job ended here, to offer what the page now leads with (ui/injection/job-footer.tsx).
+  useEffect(() => keepStep(done.run.runId, done.next ?? null), [done]);
+  useEffect(() => () => keepStep(null, null), []);
+  return done;
 }
 
 /**

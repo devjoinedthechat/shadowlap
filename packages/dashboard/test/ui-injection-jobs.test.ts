@@ -1,12 +1,16 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { ToolsSettings } from '../src/settings.js';
-import type { CallDetail } from '../ui/api.js';
+import type { CallDetail, JobView } from '../ui/api.js';
+import { resultsToOpen } from '../ui/injection/job-footer.js';
+import { jobFooter } from '../ui/job-actions.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import { GLOSSARY } from '../ui/glossary.js';
 import { bigBill, testCommand, TestDialog, type TestDialogProps } from '../ui/injection/TestDialog.js';
 import { ForkMenu } from '../ui/run/ForkMenu.js';
+import { keepStep } from '../ui/run/kept-step.js';
+import { panelOn, resetPanel } from '../ui/run/panel-state.js';
 import { forgetRunEstimates } from '../ui/run/estimates.js';
 import { testRow } from '../ui/run/run-commands.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
@@ -304,5 +308,93 @@ describe('Run injection test…’s openers', () => {
     await r.click(r.one('.trusttab .tooltest'));
     await r.until('the dialog', () => r!.all('.dialog .togchips button').length === 12);
     expect([r.one('.dialog h3').textContent, r.one('.dialog .dfacts').textContent]).toEqual(['Run injection test on 01K5CQ4N7G', 'Plants in#4 get_ticket and #6 read_1']);
+  });
+});
+
+describe('An injection test’s drawer, a cause’s and Pack with injection gate’s, at their end', () => {
+  const g = globalThis as Record<string, unknown>;
+  const job = (o: Partial<JobView> = {}): JobView => ({ id: 'j1', kind: 'injection', title: 'Running injection test', runId: RUN, done: true, code: 3, endedAt: 1000, lines: [], links: [], ...o }) as unknown as JobView;
+  const plant = (reads: number, attempts = 4) => ({ results: [{ resultId: 'res1', mode: 'plant', runId: RUN, reads: Array.from({ length: reads }, () => ({})) }], totals: { attempts }, verdict: 'inconclusive' });
+  afterEach(() => {
+    delete g.location;
+    keepStep(null, null);
+    resetPanel();
+  });
+
+  /** The drawer's footer for `j`, over a run page whose lime step is `step`, its presses counted. */
+  async function drawer(j: JobView, step: string) {
+    const presses: string[] = [];
+    const Footer = jobFooter(j.kind)!;
+    const view = createElement('div', { id: 'view' }, createElement('button', { className: 'btn lime', 'data-next': step, onClick: () => void presses.push(step) }, step));
+    r = await render(createElement(AppContext.Provider, { value: app({}, []) }, view, createElement('span', { className: 'jkind' }, createElement(Footer, { job: j }))));
+    return presses;
+  }
+
+  it('offers the step the run’s page leads with once it has read it since the job ended, pressing the page’s own', async () => {
+    g.location = { hash: `#/run/${RUN}` };
+    keepStep(RUN, { key: 'injection-again', label: 'Re-run injection test' });
+    const presses = await drawer(job(), 'injection-again');
+    expect(JSON.parse(r!.one('.jkind button').getAttribute('data-tip')!)).toMatchObject({ t: 'Re-run injection test', s: 'The same command once more' });
+    expect(r!.one('.jkind button').className).toBe('btn lime');
+    await r!.click(r!.one('.jkind button'));
+    expect(presses).toEqual(['injection-again']);
+  });
+
+  it('offers Pack with injection gate… after a cause’s answer, and nothing for a step it doesn’t offer, another run’s, one read before the end, or on another page', async () => {
+    g.location = { hash: `#/run/${RUN}` };
+    keepStep(RUN, { key: 'pack-gate', label: 'Pack with injection gate…' });
+    await drawer(job({ result: { results: [{ mode: 'clean' }] } }), 'pack-gate');
+    expect(r!.one('.jkind button').textContent).toBe('Pack with injection gate…');
+    for (const [step, kept, j, hash] of [
+      ['injection-test', RUN, job(), `#/run/${RUN}`],
+      ['injection-again', '01K5CQ9ZZZZZZZZZZZZZZZZZZZ', job(), `#/run/${RUN}`],
+      ['injection-again', RUN, job({ endedAt: Date.now() + 60_000 }), `#/run/${RUN}`],
+      ['injection-again', RUN, job({ done: false }), `#/run/${RUN}`],
+      ['injection-again', RUN, job(), '#/runs'],
+    ] as const) {
+      await r!.unmount();
+      g.location = { hash };
+      keepStep(kept, { key: step, label: step });
+      await drawer(j, step);
+      expect(r!.all('.jkind button')).toEqual([]);
+    }
+  });
+
+  it('ends Pack with injection gate… on Re-run test where its gate showed too little, and Pack as golden… on the CLI’s links alone', async () => {
+    g.location = { hash: `#/run/${RUN}` };
+    keepStep(RUN, { key: 'gate-again', label: 'Re-run test' });
+    await drawer(job({ kind: 'pack-test', title: 'Packing with injection gate' }), 'gate-again');
+    expect(JSON.parse(r!.one('.jkind button').getAttribute('data-tip')!)).toMatchObject({ t: 'Re-run test', s: 'Runs the golden and its injection gate again' });
+    await r!.unmount();
+    await drawer(job({ kind: 'pack-test', title: 'Packing as golden' }), 'gate-again');
+    expect(r!.all('.jkind button')).toEqual([]);
+  });
+
+  it('opens the results of a test of eight reads or fewer that ran an attempt as it ends over its run’s page', async () => {
+    expect(resultsToOpen(plant(8))).toEqual({ runId: RUN, key: 'injection:res1' });
+    expect([resultsToOpen(plant(9)), resultsToOpen(plant(2, 0)), resultsToOpen({ results: [{ resultId: 'c', mode: 'clean', runId: RUN }], totals: { attempts: 3 } }), resultsToOpen({ results: [plant(1).results[0], plant(1).results[0]], totals: { attempts: 3 } }), resultsToOpen(null)]).toEqual([null, null, null, null, null]);
+    g.location = { hash: `#/run/${RUN}` };
+    const Footer = jobFooter('injection')!;
+    const at = (j: JobView) => createElement(AppContext.Provider, { value: app({}, []) }, createElement(Footer, { job: j }));
+    // A test that had ended before its drawer opened leaves the page as it is.
+    r = await render(at(job({ result: plant(2) })));
+    expect(panelOn(RUN)).toBeNull();
+    await r.unmount();
+    r = await render(at(job({ done: false, code: null, result: null })));
+    expect(panelOn(RUN)).toBeNull();
+    await r.unmount();
+    // The footer that saw the job run, as it ends.
+    const ended = job({ result: plant(2) });
+    let set: ((j: JobView) => void) | null = null;
+    function Live() {
+      const [j, setJ] = useState(job({ done: false, code: null, result: null }));
+      set = setJ;
+      return createElement(Footer, { job: j });
+    }
+    r = await render(createElement(AppContext.Provider, { value: app({}, []) }, createElement(Live)));
+    await r.until('the footer', () => set !== null);
+    set!(ended);
+    await r.until('the results open', () => panelOn(RUN) !== null);
+    expect(panelOn(RUN)).toEqual({ runId: RUN, kind: 'results', key: 'injection:res1' });
   });
 });

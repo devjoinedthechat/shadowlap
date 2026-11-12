@@ -7,6 +7,7 @@ import { ACTIONS, confirmWords } from '../labels.js';
 import type { NextStep } from '../types.js';
 import { gateEntry, stepCostLine } from './next-step.js';
 import { PACK_HOLDS, packRunCommand, packTestCommands, redactsFact } from './share-steps.js';
+import '../injection/job-footer.js';
 
 /*
  * The dialogs the run page's steps ask in, Pack as golden…'s too (Run injection test…'s is its own, injection/TestDialog.tsx): rarely opened, so a part of their

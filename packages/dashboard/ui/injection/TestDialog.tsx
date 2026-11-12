@@ -21,6 +21,7 @@ import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { UntrustedView } from '../types.js';
 import { readsWords } from './reads-words.js';
+import './job-footer.js';
 
 /*
  * Run injection test…'s dialog, a part only the served dashboard hands in (served-parts.ts): a copy
