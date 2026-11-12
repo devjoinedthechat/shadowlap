@@ -69,7 +69,7 @@
       "runDoctor": 76
     },
     "packages/cli/src/fix-apply.ts": {
-      "applyFix": 68
+      "applyFix": 64
     },
     "packages/cli/src/fix-format.ts": {
       "formatFixDetail": 64
@@ -87,9 +87,6 @@
     "packages/cli/src/injection.ts": {
       "cleanInjection": 57,
       "formatPlant": 44
-    },
-    "packages/cli/src/migrate.ts": {
-      "formatMigrate": 31
     },
     "packages/cli/src/otel.ts": {
       "runToOtlp": 59
@@ -474,7 +471,7 @@
     }
   },
   "max-lines": {
-    "packages/cli/src/decisions.ts": 1082,
+    "packages/cli/src/decisions.ts": 1077,
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
