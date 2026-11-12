@@ -11,8 +11,6 @@ import { ROUTES, show, type RouteState } from './routes.js';
  * from the check at 320 names why there.
  */
 
-test.describe.configure({ timeout: 600_000 });
-
 /** Each problem a check finds, under the route state it was found in. */
 async function over(page: Page, check: (r: RouteState) => Promise<string[]>): Promise<string[]> {
   const found: string[] = [];
@@ -96,6 +94,7 @@ function hiddenText(page: Page): Promise<string[]> {
 }
 
 test('every route on a 390px phone has no serious or critical axe violation, scrolls nothing sideways, draws no label under 11px, and keeps its hidden text where it is read', async ({ page }) => {
+  test.setTimeout(600_000);
   await page.setViewportSize({ width: 390, height: 844 });
   // The demo's longest run first, its 278 calls: the page keeps its height with its hidden text and without.
   await openPage(page, `/run/${demoId('batchFork')}`, 'run');
@@ -104,6 +103,7 @@ test('every route on a 390px phone has no serious or critical axe violation, scr
 });
 
 test('every route at 320px has no serious or critical axe violation and scrolls nothing sideways, unless the table says why', async ({ page }) => {
+  test.setTimeout(600_000);
   await page.setViewportSize({ width: 320, height: 640 });
   expect(await over(page, async (r) => [...(await seriousViolations(page)), ...(r.narrow ? [] : await reach(page))])).toEqual([]);
 });
@@ -248,6 +248,7 @@ function prompts(page: Page): Promise<string[]> {
 }
 
 test('every route at 1440px keeps its heading outline, a command’s $ for the eye only, its hidden text where it is read and, in a forced-colours theme, its marks, its selection and axe’s rules', async ({ page }) => {
+  test.setTimeout(600_000);
   let marks = 0;
   expect(
     await over(page, async () => {
@@ -263,7 +264,6 @@ test('every route at 1440px keeps its heading outline, a command’s $ for the e
     }),
   ).toEqual([]);
   // The strip's cells, the chart's bars, the legends' and the lists' dots: the routes hold hundreds.
-  console.log(`marks: ${marks}`);
   expect(marks).toBeGreaterThan(100);
 });
 
@@ -282,11 +282,16 @@ test('the cards that stand for a page, signed out and with a refused link, each 
 test('the offline bar is said once, by one live region that was on the page before it, and never its countdown', async ({ page }) => {
   await openPage(page, `/run/${dash().runs.ticket as string}`, 'run');
   const said = page.getByRole('status').filter({ hasText: /Offline/ });
-  expect(await page.locator('.sr[role="status"]').count()).toBeGreaterThan(0);
+  // The bar's own region, there and empty while the server answers, marked to be known again.
+  const region = page.locator('#conn > .sr[role="status"]');
+  await expect(region).toHaveCount(1);
+  await expect(region).toHaveText('');
+  await region.evaluate((el) => el.setAttribute('data-before', ''));
   // The server stops answering: the bar comes once the page's next look fails.
   await page.route('**/api/**', (route) => route.abort());
   await page.waitForSelector('.connbar', { state: 'visible', timeout: 30_000 });
   await expect(said).toHaveCount(1);
+  await expect(said).toHaveAttribute('data-before', '');
   await expect(said).toHaveText(/^Offline · actions paused · Can’t reach the dashboard server · showing what loaded/);
   expect(await page.locator('[role="status"]').evaluateAll((all) => all.filter((s) => /Retrying in/.test(s.textContent ?? '')).length)).toBe(0);
   expect(await page.locator('.connbar').ariaSnapshot()).not.toMatch(/Offline · actions paused/);
@@ -337,11 +342,18 @@ test('on a 390px phone each run’s link says its whole about line, however shor
   expect(wholeLines(side, await names(page, 'aside#side .runs', 'link'))).toEqual([]);
   // The sidebar's drawer is narrow: some line was drawn shorter, or gave up its place.
   expect(side.some((r) => r.cut)).toBe(true);
+  // A run's header: its line drawn shorter, the whole of it heard.
+  await openPage(page, `/run/${demoId('ticket')}`, 'run');
+  const about = page.locator('.rhead [data-about]').first();
+  await expect(about.locator('[aria-hidden="true"]')).toHaveCount(1);
+  expect(await about.locator('xpath=..').ariaSnapshot()).toContain((await about.getAttribute('data-about'))!);
 });
 
 test('a screen reader hears apart the parts the margins draw apart, and each settings control by its row', async ({ page }) => {
   await openPage(page, '/', 'overview');
   expect(wholeLines(await aboutRows(page, 'main#view .rrows a.rrow'), await names(page, 'main#view .rrows', 'link'))).toEqual([]);
+  // The facts named once by what they sum up.
+  expect(await names(page, 'main#view', 'region')).toContain('Overview in figures');
   // Runs: the calendar's busiest day and failed count, each with what it counts; a chip's word and its count.
   await openPage(page, '/runs', 'main#view table.runst tbody tr');
   await page.locator('main#view button.linkbtn[aria-expanded="false"]', { hasText: 'Calendar' }).click();
@@ -358,6 +370,8 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
   const chips = await page.locator('main#view .chips button:has(b)').evaluateAll((all) => all.map((b) => `${[...b.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent).join('').trim()} ${b.querySelector('b')!.textContent}`));
   expect(chips.length).toBeGreaterThan(0);
   expect(await names(page, 'main#view', 'button')).toEqual(expect.arrayContaining(chips));
+  // Who made a run: a name and "(you)", a real space between.
+  expect(await names(page, 'main#view table.runst', 'img')).toEqual(expect.arrayContaining([expect.stringMatching(/^\S+ \(you\)$/)]));
   // A run's calls: the kind, the name, the effect and the detail as words, and "fork 17". (No run of the demo's has agents: test/ui-run-state.test.ts reads their chips.)
   await openPage(page, `/run/${demoId('override')}`, 'run');
   const cells = await names(page, 'main#view table.calls tbody', 'cell');
@@ -367,10 +381,21 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
   expect(parts.length).toBeGreaterThan(0);
   for (const p of parts) expect(cells.some((c) => c.startsWith(p))).toBe(true);
   expect(cells.filter((c) => /^fork \d+$/.test(c))).toHaveLength(1);
+  // A view's tab and its count.
+  expect(await names(page, 'main#view', 'tab')).toEqual(expect.arrayContaining([expect.stringMatching(/^Calls [\d,]+$/)]));
   // The strip's key: each origin's word and its count.
   expect(await names(page, '#olegend', 'button')).toEqual(expect.arrayContaining([expect.stringMatching(/^\S+ [\d,]+$/)]));
   expect((await names(page, '#olegend', 'button')).filter((n) => !/^\S.* [\d,]+$/.test(n))).toEqual([]);
   expect(cells.filter((c) => /^(tool|model|human|clk|rnd)\S/.test(c) || /\S→/.test(c))).toEqual([]);
+  // A fix: what failed and what it must do, one dot between them heard, in the list and on its page; blame's verdict and its mark.
+  for (const [path, drawn] of [['/fixes', 'main#view .pslist .fm'], [`/fixes/${demoId('refundFix')}`, 'fix']] as const) {
+    await openPage(page, path, drawn);
+    const tree = await page.locator('main#view').ariaSnapshot();
+    expect(tree, path).toMatch(/Failed: [^\n]* · Must: /);
+    expect(tree, path).not.toMatch(/·\s*·/);
+  }
+  await openPage(page, `/fixes/${demoId('refundFix')}/blame`, 'fix');
+  expect(await names(page, 'main#view table', 'cell')).toEqual(expect.arrayContaining([expect.stringMatching(/^\S+ blamed$/)]));
   // Training's tabs: the word and its count.
   await openPage(page, '/training', 'main#view .stabs a');
   expect(await names(page, 'main#view .stabs', 'link')).toEqual([expect.stringMatching(/^Pairs [\d,]+$/), expect.stringMatching(/^Tasks [\d,]+$/)]);
@@ -378,11 +403,10 @@ test('a screen reader hears apart the parts the margins draw apart, and each set
   await openPage(page, '/settings/ci', 'main#view .settab > :not(.skel)');
   for (const id of ['alertSecret', 'cifixBudget', 'cifixRepairer']) {
     const control = page.locator(`#${id}`);
-    if (!(await control.count())) continue;
+    await expect(control).toHaveCount(1);
     await expect(control).toHaveAccessibleName((await page.locator(`#${id}-name`).textContent())!.trim());
     await expect(control).toHaveAccessibleDescription((await page.locator(`#${id}-help`).textContent())!.trim());
   }
-  await expect(page.locator('#alertSecret')).toHaveCount(1);
 });
 
 test('in a forced-colours theme the fork’s cell in the strip keeps its mark, a 2px band in the text colour round it', async ({ page }) => {
