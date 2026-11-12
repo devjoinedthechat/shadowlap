@@ -252,7 +252,7 @@ describe('production coverage', () => {
 describe('the activity feed', () => {
   it('words a coverage scan and a presets session', async () => {
     const page = await getJson<{ items: Array<{ kind: string; outcome?: string; text: string; href?: string }> }>('activity?limit=10');
-    expect(page.items.find((i) => i.text.startsWith('Coverage read'))).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Coverage read · 1 behaviour without a golden · 1 golden packed · 1 not packed', href: '#/tests' });
+    expect(page.items.find((i) => i.text.startsWith('Coverage read'))).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Coverage read · 1 behaviour without a golden · 1 golden packed · 1 not packed', href: '#/tests?at=notcovered' });
     expect(page.items.find((i) => i.text === 'Error-path presets ran · 1 passed, 1 failed')).toMatchObject({ kind: 'test', outcome: 'err', href: '#/tests' });
     // A session on one run, stopped part way: it opens the run, in amber for its inconclusive preset.
     expect(page.items.find((i) => i.text === 'Error-path presets stopped · 2 passed, 0 failed, 1 inconclusive')).toMatchObject({ kind: 'test', outcome: 'warn', href: `#/run/${golden}` });

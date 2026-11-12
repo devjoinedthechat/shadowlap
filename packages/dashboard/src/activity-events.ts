@@ -54,7 +54,8 @@ export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
       return { kind: 'test', ...(outcome ? { outcome } : {}), text: `Error-path presets ${d.interrupted === true ? 'stopped' : 'ran'} · ${parts.join(', ')}`, href: e.runId ? links.run(e.runId) : links.tests() };
     },
   ],
-  // A coverage scan, by what it found no golden covers, and what it packed: amber while a behaviour has no golden.
+  // A coverage scan, by what it found no golden covers, and what it packed: amber while a behaviour has no golden. It opens
+  // Tests at Not covered, which lists them.
   [
     'coverage.scanned',
     (_e, d) => {
@@ -62,7 +63,7 @@ export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
       const packed = count(d.packed);
       const notPacked = count(d.notPacked);
       const found = uncovered ? `${uncovered} behaviour${uncovered === 1 ? '' : 's'} without a golden` : 'every behaviour has a golden';
-      return { kind: 'test', ...(uncovered || notPacked ? { outcome: 'warn' as const } : {}), text: `Coverage read · ${found}${packed ? ` · ${packed} golden${packed === 1 ? '' : 's'} packed` : ''}${notPacked ? ` · ${notPacked} not packed` : ''}`, href: links.tests() };
+      return { kind: 'test', ...(uncovered || notPacked ? { outcome: 'warn' as const } : {}), text: `Coverage read · ${found}${packed ? ` · ${packed} golden${packed === 1 ? '' : 's'} packed` : ''}${notPacked ? ` · ${notPacked} not packed` : ''}`, href: links.tests({ at: 'notcovered' }) };
     },
   ],
   // What an injection test showed, opening the run it tested. One that obeyed or failed its gate
