@@ -43,12 +43,12 @@ export function useTestsWait(verb: string): string | null {
 
 /**
  * Why a job can't start now, for one known only as the page renders (a run's next step): a Tests job
- * waits as `useTestsWait` says (`tests`), any other as `useTreeBusy` does for what reads the tree, and
- * no job (null) waits for nothing.
+ * waits as `useTestsWait` says (`tests`), any other as `useTreeBusy` does for what reads the tree, or
+ * changes it (`use`, Revert), and no job (null) waits for nothing.
  */
-export function useJobWait(job: { verb: string; tests: boolean } | null): string | null {
+export function useJobWait(job: { verb: string; tests: boolean; use?: 'reads' | 'writes' | undefined } | null): string | null {
   const { meta } = useApp();
   const jobs = useServerJobs(!!job);
   if (!job) return null;
-  return (job.tests ? testsBusy(jobs, job.verb, meta?.project?.id ?? null) : null) ?? treeBusy(jobs, 'reads', job.verb, meta?.project?.path ?? null);
+  return (job.tests ? testsBusy(jobs, job.verb, meta?.project?.id ?? null) : null) ?? treeBusy(jobs, job.use ?? 'reads', job.verb, meta?.project?.path ?? null);
 }

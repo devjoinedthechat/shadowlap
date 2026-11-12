@@ -25,17 +25,26 @@ export function replayAction(step: NextStep | null): ActionItem | null {
   return step?.key === 'replay' && step.action ? normalizeAction(step.action as unknown as ActionItem) : null;
 }
 
+/** What a step's job waits for: a Tests job (`tests`), and a job using the working tree as `use` says, reading it unless given. */
+export interface StepJob {
+  verb: string;
+  tests: boolean;
+  use?: 'writes';
+}
+
 /**
  * What a step that runs a job waits for, by the verb its button says it in: a Tests job for a job
- * replaying or rewriting the goldens too, every one for what holds the working tree.
+ * replaying or rewriting the goldens too, every one for what holds the working tree (Revert, which
+ * changes it, waits for every job that uses it).
  */
-const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean }>> = {
+const STEP_JOBS: Partial<Record<NextStep['key'], StepJob>> = {
   normalizer: { verb: 'add the normalizer', tests: true },
   'update-golden': { verb: 'update it', tests: true },
   'rerun-test': { verb: 'run it again', tests: true },
   'gate-again': { verb: 'run it again', tests: true },
   'run-tests': { verb: 'run the tests', tests: true },
   bisect: { verb: 'find the breaking commit', tests: true },
+  revert: { verb: 'revert it', tests: true, use: 'writes' },
   blame: { verb: 'blame', tests: false },
   'injection-test': { verb: 'test it', tests: false },
   'injection-again': { verb: 'test it', tests: false },
@@ -43,7 +52,7 @@ const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean 
 };
 
 /** The job a step runs, for what it waits for and how its button words that; none for a link, or a step that waits for no job. */
-export const stepJob = (step: NextStep | null): { verb: string; tests: boolean } | null => (step && !step.href ? (STEP_JOBS[step.key] ?? null) : null);
+export const stepJob = (step: NextStep | null): StepJob | null => (step && !step.href ? (STEP_JOBS[step.key] ?? null) : null);
 
 /** The key of the header button a step presses, by what the step does, never read from its label: Replay, Compare or Run blame, as the table of keys has them. */
 const STEP_KEYS: Partial<Record<NextStep['key'], ShortcutId>> = { replay: 'replay', compare: 'compare', blame: 'blame' };
@@ -80,8 +89,8 @@ export const stepEstimate = (o: Pick<NextStep, 'estimate' | 'later'>, later: boo
 /** Run blame starts by Spending; it asks in a dialog on every setting where it needs its check or a capture's command. */
 const blameAsks = (o: { offer: { from: string }; capture?: boolean }): boolean => o.offer.from === 'ask' || !!o.capture;
 
-/** The steps that open a dialog asking what to run, on every setting: their card says the amount alone. */
-const FORM_STEPS: ReadonlySet<NextStep['key']> = new Set(['injection-test', 'injection-again', 'pack-gate']);
+/** The steps that open a dialog asking what to run, or before what changes your working tree, on every setting: their card says the amount alone. */
+const FORM_STEPS: ReadonlySet<NextStep['key']> = new Set(['injection-test', 'injection-again', 'pack-gate', 'revert']);
 
 /** Whether a step's press opens a dialog that asks what to run: Run blame's check, a commit to bisect from, an injection test's. */
 function stepForm(step: NextStep): boolean {
@@ -99,7 +108,7 @@ export function stepCard(step: NextStep): StepCard {
   return { title: step.title ?? confirmWords(step.label), sub: step.sub ?? own, ...billsAndRuns(step, stepForm(step)) };
 }
 
-/** What the Run blame beside a crash's Find breaking commit says on hover: none while the step's price is asked for alone. */
+/** What the Run blame beside a crash's Find breaking commit, or its Revert, says on hover: none while the step's price is asked for alone. */
 export function blameBesideCard(blame: BlameBeside, later = false): StepCard {
   return { title: ACTIONS.runBlame.label, sub: blame.sub, ...billsAndRuns({ ...blame, ...(later ? { later } : {}) }, blameAsks(blame)) };
 }

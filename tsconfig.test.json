@@ -43,11 +43,16 @@
     "packages/dashboard/test/normalize.test.ts",
     // These render the run page's components, which use the DOM too.
     "packages/dashboard/test/ui-strip.test.ts",
+    "packages/dashboard/test/ui-preview.test.ts",
     "packages/dashboard/test/ui-run-width.test.ts",
     "packages/dashboard/test/ui-run-scale.test.ts",
     "packages/dashboard/test/ui-timeline-notch.test.ts",
     "packages/dashboard/test/ui-timeline-kinds.test.ts",
     "packages/dashboard/test/ui-inspector-panel.test.ts",
+    "packages/dashboard/test/ui-revert-copy.test.ts",
+    "packages/dashboard/test/ui-revert.test.ts",
+    "packages/dashboard/test/ui-revert-run.test.ts",
+    "packages/dashboard/test/ui-revert-tests.test.ts",
     "packages/dashboard/test/ui-context-axis.test.ts",
     "packages/dashboard/test/ui-check-words.test.ts",
     "packages/dashboard/test/ui-inspector-notes.test.ts",
@@ -82,6 +87,7 @@
     "packages/dashboard/test/ui-fix-page.test.ts",
     "packages/dashboard/test/ui-fix-head.test.ts",
     "packages/dashboard/test/ui-fix-steps.test.ts",
+    "packages/dashboard/test/ui-fix-crash.test.ts",
     "packages/dashboard/test/ui-fixes-list.test.ts",
     // This drives the fork menu's actions, with their confirmation of someone else's command.
     "packages/dashboard/test/ui-action-consent.test.ts",
@@ -164,6 +170,7 @@
     // These render a run's page and Runs: where a run opens, its key, its notes, its calls grouped, and Runs from its address.
     "packages/dashboard/test/ui-run-open.test.ts",
     "packages/dashboard/test/ui-runs-url.test.ts",
+    "packages/dashboard/test/ui-issues.test.ts",
     "packages/dashboard/test/ui-run-key.test.ts",
     "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",

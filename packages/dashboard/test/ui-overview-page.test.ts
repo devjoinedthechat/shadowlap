@@ -4,6 +4,8 @@ import { Store } from '@shadowlap/engine';
 import { overviewSummary } from '../src/overview.js';
 import type { ActivityItem, Client, NeedsLookRow, OverviewSummary, RunListItem } from '../ui/api.js';
 import { handOnAtEnd, headingRef, notingJobFrom } from '../ui/focus-manager.js';
+import { dropRowScope, rowScopeNow, takeRowScope } from '../ui/list-keys.js';
+import { ISSUE_ASK } from '../ui/page-ask.js';
 import { OverviewPage } from '../ui/pages/Overview.js';
 import { href } from '../ui/route.js';
 import { useRoute } from '../ui/router.js';
@@ -143,6 +145,38 @@ describe('the Overview’s keys', () => {
   });
 });
 
+describe('Needs a look’s row of failed runs nobody has blamed', () => {
+  it('opens its newest’s issue on Runs › Failed from its link, from Enter and from ⌘K’s Open', async () => {
+    vi.stubGlobal('CSS', { escape: (x: string) => x });
+    const issue = 'fail:the agent exited with an error';
+    const unblamed: NeedsLookRow = { kind: 'unblamed', icon: 'fail', title: '1 failing run nobody has blamed', detail: `${rid(2).slice(0, 10)} · the agent exited with an error`, key: `attn:unblamed:${rid(2)}`, group: 'failing', step: { of: 'link', label: 'Run blame', href: href.run(rid(2)) }, href: '#/runs?types=failed', runId: rid(2), fixId: null, at: 2, issue };
+    await overview({ summary: { ...week, needsLook: { items: [unblamed], total: 1 } } });
+    const link = r!.one(`[data-rowkey="${unblamed.key}"] a.at`);
+    expect(link.getAttribute('href')).toBe('#/runs?types=failed');
+    // Its link asks for the issue as it goes there; Failed opens it as it shows.
+    await r!.click(link);
+    expect(ISSUE_ASK.take(issue)).toBe(true);
+    await r!.press('j');
+    expect(r!.focused().getAttribute('data-rowkey')).toBe(unblamed.key);
+    await r!.press('Enter');
+    expect(location.hash).toBe('#/runs?types=failed');
+    expect(ISSUE_ASK.take(issue)).toBe(true);
+    addressBar('#/');
+    await r!.focus(r!.one(`.arow[data-rowkey="${unblamed.key}"]`));
+    takeRowScope();
+    try {
+      rowScopeNow()!
+        .items()
+        .find((i) => i.label === 'Open')!
+        .run();
+    } finally {
+      dropRowScope();
+    }
+    expect(location.hash).toBe('#/runs?types=failed');
+    expect(ISSUE_ASK.take(issue)).toBe(true);
+  });
+});
+
 describe('a Needs a look row’s job’s end', () => {
   const tick = (ms = 80) => act(() => new Promise<void>((done) => setTimeout(done, ms)));
   const push: NeedsLookRow = { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', key: 'attn:local', group: 'housekeeping', step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' }, href: '#/runs?types=local', runId: null, fixId: null, at: 0 };
@@ -177,5 +211,21 @@ describe('a Needs a look row’s job’s end', () => {
     await changed();
     await tick();
     expect(r!.focused().closest?.('.arow')).toBeFalsy();
+  });
+});
+
+describe('a retiring model’s row', () => {
+  it('asks before Migrate to in the one ask a preview’s Migrate asks: what it asks again, its command, and that the provider bills it', async () => {
+    const step = { of: 'migrate' as const, label: 'Migrate to claude-sonnet-5-5', from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', goldens: ['goldens/refund'], command: 'shadowlap migrate --to claude-sonnet-5-5 goldens/refund --from claude-sonnet-4-5' };
+    const retire: NeedsLookRow = { key: 'attn:retire:claude-sonnet-4-5', group: 'housekeeping', kind: 'retire', icon: 'retire', title: 'claude-sonnet-4-5, used by 1 golden, retires on Nov 30, 2026', detail: 'in 19 days · Anthropic recommends claude-sonnet-5-5', step, href: '#/tests', runId: null, fixId: null, at: NOW };
+    await overview({ summary: { ...week, needsLook: { items: [retire], total: 1 } } });
+    await r!.click(r!.byText('.arow .ast .btn', 'Migrate to claude-sonnet-5-5'));
+    await r!.until('the ask', () => r!.all('.dialog').length === 1);
+    expect([text(r!.one('.dialog h3')), text(r!.one('.dialog header p')), text(r!.one('.dialog .dcost'))]).toEqual([
+      'Migrate claude-sonnet-4-5 to claude-sonnet-5-5',
+      'Asks claude-sonnet-4-5’s calls again under claude-sonnet-5-5 and verifies the runs whose decisions change.',
+      'Billed by your provider',
+    ]);
+    expect(text(r!.one('.dialog .cmdline'))).toContain(step.command);
   });
 });

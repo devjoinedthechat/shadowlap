@@ -12,6 +12,8 @@ import { useLoad } from '../hooks.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { useJobWait, useTreeBusy } from '../fixes/tree.js';
+import { EditorButton } from '../revert/EditorButton.js';
+import { RevertButton } from '../revert/RevertButton.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { href } from '../route.js';
 import { compareTarget, outcomeOf } from '../runs.js';
@@ -200,10 +202,15 @@ function BisectStep({ run, step, offers, onFindCommit }: StepProps & { step: Ext
   );
 }
 
-/** Run blame beside a crash's Find breaking commit, plain, with what it runs and bills on hover: whether an answer of the model's lost the run, until the commit is named. */
+/** Run blame beside a crash's Find breaking commit, or the Revert that follows once it named the commit, plain, with what it runs and bills on hover: whether an answer of the model's lost the run. */
 export function BlameBesideButton({ runId, step }: { runId: string; step: NextStep | null }) {
-  if (step?.key !== 'bisect' || !step.blame) return null;
+  if ((step?.key !== 'bisect' && step?.key !== 'revert') || !step.blame) return null;
   return <RunBlameButton runId={runId} offer={step.blame.offer} estimate={stepEstimate(step.blame, step.later)} title={blameTitle(step.blame.offer)} tip={tipOf(blameBesideCard(step.blame, step.later))} className="btn" fold="blame" />;
+}
+
+/** Open in editor beside the header's Revert: the line the first bad commit added, where it kept its change. */
+export function RevertEditorButton({ step, offers }: { step: NextStep | null; offers: RunOffers | null }) {
+  return step?.key === 'revert' ? <EditorButton change={offers?.commit?.change} fold="editor" /> : null;
 }
 
 /** Add normalizer on a replay: the run's own action, the rule its divergence proposes. */
@@ -360,6 +367,8 @@ export function NextStepButton(props: StepProps) {
       return <EditCheckStep step={step} />;
     case 'bisect':
       return <BisectStep {...props} step={step} />;
+    case 'revert':
+      return <RevertButton step={step} found={props.offers?.commit ?? null} estimate={stepEstimate(step)} runId={run.run.runId} lead />;
     case 'rule':
       return <RuleStep {...props} />;
     case 'injection-test':

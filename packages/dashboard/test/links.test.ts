@@ -24,7 +24,11 @@ const built: string[] = [
   ...VIEWS.flatMap((v) => [links.run(RUN, null, v), links.run(RUN, 9, v)]),
   links.changes(),
   ...['d2e8a1f', 'd2e8a1f+dirty', 'no-revision'].map((rev) => links.changes(rev)),
-  ...(['decisions', 'migrate'] as const).flatMap((kind) => [links.changeSession(kind), links.changeSession(kind, kind === 'migrate' ? 'mg-01M5000000000000000000000B' : 'dc-01M5000000000000000000000A')]),
+  ...(['decisions', 'migrate'] as const).flatMap((kind) => {
+    const id = kind === 'migrate' ? 'mg-01M5000000000000000000000B' : 'dc-01M5000000000000000000000A';
+    // A session, a run's row (its most telling step), and a cell.
+    return [links.changeSession(kind), links.changeSession(kind, id), links.changeSession(kind, id, RUN), links.changeSession(kind, id, RUN, 17)];
+  }),
   links.compare(),
   links.compare(RUN),
   links.compare(RUN, OTHER),

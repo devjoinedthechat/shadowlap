@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { demoId, openPage, seriousViolations } from './dashboard.js';
+import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
 
 /**
  * The keyboard in Chromium over the demo store: the lists' keys on Runs, Esc going back the way you
@@ -77,6 +77,23 @@ test('⌘K on a row offers its actions, ⌫ everything, and closing hands the fo
   await expect.poll(() => inFocus(page)).toBe(key);
 });
 
+test('under Failed, j walks the issues, ⌘K offers Open and Show its runs, and Show its runs opens the row’s runs', async ({ page }) => {
+  const ISSUES = 'main#view table.issues tbody tr.iss';
+  await openPage(page, '/runs?types=failed', ISSUES);
+  await page.keyboard.press('j');
+  const key = await page.locator(`${ISSUES}.krow`).getAttribute('data-rowkey');
+  expect(key).toBeTruthy();
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.locator('.palette').waitFor();
+  await expect(page.locator('.palit .pl').nth(0)).toHaveText('Open');
+  await expect(page.locator('.palit .pl').nth(1)).toHaveText('Show its runs');
+  await page.locator('.palit .pl').nth(1).click();
+  await expect(page.locator('.palette')).toHaveCount(0);
+  await expect(page.locator(`${ISSUES}[data-rowkey="${key}"] button.isn`)).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('main#view table.issues .isruns .isr').first()).toBeVisible();
+  expect(await hash(page)).toBe('#/runs?types=failed');
+});
+
 test('a run’s views and the inspector are tabs with one Tab stop, the arrows moving and v going through them all', async ({ page }) => {
   await openPage(page, `/run/${demoId('refundBug')}`, 'run');
   const views = page.locator('[role="tablist"][aria-label="Views"] [role="tab"]');
@@ -87,7 +104,7 @@ test('a run’s views and the inspector are tabs with one Tab stop, the arrows m
   await expect(page.locator('#vtab-turns')).toBeFocused();
   await expect(page.locator('#vbody')).toHaveAttribute('aria-labelledby', 'vtab-turns');
   await page.keyboard.press('End');
-  await expect(page.locator('#vtab-provenance')).toBeFocused();
+  await expect(page.locator('#vtab-decisions')).toBeFocused();
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('#vtab-calls')).toBeFocused();
   await expect(page.locator('#vtab-turns')).toHaveAttribute('aria-keyshortcuts', 'v');
@@ -95,8 +112,10 @@ test('a run’s views and the inspector are tabs with one Tab stop, the arrows m
   await expect(tabs).toHaveCount(4);
   await expect(tabs.nth(2)).toHaveAttribute('aria-keyshortcuts', '3');
   await expect(page.locator('#ibody')).toHaveAttribute('role', 'tabpanel');
-  // From the provenance view v comes round to Calls.
+  // From the provenance view v reaches Decisions, and from Decisions comes round to Calls.
   await page.locator('#vtab-provenance').click();
+  await page.keyboard.press('v');
+  await expect(page.locator('#vtab-decisions')).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('v');
   await expect(page.locator('#vtab-calls')).toHaveAttribute('aria-selected', 'true');
   expect(await seriousViolations(page)).toEqual([]);
@@ -443,4 +462,20 @@ test('a menu opened while the page left still owes its focus keeps it: Esc up fr
   await expect(items.first()).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(1)).toBeFocused();
+});
+
+test('Esc closes a preview’s opened cell before anything else, the focus back on its cell where it was in the cell', async ({ page, request }) => {
+  const { origin, token } = dash();
+  const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token } })).json()) as { sessions: Array<{ kind: string; sessionId: string }> };
+  const s = sessions.find((x) => x.kind === 'decisions');
+  expect(s, 'the demo’s preview').toBeTruthy();
+  await openPage(page, `/changes/decisions/${s!.sessionId}`, 'main#view .dmx button.dc');
+  const cell = page.locator('main#view .dmx button.dc').first();
+  await cell.click();
+  await expect(page.locator('#dcell')).toBeVisible();
+  await page.locator('#dcell .dch a').first().focus();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#dcell')).toHaveCount(0);
+  expect(await page.evaluate(() => location.hash)).toBe(`#/changes/decisions/${s!.sessionId}`);
+  await expect(cell).toBeFocused();
 });

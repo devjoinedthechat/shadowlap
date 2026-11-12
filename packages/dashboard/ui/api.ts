@@ -9,13 +9,14 @@ import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type 
 import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
 import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
+import { editorApi, type EditorApi } from './editor-api.js';
 import { changesApi, type ChangesApi } from './changes-api.js';
 import { testsApi, type TestsApi } from './tests-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
 import { checksApi, noChecks, type ChecksApi } from './checks-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestsView, TrainingView } from './types.js';
-import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
+import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, IssueRunsPage, IssuesPage, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
 import type { CompareView, NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
@@ -66,10 +67,11 @@ export const JOB_KINDS = {
   // Settings → Store's Check again: check the store's access again (store check), writing nothing.
   storeCheck: 'store-check',
   // Tests: update goldens, find the commit (on Tests, the Runs calendar and a run's page), add a
-  // normalizer and re-run (and `tests` above runs them).
+  // normalizer and re-run (and `tests` above runs them), and revert the commit found, then test.
   testUpdate: 'test-update',
   bisect: 'bisect',
   normalizeAndTest: 'normalize-and-test',
+  revert: 'revert',
   // A project's setup (the projects slice registers these): inspect the folder, record a first run,
   // keep it as a golden (pack, then test).
   inspect: 'init',
@@ -213,6 +215,10 @@ export interface Client extends ChangesApi, TestsApi {
   runsByDay(q: { tz: string; weeks?: number; types?: readonly string[]; q?: string }): Promise<RunsByDay>;
   /** Find breaking commit for the failures on the days picked: the first failure there, and what bisect can start from. */
   daysBisect(q: RunsQuery & { from: number; to: number }): Promise<DaysBisect>;
+  /** Runs › Failed as issues: the failed runs the filter and the days keep, grouped by what they share, each with its count, and those shown open (`open`, by key) with their newest runs. */
+  runsIssues(q: Pick<RunsQuery, 'from' | 'to' | 'q'>, open?: readonly string[]): Promise<IssuesPage>;
+  /** One issue's runs under the same filter: its newest, or those after `cursor`, the run its last page ended on. */
+  issueRuns(key: string, q: Pick<RunsQuery, 'from' | 'to' | 'q'>, cursor: string | null): Promise<IssueRunsPage>;
   /** Labels several runs at once, by their full ids. */
   labelRuns(ids: readonly string[], add: readonly string[], remove?: readonly string[]): Promise<LabelRunsResult>;
   /** Deletes several runs at once, by their full ids; runs that can't go now are skipped with why. `keepalive`: sent as the page goes, so the browser sees it out (`pending-delete.ts`). */
@@ -244,6 +250,8 @@ export interface Client extends ChangesApi, TestsApi {
   checks: ChecksApi;
   /** What billed jobs would cost, and Spending, the threshold above which one asks first. */
   estimates: EstimatesApi;
+  /** Open in editor: a project file at a line, in the editor $VISUAL or $EDITOR names (`editor-api.ts`). */
+  editor: EditorApi;
   /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
   storeSetup: StoreSetupApi;
 
@@ -460,9 +468,7 @@ export function createClient(token: string): Client {
       saveBlob(await res.blob(), filename);
     },
     summary: (tz) => request<OverviewSummary | OverviewWarming>(`summary?tz=${id(tz)}`),
-    runsPage: (q) => request<RunsPage & { runs: RunsPageRow[] }>(`runs/page${runsQueryString(q)}`),
-    runsByDay: (q) => request<RunsByDay>(`runs/days${runsQueryString(q)}`),
-    daysBisect: (q) => request<DaysBisect>(`runs/bisect${runsQueryString(q)}`),
+    ...runsReads(request),
     labelRuns: (ids, add, remove = []) => request<LabelRunsResult>('runs/labels', { method: 'POST', body: JSON.stringify({ ids, add, remove }) }),
     deleteRuns: (ids, o) => request<DeleteResult>('runs/delete', { method: 'POST', body: JSON.stringify({ ids }), ...(o?.keepalive ? { keepalive: true } : {}) }),
     knownRuns: (ids) => request<{ known: string[] }>('runs/known', { method: 'POST', body: JSON.stringify({ ids }) }).then((r) => r.known),
@@ -519,8 +525,32 @@ export function createClient(token: string): Client {
 }
 
 /** The parts of the client that are APIs of their own, each written beside its routes. */
-function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates'> {
-  return { settings: settingsApi(request), checks: checksApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
+function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates' | 'editor'> {
+  return {
+    settings: settingsApi(request),
+    checks: checksApi(request),
+    storeSetup: storeSetupApi(request),
+    projects: projectsApi(request),
+    estimates: estimatesApi(request),
+    editor: editorApi(request),
+  };
+}
+
+/** An address with `name` set to each of `keys`, after what it asks already. */
+const withKeys = (path: string, name: string, keys: readonly string[]): string => keys.reduce((p, k) => `${p}${p.includes('?') ? '&' : '?'}${name}=${encodeURIComponent(k)}`, path);
+
+/** What Failed's issues are read by: the days and the filter's words, never a chip or a sort. */
+const issuesFilter = ({ from, to, q }: Pick<RunsQuery, 'from' | 'to' | 'q'>): RunsQuery => ({ ...(from != null ? { from } : {}), ...(to != null ? { to } : {}), ...(q ? { q } : {}) });
+
+/** The Runs page's reads, each with the same filter: its table, its days, Find breaking commit's failures, and Failed's issues. */
+function runsReads(request: Request): Pick<Client, 'runsPage' | 'runsByDay' | 'daysBisect' | 'runsIssues' | 'issueRuns'> {
+  return {
+    runsPage: (q) => request<RunsPage & { runs: RunsPageRow[] }>(`runs/page${runsQueryString(q)}`),
+    runsByDay: (q) => request<RunsByDay>(`runs/days${runsQueryString(q)}`),
+    daysBisect: (q) => request<DaysBisect>(`runs/bisect${runsQueryString(q)}`),
+    runsIssues: (q, open = []) => request<IssuesPage>(withKeys(`runs/issues${runsQueryString(issuesFilter(q))}`, 'open', open)),
+    issueRuns: (key, q, cursor) => request<IssueRunsPage>(withKeys(`runs/issues${runsQueryString({ ...issuesFilter(q), ...(cursor ? { cursor } : {}) })}`, 'issue', [key])),
+  };
 }
 
 /** What a long run's first answer leaves to reads of their own, as its analysis has them. */
@@ -595,6 +625,8 @@ export function createExportedClient(data: StaticPayload): Client {
     summary: () => Promise.reject(new ApiError(404, 'this is an exported copy: it holds runs, not the Overview')),
     runsPage: () => Promise.reject(new ApiError(404, 'this is an exported copy: its runs are listed from the file')),
     runsByDay: () => Promise.reject(new ApiError(404, 'this is an exported copy: its runs are listed from the file')),
+    runsIssues: () => Promise.reject(new ApiError(404, 'this is an exported copy: its runs are listed from the file')),
+    issueRuns: () => Promise.reject(new ApiError(404, 'this is an exported copy: its runs are listed from the file')),
     daysBisect: readOnly,
     labelRuns: readOnly,
     deleteRuns: readOnly,
@@ -615,6 +647,7 @@ export function createExportedClient(data: StaticPayload): Client {
     settings: noSettings(readOnly),
     checks: noChecks(readOnly),
     estimates: noEstimates(readOnly),
+    editor: { open: readOnly },
     storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),
@@ -624,7 +657,7 @@ export function createExportedClient(data: StaticPayload): Client {
     decisionSession: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     verdicts: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     verdictRevision: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
-    runDecisions: () => Promise.resolve({ runId: '', sessions: [] }),
+    runDecisions: () => Promise.resolve({ runId: '', sessions: [], later: null }),
     retirements: () => Promise.resolve({ version: '', notices: [] }),
     coverage: () => Promise.resolve(null),
     chaos: () => Promise.resolve(null),

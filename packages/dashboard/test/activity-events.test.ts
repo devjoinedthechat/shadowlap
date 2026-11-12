@@ -28,4 +28,15 @@ describe('a preview and a migration in the feed', () => {
     expect(textAt(4_000)).toBe('Migration inconclusive · the model claude-sonnet-5-5 on 3 runs · verify did not settle every run it took');
     expect(textAt(5_000)).toBe('Migration previewed: the model claude-sonnet-5-5 on 3 runs · 1 with a write, stop or judged change');
   });
+
+  it('opens a preview at its session on its tab under Changes, settled or not, and a migration at its run', () => {
+    const id = 'dc-01M5000000000000000000000A';
+    recordEvent(store, { kind: 'decisions.done', ref: id, data: { change: 'temperature=0', runs: 2, flagged: 1, why: null }, at: 1_000 });
+    recordEvent(store, { kind: 'decisions.done', ref: id, data: { change: 'temperature=0', runs: 2, flagged: 0, why: '1 run could not be asked' }, at: 2_000 });
+    // A ref that is no session id opens nothing of its own.
+    recordEvent(store, { kind: 'decisions.done', ref: 'not-a-session', data: { change: 'temperature=0', runs: 1, flagged: 0 }, at: 3_000 });
+    recordEvent(store, { kind: 'migrate.done', ref: 'mg-01M5000000000000000000000B', runId: 'run-1', data: { change: 'the model gpt-5-mini', runs: 1, flagged: 0, why: null }, at: 4_000 });
+    const hrefs = new Map(activity(store, { limit: 50 }).items.map((i) => [i.at, i.href ?? null]));
+    expect([1_000, 2_000, 3_000, 4_000].map((at) => hrefs.get(at))).toEqual([`#/changes/decisions/${id}`, `#/changes/decisions/${id}`, null, '#/run/run-1']);
+  });
 });

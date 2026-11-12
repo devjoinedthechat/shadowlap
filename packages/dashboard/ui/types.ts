@@ -12,6 +12,7 @@ export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixPr, FixRow, FixRung, FixRunRef, FixStep, RepairStep, StepKey, StepLine, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
 export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fixes-view.js';
 export type { FixLead } from '../src/fix-lead.js';
+export type { BlameCrash } from '../src/fix-blame-step.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
 export type { InjectionRow, ToolTrustRow } from '../src/injection.js';
 export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';
@@ -386,6 +387,8 @@ export interface Meta {
   jobKinds?: string[];
   /** The most an upload may hold, in bytes; null when uploads are not possible. */
   uploadLimit?: number | null;
+  /** Open in editor: what it runs here (`code --goto <file>:<line>`); null or absent where it can't open one, as in an exported copy. */
+  editor?: string | null;
   /**
    * With several projects: its `id` in the list, its folder as the switcher shows it (`display`),
    * whether its setup is finished, why its store can't be opened (`problem`; `missing` when its
@@ -480,6 +483,7 @@ export interface StaticPayload {
 export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, LookStep, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
 export type { BulkSkip, ChipCounts, DayCount, DeleteResult, RunRow, RunsByDay, RunsPage, RunSort as ServerRunSort, RunType as ServerRunType } from '../src/runs-list.js';
 export type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
+export type { FailedCheck, Issue, IssueDetail, IssueKind, IssueRun, IssueRunsPage, IssuesPage } from '../src/issues.js';
 export type { TraceSourceView } from '../src/routes/imports.js';
 export type { TeamStoreStatus } from '../src/team-store.js';
 export type { ActivityIcon, ActivityItem, ActivityPage, UploadView } from '../src/views.js';
@@ -518,7 +522,8 @@ export interface LabelRunsResult {
 // ---- Tests (#/tests) and Settings → CI: the tests slice's read models, as the server sends them.
 
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
-export type { BisectChoices, BisectMiss, BisectRange, BisectRevision, DivergenceView, FailureView, FollowedGolden, FoundCommit, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, HistoryDrop, InconclusiveView, MoreAttempts, RevisionFact, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck, UntestedCommit } from '../src/tests.js';
+export type { BisectChoices, BisectRange, BisectRevision, DivergenceView, FailureView, FollowedGolden, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, HistoryDrop, InconclusiveView, MoreAttempts, RevisionFact, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck, UntestedCommit } from '../src/tests.js';
+export type { BisectMiss, FoundChange, FoundCommit } from '../src/tests-bisect.js';
 /** `GET /api/tests/evidence`: a gated golden's attempts, each judged from its own run, and the words its evidence says why its gate stopped with. */
 export type { EvidenceAttempt, EvidenceWords, TestEvidence } from '../src/tests-evidence.js';
 /** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find breaking commit's choices. */
@@ -533,11 +538,13 @@ export type { CiListRow, CiSession, CiTeamStore, CiWorkflowOptions, CiWorkflowsV
 export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';
 
 // The decision diff (`/api/decisions`): the read model's own shapes, as the server sends them.
-export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RetirementsView } from '../src/decisions.js';
+export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RetirementsView, RowEnding, RunDecisionsSession, ViewStep } from '../src/decisions.js';
+export type { CellOpen, Toned } from '../src/decision-cells.js';
+export type { PreviewCounts, PreviewKeyEntry, PreviewNext, PreviewReceipt, PreviewRowFacts, PreviewSession, PreviewVerify, PreviewView } from '../src/decision-view.js';
 export type { DecisionChange, DecisionRun, DecisionStep, DecisionsReport, DecisionView } from '../../engine/src/decisions.js';
 export type { RetirementNotice } from '../../engine/src/model-retirements.js';
-/** One session whole: a decisions report (`decisions --json`) or a migrate report, with the matrix the page draws. */
-export type DecisionSessionDetail = Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: import('../src/decisions.js').DecisionRow[] };
+/** One session whole: a decisions report (`decisions --json`) or a migrate report, with the matrix the page draws and its `view`, worded on the server. */
+export type DecisionSessionDetail = import('../src/decision-view.js').PreviewSession;
 /** A run's decisions under each session that asked it again, newest first. */
 export type RunDecisionsView = ReturnType<typeof import('../src/decisions.js').runDecisions>;
 // Changes › Verdicts (`/api/verdicts`): every change checked, and the verdict it got.

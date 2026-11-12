@@ -1672,6 +1672,20 @@ More on some of them:
 The command after `--` replaces each run's recorded one, for `--from-code`, `--then-verify` and
 `--verify`.
 
+**What it prints.** The report opens with how many runs decide a write or when to stop differently,
+and the steps it asked. Each run then has a line, and under it a line for each step that changed or
+wasn't asked ([reading the report](./decisions.md#reading-the-report)). A step's line gives its call
+and its step, then one of these:
+
+| It says | When |
+| --- | --- |
+| `rank 1` to `rank 5` | Its change ranks, by consequence, with what it decided as recorded and under the change |
+| `within the model's own variation` | Its samples decided otherwise no more often than as recorded, with both counts |
+| `inconclusive` | Its samples changed, but too few answers came, under the change or as recorded, to tell that from the model's own variation |
+| `not asked` | It got no answer, with why |
+
+An inconclusive step counts as not asked, and its run settles nothing unless something else flags it.
+
 `decisions` exits with:
 
 | Status    | Meaning                                                                                                |
@@ -1791,7 +1805,7 @@ Each of its `decisions`, a step, has these fields:
 More on a step's fields:
 
 - **`rank`** is `null` when there is none, and when either side got fewer than 3 answers, which leaves
-  the step not settled.
+  the step inconclusive.
 - **`changes`**: each has its `rank`, its `kind`, the `tool` and its `effect`, `before`, `after` and a
   `detail` sentence. `kind` is one of `write-added`, `write-removed`, `write-arguments`,
   `write-order`, `stops`, `handover`, `judge`, `read-added`, `read-removed`, `read-arguments` and
@@ -2595,7 +2609,7 @@ one.
 | `--allow-unrecorded <names>` | As for [`replay`](#replay) | — |
 | `-y, --yes` | At each commit, run without asking the recorded command of a run from a pack or the team store, or of an untracked golden (below) | — |
 | `-- <command>` | The agent's command to run at each commit instead of the recorded one | — |
-| `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took | — |
+| `--json` | Print the result as JSON: each replay, the first bad commit and its change, and the replays, tokens and upstream requests it took | — |
 
 **`--fork`** is for a run that failed a check, whose recording no older commit would replay. The live
 part costs tokens, and the result says how many. A replay that forks asks its
@@ -2634,6 +2648,10 @@ there is none between the two commits (it already fails at `--good`, it passes a
 them can't be tested). It is kept with the golden's newest test result as the search started, the
 failure it answers.
 
+The first bad commit keeps its change against its first parent: the file it opens, the files it
+changed, that file's hunk and the line it added. The dashboard shows it with the answer, without a
+checkout.
+
 The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then:
 not once it passed, and never over a later failure. An answer given while the golden passed answers
 none. A search stopped with Ctrl-C keeps nothing.
@@ -2649,11 +2667,25 @@ none. A search stopped with Ctrl-C keeps nothing.
 | `good`, `bad` | The `good` and `bad` commits |
 | `commits` | How many commits come after the good one, up to and including the bad one |
 | `steps` | Each replay: `rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds` |
-| `first` | The first bad commit, with `why` it fails there |
+| `first` | The first bad commit, with `why` it fails there and its `change` (below) |
 | `untested` | The untested commits just before it |
 | `replays`, `tokens`, `upstreamRequests`, `spent`, `seconds` | What it took: replays, tokens, upstream requests, USD spent and seconds |
 
 A commit is `{ rev, short, subject, author, date }`.
+
+`first.change` is what the first bad commit changed against its first parent, with paths relative to
+the repository, or null when git couldn't say:
+
+| Field | Meaning |
+| --- | --- |
+| `file` | The file it opens: the first changed under `--cwd` that isn't in a golden's folder or `shadowlap.config.json`, else the first |
+| `files` | Every file it changed, up to 50 |
+| `hunk` | That file's diff from its first `@@`, up to about 60 lines and 4 KB, or null for a binary or deleted file |
+| `line` | The new file's line of its first added line, or null without a hunk |
+| `cut` | The hunk was cut to its bounds |
+| `merge` | It is a merge, reverted with `-m 1` |
+
+`file` passes over a file the commit deleted, which has no hunk to show, for one it kept that fits the same rule.
 
 ## pack, unpack
 

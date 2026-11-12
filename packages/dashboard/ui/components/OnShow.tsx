@@ -31,16 +31,17 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
  * the parts they show and none of the dashboard's other pages. A part a copy never draws, such as
- * Share's menu, Run blame's dialogs, or the check menu at a tool call and the check builder its pick
- * opens (which only Add check… opens), is the exception: the served entry hands it in
- * (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it, nor the dialogs it
- * opens (Share's Export dataset… and Export OpenTelemetry trace…), and a test pins what keeps each one
- * undrawn there (test/ui-exported-copy.test.ts).
- * The one part the page list shows itself, the page that says another project holds what a link
- * names, is declared in a module of its own that the pages showing it import too
- * (pages/held-elsewhere.tsx), and the bundle size test pins it. The bundle size test holds each
- * page's and each part's script to a budget of its own. What a fork did differently waits so too,
- * a finding of a fork's page alone, asked for with the differences (run/FindingsBar.tsx).
+ * Share's menu, Run blame's dialogs, the check menu at a tool call and the check builder its pick
+ * opens (which only Add check… opens), Revert's dialog or the first bad commit's change box, is the
+ * exception: the served entry hands it in (served-parts.ts, from pages/served.tsx), so a copy's
+ * script holds none of it, nor the dialogs it opens (Share's Export dataset… and Export
+ * OpenTelemetry trace…), and a test pins what keeps each one undrawn there
+ * (test/ui-exported-copy.test.ts, test/ui-revert-copy.test.ts). The one part the page list shows
+ * itself, the page that says another project holds what a link names, is declared in a module of
+ * its own that the pages showing it import too (pages/held-elsewhere.tsx), and the bundle size test
+ * pins it. The bundle size test holds each page's and each part's script to a budget of its own.
+ * What a fork did differently waits so too, a finding of a fork's page alone, asked for with the
+ * differences (run/FindingsBar.tsx).
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;

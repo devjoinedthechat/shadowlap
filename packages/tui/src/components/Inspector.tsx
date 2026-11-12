@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
-import { useEffect, useMemo, useState } from 'react';
-import type { CallRecord, DivergenceReport, RunRecord, Store } from '@shadowlap/engine';
+import { useEffect, useMemo } from 'react';
+import type { CallRecord, Delta, DivergenceReport, RunRecord, Store } from '@shadowlap/engine';
 import { forkLines, runLines, type RunFacts } from '../run-lines.js';
 import { estimateCost, formatDuration, formatTokens, formatUsd, INPUT_PARTS, normalizeResponse, wholeInput, type SummaryOptions, type Usage } from '@shadowlap/engine';
 import { ago, conversationAt, loadRequest, loadResponseBytes } from '../data.js';
@@ -126,6 +126,34 @@ function noteLines(run: RunRecord | null, call: CallRecord, width: number): Rend
   return lines;
 }
 
+/**
+ * The response tab's lines: pending until the call ends; a stream (`deltas`) under its status line,
+ * whole at rest and from its first delta in play mode; the JSON it answered; or none.
+ */
+function responseLines(call: CallRecord, deltas: Delta[] | null, events: number, play: PlayState, bytes: Buffer | null, width: number): RenderedLine[] {
+  if (!call.end) return [{ text: '(pending)', role: 'label' }];
+  if (deltas) {
+    const upto = play.playing || (play.upto > 0 && play.upto < deltas.length) ? play.upto : deltas.length;
+    const v = streamView(deltas, upto);
+    const total = deltas.at(-1)?.t ?? 0;
+    const now = upto > 0 ? (deltas[upto - 1]?.t ?? 0) : 0;
+    const status = play.playing
+      ? `▶ playing ${play.speed === 0 ? 'instantly' : `×${play.speed}`}  ${formatDuration(now)} of ${formatDuration(total)}`
+      : upto < deltas.length
+        ? `⏸ paused at ${formatDuration(now)} of ${formatDuration(total)}  (space to play)`
+        : `■ ${events} events over ${formatDuration(total)}${v.stopReason ? ` · ended: ${v.stopReason}` : ''} · space plays`;
+    return [{ text: status, role: 'label' }, { text: '' }, ...v.lines.flatMap((l) => wrap(l, width)).map((text) => ({ text }))];
+  }
+  if (!bytes) return [{ text: '(empty response)', role: 'label' }];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    parsed = bytes.toString('utf8');
+  }
+  return jsonLines(parsed, width).map((text) => ({ text }));
+}
+
 export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, width, height, focused = false, run = null, facts = null, onView, summaryOptions }: Props) {
   const theme = useTheme();
   const divergence = run?.divergence ?? null;
@@ -166,10 +194,10 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
   }, [play, isSse, events.length, deltas, onPlayTick]);
 
   const playOnResponse = tab === 'response' ? play : null;
-  const [lines, setLines] = useState<RenderedLine[]>([]);
-  // Where a tab starts reading when nothing has scrolled it: a conversation's first new turn.
-  const [anchor, setAnchor] = useState(0);
-  useEffect(() => {
+  // The tab's lines, worked out as the pane is drawn, and where it starts reading when nothing has
+  // scrolled it (`anchor`: a conversation's first new turn). An effect after the draw left one frame
+  // of the last tab's, call's or width's lines under the new pane, as the zoom's first frame showed.
+  const { lines, anchor } = useMemo((): { lines: RenderedLine[]; anchor: number } => {
     let next: RenderedLine[];
     let start = 0;
     if (tab === 'diff') {
@@ -192,34 +220,11 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
     } else if (tab === 'request') {
       next = jsonLines(loadRequest(store, call), innerWidth).map((text) => ({ text }));
     } else if (tab === 'response') {
-      if (!call.end) next = [{ text: '(pending)', role: 'label' }];
-      else if (isSse) {
-        // At rest the whole response shows; play mode starts it over from the first delta.
-        const upto = play.playing || (play.upto > 0 && play.upto < events.length) ? play.upto : events.length;
-        const v = streamView(deltas, upto);
-        next = v.lines.flatMap((l) => wrap(l, innerWidth)).map((text) => ({ text }));
-        const total = deltas.at(-1)?.t ?? 0;
-        const now = upto > 0 ? (deltas[upto - 1]?.t ?? 0) : 0;
-        const status = play.playing
-          ? `▶ playing ${play.speed === 0 ? 'instantly' : `×${play.speed}`}  ${formatDuration(now)} of ${formatDuration(total)}`
-          : upto < events.length
-            ? `⏸ paused at ${formatDuration(now)} of ${formatDuration(total)}  (space to play)`
-            : `■ ${response?.events ?? 0} events over ${formatDuration(total)}${v.stopReason ? ` · ended: ${v.stopReason}` : ''} · space plays`;
-        next.unshift({ text: status, role: 'label' }, { text: '' });
-      } else if (responseBytes) {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(responseBytes.toString('utf8'));
-        } catch {
-          parsed = responseBytes.toString('utf8');
-        }
-        next = jsonLines(parsed, innerWidth).map((text) => ({ text }));
-      } else next = [{ text: '(empty response)', role: 'label' }];
+      next = responseLines(call, isSse ? deltas : null, response?.events ?? 0, play, responseBytes, innerWidth);
     } else {
       next = [...metaLines(call, innerWidth, theme, summaryOptions), ...noteLines(run, call, innerWidth)];
     }
-    setLines(next);
-    setAnchor(start);
+    return { lines: next, anchor: start };
     // Playback moves only the response tab: the others aren't worked out again on each of its ticks.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- playOnResponse stands in for play
   }, [store, calls, index, call, tab, innerWidth, isSse, events, deltas, response, playOnResponse, responseBytes, summaryOptions, run, facts, divergence, theme]);

@@ -14,6 +14,7 @@ export type Lead =
   | { kind: 'normalize'; label: string; d: DivergenceView; n: NonNullable<DivergenceButtons['normalize']> }
   | { kind: 'update'; label: string; golden: string; judge: readonly string[] | null }
   | { kind: 'bisect'; label: string; f: DivergenceView | FailureView }
+  | { kind: 'revert'; label: string; step: Extract<NextStep, { key: 'revert' }>; f: FailureView }
   | { kind: 'more'; label: string; v: InconclusiveView; more: MoreAttempts }
   | { kind: 'fix'; label: string; href: string; title: string | null; check: string }
   | { kind: 'edit'; label: string; golden: string; check: string; sub: string }
@@ -60,6 +61,11 @@ function goldenLead(view: Pick<TestsView, 'divergences' | 'failures' | 'inconclu
     case 'bisect': {
       const report = d ?? view.failures.find((x) => x.golden === golden);
       return report && findCommitButton(report, has) ? { kind: 'bisect', label, f: report } : null;
+    }
+    // A crash, its first bad commit named: only a failure crashes (its agent exited with an error).
+    case 'revert': {
+      const f = view.failures.find((x) => x.golden === golden);
+      return f && has('revert') ? { kind: 'revert', label, step, f } : null;
     }
     case 'more-attempts':
       return v?.gate?.more && has('test') ? { kind: 'more', label, v, more: v.gate.more } : null;
