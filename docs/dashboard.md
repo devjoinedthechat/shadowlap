@@ -341,7 +341,7 @@ The next step starts from the row, as on [Needs a look](#needs-a-look): **Run bl
 
 The days and the filter's words narrow the issues as they narrow the table: an issue counts only the runs they keep. While the verdicts Failed counts by are worked out, the line above says so, as it does for `status:`. On a phone, each issue is a block.
 
-j and k move between issues, Enter opens one, and ⌘K offers **Open**, **Show its runs** and the step where it starts a job. The failing-runs links on Fixes and on a fix's page open the fix's issue with its runs shown, and the title of Fixes' row of runs nobody has blamed opens its newest one's. An exported copy keeps Failed a filter over its runs.
+j and k move between issues, Enter opens one, and ⌘K offers **Open**, **Show its runs** and the step where it starts a job. The failing-runs links on Fixes and on a fix's page open the fix's issue with its runs shown, a golden's **Failed runs →** on Tests opens the golden's, and the title of Fixes' row of runs nobody has blamed opens its newest one's. An exported copy keeps Failed a filter over its runs.
 
 ### Twelve weeks and Find breaking commit
 
@@ -1390,7 +1390,7 @@ A report reads, top to bottom:
 4. **Its hint**: one sentence of why. What each button does, and what it costs, is its hover.
 5. **Show as printed**, at its foot, as [below](#a-report-as-printed).
 
-Its header holds **Open run**, or **Open failing attempt** for a golden run more than once. Unless its step is a fix, **Failed runs →** comes before it where Runs' Failed view holds the golden's failed replays, how many and which on hover.
+Its header holds **Open run**, or **Open failing attempt** for a golden run more than once. Unless its step is a fix, **Failed runs →** comes before it where the golden has failed replays, how many and which on hover. It opens the golden's [issue](#failed-as-issues) on Runs › Failed, its runs shown.
 
 Its parts come in this order, each where it has something to say:
 
@@ -2774,7 +2774,7 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 
 - its `verdict`, the sentence that says what happened (`head`, in pieces, a path or a check as `code`), and the grey line under it (`sub`);
 - its `parts`, in the order its report draws them: `checks-changed`, `replay`, `request`, `error` (the exception the agent died of, read from its last lines, and the file it was raised in), `checks`, `gate`, `attempts`, an injection gate's `proof` and `injection-attempts`, then `commit` or `missed`;
-- what its header opens (`open`), and Runs' Failed view of its failed replays (`failedRuns`: its `href`, `count` and first five `ids`), null where its step is a fix;
+- what its header opens (`open`), and its own failed replays, as its issue on Runs › Failed holds them (`failedRuns`: the `href` Failed runs → opens, their `count` and first five `ids`), null where its step is a fix;
 - the key of its `hint`;
 - its lines as `shadowlap test` prints them (`printed`, each with its `tone`).
 
