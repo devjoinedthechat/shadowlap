@@ -21,8 +21,10 @@ import { useApp } from '../state.js';
  * which explains where the link comes from.
  */
 
-/** What the bar's live region says while the server can't be reached, once as it comes: never the countdown or the buttons. */
-export const OFFLINE_SAID = 'Offline · actions paused · Can’t reach the dashboard server · showing what loaded';
+/** The bar's words, the ones its line draws and the ones its live region says once as they come: never the countdown or the buttons. */
+const PAUSED = 'Offline · actions paused';
+const UNREACHED = 'Can’t reach the dashboard server';
+const LOADED = 'showing what loaded';
 
 export function OfflineBar() {
   const { conn, loadedAt, retryIn, retrying, retryNow } = useApp();
@@ -37,7 +39,7 @@ export function OfflineBar() {
   // with its words already in it, may never be heard (Safari drops such a box's role). What the bar draws is drawn only.
   const said = (
     <span className="sr" role="status">
-      {offline ? `${OFFLINE_SAID}${when}` : ''}
+      {offline ? `${PAUSED} · ${UNREACHED} · ${LOADED}${when}` : ''}
     </span>
   );
   if (!offline) return said;
@@ -48,10 +50,15 @@ export function OfflineBar() {
         <span className="cdot" />
         <span className="csay">
           <span className="cs" aria-hidden="true">
-            Offline · actions paused
+            {PAUSED}
           </span>
           <span className="ct" aria-hidden="true">
-            <b className="nw">Can’t reach the dashboard server</b> · <span className="nw">showing what loaded{when}</span> · <span className="nw">actions paused ·</span>
+            <b className="nw">{UNREACHED}</b> ·{' '}
+            <span className="nw">
+              {LOADED}
+              {when}
+            </span>{' '}
+            · <span className="nw">actions paused ·</span>
           </span>
         </span>
         <button className="linkbtn cwhy" type="button" aria-expanded={why} aria-controls="connWhyText" onClick={() => setWhy(!why)}>
@@ -59,7 +66,10 @@ export function OfflineBar() {
         </button>
         {/* What Why discloses, next after it as a screen reader moves on: it shows only when asked for. */}
         <span className="cw" id="connWhyText">
-          <span className="cwt">Can’t reach the dashboard server, so this shows what loaded{when}.</span> <span className="cwa">Start it again:</span>
+          <span className="cwt">
+            {UNREACHED}, so this shows what loaded{when}.
+          </span>{' '}
+          <span className="cwa">Start it again:</span>
         </span>
         <span className="cc">
           <span className="cwith">start it with </span>
