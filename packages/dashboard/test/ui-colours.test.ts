@@ -510,7 +510,7 @@ describe('forced colours', () => {
   }
 
   it('keeps the colour of every mark that says something by its colour alone, edged so it shows on any ground', () => {
-    const marks = ['.cells button', '.ms', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw'];
+    const marks = ['.cells button', '.ms', '.segbar', '.org i', '.legend i', '.pips i', '.st i', '.dotlive', '.oleg i', '.grp i', 'td.hist i', '.cal .cd:not(.fut)', '.callrow .cn', '.wib', '.attempts span i', '.alist > .al > i', '.astrip .ac', '.tl-row .bar', '.prl i', '.cilist li i', '.rmx-c i', '.mxsw', '.dc', 'i.dg'];
     for (const s of marks) expect(forced.get(s)?.get('forced-color-adjust'), s).toBe('none');
   });
 
@@ -520,6 +520,8 @@ describe('forced colours', () => {
     expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
     // A folded row in Calls that holds the open call is outlined as the open call's row is.
     expect(forced.get('table.calls tr.held')?.get('outline')).toBe('2px solid Highlight');
+    // A run's Decisions view outlines the step it shows, as Calls does its open call.
+    expect(forced.get('.dvstep.sel')?.get('outline')).toBe('2px solid Highlight');
     for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.legend.lfilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
     // The structural diff's marked words, which say what changed by their ground alone.
