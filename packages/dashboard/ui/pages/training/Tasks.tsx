@@ -1,6 +1,7 @@
 import { Fragment, useRef, type ReactNode } from 'react';
 import type { TaskUpdate, TrainingView } from '../../api.js';
-import { CmdLine, Org } from '../../components/bits.js';
+import { Org } from '../../components/bits.js';
+import { CodeBox } from '../../components/CodeBox.js';
 import { tipCard } from '../../components/HoverCard.js';
 import { Section } from '../../components/Section.js';
 import { Status } from '../../components/Status.js';
@@ -157,7 +158,7 @@ export function TaskNotes({ view }: { view: TrainingView }) {
       <Section title="From a training loop" sub="one HTTP call per attempt">
         <div className="pbody">
           <p className="muted">Serve the model you’re training on an OpenAI-compatible endpoint. Each attempt returns its score, to use as the reward.</p>
-          <CmdLine>{view.serve?.command ?? 'shadowlap tasks serve goldens/ --port 4779'}</CmdLine>
+          <CodeBox command={view.serve?.command ?? 'shadowlap tasks serve goldens/ --port 4779'} />
           {view.serve ? (
             <>
               {/* Nothing was asked: an example, with a placeholder run and one check missed, so a score reads as the share passed. */}

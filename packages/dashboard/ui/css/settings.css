@@ -121,9 +121,8 @@ ul.fails { margin: 0; padding-left: 18px; color: var(--dim); font-size: 13px; li
 /* A setting under a list of values starts on the list's last hairline, not a second one under it (Store, Project). */
 .settab dl.kvs + .setrow { border-top: 0; }
 /* On a phone a button beside a value (Copy access policy, Check again) takes a line of its own, whole; at 340px and under
-   each value goes under its key. */
+   each value goes under its key, as every key and value list does (base.css). */
 @media (max-width: 640px) { .settab .kvs dd :is(.btn, .linkbtn) { display: flex; width: fit-content; margin-top: 6px; } }
-@media (max-width: 340px) { .settab .kvs { grid-template-columns: minmax(0, 1fr); } .settab .kvs dt { border-bottom: 0; padding-bottom: 0; } }
 /* Rows run the section's full width: sections sit between hairlines, not in boxes. */
 .panel.sec.set .setrow { padding-left: 0; padding-right: 0; }
 .panel.sec.set dl.kvs { padding-left: 0 !important; padding-right: 0 !important; }
@@ -249,8 +248,6 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .egrp.mcp .fieldnote.mcpnote code { color: var(--ink); }
 .egrp.mcp .mcpform2 { margin-top: 12px; display: grid; gap: 6px; }
 .egrp.mcp .mcpform2 .muted { font-size: 12.5px; }
-
-.cmdline.words > span { display: inline-block; max-width: 100%; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }
 
 .fieldnote.storeerr { margin: 0 0 12px; }
 

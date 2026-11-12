@@ -4,7 +4,7 @@ import { ConfirmDialog } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
 import type { CodingAgentsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
-import { CommandLine, FILES_GONE, LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
+import { FILES_GONE, LoadProblem, Loading, useFolderGone, useSettingsData } from './common.js';
 import { agentFileWords, orList, sharedSkillsWords, SKILL_INSTALL_KIND, skillWords, type AgentAction } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
 import { Section } from '../../components/Section.js';
@@ -178,11 +178,7 @@ function SkillRow({ skill, gone, onAct }: { skill: NonNullable<CodingAgentsSetti
         ) : (
           <>
             {w.line ? <span className={w.tone || undefined}>{w.line}</span> : null}
-            {w.command ? (
-              <div className="skcmd">
-                <CommandLine command={w.command} />
-              </div>
-            ) : null}
+            {w.command ? <CodeBox command={w.command} className="skcmd" /> : null}
           </>
         )}
         {every ? (

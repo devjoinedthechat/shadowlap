@@ -252,4 +252,3 @@ export function Loading({ title, children }: { title: string; children?: ReactNo
 }
 
 /** A shell command as the page shows it, wrapping only between its words; the tabs take it from here. */
-export { CommandLine } from '../../components/bits.js';

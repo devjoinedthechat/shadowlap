@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { tokenInUse } from '../api.js';
-import { CmdLine } from '../components/bits.js';
 import { CodeBox, CopyButton } from '../components/CodeBox.js';
 import { Icon } from '../components/Icon.js';
 import { pastedLink } from '../connection.js';
-import { copyText } from '../dom.js';
 import { DOCS, docsHref } from '../docs-links.js';
 import { clock } from '../format.js';
 import { holdBehind } from '../overlays/modal-store.js';
@@ -74,21 +72,6 @@ export function OfflineBar() {
         </button>
       </div>
     </>
-  );
-}
-
-/** The gate's Copy: it says Copied on itself, as the gate renders outside the app, where a toast can't come from. */
-function CopyCommand({ text }: { text: string }) {
-  const [done, setDone] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (done === null) return;
-    const t = setTimeout(() => setDone(null), 1600);
-    return () => clearTimeout(t);
-  }, [done]);
-  return (
-    <button className="btn" type="button" onClick={() => void copyText(text).then(setDone)}>
-      {done === null ? 'Copy command' : done ? 'Copied' : 'Copy failed'}
-    </button>
   );
 }
 
@@ -183,10 +166,8 @@ export function Gate() {
         <p>
           Recordings hold prompts and tool data, so the dashboard serves them only to the link <code>shadowlap dashboard</code> prints. That link carries a session token for this run of the dashboard.
         </p>
-        <CmdLine>shadowlap dashboard</CmdLine>
-        <div className="actions">
-          <CopyCommand text="shadowlap dashboard" />
-        </div>
+        {/* outside the app, where no toast can come from: its Copy says Copied on itself */}
+        <CodeBox command="shadowlap dashboard" />
       </div>
     </div>
   );

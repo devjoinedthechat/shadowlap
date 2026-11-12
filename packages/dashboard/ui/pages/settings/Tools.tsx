@@ -13,7 +13,7 @@ import { useLoad } from '../../hooks.js';
 import { useListKeys } from '../../list-keys.js';
 import type { ToolsSettings } from '../../settings-api.js';
 import { useApp } from '../../state.js';
-import { CommandLine, LoadProblem, Loading, MCP_GONE, TOOLS_GONE, useFolderGone, useSettingsData } from './common.js';
+import { LoadProblem, Loading, MCP_GONE, TOOLS_GONE, useFolderGone, useSettingsData } from './common.js';
 import { MCP_FORMS, addServerNotes, copiedLineText, entryEnvFor, mcpEntryText, mcpRows, pasteFile, pasteWhere, serverNameFor, type McpRow } from './logic.js';
 
 /**
@@ -194,7 +194,7 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
             {data.mcp.otherForms.map((f) => (
               <div key={f} className="mcpform2">
                 <span className="muted">{MCP_FORMS[f].label}:</span>
-                <CommandLine command={MCP_FORMS[f].line} />
+                <CodeBox command={MCP_FORMS[f].line} />
               </div>
             ))}
           </div>

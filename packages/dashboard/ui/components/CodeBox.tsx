@@ -1,6 +1,6 @@
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { copyText } from '../dom.js';
-import { useApp } from '../state.js';
+import { useApp, useInApp } from '../state.js';
 import { Command } from './Copy.js';
 import { Icon } from './Icon.js';
 import { tipCard, tipText } from './HoverCard.js';
@@ -66,12 +66,36 @@ export function boxWhat({ command, full, what }: Pick<CodeBoxProps, 'command' | 
   return typeof command !== 'string' && command.length > 1 ? 'the commands' : 'the command';
 }
 
+type CopyButtonProps = { text: string; label?: string; children?: ReactNode; className?: string; name?: string; /** A line under its name, on its card. */ sub?: string; /** What it copies runs, on its card's `$` row. */ cmd?: string };
+
 /**
  * Copies, and says so in a toast (`Copied` and what, `label`, or the text itself): the one copy
  * button, its words beside the icon (`children`), or the icon alone, named by `name` for a screen
- * reader and on hover. Every Copy on a page is this one.
+ * reader and on hover. Every Copy on a page is this one. Outside the app (the token gate), where no
+ * toast can come from, it says Copied on itself.
  */
-export function CopyButton({ text, label, children = 'Copy', className = 'linkbtn', name, sub, cmd }: { text: string; label?: string; children?: ReactNode; className?: string; name?: string; /** A line under its name, on its card. */ sub?: string; /** What it copies runs, on its card's `$` row. */ cmd?: string }) {
+export function CopyButton(props: CopyButtonProps) {
+  return useInApp() ? <ToastCopy {...props} /> : <SaidCopy {...props} />;
+}
+
+/** A copy said on the button itself for a moment, beside its icon: Copied, or Copy failed. */
+function SaidCopy({ text, children = 'Copy', className = 'linkbtn', name }: CopyButtonProps) {
+  const [done, setDone] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (done === null) return;
+    const t = setTimeout(() => setDone(null), 1600);
+    return () => clearTimeout(t);
+  }, [done]);
+  const said = done === null ? null : done ? 'Copied' : 'Copy failed';
+  return (
+    <button type="button" className={className} aria-label={said ?? name} onClick={() => void copyText(text).then(setDone)}>
+      <Icon name="copy" />
+      {said ?? children}
+    </button>
+  );
+}
+
+function ToastCopy({ text, label, children = 'Copy', className = 'linkbtn', name, sub, cmd }: CopyButtonProps) {
   const { toast } = useApp();
   return (
     <button

@@ -15,8 +15,7 @@ that comes from data goes there, everything else is a class.
 Every page speaks the run page's language: it opens quietly, with a muted kind, its title and its
 facts, and lays its parts out as full-width sections between hairlines. These are its parts, built
 once; a page draws them and never its own. Pages move onto them one by one: `Badge`, `Tag`, `Kpi`,
-`CmdLine`, `CommandLine`, `CodeBlock` and `CopyButton` below stay until the last page
-that draws one has.
+`CodeBlock` and `CopyButton` below stay until the last page that draws one has.
 
 | Component | File | Use it for |
 |---|---|---|
@@ -113,7 +112,7 @@ project in the job, so a server switched since refuses it.
 | `shortcut(id)` | `../shortcuts.ts` | What a control spreads to say its key: `aria-keyshortcuts`, which its hover card reads, and `data-shortcut`, by which the key finds it. Gone while single keys are off. Every key is in that one table, which the shortcuts sheet draws. |
 | `useListKeys` | `../list-keys.ts` | One hook for every list: hand it the rows as data, `keyOf`, `root`, `open`, and `pick`, `actions` or `show` where they apply; spread `data-rowkey` on each row and draw the one it returns `.krow`. j and k, ↓ ↑, Enter, x, ⌘K and Esc follow, a page's lists as one sequence. |
 | `Kpi` | `bits.tsx` | A number with its label and a line, as Training draws its scores. |
-| `CmdLine`, `CommandLine`, `CodeBlock`, `CopyButton` | `bits.tsx` | A shell command; one long enough to wrap, which breaks only between its words (`shellWords` in `format.ts`); a file with Copy in its header; copy and say so (`CodeBox.tsx`'s, the one copy button, its icon alone where `name` names it). Each page moves its boxes to `CodeBox` as it ports. |
+| `CodeBlock`, `CopyButton` | `bits.tsx` | A file with Copy in its header; copy and say so (`CodeBox.tsx`'s, the one copy button, its icon alone where `name` names it; outside the app, on the token gate, it says Copied on itself). Every command is a `CodeBox`. |
 | `SortTh`, `ShowMore`, `rowOpen` | `Table.tsx` | A sorting header for `table.t`, "Show 50 more", and what a row spreads to open a page unless a control inside it was clicked. |
 | `JsonTree` | `Json.tsx` | A JSON value as a folding tree that draws a branch only when it is opened. |
 | `ResultsMatrix` | `ResultsMatrix.tsx` | The results matrix (`../matrix.ts`), one design for an injection test (its untrusted reads by payload) and the error-path presets (a run by preset): each cell a bar in its tone, the word, the tally with its noun and the bound kept whole. Fitted to its room (`../matrix-fit.ts`): balanced bands where it has one row, one band that scrolls under heads that stay put where it has several, turned under 560px where turned it fits. Past eight reads, a row for each tool (`groupRows`). Its script loads on its own: draw it through `FindingPanel` or `ResultsMatrixPart`, never by importing it. |

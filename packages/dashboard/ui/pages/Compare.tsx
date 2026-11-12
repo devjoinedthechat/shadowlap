@@ -3,7 +3,8 @@ import type { CompareHead } from '../../src/compare.js';
 import { ApiError, type CompareView, type RunDetail, type RunListItem } from '../api.js';
 import { ChangesHead } from '../changes/Head.js';
 import { forgetComparePair, noteComparePair } from '../changes-tab.js';
-import { CmdLine, PageHeader } from '../components/bits.js';
+import { PageHeader } from '../components/bits.js';
+import { CodeBox } from '../components/CodeBox.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { Page } from '../components/Page.js';
@@ -482,7 +483,7 @@ function HeadFirst({ h, stopped = null }: { h: CompareHead; stopped?: { why: str
           <p>
             The rest, {listed}, could not be worked out here: {stopped.why}. What shows above is whole. A terminal compares the two runs with no time limit:
           </p>
-          <CmdLine>{stopped.command}</CmdLine>
+          <CodeBox command={stopped.command} />
         </div>
       ) : (
         <p className="cmpwait" role="status">
