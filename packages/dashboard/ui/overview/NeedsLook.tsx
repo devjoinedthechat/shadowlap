@@ -6,11 +6,12 @@ import { EmptyLine } from '../components/States.js';
 import { ruleTip } from '../components/Verdict.js';
 import { num, shortId } from '../format.js';
 import { type RowScope, useListKeys } from '../list-keys.js';
-import { navigate } from '../router.js';
+import { issueClick, openIssue } from '../runspage/open-issue.js';
 import { useApp } from '../state.js';
 import type { NeedsLookRow } from '../types.js';
 import { keepParts } from './model.js';
-import { LookStepButton, type LookWait, stepRun, useLookWaits } from './steps.js';
+import { type LookWait, useLookWaits } from '../steps/RunStep.js';
+import { LookStepButton, stepRun } from './steps.js';
 import { type AboutOf, DotPieces, Pieces, useAbouts } from './words.js';
 
 /**
@@ -30,7 +31,7 @@ const LookRow = memo(function LookRow({ x, wait, version, aboutOf, focused }: { 
     <div className={`arow${focused ? ' krow' : ''}`} data-rowkey={x.key} data-agrp={x.group}>
       <EventIcon kind={x.icon} />
       {/* A gate's verdict says its word, tally and bound, whole, and its rule on hover. */}
-      <a className="at" href={x.href} data-tip={x.rule ? ruleTip(x.name ?? x.title, x.rule) : undefined}>
+      <a className="at" href={x.href} data-tip={x.rule ? ruleTip(x.name ?? x.title, x.rule) : undefined} onClick={x.issue ? issueClick(x.issue) : undefined}>
         <span className="t">
           <Pieces parts={keepParts(x.title)} aboutOf={about} />
         </span>
@@ -59,7 +60,7 @@ function lookScope(x: NeedsLookRow, box: RefObject<HTMLElement | null>): RowScop
     name: x.title.slice(0, 48),
     items: () => {
       const b = button();
-      const open = { label: 'Open', hint: x.href, run: () => navigate(x.href) };
+      const open = { label: 'Open', hint: x.href, run: () => openIssue(x.href, x.issue ?? null) };
       if (!b) return [open];
       let tip: { s?: string; cmd?: string } = {};
       try {
@@ -78,7 +79,8 @@ function lookScope(x: NeedsLookRow, box: RefObject<HTMLElement | null>): RowScop
 function Rows({ items, wait, version }: { items: readonly NeedsLookRow[]; wait: LookWait | null; version: string }) {
   const box = useRef<HTMLDivElement>(null);
   const aboutOf = useAbouts();
-  const inFocus = useListKeys({ rows: items, keyOf: (x) => x.key, root: box, open: (x) => navigate(x.href), actions: (x) => lookScope(x, box) });
+  // The row of failed runs nobody has blamed opens its newest's issue there (`issue`).
+  const inFocus = useListKeys({ rows: items, keyOf: (x) => x.key, root: box, open: (x) => openIssue(x.href, x.issue ?? null), actions: (x) => lookScope(x, box) });
   // A group's count is its rows, a line for the rest of a source as many as it stands for.
   const counts = new Map<string, number>();
   for (const x of items) counts.set(x.group, (counts.get(x.group) ?? 0) + (x.more ?? 1));

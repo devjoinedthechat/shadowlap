@@ -16,6 +16,7 @@ import { ProjectRoutes, ProjectStores, readConfig, registerAll, type RouteBase }
 import { ROUTE_MODULES, type RouteModule } from './routes/index.js';
 import type { GoldenSource } from './tests.js';
 import type { TrainingOptions } from './training.js';
+import type { EditorOptions } from './editor.js';
 import { countRuns } from './runs-list.js';
 import { StoreFiles } from './store-files.js';
 import { UploadStore } from './uploads.js';
@@ -97,6 +98,8 @@ export interface DashboardOptions {
   projectOptions?: (project: { id: string | null; name: string; path: string }) => Partial<DashboardOptions>;
   /** Training (#/training): the CLI's tasks loader, and how Score a model lists models (training.ts). */
   training?: TrainingOptions;
+  /** Open in editor's environment, platform and spawner (editor.ts): the server's own unless a test gives them. */
+  editor?: EditorOptions;
 }
 
 export interface Dashboard {

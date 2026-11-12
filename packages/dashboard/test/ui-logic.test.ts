@@ -76,7 +76,7 @@ describe('routes', () => {
     expect(Object.keys(GO_KEYS).sort()).toEqual(['a', 'c', 'f', 'o', 'r', 's', 't']);
     expect(nextView('calls')).toBe('turns');
     expect(nextView('forks')).toBe('provenance');
-    expect(nextView('provenance')).toBe('calls');
+    expect([nextView('provenance'), nextView('decisions')]).toEqual(['decisions', 'calls']);
     expect(nextView(null)).toBe('turns');
   });
 });

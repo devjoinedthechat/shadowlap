@@ -86,7 +86,7 @@ describe('the upgrades’ results in Needs a look', () => {
     expect(all[0].runId).toBe(failedRun);
   });
 
-  it('lists a preview whose flagged runs no verify accepted, opening the run at the call whose decision changed', () => {
+  it('lists a preview whose flagged runs no verify accepted, opening its cell on Preview, and a migration’s run, at the call whose decision changed', () => {
     const refund = run();
     const step = (callNo: number, majority: number | null) => ({ callNo, step: callNo, rank: majority, majority, samples: { asked: 1, answered: 1, changed: majority ? 1 : 0, ranks: [majority ?? 0] }, changes: [] });
     const decisionRun = { runId: refund, golden: 'goldens/forecast', rank: 1, decisions: [step(3, null), step(5, 1), step(7, 2)] };
@@ -104,7 +104,7 @@ describe('the upgrades’ results in Needs a look', () => {
     store.putDecisionSession({ sessionId: 'dc-01M5000000000000000000000F', kind: 'decisions', at: NOW - 6_000, change: 'temperature=1', actor: null, revision: null, data: { flagged: [], verify: null }, runs: [{ runId: refund, golden: 'goldens/forecast', rank: null, changed: 0, data: { ...decisionRun, rank: null, decisions: [step(3, null)] } }] });
     expect(items().filter((i) => i.kind === 'decisions')).toEqual([
       { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the model gpt-5-mini', detail: 'a migration: a write, stop or judged change · verify rejected it', key: 'attn:decisions:mg-01M5000000000000000000000D', group: 'tests', step: null, href: `#/run/${refund}/5`, runId: refund, fixId: null, at: NOW - 7_000 },
-      { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the prompt and tools in the working tree', detail: 'a preview: a write, stop or judged change · not verified yet', key: 'attn:decisions:dc-01M5000000000000000000000A', group: 'tests', step: null, href: `#/run/${refund}/5`, runId: refund, fixId: null, at: NOW - 9_000 },
+      { kind: 'decisions', icon: 'warn', title: '1 run decides differently under the prompt and tools in the working tree', detail: 'a preview: a write, stop or judged change · not verified yet', key: 'attn:decisions:dc-01M5000000000000000000000A', group: 'tests', step: null, href: `#/changes/decisions/dc-01M5000000000000000000000A/${refund}/5`, runId: refund, fixId: null, at: NOW - 9_000 },
     ]);
   });
 
@@ -123,7 +123,7 @@ describe('the upgrades’ results in Needs a look', () => {
     expect(decisions()).toEqual([]);
     // An older preview that also flagged a run the migration never asked again: its line, for that run alone.
     session('dc-01M5000000000000000000000C', 'decisions', NOW - 20_000, { flagged: [ticket, third], verify: null }, [ticket, third]);
-    expect(decisions()).toEqual([expect.objectContaining({ title: '1 run decides differently under the model claude-haiku-4-5', detail: 'a preview: a write, stop or judged change · not verified yet', href: `#/run/${third}/17`, runId: third, at: NOW - 20_000 })]);
+    expect(decisions()).toEqual([expect.objectContaining({ title: '1 run decides differently under the model claude-haiku-4-5', detail: 'a preview: a write, stop or judged change · not verified yet', href: `#/changes/decisions/dc-01M5000000000000000000000C/${third}/17`, runId: third, at: NOW - 20_000 })]);
     // A newer migration flagged that run too, and its verify rejected it: the line is the migration's, once.
     session('mg-01M5000000000000000000000D', 'migrate', NOW - 1_000, { flagged: [third], decisions: { flagged: [third] }, passes: { verdict: 'rejected', runs: [] } }, [third]);
     expect(decisions()).toEqual([expect.objectContaining({ title: '1 run decides differently under the model claude-haiku-4-5', detail: 'a migration: a write, stop or judged change · verify rejected it', runId: third, at: NOW - 1_000 })]);

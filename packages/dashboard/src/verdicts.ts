@@ -350,6 +350,8 @@ interface PreviewFacts {
   runs: number;
   goldens: number;
   flaggedRank: 1 | 2 | null;
+  /** How many times each step was asked under the change; null in a report that doesn't say. */
+  samples: number | null;
 }
 
 /** A kept verify, when it is one: its verdict, each run's role and outcome, and why it left runs open. */
@@ -371,7 +373,7 @@ function passesOf(raw: unknown): MigratePasses | null {
 function previewFacts(store: Store, ids: readonly string[]): Map<string, PreviewFacts> {
   const rows = store.query(
     `SELECT s.session_id AS id, s.kind AS kind, s.at AS at, s.actor AS actor, s.revision AS revision,
-       ${part('change')} AS change, ${part('counts')} AS counts, ${part('flagged')} AS flagged, ${part('toVerify')} AS to_verify, ${part('verify')} AS verify, ${part('judge.inconclusive')} AS judge_waits, ${part('stopReason')} AS stop_reason,
+       ${part('change')} AS change, ${part('counts')} AS counts, ${part('flagged')} AS flagged, ${part('toVerify')} AS to_verify, ${part('verify')} AS verify, ${part('judge.inconclusive')} AS judge_waits, ${part('stopReason')} AS stop_reason, ${part('samples')} AS samples,
        json_extract(s.data, '$.from') AS from_models, json_extract(s.data, '$.to') AS to_model, CASE s.kind WHEN 'migrate' THEN json_extract(s.data, '$.passes') END AS passes,
        (SELECT COUNT(*) FROM decision_runs r WHERE r.session_id = s.session_id) AS runs,
        (SELECT COUNT(r.golden) FROM decision_runs r WHERE r.session_id = s.session_id) AS goldens,
@@ -389,7 +391,7 @@ function previewFacts(store: Store, ids: readonly string[]): Map<string, Preview
     const flaggedRank = r.flag_rank === 1 || r.flag_rank === 2 ? r.flag_rank : null;
     const flagged = parsed<unknown[]>(r.flagged, []).filter((x): x is string => typeof x === 'string');
     const toVerify = parsed<unknown[] | null>(r.to_verify, null)?.filter((x): x is string => typeof x === 'string') ?? flagged;
-    out.set(String(r.id), { id: String(r.id), kind, at: Number(r.at), actor: str(r.actor), revision: str(r.revision), name, counts, flagged, toVerify, verify: verifyOf(r.verify), passes: kind === 'migration' ? passesOf(r.passes) : null, judgeWaits: count(r.judge_waits), stopReason: str(r.stop_reason), fromCode: !!change?.fromCode, runs: count(r.runs), goldens: count(r.goldens), flaggedRank });
+    out.set(String(r.id), { id: String(r.id), kind, at: Number(r.at), actor: str(r.actor), revision: str(r.revision), name, counts, flagged, toVerify, verify: verifyOf(r.verify), passes: kind === 'migration' ? passesOf(r.passes) : null, judgeWaits: count(r.judge_waits), stopReason: str(r.stop_reason), fromCode: !!change?.fromCode, runs: count(r.runs), goldens: count(r.goldens), flaggedRank, samples: typeof r.samples === 'number' ? r.samples : null });
   }
   return out;
 }
@@ -466,6 +468,20 @@ function previewVerdict(f: PreviewFacts, runs: readonly UnsettledRun[]): Pick<Pr
   if (verdict && f.toVerify.length) return say('accepted', verifyHead('accepted', ran));
   const h = decisionsHeadline({ counts: f.counts, flagged: [], runs: [] });
   return say('nothing to verify', `${h.lead}${h.rest}`);
+}
+
+/**
+ * What a list of previews and migrations says of each kept session, by its id: its name, its runs,
+ * how many of them came from a golden and whether to call them goldens (every one did) or runs, its
+ * samples a step, the runs it left to verify (`toVerify`, else those it flagged) and what verify found.
+ */
+export function sessionFacts(store: Store, ids: readonly string[]): Map<string, { name: string; runs: number; goldens: number; unit: 'golden' | 'run'; samples: number | null; toVerify: string[]; verify: DecisionsVerify | null }> {
+  return new Map([...previewFacts(store, ids)].map(([id, f]) => [id, { name: f.name, runs: f.runs, goldens: f.goldens, unit: unitOf(f), samples: f.samples, toVerify: f.toVerify, verify: f.verify }]));
+}
+
+/** One kept session's verdict as Verdicts lists it, for its own page; null for an id the store doesn't keep. */
+export function previewVerdictOf(store: Store, sessionId: string): PreviewVerdict | null {
+  return previewRows(store, [sessionId], false)[0] ?? null;
 }
 
 function previewRows(store: Store, ids: readonly string[], shared: boolean): PreviewVerdict[] {

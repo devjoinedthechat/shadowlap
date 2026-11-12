@@ -63,6 +63,8 @@ const client = {
   lineage: () => Promise.resolve([]),
   fixBundles: () => Promise.resolve([]),
   provenance: () => Promise.resolve(null),
+  // The Decisions view draws its loading line until the previews come, which here they never do.
+  runDecisions: () => new Promise(() => undefined),
   showJson: () => new Promise(() => undefined),
   jobs: () => Promise.resolve([]),
 } as unknown as Client;

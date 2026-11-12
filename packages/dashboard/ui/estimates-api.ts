@@ -1,9 +1,9 @@
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { Spending } from '../../engine/src/estimates/spending.js';
-import type { FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
+import type { DecisionEstimates, FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
 import type { Request } from './settings-api.js';
 
-export type { FixEstimates, GoldenEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
+export type { DecisionEstimates, FixEstimates, GoldenEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
 
 /** Spending as the server says it: the threshold (0, Always ask; null, Never ask), whether it was set, and what in its file was ignored. */
 export interface SpendingView {
@@ -35,6 +35,8 @@ export interface EstimatesApi {
   fixEstimates(fixId: string, model?: string | null): Promise<FixEstimates>;
   /** Run tests' and each golden's, with Update goldens…' for `update` together where it names goldens. */
   testsEstimates(update?: readonly string[]): Promise<TestsEstimates>;
+  /** What a kept preview's Verify bills: on every run it could not clear, or on those `runIds` name (the runs no verify took yet). */
+  decisionEstimates(sessionId: string, runIds?: readonly string[]): Promise<DecisionEstimates>;
   bisectEstimate(q: BisectQuery): Promise<Estimate>;
 }
 
@@ -50,11 +52,12 @@ export function estimatesApi(request: Request): EstimatesApi {
     runEstimates: (runId, at, model) => request(`runs/${q(runId)}/estimates${query({ at, model })}`),
     fixEstimates: (fixId, model) => request(`fixes/${q(fixId)}/estimates${query({ model })}`),
     testsEstimates: (update) => request(`tests/estimates${update?.length ? `?${update.map((p) => `update=${q(p)}`).join('&')}` : ''}`),
+    decisionEstimates: (sessionId, runIds) => request(`decisions/${q(sessionId)}/estimates${runIds?.length ? `?${runIds.map((id) => `runId=${q(id)}`).join('&')}` : ''}`),
     bisectEstimate: (b) => request<{ estimate: Estimate }>(`estimates/bisect${query({ runId: b.runId, golden: b.golden, good: b.good, bad: b.bad })}`).then((r) => r.estimate),
   };
 }
 
 /** An exported copy runs no job, so it prices none and keeps no Spending: every call says so. */
 export function noEstimates(refuse: () => Promise<never>): EstimatesApi {
-  return { spending: refuse, setSpending: refuse, runEstimates: refuse, fixEstimates: refuse, testsEstimates: refuse, bisectEstimate: refuse };
+  return { spending: refuse, setSpending: refuse, runEstimates: refuse, fixEstimates: refuse, testsEstimates: refuse, decisionEstimates: refuse, bisectEstimate: refuse };
 }

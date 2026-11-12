@@ -35,9 +35,10 @@ function PressLost({ what, open, close }: { what: 'menu' | 'dialog'; open: boole
 
 /**
  * The one `failed` of the parts that open on a press: Share's menu and the Security report it opens,
- * the fork menu, the header's …, Run blame's dialogs and the steps' dialogs, each a `menu` or a
- * `dialog` in the toast's words. The parts drawn in place keep their own: the check builder's
- * BuilderLost, the results panel's LoadFailed and an injection test's finding's (FindingLost).
+ * the fork menu, the header's …, Revert's dialog, Run blame's dialogs and the steps' dialogs, each a
+ * `menu` or a `dialog` in the toast's words. The parts drawn in place keep their own: the first bad
+ * commit's change box's LoadFailed, the check builder's BuilderLost, the results panel's LoadFailed
+ * and an injection test's finding's (FindingLost).
  */
 const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): OnShowOptions<P> => ({
   failed: (props) => {
@@ -71,8 +72,11 @@ export const SERVED_PARTS: ServedParts = {
   ForkMenu: onShow(() => import('../run/ForkMenu.js').then((m) => m.ForkMenu), failed('menu', closes)),
   // Drawn from the first press on, so Delete run's dialog outlives the menu: open while its button says so.
   MoreMenu: onShow(() => import('../run/MoreMenu.js').then((m) => m.MoreMenu), failed('menu', (p: MoreMenuProps) => p.more)),
+  RevertDialog: onShow(() => import('../revert/RevertDialog.js').then((m) => m.RevertDialog), failed('dialog', closes)),
+  ChangeBox: onShow(() => import('../revert/ChangeBox.js').then((m) => m.ChangeBox), { failed: <LoadFailed what="change" /> }),
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks), failed('dialog', closes)),
+  FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues)),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog), failed('dialog', closes)),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog), failed('dialog', closes)),
   InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding), { failed: (p) => <FindingLost fx={p.fx} more={p.more} /> }),

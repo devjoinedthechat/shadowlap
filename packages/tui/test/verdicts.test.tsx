@@ -76,7 +76,7 @@ function story(options: { dropEmail?: boolean } = {}) {
 describe('how a run stands, in the terminal', () => {
   it('opens a failed run where blame found it lost, on why it failed, with its fix', async () => {
     const { s, rec } = story();
-    const { lastFrame, stdin, unmount } = renderAt(<App store={s} runId={rec} columns={120} rows={40} />, 120, 40);
+    const { lastFrame, frames, stdin, unmount } = renderAt(<App store={s} runId={rec} columns={120} rows={40} />, 120, 40);
     const frame = await frameWhere(lastFrame, (f) => f.includes('How this run stands'));
     const lines = frame.split('\n');
     // The verdict line under the header, and the list's line before the call blame named.
@@ -84,12 +84,15 @@ describe('how a run stands, in the terminal', () => {
     expect(lines[1]).toMatch(/^ Research request .*✗ check failed: send_email called 1 time, but called 2 times \(2 blocked\)/);
     const at = lines.findIndex((l) => /> #9\s/.test(l));
     expect(lines[at - 1]).toContain('── lost here · blame, high confidence');
-    // The run tab, whole: z widens it.
+    // The run tab, whole: z widens it, its lines laid out at the new width from the first frame that
+    // draws it widened, never one with the narrow pane's lines first.
+    const from = frames.length;
     stdin.write('z');
     const tab = await frameWhere(lastFrame, (f) => f.includes('z unzoom') && f.includes('Attempts'));
     expect(tab).toContain('fixed: “Ask before emailing the customer twice”, verified');
     expect(tab).toContain(`${FIX} “Ask before emailing the customer twice”: verified`);
     expect(tab).toContain('5 attempts, 4 passed');
+    expect(frames.slice(from).filter((f) => f.includes('z unzoom') && !f.includes('fixed: “Ask before emailing the customer twice”, verified'))).toEqual([]);
     stdin.write('z');
     await frameWhere(lastFrame, (f) => f.includes('z zoom'));
     // b goes back to that call from anywhere.

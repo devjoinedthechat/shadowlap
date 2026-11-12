@@ -16,6 +16,7 @@ import { LEAD_KIND, leadCard, leadReadsFix } from './lead.js';
 import type { LeadOpen } from './LeadDialog.js';
 import { fixAction } from './model.js';
 import { refusedPress } from './page-fix.js';
+import { CrashStepButton } from '../revert/CrashStep.js';
 
 /** The dialog a press opens, the fix page's own, in a script of its own that loads as it first shows (LeadDialog.tsx). */
 const LeadDialog = onShow(() => import('./LeadDialog.js').then((m) => m.LeadDialog));
@@ -66,9 +67,27 @@ function fieldsOf(lead: FixLead): Record<string, unknown> {
  * own fields, starting at or under the threshold, else asking. A list can be older than the working
  * tree: an apply whose patch `fix apply` refuses now says why instead (`fixAction`). While a read is out
  * the button is busy and another press does nothing. `why` is the list's: one jobs read for every row.
- * A press refused once the fix's blame moved on offers Open Blame (`refusedPress`).
+ * A press refused once the fix's blame moved on offers Open Blame (`refusedPress`). A crash's Find
+ * breaking commit and Revert are its run's step, drawn and pressed as Needs a look draws a run's
+ * (revert/CrashStep.tsx).
  */
-export function RowStep({ fixId, lead, why, version, className = 'btn sm', fix: detail }: { fixId: string; lead: FixLead; why: string | null; version: string; className?: string; fix?: FixDetail }) {
+export function RowStep(p: RowStepProps) {
+  const { lead } = p;
+  // A crash's Find breaking commit and Revert run on its run, not the fix, as on Needs a look's run rows; the fix's page has the commit named.
+  if (lead.key === 'bisect' || lead.key === 'revert') return <CrashStepButton runId={lead.runId} step={lead.step} why={p.why} className={p.className ?? 'btn sm'} {...(p.fix ? { found: p.fix.blame?.crash?.commit ?? null } : {})} />;
+  return <FixRowStep {...p} lead={lead} />;
+}
+
+interface RowStepProps {
+  fixId: string;
+  lead: FixLead;
+  why: string | null;
+  version: string;
+  className?: string;
+  fix?: FixDetail;
+}
+
+function FixRowStep({ fixId, lead, why, version, className = 'btn sm', fix: detail }: RowStepProps & { lead: Exclude<FixLead, { key: 'bisect' | 'revert' }> }) {
   const app = useApp();
   const press = useBilledPress();
   const [got, setGot] = useState<{ version: string; e: FixEstimates | null } | null>(null);
