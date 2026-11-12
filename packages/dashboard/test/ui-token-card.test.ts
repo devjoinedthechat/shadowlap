@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { pastedLink } from '../ui/connection.js';
-import { ExpiredCard } from '../ui/shell/Connection.js';
+import { ExpiredCard, Gate } from '../ui/shell/Connection.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -80,5 +80,41 @@ describe('the card for a refused session token', () => {
     await r.until('the reason', () => r!.all('.cb .fieldnote').length > 0);
     expect(r.one('.cb .fieldnote').textContent).toContain('paste the link into the address bar');
     expect(location.assign).not.toHaveBeenCalled();
+  });
+});
+
+describe('the token gate’s Copy', () => {
+  let r: Rendered | null = null;
+  afterEach(async () => {
+    await r?.unmount();
+    r = null;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  // Outside the app no toast can come from, and asking for one would throw (useApp outside
+  // AppProvider): the gate, drawn with no provider, says what its Copy did on the button itself.
+  it('says Copied on its button for 1.6 s, then goes back, and Copy failed where the browser refuses', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const writes: string[] = [];
+    vi.stubGlobal('navigator', { clipboard: { writeText: (t: string) => (writes.push(t), Promise.resolve()) } });
+    r = await render(createElement(Gate));
+    const copy = () => r!.one('.gate .cmdline button.boxcopy');
+    const said = () => [copy().textContent, copy().getAttribute('aria-label')];
+    expect(said()).toEqual(['', 'Copy command']);
+    await r.click(copy());
+    await r.wait(0);
+    expect(writes).toEqual(['shadowlap dashboard']);
+    expect(said()).toEqual(['Copied', 'Copied']);
+    await r.wait(1599);
+    expect(said()).toEqual(['Copied', 'Copied']);
+    await r.wait(1);
+    expect(said()).toEqual(['', 'Copy command']);
+    vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.reject(new Error('denied')) } });
+    await r.click(copy());
+    await r.wait(0);
+    expect(said()).toEqual(['Copy failed', 'Copy failed']);
+    await r.wait(1600);
+    expect(said()).toEqual(['', 'Copy command']);
   });
 });
