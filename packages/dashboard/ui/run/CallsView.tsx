@@ -483,14 +483,21 @@ const Row = memo(function Row({
       <td className="name" title={c.name} style={depth ? cssVars({ '--d': depth }) : undefined}>
         {caret}
         <small>{kindShort(c.kind)}</small>
+        <SrSpace />
         {callName(c.kind, c.name)}
+        {c.input || c.effect ? <SrSpace /> : null}
         {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
         {c.extraRead ? (
-          <span className="eff extra" title="An extra read: answered live, as its recording held no counterpart, while the replay went on replaying">
-            extra
-          </span>
+          <>
+            <SrSpace />
+            <span className="eff extra" title="An extra read: answered live, as its recording held no counterpart, while the replay went on replaying">
+              extra
+            </span>
+          </>
         ) : null}
+        {c.attempts ? <SrSpace /> : null}
         {c.attempts ? <span className="det" title={`${c.attempts} ${c.attempts === 1 ? 'retry' : 'retries'} before the final outcome`}>+{c.attempts}</span> : null}
+        {d.text ? <SrSpace /> : null}
         {d.text ? <span className={`det${d.err ? ' err' : ''}`}>{d.text}</span> : null}
         {res ? <span className={`res${res.err ? ' err' : res.blocked ? ' blk' : ''}`}>→ {res.text}</span> : null}
       </td>

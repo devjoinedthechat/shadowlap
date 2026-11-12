@@ -142,7 +142,7 @@ describe('Training’s facts', () => {
     await r.until('the page', () => r!.all('.pgroup').length > 0);
     expect(r.one('.ph .eyebrow').textContent).toBe('support-agent · training data');
     expect(texts(r, '.pfacts .metric')).toEqual(['3pairs', '1of 3 tasks ready', '0.67best mean score', '0exported']);
-    expect(texts(r, '.stabs a')).toEqual(['Pairs3', 'Tasks1']);
+    expect(texts(r, '.stabs a')).toEqual(['Pairs 3', 'Tasks 1']);
     await r.unmount();
     r = await page(app(view(), []), 'pairs');
     await r.until('the page', () => r!.all('.pgroup').length > 0);

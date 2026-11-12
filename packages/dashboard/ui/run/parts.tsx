@@ -5,7 +5,7 @@ import { num, shortId } from '../format.js';
 import { countOrigins, parseOrigins } from '../origins.js';
 import { href } from '../route.js';
 import { outcomeOf, runType, TODAY } from '../runs.js';
-import { PageHeader } from '../components/bits.js';
+import { PageHeader, SrSpace } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
 import { Skeleton } from '../components/States.js';
@@ -192,6 +192,7 @@ export function ScopeBar({ run, scopes, scope, onScope }: { run: RunDetail; scop
           <button key={s} type="button" aria-pressed={scope === s} onClick={() => onScope(s)} title={s === 'all' ? undefined : s}>
             {s !== 'all' && scopeDepth(s) > 0 ? <span className="nest">↳</span> : null}
             {s === 'all' ? 'All' : scopeLeaf(s)}
+            <SrSpace />
             <b>{scopeCount(run.calls, s)}</b>
           </button>
         ))}
