@@ -50,9 +50,14 @@ export interface Issue {
   count: number;
   first: number;
   last: number;
-  newest: { runId: string; about: RunRow['about'] | null };
-  /** Its newest runs, newest first, `ISSUE_RUNS` at most; `more` asks for the next. */
-  runs: IssueRun[];
+  /** Its newest run: its about line, and `today` where checks that came after it was recorded judged it. */
+  newest: { runId: string; about: RunRow['about'] | null; today?: true };
+  /**
+   * Open (the job's `open`): its newest runs, newest first, `ISSUE_RUNS` at most, and the run the
+   * next ask starts after (`more`). Closed, it carries its count alone, both null: its count asks
+   * for its newest runs (`issue` with no cursor).
+   */
+  runs: IssueRun[] | null;
   more: string | null;
   /** The fix's place on the ladder, as Fixes' row reads it (ui/fixes/list.ts `rungStatus`). */
   fix: { fixId: string; title: string; rung: FixRung; pr: FixPr | null; broken: string | null; status: FixStatus } | null;
@@ -75,7 +80,7 @@ export interface IssuesPage extends Pick<RunsPage, 'warming' | 'indexing'> {
   total: number;
 }
 
-/** One issue's next runs (`issue` and `cursor`). */
+/** One issue's runs (`issue`): its newest, or with `cursor` those after it. */
 export interface IssueRunsPage {
   runs: IssueRun[];
   more: string | null;
@@ -88,7 +93,8 @@ export const ISSUE_RUNS = 50;
 /** The most of an issue's runs nobody has blamed whose steps are asked, newest first, for one to lead with Run blame. */
 const STEP_TRIES = 5;
 
-export type RunsIssuesJob = { kind: 'runs-issues'; options: Pick<RunFilter, 'from' | 'to' | 'q'>; issue?: string | null; cursor?: string | null; outcome?: OutcomeWork | null; next?: NextStepWork | null };
+/** Failed's issues under the filter and the days, those the page shows open (`open`, by key) with their runs; with `issue`, its runs (IssueRunsPage). */
+export type RunsIssuesJob = { kind: 'runs-issues'; options: Pick<RunFilter, 'from' | 'to' | 'q'>; issue?: string | null; cursor?: string | null; open?: readonly string[] | null; outcome?: OutcomeWork | null; next?: NextStepWork | null };
 
 // ---- the issue a run belongs to ----
 
@@ -253,7 +259,7 @@ interface IssueWork {
   g: Grouping;
   next: NextStepWork | null;
   reads: StepReads;
-  /** The rows of the runs the answer carries, by run id. */
+  /** The rows the answer reads, by run id: an open issue's runs, and each issue's newest and those its step is asked of (`rowRuns`). */
   shown: ReadonlyMap<string, IssueRun>;
   /** The titles fixes were opened with, read once if a fix's was edited since (fix-list.ts `openingTitles`). */
   opening: () => ReadonlyMap<string, string>;
@@ -266,6 +272,9 @@ const kindOf = (key: string): IssueKind => {
 
 /** Those of these runs nobody has blamed, newest first, as the kept grouping found them. */
 const unblamedOf = (w: IssueWork, members: readonly Member[]): Member[] => members.filter((m) => w.g.unblamed.has(m.r.runId));
+
+/** Of a fix's runs, those that joined it by what failed and nobody has blamed, newest first: its `notBlamed`, and the runs its Run blame is tried on. */
+const fixUnblamed = (g: Grouping, members: readonly Member[]): Member[] => members.filter((m) => m.j.by === 'words' && g.unblamed.has(m.r.runId));
 
 /** Run blame on the newest of these runs whose page leads with it, with the card that names it; null where none does. */
 function blameStepOf(w: IssueWork, unblamed: readonly Member[]): { step: NextStep; stepRun: string } | null {
@@ -334,7 +343,7 @@ function plantedOf(store: Store, members: readonly Member[]): Issue['planted'] {
 function leadOf(w: IssueWork, kind: IssueKind, members: readonly Member[], rec: FixRecords | null, golden: string | null): Pick<Issue, 'step' | 'stepRun' | 'notBlamed'> {
   const newest = members[0]!.r.runId;
   if (kind === 'fix') {
-    const unblamed = unblamedOf(w, members.filter((m) => m.j.by === 'words'));
+    const unblamed = fixUnblamed(w.g, members);
     const blame = blameStepOf(w, unblamed);
     return { ...(blame ?? { step: rec ? openFixStep(rec.fix) : null, stepRun: null }), notBlamed: unblamed.length };
   }
@@ -356,12 +365,18 @@ function fixFailed(w: IssueWork, rec: FixRecords, newest: Member): string {
   return said && said.toLowerCase() !== rec.fix.title.trim().toLowerCase() ? said : newest.j.failed;
 }
 
-function issueOf(w: IssueWork, key: string, members: readonly Member[]): Issue {
+/** An issue's newest run, as its line and its title read it. */
+function newestOf(w: IssueWork, runId: string): Issue['newest'] {
+  const row = w.shown.get(runId);
+  return { runId, about: row?.about ?? null, ...(row?.judged?.today ? { today: true as const } : {}) };
+}
+
+function issueOf(w: IssueWork, key: string, members: readonly Member[], open: boolean): Issue {
   const kind = kindOf(key);
   const newest = members[0]!;
   const rec = kind === 'fix' ? (w.g.records.get(key.slice('fix:'.length)) ?? null) : null;
   const golden = kind === 'test' ? goldenOf(w, key.slice('test:'.length), newest) : null;
-  const shown = members.slice(0, ISSUE_RUNS);
+  const shown = open ? members.slice(0, ISSUE_RUNS) : null;
   const title = rec ? rec.fix.title : kind === 'planted' ? 'Failed after a planted instruction' : golden ? null : newest.j.failed;
   return {
     key,
@@ -377,15 +392,24 @@ function issueOf(w: IssueWork, key: string, members: readonly Member[]): Issue {
     count: members.length,
     first: members[members.length - 1]!.r.startedAt,
     last: newest.r.startedAt,
-    newest: { runId: newest.r.runId, about: w.shown.get(newest.r.runId)?.about ?? null },
-    runs: shown.flatMap((m) => w.shown.get(m.r.runId) ?? []),
-    more: members.length > ISSUE_RUNS ? shown[shown.length - 1]!.r.runId : null,
+    newest: newestOf(w, newest.r.runId),
+    runs: shown ? shown.flatMap((m) => w.shown.get(m.r.runId) ?? []) : null,
+    more: shown && members.length > ISSUE_RUNS ? shown[shown.length - 1]!.r.runId : null,
     fix: rec ? fixOf(rec) : null,
     ...leadOf(w, kind, members, rec, golden?.path ?? null),
   };
 }
 
 // ---- the read ----
+
+/**
+ * The runs whose rows an issue's read takes: an open issue's newest `ISSUE_RUNS`, which it carries,
+ * else its newest, which its line and its step read; and a fix's runs its Run blame is tried on.
+ */
+function rowRuns(g: Grouping, key: string, members: readonly Member[], open: boolean): IndexedRun[] {
+  const tried = kindOf(key) === 'fix' ? fixUnblamed(g, members).slice(0, STEP_TRIES) : [];
+  return [...new Set([...(open ? members.slice(0, ISSUE_RUNS) : members.slice(0, 1)), ...tried].map((m) => m.r))];
+}
 
 /** Rows for these runs, as the table's read builds its own (read-jobs.ts `runsPage`) without the totals, judged within the rows' budget. */
 function issueRuns(store: Store, index: RunIndex, runs: readonly IndexedRun[], outcome: OutcomeWork | null, whole: boolean): Map<string, IssueRun> {
@@ -446,9 +470,12 @@ function issuesAnswer(store: Store, job: RunsIssuesJob, whole: boolean): ReadAns
     const runs = page.flatMap((x) => shown.get(x.r.runId) ?? []);
     return answer({ runs, more: from + ISSUE_RUNS < members.length ? page[page.length - 1]!.r.runId : null, count: members.length } satisfies IssueRunsPage, { tagged: true });
   }
-  const shown = issueRuns(store, index, [...groups.values()].flatMap((list) => list.slice(0, ISSUE_RUNS).map((x) => x.r)), outcome, whole);
-  const w: IssueWork = { store, index, g: grouping(store, index), next: job.next ?? null, reads: stepReads(store, index), shown, opening: openingTitles(store) };
-  const issues = [...groups].map(([key, members]) => issueOf(w, key, members));
+  // A closed issue carries its count alone: of its runs, the read takes only those its line and its step read.
+  const open = new Set(job.open ?? []);
+  const g = grouping(store, index);
+  const shown = issueRuns(store, index, [...groups].flatMap(([key, members]) => rowRuns(g, key, members, open.has(key))), outcome, whole);
+  const w: IssueWork = { store, index, g, next: job.next ?? null, reads: stepReads(store, index), shown, opening: openingTitles(store) };
+  const issues = [...groups].map(([key, members]) => issueOf(w, key, members, open.has(key)));
   const page: IssuesPage = { issues, total: m.runs.length, ...(m.warming ? { warming: m.warming } : {}), ...(m.indexing ? { indexing: m.indexing } : {}) };
   return { ...answer(page, { tagged: true }), ...judgeAfter(m.judgeAfter, outcome) };
 }

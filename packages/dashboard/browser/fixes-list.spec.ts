@@ -69,6 +69,9 @@ test('a fix’s failing-runs link opens its issue on Runs under Failed', async (
   // The fix's issue is open, its runs shown; the address says only Failed.
   const issue = page.locator(`main#view table.issues tr[data-rowkey^="fix:${demoId('refundFix')}"] button.isn`);
   await expect(issue).toHaveAttribute('aria-expanded', 'true');
+  // The read carried its count alone: its runs come from asking for them, in place of the loading line.
+  await expect(page.locator('main#view table.issues .isruns .isr').first()).toBeVisible();
+  await expect(page.locator('main#view table.issues .isruns > .empty')).toHaveCount(0);
 });
 
 // Opened at its width: a window narrowed under an open page slides the sidebar out over it for a moment.

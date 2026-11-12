@@ -1,17 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { times, timesOf } from '../../engine/test/timing.js';
+import { issueKey } from '../src/issue-keys.js';
 import { type IssuesPage, ISSUE_RUNS, ISSUES_READS } from '../src/issues.js';
 import { addRun } from './read-model-store.js';
 
 /**
  * Runs › Failed's issues at scale. The page asks for them on every tick, and every moment while the
  * verdicts Failed counts by are worked out, on one of the read pool's threads. One store holds 5,000
- * runs that failed the same way, one issue; another 1,000 runs that each failed a way of their own,
- * an issue each. A poll appends each run to its issue once and works out who has blamed them from the
- * grouping it keeps, never with a read of the store for each run: what it reads of the store goes by
- * its issues, whose steps it asks, not by their runs. Its CPU time is held against a plain read of
- * every run's row on the same machine.
+ * runs that failed the same way, one issue, read as a page that shows it open asks; another 1,000
+ * runs that each failed a way of their own, an issue each, read with each closed, its count alone. A
+ * poll appends each run to its issue once and works out who has blamed them from the grouping it
+ * keeps, never with a read of the store for each run: what it reads of the store goes by its issues,
+ * whose steps it asks, not by their runs. Its CPU time is held against a plain read of every run's
+ * row on the same machine.
  */
 
 const ONE_ISSUE = 5000;
@@ -40,7 +42,10 @@ afterAll(() => {
   many.close();
 });
 
-const read = (store: Store) => ISSUES_READS['runs-issues'](store, { kind: 'runs-issues', options: {}, outcome: null, next: null }, { whole: true }) as { body: string };
+/** The one issue of `one`: what failed, without its amounts. */
+const ONE_KEY = issueKey.failure('fail', 'cost at most $N, but cost $N');
+/** A poll of the issues, those named in `open` shown open: the one issue of `one` is, as the page that shows it open asks. */
+const read = (store: Store, open: readonly string[] = store === one ? [ONE_KEY] : []) => ISSUES_READS['runs-issues'](store, { kind: 'runs-issues', options: {}, outcome: null, next: null, open }, { whole: true }) as { body: string };
 
 /** The store reads of one run a poll makes, by what it asks. */
 function runReads(store: Store): { getRun: number; blamesOfRun: number; linksTo: number } {
@@ -55,14 +60,17 @@ function runReads(store: Store): { getRun: number; blamesOfRun: number; linksTo:
 }
 
 describe('Failed’s issues at scale', () => {
-  it(`groups ${ONE_ISSUE.toLocaleString('en-US')} runs that failed the same way as one issue, carrying its newest ${ISSUE_RUNS}, and ${OWN_ISSUES.toLocaleString('en-US')} that failed their own ways an issue each`, () => {
+  it(`groups ${ONE_ISSUE.toLocaleString('en-US')} runs that failed the same way as one issue, carrying its newest ${ISSUE_RUNS} while it is open and its count alone while closed, and ${OWN_ISSUES.toLocaleString('en-US')} that failed their own ways an issue each`, () => {
     const page = JSON.parse(read(one).body) as IssuesPage;
     expect(page.issues).toHaveLength(1);
-    expect(page.issues[0]).toMatchObject({ kind: 'failure', count: ONE_ISSUE, notBlamed: ONE_ISSUE, more: expect.any(String) });
+    expect(page.issues[0]).toMatchObject({ key: ONE_KEY, kind: 'failure', count: ONE_ISSUE, notBlamed: ONE_ISSUE, more: expect.any(String) });
     expect(page.issues[0].runs).toHaveLength(ISSUE_RUNS);
-    const own = JSON.parse(read(many).body) as IssuesPage;
+    expect((JSON.parse(read(one, []).body) as IssuesPage).issues[0]).toMatchObject({ key: ONE_KEY, count: ONE_ISSUE, runs: null, more: null });
+    const body = read(many).body;
+    const own = JSON.parse(body) as IssuesPage;
     expect(own.issues).toHaveLength(OWN_ISSUES);
-    expect(own.issues.every((x) => x.count === 1 && x.runs.length === 1 && x.notBlamed === 1)).toBe(true);
+    expect(own.issues.every((x) => x.count === 1 && x.runs === null && x.more === null && x.notBlamed === 1)).toBe(true);
+    console.log(`runs-issues, ${OWN_ISSUES} issues, each closed: ${Buffer.byteLength(body).toLocaleString('en-US')} bytes`);
   });
 
   it('reads the store by its issues, whose steps it asks, never once for each of their runs', () => {

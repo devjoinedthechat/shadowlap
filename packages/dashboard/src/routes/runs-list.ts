@@ -5,6 +5,7 @@ import type { Router } from '../router.js';
 import { answerData, sendAnswer } from '../read-pool.js';
 import { deleteRunsApart } from '../delete-apart.js';
 import { filterTerms, RECORDED_MIN_CHARS } from '../links.js';
+import { OPEN_ISSUES } from '../issue-keys.js';
 import { knownRuns, labelRuns, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
 import { FAMILY_ONLY_FAILURES, LATER_FAILURES, type DayFailure } from '../runs-failures.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
@@ -88,12 +89,14 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   // Runs › Failed as issues (issues.ts): the failed runs the same filter and days keep, grouped beside
-  // the server; with `issue`, that issue's runs after `cursor`, the run its last page ended on.
+  // the server, those the page shows open (an `open` for each) with their newest runs; with
+  // `issue`, that issue's newest runs, or with `cursor` those after the run its last page ended on.
   router.get('/runs/issues', async (r) => {
     const o = runsPageOptions(r.query);
     if ('error' in o) throw new HttpError(400, o.error);
     const options = { ...(o.from != null ? { from: o.from } : {}), ...(o.to != null ? { to: o.to } : {}), ...(o.q ? { q: o.q } : {}) };
-    const job = { kind: 'runs-issues' as const, options, issue: r.query.get('issue')?.slice(0, 500) ?? null, cursor: o.cursor ?? null, ...projectWork(ctx) };
+    const open = r.query.getAll('open').slice(0, OPEN_ISSUES).map((key) => key.slice(0, 500));
+    const job = { kind: 'runs-issues' as const, options, issue: r.query.get('issue')?.slice(0, 500) ?? null, cursor: o.cursor ?? null, open, ...projectWork(ctx) };
     const a = await withRecorded(ctx, o.q, () => ctx.reads.run(job));
     if (a.warming) ctx.reads.warm();
     sendAnswer(r, a);

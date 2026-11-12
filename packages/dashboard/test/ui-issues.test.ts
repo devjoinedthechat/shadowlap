@@ -9,14 +9,16 @@ import { FailedIssues } from '../ui/runspage/FailedIssues.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { addRun } from './read-model-store.js';
 import { render, shownText, type FakeElement, type Rendered } from './ui-render.js';
-import { countName, issueGlyph, issueHref, issuesEmpty, issuesShown, lineParts } from '../ui/runspage/issues.js';
+import { OPEN_ISSUES } from '../src/issue-keys.js';
+import { countName, issueGlyph, issueHref, issuesEmpty, issuesShown, lineParts, openAsked } from '../ui/runspage/issues.js';
 import { shownWarming } from '../ui/runspage/rows.js';
-import type { Issue, IssueRun, IssuesPage } from '../ui/types.js';
+import type { Issue, IssueRun, IssueRunsPage, IssuesPage } from '../ui/types.js';
 
 /**
  * Runs › Failed as issues, as the page words them (ui/runspage/issues.ts): where each title goes, its
  * icon, the line under it, its count's name, the empty lines, what a waiting delete leaves of them,
- * and the verdicts' warming line, which only Failed and `status:` wait on.
+ * the issues a read asks for with their runs, and the verdicts' warming line, which only Failed and
+ * `status:` wait on.
  */
 
 const run = (runId: string, startedAt: number, o: Partial<IssueRun> = {}): IssueRun => ({ runId, startedAt, about: null, command: 'python refund_agent.py', ...o }) as IssueRun;
@@ -48,6 +50,9 @@ function issue(o: Partial<Issue> = {}): Issue {
   };
 }
 
+/** An issue as a read carries one that isn't shown open: its count alone. */
+const closed = (o: Partial<Issue> = {}): Issue => issue({ runs: null, more: null, ...o });
+
 const FIX = { fixId: 'fx-01K8RG0000000000000000000A', title: 'Refunds above the limit issued without approval', rung: 'open' as const, pr: null, broken: null, status: 'open' as const };
 
 describe('an issue’s title, icon and line', () => {
@@ -68,7 +73,8 @@ describe('an issue’s title, icon and line', () => {
     expect(first(issue({ kind: 'capture', blame: null }))).toEqual({ kind: 'words', text: 'judged when it was imported' });
     // Its last four words kept on one line where the line wraps.
     expect(first(issue({ kind: 'today' }))).toEqual({ kind: 'words', text: 'judged\u00a0from\u00a0the\u00a0recording' });
-    const today = issue({ kind: 'today', runs: [run('01K8RG000000000000000000T1', 1_000, { judged: { today: true } as NonNullable<IssueRun['judged']> })] });
+    // By its newest run's verdict, which a closed issue carries without its runs.
+    const today = closed({ kind: 'today', count: 1, newest: { runId: '01K8RG000000000000000000T1', about: null, today: true } });
     expect(first(today)).toEqual({ kind: 'words', text: 'by today’s checks, judged\u00a0from\u00a0the\u00a0recording' });
     expect(first(issue())).toEqual({ kind: 'words', text: 'not blamed yet' });
     // A golden's path set as code, then what the value looks like, in Tests' words.
@@ -106,6 +112,25 @@ describe('Failed with no issue, and a delete that waits', () => {
     expect(less.issues[0]).toMatchObject({ count: 1, last: 1_000, newest: { runId: '01K8RG000000000000000000A1' } });
     expect(issuesShown(page, new Set(), new Map())).toBe(page);
   });
+
+  it('takes a closed issue of one run with it, and leaves a bigger one the count its read gave, of whose runs it knows only the newest', () => {
+    const one = closed({ key: 'fail:one', count: 1, newest: { runId: '01K8RG000000000000000000B1', about: null } });
+    const two = closed({ key: 'fail:two' });
+    const less = issuesShown({ issues: [two, one], total: 3 }, new Set(['01K8RG000000000000000000A2', '01K8RG000000000000000000B1']), new Map());
+    expect(less.issues.map((x) => [x.key, x.count, x.runs])).toEqual([[two.key, 2, null]]);
+    expect(less.total).toBe(2);
+  });
+});
+
+describe('the issues a read carries the runs of', () => {
+  it('are those shown open, the last opened first, as many as the server answers and the address holds', () => {
+    expect(openAsked(new Set(['fix:a', 'fail:b']))).toEqual(['fail:b', 'fix:a']);
+    const many = Array.from({ length: OPEN_ISSUES + 3 }, (_, i) => `fail:issue ${i}`);
+    expect(openAsked(many)).toEqual(many.slice(3).reverse());
+    expect(OPEN_ISSUES).toBe(20);
+    // A key past what the address holds is asked for on its own.
+    expect(openAsked(['fail:a', `fail:${'x'.repeat(4_000)}`, 'fail:c'])).toEqual(['fail:c', 'fail:a']);
+  });
 });
 
 describe('the verdicts still being worked out', () => {
@@ -127,11 +152,12 @@ describe('Failed’s issues, drawn', () => {
     vi.unstubAllGlobals();
   });
   const app = (client: Client) => ({ client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, actionsOff: null, hasKind: () => false, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined }) as unknown as AppState;
-  /** Failed's issues drawn from `page`; `before` runs once the page is up and before the issues come, as a link's ask does. */
-  const draw = async (page: IssuesPage, o: { q?: string; before?: () => void } = {}) => {
+  /** Failed's issues drawn from `page`, each closed one's runs answered from `runs`; `before` runs once the page is up and before the issues come, as a link's ask does. */
+  const draw = async (page: IssuesPage, o: { q?: string; before?: () => void; runs?: Record<string, IssueRun[]> } = {}) => {
     let answer: (p: IssuesPage) => void = () => undefined;
     const asked = new Promise<IssuesPage>((resolve) => (answer = resolve));
-    const client = { exported: false, runsIssues: () => asked, issueRuns: () => Promise.resolve({ runs: [], more: null, count: 0 }), jobs: () => Promise.resolve([]) } as unknown as Client;
+    const issueRuns = (key: string): Promise<IssueRunsPage> => Promise.resolve({ runs: o.runs?.[key] ?? [], more: null, count: o.runs?.[key]?.length ?? 0 });
+    const client = { exported: false, runsIssues: () => asked, issueRuns, jobs: () => Promise.resolve([]) } as unknown as Client;
     r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(FailedIssues, { query: { q: o.q ?? '' }, refresh: '0', scrollKey: '#/runs?types=failed', above: true })));
     o.before?.();
     answer(page);
@@ -142,10 +168,12 @@ describe('Failed’s issues, drawn', () => {
   it('draws each issue a row whose count shows its runs, and opens the issue a link asked for, its runs shown', async () => {
     vi.stubGlobal('requestAnimationFrame', (f: () => void) => (f(), 0));
     vi.stubGlobal('CSS', { escape: (x: string) => x });
-    const fix = issue({ key: `fix:${FIX.fixId}`, kind: 'fix', title: FIX.title, fix: FIX, step: { key: 'fix', label: 'Open fix', href: `#/fixes/${FIX.fixId}` } as unknown as Issue['step'], stepRun: null });
-    const fail = issue();
+    // Each closed, as the read carries them: their runs come as each opens.
+    const fix = closed({ key: `fix:${FIX.fixId}`, kind: 'fix', title: FIX.title, fix: FIX, step: { key: 'fix', label: 'Open fix', href: `#/fixes/${FIX.fixId}` } as unknown as Issue['step'], stepRun: null });
+    const fail = closed();
+    const runs = { [fix.key]: [run('01K8RG000000000000000000F2', 2_000), run('01K8RG000000000000000000F1', 1_000)], [fail.key]: issue().runs! };
     // As Fixes' unblamed row asks as it goes to Failed (open-issue.ts).
-    const t = await draw({ issues: [fix, fail], total: 4 }, { before: () => ISSUE_ASK.ask(fail.key) });
+    const t = await draw({ issues: [fix, fail], total: 4 }, { before: () => ISSUE_ASK.ask(fail.key), runs });
     const rows = t.all('table.issues tbody tr.iss');
     expect(rows.map((x) => x.getAttribute('data-rowkey'))).toEqual([fix.key, fail.key]);
     expect(t.one(`tr[data-rowkey="${fix.key}"] .it a`).getAttribute('href')).toBe(`#/fixes/${FIX.fixId}`);
@@ -154,11 +182,13 @@ describe('Failed’s issues, drawn', () => {
     expect(count(fix.key).getAttribute('aria-label')).toBe('Show its 2 runs');
     // The issue a link asked for is open, its runs under it, newest first.
     expect(count(fail.key).getAttribute('aria-expanded')).toBe('true');
-    expect(t.all('.isruns .isr').map((a) => a.getAttribute('href'))).toEqual(fail.runs.map((x) => `#/run/${x.runId}`));
+    await t.until('its runs', () => t.all('.isruns .isr').length > 0);
+    expect(t.all('.isruns .isr').map((a) => a.getAttribute('href'))).toEqual(runs[fail.key].map((x) => `#/run/${x.runId}`));
     // The count shows a closed one's runs, and hides them again.
     await t.click(count(fix.key));
     expect(count(fix.key).getAttribute('aria-expanded')).toBe('true');
     expect(count(fix.key).getAttribute('aria-label')).toBe('Hide its 2 runs');
+    await t.until('its runs', () => t.all('.isruns .isr').length === runs[fail.key].length + runs[fix.key].length);
     await t.click(count(fix.key));
     expect(count(fix.key).getAttribute('aria-expanded')).toBe('false');
     // Its step: Open fix, a plain link.
@@ -234,6 +264,68 @@ describe('Failed’s issues, as they are used', () => {
     await t.click(t.one('.isruns button.attn-more'));
     await t.until('the toast', () => toasts.length > 0);
     expect(toasts).toEqual([['The run the last page ended on is gone: read the issues again', 'error']]);
+  });
+
+  it('asks for a closed issue’s newest runs as its count is pressed, with the loading line until they come, and a read again carries the runs of each issue shown open', async () => {
+    const P = (n: number) => `01K8RG000000000000000000P${n}`;
+    const key = 'fail:pressed';
+    const shut = closed({ key, count: 3, newest: { runId: P(3), about: null } });
+    // Read again with it open: it carries its newest, a run come since among them.
+    const kept = issue({ key, runs: [run(P(4), 4_000), run(P(3), 3_000), run(P(2), 2_000), run(P(1), 1_000)] });
+    const reads: Array<readonly string[]> = [];
+    const asks: Array<[string, string | null]> = [];
+    let answer: (p: IssueRunsPage) => void = () => undefined;
+    const client = {
+      runsIssues: (_q: unknown, open: readonly string[] = []) => (reads.push(open), Promise.resolve<IssuesPage>(open.includes(key) ? { issues: [kept], total: 4 } : { issues: [shut], total: 3 })),
+      issueRuns: (k: string, _q: unknown, cursor: string | null) => (asks.push([k, cursor]), new Promise<IssueRunsPage>((resolve) => (answer = resolve))),
+    };
+    // The page's tick, as the page hands it down.
+    function Ticking() {
+      const [tick, setTick] = useState(0);
+      return createElement(AppContext.Provider, { value: state(client) }, createElement('button', { id: 'tick', type: 'button', onClick: () => setTick((n) => n + 1) }), createElement(FailedIssues, { query: { q: '' }, refresh: String(tick), scrollKey: '#/runs?types=failed', above: true }));
+    }
+    r = await render(createElement(Ticking));
+    await r.until('the issues', () => r!.all('table.issues').length > 0);
+    // Not shown open as it was read: it came with its count alone.
+    expect(reads.map((open) => open.includes(key))).toEqual([false]);
+    expect(r.all('.isruns')).toHaveLength(0);
+    await r.click(count(r, key));
+    // Pressed, its count asks for its newest runs with no cursor, the loading line in their place until they come.
+    expect(asks).toEqual([[key, null]]);
+    expect(shownText(r.one('.isruns .empty'))).toBe('Loading runs…');
+    expect(r.one('.isruns').getAttribute('aria-busy')).toBe('true');
+    expect(shownRuns(r)).toEqual([]);
+    answer({ runs: [run(P(3), 3_000), run(P(2), 2_000)], more: P(2), count: 3 });
+    await r.until('its runs', () => shownRuns(r!).length === 2);
+    expect(shownRuns(r)).toEqual([P(3), P(2)]);
+    expect(r.all('.isruns .empty')).toHaveLength(0);
+    expect(r.one('.isruns').getAttribute('aria-busy')).toBeNull();
+    expect(r.one('.isruns button.attn-more').textContent).toBe('Showing 2 of 3 · Show 1 more');
+    // Read again on the page's tick, it asks for the runs of the issue shown open, the last opened first, and keeps its newest: none asked for apart.
+    await r.click(r.one('#tick'));
+    await r.until('the read again', () => shownRuns(r!).length === 4);
+    expect(reads.map((open) => open.includes(key))).toEqual([false, true]);
+    expect(reads[1][0]).toBe(key);
+    expect(shownRuns(r)).toEqual([P(4), P(3), P(2), P(1)]);
+    expect(asks).toHaveLength(1);
+  });
+
+  it('says why a closed issue’s runs couldn’t be read where they’d be, and Retry asks for them again', async () => {
+    const key = 'fail:runs unread';
+    const x = closed({ key });
+    const asks: Array<string | null> = [];
+    let fails = true;
+    const issueRuns = (_k: string, _q: unknown, cursor: string | null) => (asks.push(cursor), fails ? Promise.reject(new Error('the dashboard server could not be reached')) : Promise.resolve<IssueRunsPage>({ runs: issue().runs!, more: null, count: 2 }));
+    const t = await drawn(state({ runsIssues: () => Promise.resolve({ issues: [x], total: 2 }), issueRuns }));
+    await t.click(count(t, key));
+    await t.until('why', () => t.all('.isruns .loaderr').length > 0);
+    expect(shownText(t.one('.isruns .loaderr p'))).toContain('Its runs couldn’t be read: the dashboard server could not be reached');
+    expect(t.all('.isruns .empty')).toHaveLength(0);
+    fails = false;
+    await t.click(t.one('.isruns .loaderr button'));
+    await t.until('its runs', () => shownRuns(t).length === 2);
+    expect(asks).toEqual([null, null]);
+    expect(t.all('.isruns .loaderr')).toHaveLength(0);
   });
 
   it('keeps an issue open while the dashboard is, as Back finds it, and a reload opens each closed', async () => {

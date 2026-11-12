@@ -248,6 +248,9 @@ table.issues .phw { display: none; }
 .isr .rab { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .isr .w { font: 11px var(--mono); color: var(--faint); text-align: right; }
 .isruns .attn-more { align-self: flex-start; }
+/* where its read carried the count alone: the loading line, or why its runs couldn't be read, in the runs' place */
+.isruns > .empty { padding: 7px 0; text-align: left; font-size: 12.5px; }
+.isruns > .loaderr { margin: 0; padding: 8px 0; border-top: 0; }
 /* on a phone an issue is a block: its title and line, then its runs, when last seen and its step on one line; the
    status waits for a wider screen */
 @media (max-width: 640px) {

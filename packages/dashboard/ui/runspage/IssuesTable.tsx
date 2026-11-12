@@ -4,6 +4,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
+import { ErrorState } from '../components/States.js';
 import { Status } from '../components/Status.js';
 import { ShowMore } from '../components/Table.js';
 import { Whole } from '../fixes/parts.js';
@@ -16,7 +17,7 @@ import type { RunLike } from '../runs.js';
 import { useApp } from '../state.js';
 import { type LookWait, RunStep, runStepJob, stepWhy, useLookWaits } from '../steps/RunStep.js';
 import type { Issue, IssueRun } from '../types.js';
-import { countName, issueGlyph, issueHref, type LinePart, lineParts } from './issues.js';
+import { type AskedRuns, countName, issueGlyph, issueHref, type LinePart, lineParts } from './issues.js';
 import { RowStatus } from './RunsTable.js';
 
 /*
@@ -26,6 +27,18 @@ import { RowStatus } from './RunsTable.js';
  * it leads with at the column's end, so the steps line up. The row itself stays still: each of its
  * parts goes somewhere of its own. On a phone an issue is a block (runs.css).
  */
+
+/** What an issue's row takes beside the issue: whether it is open, the runs asked for it, and what its count, Show more and Retry do. */
+interface RowProps {
+  open: boolean;
+  focused: boolean;
+  now: number;
+  wait: LookWait | null;
+  asked: AskedRuns | undefined;
+  onToggle: (x: Issue) => void;
+  onMore: (x: Issue, after: string) => void;
+  onRetry: (key: string) => void;
+}
 
 /** A run under an issue, as its icon and Status read it: an issue's runs carry no totals, which neither draws. */
 const asRun = (r: IssueRun): RunLike => ({ ...r, spent: 0, saved: 0, captured: 0 });
@@ -130,8 +143,19 @@ function IssueLine({ x }: { x: Issue }) {
   );
 }
 
-/** An issue's runs, newest first, each a link to its page; past those its read carried (and the pages Show more brought), Show more asks for the next. */
-function IssueRuns({ x, id, now, onMore }: { x: Issue; id: string; now: number; onMore: (x: Issue, after: string) => void }) {
+/**
+ * An issue's runs, newest first, each a link to its page; past those its read carried (and the pages
+ * Show more brought), Show more asks for the next. Where its read carried its count alone, the
+ * loading line stands in for them until they come, or says why they couldn't be read.
+ */
+function IssueRuns({ x, id, now, asked, onMore, onRetry }: { x: Issue; id: string } & Pick<RowProps, 'now' | 'asked' | 'onMore' | 'onRetry'>) {
+  if (!x.runs) {
+    return (
+      <div className="isruns" id={id} {...(asked?.error ? {} : { 'aria-busy': true })}>
+        {asked?.error ? <ErrorState retry={() => onRetry(x.key)}>Its runs couldn’t be read: {asked.error}</ErrorState> : <div className="empty">Loading runs…</div>}
+      </div>
+    );
+  }
   const next = x.more;
   return (
     <div className="isruns" id={id}>
@@ -149,7 +173,7 @@ function IssueRuns({ x, id, now, onMore }: { x: Issue; id: string; now: number; 
   );
 }
 
-function IssueRow({ x, open, focused, now, wait, onToggle, onMore }: { x: Issue; open: boolean; focused: boolean; now: number; wait: LookWait | null; onToggle: (x: Issue) => void; onMore: (x: Issue, after: string) => void }) {
+function IssueRow({ x, open, focused, now, wait, asked, onToggle, onMore, onRetry }: { x: Issue } & RowProps) {
   const runsId = useId();
   const g = issueGlyph(x);
   const n = x.count;
@@ -195,7 +219,7 @@ function IssueRow({ x, open, focused, now, wait, onToggle, onMore }: { x: Issue;
       {open ? (
         <tr className="sub still" role="row">
           <td colSpan={5} role="cell">
-            <IssueRuns x={x} id={runsId} now={now} onMore={onMore} />
+            <IssueRuns x={x} id={runsId} now={now} asked={asked} onMore={onMore} onRetry={onRetry} />
           </td>
         </tr>
       ) : null}
@@ -217,12 +241,11 @@ function issueScope(x: Issue, open: boolean, toggle: (x: Issue) => void): RowSco
   };
 }
 
-interface TableProps {
+interface TableProps extends Pick<RowProps, 'now' | 'onToggle' | 'onMore' | 'onRetry'> {
   issues: readonly Issue[];
   open: ReadonlySet<string>;
-  now: number;
-  onToggle: (x: Issue) => void;
-  onMore: (x: Issue, after: string) => void;
+  /** The newest runs asked for the open issues whose read carried their count alone, by key. */
+  asked: ReadonlyMap<string, AskedRuns>;
 }
 
 /**
@@ -242,7 +265,7 @@ function WaitingTable(props: TableProps) {
 }
 
 /** The table, with the keys a list takes: j and k, Enter on a title, ⌘K on a row. */
-function Table({ issues, open, now, wait, onToggle, onMore }: TableProps & { wait: LookWait | null }) {
+function Table({ issues, open, asked, now, wait, onToggle, onMore, onRetry }: TableProps & { wait: LookWait | null }) {
   const box = useRef<HTMLTableElement | null>(null);
   const inFocus = useListKeys({ rows: issues, keyOf: (x) => x.key, root: box, open: (x) => navigate(issueHref(x)), actions: (x) => issueScope(x, open.has(x.key), onToggle) });
   return (
@@ -267,7 +290,7 @@ function Table({ issues, open, now, wait, onToggle, onMore }: TableProps & { wai
       </thead>
       <tbody role="rowgroup">
         {issues.map((x) => (
-          <IssueRow key={x.key} x={x} open={open.has(x.key)} focused={inFocus === x.key} now={now} wait={wait} onToggle={onToggle} onMore={onMore} />
+          <IssueRow key={x.key} x={x} open={open.has(x.key)} focused={inFocus === x.key} now={now} wait={wait} asked={asked.get(x.key)} onToggle={onToggle} onMore={onMore} onRetry={onRetry} />
         ))}
       </tbody>
     </table>

@@ -90,6 +90,7 @@ test('under Failed, j walks the issues, ⌘K offers Open and Show its runs, and 
   await page.locator('.palit .pl').nth(1).click();
   await expect(page.locator('.palette')).toHaveCount(0);
   await expect(page.locator(`${ISSUES}[data-rowkey="${key}"] button.isn`)).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('main#view table.issues .isruns .isr').first()).toBeVisible();
   expect(await hash(page)).toBe('#/runs?types=failed');
 });
 

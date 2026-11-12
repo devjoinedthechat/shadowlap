@@ -209,10 +209,10 @@ export interface Client extends ChangesApi, TestsApi {
   runsByDay(q: { tz: string; weeks?: number; types?: readonly string[]; q?: string }): Promise<RunsByDay>;
   /** Find breaking commit for the failures on the days picked: the first failure there, and what bisect can start from. */
   daysBisect(q: RunsQuery & { from: number; to: number }): Promise<DaysBisect>;
-  /** Runs › Failed as issues: the failed runs the filter and the days keep, grouped by what they share, each with its newest runs. */
-  runsIssues(q: Pick<RunsQuery, 'from' | 'to' | 'q'>): Promise<IssuesPage>;
-  /** One issue's runs after `cursor`, the run its last page ended on, under the same filter. */
-  issueRuns(key: string, q: Pick<RunsQuery, 'from' | 'to' | 'q'>, cursor: string): Promise<IssueRunsPage>;
+  /** Runs › Failed as issues: the failed runs the filter and the days keep, grouped by what they share, each with its count, and those shown open (`open`, by key) with their newest runs. */
+  runsIssues(q: Pick<RunsQuery, 'from' | 'to' | 'q'>, open?: readonly string[]): Promise<IssuesPage>;
+  /** One issue's runs under the same filter: its newest, or those after `cursor`, the run its last page ended on. */
+  issueRuns(key: string, q: Pick<RunsQuery, 'from' | 'to' | 'q'>, cursor: string | null): Promise<IssueRunsPage>;
   /** Labels several runs at once, by their full ids. */
   labelRuns(ids: readonly string[], add: readonly string[], remove?: readonly string[]): Promise<LabelRunsResult>;
   /** Deletes several runs at once, by their full ids; runs that can't go now are skipped with why. `keepalive`: sent as the page goes, so the browser sees it out (`pending-delete.ts`). */
@@ -519,6 +519,9 @@ function ownApis(request: Request): Pick<Client, 'settings' | 'storeSetup' | 'pr
   return { settings: settingsApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
 }
 
+/** An address with `name` set to each of `keys`, after what it asks already. */
+const withKeys = (path: string, name: string, keys: readonly string[]): string => keys.reduce((p, k) => `${p}${p.includes('?') ? '&' : '?'}${name}=${encodeURIComponent(k)}`, path);
+
 /** What Failed's issues are read by: the days and the filter's words, never a chip or a sort. */
 const issuesFilter = ({ from, to, q }: Pick<RunsQuery, 'from' | 'to' | 'q'>): RunsQuery => ({ ...(from != null ? { from } : {}), ...(to != null ? { to } : {}), ...(q ? { q } : {}) });
 
@@ -528,11 +531,8 @@ function runsReads(request: Request): Pick<Client, 'runsPage' | 'runsByDay' | 'd
     runsPage: (q) => request<RunsPage & { runs: RunsPageRow[] }>(`runs/page${runsQueryString(q)}`),
     runsByDay: (q) => request<RunsByDay>(`runs/days${runsQueryString(q)}`),
     daysBisect: (q) => request<DaysBisect>(`runs/bisect${runsQueryString(q)}`),
-    runsIssues: (q) => request<IssuesPage>(`runs/issues${runsQueryString(issuesFilter(q))}`),
-    issueRuns: (key, q, cursor) => {
-      const s = runsQueryString({ ...issuesFilter(q), cursor });
-      return request<IssueRunsPage>(`runs/issues${s}${s ? '&' : '?'}issue=${encodeURIComponent(key)}`);
-    },
+    runsIssues: (q, open = []) => request<IssuesPage>(withKeys(`runs/issues${runsQueryString(issuesFilter(q))}`, 'open', open)),
+    issueRuns: (key, q, cursor) => request<IssueRunsPage>(withKeys(`runs/issues${runsQueryString({ ...issuesFilter(q), ...(cursor ? { cursor } : {}) })}`, 'issue', [key])),
   };
 }
 

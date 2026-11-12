@@ -11,3 +11,6 @@ export const issueKey = {
   planted: (): string => 'plant:',
   failure: (kind: 'cap' | 'today' | 'fail', failed: string): string => `${kind}:${failed}`,
 } as const;
+
+/** The most issues one read of Failed's issues carries the runs of, those the page shows open (`open`): it asks for the runs of any more one issue at a time. */
+export const OPEN_ISSUES = 20;

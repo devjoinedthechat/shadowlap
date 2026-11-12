@@ -30,16 +30,22 @@ const failing = (label: string, detail: string | null = null) => ({ status: 'fai
 let store: Store;
 const id: Record<string, string> = {};
 
-const read = (job: Partial<RunsIssuesJob> = {}) => {
-  const a = ISSUES_READS['runs-issues'](store, { kind: 'runs-issues', options: {}, outcome: null, next: null, ...job }, { whole: true }) as { body: string };
+/** Failed's issues read from `s`, each closed one with its count alone, those named in `open` with their newest runs; with `issue`, its runs. */
+const issuesIn = (s: Store, job: Partial<RunsIssuesJob> = {}) => {
+  const a = ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome: null, next: null, ...job }, { whole: true }) as { body: string };
   return JSON.parse(a.body) as IssuesPage & IssueRunsPage;
 };
+/** The same with every issue open, as a page that shows each of them open asks. */
+const openIn = (s: Store, job: Partial<RunsIssuesJob> = {}) => issuesIn(s, { ...job, open: issuesIn(s, job).issues.map((x) => x.key) });
+const read = (job: Partial<RunsIssuesJob> = {}) => issuesIn(store, job);
+const readOpen = (job: Partial<RunsIssuesJob> = {}) => openIn(store, job);
 const issueOf = (page: IssuesPage, key: string): Issue => {
   const found = page.issues.find((x) => x.key === key);
   expect(found, `${key} in ${page.issues.map((x) => x.key).join(', ')}`).toBeDefined();
   return found!;
 };
-const runsOf = (i: Issue) => i.runs.map((r) => r.runId);
+/** An issue's runs by id; null for a closed one, which carries its count alone. */
+const runsOf = (i: Issue) => i.runs?.map((r) => r.runId) ?? null;
 
 beforeAll(() => {
   store = Store.open(':memory:');
@@ -75,14 +81,14 @@ afterAll(() => store.close());
 
 describe('the issue a failed run belongs to', () => {
   it('joins a fix by its failing runs, or by what failed without its amounts or call numbers, its captures counted from production', () => {
-    const a = issueOf(read(), issueKey.fix(FIX_A));
+    const a = issueOf(readOpen(), issueKey.fix(FIX_A));
     expect(a).toMatchObject({ kind: 'fix', title: 'Refunds above the limit issued without approval', count: 3, production: 1, fix: { fixId: FIX_A, rung: 'open', broken: null, status: 'open' } });
     expect(runsOf(a)).toEqual([id.a2, id.a3, id.a1]);
     expect(a.failed).toBe(LIMIT(180));
   });
 
   it('joins an applied fix by the count its check names, never a run that failed so after a planted instruction', () => {
-    const page = read();
+    const page = readOpen();
     expect(runsOf(issueOf(page, issueKey.fix(FIX_B)))).toEqual([id.b1]);
     const planted = issueOf(page, issueKey.planted());
     expect(planted).toMatchObject({ kind: 'planted', title: 'Failed after a planted instruction', failed: `${EMAIL}, but called 2 times`, planted: 'planted in #2 issue_refund’s result', fix: null });
@@ -90,7 +96,7 @@ describe('the issue a failed run belongs to', () => {
   });
 
   it('keeps a golden and its failed replays, titled by what its newest did as Tests says it', () => {
-    const t = issueOf(read(), issueKey.golden('goldens/refund-in-limit'));
+    const t = issueOf(readOpen(), issueKey.golden('goldens/refund-in-limit'));
     expect(t).toMatchObject({ kind: 'test', title: null, golden: { path: 'goldens/refund-in-limit', name: 'refund-in-limit', did: 'diverged at call 1', passed: false }, fix: null, stepRun: id.t3 });
     // Its step acts on the replay its newest result made.
     // The replay a later one passed is fixed by it: Failed leaves it out, and so does its issue.
@@ -98,7 +104,7 @@ describe('the issue a failed run belongs to', () => {
   });
 
   it('groups a failure no fix holds by what failed, without its amounts, and says nobody has blamed it', () => {
-    const f = read().issues.find((x) => x.kind === 'failure')!;
+    const f = readOpen().issues.find((x) => x.kind === 'failure')!;
     expect(f).toMatchObject({ title: 'cost at most $0.05, but cost $0.07', count: 2, blame: 'not blamed yet', stepRun: id.f1 });
     expect(runsOf(f)).toEqual([id.f1, id.f2]);
     expect(f.key).toBe(issueKey.failure('fail', 'cost at most $N, but cost $N'));
@@ -163,7 +169,7 @@ describe('narrowing', () => {
     expect(eu.issues.map((x) => [x.key, x.count])).toEqual([[issueKey.fix(FIX_A), 1]]);
     expect(eu.total).toBe(1);
     // A golden's replays by its name, as Tests' Failed runs → asks for them.
-    expect(read({ options: { q: 'type:test refund-in-limit' } }).issues.map((x) => [x.key, runsOf(x)])).toEqual([[issueKey.golden('goldens/refund-in-limit'), [id.t3]]]);
+    expect(readOpen({ options: { q: 'type:test refund-in-limit' } }).issues.map((x) => [x.key, runsOf(x)])).toEqual([[issueKey.golden('goldens/refund-in-limit'), [id.t3]]]);
   });
 
   it("answers an issue's runs after where its page's last run was once that run left it, and refuses a run the store no longer holds", () => {
@@ -207,7 +213,7 @@ describe("a run that fails only its family's checks", () => {
 });
 
 describe('paging and resolution', () => {
-  it(`carries an issue's newest ${ISSUE_RUNS} runs and asks for the rest, and a golden's issue goes once its last failed replay is fixed`, () => {
+  it(`carries a closed issue's count alone and an open one's newest ${ISSUE_RUNS} runs, answers the newest with no cursor and the rest after one, and a golden's issue goes once its last failed replay is fixed`, () => {
     const s = Store.open(':memory:');
     try {
       const many = Array.from({ length: ISSUE_RUNS + 2 }, (_, i) => addRun(s, { startedAt: NOW - (i + 1) * MIN, status: 'failed', calls: 'll', meta: { checks: [failing('cost at most $0.05', `cost $0.${10 + i}`)] } }));
@@ -218,11 +224,21 @@ describe('paging and resolution', () => {
         s.addTestResult({ sessionId, golden: 'goldens/refund-in-limit', ok, runId, at: at + MIN, ...(ok ? {} : { failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)' }) });
       };
       replay(NOW - 2 * DAY, false);
-      const job = (o: Partial<RunsIssuesJob> = {}) => JSON.parse((ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome: null, next: null, ...o }, { whole: true }) as { body: string }).body) as IssuesPage & IssueRunsPage;
+      const job = (o: Partial<RunsIssuesJob> = {}) => issuesIn(s, o);
+      const ids = (runs: readonly string[]) => runs.map((runId) => expect.objectContaining({ runId }));
+      // Closed, an issue carries its count alone: pressing it asks for its newest, with no cursor.
       const [cost, golden] = job().issues;
-      expect(cost).toMatchObject({ count: ISSUE_RUNS + 2, more: many[ISSUE_RUNS - 1] });
-      expect(runsOf(cost)).toEqual(many.slice(0, ISSUE_RUNS));
-      expect(job({ issue: cost.key, cursor: cost.more })).toMatchObject({ runs: many.slice(ISSUE_RUNS).map((runId) => expect.objectContaining({ runId })), more: null, count: ISSUE_RUNS + 2 });
+      expect(cost).toMatchObject({ count: ISSUE_RUNS + 2, runs: null, more: null, newest: { runId: many[0] } });
+      const newest = { runs: ids(many.slice(0, ISSUE_RUNS)), more: many[ISSUE_RUNS - 1], count: ISSUE_RUNS + 2 };
+      expect(job({ issue: cost.key })).toMatchObject(newest);
+      // Open, it keeps them: a read carries the newest of each issue the page shows open, and of no other, each leading with the same step.
+      const opened = job({ open: [cost.key] }).issues;
+      expect(opened.map((x) => [x.key, x.runs === null])).toEqual([
+        [cost.key, false],
+        [golden?.key, true],
+      ]);
+      expect(opened[0]).toMatchObject({ ...newest, step: cost.step, stepRun: cost.stepRun });
+      expect(job({ issue: cost.key, cursor: newest.more })).toMatchObject({ runs: ids(many.slice(ISSUE_RUNS)), more: null, count: ISSUE_RUNS + 2 });
       expect(golden?.key).toBe(issueKey.golden('goldens/refund-in-limit'));
       // A replay that passes again fixes the one that failed: Failed leaves it out, and its issue goes with it.
       replay(NOW - DAY, true);
@@ -242,8 +258,7 @@ describe('a fork and what it changed', () => {
       const rec = addRun(s, { startedAt: NOW - 4 * HOUR, status: 'failed', calls: 'll', meta: { checks: twice } });
       const own = addRun(s, { parent: rec, startedAt: NOW - 3 * HOUR, calls: 'ro', meta: { interventions: [{ kind: 'inject', at: 2, flag: '--inject 2=@what-if.json' }], checks: twice } });
       const planted = addRun(s, { parent: rec, startedAt: NOW - 2 * HOUR, calls: 'ro', meta: { interventions: [{ kind: 'plant', at: 2, flag: '--inject-result 2=@payloads/exfil-email.txt' }], checks: twice } });
-      const a = ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome: null, next: null }, { whole: true }) as { body: string };
-      const page = JSON.parse(a.body) as IssuesPage;
+      const page = openIn(s);
       expect(page.issues.map((i) => [i.key, runsOf(i)])).toEqual([
         [issueKey.planted(), [planted]],
         [issueKey.fix(FIX_B), [own, rec]],
@@ -301,18 +316,23 @@ describe('lookups for links', () => {
 });
 
 describe('GET /api/runs/issues', () => {
-  it('answers behind the session token, the same answer again a 304, and one issue with its runs after a cursor', async () => {
+  it('answers behind the session token, the same answer again a 304, the issues named open with their runs, and one issue’s newest runs or those after a cursor', async () => {
     const dash = await startDashboard({ store, dbPath: ':memory:' });
     try {
       const url = `${dash.url}/api/runs/issues`;
       expect((await fetch(url)).status).toBeGreaterThanOrEqual(400);
       const res = await fetch(`${url}?q=label:eu`, { headers: { 'x-shadowlap-token': dash.token } });
       expect(res.status).toBe(200);
-      expect(((await res.json()) as IssuesPage).issues.map((x) => x.key)).toEqual([issueKey.fix(FIX_A)]);
+      expect(((await res.json()) as IssuesPage).issues.map((x) => [x.key, runsOf(x)])).toEqual([[issueKey.fix(FIX_A), null]]);
       const etag = res.headers.get('etag');
       expect(etag).toBeTruthy();
       expect((await fetch(`${url}?q=label:eu`, { headers: { 'x-shadowlap-token': dash.token, 'if-none-match': etag! } })).status).toBe(304);
-      const more = await fetch(`${url}?issue=${encodeURIComponent(issueKey.fix(FIX_A))}&cursor=${id.a3}`, { headers: { 'x-shadowlap-token': dash.token } });
+      const fix = encodeURIComponent(issueKey.fix(FIX_A));
+      const opened = await fetch(`${url}?q=label:eu&open=${fix}&open=${encodeURIComponent(issueKey.planted())}`, { headers: { 'x-shadowlap-token': dash.token } });
+      expect(((await opened.json()) as IssuesPage).issues.map((x) => [x.key, runsOf(x)])).toEqual([[issueKey.fix(FIX_A), [id.a2]]]);
+      const newest = await fetch(`${url}?issue=${fix}`, { headers: { 'x-shadowlap-token': dash.token } });
+      expect(((await newest.json()) as IssueRunsPage).runs.map((r) => r.runId)).toEqual([id.a2, id.a3, id.a1]);
+      const more = await fetch(`${url}?issue=${fix}&cursor=${id.a3}`, { headers: { 'x-shadowlap-token': dash.token } });
       expect(((await more.json()) as IssueRunsPage).runs.map((r) => r.runId)).toEqual([id.a1]);
     } finally {
       await dash.close();

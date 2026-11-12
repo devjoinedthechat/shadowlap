@@ -2268,7 +2268,7 @@ Every request needs the session token in `x-shadowlap-token`.
 | `GET /api/runs/:id/calls?from=&limit=&whole=` | A page of a run's calls from call `from` on, `limit` of them (500 at most): `calls`, `callsTotal`, `callsNext` |
 | `GET /api/runs/page?limit&cursor&from&to&types&q&sort` | A page of the Runs table (at most 500 rows), each row with its `about` line |
 | `GET /api/runs/days?weeks&tz&types&q` | Runs per day for the twelve weeks above Runs' table, in the viewer's days |
-| `GET /api/runs/issues?from&to&q&issue&cursor` | Runs › Failed as issues: each with its count and newest 50 runs, or one issue's next runs after `cursor` |
+| `GET /api/runs/issues?from&to&q&open&issue&cursor` | Runs › Failed's issues with their counts, those in `open` with their newest 50 runs; with `issue`, its newest 50, or those after `cursor` |
 | `GET /api/runs/bisect?from&to&types&q` | Find breaking commit for the days picked: their first failure, and what bisect can start from |
 | `POST /api/runs/labels { ids, add, remove }`, `POST /api/runs/delete { ids }` | Label or delete several runs at once, by their full ids |
 | `POST /api/runs/known { ids }` | Which of these runs are still in the store (changes nothing, so a read-only dashboard answers it too) |
