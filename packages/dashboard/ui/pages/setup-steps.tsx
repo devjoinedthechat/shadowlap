@@ -53,7 +53,8 @@ function SetupStep({ step, cli, children }: { step: SetupView['steps'][number]; 
         {cli.length ? (
           <div className="cli">
             <span>or in a terminal</span>
-            <code>$ {cli.join(' && ')}</code>
+            {/* the prompt is never copied with the command */}
+            <Command cmd={cli.join(' && ')} inline prompt />
           </div>
         ) : null}
       </div>

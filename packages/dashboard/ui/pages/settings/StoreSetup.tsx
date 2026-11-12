@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { JOB_KINDS } from '../../api.js';
 import { PageHeader } from '../../components/bits.js';
 import { CodeBox } from '../../components/CodeBox.js';
+import { Command } from '../../components/Copy.js';
 import { Page } from '../../components/Page.js';
 import { Skeleton } from '../../components/States.js';
 import { VerdictLine } from '../../components/VerdictLine.js';
@@ -49,7 +50,7 @@ function Step({ n, state, title, cli, children }: { n: number; state: SetupStepS
         {cli && state === 'cur' ? (
           <div className="cli">
             <span>or in a terminal</span>
-            <code>$ {cli}</code>
+            <Command cmd={cli} inline prompt />
           </div>
         ) : null}
       </div>
