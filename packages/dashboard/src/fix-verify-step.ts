@@ -1,4 +1,4 @@
-import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome, verifyTallyLine } from '@shadowlap/engine';
+import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, KEPT_DEFAULTS, keptMaxOf, openRunWhy, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome, verifyTallyLine } from '@shadowlap/engine';
 import { verifyEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { changeName, commandLine, countArgs, finite, fixHref, gateArg, gateMarks, notVerified, PULLED_CAP, pulledGate, ROLE, runHref, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
@@ -90,6 +90,8 @@ export interface VerifyMore {
   kind: 'more' | 'again';
   run: { runId: string; state: 'inconclusive' | 'stopped' | 'unjudged'; why: string | null; attempt: number | null };
   max: number;
+  /** The most pairs a good run takes (`--kept-max`): what the good runs ran under, doubled where one ran out; null with no good run or no gate. */
+  keptMax: number | null;
   expected: number;
   cost: number | null;
   /** The budget the verdict ran with, which Run more attempts leaves out; null when it had none. */
@@ -184,7 +186,7 @@ function verifyRow(x: VerifiedRun): VerifyRow {
  * A verdict as the Verify step shows it. `fallback` is the fix's own verify command, which a pulled
  * verdict shows when its fields can't be made into one.
  */
-export function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string): VerifyStep {
+export function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string, keptMax: number | null = null): VerifyStep {
   const r = v.report;
   const fixId = rec.fix.fixId;
   const standing = rec.standing.get(v.verifyId) ?? { counts: true, why: null };
@@ -226,7 +228,7 @@ export function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string):
     pulled: v.pulled ?? null,
     repairId: v.repairId,
     candidate: v.candidate,
-    more: standing.counts ? verifyMore(v) : null,
+    more: standing.counts ? verifyMore(v, keptMax) : null,
   };
 }
 
@@ -238,7 +240,7 @@ const VERIFY_ROLE_FLAG: Readonly<Record<VerifiedRun['role'], string>> = { target
  * fixed count, and its flags (rerun.ts) but `drop`. Null when any of them isn't of its shape, or it
  * kept no flags.
  */
-function verdictArgs(v: StoredVerdict, o: { gate?: SprtGate | null; drop?: ReadonlySet<string> } = {}): { argv: string[]; rerun: RerunFlags } | null {
+function verdictArgs(v: StoredVerdict, o: { gate?: SprtGate | null; drop?: ReadonlySet<string>; extra?: readonly string[] } = {}): { argv: string[]; rerun: RerunFlags } | null {
   const r = v.report;
   const rerun = rerunFlags('verify', v.rerun, { pulled: !!v.pulled, ...(o.drop ? { drop: o.drop } : {}) });
   const check = expectArgs(v.expect);
@@ -251,7 +253,25 @@ function verdictArgs(v: StoredVerdict, o: { gate?: SprtGate | null; drop?: Reado
   const gate = pulledGate(o.gate !== undefined ? o.gate : sprtGate(r.gate), !!v.pulled, PULLED_CAP.verify);
   const decide = gate ? gateArg(gate, SPRT_DEFAULTS) : countArgs(r.attemptsPerRun, r.needed, !!v.pulled);
   if (!decide) return null;
-  return { argv: ['verify', ...roles, ...check, ...fields, ...decide, ...rerun.flags, ...(rerun.command ? ['--', ...rerun.command] : [])], rerun };
+  return { argv: ['verify', ...roles, ...check, ...fields, ...decide, ...rerun.flags, ...(o.extra ?? []), ...(rerun.command ? ['--', ...rerun.command] : [])], rerun };
+}
+
+/**
+ * A good run's pairs on Run more attempts: what the verdict's good runs ran under (the `--kept-max`
+ * it was given, else the config's `verify.max`, `configKept`, else what its gate gives them, or the
+ * pairs one took where that is more), doubled up to 1000 only where one ran out, a pulled verdict's
+ * held to what rerun.ts holds its `--kept-max` to. Null for a verdict with no good run. Named
+ * whenever it differs from what verify reads with the raised gate and no flag, since a gate's max
+ * other than its default also caps a good run's pairs (`keptMaxOf`).
+ */
+function keptLimit(v: StoredVerdict, gate: SprtGate, raised: SprtGate, configKept: number | null, ranOut: boolean): { max: number; rose: boolean; flag: string[] } | null {
+  const good = v.report.runs.filter((x) => x.role === 'good');
+  if (!good.length) return null;
+  const pulled = !!v.pulled;
+  const given = Number(rerunFlags('verify', v.rerun, { pulled, drop: new Set(['--kept-max']) })?.dropped['--kept-max']) || null;
+  const ran = Math.max(keptMaxOf(given ?? configKept, gate), ...good.map((x) => x.attempts.length));
+  const max = ranOut ? Math.min(pulled ? 2 * KEPT_DEFAULTS.max : GATE_MAX_ATTEMPTS, 2 * ran) : ran;
+  return { max, rose: max > ran, flag: max === keptMaxOf(configKept, raised) ? [] : ['--kept-max', String(max)] };
 }
 
 /** What a verdict decided each run by: its gate, else its fixed count of attempts, each held to a pulled record's cap. */
@@ -306,6 +326,38 @@ function sameVerify(v: StoredVerdict, fallback: string): string {
   return made ? commandLine(made.argv) : fallback;
 }
 
+/** A verdict's open runs by why each is open, by the predicate Changes reads its open runs with (`openRunWhy`). */
+function openRuns(runs: readonly VerifiedRun[]): Record<'ranOut' | 'stopped' | 'unjudged', VerifiedRun[]> {
+  const why = (x: VerifiedRun) => (x.verdict === 'open' ? openRunWhy(outcomeOf(x), x.undecided) : null);
+  return { ranOut: runs.filter((x) => why(x) === 'ran-out'), stopped: runs.filter((x) => why(x) === 'stopped'), unjudged: runs.filter((x) => why(x) === 'unjudged') };
+}
+
+/** A failing run's attempts on Run more attempts: its gate's max, doubled where a failing run ran out of it (a pulled record's held to its cap), else the fixed count. */
+function failingMax(v: StoredVerdict, gate: SprtGate | null, ranOut: boolean): number {
+  const r = v.report;
+  if (!gate) return v.pulled ? Math.min(r.attemptsPerRun, PULLED_CAP.count) : r.attemptsPerRun;
+  return ranOut ? Math.min(v.pulled ? PULLED_CAP.verify : GATE_MAX_ATTEMPTS, gate.max * 2) : gate.max;
+}
+
+/** What Run more attempts would take, each run from the start at the rate it passed at so far (a clean replay settles in one), and its cost at the verdict's spend per attempt; null for none spent. */
+function moreExpected(r: StoredVerdict['report'], raised: SprtGate | null): { expected: number; cost: number | null } {
+  let sum = 0;
+  for (const x of r.runs) {
+    if (x.deterministic) sum += 1;
+    else if (raised) sum += gateOdds(raised, x.attempts.length ? x.passes / x.attempts.length : 0.5).attempts;
+    else sum += r.attemptsPerRun;
+  }
+  const expected = Math.round(sum);
+  const spent = r.spent + (r.judge?.spent ?? 0);
+  return { expected, cost: spent > 0 && r.attempts > 0 ? (spent / r.attempts) * expected : null };
+}
+
+/** The open run Run more attempts names first, and why it is open. */
+function namedRun(r: StoredVerdict['report'], first: VerifiedRun): VerifyMore['run'] {
+  const state = first.undecided ? 'unjudged' : first.decision === 'inconclusive' ? 'inconclusive' : 'stopped';
+  return { runId: first.runId, state, why: state === 'unjudged' ? (first.undecided ?? null) : state === 'stopped' ? r.stopReason : null, attempt: state === 'unjudged' ? first.attempts.length : null };
+}
+
 /**
  * Run more attempts, or Verify again, for an incomplete verdict (`VerifyMore`), from its checked
  * fields (`verdictArgs`): its runs named in their roles, its change and check as they were, and the
@@ -313,42 +365,31 @@ function sameVerify(v: StoredVerdict, fallback: string): string {
  * incomplete, a repair's candidate, a fixed count with nothing stopped, or one whose fields can't
  * be checked (kept before its flags were, or with one of another shape).
  */
-export function verifyMore(v: StoredVerdict): VerifyMore | null {
+export function verifyMore(v: StoredVerdict, configKept: number | null = null): VerifyMore | null {
   const r = v.report;
   if (v.verdict !== 'incomplete' || v.candidate !== null || v.repairId !== null) return null;
-  const open = r.runs.filter((x) => x.verdict === 'open');
-  if (!open.length) return null;
+  const { ranOut, stopped, unjudged } = openRuns(r.runs);
+  if (!r.runs.some((x) => x.verdict === 'open')) return null;
   const gate = pulledGate(sprtGate(r.gate), !!v.pulled, PULLED_CAP.verify);
-  const ranOut = open.filter((x) => x.decision === 'inconclusive' && !x.undecided);
-  const stopped = open.filter((x) => x.decision !== 'inconclusive' && !x.undecided);
-  const unjudged = open.filter((x) => !!x.undecided);
-  const kind: VerifyMore['kind'] = ranOut.length || stopped.length ? 'more' : 'again';
+  const kind: VerifyMore['kind'] = ranOut.length + stopped.length ? 'more' : 'again';
   // A fixed count that ran out decides nothing more with more of the same.
   if (kind === 'more' && !gate && !stopped.length) return null;
-  const max = gate ? (ranOut.length ? Math.min(v.pulled ? PULLED_CAP.verify : GATE_MAX_ATTEMPTS, gate.max * 2) : gate.max) : v.pulled ? Math.min(r.attemptsPerRun, PULLED_CAP.count) : r.attemptsPerRun;
-  if (kind === 'more' && gate && ranOut.length && max <= gate.max) return null;
+  // Each role's limit doubles only where a run of it ran out: a failing run's attempts, a good run's pairs.
+  const max = failingMax(v, gate, ranOut.some((x) => x.role !== 'good'));
   const raised: SprtGate | null = gate ? { ...gate, max } : null;
-  // Run more attempts leaves out the budget that stopped it; Verify again runs as it ran.
-  const made = verdictArgs(v, { gate: raised, ...(kind === 'more' ? { drop: new Set(['--budget']) } : {}) });
+  const kept = kind === 'more' && gate && raised ? keptLimit(v, gate, raised, configKept, ranOut.some((x) => x.role === 'good')) : null;
+  if (kind === 'more' && gate && ranOut.length && max <= gate.max && !kept?.rose) return null;
+  // Run more attempts leaves out the budget that stopped it, and names a good run's pairs itself; Verify again runs as it ran.
+  const made = verdictArgs(v, { gate: raised, ...(kind === 'more' ? { drop: new Set(['--budget', ...(kept ? ['--kept-max'] : [])]), extra: kept ? kept.flag : [] } : {}) });
   if (!made) return null;
-  // What it would take, each run from the start at the rate it passed at so far: a clean replay settles in one.
-  let expected = 0;
-  for (const x of r.runs) {
-    if (x.deterministic) expected += 1;
-    else if (raised) expected += gateOdds(raised, x.attempts.length ? x.passes / x.attempts.length : 0.5).attempts;
-    else expected += r.attemptsPerRun;
-  }
-  expected = Math.round(expected);
-  const spent = r.spent + (r.judge?.spent ?? 0);
-  const perAttempt = spent > 0 && r.attempts > 0 ? spent / r.attempts : null;
-  const first = ranOut[0] ?? stopped[0] ?? unjudged[0]!;
-  const state = first.undecided ? 'unjudged' : first.decision === 'inconclusive' ? 'inconclusive' : 'stopped';
+  const { expected, cost } = moreExpected(r, raised);
   return {
     kind,
-    run: { runId: first.runId, state, why: state === 'unjudged' ? (first.undecided ?? null) : state === 'stopped' ? r.stopReason : null, attempt: state === 'unjudged' ? first.attempts.length : null },
+    run: namedRun(r, [...ranOut, ...stopped, ...unjudged][0]!),
     max,
+    keptMax: kept ? kept.max : null,
     expected,
-    cost: perAttempt === null ? null : perAttempt * expected,
+    cost,
     budget: kind === 'more' ? (made.rerun.dropped['--budget'] ?? null) : null,
     argv: made.argv,
     command: commandLine(made.argv),

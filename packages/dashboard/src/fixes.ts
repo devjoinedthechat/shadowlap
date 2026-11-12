@@ -157,9 +157,10 @@ export function withAbouts(store: Store, d: FixDetail): FixDetail {
  * (`repairerProblem`, which looks for claude on the PATH), `patchInTree` whether a verified
  * fix's patch is in the working tree already, `rewriteHere` why `fix apply` refuses a pulled
  * repair's patch there, and `goldensFolder` what the project's goldens folder holds of the goldens
- * apply copies and what else: this stays a read of the store without them.
+ * apply copies and what else, and `keptMax` the config's `verify.max`, which Run more attempts keeps a
+ * good run's pairs to: this stays a read of the store without them.
  */
-export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder } = {}): FixDetail | null {
+export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder; keptMax?: number | null } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -189,7 +190,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     repair: commandLine(repairJobArgv(repairArgs.length ? shortIds(repairArgs) : ['repair', '--fixes', '<runs>'], configured)),
     verify: commandLine(verifyArgs.length ? shortIds(verifyArgs) : ['verify', '--fixes', '<runs>']),
   };
-  const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v, commands.verify));
+  const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v, commands.verify, options.keptMax ?? null));
   const actions = fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs });
   return {
     ...row,
@@ -201,7 +202,7 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
     actions,
-    lead: fixLead(rec, actions, { repairer: configured }),
+    lead: fixLead(rec, actions, { repairer: configured, keptMax: options.keptMax ?? null }),
     rung: rungOf(rec),
     pr: prOf(rec),
     blame: b ? blameStep(store, b, commands.blame) : null,

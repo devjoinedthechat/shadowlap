@@ -27,7 +27,7 @@ const recordsOf = (w: LookWork, fixId: string): FixRecords | null => {
 function leadOf(w: LookWork, rec: FixRecords): FixLead | null {
   const repairer = w.repairer ?? null;
   const actions = fixActions(w.store, rec, { label: fixLabelInfo(w.store, rec.fix).label, repairer, patchInTree: w.patchInTree, rewriteHere: w.rewriteHere });
-  return fixLead(rec, actions, { repairer });
+  return fixLead(rec, actions, { repairer, keptMax: w.keptMax ?? null });
 }
 
 /** Main's row, kept first under Failing: the fix's page says why it doesn't hold. */

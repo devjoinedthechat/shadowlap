@@ -68,6 +68,8 @@ export interface FixesViewOptions {
   status?: FixStatus | 'all';
   /** The repairer shadowlap.config.json names, for the repair commands. */
   repairer?: string | null;
+  /** The config's `verify.max`, which Run more attempts keeps a good run's pairs to. */
+  keptMax?: number | null;
   /** What a run's next step reads of the project, for the unblamed row's Run blame. */
   next?: NextStepWork | null;
   patchInTree?: PatchCheck | undefined;
@@ -109,7 +111,7 @@ function viewRow(store: Store, rec: FixRecords, opening: () => ReadonlyMap<strin
   const row = rowOf(store, rec, opening);
   const rung = rungOf(rec);
   const actions = fixActions(store, rec, { label: row.label, repairer: o.repairer ?? null, patchInTree: o.patchInTree, rewriteHere: o.rewriteHere });
-  return { ...row, rung, pr: prOf(rec), ci: rec.fix.data.source?.ci ?? null, bucket: bucketOf(rung, rec.fix.status), failingIds: rec.failing.slice(0, 5).map(short), next: fixLead(rec, actions, { repairer: o.repairer ?? null }) };
+  return { ...row, rung, pr: prOf(rec), ci: rec.fix.data.source?.ci ?? null, bucket: bucketOf(rung, rec.fix.status), failingIds: rec.failing.slice(0, 5).map(short), next: fixLead(rec, actions, { repairer: o.repairer ?? null, keptMax: o.keptMax ?? null }) };
 }
 
 /** The failed runs nobody has blamed, kept until runs or fixes change: a recording that adds calls changes neither. */
@@ -162,13 +164,13 @@ function answersKey(store: Store, records: readonly FixRecords[], o: FixesViewOp
 }
 
 /**
- * The rows, in to-do order, kept until fixes or runs change, the repairer the config names does, or
+ * The rows, in to-do order, kept until fixes or runs change, the repairer or `verify.max` the config names does, or
  * git says something else of a patch: a page polled while a recording adds calls works out none again.
  */
 const rowsKept = new WeakMap<object, { key: string; rows: FixesViewRow[] }>();
 
 function viewRows(store: Store, records: readonly FixRecords[], changes: string | null, o: FixesViewOptions): FixesViewRow[] {
-  const key = changes === null ? null : `${changes}:${o.repairer ?? ''}:${answersKey(store, records, o)}`;
+  const key = changes === null ? null : `${changes}:${o.repairer ?? ''}:${o.keptMax ?? ''}:${answersKey(store, records, o)}`;
   const kept = rowsKept.get(store);
   if (key !== null && kept?.key === key) return kept.rows;
   const once = readingRunsOnce(store);
@@ -197,8 +199,8 @@ export function fixesView(store: Store, o: FixesViewOptions = {}): FixesView {
   };
 }
 
-/** The read job: `status` as the route checked it, the project's folder (git is asked there about each patch), the configured repairer and what the next step reads. */
-export type FixesJob = { kind: 'fixes'; status: FixStatus | 'all'; project: string | null; repairer: string | null; next: NextStepWork | null };
+/** The read job: `status` as the route checked it, the project's folder (git is asked there about each patch), the configured repairer and `verify.max`, and what the next step reads. */
+export type FixesJob = { kind: 'fixes'; status: FixStatus | 'all'; project: string | null; repairer: string | null; keptMax?: number | null; next: NextStepWork | null };
 
 /**
  * Whether each patch the list could apply is in the working tree already, and why `fix apply`
@@ -211,7 +213,7 @@ async function fixesRead(store: Store, job: FixesJob, whole: boolean): Promise<R
   const pulled = job.project ? records.flatMap((rec) => pulledPatchOf(store, rec) ?? []) : [];
   const patchInTree = job.project && patches.length ? await patchesInTree(job.project, patches) : undefined;
   const rewriteHere = job.project && pulled.length ? await rewritesHere(job.project, pulled) : undefined;
-  return answer(fixesView(store, { status: job.status, repairer: job.repairer, next: job.next, patchInTree, rewriteHere, budget: whole ? undefined : SUMMARY_CALLS_BUDGET }), { tagged: true });
+  return answer(fixesView(store, { status: job.status, repairer: job.repairer, keptMax: job.keptMax ?? null, next: job.next, patchInTree, rewriteHere, budget: whole ? undefined : SUMMARY_CALLS_BUDGET }), { tagged: true });
 }
 
 export const FIXES_READS: ReadTable<FixesJob> = { fixes: (store, job, o) => fixesRead(store, job, o.whole) };

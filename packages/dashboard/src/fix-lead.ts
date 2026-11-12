@@ -36,16 +36,16 @@ export function repairSpent(rec: FixRecords): boolean {
 }
 
 /** Run more attempts or Verify again, for the newest verdict that counts when it is incomplete and can be settled; else none. */
-function verifyLead(rec: FixRecords): FixLead | null {
+function verifyLead(rec: FixRecords, keptMax: number | null): FixLead | null {
   const v = counting(rec).at(-1);
-  const more = v ? verifyMore(v) : null;
+  const more = v ? verifyMore(v, keptMax) : null;
   if (!v || !more) return null;
   return { key: more.kind, label: more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label, command: more.command, use: 'reads', verifyId: v.verifyId, max: more.max, attempts: v.report.attempts };
 }
 
 /** An open fix's lead: what its spent repair's last verdict left, blame again or with a stronger model, or Run repair when it can run the agent. */
-function openLead(rec: FixRecords, actions: FixActions, repairer: string | null): FixLead | null {
-  if (repairSpent(rec)) return verifyLead(rec);
+function openLead(rec: FixRecords, actions: FixActions, repairer: string | null, keptMax: number | null): FixLead | null {
+  if (repairSpent(rec)) return verifyLead(rec, keptMax);
   const again = actions.blameAgain;
   if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, soFar: again.soFar, lastGood: again.lastGood };
   const stronger = actions.blameStronger;
@@ -62,8 +62,8 @@ function openLead(rec: FixRecords, actions: FixActions, repairer: string | null)
  * applying what applying left undone. None for a fix merged with its pull request, a patch `fix
  * apply` refuses, or a fix applied with nothing left to do.
  */
-export function fixLead(rec: FixRecords, actions: FixActions, o: { repairer: string | null }): FixLead | null {
-  if (rec.fix.status === 'open') return openLead(rec, actions, o.repairer);
+export function fixLead(rec: FixRecords, actions: FixActions, o: { repairer: string | null; keptMax?: number | null }): FixLead | null {
+  if (rec.fix.status === 'open') return openLead(rec, actions, o.repairer, o.keptMax ?? null);
   const left = actions.applied ? null : actions.verifyLeft;
   if (left) return { key: 'verify-left', label: (left.runs.length === 1 ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label, command: left.command, use: 'reads', runs: left.runs };
   const apply = actions.apply;

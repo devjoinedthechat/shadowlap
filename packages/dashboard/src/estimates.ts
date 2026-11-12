@@ -229,7 +229,7 @@ function budgetOf(argv: readonly string[]): number | null {
 
 async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAnswer> {
   const inTree = job.inTree ? new Map(job.inTree) : null;
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}) });
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, keptMax: job.rule.keptMax ?? null, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}) });
   const fix = d ? resolveFix(store, job.fixId) : null;
   if (!d || !fix) return failed(404, `no fix ${job.fixId.slice(0, 40)}`);
   const rec = fixRecords(store, fix);

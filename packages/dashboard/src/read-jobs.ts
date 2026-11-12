@@ -70,6 +70,8 @@ export interface SummaryWork {
   next?: NextStepWork | null;
   /** The repairer the config names, which Run repair's card on Needs a look names. */
   repairer?: string | null;
+  /** The config's `verify.max`, which Run more attempts keeps a good run's pairs to. */
+  keptMax?: number | null;
 }
 
 // The most calls the Overview's request reads to work out what isn't known yet (run-about.ts).
@@ -131,7 +133,7 @@ type CoreJob =
    * the config names, whether each patch the fix could apply is in the working tree, as git said on
    * the server's thread, and why `fix apply` refuses a pulled repair's patch there, by the repair.
    */
-  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]>; project?: string };
+  | { kind: 'fix'; fixId: string; repairer: string | null; keptMax?: number | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]>; project?: string };
 
 /** A run id that names no single run: several runs (409), or none (404). */
 function noRun(store: StoreOf<'readModels'>, id: string): ReadAnswer {
@@ -181,7 +183,7 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   // A pulled patch `fix apply` refuses here gets no step on Needs a look, as its fix's page applies none.
   const rewriteHere = w.project ? await rewritesHere(w.project, pulledPatchesToCheck(store)) : null;
   // It names the time it was worked out at, so it is never the same twice: no ETag.
-  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(rewriteHere ? { rewriteHere } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}) }));
+  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(rewriteHere ? { rewriteHere } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}), ...(w.keptMax ? { keptMax: w.keptMax } : {}) }));
 }
 
 function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'judge'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {
@@ -212,7 +214,7 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'ju
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, keptMax: job.keptMax ?? null, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
   return d ? answer(withAbouts(store, d), { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 

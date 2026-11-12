@@ -85,6 +85,7 @@ async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes' | 'team'>, fi
     kind: 'fix',
     fixId: fix.fixId,
     repairer: configuredRepairer(ctx),
+    keptMax: verifyRule(ctx).keptMax,
     ...(check ? { inTree: patches.map((p): [string, boolean | null] => [p, check(p)]) } : {}),
     ...(here ? { refusedHere: pulled.map((r): [string, string | null] => [r.repairId, here(r.repairId)]) } : {}),
     ...(project ? { project } : {}),
@@ -153,11 +154,11 @@ function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' 
 
 /**
  * Run more attempts, or Verify again, for an incomplete verdict of a fix (`VerifyStep.more`): the
- * command the fix's page offers, built by the server from that verdict.
+ * command the fix's page offers, built by the server from that verdict and the config's `verify.max`.
  */
-function verifyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>): JobBuildResult {
+function verifyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, keptMax: number | null): JobBuildResult {
   const fix = findFix(store, req.fixId);
-  const d = fixDetail(store, fix.fixId)!;
+  const d = fixDetail(store, fix.fixId, { keptMax })!;
   if (typeof req.verifyId !== 'string' || !req.verifyId) return { error: 'verifyId is required' };
   const v = d.verify.find((x) => x.verifyId === req.verifyId);
   if (!v) return { error: `no verdict ${req.verifyId.slice(0, 40)} on ${short(fix.fixId)}`, status: 404 };
@@ -321,7 +322,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const status = r.query.get('status') ?? 'all';
     if (!STATUSES.has(status)) throw new HttpError(400, `status is one of ${[...STATUSES].join(', ')}`);
     prs?.refresh(store.listFixes());
-    sendAnswer(r, await ctx.reads.run({ kind: 'fixes', status: status as FixStatus | 'all', project: ctx.project?.path ?? null, repairer: configuredRepairer(ctx), next: nextStepWork(ctx) }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'fixes', status: status as FixStatus | 'all', project: ctx.project?.path ?? null, repairer: configuredRepairer(ctx), keptMax: verifyRule(ctx).keptMax, next: nextStepWork(ctx) }));
   });
 
   // The attempts in a run's family, bundled as the Forks view shows them. Before /fixes/:id would
@@ -372,5 +373,5 @@ export function register(router: Router, ctx: RouteContext): void {
   jobs.registerJobKind('repair', { title: () => ACTIONS.runRepair.doing, build: (req, b) => repairJob(req, b.store, configuredRepairer(ctx)) });
   jobs.registerJobKind('apply', { title: () => ACTIONS.applyFix.doing, build: (req, b) => applyJob(req, b.store) });
   // A verdict's more attempts (`verifyId`), or a verified fix's runs left (`left: true`, Verify this run).
-  jobs.registerJobKind('verify', { title: () => ACTIONS.runVerify.doing, build: (req, b) => (req.left === true ? verifyLeftJob(req, b.store, b.project?.path ?? null) : verifyJob(req, b.store)) });
+  jobs.registerJobKind('verify', { title: () => ACTIONS.runVerify.doing, build: (req, b) => (req.left === true ? verifyLeftJob(req, b.store, b.project?.path ?? null) : verifyJob(req, b.store, verifyRule(ctx).keptMax)) });
 }

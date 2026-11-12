@@ -61,7 +61,7 @@ export function needsLook(w: LookWork, sources: readonly LookSource[] = ORDERED)
  * step, and the goldens each open fix holds, a golden being held when its failing run is the fix's
  * and its step is that fix's, or a crash's Find breaking commit.
  */
-export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: StoreNote | null; patchInTree?: PatchCheck | undefined; rewriteHere?: RewriteCheck | undefined; repairer?: string | null; budget?: number | undefined; next: NextStepWork | null; now: number; week: LookWork['week']; index: RunIndex }): LookWork {
+export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: StoreNote | null; patchInTree?: PatchCheck | undefined; rewriteHere?: RewriteCheck | undefined; repairer?: string | null; keptMax?: number | null; budget?: number | undefined; next: NextStepWork | null; now: number; week: LookWork['week']; index: RunIndex }): LookWork {
   let reads: StepReads | null = null;
   const readsOnce = () => (reads ??= stepReads(store, o.index));
   const fixes = needsLookFixes(store, o.patchInTree ? { patchInTree: o.patchInTree } : {});
@@ -82,6 +82,7 @@ export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: Stor
     patchInTree: o.patchInTree,
     rewriteHere: o.rewriteHere,
     repairer: o.repairer ?? null,
+    keptMax: o.keptMax ?? null,
     budget: o.budget,
     next: o.next,
     now: o.now,
