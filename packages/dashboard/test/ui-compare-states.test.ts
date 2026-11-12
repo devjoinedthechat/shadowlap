@@ -181,18 +181,19 @@ describe('two runs named', () => {
     let stop: (err: Error) => void = () => undefined;
     const client = { run: (id: string) => Promise.resolve(detail(id)), compareHead: () => new Promise<CompareHead>((resolve) => (giveHead = resolve)), compare: () => new Promise<CompareView>((_resolve, reject) => (stop = reject)) };
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: FORK })));
-    // Nothing of the comparison has come: its region is there, empty.
-    const region = page.one('.said > [role="status"]');
-    expect(region.textContent).toBe('');
+    // Nothing of the comparison has come: its region is there, empty, beside the skeleton's own that says it loads.
+    const theRest = () => page!.all('.said > [role="status"]').filter((s) => !s.closest('.skel'));
+    const [region] = theRest();
+    expect([theRest().length, region.textContent]).toEqual([1, '']);
     giveHead(head);
     await page.until('the head', () => page!.all('.prefix').length > 0);
-    expect(page.one('.said > [role="status"]')).toBe(region);
+    expect(theRest()).toEqual([region]);
     expect(region.textContent).toBe('Comparing the rest: what changed between the two runs and where each went from #19977…');
     const wait = page.one('.cmpwait');
     expect([wait.textContent, wait.getAttribute('aria-hidden'), wait.hasAttribute('role')]).toEqual([region.textContent, 'true', false]);
     stop(new ApiError(503, 'a compare job took more than 2 minutes, so it was stopped'));
     await page.until('the stop', () => region.textContent.startsWith('The rest,'));
-    expect(page.one('.said > [role="status"]')).toBe(region);
+    expect(theRest()).toEqual([region]);
     expect(region.textContent).toBe(
       'The rest, what changed between the two runs and where each went from #19977, could not be worked out here: a compare job took more than 2 minutes, so it was stopped. What shows above is whole. A terminal compares the two runs with no time limit:',
     );

@@ -444,7 +444,7 @@ describe('Verdicts', () => {
 
   it('shows its shape while it loads, and says what the server answered when it can’t be read, with Retry', async () => {
     await open(() => new Promise<VerdictsView>(() => undefined));
-    expect(page!.one('.skel > .sr').textContent).toBe('Loading the changes checked…');
+    expect(page!.one('.skel > .said > .sr[role="status"]').textContent).toBe('Loading the changes checked…');
     expect(page!.all('.skel table.vdt tbody tr')).toHaveLength(5);
     await page!.unmount();
     let tries = 0;

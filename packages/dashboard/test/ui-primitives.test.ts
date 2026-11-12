@@ -538,6 +538,21 @@ describe('a line that tells of a change', () => {
     // A refusal is an alert; the rest are polite.
     expect(regions(r!.all('.said > .sr'))).toEqual(['status: Nothing matches.', 'alert: The clipboard holds no dashboard link.', 'status: ']);
   });
+
+  it('says a wait that starts, what is loading, from the skeleton’s region there before its words, what it draws for the eye alone', async () => {
+    let first: string[] = [];
+    function Host() {
+      useLayoutEffect(() => {
+        first = regions(page().querySelectorAll('.skel > .said > .sr'));
+      }, []);
+      return createElement('div', null, createElement(Skeleton, { what: 'the goldens', title: 'Goldens' }), createElement(Skeleton, { what: 'the runs' }, createElement('table', { className: 't' })));
+    }
+    await draw(createElement(Host));
+    expect(first).toEqual(['status: ', 'status: ']);
+    expect(regions(r!.all('.skel > .said > .sr'))).toEqual(['status: Loading the goldens…', 'status: Loading the runs…']);
+    // Its bars, and the part's own shape held still.
+    expect(r!.all('.skel .skbars, .skel .skin').map((el) => el.getAttribute('aria-hidden'))).toEqual(['true', 'true']);
+  });
 });
 
 describe('code, commands and code shown as text', () => {
