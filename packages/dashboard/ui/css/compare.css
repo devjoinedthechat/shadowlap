@@ -14,8 +14,8 @@
 .panel.cmpresp { margin-top: 22px; }
 table.t td.wrapcell { white-space: normal; }
 /* the run ids in the headings read as the mock's plain ids, and open the run at that call */
-.diffpanel h4 a { color: inherit; text-decoration: none; }
-.diffpanel h4 a:hover { color: var(--ink); text-decoration: underline; }
+.diffpanel :is(h2, h4) a { color: inherit; text-decoration: none; }
+.diffpanel :is(h2, h4) a:hover { color: var(--ink); text-decoration: underline; }
 /* the answers table fits a phone */
 .cmpresp .tscroll table.t { min-width: 0; }
 .cmpresp table.t td.wrapcell { overflow-wrap: anywhere; }
@@ -70,8 +70,8 @@ p.cmplive { margin: 2px 0 20px; font-size: var(--fs-quiet); }
 .prefix .lead { text-decoration: underline dotted var(--line2); text-underline-offset: 4px; cursor: default; }
 /* the request that differs first, under a hairline, no box */
 .diffpanel.cmpdiff { display: block; margin-top: 18px; padding: 14px 0 0; border-top: 1px solid var(--line); background: none; }
-.diffpanel.cmpdiff .jdh h4 { margin: 0; font: 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
-.diffpanel.cmpdiff h4 code.rnm { font-size: 12.5px; color: var(--dim); }
+.diffpanel.cmpdiff .jdh h2 { margin: 0; font: 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
+.diffpanel.cmpdiff h2 code.rnm { font-size: 12.5px; color: var(--dim); }
 .diffpanel.cmpdiff .hint { margin-top: 8px; }
 .cmpfn { margin: 0; font: 12.5px var(--mono); color: var(--dim); }
 /* both paths in one list, a row a call: its number, by its place, then each side, a hairline between them */

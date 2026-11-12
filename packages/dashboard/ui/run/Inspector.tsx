@@ -240,7 +240,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
       <>
         {mode}
         {raw ? (
-          <pre className="rawsse">{r.raw}</pre>
+          <pre className="rawsse" tabIndex={0}>{r.raw}</pre>
         ) : (
           <>
             <div className="ibar err">
@@ -263,7 +263,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
     return (
       <>
         {mode}
-        <pre className="rawsse">
+        <pre className="rawsse" tabIndex={0}>
           {r.raw.split('\n').map((line, i) => (
             <span key={i} className={/^event:/.test(line) ? 'ev' : undefined}>
               {line}

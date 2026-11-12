@@ -18,9 +18,9 @@ b, strong { font-weight: 600; }
 /* a page's heading takes the focus as -1, as a place for the keyboard to start from: no ring round it */
 #view h1[tabindex="-1"]:focus { outline: none; }
 /* Chrome makes a scrolling pane focusable on its own; the selected row already shows where you are, so the pane draws no ring */
-main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .pklist:focus-visible, .rawsse:focus-visible { outline: none; }
+main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .pklist:focus-visible { outline: none; }
 /* A pane that takes the focus to be scrolled by keyboard (it holds no control of its own) says it has it. */
-.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .rmx-in[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .rmx-in[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, .rawsse:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
 :is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .rmx-in, .dmcw, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .gotw) :focus-visible { outline-offset: -2px; }
@@ -352,7 +352,8 @@ code, pre, kbd, .mono, .kbd, .codebox, .cmdline { font-variant-ligatures: none; 
 
 .sh p .pline { display: block; }
 
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+/* the pseudo-elements too: the live tag's pulse, Watch live's ring, a switch's knob and a caret are drawn by them */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 /* Training: preference pairs and goldens as scored tasks */
 .stabs a b { margin-left: 7px; font: 500 11px var(--mono); color: var(--faint); }
 
@@ -478,15 +479,15 @@ code.rnm { white-space: nowrap; }
    flags, key hints and chart axes keep their case and tracking and rise from 9 to 10.5px to --fs-label. An avatar's initials
    keep their size, which their circle sets. Scoped by :is(#root, body), which weighs as an id wherever it matches, so it
    outranks each label's own rule, in a dialog drawn over the page too; a column head larger already (a model's) is left
-   as it is, and so is a fix's stepper's key, a word at the quiet size. Labels that fill a line or size a column keep the
+   as it is, and so are a fix's stepper's key, a word at the quiet size, and a Settings key, larger already. Labels that fill a line or size a column keep the
    width they had: tighter tracking gives back what the larger size adds. */
 @media (max-width: 640px) {
   :is(#root, body) :is(
-    .eyebrow, .k:not(.stepper>a>.k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
+    .eyebrow, .k:not(.stepper>a>.k):not(.settab .k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
     .tchip em, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
     .fxtable th, .godds th, .msg .role small, .callrow .pp, .callrow .pl,
-    .dstop, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,
-    .hkey .hkh, .evl .ev, .cb-l, .cb-ua em, .drk
+    .dstop, .prov h2, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,
+    .hkey .hkh, .evl .ev, .cb-l, .cb-ua em, .drk, .pslist .psh, .settab td.num small
   ) { font-size: var(--fs-label); }
   /* a pseudo-element can't sit in :is(): report.md's labels over its values on a narrow panel */
   :is(#root, body) .fxtable td::before { font-size: var(--fs-label); }

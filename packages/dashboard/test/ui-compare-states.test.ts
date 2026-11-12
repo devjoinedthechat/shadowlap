@@ -150,8 +150,8 @@ describe('two runs named', () => {
     await page.until('the head', () => page!.all('.prefix').length > 0);
     expect(page.one('.prefix').textContent).toBe('#1–#19,976 identical. The first request that differs is #19977.');
     // Each head's sign is drawn for the eye alone, as the structural diff's are.
-    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['−#19977 in 01M5GRVTKS', '+#19977 in 01M5GRXFM1']);
-    expect(page.all('.diffpanel h4 .js').every((s) => s.getAttribute('aria-hidden') === 'true')).toBe(true);
+    expect(page.all('.diffpanel h2').map((h) => h.textContent)).toEqual(['−#19977 in 01M5GRVTKS', '+#19977 in 01M5GRXFM1']);
+    expect(page.all('.diffpanel h2 .js').every((s) => s.getAttribute('aria-hidden') === 'true')).toBe(true);
     expect(page.one('.cmpwait[role="status"]').textContent).toBe('Comparing the rest: what changed between the two runs and where each went from #19977…');
     // The whole comparison takes its place once it comes.
     whole({ ...head, prefix: [], responseDifferences: [], after: null, changes: { systemPrompt: true, systems: { a: ['x'], b: ['y'] }, tools: { added: [], removed: [], redefined: false }, models: { a: [], b: [] }, code: { a: null, b: null } }, intervention: null, code: null });
@@ -166,7 +166,7 @@ describe('two runs named', () => {
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: FORK })));
     await page.until('the answer', () => page!.all('.cmpwait').some((w) => w.textContent.includes('could not')));
     expect(page.one('.prefix').textContent).toBe('#1–#99,976 identical. The first request that differs is #99977.');
-    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['−#99977 in 01M5GRVTKS', '+#99977 in 01M5GRXFM1']);
+    expect(page.all('.diffpanel h2').map((h) => h.textContent)).toEqual(['−#99977 in 01M5GRVTKS', '+#99977 in 01M5GRXFM1']);
     expect(page.one('.cmpwait[role="status"] p').textContent).toBe(
       'The rest, what changed between the two runs and where each went from #99977, could not be worked out here: a compare job took more than 2 minutes, so it was stopped. What shows above is whole. A terminal compares the two runs with no time limit:',
     );

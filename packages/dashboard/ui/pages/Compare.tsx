@@ -542,7 +542,7 @@ function ChangedRequest({ c }: { c: Pick<CompareView, 'a' | 'b' | 'firstRequestD
   const hints = f.hints ?? [];
   const lines = useMemo(() => requestLines(f.diff ?? []), [f.diff]);
   const head = (sign: '−' | '+', id: string) => (
-    <h4>
+    <h2>
       <span className={`js ${sign === '+' ? 'add' : 'del'}`} aria-hidden="true">
         {sign}
       </span>
@@ -550,7 +550,7 @@ function ChangedRequest({ c }: { c: Pick<CompareView, 'a' | 'b' | 'firstRequestD
       <a href={href.run(id, f.callNo)}>
         <code className="rnm">{shortId(id)}</code>
       </a>
-    </h4>
+    </h2>
   );
   return (
     <section className="diffpanel jdp cmpdiff">

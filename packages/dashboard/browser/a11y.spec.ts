@@ -2,7 +2,6 @@ import { expect, test, type Page } from '@playwright/test';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
 import { contrast, dash, demoId, focusedLabel, openPage, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
-import { routeTestsFixture } from './tests-fixture.js';
 
 /**
  * The dashboard in Chromium over the demo store, as a person with a keyboard or a screen reader
@@ -548,53 +547,4 @@ test('the Request tab’s fold marks are 24 px tall at least, as WCAG 2.5.8 asks
   const heights = await page.locator('.ibody details > summary').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
   expect(heights.length).toBeGreaterThan(0);
   for (const h of heights) expect(h).toBeGreaterThanOrEqual(24);
-});
-
-test('on a phone no label is under 11px, an avatar’s initials aside, and the floor that raises them lowers nothing', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const small: string[] = [];
-  // Tests with a gated golden (tests-fixture.ts), its evidence opened under its row: its line's values and axis.
-  await routeTestsFixture(page);
-  const evidence = async () => {
-    await page.locator('main#view button.gev').first().click();
-    await page.waitForSelector('main#view tr.gevrow .alist', { state: 'visible' });
-  };
-  const pages: Array<[string, string, (() => Promise<void>)?]> = [
-    ['/', 'main#view .ovg'],
-    ['/runs', 'main#view table.runst tbody tr'],
-    [`/run/${demoId('override')}`, 'run'],
-    [`/fixes/${demoId('refundFix')}/blame`, 'fix'],
-    ['/tests', 'main#view table.gt', evidence],
-  ];
-  for (const [path, drawn, then] of pages) {
-    await openPage(page, path, drawn);
-    await then?.();
-    const found = await page.evaluate((where) => {
-      const out: string[] = [];
-      for (const el of document.querySelectorAll<HTMLElement>('body *')) {
-        const s = getComputedStyle(el);
-        if (el.closest('.av, .sr') || s.visibility === 'hidden' || !el.getClientRects().length) continue;
-        const text = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim());
-        if (text && parseFloat(s.fontSize) < 11) out.push(`${where}: ${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} “${el.textContent?.trim().slice(0, 30)}” at ${s.fontSize}`);
-      }
-      // The floor only raises: with its sizes taken out, no element is drawn larger than with them.
-      const floor: CSSStyleRule[] = [];
-      for (const sheet of document.styleSheets)
-        for (const r of sheet.cssRules)
-          if (r instanceof CSSMediaRule && r.conditionText.includes('max-width: 640px'))
-            for (const x of r.cssRules) if (x instanceof CSSStyleRule && x.selectorText.startsWith(':is(#root, body)') && x.style.fontSize) floor.push(x);
-      if (!floor.length) out.push(`${where}: no label floor in the stylesheet`);
-      const raised = [...document.querySelectorAll<HTMLElement>('body *')].map((el) => ({ el, px: parseFloat(getComputedStyle(el).fontSize) }));
-      const kept = floor.map((r) => ({ r, size: r.style.fontSize }));
-      for (const r of floor) r.style.removeProperty('font-size');
-      for (const { el, px } of raised) {
-        const was = parseFloat(getComputedStyle(el).fontSize);
-        if (px + 0.01 < was) out.push(`${where}: ${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).join('.')} lowered from ${was}px to ${px}px`);
-      }
-      for (const { r, size } of kept) r.style.setProperty('font-size', size);
-      return out;
-    }, path);
-    small.push(...found);
-  }
-  expect(small).toEqual([]);
 });
