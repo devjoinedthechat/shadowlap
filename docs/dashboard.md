@@ -130,7 +130,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 **Search or jump to** (⌘K or Ctrl K) is a palette over the whole dashboard. It offers:
 
 - **Every page**, and **This run's actions**, its next step first.
-- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, the team store's setup, and Keyboard shortcuts.
+- **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Rescan coverage, Export pairs… and Score model… while there is something to export or score, the team store's setup, and Keyboard shortcuts.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
 - **The fixes**, each by its title, with its label and status. Its steps find it too: `blame`, `repair`, `verify`, `apply`.
 - **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens** opens its dialog on Tests.
@@ -194,12 +194,13 @@ The header says the week in four facts, the first three each a link: *4 failures
 | Setup | A [team store](./team.md)'s setup left unfinished | **Continue setup** |
 | Failing | An applied fix that doesn't hold | **Open →** |
 | Failing | A golden that failed, as its gate says it | What its run's page leads with, such as **Find breaking commit**, **Add normalizer** or **Update golden** |
-| Failing | [Error-path presets](./error-paths.md) that failed | **Open →**, to the attempt that shows it |
+| Failing | [Error-path presets](./error-paths.md) that failed | **Open proof**, to the attempt that shows it, at its call |
 | Failing | This week's failed runs nobody has blamed, as one row | **Run blame** on the newest |
 | Failing | An open fix, with each golden it holds | A held crash's **Find breaking commit**, else its next step on Fixes, such as **Run repair**, **Run blame again** or **Run more attempts** |
 | Ready to ship | A verified fix not applied yet, but not one whose pull request merged | Its next step on Fixes: **Verify this run**, **Apply fix**, or **Mark applied** for one with no patch |
-| Tests | An inconclusive golden, and presets left inconclusive | **Run more attempts**, **Update golden** or **Re-run test** |
-| Tests | How many behaviours seen in production no golden [covers](./coverage.md) | **Open →**, to a run of the newest |
+| Tests | An inconclusive golden | **Run more attempts**, **Update golden** or **Re-run test** |
+| Tests | Error-path presets left inconclusive | **Open →**, to the attempt that shows it |
+| Tests | How many behaviours seen in production no golden [covers](./coverage.md) | **Pack as golden** on the newest, or **Pack with checks…** |
 | Tests | A [preview of a change](./decisions.md) whose flagged runs nothing has settled since | **Open →**, to the first at the call whose decision changed |
 | Security | An [injection test](./injection.md) a planted instruction got through (red), or that it influenced or that showed too little to say (amber) | **Open proof**, to the attempt that shows it |
 | Housekeeping | With a team store, the runs only on this machine | **Push local runs** |
@@ -212,6 +213,8 @@ What the rows mean:
 - **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own: it says its test's line, as Tests does (*send_email obeyed a planted instruction · 5 of 5*), and leads with **Open proof**.
 - **Injection tests**: a row says the test's line (*send_email obeyed a planted instruction · 8 of 72*) and where the planted text was read (*injection test of 01K5CQ4N7G · at #4 get_ticket, #14 get_shipping and 12 more*). It opens the run tested. **Open proof** opens the first attempt with the row's verdict, at the call that shows it. One that showed too little to say has no step.
 - **Inconclusive goldens**: **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection gate showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
+- **Error-path presets**: a golden's or a run's say how many failed or couldn't say, and where (*1 of 2 presets failed: tool timeout #2*). The row opens the attempt that shows it, and **Open proof** the first attempt that failed, at the call its preset hit.
+- **Behaviours no golden covers**: the row opens Tests at [Not covered](#not-covered), which lists them. Its step packs the newest in Not covered's dialog: **Pack as golden**, or **Pack with checks…** once the last pack found the agent no longer does it.
 - **Failed runs nobody has blamed**: a fork that failed counts as much as a recording, and so does a capture its import judged failed. The row names the newest by its id, with what it was about on hover, and opens Runs on the week's failed runs. A capture's **Run blame** opens its page, which asks for the command that starts your agent first.
 - **Open fixes**: where blame found that no answer of the model's lost the run, a repair of the prompt is no fix, and the row opens the fix at Blame.
 - **A preview of a change** is settled by a session of that change that asked its flagged runs again and flagged none, or whose verify accepted them, as a migration to a model after a preview of it.
@@ -244,6 +247,7 @@ The rest is what commands record as they change the project or write something:
 
 - Normalizers and redaction rules added, by hand or by `calibrate --write`. A redaction rule is named by what it puts in place, never by its pattern.
 - Goldens packed (a pack in a goldens folder or named in the config's `tests`), and other packs.
+- Coverage scans, by what they found no golden covers and what they packed (*Coverage read · 2 behaviours without a golden*), in amber while a behaviour has none. Each opens Tests at [Not covered](#not-covered).
 - A golden's checks changed in the [check builder](#making-a-check): *Check added*, *Check removed* or *Checks changed*, with the golden and the checks' labels. It opens Tests.
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
 
@@ -499,7 +503,7 @@ A call that failed is a model call answered with an error, or a tool that threw,
 
 ### Findings
 
-Under the header, one bar holds what the run's page found: how the run forked or failed, what the fork did differently, what Shadowlap did not record, the run's notes and an [injection test](./injection.md) of it. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
+Under the header, one bar holds what the run's page found: how the run forked or failed, what the fork did differently, and what Shadowlap did not record. Then come the run's notes, an [injection test](./injection.md) of it and the [error-path presets](./error-paths.md) run on it. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
 
 The bar shows the most telling finding whole. **N findings** at its end opens the rest in place, its hover listing them while closed, and the focus stays on it. A lone finding with more to show, a note's tools or the fork's changes, has **Details** instead. The bar stays open or closed for each run until you reload.
 
@@ -527,17 +531,21 @@ Its first fact says how it came out. Its finding says what was asked again, whic
 
 A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The finding wraps rather than cut its words. It links back to the attempt's probe on its fix's Blame step, or to the verdict it counted towards, and to all its attempts in Forks. A test attempt links to Tests. It offers no Run blame, since its failure counts towards what made it.
 
-**An error-path preset's attempt.** Its first fact says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it. An earlier session's attempt keeps its own once the presets run again. Its finding names the preset and the golden it ran on, which attempt of the preset it was, and what the preset played in where, wrapping rather than cut:
+**An error-path preset's attempt.** Its eyebrow says *preset attempt*. Its first fact says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it. An earlier session's attempt keeps its own once the presets run again. Its finding names the preset and the golden it ran on, which attempt of the preset it was, and what the preset played in where, wrapping rather than cut:
 
 *tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed*
 
-A golden's finding has **Tests →**.
+Its finding ends on **Results →**, which opens the recording with the presets' results open. At the call its preset played in, the inspector names the preset. A model call's note says *Never sent. The provider 429 preset answered with HTTP 429.* A tool's Response opens on *Played in by the tool timeout preset*, then the error the agent got, or the result in place of the recorded one. Details says *by the tool timeout preset*.
 
 **A fork.** A replay a model's scoring or an error-path preset made keeps its fork's finding. A fork whose only flag is `--writes` forked where its request changed, and its finding says that.
 
 **An injection test.** The run an injection test tested shows its newest finished test as a finding: *injection test*, or *injection gate* for a golden's, then its verdict in its colour, *failed*, *inconclusive* or *passed*, and its line (*send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed)*). A gate's names its golden. **Show results** opens the results in the inspector's place, as Show diff does.
 
 The results are a matrix: a row for each untrusted read planted in, a column for each payload, and a cell for their attempts, in the colour of the strongest verdict, with its proof on hover. Past eight reads, each tool has a row that sums its reads. Above it come the attempts, the payloads and when the test ran, with its command; under it, what the test spent and its upstream requests. A cell opens its attempt at the call its proof names, and Esc there comes back to the cell.
+
+**Error-path presets.** The recording [error-path presets](./error-paths.md) ran on shows their newest session as a finding: *error-path presets*, then the verdict in its colour, *failed*, *inconclusive* or *passed*. Then come the presets that failed or couldn't say (*malformed JSON and oversized result failed · tool timeout inconclusive*), or *every preset passed*. **Show results** opens their results in the inspector's place.
+
+The results are the same matrix: the run's row, against a column for each preset with the call it hit under its name. A cell says its verdict, how many attempts passed and the gate's bound, with each attempt on hover, and opens the attempt that didn't pass. Above it come how many presets ran, where they hit and when, with their command. Under it come the gate's rule and the checks that judged them, or that the agent's exit alone did, then what they spent and their upstream requests.
 
 **A cause's answers.** A run that [Find cause…](#find-what-caused-a-write) asked of shows its answers as a finding, causes first. It leads with *caused by*, *not caused by* or *inconclusive*, then the read and the answer: *#4 get_ticket · #28 send_email is gone in 3 of 3 clean attempts · rate >= 0.29 (95%)*. It takes its lead's colour: red for a cause, muted for not caused, amber for inconclusive.
 
@@ -797,7 +805,7 @@ Timeline shows every call on a clock, agent by agent, colored by origin, or on a
 Forks shows the run's family: its recording, and every replay and fork of it, with a line on what each did.
 
 - **A test replay of a golden that may fork** says where it forked and what it did live (*test · forked at #3 · 25 live · ≈$0.018*). One that diverged where its golden may not says where it diverged.
-- **An [error-path preset](./error-paths.md)'s attempt** that failed reads *preset failed*, and one that couldn't say reads *preset inconclusive*, each by the session that decided it.
+- **[Error-path presets](./error-paths.md)** are one node a session, under the recording they ran on, as below.
 - **The fork blame rescued a run with** stays a fork of its own.
 
 Attempts are bundled:
@@ -821,6 +829,10 @@ Each rule they were decided by is stated once in the family. Each bundle opens i
 **An [injection test](./injection.md)** is filed under the run it tested, after its forks: *injection test*, *injection gate* or *injection --clean 4*, then its verdict and counts (*failed · 72 attempts · 8 obeyed · 2 influenced · 59 ignored · 3 inconclusive · ≈$3.11*), a gate's golden before what it spent. Its title opens the run it tested, a planting test's results open. Its replays aren't drawn as forks.
 
 Its attempts are one picture named by its counts: a cell each, in its verdict's colour, the clean replays it compares with muted after a hairline. Under it, up to three lines open the attempts its verdict rests on, at the call their proof names, and a line says what is left out. An attempt gone from the store, or past the family's first 1,000 runs, isn't drawn, and a line counts them. A test of the recording, or of this page's run, shows even with every attempt gone.
+
+**[Error-path presets](./error-paths.md)** are filed under the recording they ran on, one node a session: *error-path presets*, then its verdict, how many presets passed, failed and were inconclusive, its attempts and what they spent (*failed · 4 passed, 2 failed · 8 attempts · ≈$0.041*). Its title opens the recording with its results open, plain in an exported copy. Its attempts aren't drawn as forks.
+
+Its attempts are one picture in the order they ran, a cell each in its verdict's colour, with its preset and attempt on hover. Under it, up to three lines open the attempts that failed or couldn't say, at the call their preset hit, and a line counts the rest.
 
 ### Provenance view
 
@@ -1256,7 +1268,7 @@ Then comes a row per golden. A row opens the golden's latest run, or, where its 
 | Golden      | Its name with its mode under it, and where it came from                                            |
 | Checks      | Each check, marked by how its last result came out on it                                           |
 | By revision | Its result at each recent revision of a session that ran them all                                  |
-| Last result | *passed*, *updated at `<rev>`* after an update, or a gate's verdict, then how its presets came out |
+| Last result | *passed*, *updated at `<rev>`* after an update, or a gate's verdict                                |
 
 **The mode** is `replay`, `fork ×5`, or `fork · gate` and `fork · history` for a golden with a gate, with what it means on hover.
 
@@ -1284,7 +1296,9 @@ Each revision's header gives its commit's subject on hover, and its author where
 
 **A gated golden's evidence.** Its interval bar opens a row under it: why the gate stopped, the score line between its bounds, each attempt, and what a pass and a failure each weigh. A gate that ran out of attempts offers **Run more attempts** there. **Esc** closes the row and puts the focus back on the bar.
 
-Under the last result comes how the golden's [error-path presets](./error-paths.md) came out, opening the attempt that failed. A golden whose presets ran but whose replay hasn't yet says so, never *not run yet*.
+**A golden's [error-path presets](./error-paths.md)** draw under its checks as one picture: *error-path presets*, which opens its recording with their results, then a cell a preset in its verdict's colour, its tally and call on hover. Their counts after it (*1 failed · 1 inconclusive · 4 passed*) open the attempt that proves the verdict. A golden whose tests entry sets presets that never ran says *not run yet*, with **Run error-path presets…**.
+
+A golden whose presets ran but whose replay didn't has their line as its last result: *1 of 2 presets failed: tool timeout #2 · replay not tested yet*. It never says *not run yet*.
 
 The table fits its panel at every width. With less room the oldest revisions give way, then the checks move under the golden's name. On a phone the revisions become a strip there too, while the last result keeps its width.
 
@@ -1322,6 +1336,38 @@ For a verdict given on other material, it says first that a value that changes e
 **No preload.** A golden whose replay no Shadowlap preload loaded in fails under `--guard block` as *no preload loaded: the network guard never watched it*. It shows what the command shows of why, and what to do: run the agent on Node or Python with the environment `shadowlap` gives it, or test with `--guard warn`.
 
 **Unguarded.** A golden that a process the guard can't watch ran in, such as the Claude Code CLI the Claude Agent SDK runs, fails as *unguarded: a process the network guard can’t watch ran*. It shows what `shadowlap doctor` says to do: reach a remote MCP server through `shadowlap mcp`, which records and fences its calls, and test with `--guard warn` to accept the rest.
+
+### Not covered
+
+**Not covered** lists what production did that no golden tests, as the last [`shadowlap coverage`](./coverage.md) scan found it. Each row starts where the behaviour parts from its nearest golden. Pack one, and CI replays it on every commit. **Rescan coverage**, at its head, scans the imported runs again, free.
+
+Each behaviour is a row of two lines, which a screen reader hears as one sentence:
+
+1. What production did from where it parts from its nearest golden: the tools it called, a write in teal and reads in a row folded into one, then how it ended, in red where it failed.
+2. Where the two part: *after `lookup_order`*, then what the golden does there, such as *`refund-in-limit` calls `send_email` here* or *has stopped here*. A behaviour may also part at the golden's first step, take its steps and end another way, or start as no golden does.
+
+At the row's end come how many runs took it, which opens its details, when the newest was seen, and **Pack as golden**.
+
+- **The agent no longer does this**, in amber on the second line, marks a behaviour the last pack couldn't reproduce. Its hover says when that pack ran, who ran it where names show, and why. Its button is **Pack with checks…**.
+- **Its details** hold the whole path, the runs that took it, its nearest golden, what the last pack made of it, and the behaviour's key.
+- **The foot** says when the scan ran, how many imported runs and behaviours it read, and how many have a golden, which on hover. Then it counts the runs imported since.
+
+What it shows before a scan, and after one:
+
+| State                        | Not covered shows                                                      |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| No imported run              | Nothing                                                                |
+| Runs imported, no scan       | *Coverage hasn’t read the imported runs yet.*, and how many runs       |
+| Every behaviour has a golden | *Every behaviour production took has a golden.*                        |
+| Runs imported since the scan | **Rescan coverage** in lime, unless the page leads with another step   |
+
+Its rows are a list: **j** and **k** walk them, **Enter** opens a row's details, and **⌘K** offers its pack. Needs a look's row and the activity feed's scans open Tests here, with its heading in focus.
+
+**Pack as golden** asks first, in *Pack 3f9a2c1d as golden?*, which shows the behaviour's changes, tools and path. It takes the agent's command, starting from a run here, where `{message}` stands for the run's first message. It runs `shadowlap coverage --pack <key> -- <command>`, which replays offline and costs nothing. Needs a look's step opens the same dialog.
+
+**Pack with checks…** also asks for the checks a golden that forks is judged by, and adds `--fork --expect`. A check `--expect` would refuse is refused in its words.
+
+Both wait while a test session, an update or another pack runs. The drawer ends *packed · exit 0*, *not packed · exit 1*, or *2 of 3 packed* for several. A pack that made its golden offers **Run test**, which asks first for a golden that forks.
 
 ### Security
 
@@ -1815,7 +1861,7 @@ A job that bills nothing, such as a replay offline, starts at once on every sett
 | A model call | **Inject instruction…** (always as the user), **Switch model from here…**, **Use changed prompt from here**, **Fail with HTTP status…**, **Run live from here** |
 | A tool call | **Override result…**, **Fail with tool error…**, **Plant instruction…** (reads only), **Force *tool* live**, **Run live from here** |
 | A recorded user input | **Override user reply…**, **Run live from here** |
-| The whole run | **Repeat 5 times** (`--repeat 5`), **Replay with writes stubbed**, **Run injection test…**, **Find breaking commit…** |
+| The whole run | **Repeat 5 times** (`--repeat 5`), **Replay with writes stubbed**, **Run error-path presets…** (`--chaos`), **Run injection test…**, **Find breaking commit…** |
 
 The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An item that asks for something first ends in an ellipsis, and its dialog is titled and confirmed with its name: **Inject instruction…** opens *Inject instruction at #17*, confirmed with **Inject instruction**.
 
@@ -1827,6 +1873,7 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 - **What you type** is passed as text, never read as a file. See [Interventions](./interventions.md).
 - **Plant instruction…** starts from a few sample instructions, or takes your own or a red-teaming tool's payload as text.
 - **Judged by**, under Plant's instruction, holds what no attempt may do, passed as `--expect`. It starts from the run's own `--expect`, and the command follows it. Left empty, each attempt is judged by the config's checks, if any.
+- **Run error-path presets…** runs the presets on the run's recording: see [Run error-path presets](#run-error-path-presets). A preset's attempt and an injection test's offer it off, saying to run the presets on the recording.
 - **Run injection test…** tests the whole run: see [Run an injection test](#run-an-injection-test). On a run that calls no untrusted read, it says *No untrusted read in 01K5CQ4R1T* and offers **Open Tools settings**.
 
 **Find breaking commit…** runs [`bisect`](./cli.md#bisect):
@@ -1930,6 +1977,37 @@ An injection test's own attempts offer none. Its dialog, *Run injection test on 
 - **Open proof** leads where an attempt proves the verdict, with **Open run** beside it.
 - **On the run's page**, the drawer offers the step the page then leads with, such as **Re-run injection test** for a test that showed too little to say.
 - **A test of eight reads or fewer** opens its results there as it ends.
+
+### Run error-path presets
+
+**Run error-path presets…** fails one call per [error-path preset](./error-paths.md) and judges what the agent does next. It runs on the run's recording: `shadowlap test <golden> --chaos` where the recording is a golden's, else `shadowlap replay <run> --chaos`. It opens from:
+
+- the fork menu's whole run, and This run in ⌘K;
+- a golden's row on Tests, where its tests entry sets presets and none has run.
+
+Its dialog, *Run error-path presets on 01K5CQ4R1T*, holds the server's plan for your picks:
+
+| Part       | Holds                                                                            |
+| ---------- | -------------------------------------------------------------------------------- |
+| Runs here  | A command from elsewhere, in amber, with where it came from and who recorded it  |
+| Presets    | The presets as chips, starting from those the command runs                       |
+| At         | The tool the tool presets hit, and the model call that reads its answer          |
+| Judged by  | A golden's checks, or the `--expect` every attempt on a run must pass            |
+| Decided by | The golden's `chaos.gate`, the count its golden repeats, or one attempt each     |
+
+- **Runs here** names who recorded the command only where names show.
+- **At** offers each tool the recording answered, at its first call. A recording with no model call to hit says the provider presets are not applicable.
+- **Judged by** on a run starts from the first write limit of the run's own `--expect` that its calls exceed. Left empty, each attempt is judged as the command judges it: by the checks of a golden the recording belongs to, else by the exit alone.
+- **A golden's presets** are judged by its `chaos.expect`, else the write limits of its `expect`, else the agent exiting 0 alone.
+- **The command** follows your picks: `--presets` and `--chaos-tool` where they differ from the command's own, `--expect`, and `--yes` for a command from elsewhere.
+- **The cost line** is the server's estimate of your picks, asked again a moment after each change: live from each preset's call, writes stubbed. With nothing picked, it says *Pick at least one preset* and won't start.
+
+**Run error-path presets** starts the job. A command from elsewhere asks first, as [Commands from someone else](#commands-from-someone-else) says, and so does a golden from a pack your repository doesn't track. A golden's presets wait while a test session, an update or a pack runs, as Tests' buttons do.
+
+**How it ends.** Its drawer reads *Running error-path presets*, and ends on the verdict with the job's own exit code: *failed · exit 1*, *inconclusive · exit 3* or *passed · exit 0*.
+
+- **Open proof** leads where a preset failed, opening the attempt that failed at the call its preset hit. The CLI's other ways on, such as **Open Tests**, sit beside it.
+- **On the recording's page**, its results open as it ends, unless another finding's results are open there.
 
 ### Find what caused a write
 
@@ -2042,6 +2120,10 @@ Tests runs its goldens as jobs too:
 | **Add normalizer and update** | `shadowlap normalize add …` for each rule, then `shadowlap test <goldens> --update` |
 | **Find breaking commit**      | `shadowlap bisect`, from the newest revision where the golden passed                |
 | **Run injection test…**       | `shadowlap injection <recording>`, from a [Security](#security) row                 |
+| **Run error-path presets…**   | `shadowlap test <golden> --chaos`, from a golden's row                              |
+| **Rescan coverage**           | `shadowlap coverage`, from [Not covered](#not-covered)                              |
+| **Pack as golden**            | `shadowlap coverage --pack <key>`, from a Not covered row                           |
+| **Pack with checks…**         | `shadowlap coverage --pack <key> --fork --expect <json>`, from a Not covered row    |
 
 These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find breaking commit** wait, saying what is running:
 
@@ -2049,7 +2131,7 @@ These jobs run one at a time in a project. While any of the following runs, **Ru
 - a setup packing and testing its golden;
 - a test session or the [error-path presets](./error-paths.md) on goldens (`test --chaos`), started in a terminal or another dashboard, named by their command.
 
-A run page's **Pack with injection gate…** waits the same way, since it tests the golden it packs.
+A run page's **Pack with injection gate…** waits the same way, since it tests the golden it packs. So do Not covered's **Pack as golden** and **Pack with checks…**, and a golden's **Run error-path presets…**.
 
 The server refuses another such job with the same words, from any tab, the palette's *Run tests* included. A test replay's page disables its **Add normalizer and re-run** (or **Add normalizer and update**) and **Update golden** the same way. Find breaking commit on a run that is no test replay touches no golden, and doesn't wait.
 
@@ -2139,7 +2221,7 @@ An action that replays a run from someone else's pack, a teammate's pulled from 
 
 The server asks that question itself: a 409 naming the exact command lines, with a `confirm` for them. It takes as a yes only that `confirm` sent back as `yes` (`confirmed` for the error-path presets). So a yes is to the lines the dialog showed: a command a pull has changed since is asked again.
 
-**A golden recorded elsewhere.** A job that runs a golden from a pack your repository doesn't track, recorded elsewhere, and passes the CLI `--yes`, asks the same of its command. Such jobs are a decision diff from the working tree or with a verify, a migration, verifying what a session flagged, and an injection test. A job the server asked nothing of passes no `--yes`, whatever its request sent, and the CLI, with no terminal to ask in, refuses such a golden ([`test`](./cli.md#test) says why).
+**A golden recorded elsewhere.** A job that runs a golden from a pack your repository doesn't track, recorded elsewhere, and passes the CLI `--yes`, asks the same of its command. Such jobs are a decision diff from the working tree or with a verify, a migration, verifying what a session flagged, an injection test, and error-path presets on a golden. A job the server asked nothing of passes no `--yes`, whatever its request sent, and the CLI, with no terminal to ask in, refuses such a golden ([`test`](./cli.md#test) says why).
 
 **A repair or a blame** that would run a command from someone else's pack asks once more before it does. **Find breaking commit…** is off on such a run, with the reason on hover, since it would run that command at every commit. Replay it with your own command first, and find the commit from that run.
 
@@ -2217,7 +2299,7 @@ These keys work on any page:
 | ⌘Z or Ctrl Z, `u` | Undo, while a toast offers it (a good or bad label, a delete)           |
 | Esc               | Close what is open, then go up a level                                  |
 
-These keys work in a list: Runs, Changes' verdicts and a revision's goldens, Fixes, Tests' goldens, and the sidebar's runs while one has the focus. On Fixes, ⌘K on a fix's row offers Open fix and each of its steps, as it does on a verify's row in Changes › Verdicts, and Esc back from a fix lands on its row.
+These keys work in a list: Runs, Changes' verdicts and a revision's goldens, Fixes, Tests' goldens and Not covered, and the sidebar's runs while one has the focus. On Fixes, ⌘K on a fix's row offers Open fix and each of its steps, as it does on a verify's row in Changes › Verdicts, and Esc back from a fix lands on its row. On Not covered, Enter opens a row's details and ⌘K offers its pack.
 
 | Key          | What it does                                             |
 | ------------ | -------------------------------------------------------- |
@@ -2568,7 +2650,7 @@ Every request needs the session token in `x-shadowlap-token`.
 
 - **A long run**: one that ended with 1,000 calls or more is answered from its first 200, and says `warming: { done, total }` while the whole run is analysed. Asked again, it says the same of the same calls.
 - **Its about line**: each run, in the list, on its own and in its family, carries its `about` line. That is its `text`, where it comes from (`from`: `user`, `agent`, `input`, `golden`, `change`, `nothing`, `source` or `command`), and for a replay or a fork its `change` (the flag, the call it changed and where it forked).
-- **A preset's attempt** in the family carries its `preset`: the preset's words, and the verdict of the session that decided it.
+- **A preset's attempt** in the family carries its `preset`: the preset's words, the verdict of the session that decided it, that `session`, the call it hit (`callNo`), its `golden`, how the preset came out there (`outcome`) and what it `spent`.
 - **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.
 - **Its outcome by checks**: `judged` says what judged it (`by`: `own`, `import` or `family`), its `verdict`, the checks' `counts`, the `callNo` it turned on, the `first` check that failed, `today`, `since`, the `goldens` and `why`. It is `null` when no check judges the run. The page's answer and Runs' rows add each of `checks`; the sidebar's rows leave them out.
 - **Its agent's exit**: a test replay its agent's exit failed carries `exitCode` where its test result kept the code.
@@ -2817,7 +2899,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
 | `GET /api/injection/estimate?run=\|golden=&payloads=&repeat=&budget=\|gate=1\|clean=`, `/api/injection/payloads?upload=`, `/api/injection/security` | A dialog's plan priced, a payload file once sent, and Tests' Security |
-| `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
+| `GET /api/chaos`, `/api/chaos/runs/:id`, `/api/chaos/runs/:id/plan?presets=&tool=&expect=1` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix; Run error-path presets…'s plan |
 | `GET /api/coverage` | [Production coverage](./coverage.md): the last `shadowlap coverage` scan and what it found |
 
 **Training.** A task blocked by an early fork comes with what Update golden runs. For `/api/models`, a provider that couldn't be listed is a note, and a read-only dashboard asks none.
@@ -2867,13 +2949,25 @@ The `matrix` has a row per run and a cell per model call. Each cell holds:
 - `/api/chaos`: the presets; a matrix for every recording they ran on, newest first; and the newest sessions, each with `live` while its process runs.
 - `/api/chaos/runs/:id`: one run's matrix, or for a preset's attempt the matrix of the session that decided it, on its recording (`null` when no preset ran on either).
 
-A matrix has a cell per preset: its verdict, the call it hit, passes and attempts, why, each attempt's run and verdict, and the preset's gate. A cell is inconclusive when its replay never reached the call, or only a check no attempt can decide held it back. Each attempt in a cell carries why it failed or couldn't say (`reason`).
+A matrix has a cell per preset: its verdict, the call it hit, passes and attempts, why, each attempt's run and verdict, and the preset's gate. A cell is inconclusive when its replay never reached the call, or only a check no attempt can decide held it back. Each attempt in a cell carries why it failed or couldn't say (`reason`). A cell also gives the gate's `bound`, what it `spent` and its `upstreamRequests`.
+
+A matrix also gives the newest session's `command`, the gate's `rule`, and the `judge`: its checks and where they came from (`from`). Then come what its attempts `spent`, their `upstreamRequests`, and the `toolCall` the tool presets hit.
+
+**Run error-path presets…'s plan** (`/api/chaos/runs/:id/plan`) is read beside the server, for the run's recording:
+
+- the `target`, and its `golden` (`null` for a replay);
+- the `presets` the command runs naming none, the tools the tool presets can hit (`choices`, `tool`), and where the picks hit (`at`);
+- what judges them (`judge`, `from`), and the `expect` the field starts from;
+- what decides them (`gate`, `rule`), a command from elsewhere (`runsHere`) and the `estimate`.
+
+`presets` and `tool` ask about other picks, and `expect=1` about a run judged by checks.
 
 **Production coverage** gives:
 
 - the last `shadowlap coverage` scan as it was kept (`scan`, `null` when none ran);
-- the imported runs that came in after it (`newRuns`);
+- the imported runs that came in after it, or every imported run before a first scan (`newRuns`);
 - each behaviour it found, not covered first, with the goldens that cover it, its runs, the nearest golden, and what Pack one runs (`pack`);
+- the last pack that couldn't pack a behaviour, naming who tried it only where names show (`lastPack.by`);
 - the count not covered, and the line Needs a look shows;
 - the `commands` that scan again and pack.
 
@@ -2889,8 +2983,8 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `blame { runId, expect?, command?, yes? }` | Blame with the check given, else the one it was judged by, else a 422 that asks for it. A capture takes your `command` |
 | `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |
 | `calibrate { runId?, write? }` | The setup's recording, else the newest finished one made here, unless one is named |
-| `chaos { golden, presets?, tool? }` | `test <golden> --chaos` |
-| `chaos { runId, presets?, tool?, confirmed? }` | `replay <run> --chaos` |
+| `chaos { golden, presets?, tool?, confirmed? }` | `test <golden> --chaos` |
+| `chaos { runId, presets?, tool?, expect?, confirmed? }` | `replay <run> --chaos`, with `--expect` |
 | `check { expect?, recordings? }` | [`shadowlap check`](./cli.md#check): a check tried on run ids, `label:<name>` or the project's goldens, nothing replayed |
 | `coverage {}` | Scan again |
 | `coverage-pack { key?, command?, confirmed?, fork?, expect? }` | `coverage --pack` |
@@ -2927,9 +3021,12 @@ What some of them do:
 - **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead. With `normalize: true`, it is Add normalizer and update for several goldens: it adds each rule in their divergences' `newRules` once, then updates them all. When none of them diverged on a value that changes every run, it is refused (400).
 - **Tests' jobs** (`test`, `test-update`, `bisect`, `normalize-and-test`) run one at a time in a project, and none while a test session or error-path presets on goldens run, wherever they were started: a terminal, another dashboard or a job (409).
 - **`chaos` on a golden** is refused with a 409 while a test session, an update or a pack runs, as they are while it runs, or while presets run on goldens, wherever they were started: a terminal, another dashboard or a job.
+- **`chaos`'s `expect`** is Run error-path presets…'s Judged by on a run, the text of its `--expect`, checked as the CLI checks it: a 400 in its words, or *those checks are too long*. A golden takes none, refused as *expect goes with a run*.
+- **`chaos` on a golden** from a pack your repository doesn't track runs only `confirmed`, the `confirm` of the 409 that named the command each preset runs.
 - **`chaos` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only `confirmed`. That is the `confirm` of the 409 that named both its command and the presets' own line, so a yes to one preset runs no other, and none an injection test.
 - **`check`** without run ids, a label or the goldens tries every recording; its result is the report.
 - **`coverage-pack`** packs a golden of the behaviour `key` names, or of each no golden covers, reproduced with the agent's command a run here gives or the one typed, which runs only once confirmed. With `fork` and `expect`, it packs a golden that forks. It is refused with a 409 while a test session, an update or another pack runs.
+- **`coverage-pack`'s `expect`** is checked as the CLI checks `--expect`: a check it would refuse is a 400 in its words.
 - **`decisions`**: `samples` as [`--samples`](./cli.md#decisions) takes it, 1 included. Without it, each step is asked 3 times under the change and 3 times as recorded, six requests a step.
 - **`decisions-verify`** verifies each run the session could not clear under its own checks (its golden's, or for a run named by id, those of the recording it comes from). It runs one verify per set of checks, in the role its recording plays under them, and keeps the result in the session.
 - **`injection`** plants the templates (`all`, `none` or their ids) or an uploaded payload file at every untrusted read. With `clean`, a call number (a run only), it tests whether that read caused the run's writes; `writes` picks them by call number.
