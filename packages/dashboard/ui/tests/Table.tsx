@@ -5,10 +5,11 @@ import { rowOpen } from '../components/Table.js';
 import { glossed } from '../components/Term.js';
 import { dotParts, RuleText } from '../components/Verdict.js';
 import { glued } from '../format.js';
-import { checkMark, sourceText } from '../goldens.js';
+import { changedLine, checkMark, sourceText } from '../goldens.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
+import { CheckActs, CheckTail } from './check-entries.js';
 import { EvidenceRow, EvidenceToggle, gated, useEvidenceOpen } from './Evidence.js';
 import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History.js';
 import { PresetsStrip } from './PresetsStrip.js';
@@ -24,7 +25,7 @@ import type { LeadPress } from './Verdict.js';
 
 /**
  * The goldens' table. It fits its panel at every width, as the mock's .gtw container queries fit it:
- * below 1000px of room the oldest revisions give way, below 820px the checks go under the golden's
+ * below 1000px of room the oldest revisions give way, below 840px the checks go under the golden's
  * name, and on a phone the revisions become a strip there too. Last result keeps its width.
  */
 export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPress }) {
@@ -64,7 +65,7 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
               return (
                 <Fragment key={row.path}>
                   <GoldenTr row={row} rowKey={keyOf(row)} focused={inFocus === keyOf(row)} showHistory={history} open={shows} onToggle={() => toggle(row.path)} now={view.following?.goldens[row.path]} press={press} />
-                  {shows ? <EvidenceRow row={row} g={g} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} /> : null}
+                  {shows ? <EvidenceRow row={row} g={g} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} step={view.steps?.[row.path] ?? null} /> : null}
                 </Fragment>
               );
             })}
@@ -79,6 +80,7 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
 function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, press }: { row: GoldenRow; rowKey: string; focused: boolean; showHistory: boolean; open: boolean; onToggle: () => void; now: FollowedGolden | undefined; press: LeadPress | undefined }) {
   const source = sourceText(row);
   const last = row.last;
+  const stale = changedLine(row);
   const to = rowHref(row);
   return (
     <tr className={[row.runId ? '' : 'still', focused ? 'krow' : '', open ? 'open' : ''].filter(Boolean).join(' ') || undefined} data-rowkey={rowKey} {...(to ? rowOpen(() => navigate(to)) : {})}>
@@ -121,6 +123,12 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, pres
             </span>
           ) : null}
         </span>
+        {/* After the result, as the design draws it, so it stays while a session runs the golden: its checks are still untested until that result lands. */}
+        {stale ? (
+          <span className="ckst" data-tip={tipCard(stale.text, [], stale.why)}>
+            {stale.text}
+          </span>
+        ) : null}
         {gated(last.gate) && last.gate.attempts ? <EvidenceToggle g={last.gate} name={row.name} open={open} onToggle={onToggle} /> : null}
         {row.presets && last.result === null && !row.error ? <PresetsLine p={row.presets} /> : null}
       </td>
@@ -224,11 +232,6 @@ function LastResult({ row }: { row: GoldenRow }) {
   );
 }
 
-/**
- * A golden's checks, each marked by how its last result came out on it (✓ passed, ✗ failed, ? in
- * amber when it couldn't be decided, – when it didn't apply; no mark before a result), with what
- * failed, in how many attempts, or why, under it and on hover.
- */
 /** A golden's checks, then its injection gate under them, which its tests entry sets, then its error-path presets. */
 function Checks({ row, press }: { row: GoldenRow; press: LeadPress | undefined }) {
   return (
@@ -275,21 +278,30 @@ function GateCheck({ g }: { g: GateCheckView }) {
   );
 }
 
+/**
+ * A golden's checks, each marked by how its last result came out on it (✓ passed, ✗ failed, ? in
+ * amber when it couldn't be decided, – when it didn't apply; no mark before a result), with what
+ * failed, in how many attempts, or why, under it and on hover; and what changes them, where the page
+ * offers it (check-entries.tsx).
+ */
 function CheckList({ row }: { row: GoldenRow }) {
   if (!row.checks.length) {
     return (
-      <em className="nil" data-tip={tipText('No checks in shadowlap.config.json: it passes when it replays and the agent exits 0')}>
-        exit status only
-      </em>
+      <>
+        <em className="nil" data-tip={tipText('No checks in shadowlap.config.json: it passes when it replays and the agent exits 0')}>
+          exit status only
+        </em>
+        <CheckTail row={row} />
+      </>
     );
   }
   const ran = row.last.result !== null;
   return (
     <>
       {row.checkResults.map((c, i) => {
-        const m = checkMark(c, ran);
+        const m = checkMark(c, ran, true);
         return (
-          <span key={`${c.label}:${i}`} className={`ck${m.status ? ` ${m.status}` : ''}`} data-tip={tipCard(m.tip.title, [{ label: m.tip.label, value: m.tip.value, color: m.tip.color }])}>
+          <span key={`${c.label}:${i}`} className={`ck${m.status ? ` ${m.status}` : ''}`} data-tip={tipCard(m.tip.title, m.tip.rows ?? [{ label: m.tip.label, value: m.tip.value, color: m.tip.color }], m.tip.note)}>
             {m.mark ? (
               <b className="cm" role="img" aria-label={m.word}>
                 {m.mark}
@@ -299,9 +311,11 @@ function CheckList({ row }: { row: GoldenRow }) {
               {m.text}
               {m.sub ? <small>{glued(m.sub)}</small> : null}
             </span>
+            <CheckActs row={row} check={c.label} last={i === row.checkResults.length - 1} />
           </span>
         );
       })}
+      <CheckTail row={row} />
     </>
   );
 }

@@ -15,8 +15,7 @@ import type { PresetsFinding } from './presets/PresetsFinding.js';
 import type { PresetsResults } from './presets/PresetsResults.js';
 import type { ChangeBoxProps } from './revert/ChangeBox.js';
 import type { RevertDialogProps } from './revert/RevertDialog.js';
-import type { BuilderProps } from './run/check-part.js';
-import type { CheckMenu } from './run/CheckMenu.js';
+import type { BuilderProps, CheckMenuProps } from './run/check-part.js';
 import type { ForkMenu } from './run/ForkMenu.js';
 import type { MoreMenu } from './run/MoreMenu.js';
 import type { ShareMenu } from './run/ShareMenu.js';
@@ -29,7 +28,6 @@ export type ShareMenuProps = ComponentProps<typeof ShareMenu>;
 export type RunBlameAsksProps = ComponentProps<typeof RunBlameAsks>;
 /** What the fork menu takes (run/ForkMenu.tsx), and the header's … (run/MoreMenu.tsx). */
 export type ForkMenuProps = ComponentProps<typeof ForkMenu>;
-export type CheckMenuProps = ComponentProps<typeof CheckMenu>;
 export type MoreMenuProps = ComponentProps<typeof MoreMenu>;
 export type InjectionResultsProps = ComponentProps<typeof InjectionResults>;
 export type StepDialogProps = ComponentProps<typeof StepDialog>;
@@ -76,10 +74,10 @@ export interface ServedParts {
   ChangeBox?: ComponentType<ChangeBoxProps>;
   /** The check builder (checks/Builder.tsx), which only Add check… opens (run/check-entry.tsx): loaded ahead as a row's menu offers Add check…, as the pointer or the focus reaches it on the inspector, or as its check menu opens, so it shows at once on a pick. */
   CheckBuilder?: OnShow<BuilderProps>;
-  /** The check menu at a call (run/CheckMenu.tsx), its rules by the call's arguments and Ask a judge…: loaded ahead with the builder, as a row's menu offers Add check… or the pointer or the focus reaches it on the inspector. */
-  CheckMenu?: OnShow<CheckMenuProps>;
   /** What Run blame asks in once pressed (fixes/RunBlameAsks.tsx), with the check a blame needs: loaded the first time one asks. */
   RunBlameAsks?: OnShow<RunBlameAsksProps>;
+  /** The check menu at a tool call (run/CheckMenu.tsx), whose pick opens the builder: loaded ahead with the builder, and a page handed one without the other offers no Add check…. */
+  CheckMenu?: OnShow<CheckMenuProps>;
   /** Runs › Failed as issues (runspage/FailedIssues.tsx): a copy keeps Failed a filter over its runs. */
   FailedIssues?: OnShow<FailedIssuesProps>;
   /** An injection test's results in the inspector's place (injection/InjectionResults.tsx), with the matrix they draw: loaded ahead as the pointer or the focus reaches Show results. */

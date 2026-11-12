@@ -11,6 +11,7 @@ import { goldenName, shortId } from '../format.js';
 import { PUSH_LOCAL } from '../labels.js';
 import { packCommand } from '../not-covered/model.js';
 import { moreCard } from '../pages/tests-cards.js';
+import { EditCheckStep } from '../run/check-entry.js';
 import { stepCard } from '../run/next-step.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
@@ -105,6 +106,8 @@ export function LookStepButton({ row, wait, version }: { row: NeedsLookRow; wait
       </a>
     );
   }
+  // Edit check opens the check builder at the check on its golden, as Tests and the run's page do: no job, so no wait.
+  if (s?.of === 'run' && s.step.key === 'edit-check' && !app.actionsOff && !app.exported) return <EditCheckStep step={s.step} className="btn sm" />;
   const run = stepRun(s);
   if (!s || !run || !wait || app.actionsOff || app.exported) return <span className="go">Open →</span>;
   const why = stepWhy(app.hasKind, run, wait);

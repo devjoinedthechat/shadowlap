@@ -5,8 +5,10 @@ import type { DivergenceView, FailureView, InconclusiveView, MoreAttempts, NextS
  * The verdict's step: what the golden that leads it (its first failure, else its first inconclusive
  * one) leads with, as the server works it out for that golden's replay (next-step.ts `goldenSteps`,
  * the run page's own rule), mapped by its key onto what the golden's report presses. None while a
- * whole session runs, for a key Tests has no button for (a replay, a comparison, a pack), or for a
- * job the server doesn't run: then Run tests is the page's lime button. No DOM here: the tests import it.
+ * whole session runs, for a key Tests has no button for (a replay, a comparison, a pack), for a job
+ * the server doesn't run, for Edit check where the page has no builder, and for Run tests (a golden
+ * whose checks changed since), which is the page's own button: then Run tests is the page's lime
+ * button. No DOM here: the tests import it.
  */
 export type Lead =
   | { kind: 'normalize'; label: string; d: DivergenceView; n: NonNullable<DivergenceButtons['normalize']> }
@@ -15,6 +17,7 @@ export type Lead =
   | { kind: 'revert'; label: string; step: Extract<NextStep, { key: 'revert' }>; f: FailureView }
   | { kind: 'more'; label: string; v: InconclusiveView; more: MoreAttempts }
   | { kind: 'fix'; label: string; href: string; title: string | null; check: string }
+  | { kind: 'edit'; label: string; golden: string; check: string; sub: string }
   | { kind: 'proof'; label: string; href: string; title: string | null; sub: string | null }
   | { kind: 'again'; label: string; golden: string; name: string; sub: string | null }
   | { kind: 'blame'; runId: string; step: Extract<NextStep, { key: 'blame' }> };
@@ -25,8 +28,8 @@ export function leadingStep(view: Pick<TestsView, 'verdict' | 'steps'>): NextSte
   return (golden && view.steps?.[golden]) || null;
 }
 
-/** The lead step as Tests draws it; `whole` while a session that runs every golden is running. */
-export function leadStep(view: Pick<TestsView, 'verdict' | 'steps' | 'divergences' | 'failures' | 'inconclusive'>, has: (kind: string) => boolean, whole = false): Lead | null {
+/** The lead step as Tests draws it; `whole` while a session that runs every golden is running, `edits` where the page has the check builder. */
+export function leadStep(view: Pick<TestsView, 'verdict' | 'steps' | 'divergences' | 'failures' | 'inconclusive'>, has: (kind: string) => boolean, whole = false, edits = false): Lead | null {
   const step = whole ? null : leadingStep(view);
   if (!step) return null;
   if (step.key === 'fix') return step.href ? { kind: 'fix', label: step.label, href: step.href, title: step.title ?? null, check: step.check } : null;
@@ -36,7 +39,14 @@ export function leadStep(view: Pick<TestsView, 'verdict' | 'steps' | 'divergence
     const runId = view.verdict?.first?.runId;
     return runId && has('blame') ? { kind: 'blame', runId, step } : null;
   }
+  if (step.key === 'edit-check') return edits ? { kind: 'edit', label: step.label, golden: step.golden, check: step.check, sub: step.sub ?? '' } : null;
   return 'golden' in step ? goldenLead(view, step, has) : null;
+}
+
+/** Run tests' line on its card where the step that leads is Run tests (a golden whose checks changed since): the step's own. */
+export function staleSub(view: Pick<TestsView, 'verdict' | 'steps'>, whole = false): string | undefined {
+  const step = whole ? null : leadingStep(view);
+  return step?.key === 'run-tests' ? step.sub : undefined;
 }
 
 /** A step that runs one of the golden's jobs, as its report runs it: none where its report has no such button. */

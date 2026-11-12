@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import type { RunDetail } from '../api.js';
 import { injectionFactOf } from '../injection/model.js';
@@ -192,27 +193,39 @@ function spentBy(run: RunDetail): Pick<MetricInput, 'spentBy'> {
   return by === undefined ? {} : { spentBy: by };
 }
 
-/** Scopes as chips with counts, nested ones under their parent; picking one narrows every view to it. */
-export function ScopeBar({ run, scopes, scope, onScope }: { run: RunDetail; scopes: string[]; scope: string; onScope: (s: string) => void }) {
+/**
+ * Scopes as chips with counts, nested ones under their parent; picking one narrows every view to it.
+ * The first, All, counts the agent's calls alone, and reads Agent where the run names no agents of
+ * its own (`scopes` empty); a judge's calls (`judge`, how many) follow the agents' after a hairline,
+ * under a chip of their own, as the design draws them.
+ */
+export function ScopeBar({ run, scopes, scope, judge, onScope }: { run: RunDetail; scopes: string[]; scope: string; judge: number; onScope: (s: string) => void }) {
   // Blame the agent, not the model that plays its user: the scope picked, else the one that acts.
-  // Blame is scoped by the scopes the author gave, so a run with none gets no hint.
+  // Blame is scoped by the scopes the author gave, so a run with none gets no hint: a judged one says
+  // what its judge's calls count towards.
   const hint = scopeHint(run.calls, realScopes(run.calls), scope);
+  const chip = (s: string, label: string, n: number, title?: string) => (
+    <button key={s} type="button" aria-pressed={scope === s} onClick={() => onScope(s)} title={title}>
+      {s !== 'all' && scopeDepth(s) > 0 ? <span className="nest">↳</span> : null}
+      {label}
+      <b>{n}</b>
+    </button>
+  );
   return (
     <section className="scopebar">
       <span className="k">agents</span>
       <div className="chips">
-        {['all', ...scopes].map((s) => (
-          <button key={s} type="button" aria-pressed={scope === s} onClick={() => onScope(s)} title={s === 'all' ? undefined : s}>
-            {s !== 'all' && scopeDepth(s) > 0 ? <span className="nest">↳</span> : null}
-            {s === 'all' ? 'All' : scopeLeaf(s)}
-            <b>{scopeCount(run.calls, s)}</b>
-          </button>
-        ))}
+        {chip('all', scopes.length ? 'All' : 'Agent', scopeCount(run.calls, 'all'))}
+        {scopes.map((s) => chip(s, scopeLeaf(s), scopeCount(run.calls, s), s))}
+        {judge ? <span className="jsep" aria-hidden="true" /> : null}
+        {judge ? chip(JUDGE_SCOPE, 'judge', judge, `${JUDGE_SCOPE}: the judge’s calls, kept apart from the agent’s`) : null}
       </div>
       {hint ? (
         <span className="shint">
           {hint.lead}: <code>shadowlap blame {shortId(run.run.runId)} --scope {hint.scope}</code>
         </span>
+      ) : judge ? (
+        <span className="shint">A judge’s calls are the check’s: no count, budget or cost of the agent’s includes them</span>
       ) : null}
     </section>
   );

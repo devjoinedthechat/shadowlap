@@ -30,6 +30,8 @@ export interface CallLike {
   scope: string | null;
   /** The agent that made it, as the server names it (agents.ts); absent from an older server's rows. */
   agent?: string | null;
+  /** A judge's call: the check it answered and the verdict the run kept of it. */
+  judge?: { check: string; verdict: 'yes' | 'no' | null };
   recordedMs?: number | null;
   resultShort?: string | null;
   /** A model call: the tools its answer asked for, as the server reads them from the response. */
@@ -124,6 +126,8 @@ export function toolNames(names: readonly string[]): string {
 export function callDetail(c: CallLike, asked?: string | null): { text: string; err: boolean } {
   if (c.kind === 'api') {
     if (c.outcome === 'error') return { text: c.status ? `HTTP ${c.status}${c.attempts ? ` · ${c.attempts + 1} attempts` : refusedOffline(c) ? ' · refused offline' : ''}` : (c.error ?? 'error'), err: true };
+    // A judge's call, by its check and the verdict it gave: `judge "explains" · no`.
+    if (c.judge) return { text: `judge "${c.judge.check}"${c.judge.verdict ? ` · ${c.judge.verdict}` : ''}`, err: false };
     if (asked) return { text: `→ ${asked}`, err: false };
     // No tool call of the run says this model call asked for it (a capture records none, a tool that
     // isn't wrapped leaves none): the answer does.

@@ -1,17 +1,17 @@
 import type { ForkDifferences } from '../../src/fork-differences.js';
 import type { CauseView, InjectionFinding } from '../injection/model.js';
 import type { ChaosMatrix, FoundCommit } from '../types.js';
-import type { Banner } from './banner.js';
+import type { Banner, JudgeVerdict } from './banner.js';
 import type { RunNote } from './notes.js';
 import { presetsVerdict } from './preset.js';
 
 /**
  * What a run's page found, as one bar (FindingsBar.tsx): the first bad commit Find breaking commit
- * named for its crash, the run's own finding (banner.ts), what its fork did differently from its
- * parent, what it did not record, its notes (notes.ts), the injection test kept for it and its
- * `--clean` answers (injection/model.ts), and its error-path presets (preset.ts), each a finding,
- * the most telling first: a failure, then what needs a look, then the rest, each kind in that order
- * within its weight. No DOM here: the tests import it.
+ * named for its crash, the run's own finding (banner.ts), each verdict its judge checks gave, what
+ * its fork did differently from its parent, what it did not record, its notes (notes.ts), the
+ * injection test kept for it and its `--clean` answers (injection/model.ts), and its error-path
+ * presets (preset.ts), each a finding, the most telling first: a failure, then what needs a look,
+ * then the rest, each kind in that order within its weight. No DOM here: the tests import it.
  */
 
 /** How much a finding weighs: 2 a failure (red), 1 what needs a look (amber), 0 the rest. */
@@ -19,13 +19,15 @@ export type Severity = 0 | 1 | 2;
 
 export interface Finding {
   key: string;
-  kind: Banner['kind'] | 'differences' | 'commit' | RunNote['kind'] | 'injection' | 'cause' | 'presets';
+  kind: Banner['kind'] | 'judge' | 'differences' | 'commit' | RunNote['kind'] | 'injection' | 'cause' | 'presets';
   sev: Severity;
   /** The finding in a few words, for the card that lists the others: its label, or what it leads with. */
   says: string;
   /** Whether it has more to show under its line once the bar is open: a note's tools and hint, the fork's changes. */
   body: boolean;
   banner?: Banner;
+  /** A judge's verdict, never tinted: what it weighs is the run's own finding's. */
+  judge?: JudgeVerdict;
   note?: RunNote;
   differences?: ForkDifferences;
   commit?: FoundCommit;
@@ -100,15 +102,17 @@ const CAUSE_SEVERITY: Readonly<Record<CauseView['answers'][number]['verdict'], S
 
 /**
  * Every finding a run has, sorted: by weight, then in the order they come, the first bad commit of a
- * crash first (a failure, leading the crash's own), the run's own, then what its fork did differently
- * (once that has come), what it did not record, its notes, then the injection test kept for it, Find
- * cause's answers and its error-path presets, so at one weight the run's own findings come before
- * its tests'.
+ * crash first (a failure, leading the crash's own), the run's own, then each judge's verdict (none
+ * where the run's own finding lists its checks, a judge's among them), what its fork did
+ * differently (once that has come), what it did not record, its notes, then the injection test kept
+ * for it, Find cause's answers and its error-path presets, so at one weight the run's own findings
+ * come before its tests'.
  */
-export function runFindings(i: { own: Banner | null; differences: ForkDifferences | null; notRecorded: Banner | null; notes: readonly RunNote[]; commit?: FoundCommit | null | undefined; injection?: InjectionFinding | null | undefined; cause?: CauseView | null | undefined; presets?: ChaosMatrix | null | undefined }): Finding[] {
+export function runFindings(i: { own: Banner | null; judges?: readonly JudgeVerdict[]; differences: ForkDifferences | null; notRecorded: Banner | null; notes: readonly RunNote[]; commit?: FoundCommit | null | undefined; injection?: InjectionFinding | null | undefined; cause?: CauseView | null | undefined; presets?: ChaosMatrix | null | undefined }): Finding[] {
   const all: Finding[] = [];
   if (i.commit) all.push({ key: 'commit', kind: 'commit', sev: 2, says: COMMIT_SAYS, body: false, commit: i.commit });
   if (i.own) all.push(ofBanner('own', i.own));
+  if (i.own?.kind !== 'checks') (i.judges ?? []).forEach((judge, at) => all.push({ key: `judge:${at}`, kind: 'judge', sev: 0, says: 'verdict', body: false, judge }));
   if (i.differences) all.push({ key: 'differences', kind: 'differences', sev: 0, says: DIFFERENCES_HEADING, body: true, differences: i.differences });
   if (i.notRecorded) all.push(ofBanner('not-recorded', i.notRecorded));
   i.notes.forEach((n, at) => all.push({ key: `note:${n.kind}:${at}`, kind: n.kind, sev: NOTE_SEVERITY[n.tone], says: n.label, body: n.more, note: n }));

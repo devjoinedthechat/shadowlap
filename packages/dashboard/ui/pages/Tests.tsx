@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { JOB_KINDS, type DivergenceView } from '../api.js';
+import { JOB_KINDS, type DivergenceView, type TestsView } from '../api.js';
 import { PageHeader } from '../components/bits.js';
 import { glossed } from '../components/Term.js';
 import { projectOf } from '../shell/ProjectBlock.js';
@@ -19,6 +19,7 @@ import { divergedAsk, gateAgainAsk, moreAttemptsAsk, runTestsAsk, startTestsJob,
 import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
+import { CheckEntriesOf, useCheckEntries } from '../tests/check-entries.js';
 import { CiSections } from '../tests/Sections.js';
 import { SecurityPanel } from '../injection/SecurityPanel.js';
 import { NotCovered, useCoverage } from '../not-covered/NotCovered.js';
@@ -27,7 +28,7 @@ import { PresetsDialogPart } from '../presets/part.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
 import type { GoodCommitsOf } from '../tests/good-commits.js';
 import { GoldensTable } from '../tests/Table.js';
-import { leadStep } from '../tests/lead.js';
+import { leadStep, staleSub } from '../tests/lead.js';
 import { Verdict, type LeadPress } from '../tests/Verdict.js';
 import { bisectLive, runTestsCard, testsJob, updatesCard } from './tests-cards.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
@@ -52,7 +53,7 @@ type Open =
 
 export function TestsPage() {
   const app = useApp();
-  const { client, tick, feeds, hasKind, actionsOff, guard, jobs, toast, meta } = app;
+  const { client, tick, feeds, hasKind, actionsOff, guard, jobs, meta } = app;
   // Read again when runs or calls move, when a session of error-path presets starts or ends (that
   // moves only their own count, and the actions wait for one on goldens: `chaosRunning`),
   // and when one of this tab's test jobs starts or ends, so its drawer can end on the step it leaves.
@@ -61,6 +62,8 @@ export function TestsPage() {
   const view = loaded.data;
   // Tests › Not covered's scan: its Rescan coverage takes the lime where no step of the page leads.
   const coverage = useCoverage();
+  // Edit, Remove and Add check… on a golden's checks, and what they open.
+  const checks = useCheckEntries(view, loaded.reload);
   const prices = useTestsEstimates(view ? estimatesKey(view) : null, view?.diverged);
   const [open, setOpen] = useState<Open | null>(null);
   // What the server is running, from every tab and terminal dashboard: a test job (Find breaking commit
@@ -73,28 +76,8 @@ export function TestsPage() {
     if (view) keepTests(view);
   }, [view]);
 
-  // Update goldens, asked for by the palette or a link (#/tests?update), on arriving here or while
-  // here: the address goes back to #/tests at once, so nothing is left to open the dialog later.
-  const [asked, setAsked] = useState(false);
-  useEffect(() => {
-    const take = () => {
-      if (!asksUpdate(location.hash)) return;
-      navigate(href.tests(), true);
-      setAsked(true);
-    };
-    take();
-    window.addEventListener('hashchange', take);
-    return () => window.removeEventListener('hashchange', take);
-  }, []);
-  useEffect(() => {
-    if (!asked || !view) return;
-    setAsked(false);
-    const why = wait('update them');
-    if (why) toast(why);
-    else if (!view.diverged.length || !hasKind(JOB_KINDS.testUpdate)) toast('No golden diverged: there is nothing to update');
-    else setOpen({ kind: 'update', paths: view.diverged });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- asked once: `wait`, new each render, is read as it is when the ask is taken
-  }, [asked, view, actionsOff, hasKind, toast]);
+  // Update goldens, asked for by the palette or a link (#/tests?update): its dialog, or why it can't.
+  useUpdateAsked(view, wait, (paths) => setOpen({ kind: 'update', paths }));
 
   // A job that would run goldens live asks first, in the shell's dialog, saying `ask`'s words around
   // the server's; one that only replays starts on the click (tests-ask.ts).
@@ -115,8 +98,13 @@ export function TestsPage() {
   }
 
   const [runWait, updateWait, updateGoldenWait, findWait] = ['run the tests', 'update them', 'update it', 'find the breaking commit'].map((verb) => wait(verb));
-  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every golden.
-  const lead = leadStep(view, hasKind, !!view.following?.whole);
+  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every
+  // golden. Where that step is Run tests (its checks changed since), the header's own is lime and says
+  // so. Else Rescan coverage takes the lime where it leads, and Run tests reads plain.
+  const whole = !!view.following?.whole;
+  const lead = leadStep(view, hasKind, whole, !!checks.edit);
+  const stale = staleSub(view, whole);
+  const runTests = hasKind(JOB_KINDS.tests) ? testsJob(runTestsCard(view, stale), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e)) : null;
   // Settings → CI by the name the mock links it by, its tab opening; Update goldens only for several,
   // as each has its own in its report.
   const actions = (
@@ -130,8 +118,8 @@ export function TestsPage() {
           {ACTIONS.updateGoldens.label}
         </JobButton>
       ) : null}
-      {hasKind(JOB_KINDS.tests) ? (
-        <JobButton className={lead || rescanLeads(coverage) ? 'btn' : 'btn lime'} why={runWait} {...testsJob(runTestsCard(view), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e))}>
+      {runTests ? (
+        <JobButton className={lead || (stale === undefined && rescanLeads(coverage)) ? 'btn' : 'btn lime'} why={runWait} {...runTests}>
           {ACTIONS.runTests.label}
         </JobButton>
       ) : null}
@@ -162,6 +150,8 @@ export function TestsPage() {
     onUpdate: (golden, e) => guard(() => setOpen({ kind: 'update', paths: [golden], estimate: e })),
     onFind: findCommit,
     onMore: (v, e) => v.gate?.more && start(JOB_KINDS.tests, v.gate.more.job, moreAttemptsAsk(v.name, v.gate.more), e),
+    runTests,
+    edit: checks.edit,
     onAgain: (lead, e) => start(JOB_KINDS.tests, { golden: lead.golden }, gateAgainAsk(lead.name, lead.golden), e),
     onPresets: (runId) => guard(() => setOpen({ kind: 'presets', runId })),
   };
@@ -170,7 +160,10 @@ export function TestsPage() {
     <Page>
       {header(actions)}
       <Verdict view={view} running={running} lead={lead} press={press} />
-      <GoldensTable view={view} press={press} />
+      <CheckEntriesOf.Provider value={checks.entries}>
+        <GoldensTable view={view} press={press} />
+      </CheckEntriesOf.Provider>
+      {checks.node}
       {view.divergences.map((d) => (
         <DivergencePanel key={d.golden} d={d} has={hasKind} updateLeads={view.steps?.[d.golden]?.key === 'update-golden'} wait={wait} live={bisectLive(view, d)} prices={prices} onNormalize={(e) => guard(() => normalize(d, e))} onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e }))} onFind={() => findCommit(d)} />
       ))}
@@ -190,7 +183,7 @@ export function TestsPage() {
           onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [v.golden], estimate: e }))}
         />
       ))}
-      <NotCovered v={coverage} lime={!lead} />
+      <NotCovered v={coverage} lime={!lead && stale === undefined} />
       <SecurityPanel />
       <CiSections view={view} />
       {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts); several goldens' normalizer and update is the update this dialog asks about. */}
@@ -220,4 +213,33 @@ export function TestsPage() {
       {open?.kind === 'normalize-update' ? <NormalizeUpdateDialog name={open.name} steps={open.steps} estimate={open.estimate} onClose={() => setOpen(null)} onRun={() => start(JOB_KINDS.normalizeAndTest, { golden: open.golden }, divergedAsk(view, open.golden, 'normalize-update'), open.estimate)} /> : null}
     </Page>
   );
+}
+
+/**
+ * Update goldens, asked for by the palette or a link (#/tests?update), on arriving here or while
+ * here: the address goes back to #/tests at once, so nothing is left to open the dialog later. Once
+ * the goldens are read, it opens the dialog on those that diverged (`open`), or says why it can't.
+ */
+function useUpdateAsked(view: TestsView | null, wait: (verb: string) => string | null, open: (paths: string[]) => void): void {
+  const { actionsOff, hasKind, toast } = useApp();
+  const [asked, setAsked] = useState(false);
+  useEffect(() => {
+    const take = () => {
+      if (!asksUpdate(location.hash)) return;
+      navigate(href.tests(), true);
+      setAsked(true);
+    };
+    take();
+    window.addEventListener('hashchange', take);
+    return () => window.removeEventListener('hashchange', take);
+  }, []);
+  useEffect(() => {
+    if (!asked || !view) return;
+    setAsked(false);
+    const why = wait('update them');
+    if (why) toast(why);
+    else if (!view.diverged.length || !hasKind(JOB_KINDS.testUpdate)) toast('No golden diverged: there is nothing to update');
+    else open(view.diverged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- asked once: `wait` and `open`, new each render, are read as they are when the ask is taken
+  }, [asked, view, actionsOff, hasKind, toast]);
 }

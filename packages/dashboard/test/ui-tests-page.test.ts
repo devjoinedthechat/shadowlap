@@ -6,7 +6,7 @@ import { testsView, type GoldenSource } from '../src/tests.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { pageUp } from '../ui/focus-manager.js';
 import { ApiError, JOB_KINDS, type Client, type TestsView } from '../ui/api.js';
-import type { NextStep } from '../ui/types.js';
+import type { InconclusiveView, NextStep } from '../ui/types.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { goldenRowScope } from '../ui/tests/row-scope.js';
@@ -118,13 +118,13 @@ function checks(page: Rendered, name: string) {
 describe('the Tests page', () => {
   it('marks each check by its last status: no tick on one that failed or couldn\'t be decided, none before a result', async () => {
     const page = await open();
-    expect(checks(page, 'passes')).toEqual([{ cls: 'ck passed', mark: '✓', words: 'escalate called once' }]);
+    expect(checks(page, 'passes')).toEqual([{ cls: 'ck passed', mark: '✓', words: 'escalate called 1 time' }]);
     expect(checks(page, 'refunds')).toEqual([
-      { cls: 'ck failed', mark: '✗', words: 'issue_refund called oncecalled 0 times; tools called: add_note' },
-      { cls: 'ck failed', mark: '✗', words: 'send_email called oncecalled 0 times; tools called: add_note' },
+      { cls: 'ck failed', mark: '✗', words: 'issue_refund called 1 timecalled 0 times; tools called: add_note' },
+      { cls: 'ck failed', mark: '✗', words: 'send_email called 1 timecalled 0 times; tools called: add_note' },
     ]);
     expect(checks(page, 'judged')[1]).toEqual({ cls: 'ck inconclusive', mark: '?', words: `${JUDGE}not judged: no recorded verdict and the test runs offline` });
-    expect(checks(page, 'budget')).toEqual([{ cls: 'ck', mark: null, words: 'input tokens ≤ 29,000' }]);
+    expect(checks(page, 'budget')).toEqual([{ cls: 'ck', mark: null, words: 'at most 29000 input tokens' }]);
     // Each mark says its status to a screen reader.
     expect(page.all('table.gt td.chk b.cm').map((b) => b.getAttribute('aria-label'))).toEqual(['passed', 'failed', 'failed', 'passed', 'inconclusive']);
   });
@@ -132,9 +132,24 @@ describe('the Tests page', () => {
   it('marks no check added to the config since the last test, and says so under it', async () => {
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, checks: [...x.checks, 'send_email called 0 times'] } : x)));
     expect(checks(page, 'passes')).toEqual([
-      { cls: 'ck passed', mark: '✓', words: 'escalate called once' },
-      { cls: 'ck', mark: null, words: 'send_email never calledadded since its last test' },
+      { cls: 'ck passed', mark: '✓', words: 'escalate called 1 time' },
+      { cls: 'ck', mark: null, words: 'send_email called 0 timesadded since its last test\u00a0· not tested yet' },
     ]);
+  });
+
+  it('says under the last result of a golden whose checks changed since that they did, with the checks gone on its card', async () => {
+    const page = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, changed: [{ label: 'issue_refund called 0 times', status: 'failed' as const }] } : row)) }));
+    const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'passes')!;
+    const st = one(tr, 'td.glast .ckst');
+    expect(st.textContent).toBe('checks changed since · not tested yet');
+    expect(JSON.parse(st.getAttribute('data-tip')!)).toMatchObject({ t: 'checks changed since · not tested yet', s: 'Its last test judged issue_refund called 0 times, no longer in shadowlap.config.json: Run tests judges its checks as they are now' });
+    expect(page.all('.ckst')).toHaveLength(1);
+    // After the last result, as the design draws it: a session running the golden hides that result, never this line.
+    await page.unmount();
+    const running = await open([], GOLDENS, (v) => ({ ...v, rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, changed: [{ label: 'issue_refund called 0 times', status: 'failed' as const }] } : row)), running: { ...v.verdict!.session, endedAt: null, live: true }, following: { whole: false, total: 1, reached: 0, goldens: { 'goldens/passes': 'running' } } }));
+    const now = running.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'passes')!;
+    expect(one(now, 'td.glast .glastw').hasAttribute('hidden')).toBe(true);
+    expect(one(now, 'td.glast .ckst').closest('[hidden]')).toBeNull();
   });
 
   it('says CI runs replay goldens offline and fork goldens live, with the one command docs/gating.md has, to copy', async () => {
@@ -291,6 +306,32 @@ describe('a gated golden’s evidence', () => {
     expect(page.focused()).toBe(page.one("button.gev"));
     expect(pageUp.current?.()).toBe(false);
   });
+
+  it('ends an inconclusive one on its step: Run more attempts, or Run tests as the header runs it where its checks changed since', async () => {
+    const decided = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, Array<boolean>(12).fill(true));
+    const gate = { ...decided, tally: '12 of 12', perAttempt: null, more: null, words: evidenceWords(decided, 3) };
+    const more = { args: ['test', 'goldens/passes', '--max-attempts', '160', '--continue'], job: { golden: 'goldens/passes', maxAttempts: 160, continue: true as const }, attempts: 160, most: 80, expected: 20, settles: 0.9, cost: null };
+    const stale = { key: 'run-tests' as const, label: 'Run tests', golden: 'goldens/passes', gone: ['escalate called 1 time'], sub: 'Its checks changed since its last test: the session judges them as they are now' };
+    const shape = (step: boolean) => (v: TestsView): TestsView => ({
+      ...v,
+      rows: v.rows.map((row) => (row.path === 'goldens/passes' ? { ...row, last: { ...row.last, gate } } : row)),
+      inconclusive: [{ golden: 'goldens/passes', name: 'passes', gate: { more } } as unknown as InconclusiveView],
+      ...(step ? { steps: { 'goldens/passes': stale } } : {}),
+    });
+    const started: Array<{ kind: string; fields: Record<string, unknown> }> = [];
+    const step = async (page: Rendered) => {
+      await page.click(page.one('button.gev'));
+      await page.until('the evidence', () => page.all('tr.gevrow .gevact button').length > 0);
+      return page.all('tr.gevrow .gevact button');
+    };
+    expect((await step(await open(started, GOLDENS.slice(0, 3), shape(false)))).map((b) => b.textContent)).toEqual(['Run more attempts']);
+    await r!.unmount();
+    const [run, ...rest] = await step(await open(started, GOLDENS.slice(0, 3), shape(true)));
+    expect([run.textContent, run.className.includes('lime'), rest.length]).toEqual(['Run tests', false, 0]);
+    expect((JSON.parse(run.getAttribute('data-tip')!) as { s: string }).s).toBe(stale.sub);
+    await r!.click(run);
+    expect(started).toEqual([{ kind: JOB_KINDS.tests, fields: {} }]);
+  });
 });
 
 describe('Tests\' states, parts and keys', () => {
@@ -421,10 +462,16 @@ describe('the Tests page\'s styles', () => {
     expect(css).toMatch(/\.gtw \.tscroll table\.gt \{ min-width: 0; \}/);
     expect(css).toMatch(/\.gtw table\.gt th\.glast \{ width: 250px; \}/);
     expect(css).toMatch(/@container \(max-width: 1000px\) \{\s*\.gtw table\.gt \.hist \.r3, \.gtw table\.gt \.hist \.r4, \.gtw table\.gt \.hist \.r5 \{ display: none; \}/);
-    expect(css).toMatch(/@container \(max-width: 820px\) \{\s*\.gtw table\.gt th\.gck, \.gtw table\.gt td\.gck \{ display: none; \}\s*\.gtw table\.gt \.chk\.gin \{ display: block; \}/);
+    expect(css).toMatch(/@container \(max-width: 840px\) \{\s*\.gtw table\.gt th\.gck, \.gtw table\.gt td\.gck \{ display: none; \}\s*\.gtw table\.gt \.chk\.gin \{ display: block; \}/);
     expect(css).toMatch(/@container \(max-width: 640px\) \{\s*\.gtw table\.gt th\.hist, \.gtw table\.gt td\.hist \{ display: none; \}\s*\.gtw table\.gt \.gstrip \{ display: inline-flex; \}\s*\.gtw table\.gt td\.glast \{ min-width: 0; width: 46%; \}/);
     // The viewport rule that hid revisions by the window's width, not the table's, is gone.
     expect(css).not.toMatch(/td\.hist i:nth-last-child/);
+  });
+
+  it('give a check its Edit and Remove where a pointer hovers, and on a touch screen, as where the checks sit under the name, one line of Edit checks… and Add check… instead', () => {
+    expect(css).toMatch(/\ntable\.gt \.chk \.ckt \{ display: none; \}/);
+    for (const query of ['@media \\(hover: none\\)', '@container \\(max-width: 840px\\)'])
+      expect(css, query).toMatch(new RegExp(`${query} \\{\\s*table\\.gt \\.chk \\.cka \\{ display: none; \\}\\s*table\\.gt \\.chk \\.ckt \\{ display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 8px; \\}\\s*\\}`));
   });
 
   it('wrap a cell without leaving a word alone on its last line, as the mock\'s do', () => {
