@@ -29,7 +29,6 @@ import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
-import { NoteFinding } from './RunNotes.js';
 import { warmDiff } from './InspectorPanel.js';
 
 /**
@@ -487,6 +486,26 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
  * (OnShow.tsx), asked for as the differences are, so the two come together.
  */
 const DifferencesPanel = onShow(() => import('./ForkDifferences.js').then((m) => m.DifferencesPanel), { failed: <LoadFailed what="finding" /> });
+
+/** A note's words and what is under them, with the notes' words: a part loaded the first time the bar draws a note (RunNotes.tsx). */
+const NoteWords = onShow(() => import('./RunNotes.js').then((m) => m.NoteWords), { failed: <LoadFailed what="finding" /> });
+
+/**
+ * A thing the run did that Shadowlap did not record, or answered as it went (notes.ts), as one of the
+ * run's findings: its label, then its words and what is under them (`NoteWords`), and `more` (the
+ * bar's toggle) at its end. `fx`: a finding the closed bar folds away.
+ */
+function NoteFinding({ n, fx, more, onSelect }: { n: RunNote; fx: boolean; more: ReactNode; onSelect: (callNo: number) => void }) {
+  return (
+    <section className={`rnote ${n.tone}${fx ? ' fx' : ''}`}>
+      <span className="bk">{n.label}</span>
+      <div className="rnw">
+        <NoteWords n={n} onSelect={onSelect} />
+      </div>
+      {more}
+    </section>
+  );
+}
 
 /** What the fork did differently, read once `want` says the run is a fork that has ended; null until it comes, or with none to say. */
 function useForkDifferences(runId: string, want: boolean): Differences | null {

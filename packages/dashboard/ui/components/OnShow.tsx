@@ -21,7 +21,8 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * Share's menu with its rows' words (pages/served.tsx, run/share.ts: the page's header, steps and
  * keys read theirs from run/share-steps.ts) and its Export dataset… and Export OpenTelemetry trace…
  * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), a streamed answer's playback on
- * the inspector's Response tab (run/Playback.tsx), Edit and fork's dialog (run/EditDialog.tsx), Run blame's dialogs and their check (fixes/RunBlameAsks.tsx), and Find
+ * the inspector's Response tab (run/Playback.tsx), the words of a run's notes (run/RunNotes.tsx, with
+ * run/note-lines.ts: the page decides which notes a run has, run/notes.ts), Edit and fork's dialog (run/EditDialog.tsx), Run blame's dialogs and their check (fixes/RunBlameAsks.tsx), and Find
  * breaking commit's and Delete run's (run/RunDialogs.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * and Remove check's dialog on Tests (checks/, the dialog declared in tests/check-entries.tsx) and

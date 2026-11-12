@@ -92,6 +92,6 @@ export function runFindings(i: { own: Banner | null; judges?: readonly JudgeVerd
   if (i.own?.kind !== 'checks') (i.judges ?? []).forEach((judge, at) => all.push({ key: `judge:${at}`, kind: 'judge', sev: 0, says: 'verdict', body: false, judge }));
   if (i.differences) all.push({ key: 'differences', kind: 'differences', sev: 0, says: DIFFERENCES_HEADING, body: true, differences: i.differences });
   if (i.notRecorded) all.push(ofBanner('not-recorded', i.notRecorded));
-  i.notes.forEach((n, at) => all.push({ key: `note:${n.kind}:${at}`, kind: n.kind, sev: NOTE_SEVERITY[n.tone], says: n.label, body: !!(n.tools?.length || n.hint), note: n }));
+  i.notes.forEach((n, at) => all.push({ key: `note:${n.kind}:${at}`, kind: n.kind, sev: NOTE_SEVERITY[n.tone], says: n.label, body: n.more, note: n }));
   return all.map((f, at) => ({ f, at })).sort((a, b) => b.f.sev - a.f.sev || a.at - b.at).map((x) => x.f);
 }
