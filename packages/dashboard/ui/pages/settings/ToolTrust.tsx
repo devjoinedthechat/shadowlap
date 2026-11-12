@@ -2,10 +2,10 @@ import { useRef, useState, type ReactNode } from 'react';
 import { ActionButton } from '../../components/ActionButton.js';
 import { SrSpace } from '../../components/bits.js';
 import { CodeBox, CopyButton } from '../../components/CodeBox.js';
-import { tipCard } from '../../components/HoverCard.js';
+import { tipCard, type TipRow } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
 import { Term } from '../../components/Term.js';
-import { shortId } from '../../format.js';
+import { num, shortId, whenShort } from '../../format.js';
 import { ACTIONS } from '../../labels.js';
 import { useListKeys } from '../../list-keys.js';
 import type { ToolsSettings } from '../../settings-api.js';
@@ -146,6 +146,18 @@ export function TrustTable({ data, editor, off, version, test }: TrustProps) {
   );
 }
 
+/** A tool's card, on its name: the effect it records, its calls, its last, and where its effect comes from or changed. */
+function toolCard(t: ToolRow): string {
+  const rows: TipRow[] = [
+    { label: 'effect', value: t.effect ?? 'none declared: it runs live' },
+    { label: 'calls', value: `${num(t.calls)} in ${num(t.runs)} ${t.runs === 1 ? 'run' : 'runs'}` },
+    { label: 'last', value: whenShort(t.lastAt) },
+  ];
+  if (t.mcp) rows.push({ label: 'from', value: 'mcp.effects in the config' });
+  if (t.changed) rows.push({ label: 'note', value: 'older runs recorded another effect' });
+  return tipCard(t.name, rows);
+}
+
 function TrustRow({ t, focused, markable, off, onMark, test }: { t: ToolRow; focused: boolean; markable: boolean; off: string | null; onMark: () => void; test: ReactNode }) {
   const k = kindOf(t);
   const other = t.trust === 'untrusted' ? 'trusted' : 'untrusted';
@@ -153,7 +165,9 @@ function TrustRow({ t, focused, markable, off, onMark, test }: { t: ToolRow; foc
   return (
     <tr className={`still${focused ? ' krow' : ''}`} data-rowkey={`tool:${t.name}`}>
       <td>
-        <code className={k === 'write' ? 'wr' : undefined}>{t.name}</code>
+        <code className={k === 'write' ? 'wr' : undefined} data-tip={toolCard(t)}>
+          {t.name}
+        </code>
         <SrSpace />
         <span className={`eff ${k}`}>{k}</span>
       </td>
@@ -207,7 +221,6 @@ function ToolsEntry({ entry }: { entry: ToolsSettings['entry'] }) {
           <Icon name="caret" />
         </button>
         <CopyButton text={text} label="the tools entry">
-          <Icon name="copy" />
           Copy entry
         </CopyButton>
       </p>
