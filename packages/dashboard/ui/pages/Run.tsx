@@ -296,7 +296,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const chain = useAncestors(run);
   const { offers, preset, notes, rescued, injection } = useRunExtras(run, chain[0] ?? null, forkAt);
   const results = useResultsBodies(runId);
-  const actions = useActionRunner(runId, !!run.source, offers, run.forkAt);
+  const actions = useActionRunner(runId, !!run.source, offers, run.forkAt, run.run);
   const tests = testOpeners(injection.attempt, injection.untrusted, actions.test);
   // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
