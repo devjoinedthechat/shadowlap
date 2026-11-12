@@ -36,7 +36,7 @@ export function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?:
  */
 export function Select({ id, label, value, options, onChange, off = false }: { id?: string; label?: string; value: string; options: ReadonlyArray<{ value: string; label: string }>; onChange: (value: string) => void; off?: boolean }) {
   return (
-    <select className="sel" aria-label={label} aria-labelledby={id && !label ? `${id}-name` : undefined} aria-describedby={id ? `${id}-help` : undefined} value={value} disabled={off} onChange={(e) => onChange(e.target.value)}>
+    <select className="sel" id={id} aria-label={label} aria-labelledby={id && !label ? `${id}-name` : undefined} aria-describedby={id ? `${id}-help` : undefined} value={value} disabled={off} onChange={(e) => onChange(e.target.value)}>
       {options.map((x) => (
         <option key={x.value} value={x.value}>
           {x.label}
