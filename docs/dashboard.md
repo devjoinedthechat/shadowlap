@@ -245,7 +245,7 @@ The rest is what commands record as they change the project or write something:
 - Goldens packed (a pack in a goldens folder or named in the config's `tests`), and other packs.
 - A golden's checks changed in the [check builder](#making-a-check): *Check added*, *Check removed* or *Checks changed*, with the golden and the checks' labels. It opens Tests.
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
-- A preview's verify, by the preview's name and what it found (*Verified · Model switch to claude-haiku-4-5: 2 kept*), or why it rejected the change or settled nothing. It opens the preview.
+- A preview's verify, by the preview's name and how its runs came out (*Verified · Model switch to claude-haiku-4-5: 1 fixed, 1 kept*), counted the same way where it rejected the change, or why it settled nothing. It opens the preview.
 
 An entry no page shows, such as a migration's, is a plain line that opens nothing. A [preview of a change](./decisions.md) opens on [Preview](#preview). A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
 
@@ -1087,11 +1087,11 @@ It opens the newest preview (`#/changes/decisions/<id>`). The picker names the o
 | **Preview changed prompt** | `--from-code` | Each call whose prompt changed, under your working tree's prompt and tools |
 | **Preview field change…** | `--set` | Every call, with one request field set, such as `max_tokens` |
 
-A way opens its dialog. It says what the preview asks and that no tool runs, prices it as its form changes, and shows the command it runs. Its confirm starts the preview as a [job](#jobs), whose drawer ends on **Open preview**.
+A way opens its dialog. It says what the preview asks and that no tool runs, prices it as its form changes, and shows the command it runs. Its confirm starts the preview as a [job](#jobs), whose drawer ends on **Open preview**. While the price is read, or where it didn't load, the confirm waits and says why. In a project with no goldens yet, every golden is nothing to preview: each dialog says so in amber, and Preview's `New preview` waits.
 
-- **Preview model switch** asks for the model and the samples a call (1, 3 or 5), and lists the models the providers offer beside the ones the runs use. A model of another family takes another request format, so it waits: *Switch to it in your code, then verify the change*.
-- **Preview changed prompt** first reads what your working tree sends each run, offline, with nothing sent (`decisions --from-code --dry-run`). It shows the agent's system prompt, its change marked, and the tool definitions. Where nothing changed, it says so: *Their prompts and tools are as recorded, so there is nothing to ask.*
-- **Preview field change** asks for a request field and its value: a number, a word or JSON. For `max_tokens` it says how long the recorded answers ran, and how many it would cut off. It refuses `model`, and a field the provider's own page says the model refuses.
+- **Preview model switch** asks for the model and the samples a call (1, 3 or 5), and lists the models the providers offer beside the ones the runs use. A model of another family takes another request format, so it prices nothing and its confirm waits, saying why: *gpt-5 is of another family than the calls it switches, so none can be asked again: verify that switch instead*.
+- **Preview changed prompt** first reads what your working tree sends each run, offline, with nothing sent (`decisions --from-code --dry-run`). It shows the system prompt, named by the scope of the first call it changes (*The agent's system prompt*), its change marked, and the tool definitions. It then prices the calls the read found changed. Where nothing changed, its confirm waits: *Nothing to ask: the change leaves every request as recorded*.
+- **Preview field change** asks for a request field and its value: a number, a word or JSON. For `max_tokens` it says how long the recorded answers ran, and how many it would cut off. It refuses `model`. A field the provider's own page says the model refuses gets a warning, *…: its steps would get no answer*, and the preview can still start.
 
 The same menu is on a run's [Decisions view](#decisions-view), on that run alone, and **Preview change** on Runs' [bulk bar](#act-on-several-runs). An exported copy offers none of them.
 
@@ -2754,7 +2754,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 | --- | --- |
 | `GET /api/training?filter=all\|high\|medium` | Training: the header's facts (`strip`), the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
-| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=&max=&keptMax=`, `GET /api/decisions/estimates`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a preview's price before it runs, a run's decisions, the retirement notices |
+| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=&max=&keptMax=`, `POST /api/decisions/estimates`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a preview's price before it runs, a run's decisions, the retirement notices |
 | `GET /api/model-choices` | The models a preview's switch can take, beside the ones its runs use |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
@@ -2771,7 +2771,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix` and its `view`, read on a thread of its own. The `view` holds Preview's words, worked out on the server: the verdict as Verdicts gives it, what was asked, verify's verdict and what it verified end to end, the next step's facts, the key, the warnings and the receipt.
 - `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or those the `runId` parameters name (up to 500), is priced in the role its checks give it as recorded, at what it costs under the change. Preview names the runs no verify took yet. `verify` is `null` when there is nothing to verify, as for a named run the session cleared.
 - Its `runs` give each run priced and its `role`: `target` for one that fails its checks as recorded, else `good`. `max` and `keptMax` price Run more attempts at the limits its job raises, refused in the job's words.
-- `/api/decisions/estimates`: what a preview would ask and cost, from the targets and the change its job takes (`runId`, `golden` or `goldens=all`, `model`, `set=field=value`, `from`, `scope`, `samples`, `fromCode=1`), read beside the server.
+- `POST /api/decisions/estimates`: what a preview would ask and cost, from the targets and the change its job takes (`runs`, `goldens` or `goldens: "all"`, `model`, `set`, `from`, `scope`, `samples`, `fromCode`), read beside the server. It changes nothing: a POST, so the 500 runs one preview takes fit in its body. With `fromCode`, `changed` names each run's changed calls, as the working tree's read found them, and prices those alone.
 - Its answer: the price (`preview`), the calls it `asks` and of which models, the models the runs use (`recorded`), what their answers show of `max_tokens` (`answers`), and a field the model refuses (`refused`). With no change named, `ways` prices each way's card.
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again, newest first, read on a thread of its own. Each gives its name and samples, its row, what verify found of the run, and the `steps` its Decisions view lists, worded. Its `href` opens the view at the run's most consequential call, and `changes` its cell on Preview. `later` is the line about later steps, and its card.
 - `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
@@ -2841,8 +2841,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `coverage-pack { key?, command?, confirmed?, fork?, expect? }` | `coverage --pack` |
 | `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify? }` | A decision diff |
 | `decisions-read { runs?, goldens?, scope?, yes? }` | `decisions --from-code --dry-run`: what your working tree sends each run, read offline with nothing sent |
-| `decisions-verify { sessionId, runId?, runIds?, yes? }` | `decisions --verify` |
-| `decisions-verify { sessionId, runId?, runIds?, max?, keptMax?, yes? }` | Run more attempts: the same, a failing run's attempts raised to `max` and a good run's pairs to `keptMax` |
+| `decisions-verify { sessionId, runId?, runIds?, max?, keptMax?, yes? }` | `decisions --verify`; for Run more attempts, a failing run's attempts raised to `max` and a good run's pairs to `keptMax` |
 | `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or `{ format: "langfuse", traceId, host? }`, with `project?` too for `phoenix` |
