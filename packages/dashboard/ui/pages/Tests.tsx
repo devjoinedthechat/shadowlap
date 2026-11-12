@@ -21,6 +21,7 @@ import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
 import { CiSections } from '../tests/Sections.js';
 import { SecurityPanel } from '../injection/SecurityPanel.js';
+import { PresetsDialogPart } from '../presets/part.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
 import type { GoodCommitsOf } from '../tests/good-commits.js';
 import { GoldensTable } from '../tests/Table.js';
@@ -43,7 +44,8 @@ const TEST_KINDS = new Set<string>([JOB_KINDS.tests, JOB_KINDS.testUpdate, JOB_K
 type Open =
   | { kind: 'update'; paths: string[]; estimate?: Price }
   | { kind: 'bisect'; name: string; golden: string; range: { good: string; bad: string | null } | null; live: boolean; goods: GoodCommitsOf }
-  | { kind: 'normalize-update'; name: string; golden: string; steps: string[][]; estimate?: Price };
+  | { kind: 'normalize-update'; name: string; golden: string; steps: string[][]; estimate?: Price }
+  | { kind: 'presets'; runId: string };
 
 
 export function TestsPage() {
@@ -157,6 +159,7 @@ export function TestsPage() {
     onFind: findCommit,
     onMore: (v, e) => v.gate?.more && start(JOB_KINDS.tests, v.gate.more.job, moreAttemptsAsk(v.name, v.gate.more), e),
     onAgain: (lead, e) => start(JOB_KINDS.tests, { golden: lead.golden }, gateAgainAsk(lead.name, lead.golden), e),
+    onPresets: (runId) => guard(() => setOpen({ kind: 'presets', runId })),
   };
 
   return (
@@ -208,6 +211,7 @@ export function TestsPage() {
           onRun={(fields) => start(JOB_KINDS.bisect, { golden: open.golden, ...fields })}
         />
       ) : null}
+      {open?.kind === 'presets' ? <PresetsDialogPart runId={open.runId} onClose={() => setOpen(null)} /> : null}
       {open?.kind === 'normalize-update' ? <NormalizeUpdateDialog name={open.name} steps={open.steps} estimate={open.estimate} onClose={() => setOpen(null)} onRun={() => start(JOB_KINDS.normalizeAndTest, { golden: open.golden }, divergedAsk(view, open.golden, 'normalize-update'), open.estimate)} /> : null}
     </Page>
   );

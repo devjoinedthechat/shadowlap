@@ -348,6 +348,10 @@ export interface PresetsSummary {
   /** The first attempt that failed (or couldn't say), else the newest preset's, to open. */
   runId: string | null;
   at: number;
+  /** The recording they ran on, whose page opens with their results. */
+  recording: string;
+  /** Each preset that ran, in the presets' order: Tests' strip draws a cell of each, its card its tally and the call it hit. */
+  cells: Array<Pick<ChaosCell, 'label' | 'verdict' | 'passes' | 'attempts' | 'callNo'>>;
 }
 
 /** A preset as a line names it: `tool timeout #2`. */
@@ -364,7 +368,8 @@ export function presetsSummary(m: ChaosMatrix, kept: (runId: string) => boolean 
   const n = (x: number) => `${x} of ${ran.length} preset${ran.length === 1 ? '' : 's'}`;
   const line = shown.length ? `${n(shown.length)} ${verdict}: ${shown.map(presetWords).join(', ')}${failed.length && unsure.length ? ` · ${unsure.length} inconclusive` : ''}` : `${n(ran.length)} passed`;
   const open = [...shown, ...ran].flatMap((c) => c.runs.filter((x) => !shown.length || x.verdict !== 'passed').map((x) => x.runId)).find(kept) ?? null;
-  return { verdict, ran: ran.length, passed: ran.length - failed.length - unsure.length, failed: failed.length, inconclusive: unsure.length, line, runId: open, at: m.at };
+  const cells = ran.map((c) => ({ label: c.label, verdict: c.verdict, passes: c.passes, attempts: c.attempts, callNo: c.callNo }));
+  return { verdict, ran: ran.length, passed: ran.length - failed.length - unsure.length, failed: failed.length, inconclusive: unsure.length, line, runId: open, at: m.at, recording: m.runId, cells };
 }
 
 /** Every recording's presets as their matrices, newest first, without the sessions: what Needs a look and Tests read. */

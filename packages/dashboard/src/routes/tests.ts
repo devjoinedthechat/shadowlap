@@ -6,13 +6,14 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import { searchedCommits, type NextStep } from '../next-step.js';
-import { nextStepWork } from '../outcome-work.js';
+import { nextStepWork, outcomeWork } from '../outcome-work.js';
 import { answerData, sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { namesTeamStore } from './verdicts.js';
 import { writtenEntries } from '../config-tests.js';
 import { withInjectionGates } from '../injection-gates.js';
+import { withPresetsEntries } from '../presets-entries.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { gateQuery } from '../tests-gate.js';
 import { liveAsk } from '../tests-live.js';
@@ -256,7 +257,8 @@ export function register(router: Router, ctx: RouteContext): void {
     const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
     // A gate's card shows its entry as the config holds it, read as the check builder reads it.
     const written = (gated: readonly string[]) => (ctx.project ? writtenEntries(ctx.project.path, gated) : new Map<string, unknown>());
-    r.tagged(withInjectionGates(ctx.store, await withSteps(await revisionsInCheckout(view, ctx.project?.path)), goldens(), written));
+    // A golden whose tests entry sets its error-path presets offers to run them until they have.
+    r.tagged(withPresetsEntries(withInjectionGates(ctx.store, await withSteps(await revisionsInCheckout(view, ctx.project?.path)), goldens(), written), outcomeWork(ctx)));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's

@@ -24,6 +24,8 @@ export interface LeadPress {
   onFind: (f: DivergenceView | FailureView) => void;
   onMore: (v: InconclusiveView, e: Price) => void;
   onAgain: (lead: Extract<Lead, { kind: 'again' }>, e: Price) => void;
+  /** Run error-path presets… on a golden's recording, from its row's strip: opens their dialog. */
+  onPresets?: (runId: string) => void;
 }
 
 /** The verdict's step, lime: the page's one lime button while it leads (`leadStep`). */

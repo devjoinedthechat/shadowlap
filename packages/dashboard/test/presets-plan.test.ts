@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Store, type RunRecord } from '@shadowlap/engine';
 import { RunBuilder, text, toolUse, user } from '../../engine/test/run-fixtures.js';
 import { PRESETS_READS, presetsRowPrice, type PresetsPlan, type PresetsPlanJob } from '../src/presets-plan.js';
+import { withPresetsEntries } from '../src/presets-entries.js';
+import type { PresetsSummary } from '../src/chaos.js';
+import type { GoldenRow } from '../src/tests.js';
 import { estimateOf, pricingOf } from '../src/pricing.js';
 import type { OutcomeWork } from '../src/run-outcome.js';
 
@@ -108,5 +111,34 @@ describe("Run error-path presets…'s plan", () => {
     } finally {
       store.close();
     }
+  });
+});
+
+describe('a golden whose tests entry sets its error-path presets, on Tests', () => {
+  const row = (path: string, o: Partial<GoldenRow> = {}) => ({ path, source: { kind: 'run', runId: `R-${path}` }, presets: null, ...o }) as unknown as GoldenRow;
+  const flags = (tests: Record<string, unknown>, rows: GoldenRow[]) => withPresetsEntries({ rows }, work(tests)).rows.map((r) => [r.path, r.presetsEntry ?? false]);
+
+  it('is flagged, through the entry its folder matches, until its presets have run', () => {
+    const rows = [row('goldens/inbox'), row('goldens/refund-a'), row('goldens/off'), row('goldens/plain'), row('goldens/ran', { presets: {} as PresetsSummary }), row('goldens/pack', { source: { kind: 'pack', packedAt: 1 } })];
+    const tests = {
+      'goldens/inbox': { chaos: { presets: ['timeout'] } },
+      'goldens/refund-*': { chaos: {} },
+      'goldens/off': { chaos: false },
+      'goldens/plain': { expect: { tools: { issue_refund: 0 } } },
+      'goldens/ran': { chaos: {} },
+      'goldens/pack': { chaos: {} },
+    };
+    expect(flags(tests, rows)).toEqual([
+      ['goldens/inbox', true],
+      ['goldens/refund-a', true],
+      ['goldens/off', false],
+      ['goldens/plain', false],
+      ['goldens/ran', false],
+      ['goldens/pack', false],
+    ]);
+    // An entry the CLI would refuse refuses the config, as every command reads it: nothing is offered.
+    expect(flags({ ...tests, 'goldens/bad': { chaos: { presets: ['no-such-preset'] } } }, rows).filter(([, f]) => f)).toEqual([]);
+    // Outside a project, nothing is read.
+    expect(withPresetsEntries({ rows }, null).rows).toBe(rows);
   });
 });

@@ -11,6 +11,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { EvidenceRow, EvidenceToggle, gated, useEvidenceOpen } from './Evidence.js';
 import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History.js';
+import { PresetsStrip } from './PresetsStrip.js';
 import { openResults } from '../run/panel-state.js';
 import { gateCheck, rowHref, type GateCheckView } from './gate.js';
 import { goldenKeys, goldenRowScope } from './row-scope.js';
@@ -62,7 +63,7 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
               const shows = open.has(row.path) && gated(g);
               return (
                 <Fragment key={row.path}>
-                  <GoldenTr row={row} rowKey={keyOf(row)} focused={inFocus === keyOf(row)} showHistory={history} open={shows} onToggle={() => toggle(row.path)} now={view.following?.goldens[row.path]} />
+                  <GoldenTr row={row} rowKey={keyOf(row)} focused={inFocus === keyOf(row)} showHistory={history} open={shows} onToggle={() => toggle(row.path)} now={view.following?.goldens[row.path]} press={press} />
                   {shows ? <EvidenceRow row={row} g={g} span={history ? 4 : 3} press={press} inc={view.inconclusive.find((v) => v.golden === row.path)} /> : null}
                 </Fragment>
               );
@@ -75,7 +76,7 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
   );
 }
 
-function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { row: GoldenRow; rowKey: string; focused: boolean; showHistory: boolean; open: boolean; onToggle: () => void; now: FollowedGolden | undefined }) {
+function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now, press }: { row: GoldenRow; rowKey: string; focused: boolean; showHistory: boolean; open: boolean; onToggle: () => void; now: FollowedGolden | undefined; press: LeadPress | undefined }) {
   const source = sourceText(row);
   const last = row.last;
   const to = rowHref(row);
@@ -102,11 +103,11 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { 
           </span>
         </span>
         <span className="chk gin">
-          <Checks row={row} />
+          <Checks row={row} press={press} />
         </span>
       </td>
       <td className="chk gck">
-        <Checks row={row} />
+        <Checks row={row} press={press} />
       </td>
       {showHistory ? <HistoryCells row={row} /> : null}
       <td className="glast">
@@ -121,7 +122,7 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { 
           ) : null}
         </span>
         {gated(last.gate) && last.gate.attempts ? <EvidenceToggle g={last.gate} name={row.name} open={open} onToggle={onToggle} /> : null}
-        {row.presets ? <PresetsLine p={row.presets} only={last.result === null && !row.error} /> : null}
+        {row.presets && last.result === null && !row.error ? <PresetsLine p={row.presets} /> : null}
       </td>
     </tr>
   );
@@ -228,12 +229,13 @@ function LastResult({ row }: { row: GoldenRow }) {
  * amber when it couldn't be decided, – when it didn't apply; no mark before a result), with what
  * failed, in how many attempts, or why, under it and on hover.
  */
-/** A golden's checks, then its injection gate under them, which its tests entry sets. */
-function Checks({ row }: { row: GoldenRow }) {
+/** A golden's checks, then its injection gate under them, which its tests entry sets, then its error-path presets. */
+function Checks({ row, press }: { row: GoldenRow; press: LeadPress | undefined }) {
   return (
     <>
       <CheckList row={row} />
       {row.injectionGate ? <GateCheck g={gateCheck(row.injectionGate, row.last)} /> : null}
+      <PresetsStrip row={row} press={press} />
     </>
   );
 }
@@ -310,20 +312,18 @@ type Presets = NonNullable<GoldenRow['presets']>;
 const presetTone = (p: Presets) => (p.verdict === 'failed' ? 'err' : p.verdict === 'inconclusive' ? 'warn' : 'ok');
 
 /**
- * How a golden's error-path presets came out, under its last result, opening the attempt that failed
- * (or couldn't say): the whole line when they are all that ran, else in short with the line on hover.
+ * A golden tested only by its error-path presets: their line under its last result, opening the
+ * attempt that failed (or couldn't say), and that its replay isn't tested yet. Otherwise its presets
+ * are its checks' strip alone (PresetsStrip), which links the same proof.
  */
-function PresetsLine({ p, only }: { p: Presets; only: boolean }) {
-  const count = p.verdict === 'failed' ? p.failed : p.verdict === 'inconclusive' ? p.inconclusive : p.passed;
-  const text = only ? `${p.line} · replay not tested yet` : `presets · ${count} of ${p.ran} ${p.verdict}`;
+function PresetsLine({ p }: { p: Presets }) {
+  const text = `${p.line} · replay not tested yet`;
   return p.runId ? (
-    <a className={`rsub gpre ${presetTone(p)}`} href={href.run(p.runId)} data-tip={only ? undefined : tipText(p.line)} onClick={(e) => e.stopPropagation()}>
+    <a className={`rsub gpre ${presetTone(p)}`} href={href.run(p.runId)} onClick={(e) => e.stopPropagation()}>
       {text}
     </a>
   ) : (
-    <span className={`rsub gpre ${presetTone(p)}`} data-tip={only ? undefined : tipText(p.line)}>
-      {text}
-    </span>
+    <span className={`rsub gpre ${presetTone(p)}`}>{text}</span>
   );
 }
 
