@@ -143,6 +143,8 @@ describe('Run error-path presets…’s dialog', () => {
     expect(cmd()).toBe('$shadowlap replay 01K5CQ4N7G --chaos --presets timeout,empty,oversized,429,500 --chaos-tool get_policy');
     await r!.wait(100);
     expect(asked).toEqual([]);
+    // Until the plan for the picks comes, the confirm waits: the price in hand is the last picks'.
+    expect([ok().getAttribute('aria-disabled'), ok().getAttribute('data-why')]).toEqual(['true', 'Pricing your picks']);
     await r!.until('the plan for the picks', () => asked.length === 1);
     expect(asked).toEqual([{ presets: ['timeout', 'empty', 'oversized', '429', '500'], tool: 'get_policy' }]);
     // Nothing picked: the confirm waits, and says why where the price was.

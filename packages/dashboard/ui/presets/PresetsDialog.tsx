@@ -104,13 +104,19 @@ export function PresetsDialog({ runId, onClose }: PresetsDialogProps) {
 
 const LEAD = 'Injects one failure per preset at the call it hits, and judges what the agent does next.';
 
+/** What the confirm waits for while the plan for the picks is asked again: its price is the last picks'. */
+const PRICING = 'Pricing your picks';
+
 /**
  * The plan for the picks: the first answer as the dialog opened, then asked again 250 ms after a
- * pick, the last answer kept until the next comes. With nothing picked there is nothing to ask.
+ * pick, the last answer kept until the next comes. Until it comes it is `pricing`, its estimate the
+ * last picks', so neither the cost line nor the job takes it; one that couldn't be read leaves the
+ * plan unpriced. With nothing picked there is nothing to ask.
  */
-function usePlan(runId: string, first: PresetsPlan, ask: PresetsPicks, picked: boolean): PresetsPlan {
+function usePlan(runId: string, first: PresetsPlan, ask: PresetsPicks, picked: boolean): { plan: PresetsPlan; pricing: boolean } {
   const { client } = useApp();
   const [plan, setPlan] = useState(first);
+  const [unread, setUnread] = useState<string | null>(null);
   const key = JSON.stringify(ask);
   const priced = useRef(JSON.stringify({}));
   useEffect(() => {
@@ -123,7 +129,7 @@ function usePlan(runId: string, first: PresetsPlan, ask: PresetsPicks, picked: b
           priced.current = key;
           setPlan(p);
         },
-        () => undefined,
+        () => alive && setUnread(key),
       );
     }, 250);
     return () => {
@@ -131,7 +137,8 @@ function usePlan(runId: string, first: PresetsPlan, ask: PresetsPicks, picked: b
       clearTimeout(t);
     };
   }, [client, runId, key, picked]);
-  return plan;
+  const stale = picked && priced.current !== key;
+  return { plan: stale ? { ...plan, estimate: null } : plan, pricing: stale && unread !== key };
 }
 
 /** The dialog once the plan is in: the picks, what they hit, judge and bill, and the yes a command someone else recorded asks. */
@@ -143,7 +150,7 @@ function PresetsForm({ first, onClose }: { first: PresetsPlan; onClose: () => vo
   const [refused, setRefused] = useState<string | null>(null);
   const sent = sentPicks(first, picks);
   const picked = picks.presets.length > 0;
-  const plan = usePlan(first.target, first, { ...(sent.presets ? { presets: sent.presets } : {}), ...(sent.tool ? { tool: sent.tool } : {}), ...(sent.expect ? { expect: true } : {}) }, picked);
+  const { plan, pricing } = usePlan(first.target, first, { ...(sent.presets ? { presets: sent.presets } : {}), ...(sent.tool ? { tool: sent.tool } : {}), ...(sent.expect ? { expect: true } : {}) }, picked);
   // A golden's presets share the test lane, and wait as Tests' buttons do; a run's wait only as every action does.
   const lane = useTestsWait('run its presets');
   const busy = first.golden ? lane : null;
@@ -193,7 +200,7 @@ function PresetsForm({ first, onClose }: { first: PresetsPlan; onClose: () => vo
       command={presetsCommand(first, sent)}
       cost={picked ? { price: 'Billed by your provider', parts: [PRESETS_PART], estimate: plan.estimate } : { price: PICK, estimate: null }}
       ok={OK}
-      okWhy={picked ? busy : PICK}
+      okWhy={picked ? (busy ?? (pricing ? PRICING : null)) : PICK}
       onOk={() => guardedWayOn(app.guard, () => start())}
       onClose={onClose}
     />
