@@ -369,7 +369,8 @@ table.ctab tr.miss td { color: var(--warn); }
 .expand:hover { color: var(--ink); border-color: var(--dim); }
 .msg { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .msg:last-child { border-bottom: 0; }
-/* at 340px and under the role's column narrows, so a short tool call's arguments keep their line whole */
+/* At 340px and under the role's column narrows, so a short tool call's arguments, kept whole, fit their line: the mock keeps
+   74px at every width, and at 320 `{"region":"EU","amount":240}` ran past its box (browser/line-breaks.spec.ts). */
 @media (max-width: 340px) { .msg { grid-template-columns: 64px minmax(0, 1fr); gap: 10px; } }
 .msg .role { font: 600 12px var(--body); color: var(--faint); padding-top: 1px; }
 .msg .role::first-letter { text-transform: uppercase; }
@@ -552,7 +553,8 @@ td.scopecell code { font-size: 11.5px; color: var(--dim); }
 .provgrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 0 28px; }
 .prov .kvs { grid-template-columns: 110px minmax(0, 1fr); }
 .prov .kvs dd { word-break: normal; overflow-wrap: anywhere; }
-/* at 340px and under it stacks, as every key and value list does (A3) */
+/* At 340px and under it stacks, as every key and value list does (base.css): the mock's two columns outrank its own stack,
+   and at 320 a run's id, kept whole, ran past a 110px key's value column (browser/line-breaks.spec.ts). */
 @media (max-width: 340px) { .prov .kvs { grid-template-columns: minmax(0, 1fr); } }
 .lineage { list-style: none; margin: 0; padding: 0 0 0 4px; }
 .lineage li { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 10px; align-items: center; padding: 5px 0; font-size: 12.5px; }

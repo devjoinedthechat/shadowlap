@@ -1,7 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { BASELINE_DEFAULTS, gateResult } from '@shadowlap/engine';
+import { evidenceWords } from '../src/tests-evidence.js';
+import { gateRuleOf } from '../src/verdict.js';
 import { ARTICLES, SMALL } from '../ui/typeset.js';
+import type { DecisionSessionDetail, TestsView } from '../ui/types.js';
 import { dash, sideways } from './dashboard.js';
-import { apiRequests, at, click, DIALOG, escape, MENU, press, ROUTES, run, runs, settled, show, type RouteState } from './routes.js';
+import { apiRequests, at, click, DIALOG, escape, fixes, MENU, press, PREVIEW, previewed, ROUTES, run, runs, settled, show, type RouteState } from './routes.js';
 import { routeTestsFixture } from './tests-fixture.js';
 
 /**
@@ -11,7 +15,8 @@ import { routeTestsFixture } from './tests-fixture.js';
  * gate), each route loaded fresh at each width and read from the lines the browser drew, as the mock's
  * detector reads them:
  * no word, id or nowrap piece broken inside or past its box (a command's pieces and its `$` among
- * them), no lead or heading line ending on a small word, no control wrapping, a number kept with its
+ * them), no lead or heading line ending on a small word (each read whole, whatever its copy draws
+ * inside it), no control or field label wrapping, a number kept with its
  * unit and a dot or an arrow with the word before it, no last word alone in text of a fixed width
  * (a menu's note, a toast, a dialog's rows and steps), and at 360 and 430 nothing scrolling sideways
  * (port/a11y-sweep checks 390 and 320). Only `.sr` and `[hidden]` are passed over of what a screen
@@ -53,13 +58,16 @@ function measure(rules: Rules): string[] {
   const SKIP = '.sr, [hidden], pre, svg, script, style, textarea, input, select, [data-about], [data-fit], .say, .dsay, .msg .txt, .think, .pat, .jbox, .rawsse, table.ledger';
   const FREE = 'ts-w.ts-long:not(.whole), code.ts-cb:not(.whole), .carg:not(.whole), ts-w.ts-free';
   const NOWRAP = 'code.rnm, ts-w:not(.ts-long):not(.ts-free), ts-w.ts-long.whole, .nw, code.ts-code, .carg.whole, .cf, .cmdp';
-  const LEAD = 'main#view .ph h1, main#view .ph p, [role="dialog"] header h3, [role="dialog"] header p, .stepempty h2, .stepempty p, .sec h2';
+  const LEAD = 'main#view .ph h1, main#view .ph p, [role="dialog"] header h3, [role="dialog"] header p, .stepempty h2, .stepempty p, .sec h2, ol.setup .sb > h2, ol.setup .sb > p:not(.fieldnote)';
+  // A field's own label words beside its control: a form's label over its input, select or textarea, a Settings row's name.
+  const LABELS = '.form label, .setrow b[id$="-name"]';
   const FIXED = '.pnote, .palnote, .toast, .dfacts, .ondisk.steps';
   const INLINE = new Set(['inline', 'contents']);
   const out: string[] = [];
   // A2's rule, read from the stylesheet: the selectors of the nowrap rule that names `.btn` and `.ibtn`.
   const controls = [...document.styleSheets].flatMap((sheet) => [...sheet.cssRules]).find((r): r is CSSStyleRule => r instanceof CSSStyleRule && r.style.whiteSpace === 'nowrap' && /(^|,\s*)\.btn\s*,\s*\.ibtn\b/.test(r.selectorText))?.selectorText;
   if (!controls) out.push('no rule keeping controls on one line in the stylesheet');
+  const oneLine = [controls, LABELS].filter(Boolean).join(', ');
   const shown = (el: Element) => getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length > 0;
   const name = (el: Element) => {
     const id = el.closest('[id]');
@@ -72,13 +80,19 @@ function measure(rules: Rules): string[] {
     while (b && INLINE.has(getComputedStyle(b).display)) b = b.parentElement;
     return b;
   };
+  // The text under an element that holds words, none of what the sweep passes over.
+  const textsIn = (root: Node) => {
+    const nodes: Text[] = [];
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) if (n.textContent?.trim() && !n.parentElement?.closest(SKIP)) nodes.push(n as Text);
+    return nodes;
+  };
   // Text nodes by their nearest box that isn't inline: the block whose lines they sit on.
   const blocks = () => {
     const owner = new Map<Element, Text[]>();
-    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-      const b = n.textContent?.trim() && !n.parentElement?.closest(SKIP) ? boxOf(n) : null;
-      if (b && shown(b) && !/^pre/.test(getComputedStyle(b).whiteSpace)) owner.set(b, [...(owner.get(b) ?? []), n as Text]);
+    for (const n of textsIn(document.body)) {
+      const b = boxOf(n);
+      if (b && shown(b) && !/^pre/.test(getComputedStyle(b).whiteSpace)) owner.set(b, [...(owner.get(b) ?? []), n]);
     }
     return owner;
   };
@@ -106,32 +120,50 @@ function measure(rules: Rules): string[] {
     }
     return lines;
   };
-  // What ends a line and starts the next: a small word in a lead or heading, a number left by its unit, a dot or an arrow starting a line.
-  const breaks = (lines: Word[][], lead: boolean, flag: (kind: string) => void) => {
+  // What ends a line and starts the next: a number left by its unit, a dot or an arrow starting a line.
+  const glues = (lines: Word[][], flag: (kind: string) => void) => {
     for (let i = 0; i < lines.length - 1; i++) {
       const end = lines[i]?.at(-1);
       const next = lines[i + 1]?.[0];
       if (!end || !next) continue;
-      const bare = end.w.toLowerCase();
-      if (lead && !end.code && SMALL.has(bare) && (ARTICLE.has(bare) || lines.length > 2)) flag(`small “${end.w}”`);
       // A number and its unit are glued in copy; in code (a tool call's JSON) a line breaks at its spaces.
       if ((!end.code && /^[$€£]?\d[\d,.]*[kKmM]?$|^≈$|^~$/.test(end.w) && UNIT.test(next.w)) || /^[≈~$€£]$/.test(end.w) || /^([·→↳|=<>≥≤]|>=|<=|!=)$/.test(next.w)) flag(`glue “${end.w} ${next.w}”`);
+    }
+  };
+  // A small word ending a line of a lead or a heading: never an article or a possessive, nor any in a block of more than two lines.
+  const smallEnds = (lines: Word[][], flag: (kind: string) => void) => {
+    for (const line of lines.slice(0, -1)) {
+      const end = line.at(-1);
+      const bare = end?.w.toLowerCase() ?? '';
+      if (end && !end.code && SMALL.has(bare) && (ARTICLE.has(bare) || lines.length > 2)) flag(`small “${end.w}”`);
+    }
+  };
+  const said = (lines: Word[][]) => lines.map((l) => l.map((w) => w.w).join(' ')).join(' / ');
+  // A lead or a heading read as one block, whatever its copy draws inside it (a sentence or a word kept whole is an inline block).
+  const leads = () => {
+    for (const el of document.querySelectorAll(LEAD)) {
+      if (el.closest(SKIP) || !shown(el)) continue;
+      const lines = linesOf(wordsOf(textsIn(el)));
+      smallEnds(lines, (kind) => out.push(`${kind} · ${name(el)} · ${said(lines)}`));
     }
   };
   for (const [el, nodes] of blocks()) {
     const words = wordsOf(nodes);
     const lines = linesOf(words);
-    const flag = (kind: string) => out.push(`${kind} · ${name(el)} · ${lines.map((l) => l.map((w) => w.w).join(' ')).join(' / ')}`);
+    const flag = (kind: string) => out.push(`${kind} · ${name(el)} · ${said(lines)}`);
     for (const w of words) if (w.lines > 1 && !w.free) flag(`split “${w.w}”`);
     if (lines.length < 2) continue;
-    if (controls && el.matches(controls)) flag('wrapped');
-    breaks(lines, el.matches(LEAD), flag);
+    if (el.matches(oneLine)) flag('wrapped');
+    glues(lines, flag);
     const last = lines.at(-1);
     if (el.closest(FIXED) && last?.length === 1 && !/^[\d$≈~]/.test(last[0]?.w ?? '')) flag('alone');
   }
+  leads();
   // A piece kept whole that broke anyway, or that runs past its box's right edge.
+  // A `.nw` the stylesheet lets wrap where it is (the feed's what at 340px and under, as the mock has it) isn't kept whole there.
+  const kept = (el: Element) => !el.matches('.nw') || getComputedStyle(el).whiteSpace === 'nowrap';
   for (const el of document.querySelectorAll(NOWRAP)) {
-    if (el.closest(SKIP) || !shown(el)) continue;
+    if (el.closest(SKIP) || !shown(el) || !kept(el)) continue;
     const right = Math.max(...[...el.getClientRects()].map((r) => r.right));
     const box = boxOf(el);
     if (tops(el.getClientRects()) > 1) out.push(`broken · ${name(el)} · ${el.textContent}`);
@@ -187,6 +219,58 @@ const routeSteps = (page: Page, routes: readonly RouteState[]): Step[] => routes
 const runSteps = (page: Page): Step[] => [
   ...runs().map(([name, of]): Step => [`run ${name}`, run(page, of), true]),
   ...['batchFork', 'eval', 'litellm', 'chat'].flatMap((name) => ['turns', 'context', 'timeline', 'forks', 'provenance', 'decisions'].map((v): Step => [`run ${name} · ${v}`, run(page, id(name), v), true])),
+];
+
+/** Each step of a fix's page: its own, then Blame, Repair and Verify. The routes' table has the first fix's; these are the rest. */
+const STEPS = ['', '/blame', '/repair', '/verify'];
+const fixSteps = (page: Page): Step[] =>
+  fixes()
+    .filter((f) => f !== id('refundFix'))
+    .flatMap((f) => STEPS.map((s): Step => [`fix ${f}${s ? ` · ${s.slice(1)}` : ''}`, at(page, `/fixes/${f}${s}`, 'fix'), true]));
+
+/** Tests with a golden decided against its history, so its footer states the history gate's rule: the demo's goldens have none. */
+async function routeHistoryGate(page: Page): Promise<void> {
+  const decided = gateResult({ kind: 'baseline', ...BASELINE_DEFAULTS }, Array<boolean>(8).fill(true), { history: { attempts: 50, passes: 48, sessions: 10 } });
+  const gate = { ...decided, tally: '8 of 8 passed', rule: gateRuleOf(decided), perAttempt: null, more: null, words: evidenceWords(decided, null) };
+  await page.route(
+    (url) => url.pathname === '/api/tests',
+    async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const res = await route.fetch();
+      const real = (await res.json()) as TestsView;
+      const one = real.rows.find((r) => r.last.verdict === 'passed') ?? real.rows[0];
+      return route.fulfill({ response: res, json: { ...real, rows: real.rows.map((r) => (r === one ? { ...r, last: { ...r.last, gate } } : r)) } });
+    },
+  );
+}
+
+/** The demo's preview with Migrate as its one next step, so its button asks Migrate's one ask: the demo's offers Verify. */
+async function routeMigrateNext(page: Page): Promise<string> {
+  const { preview } = await previewed(page);
+  const session = preview.split('/').pop()!;
+  await page.route(
+    (url) => url.pathname === `/api/decisions/${session}`,
+    async (route) => {
+      const res = await route.fetch();
+      const real = (await res.json()) as DecisionSessionDetail;
+      const next = { verify: null, more: [], migrate: { to: 'claude-sonnet-5', from: ['claude-sonnet-4-5'], goldens: ['goldens/refund-flow'], runs: [] } };
+      return route.fulfill({ response: res, json: { ...real, view: { ...real.view, next } } });
+    },
+  );
+  return preview;
+}
+
+/** What the demo can't draw, by answers routed for the page's life: last. */
+const unshown = (page: Page): Step[] => [
+  ['Tests with a history gate’s rule', async () => {
+    await routeHistoryGate(page);
+    await at(page, '/tests', 'main#view .gfoot')();
+  }, true],
+  ['a preview whose next step is Migrate', async () => {
+    await at(page, await routeMigrateNext(page), PREVIEW)();
+  }],
+  ['Migrate’s one ask', click(page, 'main#view button', 'Migrate to', { shows: DIALOG }), true],
+  ['Migrate’s one ask closed', escape(page)],
 ];
 
 /** Every billed press asks, whatever the suite's one Spending says, so opening a dialog runs nothing. */
@@ -408,6 +492,10 @@ for (const width of WIDTHS) {
   });
   test(`every run of the demo, and every view of a few more, at ${width}px breaks lines only where the rules allow`, async ({ page }) => {
     expect(await walk(page, width, runSteps(page))).toEqual([]);
+  });
+  test(`every fix’s steps, a history gate’s rule and Migrate’s one ask at ${width}px break lines only where the rules allow`, async ({ page }) => {
+    await asking(page);
+    expect(await walk(page, width, [...fixSteps(page), ...unshown(page)])).toEqual([]);
   });
   test(`the menus, pickers, hover cards, palette, shortcuts, a toast and the connection’s cards at ${width}px break lines only where the rules allow`, async ({ page }) => {
     await asking(page);
