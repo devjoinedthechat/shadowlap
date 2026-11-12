@@ -307,10 +307,10 @@ export interface PayloadsRead {
   noCanary: string[];
 }
 
-/** Reads a payload file sent as the test reads it (parsePayloads), named as it was picked; why not, in its words. */
-export function payloadsRead(file: { path: string; name: string; original: string | null; bytes: number }): PayloadsRead | { error: string } {
+/** Reads a payload file sent as the test reads it (parsePayloads), named as the test names it, by the name it is kept under (safeFileName's); why not, in its words. */
+export function payloadsRead(file: { path: string; name: string; bytes: number }): PayloadsRead | { error: string } {
   if (file.bytes > PAYLOAD_FILE_MAX) return { error: 'a payload file is at most 2 MB' };
-  const name = file.original ?? file.name;
+  const { name } = file;
   try {
     const payloads = parsePayloads(readFileSync(file.path, 'utf8'), name);
     return { name, count: payloads.length, noCanary: payloads.filter((p) => !p.canary).map((p) => p.id) };
