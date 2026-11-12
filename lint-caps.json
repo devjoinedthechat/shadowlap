@@ -157,10 +157,6 @@
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
     },
-    "packages/dashboard/src/projects.ts": {
-      "calibrateStep": 32,
-      "recordStep": 52
-    },
     "packages/dashboard/src/routes/imports.ts": {
       "register > build": 35
     },
@@ -406,10 +402,10 @@
       "createClient": 165
     },
     "packages/dashboard/ui/pages/NewProject.tsx": {
-      "NewProjectPage": 162
+      "NewProjectPage": 158
     },
     "packages/dashboard/ui/pages/settings/StoreSetup.tsx": {
-      "StoreSetup": 221
+      "StoreSetup": 215
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
       "ProvenanceView": 267

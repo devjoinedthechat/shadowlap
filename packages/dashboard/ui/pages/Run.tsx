@@ -6,6 +6,8 @@ import { Tabs } from '../components/Tabs.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { useMenu } from '../components/Popover.js';
 import { Page } from '../components/Page.js';
+import { ErrorState, failedRead } from '../components/States.js';
+import { projectOf } from '../shell/ProjectBlock.js';
 import { Unshown } from '../shell/unshown.js';
 import { NotFoundPage } from './NotFound.js';
 import { Elsewhere } from './held-elsewhere.js';
@@ -32,7 +34,7 @@ import { StripBar } from '../run/StripKey.js';
 import { firstFailedCall } from '../run/open-at.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
-import { RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
+import { RunHead, RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
 import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages } from '../run/paging.js';
@@ -122,7 +124,8 @@ function ViewSwitch({ v, run, calls, selected, scoped, byKind: kinds, onSelect, 
 const PANE_VIEWS: readonly View[] = ['calls', 'timeline', 'turns', 'context'];
 
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
-  const { client, runsTick, live } = useApp();
+  const { client, runsTick, live, meta } = useApp();
+  const project = projectOf(meta)?.name;
   // Opened by a short id, the page settles on the full one (the workspace rewrites the URL). That is
   // the run already loaded: the load keeps the id the page opened with, and asks by the full id from
   // then on, so the run and everything on its page aren't loaded a second time.
@@ -180,24 +183,25 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
         return (
           <>
             <Unshown at={`run:${id}`} />
-            <NotFoundPage header what={`No run ${id} in this copy.`} back={[lastRunsHref(), 'Open Runs']} />
+            <NotFoundPage kind="run" id={id} what={`No run ${id} in this copy.`} back={[lastRunsHref(), 'Open Runs']} />
           </>
         );
-      const page = (
-        <Page>
-          {missing ? <Unshown at={`run:${id}`} /> : null}
-          <div className="empty tall">
-            {several ? `${id} matches several runs; use more of the id.` : missing ? `No run ${id} in this store.` : `Could not load ${id}: ${loaded.error.message}`}{' '}
-            <a className="more" href={lastRunsHref()}>
-              Back to Runs
-            </a>
-          </div>
-        </Page>
-      );
+      const page =
+        missing || several ? (
+          <>
+            {missing ? <Unshown at={`run:${id}`} /> : null}
+            <NotFoundPage kind={several ? 'runs' : 'run'} id={id} back={[lastRunsHref(), 'Open Runs']} />
+          </>
+        ) : (
+          <Page>
+            <RunHead id={id} project={project} />
+            <ErrorState retry={loaded.reload}>{failedRead(loaded.error)}</ErrorState>
+          </Page>
+        );
       // Another project may hold it: a link from there, or a page left open across a switch.
-      return missing ? <Elsewhere ask={{ what: 'run', ids: [id] }} error={loaded.error} waiting={<RunLoading />} retry={loaded.reload} fallback={page} /> : page;
+      return missing ? <Elsewhere ask={{ what: 'run', ids: [id] }} error={loaded.error} waiting={<RunLoading id={id} project={project} />} retry={loaded.reload} fallback={page} /> : page;
     }
-    return <RunLoading />;
+    return <RunLoading id={id} project={project} />;
   }
   return <Workspace run={run} id={id} call={call} view={view} />;
 }
