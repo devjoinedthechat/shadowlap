@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { changeFixCheck, checkKey, markFixApplied, recordBlame, recordVerdict, shortFixId, Store } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, ORACLE, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { fixDetail, fixList, goldensFolderIn } from '../src/fixes.js';
+import { fixAttemptGroups } from '../src/attempt-groups.js';
+import { fixBundles, fixDetail, fixList, goldensFolderIn } from '../src/fixes.js';
+import { verdictsView } from '../src/verdicts.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView } from '../src/index.js';
 
 /**
@@ -215,5 +217,39 @@ describe("fix mode's preview", () => {
     // As context for a check added to the golden that guards it: its runs, nothing refused or uncounted.
     const context = await api(`fixes/${fix.fixId}/check-preview`, { method: 'POST', body: JSON.stringify({ expect: DRAFT, context: true }) });
     expect(await json(context)).toMatchObject({ rows: [{ runId: passes, role: 'failing', outcome: 'passed' }], refused: null, uncounted: [] });
+  });
+});
+
+describe("what reads a verdict's standing, after a fix's check changed", () => {
+  const draft = { tools: { issue_refund: 0 } };
+  const change = (fixId: string, failing: string) => changeFixCheck(store, fixId, { check: { expect: draft, key: checkKey(draft), oracle: ['the agent exits 0', 'issue_refund called 0 times'], text: 'issue_refund never called' }, judged: { failing: { [failing]: 'failed' }, good: {} } });
+
+  it("reads a verdict checked under the old check as no longer counting, on Changes' Verdicts and in the run's Forks view", () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const fix = opened(failing);
+    const report = verifyReport([{ runId: failing, role: 'target', pass: false }], { oracle: ORACLE });
+    const { verifyId } = recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify', at: Date.now() }).verdict;
+    for (const a of report.runs[0].attempts) {
+      store.createRun({ runId: a.runId, mode: 'replay', parentRunId: failing, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 2_000, meta: { verify: { role: 'target', passed: a.passed } } });
+      store.endRun(a.runId, 'failed');
+    }
+    const counted = () => [verdictsView(store, []).rows.find((x) => x.kind === 'verify' && x.verifyId === verifyId), fixBundles(store, failing)!.find((b) => b.kind === 'verify')!.counts] as const;
+    expect(counted()[1]).toBe(true);
+    change(fix.fixId, failing);
+    const [row, inForks] = counted();
+    expect(row).toMatchObject({ counts: false, line: "Doesn't count for this fix: it was checked under the fix’s old check" });
+    expect(inForks).toBe(false);
+  });
+
+  it("groups a fix's attempts under a blame made under its check, the old check's blame until there is one", () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const fix = opened(failing);
+    const first = store.listBlames()[0].blameId;
+    change(fix.fixId, failing);
+    expect(fixAttemptGroups(store, fix.fixId)!.blame!.blameId).toBe(first);
+    // A blame under the fix's check that found no call is shown over the old check's that found one.
+    const again = recordBlame(store, { runId: failing, report: blameReport(failing, 'unrescuable'), expect: draft, scope: null, command: 'shadowlap blame', title: 't', checkText: 'issue_refund never called', at: Date.now() + 1_000 });
+    expect(again.fix.fixId).toBe(fix.fixId);
+    expect(fixAttemptGroups(store, fix.fixId)!.blame!.blameId).toBe(again.blame.blameId);
   });
 });

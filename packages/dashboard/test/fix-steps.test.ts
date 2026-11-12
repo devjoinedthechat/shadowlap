@@ -307,6 +307,9 @@ describe('each step’s verdict line', () => {
     expect(none.line).toEqual({ word: 'rejected', tone: 'err', head: ['The gate accepted none of the 1 candidate tried'], finding: 'The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the check, or change the prompt yourself and verify it.' });
     expect(none.again).toBeNull();
     expect(none.rule).toMatch(/^each at \d+ of \d+ attempts/);
+    // One that stopped after trying candidates is spent the same way: its way on is a change of the check or the prompt.
+    recordRepair(store, { repairId: 'repair-stopped', dir: '.shadowlap/repairs/repair-stopped', report: { ...repairReport({ targets: [run], accepted: false }), outcome: 'stopped' }, expect: EXPECT, command: 'shadowlap repair', at: (at += DAY) });
+    expect(detail(fix.fixId).repair!.line).toMatchObject({ tone: 'warn', finding: 'The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the check, or change the prompt yourself and verify it.' });
   });
 });
 
