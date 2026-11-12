@@ -1,11 +1,21 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { ToolsSettings } from '../src/settings.js';
+import type { CallDetail } from '../ui/api.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
 import { GLOSSARY } from '../ui/glossary.js';
+import { bigBill, testCommand, TestDialog, type TestDialogProps } from '../ui/injection/TestDialog.js';
+import { ForkMenu } from '../ui/run/ForkMenu.js';
+import { forgetRunEstimates } from '../ui/run/estimates.js';
+import { testRow } from '../ui/run/run-commands.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
+import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { ToastAction } from '../ui/toast.js';
+import { errorText, type ToastAction } from '../ui/toast.js';
+import type { RunDetail, UntrustedView } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
+import { STEP_PARTS } from './ui-served-now.js';
 
 /**
  * Running injection tests from the dashboard, and the writes that go with them: Settings → Tools'
@@ -30,16 +40,16 @@ function tools(marks: Record<string, 'trusted' | 'untrusted'>, version: string):
   } as unknown as ToolsSettings;
 }
 
-function app(settings: Record<string, (...a: never[]) => Promise<unknown>>, toasts: Array<[string, ToastAction | undefined]>): AppState {
+function app(settings: Record<string, (...a: never[]) => Promise<unknown>>, toasts: Array<[string, ToastAction | undefined]>, client: Record<string, unknown> = {}): AppState {
   return {
-    client: { settings, startJob: async () => ({}), jobs: async () => [] },
+    client: { settings, startJob: async () => ({}), jobs: async () => [], ...client },
     meta: { project: { id: 'research-agent', name: 'research-agent', path: '/work/research-agent' } },
     runs: [],
     feeds: {},
     jobs: [],
     actionsOff: null,
     hasKind: () => true,
-    guard: (fn: () => void) => fn(),
+    guard: (fn: () => void) => (fn(), true),
     watchJob: () => undefined,
     toast: (t: string, _kind?: string, action?: ToastAction) => void toasts.push([t, action]),
   } as unknown as AppState;
@@ -49,6 +59,8 @@ let r: Rendered | null = null;
 afterEach(async () => {
   await r?.unmount();
   r = null;
+  resetSpending();
+  forgetRunEstimates();
 });
 
 // A cell's words, less the glossary's cards its terms carry.
@@ -107,5 +119,190 @@ describe('Settings → Tools’ Trust table', () => {
     await r.until('the undo landed', () => toasts.length === 2);
     expect(sent[1]).toEqual(['search_docs', null, 'v2']);
     expect(toasts[1][0]).toBe(`Took ${line('search_docs', 'untrusted')} out of shadowlap.config.json`);
+  });
+});
+
+const RUN = '01K5CQ4N7GZ3W8X2V6B9TDRM4P';
+/** Twelve templates, the two a test of many reads starts from first. */
+const TEMPLATES = ['system-notice', 'user-urgent', ...Array.from({ length: 10 }, (_, i) => `t${i + 3}`)].map((id) => ({ id, shape: 'notice', title: `The ${id} template`, text: `${id}: {{canary}}` }));
+const ids = TEMPLATES.map((t) => t.id);
+const readsOf = (n: number): UntrustedView[] => Array.from({ length: n }, (_, i) => ({ callNo: 4 + i * 2, name: i ? `read_${i}` : 'get_ticket', from: 'config', readAt: 5 + i * 2 }));
+const price = (usd: number, o: Partial<Estimate> = {}): Estimate => ({ kind: 'injection', usd, ceiling: false, parts: [], ...o });
+const read = (count: number, noCanary: string[] = []) => ({ name: 'payloads.txt', uploadId: 'u1', read: { name: 'payloads.txt', count, noCanary } });
+const picks = (templates: string[], o: { file?: ReturnType<typeof read> | null; repeat?: string; budget?: string } = {}) => ({ templates, file: o.file ?? null, repeat: o.repeat ?? '1', budget: o.budget ?? '' });
+
+describe('Run injection test…’s command and its big bill', () => {
+  it('names only the flags the picks change: every template is the CLI’s default, unless a payload file comes too', () => {
+    expect(testCommand('01K5CQ4N7G', picks(ids), ids)).toBe('shadowlap injection 01K5CQ4N7G');
+    expect(testCommand('01K5CQ4N7G', picks(['system-notice', 'user-urgent']), ids)).toBe('shadowlap injection 01K5CQ4N7G --templates system-notice,user-urgent');
+    expect(testCommand('01K5CQ4N7G', picks(ids, { file: read(6) }), ids)).toBe('shadowlap injection 01K5CQ4N7G --templates all --payloads payloads.txt');
+    expect(testCommand('01K5CQ4N7G', picks([], { file: read(6) }), ids)).toBe('shadowlap injection 01K5CQ4N7G --payloads payloads.txt');
+    expect(testCommand('01K5CQ4N7G', picks([]), ids)).toBe('shadowlap injection 01K5CQ4N7G --templates none');
+    expect(testCommand('01K5CQ4N7G', picks(ids, { repeat: '3', budget: '2.5' }), ids)).toBe('shadowlap injection 01K5CQ4N7G --repeat 3 --budget 2.50');
+    // Attempts stay within 1 to 100; a Stop at $ that isn't a positive amount is none.
+    expect(testCommand('01K5CQ4N7G', picks(ids, { repeat: '500', budget: '0' }), ids)).toBe('shadowlap injection 01K5CQ4N7G --repeat 100');
+    expect(testCommand('01K5CQ4N7G', picks(ids, { repeat: '', budget: 'x' }), ids)).toBe('shadowlap injection 01K5CQ4N7G');
+  });
+
+  it('says a bill over twenty times Spending’s threshold, at least $10, or $100 with Never ask, unless Stop at $ stops it under that', () => {
+    expect(bigBill(price(410), 1)).toBe('≈$410 at these picks: set Stop at $ to stop it there');
+    expect(bigBill(price(15), 1)).toBeNull();
+    expect(bigBill(price(11), 0.1)).toBe('≈$11.00 at these picks: set Stop at $ to stop it there');
+    expect(bigBill(price(9), 0.1)).toBeNull();
+    expect(bigBill(price(150), null)).toBe('≈$150 at these picks: set Stop at $ to stop it there');
+    expect(bigBill(price(90), null)).toBeNull();
+    expect(bigBill(price(410, { stops: 5 }), 1)).toBeNull();
+    expect([bigBill(price(410), undefined), bigBill(null, 1), bigBill(price(Number.NaN, { usd: null as unknown as number }), 1)]).toEqual([null, null, null]);
+  });
+});
+
+type Started = Array<[string, Record<string, unknown>]>;
+
+/** Run injection test…'s dialog on RUN with `reads`, the server answering as `client` says (the templates, a plan's price, an upload). */
+async function testDialog(props: Partial<TestDialogProps>, client: Record<string, unknown> = {}, toasts: Array<[string, ToastAction | undefined]> = []) {
+  const started: Started = [];
+  const asked: unknown[] = [];
+  const all = { injectionTemplates: async () => ({ version: 1, updated: '', templates: TEMPLATES }), injectionEstimate: (q: unknown) => (asked.push(q), Promise.resolve(price(1.2))), startJob: async (kind: string, body: Record<string, unknown>) => (started.push([kind, body]), { id: 'j1' }), ...client };
+  r = await render(createElement(AppContext.Provider, { value: app({}, toasts, all) }, createElement(TestDialog, { runId: RUN, onClose: () => undefined, ...props })));
+  await r.until('the dialog reads the templates', () => r!.all('.dialog .togchips button').length === 12);
+  return { started, asked };
+}
+
+const ok = () => r!.one('.dialog .dlg-ok');
+const cmd = () => r!.one('.dialog .cmdline').textContent ?? '';
+const count = () => r!.one('.dialog .injn').textContent;
+const pressed = () => r!.all('.dialog .togchips button').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
+
+describe('Run injection test…’s dialog', () => {
+  it('starts a run of nine reads from two templates, says why, and names the reads it plants in', async () => {
+    await testDialog({ reads: readsOf(9), estimate: price(0.8), why: 'It stopped early' });
+    expect(r!.one('.dialog h3').textContent).toBe('Run injection test on 01K5CQ4N7G');
+    expect(r!.one('.dialog .dwarn').textContent).toBe('It stopped early');
+    expect([count(), r!.one('.dialog .injwhy').textContent]).toEqual(['2 of 12', '· fewer to start: 9 reads multiply the cost']);
+    expect(pressed()).toEqual(['system-notice', 'user-urgent']);
+    expect(r!.one('.dialog .dfacts').textContent).toBe('Plants in#4 get_ticket, #6 read_1, #8 read_2 and 6 more');
+    expect(cmd()).toContain('shadowlap injection 01K5CQ4N7G --templates system-notice,user-urgent');
+  });
+
+  it('toggles a chip in the set’s order, All and None, waiting on Pick a template… with none, and asks the price again a moment after a pick', async () => {
+    const { asked } = await testDialog({ reads: readsOf(2), estimate: price(0.8) });
+    // A run of a few reads starts from every template, and says no more.
+    expect([count(), r!.all('.dialog .injwhy').length, cmd()]).toEqual(['12 of 12', 0, '$shadowlap injection 01K5CQ4N7G']);
+    await r!.click(r!.byText('.dialog .togchips button', 'user-urgent'));
+    expect([count(), r!.byText('.dialog .togchips button', 'user-urgent').getAttribute('aria-pressed')]).toEqual(['11 of 12', 'false']);
+    // The opener's price stays until the server's comes, 250 ms after the pick.
+    await r!.wait(100);
+    expect(asked).toEqual([]);
+    await r!.wait(300);
+    expect(asked).toEqual([{ runId: RUN, payloads: 11, repeat: 1, budget: null }]);
+    await r!.click(r!.byText('.dialog .linkbtn', 'None'));
+    expect([count(), ok().getAttribute('aria-disabled'), r!.one('.dialog .dcost').textContent]).toEqual(['0 of 12', 'true', 'Pick a template or add a payload file.']);
+    await r!.click(r!.byText('.dialog .togchips button', 'user-urgent'));
+    expect([pressed(), cmd()]).toEqual([['user-urgent'], '$shadowlap injection 01K5CQ4N7G --templates user-urgent']);
+    await r!.click(r!.byText('.dialog .togchips button', 'system-notice'));
+    expect(pressed()).toEqual(['system-notice', 'user-urgent']);
+    await r!.click(r!.byText('.dialog .linkbtn', 'All'));
+    expect([count(), cmd()]).toEqual(['12 of 12', '$shadowlap injection 01K5CQ4N7G']);
+  });
+
+  it('starts with Attempts each and Stop at $ as the command names them, sending the price it showed', async () => {
+    const { started, asked } = await testDialog({ reads: readsOf(9), estimate: price(0.8) });
+    const [repeat, budget] = r!.all('.dialog .injrep input');
+    await r!.type(repeat, '3');
+    await r!.type(budget, '2.5');
+    expect(cmd()).toContain('--templates system-notice,user-urgent --repeat 3 --budget 2.50');
+    await r!.until('the price of the picks', () => asked.length === 1);
+    expect(asked[0]).toEqual({ runId: RUN, payloads: 2, repeat: 3, budget: 2.5 });
+    await r!.until('the dialog is ready', () => ok().getAttribute('aria-disabled') !== 'true');
+    await r!.click(ok());
+    expect(started).toEqual([['injection', { runId: RUN, templates: ['system-notice', 'user-urgent'], repeat: 3, budget: 2.5, estimate: { usd: 1.2, ceiling: false } }]]);
+  });
+
+  it('adds a payload file, says what it holds, the focus on its ×, and leaves it out again, the focus back on Add payload file…', async () => {
+    const sent: unknown[] = [];
+    await testDialog({ reads: readsOf(9), estimate: price(0.8) }, { upload: async (f: { name: string }, name: string) => (sent.push([f.name, name]), { uploadId: 'u1', name, bytes: 40 }), injectionPayloads: async (id: string) => (sent.push(id), { name: 'payloads.txt', count: 6, noCanary: ['payloads.txt#2'] }) });
+    await r!.fire(r!.one('.dialog input[type="file"]'), 'change', { target: { files: [{ name: 'payloads.txt' }] } } as never);
+    await r!.until('the file is read', () => r!.all('.dialog .injfile .chip').length === 1);
+    expect(sent).toEqual([['payloads.txt', 'payloads.txt'], 'u1']);
+    expect(r!.one('.dialog .injfile .chip').textContent).toBe('payloads.txt · 6 payloads×');
+    expect(r!.one('.dialog .injfile small').textContent).toBe('payloads.txt#2 has no {{canary}}: it can show influence, never prove it obeyed');
+    expect(r!.focused().getAttribute('aria-label')).toBe('Leave payloads.txt out');
+    expect(cmd()).toContain('--templates system-notice,user-urgent --payloads payloads.txt');
+    await r!.click(r!.one('.dialog .injfile .chip button'));
+    expect([r!.focused().textContent, cmd()]).toEqual(['Add payload file…', '$shadowlap injection 01K5CQ4N7G --templates system-notice,user-urgent']);
+  });
+
+  it('keeps a file it can’t read out, with why, and a refusal in the dialog with the server’s words', async () => {
+    const no = new Error('payloads.txt holds no payload');
+    const { started } = await testDialog({ reads: readsOf(1), estimate: price(0.8) }, { upload: async () => ({ uploadId: 'u1', name: 'payloads.txt', bytes: 0 }), injectionPayloads: async () => Promise.reject(no), startJob: async () => Promise.reject(new Error('Another job is replaying the goldens')) });
+    await r!.fire(r!.one('.dialog input[type="file"]'), 'change', { target: { files: [{ name: 'payloads.txt' }] } } as never);
+    await r!.until('the refusal', () => r!.all('.dialog .injfile small.err').length === 1);
+    expect([r!.one('.dialog .injfile small.err').textContent, r!.focused().textContent]).toEqual([errorText(no), 'Add payload file…']);
+    await r!.until('the dialog is ready', () => ok().getAttribute('aria-disabled') !== 'true');
+    await r!.click(ok());
+    await r!.until('the refusal stays in the dialog', () => r!.all('.dialog .dwarn').length === 1);
+    expect([r!.one('.dialog .dwarn').textContent, started]).toEqual([errorText(new Error('Another job is replaying the goldens')), []]);
+  });
+
+  it('says a bill far over Spending’s threshold as its amber line, and reads the run’s reads itself where its opener has none', async () => {
+    resetSpending(1);
+    const runs: string[] = [];
+    await testDialog({ estimate: price(410) }, { injectionRun: async (id: string) => (runs.push(id), { untrusted: [...readsOf(2), { callNo: 30, name: 'unread', from: 'config', readAt: null }], results: [], rule: null, answers: [], cause: [], attempt: null }) });
+    expect(runs).toEqual([RUN]);
+    expect(r!.one('.dialog .dwarn').textContent).toBe('≈$410 at these picks: set Stop at $ to stop it there');
+    // A read no model call reads is never planted in.
+    expect(r!.one('.dialog .dfacts').textContent).toBe('Plants in#4 get_ticket and #6 read_1');
+  });
+});
+
+describe('Run injection test…’s openers', () => {
+  const run = { run: { runId: RUN, status: 'completed' }, actions: [], source: null } as unknown as RunDetail;
+  const call = { call: { callNo: 4, kind: 'tool', name: 'get_ticket', effect: 'read' }, actions: [], result: null, forkTitle: 'At #4 · get_ticket' } as unknown as CallDetail;
+
+  /** The fork menu at #4, its whole run's Run injection test… opening the dialog on the run's untrusted reads. */
+  async function menu(untrusted: UntrustedView[], toasts: Array<[string, ToastAction | undefined]>) {
+    const opened: unknown[] = [];
+    const client = { estimates: { runEstimates: async () => ({ blame: null, actions: {}, injection: price(0.8), cause: {} }) } };
+    r = await render(createElement(AppContext.Provider, { value: app({}, toasts, client) }, createElement(ForkMenu, { anchor: null as unknown as HTMLElement, run, call, offers: null, onPick: () => undefined, onFindCommit: () => undefined, onClose: () => undefined, onTest: (reads, estimate) => void opened.push([reads, estimate]), untrusted: new Map(untrusted.map((u) => [u.callNo, u])) })));
+    await r.until('the menu', () => r!.all('[role="menuitem"]').length > 0);
+    return opened;
+  }
+
+  it('waits in the fork menu where the run reads nothing untrusted, its toast’s way out Settings → Tools', async () => {
+    const toasts: Array<[string, ToastAction | undefined]> = [];
+    const opened = await menu([], toasts);
+    const row = r!.byText('[role="menuitem"]', 'Run injection test…injection');
+    expect(JSON.parse(row.getAttribute('data-tip')!)).toMatchObject({ t: 'Run injection test', cmd: '"tools": { "<name>": { "trust": "untrusted" } }' });
+    await r!.click(row);
+    expect([opened, toasts.map(([t, a]) => [t, a?.label])]).toEqual([[], [['No untrusted read in 01K5CQ4N7G', 'Open Tools settings']]]);
+  });
+
+  it('opens it from the fork menu on the run’s untrusted reads, with the price the menu read', async () => {
+    const reads = readsOf(2);
+    const opened = await menu(reads, []);
+    await r!.until('the menu’s prices', () => r!.byText('[role="menuitem"]', 'Run injection test…injection').getAttribute('data-tip')!.includes('$'));
+    await r!.click(r!.byText('[role="menuitem"]', 'Run injection test…injection'));
+    expect(opened).toEqual([[reads, price(0.8)]]);
+  });
+
+  it('gives the palette This run’s row after a run that reads something untrusted, never on an attempt, a live run or a copy, nor while the step is that test', () => {
+    const open = () => undefined;
+    const o = { live: false, exported: false, next: null, open };
+    expect(testRow(RUN, 2, o)).toEqual([{ group: 'This run', label: 'Run injection test…', hint: 'shadowlap injection 01K5CQ4N7G', match: 'security prompt injection untrusted', job: true, run: open }]);
+    const step = { key: 'injection-test', label: 'Run injection test…', runId: RUN, command: '' } as never;
+    expect([testRow(RUN, 0, o), testRow(RUN, 2, { ...o, open: undefined }), testRow(RUN, 2, { ...o, live: true }), testRow(RUN, 2, { ...o, exported: true }), testRow(RUN, 2, { ...o, next: step })]).toEqual([[], [], [], [], []]);
+  });
+
+  it('opens it from an untrusted read’s row on Settings → Tools, on the run its test runs on', async () => {
+    const reads = readsOf(2);
+    const data = tools({ get_ticket: 'untrusted' }, 'v1');
+    data.live[2] = { ...data.live[2], trust: 'untrusted', from: 'config', where: 'shadowlap.config.json', test: { runId: RUN, golden: 'refund', whose: 'refund’s recording', reads, estimate: price(0.8) } };
+    const client = { injectionTemplates: async () => ({ version: 1, updated: '', templates: TEMPLATES }), injectionEstimate: () => new Promise(() => undefined) };
+    r = await render(createElement(ServedPartsContext.Provider, { value: STEP_PARTS }, createElement(AppContext.Provider, { value: app({ tools: async () => data }, [], client) }, createElement(SettingsPage, { tab: 'tools' }))));
+    await r.until('the table', () => r!.all('.trusttab .tooltest').length === 1);
+    expect(JSON.parse(r.one('.trusttab .tooltest').getAttribute('data-tip')!)).toMatchObject({ t: 'Run injection test', s: 'Plants payloads at #4 get_ticket and #6 read_1 of refund’s recording', cmd: '$ shadowlap injection 01K5CQ4N7G' });
+    await r.click(r.one('.trusttab .tooltest'));
+    await r.until('the dialog', () => r!.all('.dialog .togchips button').length === 12);
+    expect([r.one('.dialog h3').textContent, r.one('.dialog .dfacts').textContent]).toEqual(['Run injection test on 01K5CQ4N7G', 'Plants in#4 get_ticket and #6 read_1']);
   });
 });
