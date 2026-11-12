@@ -74,7 +74,6 @@ The first release: record, replay and fork AI agent runs, find the call that los
   - `--from-code --dry-run` reads what the working tree sends each run offline, with nothing sent: its prompt, its tools and the calls it changes. `--verify` takes `--kept-max`, as `verify` does.
 - **[`shadowlap migrate --to <model>`](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/decisions.md#migrate)** does it for a model a provider retires: it runs end to end every run a preview can't clear, compares the cost per run and says what to set. The providers' retirement dates ship with their sources, and nothing calls home.
   - [`migrate apply <id>`](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/decisions.md#apply-the-config-change) puts an all-clear migration's config change in the working tree, checked as `fix apply` checks a patch, and replays the goldens offline to name each that diverges on `$.model`. The config change takes out a literal field What to set leaves out, and the report names the goldens a switch leaves behind.
-  - [Changes › Migrate](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/dashboard.md#migrate) starts a migration from the dashboard, shows its report and applies its config change.
 
 #### Checks and gates
 

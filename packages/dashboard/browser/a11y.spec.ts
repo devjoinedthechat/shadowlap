@@ -330,11 +330,17 @@ test('a preview’s link opens Preview and a migration’s its report on Migrate
   expect(await key.evaluate((k) => [getComputedStyle(k).display, getComputedStyle(k).gridTemplateColumns.split(' ').length])).toEqual(['grid', 2]);
 });
 
-test('Migrate’s bare tab, the demo’s migration with its pull request body shown, Migrate to…’s menu and the dialogs have no serious or critical axe violation, and a phone never scrolls the pages sideways', async ({ page, request }) => {
+test('Migrate’s bare tab, the demo’s migration with its pull request body shown, Migrate to’s menu and the dialogs have no serious or critical axe violation, and a phone never scrolls the pages sideways', async ({ page, request }) => {
   const { origin, token } = dash();
   const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token } })).json()) as { sessions: Array<{ kind: string; href: string }> };
   const migration = sessions.find((s) => s.kind === 'migrate')?.href;
   expect(migration, 'the demo’s migration').toMatch(/^#\/changes\/migrate\//);
+  // The demo's migration breaks a run, so it offers no Apply: its answer, served with Apply offered
+  // and leaving a golden behind, opens Apply config change? as an all-clear migration would.
+  const id = migration!.split('/')[3]!;
+  const kept = (await (await request.get(`${origin}/api/decisions/${id}`, { headers: { 'x-shadowlap-token': token } })).json()) as { migration: Record<string, unknown> };
+  const offer = { files: ['agent.config.json'], leftOut: '`temperature`', leftBehind: [{ golden: 'goldens/refund', callNo: 1 }], stays: null, command: `shadowlap migrate apply ${id.slice(0, 13)}` };
+  await page.route(`**/api/decisions/${id}`, (route) => route.fulfill({ json: { ...kept, migration: { ...kept.migration, applied: null, apply: offer, next: 'apply' } } }));
   const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -349,22 +355,20 @@ test('Migrate’s bare tab, the demo’s migration with its pull request body sh
     if (await body.count()) await page.waitForSelector('main#view .mgpr .prbody.md', { state: 'visible' });
     expect(await seriousViolations(page), `the migration at ${width}px`).toEqual([]);
     expect(await sideways(), `the migration at ${width}px`).toBe(0);
-    // Migrate to…'s menu, the dialog a model in it asks in, and Apply config change's where offered.
-    await page.locator('main#view .chbar button', { hasText: 'Migrate to…' }).click();
+    // Migrate to's menu, the dialog a model in it asks in, and Apply config change's.
+    await page.locator('main#view .chbar button', { hasText: 'Migrate to' }).click();
     await page.waitForSelector('.fkm [role="menuitemradio"]', { state: 'visible' });
-    expect(await seriousViolations(page), `Migrate to… at ${width}px`).toEqual([]);
+    expect(await seriousViolations(page), `Migrate to at ${width}px`).toEqual([]);
     await page.locator('.fkm [role="menuitemradio"]').first().click();
     await page.waitForSelector('.dialog', { state: 'visible' });
     expect(await seriousViolations(page), `Migrate’s dialog at ${width}px`).toEqual([]);
     await page.keyboard.press('Escape');
     await page.waitForSelector('.dialog', { state: 'detached' });
-    const apply = page.locator('main#view .mgverdict .actions button', { hasText: 'Apply config change' });
-    if (await apply.count()) {
-      await apply.click();
-      await page.waitForSelector('.dialog', { state: 'visible' });
-      expect(await seriousViolations(page), `Apply config change? at ${width}px`).toEqual([]);
-      await page.keyboard.press('Escape');
-    }
+    await page.locator('main#view .mgverdict .actions button', { hasText: 'Apply config change' }).click();
+    await page.waitForSelector('.dialog .ondisk:not(.steps) ul.plain', { state: 'visible' });
+    expect(await seriousViolations(page), `Apply config change? at ${width}px`).toEqual([]);
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.dialog', { state: 'detached' });
   }
 });
 

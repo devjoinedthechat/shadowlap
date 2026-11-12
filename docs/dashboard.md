@@ -216,7 +216,7 @@ What the rows mean:
 - **A preview of a change** is settled by a session of that change that asked its flagged runs again and flagged none, or whose verify accepted them, as a migration to a model after a preview of it. A migration from a model that retires has no row of its own: the model's row stands for it.
 - **Verified fixes**: one verified with request fields set, as `--set temperature=1`, says to make them in your agent first.
 - **Runs only on this machine** are counted as Settings → Store and `shadowlap store show` count them, by run. **Push local runs** pushes them all, as `shadowlap push --all` does. The row opens Runs with those runs alone, each with the `local` tag.
-- **A model that retires**: its name, how many goldens use it, and when it goes (*retires on Nov 30, 2026*, *retired on*, or *is deprecated*). **Migrate to** asks first, saying your provider bills it, then runs `shadowlap migrate --to <model> <goldens> --from <model>` on those goldens. A model with nothing to migrate to has no step.
+- **A model that retires**: its name, how many goldens use it, and when it goes (*retires on Nov 30, 2026*, *retired on*, or *is deprecated*). **Migrate to** asks first, naming what it bills at most, then runs `shadowlap migrate --to <model> <goldens> --from <model>` on those goldens. A model with nothing to migrate to has no step.
 - **A model a migration checked**: the row says how the newest migration from it came out (*checked · the config change is ready*) and opens it. Once applied, it says how many goldens wait to be updated (*applied · 1 golden to update*), and it goes when none does.
 
 A step that bills names its price on hover, asked for once the pointer or the focus reaches it, and asks first as [Spending](#spending) says. On a read-only dashboard a step that runs a job says **Open →**, since nothing runs there. Past 50 rows of a kind, one line says how many more there are and opens the page that lists them.
@@ -1170,7 +1170,7 @@ The bare tab (`#/changes/migrate`) opens on the model your goldens call that ret
 
 With no model retiring and no migration yet, it offers **Switch from**, the models the goldens call, most used first, and **To**. Once a migration checked every retiring model, it opens the newest migration. With no goldens it says to pack one first, as Preview does, with **Open Runs**.
 
-**Migrate to** asks first, in one dialog wherever it is pressed: the start page, a retiring model's row on [Needs a look](#needs-a-look), Preview's next step, the report's **Migrate to…** menu, and the palette's **Migrate claude-sonnet-4-5 to claude-sonnet-5-5**.
+**Migrate to** asks first, in one dialog wherever it is pressed: the start page, a retiring model's row on [Needs a look](#needs-a-look), Preview's next step, the report's **Migrate to** menu, and the palette's **Migrate claude-sonnet-4-5 to claude-sonnet-5-5**.
 
 The dialog says what it asks again and verifies, and that it writes a config change and a pull request body beside the store, your files left as they are. It names a preview that asked these calls already, and shows the command and what your provider bills at most. Its confirm starts the migration as a [job](#jobs), whose drawer ends on **Open migration report**.
 
@@ -1178,7 +1178,7 @@ The button waits, saying why, while the field names no model, names the model it
 
 #### The report
 
-A migration's page (`#/changes/migrate/<id>`) is its report. The picker lists the migrations. **Migrate to…** asks the same switch again to another model: its menu lists the recommendation first, then the models in use and those the providers offer, each priced on its card.
+A migration's page (`#/changes/migrate/<id>`) is its report. The picker lists the migrations. **Migrate to** asks the same switch again to another model: its menu lists the recommendation first, then the models in use and those the providers offer, each priced on its card.
 
 The verdict is in Verdicts' words, or *applied* once applied. Under it come the headline (*claude-sonnet-5-5 keeps the run it verified passing*), the switch (*claude-sonnet-4-5 → claude-sonnet-5-5, 2 runs*) and the retirement, worded as of today. One lime button gives the next step:
 
@@ -1201,7 +1201,7 @@ A golden the switch leaves behind replays differently once applied, since its re
 
 **Apply config change** asks first. Its dialog says what happens: the patch applied with `git apply`, the goldens replayed offline, and **Update goldens** next where the switch leaves a golden behind. It names the fields the patch leaves out, the patch, the goldens left behind (or, with none, why none diverges) and `shadowlap migrate apply <id>`. Its confirm starts the `migrate-apply` [job](#jobs), which waits while another job holds your working tree. Its drawer ends on **Update goldens** for the goldens left behind.
 
-Once applied, the verdict says *applied* and names the goldens to re-record under the model, the config change says *applied*, and What still passes says *until updated*. The model's row on [Needs a look](#needs-a-look) follows. Where `migrate apply` would refuse, as where What to set leaves a field for the hand, it isn't offered.
+Once applied, the verdict says *applied* and names the goldens to update under the model, the config change says *applied*, and What still passes says *until updated*. The model's row on [Needs a look](#needs-a-look) follows. Where `migrate apply` would refuse, as where What to set leaves a field for the hand, it isn't offered.
 
 ## Fixes
 
