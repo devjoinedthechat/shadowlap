@@ -182,19 +182,20 @@ describe('shadowlap migrate apply', () => {
   }, 60_000);
 
   it('applies the config change, replays the goldens offline and names the one that diverges on $.model, then keeps it applied', async () => {
-    const id = keepMigration();
+    const at = firstModelCall();
+    const pass = { runId, verdict: 'passed', outcome: 'kept', verified: true, tally: null };
+    const id = keepMigration({ passes: { verdict: 'accepted', runs: [{ ...pass, golden: 'goldens/research', diverges: { callNo: at, path: '$.model' } }, { ...pass, golden: 'goldens/forks', diverges: null, stays: 'fork' }] } });
     const short = id.slice(0, 13);
     const text = await shadowlap(['migrate', 'apply', short]);
     expect(text.code, text.out).toBe(0);
     expect(readFileSync(join(cwd, 'agent.config.json'), 'utf8')).toContain(`"model": "${TO}",`);
-    const at = firstModelCall();
     expect(text.out).toContain(`⑂ Applying ${short} · ${FROM} → ${TO}\n`);
     expect(text.out).toContain(`\n  applied .shadowlap/migrations/${id}/config.patch: agent.config.json · 1 place\n`);
     expect(text.out).toContain('\n▸ replaying the goldens offline, in a store of their own that nothing keeps: 2 goldens\n');
     expect(text.out).toMatch(new RegExp(`\\n {4}✗ goldens/research: diverged at call ${at} \\(api POST /v1/messages\\) · ~ \\$\\.model\\n`));
     // The golden marked fork passes on its checks wherever it forks: never named.
     expect(text.out).not.toContain('✗ goldens/forks');
-    expect(text.out).toContain("\n    the other 1 doesn't diverge on it\n");
+    expect(text.out).toContain('\n    the others don’t diverge on it: 1 golden marked fork passes on its checks wherever it forks\n');
     expect(text.out).toContain(`\n  ! 1 golden diverges on the model the config change switched (${FROM} → ${TO}): goldens/research\n    re-record it under ${TO} once the switch is what you meant: shadowlap test goldens/research --update\n`);
     expect(text.stdout).toBe(`✓ ${short} applied · 1 golden to update\n`);
 

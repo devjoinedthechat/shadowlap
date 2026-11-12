@@ -578,7 +578,7 @@ It applies a migration only when the report is all clear and the patch is the wh
 ```text
 ▸ replaying the goldens offline, in a store of their own that nothing keeps: 2 goldens
     ✗ goldens/research: diverged at call 3 (api POST /v1/messages) · ~ $.model
-    the other 1 doesn't diverge on it
+    the others don’t diverge on it: 1 golden marked fork passes on its checks wherever it forks
   ! 1 golden diverges on the model the config change switched (claude-sonnet-4-5-20250929 → claude-haiku-4-5): goldens/research
     re-record it under claude-haiku-4-5 once the switch is what you meant: shadowlap test goldens/research --update
 ✓ mg-01M58W9A7S applied · 1 golden to update

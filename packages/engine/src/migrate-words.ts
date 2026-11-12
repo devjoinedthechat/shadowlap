@@ -170,6 +170,23 @@ export interface MigratePassRun {
   verified: boolean;
   tally: { rule?: string | null } | null;
   diverges?: { callNo: number } | null;
+  /** Why a golden replays as recorded once switched: marked `fork`, or it sends no model the switch changes (`no-call`). */
+  stays?: 'fork' | 'no-call';
+}
+
+/**
+ * Why the goldens a switch leaves alone replay as recorded, by migrate's marks: those marked fork,
+ * those named as left behind that the replay found as recorded (an agent the patch doesn't touch, so
+ * only once `diverged` names what did), and those that never send a from-model. `short`, as Apply
+ * config change's Diverges row says it; else as `migrate apply` logs it.
+ */
+export function staysWords(runs: ReadonlyArray<Pick<MigratePassRun, 'golden' | 'diverges' | 'stays'>>, from: readonly string[], o: { diverged?: readonly string[]; short?: boolean } = {}): string {
+  const goldens = runs.filter((x) => x.golden);
+  const fork = goldens.filter((x) => x.stays === 'fork').length;
+  const untouched = o.diverged ? goldens.filter((x) => x.diverges && !o.diverged!.includes(x.golden!)).length : 0;
+  const never = goldens.filter((x) => x.stays === 'no-call').length;
+  const forks = o.short ? `${fork} marked fork ${fork === 1 ? 'passes on its checks' : 'pass on their checks'}` : `${fork} golden${fork === 1 ? ' marked fork passes on its checks wherever it forks' : 's marked fork pass on their checks wherever they fork'}`;
+  return [fork ? forks : '', untouched ? `${untouched} ${untouched === 1 ? 'runs an agent' : 'run agents'} the patch doesn’t touch` : '', never ? `${never} never ${never === 1 ? 'sends' : 'send'} ${from.join(' or ')}` : ''].filter(Boolean).join(o.short ? ', ' : ', and ');
 }
 
 /** The goldens a migration's config change leaves behind, each with the first call it makes with a model the switch changes, and the command that re-records them. */

@@ -244,7 +244,7 @@ export { codeChangeNeeded, decisionsHeadline, NOTHING_TO_ASK, decisionsMoved, de
 // What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, openRunWhy, outcomeCounts, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
-export { besidesWords, byHandNote, handOf, handWords, leftBehindLines, leftBehindOf, migrateCostWords, migratePassWords, migrateRules, type MigrateCosts, type MigratePassRun, leftBehindSentence, leftOutInFile, leftOutNote, migrateApplyProblem, migrateHeadline, namedInSentence, remedyText, type CodeMark, type LeftBehind, type MigrateApplyInput, type MigrateHeadlineInput, type MigrateSetInput, type MigrateTone } from './migrate-words.js';
+export { besidesWords, byHandNote, handOf, handWords, leftBehindLines, leftBehindOf, migrateCostWords, migratePassWords, migrateRules, type MigrateCosts, type MigratePassRun, leftBehindSentence, staysWords, leftOutInFile, leftOutNote, migrateApplyProblem, migrateHeadline, namedInSentence, remedyText, type CodeMark, type LeftBehind, type MigrateApplyInput, type MigrateHeadlineInput, type MigrateSetInput, type MigrateTone } from './migrate-words.js';
 export { CLEARED, changePct, endToEndWords, tallyCount, tallyParts, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, verifyTallyLine, type VerifiedTally, type VerifyTally } from './verified-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';

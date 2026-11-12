@@ -1,4 +1,4 @@
-import { andList, besidesWords, byHandNote, fieldValue, handOf, leftBehindOf, leftOutNote, migrateApplyProblem, migrateCostWords, migrateHeadline, migratePassWords, migrateRules, quoteArgv, remedyText, retirementOf, shortSessionId, verifiedCount, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigrateCosts, type MigrateTone, type RetirementNotice, type Store } from '@shadowlap/engine';
+import { andList, besidesWords, byHandNote, fieldValue, handOf, leftBehindOf, leftOutNote, migrateApplyProblem, migrateCostWords, migrateHeadline, migratePassWords, migrateRules, quoteArgv, remedyText, retirementOf, shortSessionId, staysWords, verifiedCount, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigrateCosts, type MigrateTone, type RetirementNotice, type Store } from '@shadowlap/engine';
 import { applyInputOf, type AppliedState } from './migrate-applied.js';
 import type { VerdictTone } from './verdict.js';
 
@@ -156,18 +156,9 @@ function applyOf(k: Kept, runs: PassRun[]): MigrateView['apply'] {
     files: list<{ path: string }>(input.configChange?.files).map((f) => f.path),
     leftOut: [...new Set(out.map((x) => x.field))],
     leftBehind: left,
-    stays: staysWords(runs, strings(k.from)),
+    stays: staysWords(runs, strings(k.from), { short: true }) || null,
     command: quoteArgv(['shadowlap', 'migrate', 'apply', shortSessionId(input.migrateId!)]),
   };
-}
-
-/** Why the goldens a switch leaves alone stay as recorded, as migrate marked them: those marked fork, then those that never send a from-model. */
-function staysWords(runs: PassRun[], from: string[]): string | null {
-  const n = (why: PassRun['stays']) => runs.filter((x) => x.golden && x.stays === why).length;
-  const fork = n('fork');
-  const none = n('no-call');
-  const parts = [fork ? `${fork} marked fork ${fork === 1 ? 'passes on its checks' : 'pass on their checks'}` : '', none ? `${none} never ${none === 1 ? 'sends' : 'send'} ${from.join(' or ')}` : ''];
-  return parts.filter(Boolean).join(', ') || null;
 }
 
 /** Each from-model's retirement in today's words (the table's, by the provider and model migrate read), its kept words where the table no longer has it. */

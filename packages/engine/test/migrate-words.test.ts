@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { codeChangeNeeded, emptyCounts, type DecisionRemedy, type MigratePasses } from '../src/decisions.js';
-import { besidesWords, byHandNote, handOf, handWords, leftBehindLines, leftBehindSentence, leftOutInFile, leftOutNote, migrateApplyProblem, migrateHeadline, namedInSentence, remedyText, type MigrateApplyInput } from '../src/migrate-words.js';
+import { besidesWords, byHandNote, handOf, handWords, leftBehindLines, leftBehindSentence, leftOutInFile, leftOutNote, migrateApplyProblem, migrateHeadline, namedInSentence, remedyText, staysWords, type MigrateApplyInput } from '../src/migrate-words.js';
 
 /**
  * A migration's report in words, the same wherever it shows: `shadowlap migrate`'s terminal report and
@@ -93,5 +93,21 @@ describe('why a migration is not applied', () => {
   it('says why verify waits for the code: a field to leave out with no value, or one under another name', () => {
     expect(codeChangeNeeded([remedy('temperature', { value: 1 })], 'claude-new')).toBeNull();
     expect(codeChangeNeeded([remedy('top_p'), remedy('max_tokens', { leftOut: false, renamedTo: 'max_completion_tokens' })], 'claude-new')).toBe("verify runs your agent's code, which claude-new refuses as it stands: leave top_p out and send max_completion_tokens in place of max_tokens in your agent's requests (What to set), then verify");
+  });
+});
+
+describe('why the goldens a switch leaves alone replay as recorded', () => {
+  const runs = [
+    { golden: 'goldens/left', diverges: { callNo: 2 } },
+    { golden: 'goldens/untouched', diverges: { callNo: 1 } },
+    { golden: 'goldens/forks', diverges: null, stays: 'fork' as const },
+    { golden: 'goldens/other', diverges: null, stays: 'no-call' as const },
+    { golden: 'goldens/other2', diverges: null, stays: 'no-call' as const },
+    { golden: null, diverges: null },
+  ];
+  it('says it short for Apply config change’s Diverges row, and whole for migrate apply, counting only once the replay named what diverged', () => {
+    expect(staysWords(runs, ['claude-old'], { short: true })).toBe('1 marked fork passes on its checks, 2 never send claude-old');
+    expect(staysWords(runs, ['claude-old', 'claude-older'], { diverged: ['goldens/left'] })).toBe('1 golden marked fork passes on its checks wherever it forks, and 1 runs an agent the patch doesn’t touch, and 2 never send claude-old or claude-older');
+    expect(staysWords(runs.slice(0, 2), ['claude-old'])).toBe('');
   });
 });

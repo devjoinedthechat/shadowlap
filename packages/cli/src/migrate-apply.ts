@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { posix, relative, resolve, sep } from 'node:path';
-import { andList, migrateApplyProblem, patchFiles, quoteArgv, recordEvent, resolveAuthor, shortSessionId, type MigrateApplyInput, type MigrationApplied, type Store } from '@shadowlap/engine';
+import { andList, migrateApplyProblem, patchFiles, quoteArgv, recordEvent, resolveAuthor, shortSessionId, staysWords, type MigrateApplyInput, type MigratePassRun, type MigrationApplied, type Store } from '@shadowlap/engine';
 import { DecisionsError } from './decisions.js';
 import { findSession } from './decisions-verify.js';
 import { EXIT } from './exit-codes.js';
@@ -48,7 +48,11 @@ export interface MigrateApplyResult {
 }
 
 /** What `migrate apply` reads of a kept migration: its report, as `migrate --json` printed it. */
-type KeptMigration = Omit<MigrateApplyInput, 'configChange' | 'files'> & { configChange: ConfigChange | null; files: { dir: string; pullRequest: string; patch: string | null } | null };
+type KeptMigration = Omit<MigrateApplyInput, 'configChange' | 'files' | 'passes'> & {
+  passes: { verdict: MigrateApplyInput['passes']['verdict']; runs: ReadonlyArray<MigrateApplyInput['passes']['runs'][number] & Pick<MigratePassRun, 'golden' | 'diverges' | 'stays'>> };
+  configChange: ConfigChange | null;
+  files: { dir: string; pullRequest: string; patch: string | null } | null;
+};
 
 const slashes = (p: string) => p.split(/[\\/]+/).join('/');
 
@@ -104,7 +108,9 @@ async function replayGoldens(store: Store, r: KeptMigration, text: string, o: Mi
   const outdated = check.outdated;
   for (const g of outdated) o.log(`    ✗ ${g.golden}: diverged at call ${g.callNo} (${g.kind} ${g.name}) · ~ ${g.path}`);
   const others = check.checked - outdated.length;
-  if (check.checked) o.log(outdated.length ? (others ? `    the other ${others} ${others === 1 ? "doesn't" : 'don’t'} diverge on it` : '') : '    none of them diverges on it');
+  // Why the others replay as recorded, by migrate's marks; their count where the marks don't say.
+  const why = staysWords(r.passes.runs, r.from, { diverged: outdated.map((g) => g.golden) });
+  if (check.checked) o.log(outdated.length ? (others ? (why ? `    the others don’t diverge on it: ${why}` : `    the other ${others} ${others === 1 ? "doesn't" : 'don’t'} diverge on it`) : '') : `    none of them diverges on it${why ? `: ${why}` : ''}`);
   if (!outdated.length) return { outdated, update: null };
   const update = quoteArgv(['shadowlap', 'test', ...outdated.map((g) => g.golden), '--update']);
   const n = outdated.length;
