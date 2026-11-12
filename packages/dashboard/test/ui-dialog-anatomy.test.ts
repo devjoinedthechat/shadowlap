@@ -719,7 +719,7 @@ describe('Settings’ and the shell’s dialogs', () => {
 
 describe('Settings → CI’s dialog', () => {
   it('Preview pull request comment: Close, then Copy Markdown, plain, which copies and keeps it open', async () => {
-    const preview = { session: { id: 'ts-1', revision: 'd2e8a1f', at: Date.now() }, head: '1 of 1 golden passed', rows: [{ verdict: 'passed', golden: 'goldens/refund-flow', line: 'passed · replayed clean' }], decisions: null, cost: null, injection: [], postedBy: 'github-actions', markdown: '### Shadowlap: 1 of 1 golden passed\n' };
+    const preview = { session: { id: 'ts-1', revision: 'd2e8a1f', at: Date.now() }, head: '1 of 1 golden passed', rows: [{ verdict: 'passed', golden: 'goldens/refund-flow', line: 'passed · replayed clean' }], decisions: null, cost: null, injection: [], postedBy: 'github-actions', foot: "The job's summary has each failure in full.", markdown: '### Shadowlap: 1 of 1 golden passed\n' };
     holds(await open(createElement(PrCommentDialog, { preview, ...closes }), appWith({ feeds: {} })), { title: 'Preview pull request comment', doc: 'prComment', first: CANCEL, ok: 'Copy Markdown', tone: 'plain' });
   });
 });
