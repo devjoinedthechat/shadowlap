@@ -52,9 +52,9 @@ const FIGURES = /tells \S+ from \S+|(?:rescue|lost) at \S+|(?:at )?<= \S+ risk|u
 /** A rule's words with each figure glued together, so it breaks only between figures. */
 export const ruleWords = (rule: string): string => rule.replace(FIGURES, (m) => m.replace(/ /g, '\u00a0'));
 
-/** A gate's rule, stated once, breaking only between its figures. */
+/** A gate's rule, stated once, breaking only between its figures, each small word kept with what follows ("from its last 10 sessions"). */
 export function RuleText({ rule }: { rule: string }) {
-  return <>{ruleWords(rule)}</>;
+  return <Words>{ruleWords(rule)}</Words>;
 }
 
 /** The hover a verdict line carries when its rule isn't stated beside it: the rule, under what it decided. */
