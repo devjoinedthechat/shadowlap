@@ -60,6 +60,14 @@ export const ACTIONS = {
   verifyThisRun: { label: 'Verify this run', doing: 'Verifying' },
   verifyTheseRuns: { label: 'Verify these runs', doing: 'Verifying' },
   applyFix: { label: 'Apply fix', doing: 'Applying fix' },
+  // Changes: a preview of a change, from Preview, a run's Decisions view, Runs and the palette. A
+  // menu's opener and Open preview ask nothing; a way that asks for its model or its field does.
+  newPreview: { label: 'New preview' },
+  previewChange: { label: 'Preview change' },
+  previewModelSwitch: { label: 'Preview model switch…', doing: 'Previewing model switch' },
+  previewChangedPrompt: { label: 'Preview changed prompt', doing: 'Previewing changed prompt' },
+  previewFieldChange: { label: 'Preview field change…', doing: 'Previewing field change' },
+  openPreview: { label: 'Open preview' },
   // Tests.
   runTests: { label: 'Run tests', doing: 'Running tests' },
   updateGolden: { label: 'Update golden', doing: 'Updating golden' },

@@ -19,6 +19,18 @@ export const verdictWord = (v: 'accepted' | 'rejected' | 'incomplete'): 'accepte
 export const runOutcomeWord = <O extends string>(o: O): Exclude<O, 'unsettled'> | 'inconclusive' => (o === 'unsettled' ? 'inconclusive' : (o as Exclude<O, 'unsettled'>));
 
 /**
+ * Why verify left a run open, by how it came out (`outcome`: verify's word, `outcomeOf`, or a kept
+ * session's) and why an attempt it could not judge stopped it (`undecided`): its gate ran out of
+ * attempts (`ran-out`), it stopped first (`stopped`), or that attempt stopped it (`unjudged`); null
+ * for a run it settled. Run more attempts takes the first two, a role's limit doubling only where a
+ * run of that role ran out, and Verify again the third: Fixes and Changes read an open run so alike.
+ */
+export function openRunWhy(outcome: string, undecided: string | null | undefined): 'ran-out' | 'stopped' | 'unjudged' | null {
+  if (undecided) return 'unjudged';
+  return outcome === 'inconclusive' ? 'ran-out' : outcome === 'unsettled' ? 'stopped' : null;
+}
+
+/**
  * A test session's tally, counting what passed, as every tally on a page counts it: `2 of 7 goldens
  * passed`. (The session's own line keeps the CLI's `2 passed, 3 failed, 2 inconclusive`.)
  */

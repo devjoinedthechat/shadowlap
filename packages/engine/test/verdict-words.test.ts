@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from '../src/verdict-words.js';
+import { fixVerifyHead, goldensPassed, openRunWhy, runOutcomeWord, verdictWord, verifyHead } from '../src/verdict-words.js';
 import { outcomeOf, type VerifiedRun, type VerifyReport } from '../src/verify.js';
 import { runId, verifyReport } from './fix-fixtures.js';
 
@@ -22,6 +22,20 @@ describe('a verify, in the one word a page has for each state', () => {
     expect((['fixed', 'not fixed', 'kept', 'broken', 'unsettled', 'inconclusive'] as const).map(runOutcomeWord)).toEqual(['fixed', 'not fixed', 'kept', 'broken', 'inconclusive', 'inconclusive']);
     // A budget that stopped a run's attempts before its gate decided: verify's report says unsettled, a page inconclusive.
     expect(runOutcomeWord(outcomeOf({ role: 'target', verdict: 'open', decision: 'continue' }))).toBe('inconclusive');
+  });
+});
+
+describe('openRunWhy', () => {
+  it('tells a run whose gate ran out from one that stopped first and one an attempt it could not judge stopped, in a kept session and a verdict alike', () => {
+    expect(openRunWhy('inconclusive', null)).toBe('ran-out');
+    expect(openRunWhy('unsettled', null)).toBe('stopped');
+    expect(openRunWhy('inconclusive', 'the judge gave no answer')).toBe('unjudged');
+    for (const settled of ['fixed', 'not-fixed', 'not fixed', 'kept', 'broken']) expect(openRunWhy(settled, null)).toBeNull();
+    // A verdict's run, by verify's own word for it.
+    const open = (decision: 'inconclusive' | 'undecided' | undefined, undecided: string | null) => openRunWhy(outcomeOf({ role: 'target', verdict: 'open', decision: decision as never, undecided }), undecided);
+    expect(open('inconclusive', null)).toBe('ran-out');
+    expect(open(undefined, null)).toBe('stopped');
+    expect(open(undefined, 'attempt 3 timed out')).toBe('unjudged');
   });
 });
 
