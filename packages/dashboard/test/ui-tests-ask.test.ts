@@ -464,7 +464,7 @@ describe('a live session’s question, answered by Spending', () => {
     expect(yeses(injection.sent)).toEqual([]);
   });
 
-  it('asks Keep it as a test’s question on every setting, in the step’s words, its yes going through the page that asked', async () => {
+  it('asks Pack’s question on every setting, in the step’s words, its yes going through the page that asked', async () => {
     // Nothing prices it: even one that came with a price, at Never ask, waits for its dialog.
     const priced = await rerun(null, PRICED, 'pack-test');
     expect(dialog(priced.page)).not.toBeNull();

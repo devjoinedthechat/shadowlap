@@ -68,7 +68,7 @@ export const SHAPES = {
   // check: recordings judged by checks, nothing replayed; and each check as it came out, wherever a command prints one.
   check: { section: 'check', fields: ['expect', 'recordings', 'counts', 'unchecked', 'notes'] },
   checkRecording: { section: 'check', fields: ['runId', 'pack', 'labels', 'source', 'outcome', 'why', 'checks'] },
-  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive'] },
+  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive', 'notApplicable'] },
   checkResult: { section: 'check', fields: ['status', 'ok', 'label', 'detail'] },
   init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'fence', 'hardcodedBaseUrls', 'unrecordedModels', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
   // The coding agents' plugin and rule, put into a project (skill-install.test.ts).

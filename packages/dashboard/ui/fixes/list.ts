@@ -3,7 +3,7 @@ import type { Fact } from '../components/Facts.js';
 import { failedRunsWords } from '../failed-runs.js';
 import { cents } from '../format.js';
 import { exitWords } from '../outcome-tip.js';
-import type { FixesView, FixesViewRow, FixRow, JobListItem, StepKey, UnblamedRow } from '../types.js';
+import type { FailedCheck, FixesView, FixesViewRow, FixRow, JobListItem, StepKey, UnblamedRow } from '../types.js';
 import { pluralS as s } from '../../../engine/src/words.js';
 import type { FixChip } from './model.js';
 export { LEAD_KIND, LEAD_VERB, leadCard, leadReadsFix, leadWait } from './lead.js';
@@ -51,12 +51,7 @@ export const unblamedShows = (chip: FixChip): boolean => chip === 'all' || chip 
 
 // ---------------------------------------------------------------------------------------------- a row
 
-/** A fix's place on the ladder, as a dot and a word: open and blamed muted, verified, applied and merged lime, an applied fix that doesn't hold red. */
-export function rungStatus(f: Pick<FixesViewRow, 'rung' | 'pr' | 'broken' | 'status'>): { tone: 'mu' | 'ok' | 'err'; text: string } {
-  if (f.status === 'applied' && f.broken) return { tone: 'err', text: 'broken' };
-  if (f.rung === 'open' || f.rung === 'blamed') return { tone: 'mu', text: f.rung };
-  return { tone: 'ok', text: f.rung === 'merged' && f.pr?.number != null ? `merged · PR #${f.pr.number}` : f.rung };
-}
+export { rungStatus } from './rung-status.js';
 
 /** The `from CI` chip's card: what Fix on failure did in CI, and where its pull request stands. */
 export function ciCard(f: Pick<FixesViewRow, 'pr'>): string {
@@ -66,10 +61,14 @@ export function ciCard(f: Pick<FixesViewRow, 'pr'>): string {
   return pr.state === null ? `${opened}.` : `${opened}; it ${pr.state === 'open' ? 'is' : 'was'} ${pr.state}.`;
 }
 
-/** The failing runs' link's card: how many, the first five by id, and where it leads. */
-export function failingCard(f: Pick<FixesViewRow, 'failing' | 'failingIds'>): { title: string; text: string } {
-  const n = f.failing;
-  return { title: `${n} run${s(n)} failed its check`, text: failedRunsWords(f.failingIds, n) };
+/**
+ * The failing runs' link's card: how many runs failed the fix's check, the first five by id, and
+ * where it leads. It counts the runs the link opens under Failed (`failedCheck`), where any are
+ * there, else the fix's own; the link's words keep the fix's own count, as Verify replays them.
+ */
+export function failingCard(f: Pick<FixesViewRow, 'failing' | 'failingIds'> & { failedCheck?: FailedCheck | null }): { title: string; text: string } {
+  const n = f.failedCheck?.count ?? f.failing;
+  return { title: `${n} run${s(n)} failed its check`, text: failedRunsWords(f.failedCheck?.ids ?? f.failingIds, n) };
 }
 
 /** A step's cell: its word, and its state, `busy` while a job of the fix's runs it. */

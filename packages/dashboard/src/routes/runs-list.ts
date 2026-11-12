@@ -5,8 +5,9 @@ import type { Router } from '../router.js';
 import { answerData, sendAnswer } from '../read-pool.js';
 import { deleteRunsApart } from '../delete-apart.js';
 import { filterTerms, RECORDED_MIN_CHARS } from '../links.js';
+import { OPEN_ISSUES } from '../issue-keys.js';
 import { knownRuns, labelRuns, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
-import { LATER_FAILURES, type DayFailure } from '../runs-failures.js';
+import { FAMILY_ONLY_FAILURES, LATER_FAILURES, type DayFailure } from '../runs-failures.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
 import { readTeamStoreInput, type TeamStoreInput } from '../team-store.js';
 import { goldensOf, projectWork } from '../outcome-work.js';
@@ -87,6 +88,20 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, a);
   });
 
+  // Runs › Failed as issues (issues.ts): the failed runs the same filter and days keep, grouped beside
+  // the server, those the page shows open (an `open` for each) with their newest runs; with
+  // `issue`, that issue's newest runs, or with `cursor` those after the run its last page ended on.
+  router.get('/runs/issues', async (r) => {
+    const o = runsPageOptions(r.query);
+    if ('error' in o) throw new HttpError(400, o.error);
+    const options = { ...(o.from != null ? { from: o.from } : {}), ...(o.to != null ? { to: o.to } : {}), ...(o.q ? { q: o.q } : {}) };
+    const open = r.query.getAll('open').slice(0, OPEN_ISSUES).map((key) => key.slice(0, 500));
+    const job = { kind: 'runs-issues' as const, options, issue: r.query.get('issue')?.slice(0, 500) ?? null, cursor: o.cursor ?? null, open, ...projectWork(ctx) };
+    const a = await withRecorded(ctx, o.q, () => ctx.reads.run(job));
+    if (a.warming) ctx.reads.warm();
+    sendAnswer(r, a);
+  });
+
   // Find breaking commit, from the calendar: with Failed picked and days chosen, the first failure in
   // those days is where it started failing; bisect looks between a commit where it still worked
   // before the first day picked and that failure's own commit. A failure at the first commit has
@@ -98,8 +113,8 @@ export function register(router: Router, ctx: RouteContext): void {
     if (o.from == null || o.to == null) throw new HttpError(400, 'from and to: the days picked');
     // The failures the filter matches, oldest first, matched beside the server (runs-failures.ts).
     const job = { kind: 'runs-failures' as const, options: { from: o.from, to: o.to, ...(o.types ? { types: o.types } : {}), ...(o.q ? { q: o.q } : {}) }, outcome: projectWork(ctx).outcome };
-    const { failures } = answerData<{ failures: DayFailure[] }>(await withRecorded(ctx, o.q, () => ctx.reads.run(job)));
-    if (!failures.length) return r.json({ runId: null, reason: 'nothing failed on the days picked' } satisfies DaysBisect);
+    const { failures, familyOnly } = answerData<{ failures: DayFailure[]; familyOnly?: boolean }>(await withRecorded(ctx, o.q, () => ctx.reads.run(job)));
+    if (!failures.length) return r.json({ runId: null, reason: familyOnly ? FAMILY_ONLY_FAILURES : 'nothing failed on the days picked' } satisfies DaysBisect);
     const offer = (run: DayFailure, choices: BisectChoices) => ({ ...run, choices });
     let earlier: { run: DayFailure; choices: BisectChoices } | null = null;
     for (const run of failures.slice(0, LATER_FAILURES)) {

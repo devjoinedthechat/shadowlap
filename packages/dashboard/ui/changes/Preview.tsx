@@ -10,7 +10,7 @@ import { Link } from '../components/Link.js';
 import { MigrateAsk } from '../components/MigrateAsk.js';
 import { Picker } from '../components/Picker.js';
 import { useMenu } from '../components/Popover.js';
-import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
+import { EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { glossed } from '../components/Term.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { forgetPreviewSession, notePreviewSession } from '../changes-tab.js';
@@ -57,7 +57,7 @@ export function PreviewTab({ id, run, call, onMissing }: { id: string | null; ru
   useLayoutEffect(() => {
     if (gone && id && detail.error) onMissing?.(detail.error);
   }, [gone, id, detail.error, onMissing]);
-  if (list.error && !list.data) return <ErrorState retry={list.reload}>{failedWords(list.error)}</ErrorState>;
+  if (list.error && !list.data) return <ErrorState retry={list.reload}>{failedRead(list.error)}</ErrorState>;
   if (!sessions) return <Skeleton what="the previews" lines={8} />;
   if (!shownId) return <NoPreview goldens={list.data!.goldens} />;
   if (gone || (session && session.kind !== 'decisions'))
@@ -67,7 +67,7 @@ export function PreviewTab({ id, run, call, onMissing }: { id: string | null; ru
         No preview {shownId}. <Link href={href.changeSession('decisions')}>Open Preview</Link>
       </div>
     );
-  if (detail.error && !session) return <ErrorState retry={detail.reload}>{failedWords(detail.error)}</ErrorState>;
+  if (detail.error && !session) return <ErrorState retry={detail.reload}>{failedRead(detail.error)}</ErrorState>;
   if (!session) return <Skeleton what="this preview" lines={8} />;
   const opened = openedCell(session, run, call);
   return (
@@ -100,8 +100,6 @@ function openedCell(session: PreviewSession, run: string | null, call: number | 
   const callNo = call ?? row?.ending.callNo ?? row?.cells[0]?.callNo ?? null;
   return row && callNo !== null ? { row, callNo } : null;
 }
-
-const failedWords = (e: Error) => (e instanceof ApiError ? `The dashboard server answered ${e.status} for this page’s data.` : e.message);
 
 /** No preview kept: what one is, and the command that makes one; with no goldens, what to pack first. */
 function NoPreview({ goldens }: { goldens: number }) {

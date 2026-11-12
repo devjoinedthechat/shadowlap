@@ -306,16 +306,22 @@ describe('Tests\' states, parts and keys', () => {
     const loading = await drawn({ tests: () => new Promise<TestsView>(() => undefined) });
     await loading.until('the bars', () => loading.all('.skel').length === 1);
     expect([loading.one('.skel [role="status"]').textContent, loading.all('.skel .skin .verdict.tv').length, loading.all('.skel .skin table.gt tbody tr').length]).toEqual(['Loading the goldens…', 1, 3]);
-    const failed = await drawn({ tests: () => Promise.reject(new ApiError(500, 'boom')) });
+    const failed = await drawn({ tests: () => Promise.reject(new ApiError(500, 'HTTP 500')) });
     await failed.until('the error', () => failed.all('.loaderr').length === 1);
     expect([failed.one('.loaderr .st.err').textContent, failed.one('.loaderr p > span:not(.st)').textContent, failed.one('.loaderr button').textContent]).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.', 'Retry']);
     expect(failed.one('.ph h1').textContent).toBe('Tests');
+    // The server's own sentence where it sent one: a read that took too long says so.
+    const late = await drawn({ tests: () => Promise.reject(new ApiError(503, 'The goldens took longer than 10 s to read, so it was stopped')) });
+    await late.until('the error', () => late.all('.loaderr').length === 1);
+    expect(late.one('.loaderr p > span:not(.st)').textContent).toBe('The goldens took longer than 10 s to read, so it was stopped');
     const empty = await drawn({});
     await empty.until('the empty state', () => empty.all('.stepempty').length === 1);
     expect([empty.one('.stepempty h2').textContent, empty.all('.stepempty .cmdline').length]).toEqual(['No goldens yet', 1]);
     const none = await drawn({ app: { runs: [] } });
     await none.until('the empty state', () => none.all('.stepempty').length === 1);
     expect(none.all('.stepempty .cmdline')).toHaveLength(0);
+    // Recording one comes first: the step is the setup, on the Overview.
+    expect([none.one('.stepempty .actions a.btn.lime').textContent, none.one('.stepempty .actions a').getAttribute('href')]).toEqual(['Set up this project', '#/']);
   });
 
   it('offers the newest run its listed step says to pack as Pack <id> as golden…, lime, its command under it, packing it and its test as the run page does', async () => {

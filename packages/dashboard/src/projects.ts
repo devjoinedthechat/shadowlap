@@ -223,7 +223,7 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
         { title: 'Inspect', text: 'Reads the folder for SDKs, the start command and tools. Runs nothing.' },
         { title: 'Record', text: 'Runs your command once, after you confirm it.' },
         { title: 'Calibrate', text: 'Replays offline until the replay is clean.' },
-        { title: 'Keep it as a test', text: 'Packs the run for CI to replay on every commit.' },
+        { title: 'Pack', text: 'Packs the run for CI to replay on every commit.' },
       ],
       note: 'The dashboard runs a command in a project’s folder only when you click, and asks first the first time.',
     },
@@ -239,7 +239,7 @@ export function addedMessage(added: { project: ProjectEntry; again: boolean; run
 // ---------------------------------------------------------------------------------------------
 // Setting a project up
 
-/** `skipped`: the setup went past this step without it (Skip the rest, or a later step done in a terminal). */
+/** `skipped`: the setup went past this step without it (Skip setup, or a later step done in a terminal). */
 export type StepState = 'done' | 'current' | 'todo' | 'skipped';
 
 interface StepBase {
@@ -273,20 +273,26 @@ export interface InspectStep extends StepBase {
   /** Before it runs: what it does. */
   text: string | null;
   /** Runs `init` (again). */
-  button: { label: string; action: 'init' } | null;
+  button: { label: string; action: 'init'; lime: boolean } | null;
   findings: { rows: FindingRow[]; tools: ToolRow[] } | null;
-  /** Once a run is recorded and every tool is wrapped, the findings fold into this line. */
-  summary: string | null;
+  /**
+   * Once inspected, the findings fold into one line, so the step at hand comes next on the page:
+   * these facts (`Python 3.12 · anthropic 0.69 · 5 tools, 2 not wrapped`), then the command.
+   */
+  summaryFacts: string[] | null;
   /** The command the summary ends on, to show as code. */
   summaryCommand: string | null;
   folded: boolean;
-  /** Tools that aren't wrapped: what that means, the code to wrap them, and the re-check. */
-  warning: { title: string; text: string; code: WrapSnippet[]; copy: string; recheck: { label: string; action: 'recheck' } } | null;
+  /**
+   * Tools that aren't wrapped: what that means, the code to wrap them, and Check again, the page's
+   * lime while one of them is a write (Pack waits for it, `packWait`), plain for reads alone.
+   */
+  warning: { title: string; text: string; code: WrapSnippet[]; recheck: { label: string; action: 'recheck'; lime: boolean } } | null;
   /**
    * The project pins a Node older than Shadowlap's guard takes (18.18): an agent on it wouldn't
-   * start, so Record waits until the pin is raised and the folder checked again.
+   * start, so Record waits until the pin is raised and the folder checked again, which leads.
    */
-  node: { title: string; text: string; recheck: { label: string; action: 'recheck' } } | null;
+  node: { title: string; text: string; recheck: { label: string; action: 'recheck'; lime: boolean } } | null;
 }
 
 export interface RecordStep extends StepBase {
@@ -294,18 +300,18 @@ export interface RecordStep extends StepBase {
   text: string | null;
   /** The editable command, before the first recording. */
   command: { value: string; enabled: boolean } | null;
-  button: { label: string; action: 'record'; enabled: boolean } | null;
+  /** Record run: plain while a write tool isn't wrapped, as Check again leads, though it still works. */
+  button: { label: string; action: 'record'; enabled: boolean; lime: boolean } | null;
   /** The recording streaming in. */
   live: { runId: string; calls: number; text: string; watch: { label: string; href: string } } | null;
   recorded: { runId: string; href: string; calls: number; spent: number; durationMs: number | null; text: string } | null;
   /** Tools weren't wrapped when it was recorded. */
   warning: string | null;
   /**
-   * Record again, with the command and the line for a terminal: offered while the recording misses
-   * the calls of tools that weren't wrapped, until the replay is made clean. The new recording
-   * replaces it.
+   * Record again, with the command and the line for a terminal: offered once every tool the
+   * recording missed is wrapped (`recordLead`). The new recording replaces it.
    */
-  again: { label: string; action: 'record'; command: { value: string; enabled: boolean }; cli: string[] } | null;
+  again: { label: string; action: 'record'; lime: boolean; command: { value: string; enabled: boolean }; cli: string[] } | null;
   /** The newest recording held no calls: nothing was recorded, and why that usually is (until the replay is made clean). */
   empty: { runId: string; href: string; text: string } | null;
 }
@@ -313,8 +319,13 @@ export interface RecordStep extends StepBase {
 export interface CalibrateStep extends StepBase {
   key: 'calibrate';
   text: string;
-  /** Calibrate, or once it proposed normalizers, add them (`calibrate <run> --write`). */
-  button: { label: string; action: 'calibrate' | 'calibratewrite'; enabled: boolean } | null;
+  /**
+   * Calibrate, or once it proposed normalizers, add them (`calibrate <run> --write`): plain while
+   * Pack waits. Adding them says on hover what it writes, and its command (`tip`).
+   */
+  button: { label: string; action: 'calibrate' | 'calibratewrite'; enabled: boolean; lime: boolean; tip?: { sub: string; command: string } } | null;
+  /** Beside a proposal, Calibrate again, never lime: the proposal left as it is. */
+  again: { label: string; action: 'calibrate' } | null;
   /** What the last calibrate proposed and didn't add yet. */
   proposed: Array<{ path: string; why: string | null }>;
   /** Why the last calibrate stopped short of a clean replay. */
@@ -327,8 +338,11 @@ export interface TestStep extends StepBase {
   redaction: { rules: number; text: string; href: string } | null;
   /** The golden's path, editable until it is packed. */
   golden: { value: string; enabled: boolean } | null;
-  /** Pack as golden (then its test runs), with no ellipsis as its folder is the field above it, or once it is packed, Run the test. */
-  button: { label: string; action: 'packgolden' | 'testgolden'; enabled: boolean } | null;
+  /**
+   * Pack as golden (then its test runs), with no ellipsis as its folder is the field above it, or
+   * once it is packed, Run test: plain while it waits (`SetupView.wait`).
+   */
+  button: { label: string; action: 'packgolden' | 'testgolden'; enabled: boolean; lime: boolean } | null;
   /** Its test passed: the step is done. */
   result: { text: string; link: { label: string; href: string } } | null;
   /** Packed, and its test not passed yet: never run, or failed (with why, and where to look). */
@@ -340,17 +354,50 @@ export interface SetupView {
   eyebrow: string;
   title: string;
   intro: string;
-  /** Skip the rest: after the first recording, before the golden. */
+  /** Skip setup: after the first recording, before the golden. */
   skip: { label: string; action: 'finishsetup' } | null;
   inspect: InspectStep;
   record: RecordStep;
   calibrate: CalibrateStep;
   test: TestStep;
   steps: [InspectStep, RecordStep, CalibrateStep, TestStep];
-  /** Once the golden is kept. */
-  done: { title: string; text: string; button: { label: string; action: 'finishsetup' } } | null;
-  /** Where the setup shows: every page but Settings, the Overview, or nowhere. */
+  /** Why Pack as golden, or once the golden is packed its test, waits (`packWait`). */
+  wait: PackWait | null;
+  /** Once the golden's test passed: its verdict word, the line beside it, and Go to Overview. */
+  done: { word: string; title: string; text: string; button: { label: string; action: 'finishsetup' } } | null;
+  /** Where the setup shows: with no runs, the Overview and `#/setup`; the Overview while it is set up; nowhere once it is. */
   shows: EffectiveSetup['shows'];
+}
+
+/** Why Pack as golden waits: the write tools, not wrapped yet or (`since`) wrapped since the recording, and the sentence. */
+export interface PackWait {
+  tools: string[];
+  since: boolean;
+  text: string;
+}
+
+/**
+ * Why Pack as golden waits, or null: while a tool the folder's inspection calls a write isn't
+ * wrapped, a replay of the golden would run it for real; once wrapped, until a recording made since,
+ * as the setup's recording doesn't hold its calls. Tools that only read never hold it. Once the
+ * golden is packed (`packed`), its test waits the same way. None once its test passed or the setup
+ * is finished. The setup page draws it, and the setup's pack-test job refuses with it (pack-test.ts).
+ */
+export function packWait({ findings, setup, packed = false }: { findings: ProjectEntry['setup']['findings']; setup: EffectiveSetup; packed?: boolean }): PackWait | null {
+  if (setup.stage === 'done' || setup.steps.tested) return null;
+  const now = unwrappedTools(findings)
+    .filter((t) => t.effect === 'write')
+    .map((t) => t.name);
+  const recorded = !!setup.run && !setup.live && setup.steps.recorded;
+  const isWrite = (name: string) => !!findings?.tools.some((t) => t.name === name && t.effect === 'write');
+  const tools = now.length || !recorded ? now : setup.unwrappedAtRecord.filter(isWrite);
+  if (!tools.length) return null;
+  const one = tools.length === 1;
+  const verb = packed ? 'Testing' : 'Packing';
+  const text = now.length
+    ? `${verb} waits until ${listed(tools)} ${one ? 'is' : 'are'} wrapped: a replay of this golden would run ${one ? 'it' : 'them'} for real.`
+    : `${verb} waits for a recording made since ${listed(tools)} ${one ? 'was' : 'were'} wrapped: ${packed ? 'this golden' : 'this one'} doesn’t hold ${one ? 'its' : 'their'} calls.`;
+  return { tools, since: !now.length, text };
 }
 
 export interface SetupInput {
@@ -378,7 +425,8 @@ function findingRows(f: NonNullable<ProjectEntry['setup']['findings']>): Finding
     ...(f.modelServer ? [{ label: 'Model server', value: f.modelServer.url, code: false, small: f.modelServer.from ? `from ${f.modelServer.from}` : null }] : []),
     { label: 'Framework', value: f.framework ?? 'none detected', code: false, small: null },
     { label: 'Command', value: f.command ? quoteArgv(f.command) : 'none found', code: !!f.command, small: f.commandFrom ? `from ${f.commandFrom}` : null },
-    { label: 'Config', value: f.config.created ? `wrote an empty ${f.config.file}` : f.config.existed ? `${f.config.file} exists · left as it is` : 'none written', code: false, small: null },
+    // As the CLI prints it: `wrote shadowlap.config.json (empty)`.
+    { label: 'Config', value: f.config.created ? f.config.file : f.config.existed ? `${f.config.file} exists · left as it is` : 'none written', code: f.config.created, small: f.config.created ? 'written, empty' : null },
   ];
 }
 
@@ -412,6 +460,15 @@ interface SetupFacts {
    * it, so step 3 shows as passed by, one step current at a time; it can still be run.
    */
   packedOnly: string | null;
+  /** Why Pack (or its test) waits: a write tool not wrapped, or wrapped since the recording. */
+  wait: PackWait | null;
+  /**
+   * Recorded (here or in a terminal) before the folder was inspected: with no findings, Pack's wait
+   * can't tell a write tool that isn't wrapped, so Inspect folder leads.
+   */
+  uninspected: boolean;
+  /** The buttons after Inspect read plain, though they still work: Pack waits, or Inspect leads (`uninspected`). */
+  held: boolean;
 }
 
 /** The four steps of a project's setup, each with its state and the CLI command it runs. */
@@ -426,15 +483,17 @@ export function setupView(input: SetupInput): SetupView {
   return {
     project: { id: project.id, name: project.name, path },
     eyebrow: `${project.name} · ${path}`,
-    title: setup.shows === 'everywhere' ? 'No runs yet' : `Set up ${project.name}`,
+    title: `Set up ${project.name}`,
     intro: SETUP_INTRO,
-    skip: f.recorded && !f.tested && !f.finished ? { label: 'Skip the rest', action: 'finishsetup' } : null,
+    skip: f.recorded && !f.tested && !f.finished ? { label: 'Skip setup', action: 'finishsetup' } : null,
     inspect,
     record,
     calibrate,
     test,
     steps: [inspect, record, calibrate, test],
-    done: f.tested ? { title: `${project.name} is set up.`, text: 'Replays of this run cost nothing, and CI catches a change to what the agent sends.', button: { label: 'Go to the overview', action: 'finishsetup' } } : null,
+    wait: f.wait,
+    // "Exactly" is the promise the lead makes; what replays save is the line beside it.
+    done: f.tested ? { word: 'set up', title: `${project.name} replays exactly.`, text: 'Replays of this run cost nothing, and CI catches a change to what the agent sends.', button: { label: 'Go to Overview', action: 'finishsetup' } } : null,
     shows: setup.shows,
   };
 }
@@ -460,165 +519,221 @@ function setupFacts(input: SetupInput): SetupFacts {
   const unwrapped = unwrappedTools(findings);
   const oldNode = findings?.nodePin && nodePinTooOld(findings.nodePin.version) ? findings.nodePin : null;
   const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
-  return { input, findings, inspected, run, live, finished, recorded, clean, tested, state, golden, argv, server, commands, totals, unwrapped, oldNode, packedOnly };
+  const wait = packWait({ findings, setup, packed: packedOnly !== null });
+  const uninspected = !findings && (stageAtLeast(stage, 'recorded') || live);
+  return { input, findings, inspected, run, live, finished, recorded, clean, tested, state, golden, argv, server, commands, totals, unwrapped, oldNode, packedOnly, wait, uninspected, held: !!wait || uninspected };
 }
 
 /**
- * 1 · Inspect the folder: done once `init` ran and its findings are kept; skipped when a later step
- * was reached without it (a recording made in a terminal first), which can still be done.
+ * 1 · Inspect: done once `init` ran and its findings are kept, then folded to one line; skipped when
+ * a later step was reached without it (a recording made in a terminal first), which can still be
+ * done, and leads until it is, as Pack's wait can't judge the tools without it.
  */
-function inspectStep({ input, findings, live, recorded, state, argv, commands, unwrapped, oldNode }: SetupFacts): InspectStep {
-  const stage = input.setup.stage;
-  const writes = unwrapped.filter((t) => t.effect === 'write');
-  const one = unwrapped.length === 1;
-  const passedInspect = !findings && (stageAtLeast(stage, 'recorded') || live);
+function inspectStep(f: SetupFacts): InspectStep {
+  const { findings, uninspected, tested, finished, state, argv, commands } = f;
   return {
     key: 'inspect',
     n: 1,
-    title: 'Inspect the folder',
-    state: state(!!findings, true, passedInspect),
+    title: 'Inspect',
+    state: state(!!findings, true, uninspected),
     cli: findings ? [] : commands.inspect,
-    text: findings ? null : passedInspect ? 'Recorded before the folder was inspected. Inspect it to see its tools, and whether each one is wrapped.' : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
-    button: findings ? null : { label: 'Inspect the folder', action: 'init' },
+    text: findings ? null : uninspected ? 'Recorded before the folder was inspected. Inspect it to see its tools, and whether each one is wrapped.' : 'Finds the model SDKs, the command that starts the agent, and every tool with the effect it declares. It runs nothing and writes one empty config file.',
+    // Lime until the golden's test passed, whose verdict line leads then.
+    button: findings ? null : { label: 'Inspect folder', action: 'init', lime: !tested && !finished },
     findings: findings ? { rows: findingRows(findings), tools: findings.tools.map(toolRow) } : null,
+    summaryFacts: findings ? summaryFacts(findings, f.unwrapped.length) : null,
     // The command the run was recorded with, typed or found, as the design's summary ends on it.
-    summary: findings ? [findings.language ?? 'not recognised', findings.sdk ?? 'no model SDK found', findings.tools.length ? `${plural(findings.tools.length, 'tool')}, ${unwrapped.length ? `${unwrapped.length} not wrapped` : 'all wrapped'}` : 'no tools found', ...(argv ? [quoteArgv(argv)] : [])].join(' · ') : null,
     summaryCommand: findings && argv ? quoteArgv(argv) : null,
-    folded: !!findings && recorded && unwrapped.length === 0,
-    warning:
-      findings && unwrapped.length
-        ? {
-            title: `${unwrapped.length === writes.length ? plural(unwrapped.length, 'write tool') : plural(unwrapped.length, 'tool')} ${one ? 'isn’t' : 'aren’t'} wrapped.`,
-            text: `${one ? 'Its' : 'Their'} calls won’t be recorded, so a replay runs ${one ? 'it' : 'them'} for real${writes.length ? `: ${listed(writes.map((t) => t.name))} would act again` : ''}. Wrap ${one ? 'it' : 'them'}, with the effect declared:`,
-            code: findings?.wrap ?? [],
-            copy: 'Copy',
-            recheck: { label: `I wrapped ${one ? 'it' : 'them'}, check again`, action: 'recheck' },
-          }
-        : null,
-    node: oldNode
-      ? {
-          title: `Node ${oldNode.version} is too old for Shadowlap’s guard.`,
-          text: `${oldNode.from} pins it, and an agent on a Node before ${AGENT_NODE_MIN} never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin ${AGENT_NODE_MIN} or later to record.`,
-          recheck: { label: 'I raised it, check again', action: 'recheck' },
-        }
-      : null,
+    folded: !!findings,
+    warning: wrapWarning(f),
+    node: nodeWarning(f),
   };
 }
 
-/** 2 · Record a first run. */
-function recordStep({ input, findings, inspected, run, live, finished, recorded, clean, tested, state, argv, server, commands, totals, unwrapped, oldNode }: SetupFacts): RecordStep {
+/** The folded line's facts before its command: the language, the model SDK, and the tools. */
+function summaryFacts(findings: NonNullable<SetupFacts['findings']>, unwrapped: number): string[] {
+  const tools = findings.tools.length ? `${plural(findings.tools.length, 'tool')}, ${unwrapped ? `${unwrapped} not wrapped` : 'all wrapped'}` : 'no tools found';
+  return [findings.language ?? 'not recognised', findings.sdk ?? 'no model SDK found', tools];
+}
+
+/** Tools that aren't wrapped: Check again leads while one of them is a write, since Pack waits for it. */
+function wrapWarning({ findings, unwrapped, tested, finished }: SetupFacts): InspectStep['warning'] {
+  if (!findings || !unwrapped.length) return null;
+  const writes = unwrapped.filter((t) => t.effect === 'write');
+  const one = unwrapped.length === 1;
+  return {
+    title: `${unwrapped.length === writes.length ? plural(unwrapped.length, 'write tool') : plural(unwrapped.length, 'tool')} ${one ? 'isn’t' : 'aren’t'} wrapped.`,
+    text: `${one ? 'Its' : 'Their'} calls won’t be recorded, so a replay runs ${one ? 'it' : 'them'} for real${writes.length ? `: ${listed(writes.map((t) => t.name))} would act again` : ''}. Wrap ${one ? 'it' : 'them'}, with the effect declared:`,
+    code: findings.wrap ?? [],
+    recheck: { label: 'Check again', action: 'recheck', lime: writes.length > 0 && !tested && !finished },
+  };
+}
+
+/** A Node pin the guard refuses: Check again leads while it holds Record, unless the wrap warning's already does. */
+function nodeWarning({ oldNode, recorded, live, unwrapped }: SetupFacts): InspectStep['node'] {
+  if (!oldNode) return null;
+  const writeUnwrapped = unwrapped.some((t) => t.effect === 'write');
+  return {
+    title: `Node ${oldNode.version} is too old for Shadowlap’s guard.`,
+    text: `${oldNode.from} pins it, and an agent on a Node before ${AGENT_NODE_MIN} never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin ${AGENT_NODE_MIN} or later to record.`,
+    recheck: { label: 'Check again', action: 'recheck', lime: !recorded && !live && !writeUnwrapped },
+  };
+}
+
+/** What Record says before it runs: the sidecar in front of the model API or server, or why it waits or can't. */
+function recordText(server: SetupFacts['server'], oldNode: SetupFacts['oldNode']): string {
+  if (oldNode) return `Waits for a Node pin of ${AGENT_NODE_MIN} or later: ${oldNode.from} pins ${oldNode.version}, where the agent wouldn’t start under Shadowlap.`;
+  if (!server) return 'Runs the command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.';
+  return server.upstream
+    ? `Runs the command once with a local sidecar in front of your model server. Model calls go to ${server.url}, the model server this project uses.`
+    : `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which Shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.`;
+}
+
+/** 2 · Record. */
+function recordStep(f: SetupFacts): RecordStep {
+  const { input, inspected, run, live, recorded, clean, tested, finished, state, argv, server, commands, totals, oldNode, held } = f;
   const { setup } = input;
-  const missed = recorded ? setup.unwrappedAtRecord : [];
   // A model server the dashboard can't forward to (credentials in its address, or not a plain URL) is recorded in a terminal.
   const canRecord = inspected && !(server && !server.upstream) && !oldNode;
-  const recordText = oldNode
-    ? `Waits for a Node pin of ${AGENT_NODE_MIN} or later: ${oldNode.from} pins ${oldNode.version}, where the agent wouldn’t start under Shadowlap.`
-    : !server
-    ? 'Runs the command once with a local sidecar in front of the model API. Model calls go to the real API with your keys, which are never stored.'
-    : server.upstream
-      ? `Runs the command once with a local sidecar in front of your model server. Model calls go to ${server.url}, the model server this project uses.`
-      : `The dashboard can’t record through this project’s model server (${server.url}): its address isn’t a plain http(s) URL, or holds credentials, which Shadowlap never stores. Record it in a terminal with ${UPSTREAM_ENV} set to the server.`;
   const command = { value: argv ? quoteArgv(argv) : '', enabled: canRecord };
-  // Tools wrapped since: `init` checked again after the recording, and finds none of them unwrapped.
-  const wrappedSince = missed.length > 0 && !!findings && !!run && findings.at > run.startedAt && missed.every((name) => !unwrapped.some((t) => t.name === name));
+  const ahead = !recorded && !live;
   return {
     key: 'record',
     n: 2,
-    title: 'Record a first run',
+    title: 'Record',
     state: state(recorded, inspected),
-    cli: recorded || live ? [] : commands.record,
-    text: recorded || live ? null : recordText,
-    command: recorded || live ? null : command,
-    button: recorded || live ? null : { label: 'Record run', action: 'record', enabled: canRecord },
-    live: live && run ? { runId: run.runId, calls: totals?.calls ?? 0, text: `Recording ${short(run.runId)} · ${plural(totals?.calls ?? 0, 'call')} so far`, watch: { label: 'Watch it live', href: links.run(run.runId) } } : null,
-    recorded:
-      recorded && run
+    cli: ahead ? commands.record : [],
+    text: ahead ? recordText(server, oldNode) : null,
+    command: ahead ? command : null,
+    // Plain while a write tool isn't wrapped: Check again leads, though recording still works.
+    button: ahead ? { label: 'Record run', action: 'record', enabled: canRecord, lime: !held } : null,
+    live: live && run ? { runId: run.runId, calls: totals?.calls ?? 0, text: `Recording ${short(run.runId)} · ${plural(totals?.calls ?? 0, 'call')} so far`, watch: { label: 'Watch live', href: links.run(run.runId) } } : null,
+    recorded: recorded && run ? recordedLine(run, totals) : null,
+    ...recordLead(f, command),
+    // Until the replay is made clean: past that, a later recording that held nothing changes nothing for the setup.
+    empty:
+      setup.empty && !clean && !tested && !finished
         ? {
-            runId: run.runId,
-            href: links.run(run.runId),
-            calls: totals?.calls ?? run.calls,
-            spent: totals?.spent ?? 0,
-            durationMs: totals?.durationMs ?? null,
-            text: [`Recorded ${short(run.runId)}`, ...(totals ? [plural(totals.calls, 'call'), approx(totals.spent)] : []), ...(totals?.durationMs != null ? [duration(totals.durationMs)] : [])].join(' · '),
+            runId: setup.empty.runId,
+            href: links.run(setup.empty.runId),
+            text: `${short(setup.empty.runId)} holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached Shadowlap. Check the command and record again.`,
           }
         : null,
-    warning: missed.length
-      ? `${plural(missed.length, 'tool')} ${missed.length === 1 ? 'wasn’t' : 'weren’t'} wrapped, so ${missed.length === 1 ? 'its' : 'their'} calls aren’t in this recording. ${wrappedSince ? `${missed.length === 1 ? 'It is' : 'They are'} wrapped now: record again` : `Wrap ${missed.length === 1 ? 'it' : 'them'} and record again`} before you keep it as a test.`
-      : null,
-    again: missed.length && !clean && !tested && !finished ? { label: 'Record again', action: 'record', command, cli: commands.record } : null,
-    // Until the replay is made clean: past that, a later recording that held nothing changes nothing for the setup.
-    empty: setup.empty && !clean && !tested && !finished
-      ? {
-          runId: setup.empty.runId,
-          href: links.run(setup.empty.runId),
-          text: `${short(setup.empty.runId)} holds no calls, so nothing was recorded: the command didn’t start your agent, or no model call reached Shadowlap. Check the command and record again.`,
-        }
-      : null,
   };
 }
 
-/** 3 · Make the replay clean. */
-function calibrateStep({ input, run, recorded, clean, tested, state, commands, packedOnly }: SetupFacts): CalibrateStep {
+/** `Recorded 01K5CQ7A3M · 12 calls · ≈$0.041 · 38.2 s`: the setup's recording, with what it cost where its totals are in. */
+function recordedLine(run: NonNullable<SetupFacts['run']>, totals: RunTotals | null): NonNullable<RecordStep['recorded']> {
+  const facts = [`Recorded ${short(run.runId)}`, ...(totals ? [plural(totals.calls, 'call'), approx(totals.spent)] : []), ...(totals?.durationMs != null ? [duration(totals.durationMs)] : [])];
+  return { runId: run.runId, href: links.run(run.runId), calls: totals?.calls ?? run.calls, spent: totals?.spent ?? 0, durationMs: totals?.durationMs ?? null, text: facts.join(' · ') };
+}
+
+/**
+ * What Record says of the tools its recording missed, and Record again. It is offered once every
+ * missed tool is wrapped (`init` checked again since), as a recording made before then misses the
+ * same calls, and whenever Pack waits for a recording made since: the missed writes are wrapped
+ * then, though a missed read may not be, and a read never holds Pack. Once the replay is clean, it
+ * stays only while Pack waits: only a recording started here replaces a clean setup's, so it is the
+ * one way on. Lime while it leads, that is while Pack waits for it; missed tools that only read
+ * leave it plain, and Calibrate leads.
+ */
+function recordLead({ input, findings, run, recorded, clean, tested, finished, commands, unwrapped, wait }: SetupFacts, command: { value: string; enabled: boolean }): Pick<RecordStep, 'warning' | 'again'> {
+  const missed = recorded ? input.setup.unwrappedAtRecord : [];
+  if (!missed.length) return { warning: null, again: null };
+  const one = missed.length === 1;
+  // Tools wrapped since: `init` checked again after the recording, and finds none of them unwrapped.
+  const wrappedSince = !!findings && !!run && findings.at > run.startedAt && missed.every((name) => !unwrapped.some((t) => t.name === name));
+  const leads = wait?.since === true;
+  const offered = !tested && !finished && (leads || (wrappedSince && !clean));
+  return {
+    warning: `${plural(missed.length, 'tool')} ${one ? 'wasn’t' : 'weren’t'} wrapped, so ${one ? 'its' : 'their'} calls aren’t in this recording. ${againHow(one, wrappedSince, leads ? wait : null)} before you pack it as a golden.`,
+    again: offered ? { label: 'Record again', action: 'record', lime: leads, command, cli: commands.record } : null,
+  };
+}
+
+/**
+ * How Record's warning goes on: every missed tool wrapped now; else the writes among them, which
+ * Pack waits on (`leads`), while a missed read still isn't; else wrap them first.
+ */
+function againHow(one: boolean, wrappedSince: boolean, leads: PackWait | null): string {
+  if (wrappedSince) return `${one ? 'It is' : 'They are'} wrapped now: record again`;
+  if (leads) return `${listed(leads.tools)} ${leads.tools.length === 1 ? 'is' : 'are'} wrapped now: record again`;
+  return `Wrap ${one ? 'it' : 'them'} and record again`;
+}
+
+/** What Calibrate says: what it added once clean, what it proposes, why it stopped, or what it does. */
+function calibrateText({ run, clean }: SetupFacts, added: Array<{ path: string; why: string | null }> | null, proposed: Array<{ path: string; why: string | null }>, stopped: string | null): string {
+  if (clean) {
+    if (added === null) return `A replay of ${short(run!.runId)} ran clean.`;
+    if (!added.length) return 'The replay was clean as recorded: nothing to add.';
+    return `Added ${added.length === 1 ? 'a normalizer' : 'normalizers'} for ${listed(added.map((a) => a.path))}${added.length === 1 && added[0]!.why ? `: ${added[0]!.why}` : ''}. The replay is clean now.`;
+  }
+  if (proposed.length && !stopped) {
+    const one = proposed.length === 1;
+    return `Found ${one ? 'a value' : `${proposed.length} values`} the agent makes anew on every run, at ${listed(proposed.map((p) => p.path))}${one && proposed[0]!.why ? `: ${proposed[0]!.why}` : ''}. ${one ? 'A normalizer for it makes' : 'Normalizers for them make'} the replay clean.`;
+  }
+  if (stopped) return `Calibrate stopped: ${stopped}.${proposed.length ? ` It found ${listed(proposed.map((p) => p.path))} on the way.` : ''}`;
+  return 'Replays the run offline with the same code until it is clean, and proposes a normalizer for every value the agent makes anew. No model calls; writes are blocked.';
+}
+
+/** 3 · Calibrate: plain while Pack waits, since a clean replay of this recording still couldn't be packed, or Inspect leads. */
+function calibrateStep(f: SetupFacts): CalibrateStep {
+  const { input, recorded, clean, tested, state, commands, packedOnly, held } = f;
   const { project, setup } = input;
   const added = setup.own ? (project.setup.calibration?.added ?? null) : null;
   const last = !clean && recorded ? (input.calibration ?? null) : null;
   const proposed = last && !last.done ? last.proposed : [];
-  const offer = proposed.length > 0 && !last?.stopped;
+  const offer = !clean && proposed.length > 0 && !last?.stopped;
   return {
     key: 'calibrate',
     n: 3,
-    title: 'Make the replay clean',
+    title: 'Calibrate',
     state: state(clean, recorded, tested || packedOnly !== null),
     cli: clean ? [] : commands.calibrate,
-    text: clean
-      ? added === null
-        ? `A replay of ${short(run!.runId)} ran clean.`
-        : added.length
-          ? `Added ${added.length === 1 ? 'a normalizer' : 'normalizers'} for ${listed(added.map((a) => a.path))}${added.length === 1 && added[0]!.why ? `: ${added[0]!.why}` : ''}. The replay is clean now.`
-          : 'The replay was clean as recorded: nothing to add.'
-      : offer
-        ? `Found ${proposed.length === 1 ? 'a value' : `${proposed.length} values`} the agent makes anew on every run, at ${listed(proposed.map((p) => p.path))}${proposed.length === 1 && proposed[0]!.why ? `: ${proposed[0]!.why}` : ''}. ${proposed.length === 1 ? 'A normalizer for it makes' : 'Normalizers for them make'} the replay clean.`
-        : last?.stopped
-          ? `Calibrate stopped: ${last.stopped}.${proposed.length ? ` It found ${listed(proposed.map((p) => p.path))} on the way.` : ''}`
-          : 'Replays the run offline with the same code until it is clean, and proposes a normalizer for every value the agent makes anew. No model calls; writes are blocked.',
-    button: clean ? null : offer ? { label: proposed.length === 1 ? 'Add it' : 'Add them', action: 'calibratewrite', enabled: true } : { label: 'Calibrate', action: 'calibrate', enabled: recorded },
+    text: calibrateText(f, added, proposed, last?.stopped ?? null),
+    button: clean ? null : offer ? { label: ACTIONS.addNormalizer.label, action: 'calibratewrite', enabled: true, lime: !held, tip: { sub: `Writes the ${proposed.length === 1 ? 'rule' : 'rules'} calibrate proposed to shadowlap.config.json`, command: commands.calibrate.join(' && ') } } : { label: ACTIONS.calibrate.label, action: 'calibrate', enabled: recorded, lime: !held },
+    again: offer ? { label: 'Calibrate again', action: 'calibrate' } : null,
     proposed,
     stopped: last?.stopped ?? null,
   };
 }
 
 /**
- * 4 · Keep it as a test: packed, then its test; done once the test passed. A golden packed (here or
- * in a terminal) whose test hasn't passed keeps the step open, with the test to run.
+ * 4 · Pack: packed, then its test; done once the test passed. A golden packed (here or in a
+ * terminal) whose test hasn't passed keeps the step open, with the test to run. Either waits, plain,
+ * while a write tool isn't wrapped or was wrapped since the recording (`packWait`), and reads plain
+ * while Inspect leads.
  */
-function testStep({ input, clean, tested, state, golden, commands, totals, packedOnly }: SetupFacts): TestStep {
+function testStep({ input, clean, tested, state, golden, commands, totals, packedOnly, held }: SetupFacts): TestStep {
   const { setup } = input;
   const calls = totals?.calls ?? 0;
   const failed = packedOnly !== null && setup.goldenTest?.ok === false;
+  const ahead = !tested && !packedOnly;
   return {
     key: 'test',
     n: 4,
-    title: 'Keep it as a test',
+    title: 'Pack',
     state: state(tested, clean || packedOnly !== null),
     cli: tested ? [] : packedOnly ? [`shadowlap test ${packedOnly}`] : commands.test,
-    text: tested || packedOnly ? null : 'Packs the run into the repository, and CI replays it offline on every commit.',
-    redaction:
-      tested || packedOnly
-        ? null
-        : {
-            rules: input.redactRules,
-            text: input.redactRules ? 'Your redaction rules apply to the copy.' : 'There are no redaction rules yet, so the copy holds what was recorded. Add some in Settings before you commit runs with user data.',
-            href: links.settings('redaction'),
-          },
-    golden: tested || packedOnly ? null : { value: golden, enabled: clean },
-    button: tested ? null : packedOnly ? { label: failed ? 'Run the test again' : 'Run the test', action: 'testgolden', enabled: true } : { label: confirmWords(ACTIONS.packAsGolden.label), action: 'packgolden', enabled: clean },
-    result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: links.tests() } } : null,
-    packed: packedOnly
-      ? failed
-        ? { golden: packedOnly, failed: true, text: `${packedOnly} failed its test${setup.goldenTest?.reason ? `: ${setup.goldenTest.reason.replace(/[.\s]+$/, '')}` : ''}. Fix what changed, or record again, then run it again.`, link: { label: 'Open Tests', href: links.tests() } }
-        : { golden: packedOnly, failed: false, text: `Packed as ${packedOnly}. Its test replays it offline: run it to finish.`, link: null }
+    text: ahead ? 'Packs the run into the repository, and CI replays it offline on every commit.' : null,
+    redaction: ahead
+      ? {
+          rules: input.redactRules,
+          text: input.redactRules ? 'Your redaction rules apply to the copy.' : 'There are no redaction rules yet, so the copy holds what was recorded. Add some in Settings before you commit runs with user data.',
+          href: links.settings('redaction'),
+        }
       : null,
+    golden: ahead ? { value: golden, enabled: clean } : null,
+    button: tested ? null : packedOnly ? { label: failed ? ACTIONS.rerunTest.label : 'Run test', action: 'testgolden', enabled: true, lime: !held } : { label: confirmWords(ACTIONS.packAsGolden.label), action: 'packgolden', enabled: clean, lime: !held },
+    result: tested ? { text: `${golden} replayed clean offline${totals ? ` · ${calls}/${calls} calls` : ''}`, link: { label: 'Open Tests', href: links.tests() } } : null,
+    packed: packedOnly ? packedLine(packedOnly, failed, setup.goldenTest?.reason ?? null) : null,
   };
+}
+
+/** The golden packed and its test not passed: never run, or failed, with why and where to look. */
+function packedLine(golden: string, failed: boolean, reason: string | null): TestStep['packed'] {
+  if (!failed) return { golden, failed: false, text: `Packed as ${golden}. Its test replays it offline: run it to finish.`, link: null };
+  return { golden, failed: true, text: `${golden} failed its test${reason ? `: ${reason.replace(/[.\s]+$/, '')}` : ''}. Fix what changed, or record again, then run it again.`, link: { label: 'Open Tests', href: links.tests() } };
 }
 
 // ---------------------------------------------------------------------------------------------

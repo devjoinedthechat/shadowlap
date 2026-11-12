@@ -132,7 +132,7 @@ describe('a project’s setup, step by step through the CLI', () => {
     expect(host.setup(id)).toMatchObject({ stage: 'clean', steps: { clean: true } });
     expect(ctx.config().normalize).toHaveLength(3);
 
-    // 4 · Keep it as a test: the offered path is checked, packed, and tested offline.
+    // 4 · Pack: the offered path is checked, packed, and tested offline.
     const golden = goldenPath(host.suggestGolden(id), { folder, runId });
     expect(golden).toEqual({ ok: true, path: `goldens/${id}` });
     if (!golden.ok) return;
@@ -152,7 +152,7 @@ describe('a project’s setup, step by step through the CLI', () => {
     expect(goldenPath(golden.path, { folder })).toMatchObject({ ok: false, taken: true });
     expect(goldenPath(golden.path, { folder, runId })).toEqual({ ok: true, path: golden.path });
 
-    // Go to the overview.
+    // Go to Overview.
     expect(host.finishSetup(id).setup).toMatchObject({ stage: 'done', skipped: false, golden: golden.path, runId });
     expect(host.setup(id)).toMatchObject({ stage: 'done', shows: 'none' });
     expect(existsSync(join(folder, golden.path, 'run.json'))).toBe(true);

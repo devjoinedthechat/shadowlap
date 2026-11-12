@@ -4,7 +4,7 @@ import { ApiError } from '../../api.js';
 import { PAUSED } from '../../connection.js';
 import { useLoad, type Loaded } from '../../hooks.js';
 import { messageOf } from '../../../../engine/src/message-of.js';
-import { ErrorState, Skeleton } from '../../components/States.js';
+import { ErrorState, failedRead, Skeleton } from '../../components/States.js';
 import { VerdictLine } from '../../components/VerdictLine.js';
 import { useApp, type AppState } from '../../state.js';
 import { sentence, type ToastAction } from '../../toast.js';
@@ -232,11 +232,11 @@ export function ConfigProblem({ error }: { error: string }) {
   );
 }
 
-/** A tab whose read failed, under the header and the tabs: one line in the error tone, what the server said, and Retry, which reads the tab again. */
+/** A tab whose read failed, under the header and the tabs: one line in the error tone, what the server said (else the status it answered, `failedRead`), and Retry, which reads the tab again. */
 export function LoadProblem({ error, retry, children }: { error: Error; retry?: (() => void) | undefined; children?: ReactNode }) {
   return (
     <ErrorState retry={retry}>
-      {error.message}
+      {failedRead(error)}
       {children}
     </ErrorState>
   );

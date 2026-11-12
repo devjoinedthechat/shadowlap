@@ -11,7 +11,7 @@ import { bisectCopy } from './offers.js';
 
 /**
  * The run page's dialog that starts another slice's job: Find breaking commit. It says what will run;
- * the server builds it. Run blame's check dialog is Fixes' (fixes/RunBlame.tsx), Update golden is one
+ * the server builds it. Run blame's dialogs are Fixes' (fixes/RunBlameAsks.tsx), Update golden is one
  * with Tests' (components/UpdateGolden.tsx), and Add normalizer and update asks in the Tests screen's
  * own dialog (pages/TestsDialogs.tsx).
  */

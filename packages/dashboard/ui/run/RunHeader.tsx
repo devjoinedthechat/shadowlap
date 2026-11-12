@@ -19,13 +19,14 @@ import { pendingRunOf, useDeleteRun } from './delete-run.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { ForkMenu, type PendingAction } from './actions.js';
+import type { CheckEntry } from './check-entry.js';
 import { failureText, fixCheckText } from './banner.js';
 import { nextStepOf } from './next-step.js';
 import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton, RevertEditorButton } from './NextStepButton.js';
 import { TraceLink } from './TraceLink.js';
 import { exitWords, type PresetAttempt } from './preset.js';
 import { checksOf, runDuration, runKindWords, runLikeOf } from './model.js';
-import { canPush, pushTitle } from './share.js';
+import { canPush, pushTitle } from './share-steps.js';
 // The share job's drawer offers the link it made, as the run's page loads, whether Share has opened or not.
 import './share-link.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';
@@ -56,7 +57,7 @@ function ShareMenuPart(props: ShareMenuProps) {
  * the eyebrow. The next step is the server's (src/next-step.ts); every other action stays, plain. No
  * chip says how the run stands: its first fact does.
  */
-export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged }: {
+export function RunHeader({ run, call, selected, rescued, offers, forkMenu, check, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged }: {
   run: RunDetail;
   call: CallDetail | null;
   selected: number | null;
@@ -64,6 +65,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   rescued: boolean;
   offers: RunOffers | null;
   forkMenu: ReturnType<typeof useMenu>;
+  /** Add check… for the selected call, first in its row's menu (run/check-entry.tsx). */
+  check?: CheckEntry | undefined;
   onAction: (p: PendingAction) => void;
   onFindCommit: () => void;
   preset?: PresetAttempt | null;
@@ -210,7 +213,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
         )}
       </div>
       {share.open && share.anchor ? <ShareMenuPart anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
-      {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
+      {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} check={check} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
     </section>
   );
 }

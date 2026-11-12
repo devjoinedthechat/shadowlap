@@ -1,37 +1,35 @@
 import { PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
-import { href } from '../route.js';
+import { notFoundWords, type NotFoundKind } from '../not-found-words.js';
+import { codeParts } from '../projects.js';
+import { projectOf } from '../shell/ProjectBlock.js';
+import { useApp } from '../state.js';
 
 /**
- * What a page with nothing at it shows: what was missing and the way back (`back`, its address and
- * words), to the list that holds its kind or to the overview. With `header` it has the page's header
- * too, as an exported copy's run it doesn't hold has: `not found`, Nothing here, then the line.
+ * What a page with nothing at it shows, under the page's header: `<project> · not found` (`not
+ * found` in an exported copy, or with no project), Nothing here, what was missing and the way back
+ * to the list that holds its kind (`notFoundWords`), or to the Overview. `what` and `back` say it
+ * otherwise, as an exported copy's run it doesn't hold does (`No run <id> in this copy.`).
  */
-export function NotFoundPage({ what = 'Nothing here.', back = [href.overview(), 'Back to the overview'], header = false }: { what?: string; back?: readonly [string, string]; header?: boolean }) {
-  const link = (
-    <a className="more" href={back[0]}>
-      {back[1]}
-    </a>
-  );
-  if (header)
-    return (
-      <Page>
-        <PageHeader
-          eyebrow="not found"
-          title="Nothing here"
-          text={
-            <>
-              {what} {link}
-            </>
-          }
-        />
-      </Page>
-    );
+export function NotFoundPage({ kind = 'page', id, what, back }: { kind?: NotFoundKind; id?: string; what?: string; back?: readonly [string, string] }) {
+  const { meta, exported } = useApp();
+  const words = notFoundWords(kind, id ?? location.hash);
+  const name = exported ? null : (projectOf(meta)?.name ?? null);
+  const to = back ?? words.back;
   return (
     <Page>
-      <div className="empty tall">
-        {what} {link}
-      </div>
+      <PageHeader
+        eyebrow={name ? `${name} · not found` : 'not found'}
+        title="Nothing here"
+        text={
+          <>
+            {what ?? codeParts(words.text, words.code ? [words.code] : []).map((p, i) => (p.code ? <code key={i}>{p.text}</code> : p.text))}{' '}
+            <a className="more" href={to[0]}>
+              {to[1]}
+            </a>
+          </>
+        }
+      />
     </Page>
   );
 }

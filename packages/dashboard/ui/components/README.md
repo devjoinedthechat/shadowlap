@@ -37,6 +37,9 @@ that draws one has.
 | `EmptyState`, `EmptyLine` | `States.tsx` | Nothing here yet: a section under a hairline (`.panel.stepempty`), its heading, one sentence (set as `Copy` sets UI copy with `copy`, never a message the server wrote), the one `step` that gets there (the page's lime) with the command for a terminal quiet under it, its `$` never copied, or with no step the command in its box. A list that matches nothing says so in a line from the left (`EmptyLine`). |
 | `Skeleton` | `States.tsx` | Still loading: `lines` quiet bars under the part's heading, or the part's own markup (`children`) with every text a bar along its line and every mark its shape, nothing to press. A screen reader hears what is loading. |
 | `ErrorState` | `States.tsx` | What couldn't be read: one line in the error tone, its word first ("couldn’t load"), a sentence, and `retry` at its end, which waits while the server can't be reached (`.loaderr`). |
+| `NotFoundPage`, `notFoundWords` | `../pages/NotFound.tsx`, `../not-found-words.ts` | A route an id doesn't name: the page's header, `<project> · not found`, `Nothing here`, the line and the list that holds its kind. |
+| `SetUpStep` | `../pages/set-up-step.tsx` | A page's empty state in a project with no runs: the lime `Set up <project>` link to the Overview, where the setup is. |
+| `FoldSum` | `../pages/setup-steps.tsx` | A done setup step folded to its line: its facts, each kept whole, then the command it found, broken only between its arguments. |
 | `Copy`, `glue`, `Words`, `LongWord` | `Copy.tsx`, `typeset.ts`, `typeset-lines.ts` | A piece of UI copy set by the line-break rules `typeset.ts` states, at render time and at the width of the block it sits in (`typeset-lines.ts` decides as the mock's pass did): its sentences found in its own text, the elements among its words (a link, code, a key, a term) each kept whole; each glued (`glue`: a number with its unit, a tally, a separator with the word before it, a small word with the word after it); each that fits a line kept whole on it, one of two lines balanced on a line of its own unless it should flow on, a short tail with no stop kept with the sentence before it; a block of two lines balanced, its one sentence broken after a clause, a longer one pretty, its last line a third full. `phrases`, for a dialog's lead, a row's value, a card or a setup step, also breaks before a phrase. A long name is whole where its line holds it (`LongWord`). `Words` glues a line no `Copy` sets. Never data: an answer, a prompt, code or an id. |
 | `Code`, `Command`, `CodeText` | `Copy.tsx`, `typeset.ts`, `cmdline.ts` | Inline code whole up to 32 characters, a longer path, host or name whole where its line holds it and else broken only after a slash, a dot or a hyphen (`Code`); a command breaking only between its arguments, its head whole, a long argument whole where its line holds it with its flag, its lines balanced and its `$` never copied (`Command`, `commandParts`); code shown as text breaking at its spaces and after its commas and opening braces, a field keeping its number and an operator the word before it (`CodeText`, `codePieces`). |
 | `Decision` | `Decision.tsx`, `../decisions.ts` | One model call's decision beside the other's, in Compare's opened row and a preview's cell: its words, tools and effects, how its turn ended. |
@@ -51,7 +54,7 @@ that draws one has.
 | `Page` | `Page.tsx` | Every scrolling page. Gives back the scrollbar's width (`--sbw`) so the content's right edge stays under the top bar's. |
 | `useActiveTabInView` | `hooks.ts` | A ref for a strip of tabs that scrolls sideways on a phone (Settings' tabs, a run's views): it shows the active tab on mount and when the tab shown changes, scrolling the strip alone (`stripScroll` in `place.ts`). |
 | `useScrollStop` | `hooks.ts` | A ref for a pane that scrolls and holds no control of its own (a dialog's body, the shortcuts on a phone): it takes the focus while it scrolls, so the keyboard can scroll it too. Its `axis`, `'x'`, is for one that scrolls sideways (a results matrix's band). |
-| `StepList` | `bits.tsx` | Numbered setup steps, each with the CLI command that does it (`ol.setup`); a step is `done`, `cur` or `todo`. |
+| `StepList` | `bits.tsx` | Numbered setup steps on a rail, each an h2 with the command that does it (`ol.setup`); a step is `done`, `cur` or `todo`. |
 
 ## Code that waits until it shows
 
@@ -59,6 +62,10 @@ that draws one has.
 |---|---|---|
 | `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. The diff's walk (`json-diff.ts`) may load with Compare alone, a heavy page itself. Declare a part beside the page that shows it, never in `pages/lazy.tsx`: the one part the page list shows itself, the page that says another project holds what a link names, is declared in `pages/held-elsewhere.tsx`, which the pages showing it import too, and the bundle test pins it. A part an exported copy never draws, such as Share's menu, is handed in by the served entry instead (`ui/served-parts.ts`, from `ui/pages/served.tsx`), so a copy's script holds none of it, and `test/ui-exported-copy.test.ts` pins what keeps it undrawn there. `preload()` a part on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
 | `LoadFailed` | `bits.tsx` | What a part shows where its script didn't come (`onShow`'s `failed`; a page's in `pages/lazy.tsx`, under its title): an `ErrorState` whose Retry loads the page again, since a browser never asks twice for a script that failed. Retry waits while the server can't be reached (`guard`). |
+
+Share's menu, a part only the served dashboard hands in, brings the words of its rows with it
+(`ui/run/share.ts`). What a run's header, steps and keys say of a copy, such as Pack's command, what
+a pack holds and Push, is in `ui/run/share-steps.ts`, so opening a run loads none of the menu's words.
 
 ## Overlays
 
@@ -199,7 +206,8 @@ the server keeps for its drawer.
 
 Fixes keeps its parts in `fixes/`: a fix's page and its Blame, Repair and Verify steps, the Forks
 view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, which asks for the check
-when the server can't find it), a fix's step on a list row (`RowStep.tsx`, on Fixes and Needs a look:
+when the server can't find it; its dialogs in `RunBlameAsks.tsx`, a part only the served dashboard
+hands in, loaded the first time one asks), a fix's step on a list row (`RowStep.tsx`, on Fixes and Needs a look:
 its words in `lead.ts`, its dialogs in `LeadDialog.tsx`, loaded as one first shows, which reads
 `FixDialogs.tsx` and `verify-asks.tsx` and none of the fix's page), what the breadcrumb and the
 palette know about fixes (`data.ts`),

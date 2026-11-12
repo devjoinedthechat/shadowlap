@@ -2,7 +2,7 @@ import { isObject } from '../is-object.js';
 import { messageOf } from '../message-of.js';
 import { NAME_MAX } from '../name-max.js';
 import { parsePath } from '../normalize.js';
-import { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, aliasOf, asNumber, hasChecks, hasWildcard, type CallCondition, type CallRule, type CountRange, type ExpectSpec, type JudgeCheck, type Matcher, type Operand, type Operator, type Reference, type TestSpec, type TextCheck, type WhenRule } from './grammar.js';
+import { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, aliasOf, asNumber, hasChecks, hasWildcard, pathAt, type CallCondition, type CallRule, type CountRange, type ExpectSpec, type JudgeCheck, type Matcher, type Operand, type Operator, type Reference, type TestSpec, type TextCheck, type WhenRule } from './grammar.js';
 
 /**
  * Checks as they are written, read and refused in the words the CLI prints: an `expect` object, as
@@ -241,6 +241,18 @@ function referenceIn(value: unknown, where: string): Reference | null {
     throw new Error(`${where}: the reference ${value} has a path that can't be read (${messageOf(err).replace(/: \$.*$/s, '')}); write it as @${m[1]!}.${m[2]!}.total or @${m[1]!}.${m[2]!}.items[0].sku, or as text, @${value}`, { cause: err });
   }
   return { tool: m[1]!, part: m[2] as Reference['part'], path, text: value.slice(1), at: where };
+}
+
+/** Whether a value written in a rule reads as a reference (`"@lookup_order.result.total"`), as the check builder tells its value chips from a number. */
+export const isReference = (value: unknown): boolean => typeof value === 'string' && !value.startsWith('@@') && REFERENCE.test(value);
+
+/** A reference to one key of an earlier call's result or arguments, written as a rule reads it: `@lookup_order.result.total`, `@lookup_order.result["unit price"]`. */
+export const referenceTo = (tool: string, part: Reference['part'], key: string): string => `@${tool}.${pathAt(part, key)}`;
+
+/** A reference as written, by its tool, its part and its path as written after the part (`total`, `items[0].sku`); null for any other value. */
+export function referenceParts(value: unknown): { tool: string; part: Reference['part']; path: string } | null {
+  const m = isReference(value) ? REFERENCE.exec(value as string) : null;
+  return m ? { tool: m[1]!, part: m[2] as Reference['part'], path: m[3]!.replace(/^\./, '') } : null;
 }
 
 /** A value written in a rule as it is compared: `@@…` is text that starts with one `@`. */

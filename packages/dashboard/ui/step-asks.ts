@@ -6,9 +6,10 @@ import { errorText } from './toast.js';
 
 /**
  * What a step drawn away from its own page reads as it is looked at or pressed: its estimate, and the
- * dialog it asks in once what that needs has come. A Needs a look row's step, a Fixes row's, and a
- * crash's Find breaking commit and Revert on its fix (revert/CrashStep.tsx) share them. No step's
- * words or rules here.
+ * dialog it asks in once what that needs has come. A run's step on a list's row (steps/RunStep.tsx:
+ * Needs a look's and Runs › Failed's issues'), Needs a look's other steps, a Fixes row's, and a
+ * crash's Find breaking commit and Revert (revert/CrashStep.tsx) share them. No step's words or
+ * rules here.
  */
 
 /**
