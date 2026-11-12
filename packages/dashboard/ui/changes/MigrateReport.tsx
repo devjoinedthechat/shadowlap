@@ -7,7 +7,7 @@ import { DialogSteps, inCode } from '../components/DialogFacts.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Markdown } from '../components/Markdown.js';
-import { MigrateAskNow, MIGRATE_CARD } from '../components/MigrateDialog.js';
+import { MigrateAskNow, MIGRATE_CARD, useMigrateEstimate } from '../components/MigrateDialog.js';
 import { migrateCommand, type MigrateSwitch } from '../migrate-command.js';
 import { useModelChoices } from '../components/ModelField.js';
 import { Popover, useMenu } from '../components/Popover.js';
@@ -23,6 +23,7 @@ import { goldenName, shortId } from '../format.js';
 import { addJobFooter } from '../job-actions.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
+import { tipEst } from '../spending.js';
 import { useApp } from '../state.js';
 import type { DecisionSessionView, MigrateApplyOffer, MigrateRetiring, MigrateUse, MigrateView, PreviewSession } from '../types.js';
 import { DecisionCellPanel, openCell, openedCell } from './DecisionCell.js';
@@ -106,7 +107,7 @@ function CopyBody({ m, body, lime = false }: { m: MigrateView; body: string; lim
   );
 }
 
-/** Migrate to…: the migration's from-models to another model, a menu of them, the recommendation marked, each opening Migrate's dialog. */
+/** Migrate to…: the migration's from-models to another model, a menu of them, the recommendation marked, each priced on its card and opening Migrate's dialog. */
 function MigrateToMenu({ m, retiring, use, goldens }: { m: MigrateView; retiring: readonly MigrateRetiring[]; use: readonly MigrateUse[]; goldens: string[] }) {
   const app = useApp();
   const menu = useMenu();
@@ -130,15 +131,23 @@ function MigrateToMenu({ m, retiring, use, goldens }: { m: MigrateView; retiring
         <Popover anchor={menu.anchor} onClose={menu.close} className="fkm" label={`Migrate ${was} to…`}>
           <div className="pk">{`Migrate ${was} to…`}</div>
           {models.map((to) => (
-            <button key={to} type="button" role="menuitemradio" aria-checked={to === m.to} data-tip={tipCard(`Migrate to ${to}`, [], MIGRATE_CARD, `$ ${migrateCommand({ from: m.from, to, goldens })}`)} onClick={() => ask(to)}>
-              <b>{to}</b>
-              {recommended.has(to) ? <small>recommended</small> : null}
-            </button>
+            <MigrateToItem key={to} s={{ from: m.from, to, goldens }} checked={to === m.to} recommended={recommended.has(to)} onPick={() => ask(to)} />
           ))}
         </Popover>
       ) : null}
       {asked ? <MigrateAskNow key={asked.at} s={asked.s} /> : null}
     </>
+  );
+}
+
+/** A model in Migrate to…'s menu: its card the switch's command and what it bills, read as the menu opens. */
+function MigrateToItem({ s, checked, recommended, onPick }: { s: MigrateSwitch; checked: boolean; recommended: boolean; onPick: () => void }) {
+  const { estimate } = useMigrateEstimate(s);
+  return (
+    <button type="button" role="menuitemradio" aria-checked={checked} data-tip={tipCard(`Migrate to ${s.to}`, [], MIGRATE_CARD, `$ ${migrateCommand(s)}`, tipEst(estimate, true))} onClick={onPick}>
+      <b>{s.to}</b>
+      {recommended ? <small>recommended</small> : null}
+    </button>
   );
 }
 
