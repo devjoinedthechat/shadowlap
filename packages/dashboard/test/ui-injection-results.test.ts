@@ -196,7 +196,7 @@ describe('an exported copy', () => {
   it('is handed no results part, so a finding would offer no Show results and the inspector draws no results in its place', () => {
     expect(withParts({}, createElement(InjectionFinding, { runId: RUN, f: injectionFinding(row())!, fx: false, more: null }))).not.toContain('Show results');
     let bodies: ((key: string) => ReactNode) | null = null;
-    const Probe = () => ((bodies = useResultsBodies(RUN)), null);
+    const Probe = () => ((bodies = useResultsBodies(RUN, null, null)), null);
     withParts({}, createElement(Probe));
     expect(bodies!('injection:inj-01PLANT')).toBeNull();
     withParts(served, createElement(Probe));
