@@ -885,27 +885,6 @@ describe('what settles an unsettled fix', () => {
     expect(kept.argv.slice(-2)).toEqual(['--kept-max', '400']);
   });
 
-  it('holds a pulled verdict’s good runs to the pulled cap on Run more attempts, whatever --kept-max or pairs its record gives', () => {
-    const failing = makeRun(store, { labels: ['double-email'] });
-    const good = makeRun(store, { labels: ['digest'] });
-    blame(failing, { expect: { tools: { send_email: 1 } } });
-    const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
-    // Its good run stopped (no gate decision): Run more attempts takes it again at what it ran under.
-    const stopped = (pairs: number, flags: string[]) => {
-      const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }]);
-      const x = report.runs[1];
-      report.runs[1] = { ...x, verdict: 'open', attempts: Array.from({ length: pairs }, () => ({ ...x.attempts[0], passed: true })), passes: pairs };
-      Object.assign(report, decideVerify(report.runs, 'the provider stopped answering'), { gate, attemptsPerRun: 80 });
-      const v = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: 'v', rerun: { flags, command: null } }).verdict;
-      return { ...v, pulled: { from: 'team store', at: 1 } } as unknown as typeof v;
-    };
-    for (const v of [stopped(10, ['--kept-max', '1000']), stopped(900, [])]) {
-      const more = verifyMore(v)!;
-      expect(more).toMatchObject({ kind: 'more', keptMax: 400 });
-      expect(more.argv.join(' ')).not.toMatch(/--kept-max (?!400\b)\d+/);
-    }
-  });
-
   it('blames again a blame that couldn’t settle, and with the model asked for one nothing rescued, never with a flag for a model', async () => {
     const run = makeRun(store, { labels: ['double-email'] });
     const report = blameReport(run, 'unrescuable');

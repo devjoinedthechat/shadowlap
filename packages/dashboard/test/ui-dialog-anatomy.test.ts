@@ -779,15 +779,7 @@ describe('the bulk bar’s dialogs', () => {
 describe('a preview’s dialogs', () => {
   const RUN = '01M5H2DJ1W0000000000000000';
   const SESSION = 'dc-01M5000000000000000000000J';
-  const read = {
-    preview: null,
-    asks: { calls: 41, from: ['claude-sonnet-4-5'], control: true, runs: 2, otherFamily: null },
-    recorded: [{ id: 'claude-sonnet-4-5', family: 'claude', calls: 41 }],
-    answers: { most: 1840, cut: 3 },
-    refused: null,
-    targets: ['goldens/refund'],
-    ways: null,
-  };
+  const read = { preview: null, asks: { calls: 41, from: ['claude-sonnet-4-5'], control: true, runs: 2, otherFamily: null }, recorded: [{ id: 'claude-sonnet-4-5', family: 'claude', calls: 41 }], answers: { most: 1840, cut: 3 }, refused: null, targets: ['goldens/refund'], ways: null };
   const tree = { fromCode: { calls: 12, instructions: { before: 'Be brief.', after: 'Be brief. Never email.' }, tools: { added: [], removed: [], changed: [] } }, runs: [{ runId: RUN, golden: 'goldens/refund', changed: [1, 3], refused: null }], notes: [], nothing: null };
   const estimates = {
     previewEstimates: () => Promise.resolve(read),
