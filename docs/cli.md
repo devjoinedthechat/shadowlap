@@ -2065,7 +2065,7 @@ to your code. Each of its `runs` has these fields:
 | `verdict` | `passed`, `failed` or `inconclusive` |
 | `outcome` | How it came out (below) |
 | `tally` | For a run verify took: its `passes`, `attempts`, `bound` (exact under the gate's stopping), the `rule` that decided it, `undecided` and `parts` (below); else `null` |
-| `diverges` | For a golden that replays exactly, with a call made with a model it switches from: its first such `callNo`, and `path`, `$.model`, where it diverges once the config change is in; else `null` |
+| `diverges` | Once the config change is in, where a golden that replays exactly diverges: `callNo`, its first switched call, and `path`, `$.model`. Else `null` |
 
 A tally's `bound`, `rule`, `undecided` and `parts` are as in the decisions report's
 [`verify`](#decisions-report-as-json).
@@ -2116,7 +2116,7 @@ only a migration that is all clear, and whose patch is the whole switch:
   reached through no link.
 - It applies the patch with `git apply`. A patch already in the tree is only marked applied. A tree
   whose changes conflict with it is left alone, with what to do.
-- It replays the project's goldens offline, in a store that nothing keeps. It names each that now
+- It replays the project's goldens offline, in a store that nothing keeps. It names each that
   diverges on `$.model`, with its call and the command that re-records it, `shadowlap test <goldens>
   --update`.
 
@@ -2125,7 +2125,7 @@ The migration keeps its applied state, and Activity gets a `migrate.applied` eve
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--goldens <dir>` | The project's goldens folder, replayed offline | `goldens` |
-| `--build <command>` | Rebuild the agent after the patch is applied, before the replay. A compiled agent needs it: without it, the old build replays and no golden diverges | — |
+| `--build <command>` | Rebuild the agent after the patch is applied, before the replay. A compiled agent needs it, or the old build replays and no golden diverges | — |
 | `--json` | Print what was done as JSON on stdout (below) | — |
 
 `migrate apply` exits with `2` when it refuses the migration or the folder it runs in, `1` when the

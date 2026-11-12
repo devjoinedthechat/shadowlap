@@ -497,7 +497,7 @@ It gives its tally and the bound of its pass rate, or for a run kept against its
 
 - **Unchanged.** A run the preview cleared is *unchanged*: it is not run end to end, and its recording's own verdict under its checks stands. The first line claims only what ran: *keeps the run it verified passing*, or, when none ran, *decided the same in the preview*.
 - **Not judged.** A run with a text-only change a judge check reads that could not be judged is *inconclusive* (`not-judged`): the words might read otherwise.
-- **Left behind.** A golden that replays exactly, not marked `fork`, sends the model it was recorded with. Once the config change is in, it diverges on `$.model` at its first call with that model, until it is re-recorded under the new one. The report names each before anything is applied, with the command that re-records them. Which agent reads the files the patch changes can't be told, so it names every such golden; [`migrate apply`](#apply-the-config-change) replays them to see.
+- **Left behind.** A golden that replays exactly, not marked `fork`, sends the model it was recorded with. Once the config change is in, it diverges on `$.model` at its first call with that model, until you re-record it. The report names each before anything is applied, with the command. Which agent reads the patched files can't be told, so it names every such golden; [`migrate apply`](#apply-the-config-change) replays them.
 
 ### What to set
 
@@ -548,7 +548,7 @@ gh pr create --title "Switch claude-sonnet-4-5-20250929 to claude-haiku-4-5" --b
 - inside a longer string;
 - in `shadowlap.config.json`, whose prices and judges name models of their own.
 
-**What else it takes out.** In code, the patch takes out with the model each field What to set leaves out that is set to a literal on a line of its own, with a comma after it, in the call whose model it switches (`temperature=0,`). The report says so on the file's line (`eval_conversation.py  1 place, temperature left out`). Every other field stays for you, and the report says which (`by hand: leave top_p out, as What to set says: the patch changes the model alone`):
+**What else it takes out.** In code, the patch also takes out each field What to set leaves out, where it is set to a literal on a line of its own with a comma after it (`temperature=0,`). It does so only in the call whose model it switches. The report says so on the file's line (`eval_conversation.py  1 place, temperature left out`). Every other field stays for you, and the report says which (`by hand: leave top_p out, as What to set says: the patch changes the model alone`):
 
 - a field in JSON, YAML, TOML or `.env` config, where a line taken out can leave a file its reader refuses;
 - a field set to something other than a literal;
@@ -573,7 +573,7 @@ It applies a migration only when the report is all clear and the patch is the wh
 
 1. **It checks the patch** as `fix apply` checks a repair's: the migration's own file, unchanged since, naming only the files it switched, each a plain file git sees, reached through no link.
 2. **It applies it** with `git apply`. A patch already in the tree is only marked applied. A tree whose changes conflict with it is left alone, with what to do.
-3. **It replays your goldens offline**, in a store that nothing keeps, and names each that now diverges on `$.model`, with its call:
+3. **It replays your goldens offline**, in a store that nothing keeps, and names each that diverges on `$.model`, with its call:
 
 ```text
 ▸ replaying the goldens offline, in a store of their own that nothing keeps: 2 goldens
