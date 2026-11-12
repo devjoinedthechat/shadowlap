@@ -7,6 +7,7 @@ import { Dialog } from '../components/Dialog.js';
 import type { DialogFactRows } from '../components/DialogFacts.js';
 import { tipCard } from '../components/HoverCard.js';
 import { ModelField, useModelChoices } from '../components/ModelField.js';
+import { failedRead } from '../components/States.js';
 import { NO_GOLDENS, noTargets, type PreviewTarget, type PreviewWay } from '../components/NewPreviewMenu.js';
 import { previewBody, type PreviewEstimates, type PreviewQuery } from '../estimates-api.js';
 import { useConsentStart } from '../fixes/FixJobButton.js';
@@ -69,13 +70,13 @@ function useSettled(value: string, ms = 300): string {
   return settled;
 }
 
-/** What the change would ask and bill, read again as the form settles: `est` undefined while it is read, `failed` why it couldn't be. `off` reads nothing. */
+/** What the change would ask and bill, read again as the form settles: `est` undefined while it is read, `failed` why it couldn't be, in the line every page says (`failedRead`). `off` reads nothing. */
 function usePreviewRead(target: PreviewTarget, change: Omit<PreviewQuery, 'goldens' | 'runs'>, off = false): { est: PreviewEstimates | undefined; failed: string | null } {
   const { client } = useApp();
   const q = { ...targetQuery(target), ...change };
   const key = useSettled(off ? '' : JSON.stringify(previewBody(q)));
   const read = useLoad(() => (off ? null : (client.estimates?.previewEstimates(q) ?? null)), `preview-estimate:${key}`);
-  return { est: read.data ?? undefined, failed: !off && read.error ? read.error.message : null };
+  return { est: read.data ?? undefined, failed: !off && read.error ? failedRead(read.error) : null };
 }
 
 /**
@@ -244,7 +245,7 @@ function useTreeRead(target: PreviewTarget, off: boolean): { read: TreeState; co
       setRead(result?.fromCode ? result : { failed: treeFailed(done ? `the read ended with exit code ${done.code ?? 'none'}` : 'the dashboard lost the read') });
     });
   };
-  const { start, consent, yes } = useConsentStart('decisions-read', targetFields(target), { follow: true, started: follow, failed: (err) => setRead({ failed: err === null ? DECLINED : treeFailed(errorText(err)) }) });
+  const { start, consent, yes } = useConsentStart('decisions-read', targetFields(target), { follow: true, started: follow, failed: (err) => setRead({ failed: err === null ? DECLINED : treeFailed(err instanceof Error ? failedRead(err) : errorText(err)) }) });
   useEffect(() => {
     if (!off) void start({});
     return () => {
