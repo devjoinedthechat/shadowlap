@@ -231,12 +231,6 @@ function LastResult({ row }: { row: GoldenRow }) {
   );
 }
 
-/**
- * A golden's checks, each marked by how its last result came out on it (✓ passed, ✗ failed, ? in
- * amber when it couldn't be decided, – when it didn't apply; no mark before a result), with what
- * failed, in how many attempts, or why, under it and on hover; and what changes them, where the page
- * offers it (check-entries.tsx).
- */
 /** A golden's checks, then its injection gate under them, which its tests entry sets. */
 function Checks({ row }: { row: GoldenRow }) {
   return (
@@ -282,6 +276,12 @@ function GateCheck({ g }: { g: GateCheckView }) {
   );
 }
 
+/**
+ * A golden's checks, each marked by how its last result came out on it (✓ passed, ✗ failed, ? in
+ * amber when it couldn't be decided, – when it didn't apply; no mark before a result), with what
+ * failed, in how many attempts, or why, under it and on hover; and what changes them, where the page
+ * offers it (check-entries.tsx).
+ */
 function CheckList({ row }: { row: GoldenRow }) {
   if (!row.checks.length) {
     return (
