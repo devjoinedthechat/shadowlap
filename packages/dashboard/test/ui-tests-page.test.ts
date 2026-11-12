@@ -332,7 +332,7 @@ describe('Tests\' states, parts and keys', () => {
     expect([p.one('.stepempty .actions .btn.lime').textContent, p.one('.stepempty .cli code').textContent, p.all('.stepempty .cmdline').length]).toEqual(['Pack 01K5CQ4N7G as golden…', '$shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g', 0]);
     await p.click(p.one('.stepempty .actions .btn.lime'));
     await p.until('the dialog', () => p.all('.dialog').length === 1);
-    expect(all(p.one('.dialog'), 'h2, h3')[0].textContent).toBe('Pack 01K5CQ4N7G as golden?');
+    expect(all(p.one('.dialog'), 'h2, h3')[0].textContent.replace(/\u00a0/g, ' ')).toBe('Pack 01K5CQ4N7G as golden?');
     await p.click(p.byText('.dialog button', 'Pack as golden'));
     await p.until('the job', () => started.length === 1);
     expect(started).toEqual([{ kind: JOB_KINDS.keepGolden, fields: { runId: '01K5CQ4N7G0000000000000000', golden: 'goldens/01k5cq4n7g' } }]);

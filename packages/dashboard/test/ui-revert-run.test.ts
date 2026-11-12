@@ -133,7 +133,7 @@ describe('Revert', () => {
     await page.click(b);
     // Free, and still it asks: it changes your working tree.
     expect(started).toEqual([]);
-    expect(page.one('.dialog h3').textContent).toBe('Revert ccccccc?');
+    expect(page.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Revert ccccccc?');
   });
 
   it('waits while a Tests job runs and while any job uses the working tree, saying for what', async () => {

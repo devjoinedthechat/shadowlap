@@ -174,17 +174,34 @@ function docLink(doc: DocKey) {
 }
 
 /**
- * A dialog's title and lead: the title's words glued (`titled`), the lead set as copy with its docs
+ * A dialog's title: a string's words glued (`titled`), and a node with a name in it (`namedIn`) set as
+ * copy, the name kept whole, so neither ends a line on a small word.
+ */
+function DialogTitle({ id, title }: { id: string; title: ReactNode }) {
+  if (typeof title !== 'string') {
+    return (
+      <Copy as="h3" id={id}>
+        {title}
+      </Copy>
+    );
+  }
+  const head = titled(title);
+  return (
+    <h3 id={id} aria-label={head['aria-label']}>
+      {head.children}
+    </h3>
+  );
+}
+
+/**
+ * A dialog's title and lead: the title's words set (`DialogTitle`), the lead set as copy with its docs
  * link inside it, and the lead as written in a hidden span first, which the description reads, so a
  * screen reader hears it once and never the breaks the setting adds.
  */
 function DialogHead({ id, title, lead, doc }: Pick<DialogProps, 'title' | 'lead' | 'doc'> & { id: string }) {
-  const head = titled(title);
   return (
     <header>
-      <h3 id={id} aria-label={head['aria-label']}>
-        {head.children}
-      </h3>
+      <DialogTitle id={id} title={title} />
       {lead || doc ? (
         <p>
           <span id={`${id}lead`} hidden>

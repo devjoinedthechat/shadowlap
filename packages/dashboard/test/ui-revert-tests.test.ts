@@ -145,7 +145,7 @@ describe('Find breaking commit’s drawer', () => {
     expect([way.textContent, way.className]).toEqual(['Revert', 'btn']);
     expect(wayOnControl(r.document as unknown as ParentNode)).toBe(way);
     await r.click(way);
-    expect(r.one('.dialog h3').textContent).toBe('Revert ccccccc?');
+    expect(r.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe('Revert ccccccc?');
   });
 
   it('leaves the CLI’s link the way on where the search named no commit, is still running, searched a run, or the page leads with nothing', async () => {

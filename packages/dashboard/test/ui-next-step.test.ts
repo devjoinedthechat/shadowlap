@@ -445,7 +445,7 @@ describe('the run page’s next step', () => {
     // Replay stays beside it.
     expect(page.byText('.rhead .actions button', 'Replay').className).toBe('btn');
     await page.click(page.byText('.rhead .actions button', 'Pack as golden…'));
-    expect(page.one('.dialog h3').textContent).toBe(`Pack ${REC.slice(0, 10)} as golden?`);
+    expect(page.one('.dialog h3').textContent.replace(/\u00a0/g, ' ')).toBe(`Pack ${REC.slice(0, 10)} as golden?`);
     expect(page.one('.dialog').textContent).toContain('Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit.');
     expect(page.one('.dialog label').textContent).toContain('Golden');
     // The pack, then its test, a line each.
