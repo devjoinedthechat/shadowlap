@@ -47,6 +47,8 @@ import * as attemptGroups from './attempt-groups.js';
 import * as verdicts from './verdicts.js';
 // The person's own settings on this machine, on every project: Spending.
 import * as userSettings from './user-settings.js';
+// Open in editor: a project file at a line, in the editor $VISUAL or $EDITOR names.
+import * as editor from './editor.js';
 // Needs a look's advice put away (Dismiss) and brought back (Restore), in this project's store alone.
 import * as dismissals from './dismissals.js';
 
@@ -103,6 +105,7 @@ export const ROUTE_MODULES: RouteModule[] = [
   verdicts,
   userSettings,
   estimates,
+  editor,
   dismissals,
 ];
 

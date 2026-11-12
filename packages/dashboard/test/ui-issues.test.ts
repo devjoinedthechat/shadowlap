@@ -2,11 +2,15 @@ import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NO_COMMAND, Store } from '@shadowlap/engine';
 import { ISSUES_READS } from '../src/issues.js';
+import type { NextStepWork } from '../src/next-step.js';
 import { unblamedBlameCard } from '../src/unblamed-words.js';
 import type { Client } from '../ui/api.js';
 import { ISSUE_ASK } from '../ui/page-ask.js';
+import { RevertDialog } from '../ui/revert/RevertDialog.js';
 import { FailedIssues } from '../ui/runspage/FailedIssues.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { crashFixtures, GOLDEN, MIN, source, T0, work } from './crash-fixtures.js';
 import { addRun } from './read-model-store.js';
 import { render, shownText, type FakeElement, type Rendered } from './ui-render.js';
 import { OPEN_ISSUES } from '../src/issue-keys.js';
@@ -224,8 +228,8 @@ describe('Failed’s issues, as they are used', () => {
   const count = (t: Rendered, key: string) => t.one(`tr[data-rowkey="${key}"] button.isn`);
   const shownRuns = (t: Rendered) => t.all('.isruns .isr').map((a) => a.getAttribute('href')!.slice('#/run/'.length));
   const tipOf = (el: FakeElement) => JSON.parse(String(el.getAttribute('data-tip'))) as { t: string; s?: string; cmd?: string; est?: unknown };
-  /** Failed's issues as the server reads them from the store. */
-  const served = (s: Store): IssuesPage => JSON.parse((ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome: null, next: null }, { whole: true }) as { body: string }).body) as IssuesPage;
+  /** Failed's issues as the server reads them from the store, with what their steps read of the project (`next`). */
+  const served = (s: Store, next: NextStepWork | null = null): IssuesPage => JSON.parse((ISSUES_READS['runs-issues'](s, { kind: 'runs-issues', options: {}, outcome: null, next }, { whole: true }) as { body: string }).body) as IssuesPage;
 
   it('brings an issue’s next runs with Show more, and leaves them once the words change, whose read has its runs of its own', async () => {
     const A = (n: number) => `01K8RG000000000000000000M${n}`;
@@ -401,5 +405,43 @@ describe('Failed’s issues, as they are used', () => {
     const link = t.one(`tr[data-rowkey="${x.key}"] .isfix a.btn`);
     expect(link.getAttribute('href')).toBe(`#/run/${runId}`);
     expect(tipOf(link)).toMatchObject({ t: 'Run blame', s: unblamedBlameCard(1, runId.slice(0, 10)) });
+  });
+
+  it('draws a crash’s Revert once Find breaking commit named its commit, waiting for a Tests job, and opens its dialog on the commit its run’s offers name', async () => {
+    store = Store.open(':memory:');
+    const { tested, named } = crashFixtures(() => store!);
+    const rec = addRun(store, { startedAt: T0, calls: 'lll' });
+    tested(rec, T0 + MIN, 'passed');
+    const crash = tested(rec, T0 + 2 * MIN, 'crashed');
+    named(T0 + 2 * MIN);
+    const page = served(store, work([source(rec)]));
+    const x = page.issues.find((i) => i.kind === 'test')!;
+    expect(x).toMatchObject({ stepRun: crash, step: { key: 'revert', golden: GOLDEN, rev: 'ccccccc' } });
+    let offers = 0;
+    const commit = { rev: 'ccccccc', subject: 'Log the total', author: '', date: null, at: T0 + 2 * MIN + 30_000, untested: [], change: null };
+    const client = (jobs: unknown[]) =>
+      ({
+        jobs: () => Promise.resolve(jobs),
+        runsIssues: () => Promise.resolve(page),
+        nextStep: () => Promise.resolve({ next: { ...x.step!, estimate: { kind: 'tests', usd: 0, parts: ['replays offline'] } } }),
+        offers: () => (offers++, Promise.resolve({ commit })),
+      }) as unknown as Partial<Client>;
+    const inServed = (value: AppState) => createElement(ServedPartsContext.Provider, { value: { RevertDialog } }, createElement(AppContext.Provider, { value }, failed()));
+    const revert = (t: Rendered) => t.one(`tr[data-rowkey="${x.key}"] .isfix button`);
+    // While a test session runs, it waits for it, saying why, as the run's page's Revert does.
+    r = await render(inServed(state(client([{ id: 'job-1', kind: 'test', done: false, project: null }]))));
+    await r.until('its wait', () => r!.all(`tr[data-rowkey="${x.key}"] .isfix button[data-why]`).length === 1);
+    expect(revert(r).getAttribute('data-why')).toBe('A test session is running: revert it once it is done.');
+    await r.unmount();
+    // Small and plain with no key, never a page's lead; pressed, it reads the commit and opens its dialog.
+    r = await render(inServed(state(client([]))));
+    await r.until('the issues', () => r!.all('table.issues').length > 0);
+    const step = revert(r);
+    expect([step.textContent, step.props.className, step.getAttribute('data-next')]).toEqual(['Revert', 'btn sm', null]);
+    expect(step.querySelectorAll('kbd')).toHaveLength(0);
+    await r.click(step);
+    await r.until('its dialog', () => r!.all('[role="dialog"]').length === 1);
+    expect(offers).toBe(1);
+    expect(r.one('[role="dialog"] h3').textContent).toBe('Revert ccccccc?');
   });
 });

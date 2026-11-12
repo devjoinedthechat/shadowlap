@@ -209,6 +209,9 @@ table.probes tr.hot td { background: var(--sel); }
 .fxwhere .fxbase { display: block; margin-top: 2px; font-size: 12px; color: var(--faint); white-space: normal; }
 
 .fxnote { margin: 14px 0 0; color: var(--faint); font-size: 12.5px; }
+/* A crash's first bad commit under the Blame step's lead, then its change, closer to it than on Tests. */
+.bisect.fxbis { margin: 0 0 16px; padding-top: 0; border-top: 0; }
+.bisect.fxbis + .codewrap.bisectdiff { margin: -6px 0 20px; }
 .fxcmd { margin-top: 14px; }
 .fxlost { margin: 6px 0 14px; }
 .fxlost .at { color: var(--faint); }

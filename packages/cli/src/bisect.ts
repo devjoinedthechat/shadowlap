@@ -2,13 +2,16 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, messageOf, sameCommandLine, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, type StoreOf, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, messageOf, sameCommandLine, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, type StoreOf, unpackRun, type GateHistory, type Normalizer, type Palette, type RunRecord, UNTESTED_WORDS } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { undecidableChecks } from './attempts.js';
+import { sessionSource } from './baseline-branch.js';
+import { commitChange, type BisectChange, type ChangeScope } from './bisect-change.js';
 import { specFor, type TestSpec } from './checks.js';
-import { defaultDbPath, loadConfig, loadTests } from './config.js';
-import { divergenceCause, importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
+import { defaultDbPath, loadConfig, loadTestSettings, loadTests } from './config.js';
+import { divergenceCause, goldenHistory, importGolden, ReplayInterrupted, testRecording, tokensOf } from './golden-test.js';
 import { goldenName, scratchDir } from './goldens.js';
+import { oracleLabels } from './oracle.js';
 import { type GuardMode } from './run-agent.js';
 import { physicalPath, realPath } from './real-path.js';
 import { openStore, withoutCommand, type GlobalOpts } from './shared.js';
@@ -24,7 +27,9 @@ import { refuseUnrecorded } from './unrecorded.js';
  *
  * The recording, its checks and the normalizers come from the working tree as it is now; only the
  * agent's code changes from commit to commit. History is followed by first parents, so a merged
- * branch counts as its merge commit.
+ * branch counts as its merge commit. A golden gated against its history is judged against it at
+ * every commit, as `test` judges it. The answer keeps the first bad commit's change
+ * (bisect-change.ts), so it can be shown, opened and reverted without a checkout.
  */
 
 export class BisectError extends Error {
@@ -103,8 +108,8 @@ export interface BisectReport {
   commits: number;
   /** Every replay, in the order they ran. */
   steps: BisectStep[];
-  /** The first commit where it fails, and why. */
-  first: (BisectCommit & { why: string }) | null;
+  /** The first commit where it fails, why, and what it changed (null when git couldn't say). */
+  first: (BisectCommit & { why: string; change: BisectChange | null }) | null;
   /** Commits just before it that could not be tested: the first bad one may be among them. */
   untested: BisectCommit[];
   /** Why there is no answer, when there is none. */
@@ -263,9 +268,23 @@ function describeResult(o: Awaited<ReturnType<typeof testRecording>>, rules: rea
   return o.kind === 'diverged' && path ? `${o.failure.message} · ${path}` : o.failure.message;
 }
 
-export async function runBisect(input: BisectInput): Promise<BisectReport> {
-  const started = Date.now();
-  const projectDir = input.projectDir ?? process.cwd();
+/** The commits a search runs over: the repository, the two ends, and the first-parent line between them. */
+interface Range {
+  /** The recorded command's folder and the repository's top, as git sees them, and the one inside the other. */
+  cwd: string;
+  root: string;
+  inRepo: string;
+  goodRev: string;
+  badRev: string;
+  /** Said when the good commit is on another branch, so the search starts where their histories meet. */
+  fromBase: string | null;
+  /** After the good commit, up to and including the bad one. */
+  commits: string[];
+  good: BisectCommit;
+  bad: BisectCommit;
+}
+
+function bisectRange(input: BisectInput): Range {
   // Compared as git sees them, with symbolic links resolved.
   const cwd = physicalPath(input.cwd);
   let root: string;
@@ -299,45 +318,62 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   const descends = new Set(git(root, ['rev-list', '--ancestry-path', `${goodRev}..${badRev}`]).split('\n').filter(Boolean));
   const commits = git(root, ['rev-list', '--first-parent', '--reverse', `${goodRev}..${badRev}`]).split('\n').filter((c) => c && descends.has(c));
   if (commits.at(-1) !== badRev) commits.push(badRev);
-  const good = commitInfo(root, goodRev);
-  const bad = commitInfo(root, badRev);
+  return { cwd, root, inRepo, goodRev, badRev, fromBase, commits, good: commitInfo(root, goodRev), bad: commitInfo(root, badRev) };
+}
 
+/** What every replay of the search shares: the recording, in a store of its own, the checks and the history a gate against it compares with. */
+interface Prepared {
+  config: ReturnType<typeof loadConfig>;
+  store: Store;
+  target: ReturnType<typeof loadTarget>;
+  /** The command given after `--`, run instead of the recorded one. */
+  own: string[] | null;
+  spec: TestSpec | null;
+  answered: Answered | null;
+  history: GateHistory | null;
+  /** Why a gate against history compares with the recording alone. */
+  note: string | null;
+}
+
+/** Loads what the search replays, refusing what it can't or mustn't run at every commit; the store it opened is closed when it refuses. */
+async function prepare(input: BisectInput, projectDir: string, cwd: string): Promise<Prepared> {
   const config = loadConfig(projectDir);
   const store = Store.open(':memory:');
-  let target: ReturnType<typeof loadTarget>;
   try {
-    target = loadTarget(input, projectDir, store);
-  } catch (err) {
-    store.close();
-    throw err instanceof BisectError ? err : new BisectError(messageOf(err));
-  }
-  const own = input.argv?.length ? input.argv : null;
-  if (!own && !hasRecordedCommand(target.run)) {
-    store.close();
-    throw new BisectError(`${target.name} ${withoutCommand(target.run)} and has no command to run at each commit. Give your agent's command after --, or replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
-  }
-  // Every commit replays it: a tool its model called that it never recorded, which writes, would run again for real.
-  try {
-    refuseUnrecorded(store, target.run, input.allowUnrecorded);
-  } catch (err) {
-    store.close();
-    throw new BisectError(messageOf(err));
-  }
-  // A run from someone else's pack, or pulled from the team store, carries a command someone else
-  // chose, and it would run at every commit: it needs consent, as a replay of it does.
-  if (!own && target.imported) {
-    let ok = false;
+    let target: ReturnType<typeof loadTarget>;
     try {
-      ok = input.confirm ? await input.confirm(target.run, target.run.command.argv, target.kind === 'golden' ? input.target : null) : false;
-    } finally {
-      if (!ok) store.close();
+      target = loadTarget(input, projectDir, store);
+    } catch (err) {
+      throw err instanceof BisectError ? err : new BisectError(messageOf(err));
     }
-    if (!ok) throw new BisectDeclined(target.name);
+    const own = input.argv?.length ? input.argv : null;
+    if (!own && !hasRecordedCommand(target.run)) {
+      throw new BisectError(`${target.name} ${withoutCommand(target.run)} and has no command to run at each commit. Give your agent's command after --, or replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
+    }
+    // Every commit replays it: a tool its model called that it never recorded, which writes, would run again for real.
+    try {
+      refuseUnrecorded(store, target.run, input.allowUnrecorded);
+    } catch (err) {
+      throw new BisectError(messageOf(err));
+    }
+    // A run from someone else's pack, or pulled from the team store, carries a command someone else
+    // chose, and it would run at every commit: it needs consent, as a replay of it does.
+    if (!own && target.imported && !(input.confirm ? await input.confirm(target.run, target.run.command.argv, target.kind === 'golden' ? input.target : null) : false)) throw new BisectDeclined(target.name);
+    const spec = specOf(input, projectDir, target.golden);
+    // The failure this search answers: the golden's newest result now. Tests shows the answer only
+    // while that failure is the golden's latest run of failures, not over a later, unrelated one.
+    const answered = target.kind === 'golden' && target.golden ? newestResult(input, target.golden) : null;
+    const { history, note } = target.kind === 'golden' && target.golden ? historyOf(input, projectDir, cwd, target.golden, target.run, spec) : { history: null, note: null };
+    return { config, store, target, own, spec, answered, history, note };
+  } catch (err) {
+    store.close();
+    throw err;
   }
-  // The failure this search answers: the golden's newest result now. Tests shows the answer only
-  // while that failure is the golden's latest run of failures, not over a later, unrelated one.
-  const answered = target.kind === 'golden' && target.golden ? newestResult(input, target.golden) : null;
-  const fromConfig = target.golden ? specFor(loadTests(projectDir), resolve(projectDir, target.golden), projectDir) : null;
+}
+
+/** The checks each replay must pass: the command line's, else the golden's from the config. */
+function specOf(input: BisectInput, projectDir: string, golden: string | null): TestSpec | null {
+  const fromConfig = golden ? specFor(loadTests(projectDir), resolve(projectDir, golden), projectDir) : null;
   // Checks given on the command line judge the replay as it is: offline, so a divergence fails it,
   // unless --fork lets it go live from the fork and leaves the verdict to the checks.
   const given = input.spec === undefined ? fromConfig : input.spec ? { ...input.spec, fork: false } : null;
@@ -346,16 +382,41 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   // every commit inconclusive, so the search would spend tokens to say nothing.
   const undecided = input.fork ? undecidableChecks(spec) : [];
   if (undecided.length) {
-    store.close();
     throw new BisectError(
       `with --fork, a replay that forks asks its judge checks live, and ${undecided.length === 1 ? 'one' : `${undecided.length}`} can't be asked: ${undecided.map((u) => `${u.label} (${u.why})`).join('; ')}. Every commit would read inconclusive, so bisect would spend tokens to say nothing: give the judge its provider's key, or bisect without --fork`,
     );
   }
+  return spec;
+}
+
+/**
+ * A golden gated against its history is judged against that history at every commit, as `test`
+ * judges it: its last sessions that passed on the baseline branch, read once from the project's store.
+ */
+function historyOf(input: BisectInput, projectDir: string, cwd: string, golden: string, run: RunRecord, spec: TestSpec | null): { history: GateHistory | null; note: string | null } {
+  if (spec?.gate?.kind !== 'baseline') return { history: null, note: null };
+  const { baselineBranch } = sessionSource({ cwd, configured: loadTestSettings(projectDir).baselineBranch ?? null });
+  const project = openStore(input.opts);
+  try {
+    return goldenHistory(project, golden, spec.gate, { goldenRunId: run.runId, checks: oracleLabels(spec).slice(1), baselineBranch });
+  } finally {
+    project.close();
+  }
+}
+
+export async function runBisect(input: BisectInput): Promise<BisectReport> {
+  const started = Date.now();
+  const projectDir = input.projectDir ?? process.cwd();
+  const range = bisectRange(input);
+  const { good, bad, commits } = range;
+  const set = await prepare(input, projectDir, range.cwd);
+  const { target } = set;
 
   const report: BisectReport = { outcome: 'stopped', target: { kind: target.kind, name: target.name, runId: target.run.runId }, good, bad, commits: commits.length, steps: [], first: null, untested: [], why: null, replays: 0, tokens: 0, upstreamRequests: 0, spent: 0, seconds: 0 };
-  if (fromBase) input.log(`  ${fromBase}, ${good.short}`);
+  if (range.fromBase) input.log(`  ${range.fromBase}, ${good.short}`);
   input.log(`▸ ${target.name} · good ${good.short} · bad ${bad.short} · ${commits.length} commit${commits.length === 1 ? '' : 's'} apart`);
-  if (input.bad === 'HEAD' && git(root, ['status', '--porcelain', '--untracked-files=no']).trim()) input.log('  uncommitted changes are not part of it: each replay runs a commit as committed');
+  if (set.note) input.log(`  ${set.note}`);
+  if (input.bad === 'HEAD' && git(range.root, ['status', '--porcelain', '--untracked-files=no']).trim()) input.log('  uncommitted changes are not part of it: each replay runs a commit as committed');
 
   const base = scratchDir(projectDir, 'bisect');
   let stopped = false;
@@ -363,28 +424,47 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     stopped = true;
   };
   for (const s of STOP_SIGNALS) process.on(s, onSignal);
+  const probe = prober(input, range, set, report, base, () => stopped);
+  try {
+    await search(report, range, probe, () => stopped, { inRepo: range.inRepo, projectDir: physicalPath(projectDir), tests: loadTests(projectDir), golden: target.kind === 'golden' ? target.golden : null });
+    return report;
+  } finally {
+    for (const s of STOP_SIGNALS) process.off(s, onSignal);
+    rmSync(base, { recursive: true, force: true });
+    gitOk(range.root, ['worktree', 'prune']);
+    set.store.close();
+    report.seconds = (Date.now() - started) / 1000;
+    if (stopped && report.outcome === 'stopped') report.why = 'interrupted';
+    // An answer either way, but not a search cut short: the Tests screen shows it above the golden's buttons.
+    if (report.outcome !== 'stopped') record(input, projectDir, report, set.answered);
+  }
+}
 
-  /**
-   * Replays the recording at one commit, in a worktree that is removed afterwards. A commit that
-   * won't check out or build is skipped; an error that isn't about the commit (the sidecar couldn't
-   * start, say) ends the bisect with it, rather than being taken for the commit's verdict.
-   */
+/**
+ * Replays the recording at one commit, in a worktree that is removed afterwards. A commit that
+ * won't check out or build is skipped; an error that isn't about the commit (the sidecar couldn't
+ * start, say) ends the bisect with it, rather than being taken for the commit's verdict.
+ */
+function prober(input: BisectInput, range: Range, set: Prepared, report: BisectReport, base: string, stopped: () => boolean): (rev: string) => Promise<BisectStep> {
+  const { root, cwd, inRepo } = range;
+  const { store, config, target, spec, history } = set;
   let announced = false;
-  const probe = async (rev: string): Promise<BisectStep> => {
+  const done = (rev: string, info: BisectCommit, t0: number, ok: boolean, skipped: boolean, result: string): BisectStep => {
+    const step: BisectStep = { rev, short: info.short, subject: info.subject, ok, skipped, result, seconds: (Date.now() - t0) / 1000 };
+    report.steps.push(step);
+    input.log(`  replay at ${step.short}  ${ok ? result : skipped ? `– skipped: ${result}` : `✗ ${result}`}`);
+    return step;
+  };
+  return async (rev) => {
     const t0 = Date.now();
     const info = commitInfo(root, rev);
     const worktree = join(base, info.short);
-    const done = (ok: boolean, skipped: boolean, result: string): BisectStep => {
-      const step: BisectStep = { rev, short: info.short, subject: info.subject, ok, skipped, result, seconds: (Date.now() - t0) / 1000 };
-      report.steps.push(step);
-      input.log(`  replay at ${step.short}  ${ok ? result : skipped ? `– skipped: ${result}` : `✗ ${result}`}`);
-      return step;
-    };
+    const end = (ok: boolean, skipped: boolean, result: string) => done(rev, info, t0, ok, skipped, result);
     try {
       try {
         git(root, ['worktree', 'add', '--detach', '--force', worktree, rev]);
       } catch (err) {
-        return done(false, true, `could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || messageOf(err)}`);
+        return end(false, true, `could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || messageOf(err)}`);
       }
       const worktreeCwd = join(worktree, inRepo);
       // Without a build step, the working tree's packages serve every commit, this repository's own
@@ -398,28 +478,22 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       }
       if (input.build) {
         const b = spawnSync(input.build, { cwd: worktreeCwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-        if (b.status !== 0) return done(false, true, `could not be built: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ') || `${input.build} exited ${b.status ?? b.signal!}`}`);
+        if (b.status !== 0) return end(false, true, `could not be built: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ') || `${input.build} exited ${b.status ?? b.signal!}`}`);
       }
-      const argv = mapArgv(own ?? target.run.command.argv, { root, worktree, cwd, worktreeCwd });
+      const argv = mapArgv(set.own ?? target.run.command.argv, { root, worktree, cwd, worktreeCwd });
       let outcome: Awaited<ReturnType<typeof testRecording>>;
       try {
-        outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs, stopped: () => stopped, ...(input.allowUnrecorded ? { allowUnrecorded: input.allowUnrecorded } : {}) });
+        outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs, stopped, ...(history ? { history } : {}), ...(input.allowUnrecorded ? { allowUnrecorded: input.allowUnrecorded } : {}) });
       } catch (err) {
-        if (err instanceof ReplayInterrupted) return done(false, true, 'interrupted');
+        if (err instanceof ReplayInterrupted) return end(false, true, 'interrupted');
         throw new BisectError(`the replay at ${info.short} could not run: ${messageOf(err)}`);
       }
-      report.replays += outcome.attempts.length;
-      for (const a of outcome.attempts) {
-        const s = a.ended.summary;
-        report.upstreamRequests += s.upstreamRequests;
-        report.spent += s.cost.spent;
-        report.tokens += tokensOf(store.getCalls(s.runId), { live: true, output: true });
-      }
+      count(report, store, outcome);
       // A replay a signal cut short says nothing about the commit.
-      if (outcome.interrupted) return done(false, true, 'interrupted');
+      if (outcome.interrupted) return end(false, true, 'interrupted');
       // Nor does a verdict that is neither passed nor failed (a gate that ran out of attempts): the commit is untested.
-      if (outcome.verdict === 'inconclusive') return done(false, true, outcome.failure?.message ?? 'inconclusive');
-      return done(!outcome.failure, false, describeResult(outcome, [...config.normalize, ...(target.run.meta?.redactions ?? [])]));
+      if (outcome.verdict === 'inconclusive') return end(false, true, outcome.failure?.message ?? 'inconclusive');
+      return end(!outcome.failure, false, describeResult(outcome, [...config.normalize, ...(target.run.meta?.redactions ?? [])]));
     } finally {
       if (!gitOk(root, ['worktree', 'remove', '--force', worktree])) {
         rmSync(worktree, { recursive: true, force: true });
@@ -427,65 +501,60 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       }
     }
   };
+}
 
-  try {
-    // A replay cut short by Ctrl-C is no evidence either way, so nothing is concluded from it.
-    const atBad = await probe(badRev);
-    if (stopped) return report;
-    if (atBad.skipped) {
-      report.outcome = 'untestable';
-      report.why = `${bad.short} ${atBad.result}`;
-      return report;
+/** Adds a replay's attempts to what the search spent. */
+function count(report: BisectReport, store: Store, outcome: Awaited<ReturnType<typeof testRecording>>): void {
+  report.replays += outcome.attempts.length;
+  for (const a of outcome.attempts) {
+    const s = a.ended.summary;
+    report.upstreamRequests += s.upstreamRequests;
+    report.spent += s.cost.spent;
+    report.tokens += tokensOf(store.getCalls(s.runId), { live: true, output: true });
+  }
+}
+
+/** Replays both ends, then halves the range between them; a replay cut short by Ctrl-C is no evidence either way, so nothing is concluded from it. */
+async function search(report: BisectReport, range: Range, probe: (rev: string) => Promise<BisectStep>, stopped: () => boolean, scope: ChangeScope): Promise<void> {
+  const { good, bad, commits, root } = range;
+  const none = (outcome: BisectReport['outcome'], why: string) => {
+    report.outcome = outcome;
+    report.why = why;
+  };
+  const atBad = await probe(range.badRev);
+  if (stopped()) return;
+  if (atBad.skipped) return none('untestable', `${bad.short} ${atBad.result}`);
+  if (atBad.ok) return none('passes-at-bad', `it passes at ${bad.short}, so there is nothing to find`);
+  const atGood = await probe(range.goodRev);
+  if (stopped()) return;
+  if (atGood.skipped) return none('untestable', `${good.short} ${atGood.result}`);
+  if (!atGood.ok) return none('fails-at-good', `it already fails at ${good.short}: ${atGood.result}. Give an older --good, or, when the agent can't start in a fresh checkout, --build with what it needs`);
+  const found = await halve(commits, atBad.result, probe, stopped);
+  if (!found) return;
+  report.outcome = 'found';
+  const rev = commits[found.hi]!;
+  report.first = { ...commitInfo(root, rev), why: found.why, change: commitChange(root, rev, scope) };
+  report.untested = [...found.skipped].filter((i) => i > found.lo && i < found.hi).sort((a, b) => a - b).map((i) => commitInfo(root, commits[i]!));
+}
+
+/** Halves the range; a commit that can't be tested is skipped, and the nearest other one tried. Null once stopped. */
+async function halve(commits: readonly string[], why: string, probe: (rev: string) => Promise<BisectStep>, stopped: () => boolean): Promise<{ lo: number; hi: number; why: string; skipped: Set<number> } | null> {
+  let lo = -1;
+  let hi = commits.length - 1;
+  const skipped = new Set<number>();
+  for (;;) {
+    const mid = (lo + hi) >> 1;
+    let pick = -1;
+    for (let i = lo + 1; i < hi; i++) if (!skipped.has(i) && (pick < 0 || Math.abs(i - mid) < Math.abs(pick - mid))) pick = i;
+    if (pick < 0) return { lo, hi, why, skipped };
+    const step = await probe(commits[pick]!);
+    if (stopped()) return null;
+    if (step.skipped) skipped.add(pick);
+    else if (step.ok) lo = pick;
+    else {
+      hi = pick;
+      why = step.result;
     }
-    if (atBad.ok) {
-      report.outcome = 'passes-at-bad';
-      report.why = `it passes at ${bad.short}, so there is nothing to find`;
-      return report;
-    }
-    const atGood = await probe(goodRev);
-    if (stopped) return report;
-    if (atGood.skipped) {
-      report.outcome = 'untestable';
-      report.why = `${good.short} ${atGood.result}`;
-      return report;
-    }
-    if (!atGood.ok) {
-      report.outcome = 'fails-at-good';
-      report.why = `it already fails at ${good.short}: ${atGood.result}. Give an older --good, or, when the agent can't start in a fresh checkout, --build with what it needs`;
-      return report;
-    }
-    // Halving the range; a commit that can't be tested is skipped, and the nearest other one tried.
-    let lo = -1;
-    let hi = commits.length - 1;
-    let why = atBad.result;
-    const skipped = new Set<number>();
-    for (;;) {
-      const mid = (lo + hi) >> 1;
-      let pick = -1;
-      for (let i = lo + 1; i < hi; i++) if (!skipped.has(i) && (pick < 0 || Math.abs(i - mid) < Math.abs(pick - mid))) pick = i;
-      if (pick < 0) break;
-      const step = await probe(commits[pick]!);
-      if (stopped) return report;
-      if (step.skipped) skipped.add(pick);
-      else if (step.ok) lo = pick;
-      else {
-        hi = pick;
-        why = step.result;
-      }
-    }
-    report.outcome = 'found';
-    report.first = { ...commitInfo(root, commits[hi]!), why };
-    report.untested = [...skipped].filter((i) => i > lo && i < hi).sort((a, b) => a - b).map((i) => commitInfo(root, commits[i]!));
-    return report;
-  } finally {
-    for (const s of STOP_SIGNALS) process.off(s, onSignal);
-    rmSync(base, { recursive: true, force: true });
-    gitOk(root, ['worktree', 'prune']);
-    store.close();
-    report.seconds = (Date.now() - started) / 1000;
-    if (stopped && report.outcome === 'stopped') report.why = 'interrupted';
-    // An answer either way, but not a search cut short: the Tests screen shows it above the golden's buttons.
-    if (report.outcome !== 'stopped') record(input, projectDir, report, answered);
   }
 }
 
@@ -523,7 +592,7 @@ function record(input: BisectInput, projectDir: string, report: BisectReport, an
         kind: 'bisect.found',
         ...where,
         // `commit` and `subject` are what the activity feed shows; `first` is what the Tests screen does.
-        data: { commit: first.short, subject: first.subject, good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests, ...about },
+        data: { commit: first.short, subject: first.subject, good: report.good.short, bad: report.bad.short, first: { rev: first.short, subject: first.subject, author: first.author, date: first.date, change: first.change }, why: first.why, untested: report.untested.map((c) => c.short), replays: report.replays, tokens: report.tokens, upstreamRequests: report.upstreamRequests, ...about },
       });
     } else {
       // Why, without the advice for the command line: Tests offers an older commit itself.
@@ -543,6 +612,6 @@ export function formatBisect(r: BisectReport, p: Palette = plain): string {
   const cost = `${r.replays} replay${r.replays === 1 ? '' : 's'} · ${r.tokens.toLocaleString('en-US')} tokens · ${r.upstreamRequests} upstream request${r.upstreamRequests === 1 ? '' : 's'}${r.spent > 0 ? ` · ${formatUsd(r.spent)}` : ''} · ${formatDuration(r.seconds * 1000)}`;
   if (r.outcome !== 'found' || !r.first) return `${p.red('✗')} no first bad commit: ${r.why ?? r.outcome}\n  ${p.dim(cost)}`;
   const f = r.first;
-  const unsure = r.untested.length ? `\n  ${p.yellow(`or one just before it, which could not be tested: ${r.untested.map((c) => `${c.short} (${c.subject})`).join(', ')}`)}` : '';
+  const unsure = r.untested.length ? `\n  ${p.yellow(UNTESTED_WORDS.line(r.untested.map((c) => `${c.short} (${c.subject})`)))}` : '';
   return `${p.green('✓')} first bad commit ${f.short} · ${f.subject} · ${f.author} · ${f.date.slice(0, 10)}\n  ${f.why} · ${p.dim(cost)}${unsure}`;
 }

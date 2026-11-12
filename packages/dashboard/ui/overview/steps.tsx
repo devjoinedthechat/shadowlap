@@ -12,7 +12,8 @@ import { moreCard } from '../pages/tests-cards.js';
 import { stepCard } from '../run/next-step.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
-import { type Job, type LookWait, type Price, RunStep, runStepJob, stepWhy, updateAsk, useAsking, usePost, usePriced } from '../steps/RunStep.js';
+import { useAsking, usePriced } from '../step-asks.js';
+import { type Job, type LookWait, type Price, RunStep, runStepJob, stepWhy, updateAsk, usePost } from '../steps/RunStep.js';
 import { moreAttemptsAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
 import type { LookStep, NeedsLookRow } from '../types.js';
 
@@ -36,8 +37,8 @@ export function stepRun(s: LookStep | null): { kind: string; job: Job | null } |
     case 'link':
       return null;
     case 'fix':
-      // As Fixes' row waits (lead.ts `leadWait`): the job its lead starts, and how it uses the working tree.
-      return { kind: LEAD_KIND[s.lead.key], job: { verb: LEAD_VERB[s.lead.key], tests: false, use: s.lead.use } };
+      // As Fixes' row waits (lead.ts `leadWait`): the job its lead starts, how it uses the working tree, and a crash's step waiting for Tests' jobs too.
+      return { kind: LEAD_KIND[s.lead.key], job: { verb: LEAD_VERB[s.lead.key], tests: s.lead.key === 'bisect' || s.lead.key === 'revert', use: s.lead.use } };
     case 'run':
       return runStepJob(s.step);
     case 'more':

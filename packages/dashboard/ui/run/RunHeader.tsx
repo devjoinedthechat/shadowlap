@@ -22,7 +22,7 @@ import { ForkMenu, type PendingAction } from './actions.js';
 import type { CheckEntry } from './check-entry.js';
 import { failureText, fixCheckText } from './banner.js';
 import { nextStepOf } from './next-step.js';
-import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton } from './NextStepButton.js';
+import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton, RevertEditorButton } from './NextStepButton.js';
 import { TraceLink } from './TraceLink.js';
 import { exitWords, type PresetAttempt } from './preset.js';
 import { checksOf, runDuration, runKindWords, runLikeOf } from './model.js';
@@ -200,6 +200,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, chec
             ) : null}
             {next?.key === 'replay' ? null : <ReplayButton run={run} step={run.replay ?? null} lime={false} onAction={onAction} />}
             <PlainPackAsGolden run={run} offers={offers} next={next} judged={judged} />
+            <RevertEditorButton step={next} offers={offers} />
             <BlameBesideButton runId={r.runId} step={next} />
             <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} why={live ? 'Fork once the recording finishes' : null} disabled={!live && selected === null} {...cardUnlessIdle(selected === null, 'Each change in the menu shows the flag it runs')} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
               <Icon name="fork" />

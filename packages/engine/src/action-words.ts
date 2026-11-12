@@ -79,6 +79,10 @@ export const ACTIONS = {
   openCandidates: { label: 'Open candidates' },
   openProof: { label: 'Open proof' },
   openPassingRun: { label: 'Open passing run' },
+  // Once Find breaking commit named a crash's commit: undone in the working tree, uncommitted, then
+  // its golden tested. Its dialog only confirms, so no ellipsis. Open in editor opens the line it changed.
+  revert: { label: 'Revert', doing: 'Reverting' },
+  openInEditor: { label: 'Open in editor' },
   compareWithParent: { label: 'Compare with parent' },
   compareWithFork: { label: 'Compare with fork' },
   compareWithReplay: { label: 'Compare with replay' },

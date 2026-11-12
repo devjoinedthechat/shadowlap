@@ -63,7 +63,7 @@ export function needsLook(w: LookWork, sources: readonly LookSource[] = ORDERED)
 /**
  * What every source reads, read once: Fixes' list, the goldens failing now, each failing golden's
  * step, and the goldens each open fix holds, a golden being held when its failing run is the fix's
- * and its step is that fix's, or a crash's Find breaking commit.
+ * and its step is that fix's, or a crash's Find breaking commit or Revert.
  */
 export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: StoreNote | null; patchInTree?: PatchCheck | undefined; rewriteHere?: RewriteCheck | undefined; repairer?: string | null; budget?: number | undefined; next: NextStepWork | null; now: number; week: LookWork['week']; index: RunIndex }): LookWork {
   let reads: StepReads | null = null;
@@ -76,7 +76,7 @@ export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: Stor
   const held = new Map<string, HeldGolden[]>();
   for (const t of failing) {
     const step = steps.get(t.golden);
-    if (!t.fixId || !t.runId || !open.has(t.fixId) || !step || (step.key !== 'fix' && step.key !== 'bisect')) continue;
+    if (!t.fixId || !t.runId || !open.has(t.fixId) || !step || (step.key !== 'fix' && step.key !== 'bisect' && step.key !== 'revert')) continue;
     held.set(t.fixId, [...(held.get(t.fixId) ?? []), { golden: t.golden, name: goldenName(t.golden), runId: t.runId, step }]);
   }
   return {

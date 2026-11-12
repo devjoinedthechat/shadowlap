@@ -1,6 +1,7 @@
 import { fixLabelInfo, type FixRecords, fixRecords, lostWords, shownBlame, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
 import { failedWords } from '../failed-words.js';
 import { fixActions } from '../fix-actions.js';
+import { fixCrash } from '../fix-crash.js';
 import { fixLead, type FixLead } from '../fix-lead.js';
 import { changeWords } from '../fix-list.js';
 import { capturedFailure, fixHref, noAnswerLost, short } from '../fix-shared.js';
@@ -25,11 +26,12 @@ const recordsOf = (w: LookWork, fixId: string): FixRecords | null => {
   return fix ? fixRecords(w.store, fix) : null;
 };
 
-/** The fix's lead, as its row on Fixes leads with it: from what its page's buttons would run (fix-actions.ts, fix-lead.ts). */
+/** The fix's lead, as its row on Fixes leads with it: from what its page's buttons would run (fix-actions.ts, fix-lead.ts), a crash's from its run's step (fix-crash.ts). */
 function leadOf(w: LookWork, rec: FixRecords): FixLead | null {
   const repairer = w.repairer ?? null;
   const actions = fixActions(w.store, rec, { label: fixLabelInfo(w.store, rec.fix).label, repairer, patchInTree: w.patchInTree, rewriteHere: w.rewriteHere });
-  return fixLead(rec, actions, { repairer });
+  const b = rec.fix.status === 'open' ? shownBlame(rec) : null;
+  return fixLead(rec, actions, { repairer, crash: b?.outcome === 'unrescuable' ? fixCrash(w.store, b, { work: w.next, reads: w.reads }) : null });
 }
 
 /** Main's row, kept first under Failing: the fix's page says why it doesn't hold. */
@@ -117,8 +119,8 @@ export function openFixWords(rec: FixRecords): string {
 
 /**
  * Each open fix: its title, its words, and each golden it holds (` · refund-in-limit fails on
- * Tests`), as one cause is one row. A held crash's Find breaking commit leads, else the fix's lead,
- * as its row on Fixes leads (`leadOf`). It opens the fix, at Blame unless blame found the call.
+ * Tests`), as one cause is one row. A held crash's Find breaking commit or Revert leads, else the
+ * fix's lead, as its row on Fixes leads (`leadOf`). It opens the fix, at Blame unless blame found the call.
  */
 export const openFixes: LookSource = {
   id: 'openFixes',
@@ -130,9 +132,9 @@ export const openFixes: LookSource = {
       if (!rec) return [];
       const b = shownBlame(rec);
       const held: HeldGolden[] = w.held.get(f.fixId!) ?? [];
-      const bisect = held.find((h) => h.step.key === 'bisect');
+      const crash = held.find((h) => h.step.key === 'bisect' || h.step.key === 'revert');
       const lead = leadOf(w, rec);
-      const step: LookStep | null = bisect ? { of: 'run', runId: bisect.runId, step: bisect.step } : lead ? { of: 'fix', fixId: f.fixId!, lead } : null;
+      const step: LookStep | null = crash ? { of: 'run', runId: crash.runId, step: crash.step } : lead ? { of: 'fix', fixId: f.fixId!, lead } : null;
       const found = b?.outcome === 'blamed' && !!b.report.blamed;
       const row: NeedsLookRow = { key: `attn:fix:${fixHref(f.fixId!)}`, group: 'failing', kind: 'open', icon: 'blame', title: f.title, detail: openFixWords(rec) + held.map((h) => ` · ${h.name} fails on Tests`).join(''), step, href: found ? fixHref(f.fixId!) : fixHref(f.fixId!, 'blame'), runId: null, fixId: f.fixId, at: f.at };
       return [row];

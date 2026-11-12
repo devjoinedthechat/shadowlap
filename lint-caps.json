@@ -20,9 +20,6 @@
     "packages/cli/src/baseline-branch.ts": {
       "sessionSource": 39
     },
-    "packages/cli/src/bisect.ts": {
-      "runBisect": 59
-    },
     "packages/cli/src/blame.ts": {
       "runBlame": 54
     },
@@ -78,8 +75,7 @@
       "formatFixDetail": 64
     },
     "packages/cli/src/golden-test.ts": {
-      "packResult": 39,
-      "testGolden": 33
+      "packResult": 39
     },
     "packages/cli/src/import-trace.ts": {
       "outputOf": 38,
@@ -161,9 +157,6 @@
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
     },
-    "packages/dashboard/src/jobs.ts": {
-      "JobManager.start": 35
-    },
     "packages/dashboard/src/projects.ts": {
       "calibrateStep": 32,
       "recordStep": 52
@@ -181,7 +174,7 @@
       "sumCalls": 45
     },
     "packages/dashboard/src/tests.ts": {
-      "bisectChoices": 64,
+      "bisectChoices": 62,
       "resultLine": 38,
       "testsView": 55
     },
@@ -343,7 +336,6 @@
       "ProviderState.recorded": 47
     },
     "packages/tui/src/components/Inspector.tsx": {
-      "Inspector > useEffect(…) #2": 34,
       "metaLines": 39
     },
     "packages/tui/src/components/RunsView.tsx": {
@@ -364,9 +356,6 @@
     }
   },
   "max-lines-per-function": {
-    "packages/cli/src/bisect.ts": {
-      "runBisect": 193
-    },
     "packages/cli/src/blame.ts": {
       "runBlame": 250
     },
@@ -487,7 +476,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 1035,
+    "packages/dashboard/src/tests.ts": 968,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 810,
