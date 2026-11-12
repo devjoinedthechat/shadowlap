@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sheet } from './css-sheet.js';
+import { sheet, styleRules } from './css-sheet.js';
 
 /**
  * Every colour the stylesheet sets text in reaches WCAG AA's 4.5:1: on the background its own rule
@@ -186,5 +186,56 @@ describe('the design system’s parts', () => {
     expect(ratio(resolve('var(--ink)')!, resolve('var(--raise)')!)).toBeGreaterThanOrEqual(4.5);
     const id = rules().find((r) => r.selectors.includes('code.rnm.rl'))!;
     expect(id.decls.get('background')).toBe('linear-gradient(90deg, var(--faint) 6ch, var(--id-ink, var(--ink)) 6ch)');
+  });
+});
+
+/**
+ * Quiet by colour, never by opacity: a faded word drew at a contrast no colour token gives, and nested
+ * panels multiplied it. What fades is a control that waits or is off and says why in words (its
+ * card, aria-disabled and a toast on a press), a reveal from nothing on hover or focus, a mark with
+ * no text, and a toast fading out: each such rule is named here with its reason.
+ */
+const FADES: Record<string, string> = {
+  '.btn[disabled]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.btn[aria-disabled="true"]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.linkbtn[disabled]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.linkbtn[disabled]:hover': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.linkbtn[aria-disabled="true"]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.linkbtn[aria-disabled="true"]:hover': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.switch:disabled i': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.switch[aria-disabled="true"] i': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.arow:hover .adis[aria-disabled="true"]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.arow:focus-within .adis[aria-disabled="true"]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.arow .adis[aria-disabled="true"]:focus-visible': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.arow .adis[aria-disabled="true"]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.calside .linkbtn[disabled]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.calside .linkbtn[aria-disabled="true"]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.set table.ruletable td.num .linkbtn[disabled]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.set table.ruletable td.num .linkbtn[aria-disabled="true"]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.fold[disabled]': 'a folder that can’t be added, the line under the list saying why',
+  '.pop button[disabled]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.pop button[aria-disabled="true"]': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '[data-why][aria-disabled="true"]:not(.btn, .linkbtn, .rk, .switch, .pop button, .adis)': 'a control that waits or is off, and says why in words: its card, aria-disabled and a toast on a press',
+  '.pop .px': 'a control drawn from nothing on its row’s hover or focus, whole once shown',
+  '.arow .adis': 'a control drawn from nothing on its row’s hover or focus, whole once shown',
+  '.cal.has-sel button.cd:not(.on)': 'a calendar day outside the days picked: a mark with no text',
+  '.cal.hist.has-sel button.cd.hb:not(.on)': 'a calendar day outside the days picked: a mark with no text',
+  '.cells button.dim': 'a strip cell the filter leaves out: a mark with no text',
+  '.callrow li.dim > :not(.cl)': 'a call’s dot outside blame’s scope; its number stays in the faint text colour',
+  '.toast.out': 'a toast fading out as it goes',
+  '.toast .tx': 'the toast’s ×, a control: 3:1 or more at .7 on the toast’s ground, checked below',
+};
+
+describe('quiet by colour', () => {
+  it('fades nothing under full opacity but the rules named with their reasons', () => {
+    const faded = styleRules().flatMap((r) => (r.decls.some(([p, v]) => p === 'opacity' && Number(v) < 1) ? r.selectors : []));
+    expect(faded.filter((s) => !(s in FADES))).toEqual([]);
+    expect(Object.keys(FADES).filter((s) => !faded.includes(s))).toEqual([]);
+  });
+
+  it('draws the toast’s × at 3:1 or more on the toast’s ground, faded to .7 as it is', () => {
+    const [ink, ground] = [resolve('var(--bg)')!, resolve('var(--ink)')!];
+    const x = [0, 1, 2].map((i) => Math.round(ink[i] * 0.7 + ground[i] * 0.3)) as Rgb;
+    expect(ratio(x, ground)).toBeGreaterThanOrEqual(3);
   });
 });

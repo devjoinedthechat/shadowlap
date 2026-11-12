@@ -175,7 +175,7 @@ test('Tab goes through the top bar, then the sidebar, then the page, never back'
   expect(seen.filter((x) => order.includes(x))).toEqual(order);
 });
 
-test('a focus ring in a pane that scrolls is drawn inside the control, so the pane cuts none of it off', async ({ page }) => {
+test('a focus ring in a pane that scrolls is drawn inside the control, so the pane cuts none of it off, and a raw stream rings inside itself', async ({ page }) => {
   await openPage(page, `/run/${demoId('override')}`, 'run');
   await page.waitForSelector('aside#side .runs a.run');
   // The sidebar's runs, and a run's calls: rows flush with their scrolling pane's edges.
@@ -197,6 +197,20 @@ test('a focus ring in a pane that scrolls is drawn inside the control, so the pa
     });
     expect(ring, sel).toEqual({ style: 'solid', offset: '-2px', inside: true });
   }
+  // A streamed model call's Raw view: the stream scrolls in a box of its own, a Tab stop whose ring is drawn inside it.
+  await openPage(page, `/run/${demoId('refundBug')}`, 'run');
+  await page.locator('main#view tr[data-wi]:has(td.name[title^="POST "])').first().click();
+  await page.locator('.insp [role="tablist"] button', { hasText: 'Response' }).click();
+  await page.locator('.insp .ibar button', { hasText: 'Raw' }).click();
+  await page.focus('.rawsse');
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  const raw = await page.evaluate(() => {
+    const el = document.activeElement!;
+    const s = getComputedStyle(el);
+    return { raw: el.classList.contains('rawsse'), style: s.outlineStyle, offset: s.outlineOffset };
+  });
+  expect(raw).toEqual({ raw: true, style: 'solid', offset: '-2px' });
 });
 
 test('Search or jump to is a combobox, and hands the focus back when Esc closes it', async ({ page }) => {

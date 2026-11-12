@@ -98,3 +98,14 @@ describe('the type, radius and spacing tokens', () => {
     }
   });
 });
+
+describe('reduced motion', () => {
+  it('stills every animation and transition, the pseudo-elements’ too: the live tag’s pulse, a switch’s knob, a caret', () => {
+    const still = styleRules().find((r) => r.conditions.includes('@media (prefers-reduced-motion: reduce)') && r.selectors.includes('*'));
+    expect(still?.selectors).toEqual(['*', '*::before', '*::after']);
+    expect(still?.decls).toEqual([
+      ['animation', 'none !important'],
+      ['transition', 'none !important'],
+    ]);
+  });
+});
