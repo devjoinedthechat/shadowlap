@@ -86,6 +86,21 @@ export interface CoverageBehaviour {
   outcome: string;
 }
 
+
+/** A coverage_scans row as a scan. */
+function scanOf(r: Record<string, unknown>): CoverageScan {
+  return {
+    scanId: String(r.scan_id),
+    at: Number(r.at),
+    runs: Number(r.runs),
+    groups: Number(r.groups),
+    uncovered: Number(r.uncovered),
+    goldens: Number(r.goldens),
+    actor: r.actor === null ? null : String(r.actor),
+    data: r.data === null ? null : (JSON.parse(String(r.data)) as CoverageScanData),
+  };
+}
+
 export abstract class Coverage extends StorePart {
   // ---- coverage (v4): what the last `shadowlap coverage` found ----
 
@@ -135,16 +150,12 @@ export abstract class Coverage extends StorePart {
     return this.db
       .prepare(`SELECT * FROM coverage_scans ORDER BY at DESC, scan_id DESC LIMIT ?`)
       .all(Math.max(1, Math.min(1000, limit)))
-      .map((r) => ({
-        scanId: String(r.scan_id),
-        at: Number(r.at),
-        runs: Number(r.runs),
-        groups: Number(r.groups),
-        uncovered: Number(r.uncovered),
-        goldens: Number(r.goldens),
-        actor: r.actor === null ? null : String(r.actor),
-        data: r.data === null ? null : (JSON.parse(String(r.data)) as CoverageScanData),
-      }));
+      .map(scanOf);
+  }
+
+  /** The scans made at or after `at`, oldest first: the one `--pack` makes once it has tried says who tried it. */
+  coverageScansSince(at: number): CoverageScan[] {
+    return this.db.prepare(`SELECT * FROM coverage_scans WHERE at >= ? ORDER BY at ASC, scan_id ASC`).all(at).map(scanOf);
   }
 
   /** The groups of the last scan: not covered first, as the scan ordered them. */

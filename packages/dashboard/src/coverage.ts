@@ -33,8 +33,11 @@ export interface CoverageGroupView {
   lastSeen: number;
   nearest: StoredCoverageGroup['nearest'];
   packed: StoredCoverageGroup['packed'];
-  /** What `coverage --pack` last made of it: the golden and whether it forks, or why it couldn't pack it. */
-  lastPack: Pick<StoredCoveragePack, 'at' | 'golden' | 'mode' | 'reason' | 'why' | 'command'> | null;
+  /**
+   * What `coverage --pack` last made of it: the golden and whether it forks, or why it couldn't pack
+   * it, and `by`, who tried a pack that couldn't (where the store names people: `shared`), else null.
+   */
+  lastPack: (Pick<StoredCoveragePack, 'at' | 'golden' | 'mode' | 'reason' | 'why' | 'command'> & { by: string | null }) | null;
   /**
    * For a behaviour no golden covers: the job Pack one starts (`coverage-pack` with its key), the
    * command it runs, and the agent's command it would reproduce the capture with: the one a run here
@@ -89,10 +92,31 @@ function importedSince(store: StoreOf<'readModels'>, at: number): number {
   return Number(row?.n ?? 0);
 }
 
-export function coverageView(store: StoreOf<'recording' | 'readModels' | 'coverage'>): CoverageView {
+/**
+ * Who tried each pack that couldn't pack its behaviour, where the store names people: the actor of
+ * the first scan at or after it whose not-packed list names the behaviour (`--pack` scans again once
+ * it has tried). A scan from before the pack names nobody. Only the scans since the oldest such pack
+ * are read, a row each.
+ */
+function packTriers(store: StoreOf<'coverage'>, packs: readonly StoredCoveragePack[], shared: boolean): Map<string, string> {
+  const failed = packs.filter((p) => p.golden === null);
+  const out = new Map<string, string>();
+  if (!shared || !failed.length) return out;
+  const scans = store.coverageScansSince(Math.min(...failed.map((p) => p.at)));
+  for (const p of failed) {
+    const scan = scans.find((s) => s.at >= p.at && !!s.data?.notPacked?.some((n) => n.key === p.key));
+    if (scan?.actor) out.set(p.key, scan.actor);
+  }
+  return out;
+}
+
+/** The coverage view; `shared`: the store names people (namesTeamStore), so Last tried says who tried a pack. */
+export function coverageView(store: StoreOf<'recording' | 'readModels' | 'coverage'>, o: { shared?: boolean } = {}): CoverageView {
   const scan = store.listCoverageScans(1)[0] ?? null;
   const groups = scan ? store.coverageGroups() : [];
-  const packs = new Map(store.coveragePacks().map((p) => [p.key, p]));
+  const kept = store.coveragePacks();
+  const packs = new Map(kept.map((p) => [p.key, p]));
+  const by = packTriers(store, kept, !!o.shared);
   const views = groups.map((g): CoverageGroupView => {
     const behaviour: Behaviour = { path: g.behaviour.path, writes: g.behaviour.writes, unknown: g.behaviour.unknown, outcome: g.behaviour.outcome as BehaviourOutcome };
     const present = g.runIds.map((id) => store.getRun(id)).filter((r) => r !== null);
@@ -118,7 +142,7 @@ export function coverageView(store: StoreOf<'recording' | 'readModels' | 'covera
       lastSeen: g.lastSeen,
       nearest: g.nearest,
       packed: g.packed,
-      lastPack: last ? { at: last.at, golden: last.golden, mode: last.mode, reason: last.reason, why: last.why, command: last.command } : null,
+      lastPack: last ? { at: last.at, golden: last.golden, mode: last.mode, reason: last.reason, why: last.why, command: last.command, by: by.get(last.key) ?? null } : null,
       pack,
     };
   });

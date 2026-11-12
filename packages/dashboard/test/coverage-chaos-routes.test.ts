@@ -140,13 +140,31 @@ describe('production coverage', () => {
       runId: 'C1',
       pack: { key: 'aaaa000011112222', args: ['coverage', '--pack', 'aaaa000011112222'], command: ['node', 'agent.mjs', 'B-7'], commandFrom: 'REC1', forkable: true },
       // Why the last --pack didn't pack it, so the panel says so before it offers Pack one again.
-      lastPack: { at: T0 - 500, golden: null, mode: null, reason: 'not-reproduced', why: expect.stringContaining("doesn't reproduce C1"), command: { argv: ['node', 'agent.mjs', 'B-7'], from: 'REC1' } },
+      // Who tried it shows only where the store names people: this project's config names no team store.
+      lastPack: { at: T0 - 500, golden: null, mode: null, reason: 'not-reproduced', why: expect.stringContaining("doesn't reproduce C1"), command: { argv: ['node', 'agent.mjs', 'B-7'], from: 'REC1' }, by: null },
     });
     expect(covered).toMatchObject({ covered: true, coveredBy: ['goldens/escalate'], pack: null, lastPack: null });
     // Needs a look's line, in its rows' shape: it opens Tests at Not covered, which lists them, keeping the newest run of the behaviour still here.
     expect(view.needsLook).toEqual({ kind: 'coverage', icon: 'cap', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund → send_email, in prod.har', action: 'Open', href: '#/tests?at=notcovered', runId: 'C1', fixId: null, at: T0 });
     expect(coverageLook(store)).toEqual(view.needsLook);
     expect(view.commands).toEqual({ scan: ['coverage'], pack: ['coverage', '--pack'] });
+  });
+
+  it('names who tried a pack that couldn\u2019t by the scan --pack made after it, only where the store names people', () => {
+    const s = Store.open(':memory:');
+    const pack = { key: 'aaaa000011112222', golden: null, runId: null, from: 'C1', mode: null, reason: 'not-reproduced' as const, why: 'diverged', command: null };
+    s.saveCoverageScan({ scanId: 'S0', at: 100, runs: 1, groups: 1, uncovered: 1, goldens: 0, actor: 'early@example.com', data: { notPacked: [{ key: 'aaaa000011112222', reason: 'no-command', why: 'x' }] } }, [group({ command: null })]);
+    s.saveCoveragePack({ ...pack, at: 200 });
+    // A scan after the pack that names another behaviour, then the one --pack made, which names this one.
+    s.saveCoverageScan({ scanId: 'S1', at: 210, runs: 1, groups: 1, uncovered: 1, goldens: 0, actor: 'other@example.com', data: { notPacked: [{ key: 'cccc000011112222', reason: 'gone', why: 'x' }] } }, [group({ command: null })]);
+    s.saveCoverageScan({ scanId: 'S2', at: 220, runs: 1, groups: 1, uncovered: 1, goldens: 0, actor: 'dana@example.com', data: { notPacked: [{ key: 'aaaa000011112222', reason: 'not-reproduced', why: 'x' }] } }, [group({ command: null })]);
+    const tried = (shared: boolean) => coverageView(s, { shared }).groups[0]?.lastPack?.by;
+    expect(tried(true)).toBe('dana@example.com');
+    expect(tried(false)).toBeNull();
+    // No scan names it after the pack: nobody, never the scan from before it.
+    s.saveCoveragePack({ ...pack, at: 230 });
+    expect(tried(true)).toBeNull();
+    s.close();
   });
 
   it('says nothing before a scan, and nothing needs a look once every behaviour has a golden', () => {

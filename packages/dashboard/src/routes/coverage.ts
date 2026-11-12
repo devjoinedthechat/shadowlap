@@ -3,6 +3,7 @@ import type { RouteContext } from '../context.js';
 import { coveragePackArgs, coverageView } from '../coverage.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
+import { namesTeamStore } from './verdicts.js';
 
 /**
  * Production coverage: the last `shadowlap coverage` scan (`GET /api/coverage`), for Tests' Not
@@ -26,7 +27,7 @@ export const COVERAGE_JOB_KINDS = { scan: 'coverage', pack: 'coverage-pack' } as
 const sameArgv = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 export function register(router: Router, ctx: RouteContext): void {
-  router.get('/coverage', (r) => r.tagged(coverageView(ctx.store)));
+  router.get('/coverage', (r) => r.tagged(coverageView(ctx.store, { shared: namesTeamStore(ctx.project?.path) })));
 
   ctx.jobs.registerJobKind(COVERAGE_JOB_KINDS.scan, {
     title: () => ACTIONS.rescanCoverage.doing,
