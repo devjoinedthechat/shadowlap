@@ -1110,6 +1110,7 @@ One lime button gives the next step:
 - **Verify 2 runs** verifies the runs left to verify. Its dialog lists each run in its role: one that fails its checks as recorded `must now pass`, any other `must keep passing`. It is priced first, and asks before it starts above your threshold. It waits, saying why, while a run it would verify is gone from the store.
 - **Run more attempts** comes where verify left a run open: its gate ran out of attempts, or the verify stopped first. It verifies those runs again from the first attempt, the attempts of a failing run and the pairs of a good one doubled only where a run of that role ran out. Its dialog lists what verify found of each.
 - **Verify again** comes instead where an attempt couldn't be judged. Neither comes once verify rejected the change: more attempts can't turn it.
+- **Open migration report** comes where a migration made the same switch since, on every run the preview asked. It opens that migration on [Migrate](#migrate).
 - **Migrate to claude-haiku-4-5** comes where Verdicts calls the preview accepted, or finds nothing to verify, and asks first, as a retiring model's row on Needs a look does.
 
 Once verify rejected the change and nothing is left to verify or attempt, `New preview` is the lime step.
@@ -1152,6 +1153,55 @@ A cell opens under the matrix (`#/changes/decisions/<id>/<run>/<call>`), named *
 #### No preview
 
 With none kept, Preview says what a preview does and offers the three ways, the first lime, with `shadowlap decisions goldens/* --model <model>` to copy. With no goldens it waits for one: *No goldens yet: pack a run as a golden, or preview a change on one run from its Decisions view.*, with **Open Runs**. A preview the store doesn't hold says *No preview* and its id, with **Open Preview**.
+
+### Migrate
+
+Migrate switches the model your agent calls, with the evidence (`shadowlap migrate`, see [Migrate](./decisions.md#migrate)). It asks your goldens' model calls again under the model you pick, verifies end to end the runs the preview can't clear, and compares what a run costs. It ends in one report, with the config change and a pull request body. Nothing in your working tree changes until you apply it.
+
+#### Start a migration
+
+The bare tab (`#/changes/migrate`) opens on the model your goldens call that retires soonest and no migration has checked:
+
+- its date as the heading (*claude-sonnet-4-5 retires on November 30, 2026*);
+- when and where, who recommends what, and the goldens and scopes that call it;
+- **Switch to**, the model field, the provider's recommendation first, marked *recommended*;
+- the command, which follows the field, and **Migrate to claude-sonnet-5-5** in lime;
+- where the date comes from: the retirement table that ships with Shadowlap, read from the provider's model deprecations page. Nothing is fetched.
+
+With no model retiring and no migration yet, it offers **Switch from**, the models the goldens call, most used first, and **To**. Once a migration checked every retiring model, it opens the newest migration. With no goldens it says to pack one first, as Preview does, with **Open Runs**.
+
+**Migrate to** asks first, in one dialog wherever it is pressed: the start page, a retiring model's row on [Needs a look](#needs-a-look), Preview's next step, the report's **Migrate to…** menu, and the palette's **Migrate claude-sonnet-4-5 to claude-sonnet-5-5**.
+
+The dialog says what it asks again and verifies, and that it writes a config change and a pull request body beside the store, your files left as they are. It names a preview that asked these calls already, and shows the command and what your provider bills at most. Its confirm starts the migration as a [job](#jobs), whose drawer ends on **Open migration report**.
+
+The button waits, saying why, while the field names no model, names the model it switches from, or holds no model's name.
+
+#### The report
+
+A migration's page (`#/changes/migrate/<id>`) is its report. The picker lists the migrations. **Migrate to…** asks the same switch again to another model: its menu lists the recommendation first, then the models in use and those the providers offer, each priced on its card.
+
+The verdict is in Verdicts' words, or *applied* once applied. Under it come the headline (*claude-sonnet-5-5 keeps the run it verified passing*), the switch (*claude-sonnet-4-5 → claude-sonnet-5-5, 2 runs*) and the retirement, worded as of today. One lime button gives the next step:
+
+- **Apply config change**, where `migrate apply` would take it;
+- **Update goldens**, once applied, while a golden the switch left behind waits;
+- **Copy pull request body**, once none waits.
+
+| Section | What it shows |
+| --- | --- |
+| What changes | The compact matrix, then each write, stop or judged change, its call opening its cell |
+| What still passes | Each run's verdict, a golden the switch leaves behind, the rules, and the runs verified end to end |
+| What it costs | Per run, end to end where verify ran, and what checking it cost |
+| What to set | Each field the model refuses and what it takes instead, the fields given, or *Only the model* |
+| The config change | Its files and places, the patch, what it leaves out or to the hand, `git apply` and **Copy config change** |
+| The pull request body | Its title, `gh pr create`, **Copy pull request body**, and **Show body** to read it |
+
+A golden the switch leaves behind replays differently once applied, since its recording names the model it switches from: *diverges at #1 on `$.model` once applied*. A cell opens under What changes as it does on Preview, with no **Verify this run**. The foot gives the report's warnings and the command that made it. An id that is no migration's says *No migration* and its id, with **Open Migrate**.
+
+#### Apply config change
+
+**Apply config change** asks first. Its dialog says what happens: the patch applied with `git apply`, the goldens replayed offline, and **Update goldens** next where the switch leaves a golden behind. It names the fields the patch leaves out, which goldens diverge, the patch and `shadowlap migrate apply <id>`. Its confirm starts the `migrate-apply` [job](#jobs), which waits while another job holds your working tree. Its drawer ends on **Update goldens** for the goldens left behind.
+
+Once applied, the verdict says *applied* and names the goldens to re-record under the model, the config change says *applied*, and What still passes says *until updated*. The model's row on [Needs a look](#needs-a-look) follows. Where `migrate apply` would refuse, as where What to set leaves a field for the hand, it isn't offered.
 
 ## Fixes
 
