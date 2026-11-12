@@ -21,16 +21,15 @@ export function runLookStep(runId: string, step: NextStep | null | undefined): L
 
 const held = (w: LookWork, t: FailingTest) => !!t.fixId && (w.held.get(t.fixId) ?? []).some((h) => h.golden === t.golden);
 
-const golden = (t: FailingTest, step: LookStep | null): Pick<NeedsLookRow, 'title' | 'name' | 'detail' | 'step' | 'href' | 'runId' | 'at' | 'report' | 'rule'> => ({
+const golden = (t: FailingTest, step: LookStep | null): Pick<NeedsLookRow, 'title' | 'name' | 'detail' | 'step' | 'href' | 'runId' | 'at' | 'rule'> => ({
   title: t.title,
   name: goldenName(t.golden),
   detail: t.line,
   step,
-  // Tests, at the golden's report.
-  href: links.tests(),
+  // Tests, the golden's report open and scrolled to.
+  href: links.tests({ report: goldenName(t.golden) }),
   runId: t.runId,
   at: t.at,
-  report: `report-${goldenName(t.golden)}`,
   ...(t.rule ? { rule: t.rule } : {}),
 });
 

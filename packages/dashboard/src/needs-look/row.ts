@@ -51,8 +51,6 @@ export interface NeedsLookRow {
   about?: RunAbout | null;
   /** A golden's name, as Tests says it, which its rule's hover is headed with. */
   name?: string;
-  /** A golden's report on Tests (`report-<name>`), which its row scrolls to. */
-  report?: string;
 }
 
 export interface NeedsLook {
