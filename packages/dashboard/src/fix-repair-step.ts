@@ -166,7 +166,7 @@ function rolesOf(runs: ReadonlyArray<{ role: 'target' | 'holdout' | 'good'; verd
 /**
  * A repair's verdict line (`RepairStep['line']`): one that accepted nothing never says repaired.
  * Its finding says what is left: each candidate and why it was dropped, and, once a repair would
- * only try the same again (`repairSpent`), to change the prompt by hand.
+ * only try the same again (`repairSpent`), to change the fix's check, or the prompt by hand.
  */
 function repairLine(rec: FixRecords, r: StoredRepair, why: string | null): StepLine {
   const c = acceptedCandidate(r);
