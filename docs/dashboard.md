@@ -2319,7 +2319,7 @@ One that can't start leaves the dialog open, with what you typed.
 - **A screen reader** hears each part a margin sets apart as its own word: a filter's name and its count, a call's kind, name and effect. Where a run's about line is drawn shorter, it hears the whole line, and it reads a command without its `$`.
 - **Headings** step down one level at a time: each page has one top heading, and its parts sit under it.
 - **With reduced motion** set, nothing moves: the live ring, a switch and the carets keep still.
-- **The offline bar** is read out once when the dashboard can't be reached, never its countdown.
+- **A wait** is read out once as it starts, and again only when what it says changes: the offline bar, a part loading, a job in its drawer, and the note in Runs or in Search or jump to that more may come. A count that moves meanwhile, such as the offline bar's countdown, is never read out.
 - **In a high-contrast theme** that forces its own colors, a mark that says something by its color keeps it, edged in the theme's text color. The current page and run and the selected call take the highlight color, a chosen option is underlined, and menus, dialogs, hover cards and toasts are outlined.
 
 ## Limits
