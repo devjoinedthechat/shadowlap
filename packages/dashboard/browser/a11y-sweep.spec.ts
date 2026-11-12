@@ -1,14 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 import { dash, demoId, openPage, patched, seriousViolations, sideways, startJob } from './dashboard.js';
-import { previewed, ROUTES, show, type RouteState } from './routes.js';
+import { DIALOG, previewed, ROUTES, show, type RouteState } from './routes.js';
 
 /**
  * Every route of browser/routes.ts, swept: axe's WCAG 2.2 A and AA rules and no sideways scroll on a
  * phone, 390 and 320 px wide, with no label under 11px at 390; in a forced-colours theme each mark
  * keeping its colour inside an edge, the selection keeping a mark of its own, and axe passing; and
  * the heading outline of each page, the signed-out and expired cards' included: one h1, first, and
- * each heading at most a level under the one before, in reading order. A route the table exempts
- * from the check at 320 names why there.
+ * each heading at most a level under the one before, in reading order, a dialog's its own with its
+ * title first. A route the table exempts from the check at 320 names why there.
  */
 
 /** Each problem a check finds, under the route state it was found in. */
@@ -121,17 +121,34 @@ async function headings(page: Page, root = 'body'): Promise<Heading[]> {
   return [...tree.matchAll(/- ('?)heading(?: "((?:[^"\\]|\\.)*)")? \[level=(\d)\]/g)].map((m) => ({ level: Number(m[3]), name: m[1] ? (m[2] ?? '').replaceAll("''", "'") : (m[2] ?? '') }));
 }
 
-/** What breaks the outline: not one h1, the h1 not first, or a heading more than a level under the one before. */
-function outlineBreaks(hs: Heading[]): string[] {
+/**
+ * What breaks the outline: not one h1, the h1 not first, or a heading more than a level under the one
+ * before. A dialog's outline is its own, the page behind it inert: its title first, at whatever level
+ * the dialog draws it, and no h1.
+ */
+function outlineBreaks(hs: Heading[], o: { title?: string } = {}): string[] {
   const out: string[] = [];
   const ones = hs.filter((h) => h.level === 1);
-  if (ones.length !== 1) out.push(`${ones.length} h1s${ones.length ? ` (${ones.map((h) => `“${h.name}”`).join(', ')})` : ''}`);
-  if (hs[0] && hs[0].level !== 1) out.push(`its first heading is h${hs[0].level} “${hs[0].name}”`);
+  if (o.title !== undefined) {
+    if (ones.length) out.push(`${ones.length} h1s in a dialog`);
+    if (hs[0]?.name !== o.title) out.push(`its first heading is ${hs[0] ? `h${hs[0].level} “${hs[0].name}”` : 'none'}, not its title “${o.title}”`);
+  } else {
+    if (ones.length !== 1) out.push(`${ones.length} h1s${ones.length ? ` (${ones.map((h) => `“${h.name}”`).join(', ')})` : ''}`);
+    if (hs[0] && hs[0].level !== 1) out.push(`its first heading is h${hs[0].level} “${hs[0].name}”`);
+  }
   hs.forEach((h, i) => {
     const before = hs[i - 1];
     if (before && h.level > before.level + 1) out.push(`h${before.level} “${before.name}” then h${h.level} “${h.name}”`);
   });
   return out;
+}
+
+/** The page's outline, or the dialog's on top of it, by its title. */
+async function outline(page: Page): Promise<string[]> {
+  const dialog = page.locator(DIALOG).first();
+  if (!(await dialog.count())) return outlineBreaks(await headings(page));
+  const title = await dialog.evaluate((d) => (document.getElementById(d.getAttribute('aria-labelledby') ?? '')?.textContent ?? d.getAttribute('aria-label') ?? '').trim());
+  return outlineBreaks(await headings(page, DIALOG), { title });
 }
 
 /** Marks a forced-colours theme lets go without an edge of their own, each with what says the same in words. */
@@ -253,7 +270,7 @@ test('every route at 1440px keeps its heading outline, a command’s $ for the e
   expect(
     await over(page, async () => {
       // Hidden text at a desktop's width too, where Runs' rows draw their keys and their statuses' words.
-      const found = [...outlineBreaks(await headings(page)), ...(await prompts(page)), ...(await hiddenText(page))];
+      const found = [...(await outline(page)), ...(await prompts(page)), ...(await hiddenText(page))];
       marks += await noteMarks(page);
       await page.emulateMedia({ forcedColors: 'active' });
       await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));

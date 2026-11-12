@@ -1,4 +1,5 @@
 import { expect, type Page, type Request } from '@playwright/test';
+import { routeCrash, routeCrashFix, routeTests } from './crash-fixture.js';
 import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
 import { routeTestsFixture } from './tests-fixture.js';
 
@@ -155,8 +156,10 @@ export interface RouteState {
   /** What says it has drawn: a selector, or a name `openPage` knows (`run`, `fix`, `overview`). */
   drawn: string;
   /**
-   * Answers routed before it opens, for a state the demo can't draw. They stay for the page's life,
-   * so the table holds such states last and a sweep shows them after the rest.
+   * Answers routed before it opens, for a state the demo can't draw: it opens in a page loaded anew,
+   * as its link opens it, so what the app reads once as it starts (the job kinds, Open in editor's
+   * form) is routed too. They stay for the page's life, so the table holds such states last and a
+   * sweep shows them after the rest.
    */
   fixture?: (page: Page) => Promise<unknown>;
   /** A step once the page has drawn, a row opened or a revision gone to: the state is what that shows. */
@@ -177,6 +180,13 @@ const SETTAB = 'main#view .settab > :not(.skel)';
 
 const route = (path: string, drawn = 'main#view'): RouteState => ({ name: path, path: () => path, drawn });
 
+/** The check builder, opened from the refund-bug recording's issue_refund call with its check menu's first kind, once its golden's checks are in. */
+const openBuilder = async (page: Page): Promise<void> => {
+  await click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])', undefined, { shows: '[data-act="ckmenu"]' })();
+  await click(page, '[data-act="ckmenu"]', undefined, { shows: MENU })();
+  await click(page, `${MENU}.ckm [role="menuitem"]`, 'Never call issue_refund', { shows: `${DIALOG} .cb-kinds` })();
+};
+
 /** Every route state, for a sweep to show one at a time with `show`. */
 export const ROUTES: readonly RouteState[] = [
   route('/', 'overview'),
@@ -184,6 +194,8 @@ export const ROUTES: readonly RouteState[] = [
   ...['capture', 'test', 'failed'].map((t) => route(`/runs?types=${t}`)),
   route('/runs?q=label%3Agood'),
   ...VIEWED.flatMap((name) => RUN_VIEWS.map((v): RouteState => ({ name: `run ${name}${v ? ` · ${v}` : ''}`, path: () => `/run/${demoId(name)}${v ? `/${v}` : ''}`, drawn: 'run' }))),
+  // A dialog left open goes with its page, as the next state opens another.
+  { name: 'the check builder', path: () => `/run/${demoId('refundBug')}`, drawn: 'run', then: openBuilder },
   route('/compare', COMPARE),
   { name: '/compare with a row open', path: () => '/compare', drawn: COMPARE, then: openFirstRow },
   route('/changes', VERDICTS),
@@ -206,11 +218,19 @@ export const ROUTES: readonly RouteState[] = [
   { name: '/runs with its calendar', path: () => '/runs', drawn: 'main#view table.runst tbody tr', then: (p) => click(p, 'main#view button.linkbtn[aria-expanded="false"]', 'Calendar', { shows: 'main#view .calgrid' })() },
   // Answers the demo can't give: kept last, as they stay routed for the page's life.
   { name: 'Tests with a gated golden’s evidence open', path: () => '/tests', drawn: 'main#view table.gt', fixture: routeTestsFixture, then: (p) => click(p, 'main#view button.gev', undefined, { shows: 'main#view tr.gevrow .alist' })() },
+  // A crash whose first bad commit is named: its run page with the change open, its fix's Blame step, Tests with it leading, and Revert's dialog last.
+  { name: 'a named crash’s run page with its change open', path: () => `/run/${demoId('ticket')}`, drawn: 'run', fixture: routeCrash, then: (p) => click(p, 'main#view [data-act="change"]', undefined, { shows: '#insp.fpanel[data-kind="change"]' })() },
+  { name: 'a named crash’s fix · blame', path: () => `/fixes/${demoId('refundFix')}/blame`, drawn: 'fix', fixture: routeCrashFix },
+  { name: 'Tests with a named crash leading', path: () => '/tests', drawn: 'main#view .bisectdiff', fixture: routeTests },
+  { name: 'Revert’s dialog', path: () => `/run/${demoId('ticket')}`, drawn: 'run', fixture: routeCrash, then: (p) => click(p, '.rhead .btn.lime[data-next="revert"]', undefined, { shows: DIALOG })() },
 ];
 
 /** Shows a route's state: its answers routed, its address opened and drawn, its step taken, and the page settled. */
 export const show = (page: Page, r: RouteState) => async () => {
-  if (r.fixture) await r.fixture(page);
+  if (r.fixture) {
+    await r.fixture(page);
+    await page.goto('about:blank');
+  }
   await at(page, await r.path(page), r.drawn)();
   if (r.then) await r.then(page);
 };
