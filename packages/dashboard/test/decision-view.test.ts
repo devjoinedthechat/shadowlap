@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
-import { previewSession } from '../src/decision-view.js';
+import { moreOf, previewSession } from '../src/decision-view.js';
 import { quoteLine } from '../src/decision-cells.js';
 
 /**
@@ -62,7 +62,7 @@ describe('a preview worded for Changes', () => {
     const id = keep('dc-01M5000000000000000000000A', [runOf(a, 'goldens/refund', [step(1, null), step(3, 1)]), runOf(b, null, [step(1, null), step(3, null)])], { flagged: [a], toVerify: [a], counts: counts({ 1: 1, same: 3 }) });
     const s = previewSession(store, id)!;
     expect(s.view).toMatchObject({ name: 'Model switch to claude-haiku-4-5', samples: 2, unit: 'run', verdict: { word: 'not verified', line: '1 of 2 runs to verify', toVerify: 1, flaggedRank: 1 }, verify: null, redacted: false });
-    expect(s.view.next).toEqual({ verify: { runs: [a], every: true, gone: 0 }, more: [], migrate: null });
+    expect(s.view.next).toEqual({ verify: { runs: [a], every: true, gone: 0 }, more: null, migrate: null });
     expect(s.view.headline.asked).toBe(true);
     expect(s.view.later).toMatchObject({ text: expect.any(String), card: expect.stringContaining(s.view.later!.title) });
     expect(s.matrix.map((r) => [r.title, r.golden, r.flagged, r.inStore, r.toVerify, r.verified, r.cleared])).toEqual([
@@ -80,7 +80,7 @@ describe('a preview worded for Changes', () => {
     const s = previewSession(store, id)!;
     expect(s.view.verdict).toMatchObject({ word: 'nothing to verify', toVerify: 0 });
     expect(s.view.unit).toBe('golden');
-    expect(s.view.next).toEqual({ verify: null, more: [], migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'], runs: [] } });
+    expect(s.view.next).toEqual({ verify: null, more: null, migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'], runs: [] } });
     expect(s.view.within).toBeNull();
   });
 
@@ -103,7 +103,7 @@ describe('a preview worded for Changes', () => {
     expect(s.matrix.map((r) => [r.verified?.outcome ?? null, r.cleared])).toEqual([['kept', false], [null, true]]);
     expect(s.matrix[0].verified!.tally).toContain('4 of 4');
     expect(s.view.cleared).toContain('not run end to end');
-    expect(s.view.next).toMatchObject({ verify: null, more: [] });
+    expect(s.view.next).toMatchObject({ verify: null, more: null });
   });
 
   it('leaves the runs no verify took to verify, by name, once verify took some of them', () => {
@@ -111,20 +111,34 @@ describe('a preview worded for Changes', () => {
     const id = keep('dc-01M5000000000000000000000I', [runOf(a, null, [step(3, 1)]), runOf(b, null, [step(3, 1)])], { flagged: [a, b], toVerify: [a, b], verify: v, counts: counts({ 1: 2 }) });
     const s = previewSession(store, id)!;
     // Verify offers and prices the one left, and its job names it (ui/decisions.ts nextStep, test/decisions-routes.test.ts).
-    expect(s.view.next).toEqual({ verify: { runs: [b], every: false, gone: 0 }, more: [], migrate: null });
+    expect(s.view.next).toEqual({ verify: { runs: [b], every: false, gone: 0 }, more: null, migrate: null });
     expect(s.matrix.map((r) => [r.toVerify, r.verified?.outcome ?? null, r.cleared])).toEqual([
       [true, 'kept', false],
       [true, null, false],
     ]);
   });
 
-  it('is rejected where verify broke a run, and counts what verify left open for Run more attempts', () => {
+  it('is rejected where verify broke a run, and offers no Run more attempts, which a run it left open cannot turn', () => {
     const v = verified('rejected', [{ runId: a, role: 'good', outcome: 'broken', passes: 1, attempts: 4 }, { runId: b, role: 'good', outcome: 'inconclusive', passes: 2, attempts: 4 }]);
     const id = keep('dc-01M5000000000000000000000E', [runOf(a, null, [step(3, 1)]), runOf(b, null, [step(3, 1)])], { flagged: [a, b], toVerify: [a, b], verify: v, counts: counts({ 1: 2 }) });
     const s = previewSession(store, id)!;
     expect(s.view.verdict.word).toBe('rejected');
     expect(s.view.verify!.word).toBe('rejected');
-    expect(s.view.next).toEqual({ verify: null, more: [b], migrate: null });
+    expect(s.view.next).toEqual({ verify: null, more: null, migrate: null });
+  });
+
+  it('runs more attempts by role on the runs verify left open, a limit doubled only where a run of its role ran out, and verifies again where an attempt could not be judged', () => {
+    const v = verified('incomplete', [{ runId: a, role: 'target', outcome: 'inconclusive', passes: 50, attempts: 80 }, { runId: b, role: 'good', outcome: 'unsettled', passes: 3, attempts: 3 }]);
+    const id = keep('dc-01M5000000000000000000000F', [runOf(a, null, [step(3, 1)]), runOf(b, null, [step(3, 1)])], { flagged: [a, b], toVerify: [a, b], verify: v, counts: counts({ 1: 2 }) });
+    // The failing run's gate ran out: 2 x 80. The good run stopped first: its 200 pairs again, as they were.
+    expect(previewSession(store, id)!.view.next.more).toEqual({ kind: 'more', runs: [a, b], max: 160, keptMax: 200 });
+    // The config's verify.max is what a good run ran under.
+    expect(previewSession(store, id, { keptMax: 300 })!.view.next.more).toMatchObject({ max: 160, keptMax: 300 });
+    expect(moreOf({ ...v, runs: [{ ...v.runs[1], outcome: 'inconclusive' }] }, { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, null)).toEqual({ kind: 'more', runs: [b], max: null, keptMax: 400 });
+    expect(moreOf({ ...v, runs: [{ ...v.runs[0], attempts: 1000 }] }, { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 1000 }, null)).toBeNull();
+    expect(moreOf({ ...v, runs: [{ ...v.runs[0], undecided: 'the judge gave no answer' }] }, null, null)).toEqual({ kind: 'again', runs: [a], max: null, keptMax: null });
+    // A fixed count that ran out decides nothing more with more of the same.
+    expect(moreOf(v, null, null)).toBeNull();
   });
 
   it('words a migration as its preview, and offers no migration of its own', () => {

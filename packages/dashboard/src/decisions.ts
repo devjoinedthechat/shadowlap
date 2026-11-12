@@ -362,7 +362,9 @@ function limitArgs(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<type
   const whole = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= GATE_MAX_ATTEMPTS);
   if (!whole(req.max)) return { error: `max is the most attempts a run takes, a whole number up to ${GATE_MAX_ATTEMPTS}` };
   if (!whole(req.keptMax)) return { error: `keptMax is the most pairs a good run takes, a whole number up to ${GATE_MAX_ATTEMPTS}` };
-  const gate = typeof req.max === 'number' ? gateArg({ ...(sessionGate(store, session) ?? { kind: 'sprt', ...SPRT_DEFAULTS }), max: req.max }, SPRT_DEFAULTS) : [];
+  // The gate's other figures kept as they were, with a good run's pairs raised alone too.
+  const raised = typeof req.max === 'number' || typeof req.keptMax === 'number';
+  const gate = raised ? gateArg({ ...(sessionGate(store, session) ?? { kind: 'sprt', ...SPRT_DEFAULTS }), ...(typeof req.max === 'number' ? { max: req.max } : {}) }, SPRT_DEFAULTS) : [];
   return [...gate, ...(typeof req.keptMax === 'number' ? ['--kept-max', String(req.keptMax)] : [])];
 }
 

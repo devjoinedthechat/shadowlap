@@ -93,13 +93,13 @@ export const verifyLabel = (n: number): string => `Verify ${n} run${n === 1 ? ''
 /** The one next step: Verify the runs left to verify, Run more attempts on those verify left open, Migrate to the model switched to, else none. */
 export type NextStep =
   | { kind: 'verify'; label: string; runs: string[]; every: boolean; gone: number }
-  | { kind: 'more'; label: 'Run more attempts'; runs: string[] }
+  | { kind: 'more'; label: 'Run more attempts' | 'Verify again'; runs: string[]; max: number | null; keptMax: number | null }
   | { kind: 'migrate'; label: string; to: string; from: string[]; goldens: string[]; runs: string[] }
   | null;
 
 export function nextStep(next: PreviewNext): NextStep {
   if (next.verify) return { kind: 'verify', label: verifyLabel(next.verify.runs.length), runs: next.verify.runs, every: next.verify.every, gone: next.verify.gone };
-  if (next.more.length) return { kind: 'more', label: 'Run more attempts', runs: next.more };
+  if (next.more) return { kind: 'more', label: next.more.kind === 'again' ? 'Verify again' : 'Run more attempts', runs: next.more.runs, max: next.more.max, keptMax: next.more.keptMax };
   if (next.migrate) return { kind: 'migrate', label: `Migrate to ${next.migrate.to}`, ...next.migrate };
   return null;
 }

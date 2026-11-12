@@ -75,11 +75,12 @@ describe('a cell, a range and the next step, worked out', () => {
     expect([cellWeight(cell({ state: 'left', rank: null })), cellWeight(cell({ state: 'not-asked', rank: null })), cellWeight(cell({})), cellWeight(cell({ state: 'noise', rank: null })), cellWeight(cell({ state: 'ranked', rank: 5 })), cellWeight(cell({ state: 'ranked', rank: 1 }))]).toEqual([0, 1, 2, 2.5, 3, 8]);
   });
 
-  it('picks one next step: Verify the runs left, else Run more attempts, else Migrate, else none', () => {
-    expect(nextStep({ verify: { runs: ['a', 'b'], every: true, gone: 0 }, more: [], migrate: null })).toEqual({ kind: 'verify', label: 'Verify 2 runs', runs: ['a', 'b'], every: true, gone: 0 });
-    expect(nextStep({ verify: null, more: ['b'], migrate: { to: 'claude-haiku-4-5', from: [], goldens: [], runs: ['b'] } })).toEqual({ kind: 'more', label: 'Run more attempts', runs: ['b'] });
-    expect(nextStep({ verify: null, more: [], migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5'], goldens: ['goldens/refund'], runs: [] } })).toMatchObject({ kind: 'migrate', label: 'Migrate to claude-haiku-4-5' });
-    expect(nextStep({ verify: null, more: [], migrate: null })).toBeNull();
+  it('picks one next step: Verify the runs left, else Run more attempts or Verify again, else Migrate, else none', () => {
+    expect(nextStep({ verify: { runs: ['a', 'b'], every: true, gone: 0 }, more: null, migrate: null })).toEqual({ kind: 'verify', label: 'Verify 2 runs', runs: ['a', 'b'], every: true, gone: 0 });
+    expect(nextStep({ verify: null, more: { kind: 'more', runs: ['b'], max: 160, keptMax: null }, migrate: { to: 'claude-haiku-4-5', from: [], goldens: [], runs: ['b'] } })).toEqual({ kind: 'more', label: 'Run more attempts', runs: ['b'], max: 160, keptMax: null });
+    expect(nextStep({ verify: null, more: { kind: 'again', runs: ['b'], max: null, keptMax: null }, migrate: null })).toMatchObject({ kind: 'more', label: 'Verify again', runs: ['b'] });
+    expect(nextStep({ verify: null, more: null, migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5'], goldens: ['goldens/refund'], runs: [] } })).toMatchObject({ kind: 'migrate', label: 'Migrate to claude-haiku-4-5' });
+    expect(nextStep({ verify: null, more: null, migrate: null })).toBeNull();
     expect([verifyLabel(1), verifyLabel(3)]).toEqual(['Verify 1 run', 'Verify 3 runs']);
   });
 
@@ -360,7 +361,7 @@ describe('the Preview page', () => {
   });
 
   it('asks before Migrate in the one ask a retiring model’s row on Needs a look asks, then starts the migration it names', async () => {
-    const migrating: PreviewSession = { ...flagged, view: { ...flagged.view, next: { verify: null, more: [], migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'], runs: [] } } } };
+    const migrating: PreviewSession = { ...flagged, view: { ...flagged.view, next: { verify: null, more: null, migrate: { to: 'claude-haiku-4-5', from: ['claude-sonnet-4-5-20250929'], goldens: ['goldens/refund'], runs: [] } } } };
     const started: Array<[string, Record<string, unknown>]> = [];
     const client = {
       decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }),
