@@ -1,8 +1,11 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
-import type { ActionItem } from '../ui/api.js';
+import type { ActionItem, JobView } from '../ui/api.js';
+import { jobFooter } from '../ui/job-actions.js';
+import { presetsToOpen } from '../ui/presets/job-footer.js';
 import { decidedWords, expectCaption, goldenJudged, presetsCommand, PresetsDialog, sentPicks, whereWords } from '../ui/presets/PresetsDialog.js';
+import { openResults, panelOn, resetPanel } from '../ui/run/panel-state.js';
 import { useActionRunner } from '../ui/run/actions.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -198,5 +201,46 @@ describe('Run error-path presets…’s opener', () => {
     r = await render(page({ ...ROW, disabled: 'A preset’s attempt: run the presets on its recording' }));
     await r.click(r.one('button.go'));
     expect([r.all('.dialog').length, toasts.map(([t]) => t)]).toEqual([0, ['A preset’s attempt: run the presets on its recording']]);
+  });
+});
+
+describe('Run error-path presets…’ drawer at its end', () => {
+  const g = globalThis as Record<string, unknown>;
+  const job = (o: Partial<JobView> = {}): JobView => ({ id: 'j1', kind: 'chaos', title: 'Running error-path presets', runId: RUN, done: true, code: 1, endedAt: 1000, lines: [], links: [], ...o }) as unknown as JobView;
+  const ran = (attempts: number, runId: string | null = RUN) => ({ results: [{ golden: null, runId, outcomes: [{ preset: 'timeout', attempts }] }] });
+  afterEach(() => {
+    delete g.location;
+    resetPanel();
+  });
+
+  it('opens the presets’ results as the job ends over their run’s page, never over another finding’s panel', async () => {
+    expect([presetsToOpen(ran(2)), presetsToOpen(ran(0)), presetsToOpen(ran(2, null)), presetsToOpen({ results: [...ran(1).results, ...ran(1).results] }), presetsToOpen(null)]).toEqual([RUN, null, null, null, null]);
+    g.location = { hash: `#/run/${RUN}` };
+    const Footer = jobFooter('chaos')!;
+    let set: ((j: JobView) => void) | null = null;
+    function Live() {
+      const [j, setJ] = useState(job({ done: false, code: null, result: null }));
+      set = setJ;
+      return createElement(Footer, { job: j });
+    }
+    const live = async (then: JobView) => {
+      set = null;
+      r = await render(createElement(AppContext.Provider, { value: app({}, []) }, createElement(Live)));
+      await r.until('the footer', () => set !== null);
+      set!(then);
+    };
+    // A job that had ended before its drawer opened leaves the page as it is.
+    r = await render(createElement(AppContext.Provider, { value: app({}, []) }, createElement(Footer, { job: job({ result: ran(2) }) })));
+    expect(panelOn(RUN)).toBeNull();
+    await r.unmount();
+    await live(job({ result: ran(2) }));
+    await r.until('the results open', () => panelOn(RUN) !== null);
+    expect(panelOn(RUN)).toEqual({ runId: RUN, kind: 'results', key: 'presets' });
+    await r.unmount();
+    // Another finding's results stay open.
+    openResults(RUN, 'injection:res1');
+    await live(job({ result: ran(2) }));
+    await new Promise((ok) => setTimeout(ok, 20));
+    expect(panelOn(RUN)).toEqual({ runId: RUN, kind: 'results', key: 'injection:res1' });
   });
 });

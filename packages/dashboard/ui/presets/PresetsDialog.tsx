@@ -16,6 +16,7 @@ import { sentEstimate } from '../spending.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { PresetsPicks, PresetsPlan } from '../types.js';
+import './job-footer.js';
 
 /*
  * Run error-path presets…'s dialog, a part only the served dashboard hands in (served-parts.ts): a
