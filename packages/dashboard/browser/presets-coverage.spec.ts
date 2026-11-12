@@ -4,7 +4,8 @@ import { dash, openPage, seriousViolations } from './dashboard.js';
 /**
  * Error-path presets and production coverage in Chromium over the demo store: Tests › Not covered's
  * rows in the keys' reach (j walks into them after the goldens, Enter opens a row's details, Tab goes
- * to its count and then its pack, the cards in its lines taking no focus), and the presets' results
+ * to its count and then its pack, the cards in its lines taking no focus) with their actions as wide
+ * as the widest, and the presets' results
  * on their recording's page at a desk's widths and a phone's, every cell holding its words and the
  * page never scrolling sideways.
  */
@@ -37,6 +38,22 @@ test('Not covered’s rows: j walks into them after the goldens, Enter opens a r
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => document.activeElement?.closest('.cvacts') !== null)).toBe(true);
   await expect(page.locator(':focus')).toHaveText(/^Pack (as golden|with checks…)$/);
+  // So is a row whose behaviour the agent no longer does, and one whose path folds steps: their cards take no focus.
+  const stops = async (has: string) => {
+    await page.locator(`${ROWS}:has(${has})`).first().focus();
+    const seen: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      await page.keyboard.press('Tab');
+      seen.push(await page.evaluate(() => (document.activeElement?.classList.contains('cvn') ? 'count' : document.activeElement?.closest('.cvacts') ? 'pack' : (document.activeElement?.className ?? ''))));
+    }
+    return seen;
+  };
+  await expect(page.locator(`${ROWS}:has(.cvst)`).first()).toBeVisible();
+  expect(await stops('.cvst')).toEqual(['count', 'pack']);
+  if (await page.locator(`${ROWS}:has(.cvmore)`).count()) expect(await stops('.cvmore')).toEqual(['count', 'pack']);
+  // Every row's action is as wide as the widest, so the counts and dates beside them line up.
+  const edges = await page.locator(`${ROWS} > .cvacts`).evaluateAll((acts) => acts.map((a) => Math.round(a.getBoundingClientRect().left)));
+  expect(new Set(edges).size).toBe(1);
   expect(await seriousViolations(page)).toEqual([]);
 });
 

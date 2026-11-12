@@ -244,8 +244,8 @@ export function hideTip(): void {
 
 // ---- what takes the focus
 
-/** Where the row or the chart is the one stop: a mark in it takes no focus of its own. */
-const NO_STOP = 'tr, [role="row"], .groups, .cbars, .tl-row, .pips';
+/** Where the row or the chart is the one stop: a mark in it takes no focus of its own (Not covered's row: its count and its action). */
+const NO_STOP = 'tr, [role="row"], .groups, .cbars, .tl-row, .pips, .covl > li';
 
 /** What a card says, for a mark with no words of its own to be named by. */
 function tipWords(d: Tip): string {

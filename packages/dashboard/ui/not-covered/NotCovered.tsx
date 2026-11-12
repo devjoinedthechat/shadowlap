@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode, type RefObject }
 import { ENDS_ANOTHER_WAY } from '../../../engine/src/coverage-words.js';
 import { quoteArgv } from '../../../engine/src/text.js';
 import { JOB_KINDS } from '../api.js';
+import { useFitAbouts } from '../components/About.js';
 import { CmdLine } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
@@ -271,6 +272,16 @@ function Row({ g, open, focused, packs, onToggle }: { g: CoverageGroupView; open
   );
 }
 
+/** Every row's action as wide as the widest (Pack with checks… beside Pack as golden), so the counts and dates beside them line up. */
+function fitActions(list: HTMLElement): void {
+  // Nothing to measure where nothing is laid out (a test's document).
+  if (typeof list.getBoundingClientRect !== 'function') return;
+  const acts = [...list.querySelectorAll<HTMLElement>('.cvacts')];
+  for (const a of acts) a.style.minWidth = '';
+  const widest = Math.max(0, ...acts.map((a) => a.getBoundingClientRect().width));
+  if (widest) for (const a of acts) a.style.minWidth = `${Math.ceil(widest)}px`;
+}
+
 /** The rows, a list with a roving focus: Enter opens a row's details, ⌘K offers its action. */
 function Rows({ groups }: { groups: readonly CoverageGroupView[] }) {
   const { hasKind } = useApp();
@@ -284,6 +295,8 @@ function Rows({ groups }: { groups: readonly CoverageGroupView[] }) {
     });
   const inFocus = useListKeys({ rows: groups, keyOf: (g) => `cov:${g.key}`, root: box, open: (g) => toggle(g.key), actions: (g) => rowScope(g, box) });
   const packs = hasKind(JOB_KINDS.coveragePack);
+  // Measured after every render, as the width changes and once the fonts are in.
+  useFitAbouts(box, fitActions);
   return (
     <>
       <div className="cvhead">
