@@ -200,15 +200,20 @@ function PresetsForm({ first, onClose }: { first: PresetsPlan; onClose: () => vo
   );
 }
 
-/** The tool the tool presets hit, each the recording calls at its first answered call, and where the provider presets hit after it. */
+/**
+ * The tool the tool presets hit, each the recording calls at its first answered call, and where the
+ * provider presets hit after it. The one the command hits naming none is said to be the first read
+ * only where it is (else a tool of unknown effect, a write, or the one chaos.tool names).
+ */
 function ToolPick({ first, at, tool, onTool }: { first: PresetsPlan; at: PresetsPlan['at']; tool: string | null; onTool: (tool: string) => void }) {
+  const firstRead = first.choices.find((c) => c.effect === 'read')?.name;
   return (
     <div className="cxat">
       <select className="sel" aria-label="The tool the tool presets hit" value={tool ?? ''} onChange={(e) => onTool(e.target.value)}>
         {first.choices.map((c) => (
           <option key={c.name} value={c.name}>
             {c.name} · #{c.callNo}
-            {c.name === first.tool ? ', the first read' : ''}
+            {c.name === first.tool ? (c.name === firstRead ? ', the first read' : ', what the command hits') : ''}
           </option>
         ))}
       </select>

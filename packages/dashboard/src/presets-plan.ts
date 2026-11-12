@@ -81,8 +81,8 @@ export interface PresetsPlan {
   golden: string | null;
   /** The presets the command runs when it names none, in their order. */
   presets: ChaosPreset[];
-  /** The tools the tool presets can hit, each at its first answered call, in call order. */
-  choices: Array<{ name: string; callNo: number }>;
+  /** The tools the tool presets can hit, each at its first answered call and with its effect, in call order. */
+  choices: Array<{ name: string; callNo: number; effect: string | null }>;
   /** The tool they hit when the command names none, or null when there is none. */
   tool: string | null;
   /** Where the picks hit: the tool call, and the model call that reads its answer, or the engine's words for why none. */
@@ -162,7 +162,7 @@ async function presetsPlan(store: Store, job: PresetsPlanJob): Promise<ReadAnswe
     target: target.runId,
     golden: plan.golden,
     presets: plan.chaos.presets,
-    choices: chaosToolChoices(calls).map((c) => ({ name: c.name, callNo: c.callNo })),
+    choices: chaosToolChoices(calls).map((c) => ({ name: c.name, callNo: c.callNo, effect: c.effect ?? null })),
     tool: 'callNo' in first ? first.name : null,
     at,
     judge: { ...judge, from: judge.source === 'exit' ? null : JUDGED_FROM[judge.source] },

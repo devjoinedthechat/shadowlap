@@ -32,8 +32,8 @@ const PLAN: PresetsPlan = {
   golden: null,
   presets: [...ALL],
   choices: [
-    { name: 'lookup_order', callNo: 2 },
-    { name: 'get_policy', callNo: 4 },
+    { name: 'lookup_order', callNo: 2, effect: 'read' },
+    { name: 'get_policy', callNo: 4, effect: 'read' },
   ],
   tool: 'lookup_order',
   at: { tool: { callNo: 2, name: 'lookup_order' }, model: { callNo: 3, name: 'POST /v1/messages' } },
@@ -122,6 +122,12 @@ describe('Run error-path presets…’s dialog', () => {
     expect(r!.one('.dialog .togchips').getAttribute('role')).toBe('group');
     expect(rows().map(([k]) => k)).toEqual(['Presets', 'At', 'Judged by', 'Decided by']);
     expect(r!.all('.dialog select option').map((o) => o.textContent)).toEqual(['lookup_order · #2, the first read', 'get_policy · #4']);
+    // A recording with no read: the tool the command hits is a write, never called the first read.
+    await r!.unmount();
+    await dialog({ ...PLAN, choices: [{ name: 'issue_refund', callNo: 2, effect: 'write' }], tool: 'issue_refund' });
+    expect(r!.all('.dialog select option').map((o) => o.textContent)).toEqual(['issue_refund · #2, what the command hits']);
+    await r!.unmount();
+    await dialog(PLAN);
     expect(r!.one('.dialog .cxat > span').textContent).toBe('and model call #3, which reads its answer');
     expect(r!.one('.dialog label.cxj input').value).toBe('{"tools":{"issue_refund":"<= 200"}}');
     expect(r!.one('.dialog label.cxj small').textContent).toBe('what every attempt must do besides exiting 0; empty, the exit alone');

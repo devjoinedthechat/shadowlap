@@ -45,7 +45,7 @@ describe("Run error-path presets…'s plan", () => {
         target: run,
         golden: null,
         presets: ['timeout', 'empty', 'malformed', 'oversized', '429', '500'],
-        choices: [{ name: 'lookup_order', callNo: 2 }, { name: 'issue_refund', callNo: 4 }],
+        choices: [{ name: 'lookup_order', callNo: 2, effect: 'read' }, { name: 'issue_refund', callNo: 4, effect: 'write' }],
         tool: 'lookup_order',
         at: { tool: { callNo: 2, name: 'lookup_order' }, model: { callNo: 3 } },
         judge: { source: 'exit', checks: [], from: null },
