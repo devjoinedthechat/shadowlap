@@ -130,6 +130,12 @@ describe('a check', () => {
     expect(report.hint).toEqual({ key: 'check' });
   });
 
+  it('says no check changed where its last test failed for another reason, by the row’s one rule', () => {
+    const { report } = world('refund', () => ({ ok: false, failure: 'exit', reason: 'the agent exited with code 1', data: { mode: 'replay', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, checks: [check('issue_refund called 0 times', 'failed', 'called 1 time')] } }), { checks: ['output includes "refund"'] });
+    expect(report.parts.map((p) => p.kind)).not.toContain('checks-changed');
+    expect(report.sub).not.toContain('its last test, before its checks changed');
+  });
+
   it('says a judge check wasn’t judged on a clean replay, with its calls', () => {
     const { report } = world('refund', () => ({ ok: false, failure: 'inconclusive', reason: 'check inconclusive: judge "polite" answers yes: its pack holds no verdict', data: { mode: 'replay', verdict: 'inconclusive', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, checks: [check('judge "polite" answers yes', 'inconclusive', 'its pack holds no verdict', { judge: { name: 'polite', model: 'claude-x', verdict: null, reason: null, cost: null } as unknown as NonNullable<StoredCheck['judge']> })] } }), { checks: ['judge "polite" answers yes'] });
     expect(report.verdict).toBe('inconclusive');

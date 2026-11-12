@@ -7,6 +7,7 @@ import { judgeFor, type OutcomeWork } from './run-outcome.js';
 import { entriesBodies } from './request-diff.js';
 import { matchingRuns } from './runs-list.js';
 import type { BisectMiss, FoundCommit } from './tests-bisect.js';
+import type { ChangedCheck } from './tests-checks.js';
 import { forkedWords } from './tests-evidence.js';
 import { causeOf, divergenceOf } from './tests-normalize.js';
 import type { DivergenceView, FailureView, GoldenRow, GoldenSource, InconclusiveView, TestsView } from './tests.js';
@@ -35,7 +36,7 @@ export interface ReportLine {
 
 export type ReportPart =
   /** The golden's checks that left the config since its last test, which it failed or couldn't decide. */
-  | { kind: 'checks-changed'; gone: Array<{ label: string; status: 'failed' | 'inconclusive' }> }
+  | { kind: 'checks-changed'; gone: ChangedCheck[] }
   /** The replay against its recording, as the mini strip draws a run: `recorded` cells, `replayed` of them replayed, `stop` the call it stopped at. */
   | { kind: 'replay'; recorded: number; replayed: number; stop: number | null; words: string }
   /**
@@ -493,14 +494,6 @@ function injectionParts(r: TestResult, i: ReportInput, golden: string): Built {
   return { head: [capitalised(head)], sub: [], parts, hint: failed ? { key: 'injection' } : { key: 'injection-inconclusive', why: injectionWhy(reason) }, open };
 }
 
-/** The golden's checks its last result failed or couldn't decide that are no longer in the config. */
-function checksGone(r: TestResult, row: GoldenRow): Array<{ label: string; status: 'failed' | 'inconclusive' }> {
-  return (r.data?.checks ?? []).flatMap((c) => {
-    const status = checkStatus(c);
-    return (status === 'failed' || status === 'inconclusive') && !row.checks.includes(c.label) ? [{ label: c.label, status }] : [];
-  });
-}
-
 /** What a report opens: the result's own run while the store keeps it, a golden of several attempts' as its failing attempt. */
 function openOf({ r, replay }: From): GoldenReport['open'] {
   if (!r.runId || !replay) return null;
@@ -536,9 +529,9 @@ export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput): Go
   if (verdict === 'passed') return null;
   const from: From = { r, row, i, recording: i.goldens.find((g) => g.path === row.path)?.runId ?? null, replay: r.runId ? i.store.getRun(r.runId) : null };
   const built = partsOf(from, listed);
-  const gone = checksGone(r, row);
-  if (gone.length) {
-    // Its hint stays its last test's until Run tests leads such a golden, whose hint says so (port/checks-on-tests).
+  // Its checks changed since, by the row's one rule (tests-checks.ts' checksChanged); its hint stays its last test's.
+  const gone = row.changed;
+  if (gone) {
     built.parts.unshift({ kind: 'checks-changed', gone });
     built.sub = ['its last test, before its checks changed'];
   }
