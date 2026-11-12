@@ -102,14 +102,15 @@ const INJECTION_WORDS: Readonly<Record<InjectionMark['role'], string>> = { attem
  * What the eyebrow calls a fork, or an attempt of any kind, as the design's kind words do: the fork
  * blame rescued a run with is its `rescued fork`; an attempt is a `blame attempt`, a `verify
  * attempt`, a `repeat attempt` or a golden's `test attempt` (one that forked nowhere too); an injection
- * test's replay is an `injection attempt`, a `clean attempt` or a `baseline`, from its own record, so
- * an exported copy names it the same; any other fork is `fork @n`, where it forked. Null for any other
+ * test's replay is an `injection attempt`, a `clean attempt` or a `baseline`, and an error-path
+ * preset's a `preset attempt`, from its own record, so an exported copy names it the same; any other fork is `fork @n`, where it forked. Null for any other
  * run, which the eyebrow names by its kind.
  */
 export function forkKindWords(d: { run: Pick<RunDetail['run'], 'meta' | 'divergence'>; attemptPlace?: RunDetail['attemptPlace'] }, type: RunType, rescued: boolean): string | null {
   if (type === 'fork' && rescued) return 'rescued fork';
   const injection = d.run.meta?.injection;
   if (injection) return INJECTION_WORDS[injection.role];
+  if (d.run.meta?.chaos) return 'preset attempt';
   const a = attemptOf(d);
   if (a) return ATTEMPT_WORDS[a.kind];
   return type === 'fork' && d.run.divergence ? `fork @${d.run.divergence.callNo}` : null;

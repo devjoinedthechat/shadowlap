@@ -116,7 +116,7 @@ describe('a preset’s attempt', () => {
     expect(html).toContain('<section class="banner fork wrap"><span class="bk">forked at</span><button class="bn" type="button">#2</button>');
     // Its tally kept whole where the line wraps.
     expect(html).toContain('<span class="why">tool timeout preset on goldens/list-inbox, attempt 1\u00a0of\u00a01: list_inbox (#2) timed out, played in by the preset · writes stubbed</span>');
-    expect(html).toContain('<a class="more" href="#/tests" title="list-inbox on Tests">Tests →</a>');
+    expect(html).toContain(`<a class="more" href="#/run/${REC}">Results →</a>`);
     // Never a line cut at the banner's end.
     expect(html).not.toContain('…');
   });
@@ -128,10 +128,10 @@ describe('a preset’s attempt', () => {
     const failed = header(presetAttempt(matrix, ATTEMPT));
     expect(failed).not.toContain('class="tag');
     expect(failed).toContain(`<span class="mfail">${WHY}</span>`);
-    // Before the presets are read: its eyebrow naming it a fork, and that it exited with an error, plainly.
+    // Before the presets are read: its eyebrow naming it a preset's attempt, from its own record, and that it exited with an error, plainly.
     const plain = header(null);
     expect(plain).not.toContain('class="tag');
-    expect(plain).toContain('<span class="ebk">fork @2</span>');
+    expect(plain).toContain('<span class="ebk">preset attempt</span>');
     expect(plain).toContain('<span>exited with an error</span>');
   });
 });

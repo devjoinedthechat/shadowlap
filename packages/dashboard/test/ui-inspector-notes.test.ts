@@ -5,6 +5,7 @@ import { failedWhy } from '../ui/run/calls.js';
 import { CallNote, Inspector, type InspectorTab } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CallDetail } from '../ui/types.js';
+import type { PresetAttempt } from '../ui/run/preset.js';
 
 /**
  * The inspector's words for a call that went wrong, as the mock writes them: a note over the
@@ -23,9 +24,9 @@ const text = (html: string) => html.replace(/<[^>]*>/g, '').replace(/&#x27;/g, "
 const note = (c: Call, flag: string | null = null) => renderToStaticMarkup(createElement(CallNote, { c, flag }));
 
 const APP = { client: {}, exported: true, actionsOff: null, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;
-function tab(c: Call, which: InspectorTab, more: Partial<CallDetail> = {}, flag: string | null = null): string {
+function tab(c: Call, which: InspectorTab, more: Partial<CallDetail> = {}, flag: string | null = null, preset: PresetAttempt | null = null): string {
   const detail = { call: c, conversation: null, request: null, response: null, result: null, notes: [], actions: [], ...more } as unknown as CallDetail;
-  return renderToStaticMarkup(createElement(AppContext.Provider, { value: APP }, createElement(Inspector, { runId: 'R', call: c, calls: [c], detail, error: null, tab: which, onTab: () => undefined, onStep: () => undefined, change: null, live: false, flag })));
+  return renderToStaticMarkup(createElement(AppContext.Provider, { value: APP }, createElement(Inspector, { runId: 'R', call: c, calls: [c], detail, error: null, tab: which, onTab: () => undefined, onStep: () => undefined, change: null, live: false, flag, preset })));
 }
 
 describe('a failed call’s note', () => {
@@ -99,5 +100,23 @@ describe('a failed model call’s details', () => {
     expect(html).toContain('<dt>Origin</dt><dd>overridden <small>--override 16=@policy.json</small></dd>');
     expect(html).toContain('<small>0 cache read · 0 cache creation · 1,200 uncached</small>');
     expect(html).not.toContain('answered by');
+  });
+});
+
+describe('a preset’s attempt, at the call its preset played in at', () => {
+  const at = (callNo: number, label: string): PresetAttempt => ({ label, golden: null, callNo, target: null, verdict: 'failed', attempt: 1, of: 3, played: null, outcome: 'the agent exited with code 1', exitCode: 1 });
+  const TIMEOUT: Call = { ...LIVE, callNo: 4, kind: 'tool', name: 'get_ticket', origin: 'injected', status: null, model: null };
+
+  it('names the preset in place of --fail-at: its note, its Response tab’s head and its details', () => {
+    expect(text(tab(INJECTED, 'conversation', {}, '--fail-at 19=429', at(19, 'provider 429')))).toContain('Never sent. The provider 429 preset answered with HTTP 529, 3 attempts. This is the conversation the agent would have sent.');
+    expect(tab(INJECTED, 'details', {}, null, at(19, 'provider 429'))).toContain('<dt>Outcome</dt><dd>error · HTTP 529<small> by the provider 429 preset, never sent</small></dd>');
+    const result = { error: { name: 'TimeoutError', message: 'get_ticket timed out' } };
+    expect(text(tab(TIMEOUT, 'response', { result }, null, at(4, 'tool timeout')))).toContain('Played in by the tool timeout preset: get_ticket didn’t run, and the agent got this error:');
+    expect(text(tab({ ...TIMEOUT, outcome: 'ok' }, 'response', { result: { result: [] } }, null, at(4, 'empty result')))).toContain('Played in by the empty result preset, in place of the recorded result:');
+    const details = tab(TIMEOUT, 'details', { result }, null, at(4, 'tool timeout'));
+    expect(details).toContain('injected <small>by the tool timeout preset</small>');
+    expect(details).toContain('<small> by the tool timeout preset; the tool didn’t run</small>');
+    // Any other call of the attempt keeps the inspector's own words.
+    expect(text(tab(INJECTED, 'conversation', {}, '--fail-at 19=429', at(4, 'tool timeout')))).toContain('Shadowlap answered with HTTP 529');
   });
 });

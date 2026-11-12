@@ -395,7 +395,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           </div>
         </section>
         <InspectorPlace panel={panel} run={run} onClose={closePanel} onPick={select} results={results}>
-          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} injection={injection.attempt} check={check.check} cause={injection.cause} />
+          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} injection={injection.attempt} check={check.check} cause={injection.cause} preset={preset} />
         </InspectorPlace>
       </div>
       {actions.dialog}

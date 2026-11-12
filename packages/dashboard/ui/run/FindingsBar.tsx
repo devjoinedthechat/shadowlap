@@ -27,7 +27,7 @@ import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './f
 import { attemptLinks, attemptOf, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
-import { blameTitle, goldenName } from './offers.js';
+import { blameTitle } from './offers.js';
 import type { PresetAttempt } from './preset.js';
 import { NoteFinding } from './RunNotes.js';
 import type { ProofTab } from '../injection/Proof.js';
@@ -270,19 +270,20 @@ function RecordingFinding({ s }: { s: Slot }) {
 
 /**
  * An error-path preset's attempt: where it forked, then what was done; the first fact says its verdict.
- * It wraps rather than cut its words; a golden's leads back to its presets on Tests.
+ * It wraps rather than cut its words, and Results → opens the recording with the presets' results.
  */
 function PresetFinding({ b, x, s }: { b: Of<'preset'>; x: Draw; s: Slot }) {
+  const rec = x.run.run.parentRunId;
   return (
     <section className={cls('fork wrap', s)}>
       <span className="bk">forked at</span>
       {b.callNo !== null ? x.call(b.callNo) : null}
       {/* A tally never breaks inside: "attempt 1 of 6". */}
       <span className="why">{wholeTallies(b.why)}</span>
-      {b.golden ? (
+      {rec ? (
         <span className="end">
-          <a className="more" href={href.tests()} title={`${goldenName(b.golden)} on Tests`}>
-            Tests →
+          <a className="more" href={href.run(rec)} onClick={() => openResults(rec, 'presets')}>
+            Results →
           </a>
         </span>
       ) : null}

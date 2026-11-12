@@ -141,7 +141,7 @@ export interface AttemptOutcome {
 
 export type Banner =
   | { kind: 'recording' }
-  /** An attempt's banner: where it forked, its verdict word first, then what was done (`presetWhy`), and Tests → for a golden's. */
+  /** An attempt's banner: where it forked, its verdict word first, then what was done (`presetWhy`), and Results → to its recording's presets. */
   | { kind: 'preset'; callNo: number | null; verdict: PresetAttempt['verdict']; why: string; golden: string | null }
   /**
    * `lead`: what the change looks like, or why it came; `why`: what came before it. The outcome says where it diverged.
