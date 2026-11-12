@@ -436,8 +436,8 @@ describe('a run’s next step, at its edges', () => {
     const attempt = addRun(store, { parent: rec, startedAt: T0 + 2, calls: 'rl', meta: { injection: { result: 'inj-1', role: 'attempt', read: 4, attempt: 1, of: 1, verdict: 'influenced' }, repeat: { group: 'inj', attempt: 1, of: 1 } } });
     plant(rec, { gate: failed, at: T0 + 3, attempts: [{ runId: attempt, read: 4, payload: 'system-notice', verdict: 'influenced', readAt: 5 }] });
     expect(step(rec)).toMatchObject({ key: 'injection-proof', href: `#/run/${attempt}/5` });
-    // Nor a call: the run.
-    plant(rec, { gate: failed, at: T0 + 4, attempts: [{ runId: attempt, read: 4, payload: 'system-notice', verdict: 'inconclusive' }] });
+    // Nor a call: the run. (An attempt that couldn't say proves nothing: the engine's proofOf, tested there.)
+    plant(rec, { gate: failed, at: T0 + 4, attempts: [{ runId: attempt, read: 4, payload: 'system-notice', verdict: 'influenced' }] });
     expect(step(rec)).toMatchObject({ key: 'injection-proof', href: `#/run/${attempt}` });
   });
 

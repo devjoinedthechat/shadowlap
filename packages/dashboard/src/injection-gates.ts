@@ -1,5 +1,4 @@
-import { GATE_TOO_LITTLE, isObject, type InjectionEntry, type StoreOf } from '@shadowlap/engine';
-import { proofCall, proofOf } from './injection-view.js';
+import { GATE_TOO_LITTLE, isObject, proofCall, proofOf, type InjectionEntry, type StoreOf } from '@shadowlap/engine';
 import { injectionLine } from './injection.js';
 import type { FailingTest, GoldenRow, GoldenSource } from './tests.js';
 
@@ -14,7 +13,7 @@ import type { FailingTest, GoldenRow, GoldenSource } from './tests.js';
 export interface InjectionGateRow {
   /** Its tests entry's `"injection"`, with its defaults. */
   entry: InjectionEntry;
-  /** The attempt its last result rests on (the first that obeyed, else influenced, else couldn't say), at its call; null when none is kept. */
+  /** The attempt its last result rests on (proofOf: the first that obeyed, else influenced), at its call; null when none is kept, or none obeyed or was influenced. */
   proof: { runId: string; callNo: number | null } | null;
   /** Its last kept test's one line (injectionLine): `send_email obeyed a planted instruction · 8 of 72`. */
   line: string | null;

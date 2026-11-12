@@ -45,7 +45,7 @@
       "importMany": 38
     },
     "packages/cli/src/commands/injection.ts": {
-      "register > action(\"injection\")": 81
+      "register > action(\"injection\")": 78
     },
     "packages/cli/src/commands/inspect.ts": {
       "register > action(\"show\")": 87

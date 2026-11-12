@@ -16,6 +16,8 @@ import {
   normalizeAddArgs,
   parseTests,
   pathSetByCode,
+  proofCall,
+  proofOf,
   shortRunId as short,
   updateEstimate,
   type CleanReport,
@@ -39,7 +41,7 @@ import { HEX } from './commits-here.js';
 import { commandLine } from './fix-shared.js';
 import { fixForRun, type FixForRun } from './fix-for-run.js';
 import { injectionLine } from './injection.js';
-import { againCommand, proofCall, proofOf, testedAs } from './injection-view.js';
+import { againCommand, testedAs } from './injection-view.js';
 import { links } from './links.js';
 import { gitAsync } from './patch-in-tree.js';
 import { blameOffer, crashed, goldenFolder, keepable, packableIn, testOffer, type BlameOffer, type TestOffer } from './run-offers.js';

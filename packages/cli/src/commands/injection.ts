@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { attemptsToFail, attemptsToPass, CLEAN_GATE, cleanDecided, commandIsImported, DEFAULT_BASELINES, hasRecordedCommand, injectionTemplates, messageOf, parseGate, parsePayloads, resolveAuthor, selectTemplates, type Gate, type InjectionEntry, type InjectionReport, type Payload, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { ACTIONS, attemptsToFail, attemptsToPass, CLEAN_GATE, cleanDecided, commandIsImported, DEFAULT_BASELINES, hasRecordedCommand, injectionTemplates, messageOf, parseGate, parsePayloads, proofCall, proofOf, resolveAuthor, selectTemplates, type Gate, type InjectionEntry, type InjectionReport, type Payload, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { AttemptRunner, type AttemptTarget } from '../attempts.js';
 import { specFor, type TestEntry } from '../checks.js';
 import { loadConfig, loadTests } from '../config.js';
@@ -11,7 +11,7 @@ import { importGolden } from '../golden-test.js';
 import { expandRecordings, goldenName } from '../goldens.js';
 import { cleanInjection, entryPayloads, formatClean, formatPlant, plantInjections, type InconclusiveMode } from '../injection.js';
 import { EXIT, inconclusiveStatus, interruptedStatus } from '../exit-codes.js';
-import { emitJobEvent } from '../job-events.js';
+import { emitJobEvent, type JobEvent } from '../job-events.js';
 import { textOrFile } from '../interventions.js';
 import { type GuardMode } from '../run-agent.js';
 import { collect, confirmImportedCommand, openStore, parseChoice, parseIntArg, parseUsd, requireEnded, requireRun, VERSION, withoutCommand, type GlobalOpts } from '../shared.js';
@@ -80,6 +80,17 @@ interface Target {
   dir: string | null;
   /** The golden's tests entry, when the config gives it one. */
   entry: InjectionEntry | null;
+}
+
+/**
+ * A dashboard job's links once the test ends. Open proof leads, to the attempt that proves the first
+ * result with one (the engine's proofOf: obeyed, else influenced, among the runs kept) at its call,
+ * with each run tested beside it; with no proof, one run's Open run leads.
+ */
+function injectionLinks(store: StoreOf<'recording'>, reports: readonly InjectionReport[]): JobEvent[] {
+  const proof = reports.map((r) => (r.mode === 'plant' ? proofOf(store, r) : null)).find((a) => a !== null) ?? null;
+  const runs: JobEvent[] = reports.map((r) => ({ type: 'link', label: reports.length === 1 ? 'Open run' : `Open ${shortId(r.runId)}`, href: links.run(r.runId), ...(proof || reports.length > 1 ? { secondary: true } : {}) }));
+  return proof ? [{ type: 'link', label: ACTIONS.openProof.label, href: links.run(proof.runId, proofCall(proof)) }, ...runs] : runs;
 }
 
 /** Whether an argument names a folder rather than a run: it has a path separator or a `*`, or such a folder exists. */
@@ -221,6 +232,7 @@ export function register(program: Command): void {
       // fenced unless --live-reads (injection.ts): a model a payload steers may ask a read to carry data out.
       const runner = await AttemptRunner.start(opts, { writes: 'stub', reads: 'replay', liveTools: [], spec: null, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)] });
       const reports: InjectionReport[] = [];
+      let ways: JobEvent[];
       try {
         for (const [i, t] of targets.entries()) {
           const target = attemptTargets[i]!;
@@ -243,6 +255,7 @@ export function register(program: Command): void {
           if (!flags.json) process.stdout.write(`\n${p.bold(name)}\n${formatPlant(r)}\n`);
           if (runner.interrupted) break;
         }
+        ways = injectionLinks(runner.store, reports);
       } finally {
         await runner.close();
       }
@@ -267,7 +280,7 @@ export function register(program: Command): void {
       if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
       else if (verdict === 'inconclusive' && !runner.interrupted) process.stdout.write(p.dim(flags.inconclusive === 'warn' ? 'Inconclusive, let through by --inconclusive warn.\n' : 'Inconclusive fails the run; --inconclusive warn lets it through.\n'));
       emitJobEvent({ type: 'result', data: json });
-      for (const r of reports) emitJobEvent({ type: 'link', label: reports.length === 1 ? 'Open run' : `Open ${shortId(r.runId)}`, href: links.run(r.runId), ...(reports.length > 1 ? { secondary: true } : {}) });
+      ways.forEach((w) => emitJobEvent(w));
       // Cut short by a signal, its status; failed, 1; inconclusive and not let through, 3.
       process.exitCode = runner.interrupted ? interruptedStatus() : passed ? EXIT.ok : verdict === 'failed' ? EXIT.failed : inconclusiveStatus(flags.inconclusive);
     });
