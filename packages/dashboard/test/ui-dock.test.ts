@@ -1,4 +1,4 @@
-import { act, createElement, useEffect, useState } from 'react';
+import { act, createElement, useEffect, useLayoutEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActionButton } from '../ui/components/ActionButton.js';
 import { Dialog, PromptDialog } from '../ui/components/Dialog.js';
@@ -13,7 +13,7 @@ import { JobChip } from '../ui/shell/JobChip.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction } from '../ui/toast.js';
 import type { JobFile, JobView } from '../ui/types.js';
-import { render, type Rendered } from './ui-render.js';
+import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
  * The job drawer docked across the content's foot, as the shell draws it: what it says as its job runs
@@ -490,6 +490,28 @@ describe('the drawer', () => {
     expect(said()).toBe('Forking, stopping');
     await act(async () => on.set(end({}, '⑂ Forked at call 1')));
     expect(said()).toBe('Forking, stopped, exit 0');
+  });
+
+  it('says how the job stands from a live region there before its words, the status its head draws for the eye alone', async () => {
+    const { Host, on } = page([entry(job({ title: 'Forking', args: ['replay', 'X', '--inject', '1=x'] }))]);
+    let first: string[] | null = null;
+    // What the page holds as the drawer is first drawn, before an effect of its has run.
+    function FirstDraw() {
+      useLayoutEffect(() => {
+        first = (globalThis as unknown as { document: { querySelectorAll(s: string): FakeElement[] } }).document.querySelectorAll('.drawer .said > [role="status"]').map((s) => s.textContent);
+      }, []);
+      return createElement(Host);
+    }
+    r = await render(createElement(FirstDraw));
+    expect(first).toEqual(['']);
+    const region = r.one('.drawer .said > [role="status"]');
+    expect(region.textContent).toBe('Forking, running');
+    const drawn = () => r!.all('.drawer header .st2:not(.jin)').map((st) => [st.textContent, st.getAttribute('aria-hidden')]);
+    expect(drawn()).toEqual([['running', 'true']]);
+    // As the job moves on, the same region says so.
+    await act(async () => on.set(end({}, '⑂ Forked at call 1')));
+    expect(r.one('.drawer .said > [role="status"]')).toBe(region);
+    expect([region.textContent, ...drawn()]).toEqual(['Forked, exit 0', ['exit 0', 'true']]);
   });
 });
 

@@ -16,7 +16,7 @@ import { useApp, type WatchedJob } from '../state.js';
 import { retoast } from '../toast-place.js';
 import { errorText, type ToastAction } from '../toast.js';
 import { ActionButton } from './ActionButton.js';
-import { Spin } from './bits.js';
+import { Said, Spin } from './bits.js';
 import { DotParts } from './DotParts.js';
 import { Dialog } from './Dialog.js';
 import { Icon } from './Icon.js';
@@ -343,7 +343,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
         {running ? <Spin /> : null}
         <span className="jhd">
           <b id="jtitle">{head.title}</b> {elsewhere ? <span className="st2 jin">in {elsewhere.name}</span> : null}{' '}
-          <span className={`st2${head.tone ? ` ${head.tone}` : ''}`}>
+          <span className={`st2${head.tone ? ` ${head.tone}` : ''}`} aria-hidden="true">
             <DotParts parts={[...head.text.split(' · '), ...(cost ? [cost] : [])]} />
           </span>
         </span>
@@ -372,10 +372,9 @@ function Drawer({ watched }: { watched: WatchedJob }) {
         </div>
       ) : null}
       <JobLog job={job} lines={lines} running={running} shown={!hidden && !folded} />
-      {/* What a screen reader hears of the job: how it stands, as that changes, never each line it prints. */}
-      <span className="sr" role="status">
-        {`${head.title}, ${head.text.replace(/ · /g, ', ')}${cost ? `, ${cost.replace('≈', 'about ').replace('<', 'under ')}` : ''}`}
-      </span>
+      {/* What a screen reader hears of the job: how it stands, as that changes (it starts, it moves on), never each line it
+          prints, from a live region there before its words. The status drawn in the header is for the eye. */}
+      <Said words={`${head.title}, ${head.text.replace(/ · /g, ', ')}${cost ? `, ${cost.replace('≈', 'about ').replace('<', 'under ')}` : ''}`} />
     </section>
   );
 }
