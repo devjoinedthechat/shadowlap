@@ -49,6 +49,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'injection-security': { kind: 'injection-security', goldens: [], project: '/nowhere' },
   'injection-estimate': { kind: 'injection-estimate', runId: REC, plan: { payloads: 2 }, gate: false },
   'presets-plan': { kind: 'presets-plan', runId: REC, work: null, shared: false },
+  'coverage-view': { kind: 'coverage-view', shared: false },
   'store-facts': { kind: 'store-facts', stores: [{ id: 'here', dbPath: null, keep: null }] },
   training: { kind: 'training', tasks: [], tasksError: null, normalizers: [], redactRules: 0, filter: 'all' },
   fix: { kind: 'fix', fixId: FIX, repairer: null },

@@ -2,6 +2,7 @@ import { checkCommandTemplate, describeBehaviour, messageOf, NO_COMMAND, OUTCOME
 import { expectArgs } from './expect-field.js';
 import { splitCommandLine } from './settings.js';
 import { links } from './links.js';
+import { answer, type ReadTable } from './read-registry.js';
 
 /**
  * Production coverage as the dashboard shows it: the last `shadowlap coverage` scan, kept in the
@@ -152,6 +153,17 @@ export function coverageView(store: StoreOf<'recording' | 'readModels' | 'covera
   // Before a first scan, every imported run is new: Not covered tells nothing to read apart from runs not read yet.
   return { scan, newRuns: importedSince(store, scan?.at ?? 0), groups: views, uncovered: uncovered.length, needsLook, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } };
 }
+
+/**
+ * Tests' Not covered, read beside the server (`GET /api/coverage`): it counts the imported runs no
+ * scan has read, a JSON read of every recording no index serves, and reads each behaviour's runs.
+ * Whether the store names people is worked out on the server's thread (namesTeamStore).
+ */
+export type CoverageViewJob = { kind: 'coverage-view'; shared: boolean };
+
+export const COVERAGE_READS: ReadTable<CoverageViewJob> = {
+  'coverage-view': (store, job) => answer(coverageView(store, { shared: job.shared }), { tagged: true }),
+};
 
 /**
  * The line Needs a look shows while some behaviour seen in production has no golden: how many, and

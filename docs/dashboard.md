@@ -2971,6 +2971,8 @@ A matrix also gives the newest session's `command`, the gate's `rule`, and the `
 - the count not covered, and the line Needs a look shows;
 - the `commands` that scan again and pack.
 
+It is read beside the server, since it counts every imported run, and revalidated from the store's runs and coverage scans and whether names show.
+
 ### Job kinds
 
 `POST /api/jobs` starts a job of one of these kinds:
