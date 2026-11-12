@@ -80,10 +80,10 @@
 .cb-d { color: var(--faint); min-width: 0; overflow-wrap: anywhere; text-wrap: pretty; }
 .dialog .cmdline.cb-cmd { margin-top: 10px; font-size: var(--fs-label); }
 .cb-cmdn { margin: 6px 0 0; color: var(--faint); font-size: var(--fs-small); }
-/* A fix's runs, in fix mode and beside a golden: a run's role, its id, its mark, then what the check says of it; what would
-   change for the fix in amber. No mark is lime: a run passing here is no way on. */
+/* A fix's runs, in fix mode and beside a golden: a run's role (drawn as a dialog's field label, overlays.css), its id, its
+   mark, then what the check says of it; what would change for the fix in amber. No mark is lime: a run passing here is no
+   way on. */
 .cb-fixr .cb-row { grid-template-columns: 56px auto 12px minmax(0, 1fr); }
-.cb-role { font: 500 var(--fs-caps) var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
 .cb-row.y .cb-d { color: var(--cq-amber); }
 
 /* The change: the golden's entry as the file will hold it, its kept lines faint, the version at the header's right. */
