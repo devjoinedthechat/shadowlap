@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { markToast, Store, unpackRun, type CallRecord, type RunRecord, type StoredFix } from '@shadowlap/engine';
+import { JUDGE_NOT_ASKED, markToast, Store, unpackRun, type CallRecord, type RunRecord, type StoredFix } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { attemptResult, attemptsText, attemptTallies, leftRunning } from '../src/attempts.js';
 import { forkEffects } from '../src/fork-effects.js';
 import { marked } from '../src/marks.js';
-import { blameFact, failedCheckText, fixFact, standing, unrecordedConsequence, unrecordedName, verdictOf } from '../src/verdict.js';
+import { blameFact, checkLine, failedCheckText, fixFact, standing, unrecordedConsequence, unrecordedName, verdictOf } from '../src/verdict.js';
 import { renderAt } from './terminal.js';
 
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent/', import.meta.url));
@@ -219,6 +219,11 @@ describe('how a run stands, in the terminal', () => {
     expect(marked(['refund', 'bad'], 'good')).toEqual({ labels: ['refund', 'good'], on: true });
     expect(marked(['refund', 'good'], 'good')).toEqual({ labels: ['refund'], on: false });
     expect(markToast('01M5GRX8K4ABCDEF', 'good', true)).toBe('01M5GRX8K4 is good: a fix must not make it worse than its own baseline (--keeps label:good)');
+  });
+
+  it('lists a judge its attempt didn’t ask, another check having failed, as not applicable with why', () => {
+    const judge = { name: 'j', model: 'claude-haiku-4-5', of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0, cut: 0 };
+    expect(checkLine({ ok: true, status: 'not-applicable', label: 'judge "j" answers yes', detail: JUDGE_NOT_ASKED, judge })).toEqual({ text: '– judge "j" answers yes · not applicable · not asked: another check failed', tone: 'muted' });
   });
 
   it('counts an attempt by its own verdict, an interrupted one apart, as the dashboard does', () => {
