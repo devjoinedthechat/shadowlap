@@ -98,6 +98,31 @@ test('x picks a row and the bar comes; Delete takes the run off the table and th
   await expect(page.locator('.toast')).toContainText('Restored');
 });
 
+test('with Push and Preview change both on the bar it keeps to one line: every action in view at 1440 px, and at 721 px the bar scrolls to the last', async ({ page }) => {
+  // A team store as this machine would know one, so the bar offers Push too.
+  const url = 's3://northwind-agent-runs/support-agent';
+  const store = { url, key: url, configured: url, provider: 's3', providerName: 'Amazon S3', bucket: 'northwind-agent-runs', prefix: 'support-agent', account: null, region: null, name: 'northwind-agent-runs/support-agent', pushedAt: null, pulledAt: null, syncedAt: null, inStore: 0, onlyLocal: 0, localRuns: [], localAttempts: 0, queued: 0, check: null };
+  await page.route('**/api/store', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { store, you: 'maya@example.com' } }) : route.continue()));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  const row = page.locator('main#view table.runst tbody tr:not(.wspace)').first();
+  await row.locator('a.rowa').focus();
+  await page.keyboard.press('x');
+  const bar = page.locator('.bulkbar');
+  await expect(bar.locator('button', { hasText: /^Push/ })).toBeVisible();
+  await expect(bar.locator('button', { hasText: 'Preview change' })).toBeVisible();
+  // Scrolled to its end, the bar shows its last action whole; wide, it needs no scrolling at all.
+  const reach = () => bar.evaluate((el) => {
+    el.scrollLeft = el.scrollWidth;
+    const last = [...el.querySelectorAll('button')].at(-1)!.getBoundingClientRect();
+    return { wrap: getComputedStyle(el).flexWrap, fits: el.scrollWidth <= el.clientWidth, lastInView: last.right <= el.getBoundingClientRect().right + 0.5 };
+  });
+  expect(await reach()).toEqual({ wrap: 'nowrap', fits: true, lastInView: true });
+  await page.setViewportSize({ width: 721, height: 900 });
+  await expect.poll(async () => (await reach()).lastInView).toBe(true);
+  expect(await bar.evaluate((el) => getComputedStyle(el).overflowX)).toBe('auto');
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
