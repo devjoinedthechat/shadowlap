@@ -267,18 +267,18 @@ Each verdict and its reason are beside the check wherever checks are shown:
 
 A check's JSON entry has `status` (`passed`, `failed`, `inconclusive` or `not-applicable`), the judge's `reason`, `source` (`recording` or `live`), and `judge`:
 
-| Field        | Type           | Meaning                                                      |
-|--------------|----------------|--------------------------------------------------------------|
-| `name`       | string         | The judge check's name                                       |
-| `model`      | string         | The judge's model                                            |
-| `of`         | string         | What it read: `answer`, `output` or `run`                    |
-| `verdict`    | string or null | `yes`, `no`, or `null` when it was not judged or not asked   |
-| `source`     | string or null | `recording` or `live`, or `null` without a verdict           |
-| `cost`       | number or null | USD: 0 from the recording, `null` for a model with no price  |
-| `redactions` | number         | How many redaction rules applied to what it read             |
-| `normalized` | boolean        | Whether what it read had values that change every run masked |
-| `cut`        | number         | Characters of what it read that were left out                |
-| `callNo`     | number         | The judge's call in the run                                  |
+| Field        | Type           | Meaning                                                                          |
+|--------------|----------------|----------------------------------------------------------------------------------|
+| `name`       | string         | The judge check's name                                                           |
+| `model`      | string         | The judge's model                                                                |
+| `of`         | string         | What it read: `answer`, `output` or `run`                                        |
+| `verdict`    | string or null | `yes`, `no`, or `null` when it was not judged or not asked                       |
+| `source`     | string or null | `recording` or `live`, or `null` without a verdict                               |
+| `cost`       | number or null | USD: 0 from the recording, `null` for a model with no price or without a verdict |
+| `redactions` | number         | How many redaction rules applied to what it read                                 |
+| `normalized` | boolean        | Whether what it read had values that change every run masked                     |
+| `cut`        | number         | Characters of what it read that were left out                                    |
+| `callNo`     | number         | The judge's call in the run                                                      |
 
 Other reports carry `judge`, what the judges did and cost:
 
