@@ -89,7 +89,7 @@ describe('the exit status of an inconclusive gate', () => {
   });
 
   it('fails migrate unless --inconclusive warn lets it through', () => {
-    const passes: MigrateReport['passes'] = { verdict: 'incomplete', runs: [{ runId: '01A', golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)', rule: SHORT } }] };
+    const passes: MigrateReport['passes'] = { verdict: 'incomplete', runs: [{ runId: '01A', golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)', rule: SHORT }, diverges: null }] };
     const report = { stopReason: null, passes } as unknown as MigrateReport;
     expect(migrateExit(report)).toBe(3);
     expect(migrateExit(report, 'warn')).toBe(0);
