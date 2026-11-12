@@ -288,7 +288,6 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
    the decisions' verdict reads in ink when nothing is flagged, and rank 2 is amber, as every rank 2 change is. */
 .prpanel .pbody > p.muted { margin-bottom: 12px; max-width: 76ch; }
 .prpanel .cimain > .setrow + .actions { margin-top: 14px; }
-.prpanel.off .setrow b { color: var(--dim); }
 .prpanel .cineeds { display: block; margin-top: 16px; }
 .dialog.prdlg { width: min(860px, 100%); }
 .dialog.prdlg .db { padding-top: 2px; }
