@@ -53,6 +53,8 @@ It reads: tell an agent that passes 90% of the time or more from one that passes
 
 **A clean replay settles it in one attempt.** A replay that forks nowhere and runs nothing live served every call from the recording, so every attempt would come out the same. Its one attempt decides, and costs nothing.
 
+**A judge is asked only where it can change an attempt.** In `shadowlap test`, the [judge checks](./judges.md) of a golden that may fork are asked in each attempt that passed its other checks. One that failed fails whatever a judge says, so its judges make no call and read not applicable.
+
 **It can say *inconclusive*.** When `max` runs out between the bounds, neither verdict holds at the stated risk. That is an honest outcome of its own, shown in amber, not a coin toss:
 
 `inconclusive · 64 of 80 · rate 0.67 to 0.91 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`

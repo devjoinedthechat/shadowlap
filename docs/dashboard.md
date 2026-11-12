@@ -1327,8 +1327,9 @@ Then comes a row per golden. A row opens the golden's latest run.
 | –       | Not applicable                   |
 | No mark | Not tested yet                   |
 
-- **✓** on a judge check says where its verdict came from: the recording, free, or the judge asked live, with what that cost.
+- **✓** on a judge check says where its verdict came from: the recording, free, or the judge asked live, with what that cost. Where several attempts asked it, it says in how many: *judged live in 4 attempts · ≈$0.0018*.
 - **✗** on a golden run more than once also says how many attempts passed it, unless some were carried over from an earlier session.
+- **–** on a judge check no attempt asked says why under it: *not asked: no attempt passed its other checks*, with no cost and no Update golden.
 - **No mark** shows before the golden's first result, when its last test couldn't run it, or when the check was added to the config since.
 
 **By revision** draws each result in its colour: a dot for one attempt, or a bar filled to the share that passed for several. An ink ring marks where the golden was updated, and a red one a drop against its own history. Each cell is named by its card's words, which say on hover why it failed. A key under the table says what each shape means.
@@ -2686,7 +2687,7 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 - the label;
 - the `status`: null before a result, when that test couldn't run the golden, or for a check `added` to the config since;
 - the `detail`;
-- a judge's `reason` and `source`, and for a verdict asked live, `live`: what asking it `cost`, and in how many attempts it was `asked`, null when that isn't known;
+- a judge's `reason` and `source`, and for a verdict asked live, `live`: what asking it `cost`, and in how many attempts it was `asked` (in a golden that may fork, only attempts that passed its other checks), null when that isn't known;
 - over several attempts, `attempts`: how many of those that judged it `passed` it, `of` how many. It is null for one attempt, when an attempt's run is gone, or when attempts were carried over from an earlier session.
 
 `last.gate` holds:

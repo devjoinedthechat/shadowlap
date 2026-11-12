@@ -196,6 +196,7 @@ A judge check with no verdict, where the judge can't be asked live, is **inconcl
 Where the verdict comes from depends on the command:
 
 - **`shadowlap check`** reads the verdict a recording holds.
+- **`shadowlap test`** on a golden that may fork asks a judge live in each attempt that passed its other checks. Where another check failed, the attempt fails whatever the judge would say, so its judge check is not applicable and makes no call.
 - **`blame`, `verify` and `repair`** fork every attempt, so they ask a judge live. One no attempt can ask (no key for its provider, and no upstream set for it) they refuse before they start, since every attempt would read inconclusive and none could pass.
 
 ## How a check comes out
@@ -207,7 +208,7 @@ Every report uses these four words, and marks them the same way:
 | **passed** | The run did what the check asks | `✓` | ✅ |
 | **failed** | It didn't; the detail names the values | `✗` | ❌ |
 | **inconclusive** | It could not be decided: a judge with no verdict, or a `when` whose condition could not be read. Never a pass | `?` | 🟡 |
-| **not applicable** | A `when` check whose condition never held. Never a failure, and never counted as passed | `–` | ➖ |
+| **not applicable** | A `when` check whose condition never held, or a fork attempt's judge where another check failed. Never a failure, and never counted as passed | `–` | ➖ |
 
 A run's checks come out as one: failed when any check failed, else inconclusive when any could not be decided, else passed.
 
