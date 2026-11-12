@@ -318,7 +318,7 @@ describe('the whole comparison', () => {
     expect(page.one('#cmpd .cmpx').getAttribute('aria-label')).toBe('Close #19');
     expect(page.one('#cmpd .dtool b').textContent).toBe('issue_refund');
     expect(page.one('#cmpd .dstop').textContent).toBe('calls tools');
-    expect(page.one('#cmpd .cmpnote').textContent).toBe('Never sent. Shadowlap answered with HTTP 529 (--fail-at 19=529), 3 attempts.');
+    expect(page.one('#cmpd .cmpnote').textContent.replace(/\u00a0/g, ' ')).toBe('Never sent. Shadowlap answered with HTTP 529 (--fail-at 19=529), 3 attempts.');
     expect(page.all('#cmpd a.more').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Open run at #19, 01M5GRVTKS', `#/run/${REC}/19`],
       ['Open run at #19, 01M5GRXFM1', `#/run/${FORK}/19`],
@@ -329,7 +329,7 @@ describe('the whole comparison', () => {
     await page.until('the row closed', () => page!.all('#cmpd').length === 0);
     await page.click(page.all('button.cprow')[1]);
     await page.until('the second row opened', () => page!.all('#cmpd').length > 0);
-    expect(page.one('#cmpd .cmpnone').textContent).toBe('No call: the run had ended.');
+    expect(page.one('#cmpd .cmpnone').textContent.replace(/\u00a0/g, ' ')).toBe('No call: the run had ended.');
     await page.click(page.one('#cmpd .cmpx'));
     expect(bar.hash).toBe(`#/compare/${REC}/${FORK}`);
     await page.until('the row closed', () => page!.all('#cmpd').length === 0);
@@ -410,7 +410,7 @@ describe('the whole comparison', () => {
     expect(page.all('#cmpd a.more').map((a) => a.textContent)).toEqual(['Open run at #20, 01M5GRVTKS', 'Open run at #19, 01M5GRXFM1']);
     // A failure with no status heads its side as its row says it, not with a status it never got.
     expect(page.one('#cmpd .cmperr').textContent).toBe('failed');
-    expect(page.one('#cmpd .cmpnote').textContent).toBe('Failed. socket hang up.');
+    expect(page.one('#cmpd .cmpnote').textContent.replace(/\u00a0/g, ' ')).toBe('Failed. socket hang up.');
   });
 
   it('draws a row both made alike on one dimmed line, nothing in it marked', async () => {

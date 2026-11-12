@@ -145,9 +145,9 @@ describe('the Tests page', () => {
     // In its box alone, with the box's one Copy, named by what it copies.
     expect(all(ci, 'button').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy CI command']);
     // budget has a gate against history: CI must keep the store between runs.
-    expect(all(ci, 'p.muted.after')[0].textContent).toBe('A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');
+    expect(all(ci, 'p.muted.after')[0].textContent.replace(/\u00a0/g, ' ')).toBe('A gate against history needs the store kept between runs: the Action’s keep-history does it, or cache .shadowlap/shadowlap.db.');
     expect(all(ci, 'a.more').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([['Settings → CI', '#/settings/ci']]);
-    expect(page.document.body.textContent).toContain('A golden whose checks say what the agent must do is also a task a model can be scored on.');
+    expect(page.document.body.textContent.replace(/\u00a0/g, ' ')).toContain('A golden whose checks say what the agent must do is also a task a model can be scored on.');
   });
 
   it('says an injection test runs live too, and needs the keys, when a golden has one, and that a short history only warns whatever the goldens', async () => {
@@ -163,7 +163,7 @@ describe('the Tests page', () => {
     const page = await open(started);
     const panel = page.all('section.gpanel').find((s) => one(s, 'h2').textContent === 'judged')!;
     expect(panel.textContent).not.toContain('a key to ask');
-    expect(one(panel, 'p.hintx').textContent).toContain('Update golden asks it once, live, and keeps its verdict in the pack');
+    expect(one(panel, 'p.hintx').textContent.replace(/\u00a0/g, ' ')).toContain('Update golden asks it once, live, and keeps its verdict in the pack');
     await page.click(all(panel, 'button').find((b) => b.textContent.trim() === 'Update golden')!);
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
@@ -272,11 +272,11 @@ describe('a gated golden’s evidence', () => {
     // No line between the golden's row and its evidence: the row is open while the evidence shows.
     expect(page.all('table.gt tbody tr.open').map((tr) => one(tr, 'code.gn').textContent)).toEqual(['passes']);
     const why = 'Stopped at attempt 12: the score reached +3.02, past +3.00, where it passes.';
-    expect([one(row, 'p.lead').textContent, one(row, '.evl').getAttribute('aria-label'), one(row, 'td').props.colSpan]).toEqual([why, why, 4]);
+    expect([one(row, 'p.lead').textContent.replace(/\u00a0/g, ' '), one(row, '.evl').getAttribute('aria-label'), one(row, 'td').props.colSpan]).toEqual([why, why, 4]);
     expect(all(row, '.eb').map((e) => e.textContent)).toEqual(['passes at +3.00', 'fails at −3.00']);
     expect(all(row, '.evx span').map((e) => e.textContent)).toEqual(['attempt 12']);
-    expect(one(row, 'p.receipt').textContent).toMatch(/^a pass adds 0\.25, a failure −1\.10 · pass\^5/);
-    expect(one(row, 'p.receipt').textContent).toContain('forked at call 3, each attempt live from there');
+    expect(one(row, 'p.receipt').textContent.replace(/\u00a0/g, ' ')).toMatch(/^a pass adds 0\.25, a failure −1\.10 · pass\^5/);
+    expect(one(row, 'p.receipt').textContent.replace(/\u00a0/g, ' ')).toContain('forked at call 3, each attempt live from there');
     expect(evidenceAsked).toEqual(['goldens/passes']);
     expect([page.one('button.gev').getAttribute('aria-expanded'), page.one('button.gev').getAttribute('aria-controls')]).toEqual(['true', one(row, 'section.gevx').getAttribute('id')]);
     await page.focus(one(row, '.alist a'));

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { JOB_KINDS, type ModelsView, type PipView, type TaskUpdate, type TrainingView } from '../api.js';
 import { EmptyState, PageHeader } from '../components/bits.js';
+import { Code, Copy } from '../components/Copy.js';
 import { Dialog } from '../components/Dialog.js';
 import { tipText } from '../components/HoverCard.js';
 import { Page } from '../components/Page.js';
@@ -143,7 +144,7 @@ function Scores({ view }: { view: TrainingView }) {
     <Section title="Scores" sub={s.sub}>
       {s.empty ? (
         <div className="pbody">
-          <p className="muted flat">{s.empty}</p>
+          <Copy className="muted flat">{s.empty}</Copy>
         </div>
       ) : (
         <>
@@ -207,7 +208,7 @@ function Scores({ view }: { view: TrainingView }) {
           </div>
         </>
       )}
-      <p className="pfootnote">{s.footnote}</p>
+      <Copy className="pfootnote">{s.footnote}</Copy>
     </Section>
   );
 }
@@ -350,9 +351,9 @@ export function TaskUpdateDialog({ name, update, estimate, busy, onClose }: { na
       onClose={onClose}
     >
       {rules && update.rerecords ? (
-        <p className="muted trnote">
-          First {rules === 1 ? 'a normalizer for' : 'normalizers for'} <code>{values}</code>, which {rules === 1 ? 'changes' : 'change'} on every run: without {rules === 1 ? 'it' : 'them'}, the next test forks there again.
-        </p>
+        <Copy className="muted trnote">
+          First {rules === 1 ? 'a normalizer for' : 'normalizers for'} <Code>{values}</Code>, which {rules === 1 ? 'changes' : 'change'} on every run: without {rules === 1 ? 'it' : 'them'}, the next test forks there again.
+        </Copy>
       ) : null}
     </Dialog>
   );

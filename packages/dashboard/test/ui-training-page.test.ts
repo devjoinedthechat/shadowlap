@@ -121,7 +121,7 @@ describe('the Training page', () => {
     const weak = r.byText('b', 'A model learns what the checks reward.').parentNode!.textContent;
     expect(weak).toContain('That’s why refund-flow-budget isn’t a task.');
     expect(weak).not.toContain('list-inbox');
-    expect(r.document.body.textContent).toContain('For example, one attempt and the score it answers with:');
+    expect(r.document.body.textContent.replace(/\u00a0/g, ' ')).toContain('For example, one attempt and the score it answers with:');
     const sample = r.one('pre.trserve').textContent;
     expect(sample).toContain('"run": "<run id>"');
     expect(sample).not.toContain('"from"');

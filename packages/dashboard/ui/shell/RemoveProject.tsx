@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Copy } from '../components/Copy.js';
 import { Dialog, pressWayOn } from '../components/Dialog.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { expectProject, type RemoveDialogView } from '../projects-api.js';
@@ -135,7 +136,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
             );
           })}
         </ul>
-        {mode.note ? <p className="rmnote">{mode.note}</p> : null}
+        {mode.note ? <Copy className="rmnote">{mode.note}</Copy> : null}
       </div>
       {zone ? (
         <div className={`dz${deleting ? ' on' : ''}`}>

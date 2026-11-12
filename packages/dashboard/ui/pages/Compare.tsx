@@ -5,7 +5,7 @@ import { ChangesHead } from '../changes/Head.js';
 import { forgetComparePair, noteComparePair } from '../changes-tab.js';
 import { PageHeader } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { asWords, Code } from '../components/Copy.js';
+import { asWords, Code, Copy } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { Page } from '../components/Page.js';
@@ -584,7 +584,7 @@ export function ResponseDifferences({ c }: { c: CompareView }) {
   // A call the model answered the same way in a new response is in the prefix line, not here.
   const rows = changedAnswers(c);
   if (!rows.length)
-    return <p className="cmpnote">Same request, different response: none.{first ? ` The paths differ because the request at #${first} did.` : ''}</p>;
+    return <Copy className="cmpnote">Same request, different response: none.{first ? ` The paths differ because the request at #${first} did.` : ''}</Copy>;
   return (
     <Section className="cmpresp" title="Same request, different answer" sub={answersSub(c)}>
       <div className="tscroll">

@@ -96,7 +96,7 @@ describe('Tests, once a crash’s commit is named', () => {
     expect(box.textContent).toContain('agent/refund.py');
     expect(box.querySelectorAll('.cdacts button').map((b) => b.textContent)).toEqual(['Open in editor', 'Copy git revert']);
     expect(report.querySelectorAll('.actions button').map((b) => [b.textContent, b.className])).toEqual([['Revert', 'btn']]);
-    expect(report.querySelector('.hintx')!.textContent).toBe(NAMED_HINT);
+    expect(report.querySelector('.hintx')!.textContent.replace(/\u00a0/g, ' ')).toBe(NAMED_HINT);
   });
 
   it('hands the focus from the report’s Find breaking commit to its Revert once the search’s answer is read', async () => {
@@ -107,7 +107,7 @@ describe('Tests, once a crash’s commit is named', () => {
     await r.until('the report', () => r!.all('#report-refund .actions button').length === 1);
     const find = r.one('#report-refund .actions button');
     expect(find.textContent).toBe('Find breaking commit…');
-    expect(r.one('#report-refund .hintx').textContent).not.toBe(NAMED_HINT);
+    expect(r.one('#report-refund .hintx').textContent.replace(/\u00a0/g, ' ')).not.toBe(NAMED_HINT);
     await r.focus(find);
     await notingJobFrom(Promise.resolve({ id: 'job-b' }));
     handOnAtEnd('job-b');

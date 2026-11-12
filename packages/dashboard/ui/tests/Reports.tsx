@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { BisectMiss, DivergenceView, FailureView, FoundCommit, InconclusiveView, NextStep } from '../api.js';
+import { Code, Copy } from '../components/Copy.js';
 import { JobButton } from '../components/JobButton.js';
 import type { TestsEstimates } from '../estimates-api.js';
 import { divergenceButtons, failureHint, failureLines, inconclusiveHint, inconclusiveLines, missedLine, reportLines, type ReportLine } from '../goldens.js';
@@ -94,13 +95,13 @@ export function DivergencePanel({ d, has, updateLeads, wait, live, prices, onNor
   return (
     <ReportPanel name={d.name} runId={d.runId} lines={reportLines(d.text)} found={d.found} missed={d.missed}>
       {b.note === 'maybe-real' && d.volatile ? (
-        <p className="hintx tnote">
-          <code>{d.volatile.path}</code> changed, and it may be a real change, such as another customer or another order. If it is made anew on every run, add the normalizer; if the change was intended, update the golden.
-        </p>
+        <Copy className="hintx tnote">
+          <Code>{d.volatile.path}</Code> changed, and it may be a real change, such as another customer or another order. If it is made anew on every run, add the normalizer; if the change was intended, update the golden.
+        </Copy>
       ) : b.note ? (
-        <p className="hintx tnote">
-          The normalizer for <code>{d.volatile?.path ?? 'it'}</code> is in shadowlap.config.json now. {b.note === 'rules-added' ? 'Run the golden again to see it pass.' : 'It masks the value, but the request also carries what the recording never had: update the golden.'}
-        </p>
+        <Copy className="hintx tnote">
+          The normalizer for <Code>{d.volatile?.path ?? 'it'}</Code> is in shadowlap.config.json now. {b.note === 'rules-added' ? 'Run the golden again to see it pass.' : 'It masks the value, but the request also carries what the recording never had: update the golden.'}
+        </Copy>
       ) : null}
       <div className="actions">
         {b.normalize ? (
@@ -115,7 +116,7 @@ export function DivergencePanel({ d, has, updateLeads, wait, live, prices, onNor
         ) : null}
         {b.bisect && !updateLeads ? <FindCommitButton f={d} live={live} why={wait('find the breaking commit')} onBisect={onFind} /> : null}
       </div>
-      <p className="hintx">Normalizers apply at match time, so older goldens keep working. Update a golden only when the change was intended.</p>
+      <Copy className="hintx">Normalizers apply at match time, so older goldens keep working. Update a golden only when the change was intended.</Copy>
     </ReportPanel>
   );
 }
@@ -146,7 +147,7 @@ export function InconclusivePanel({ v, off, canRun, onMore, prices, updateOff, c
           </JobButton>
         </div>
       ) : null}
-      <p className="hintx">{inconclusiveHint(v)}</p>
+      <Copy className="hintx">{inconclusiveHint(v)}</Copy>
     </ReportPanel>
   );
 }
@@ -172,7 +173,7 @@ export function FailurePanel({ f, off, live, button, step, prices, onBisect }: {
           {button ? <FindCommitButton f={f} live={live} why={off} onBisect={onBisect} /> : null}
         </div>
       ) : null}
-      <p className="hintx">{hintOf(f)}</p>
+      <Copy className="hintx">{hintOf(f)}</Copy>
     </ReportPanel>
   );
 }

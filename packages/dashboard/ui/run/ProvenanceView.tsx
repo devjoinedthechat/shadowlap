@@ -19,7 +19,7 @@ import { copyRules, endpointSamples, exportedLine, lineageWords, recordedScopes,
 import { viaWords } from './notes.js';
 import { preloadsOf, preloadWords } from './preloads.js';
 import { useWindow } from './window-hook.js';
-import { Code, Command, Words } from '../components/Copy.js';
+import { Code, Command, Copy, Words } from '../components/Copy.js';
 
 /**
  * The providers a run's model calls went to, with how many calls each: the server's count when it
@@ -252,7 +252,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
           <h2>Leaving this machine</h2>
           {exported ? (
             // An exported copy says how it was made itself: it has no Settings, and no copy is made from it.
-            <p className="muted">{exportedLine({ exportedAt: meta?.exportedAt ?? null, rules: meta?.redactedRules ?? null, redacted: meta?.redacted ?? null })}</p>
+            <Copy className="muted">{exportedLine({ exportedAt: meta?.exportedAt ?? null, rules: meta?.redactedRules ?? null, redacted: meta?.redacted ?? null })}</Copy>
           ) : (
             <p className="muted">
               A copy made now (pack, export html, export dataset or export pairs) applies{' '}
@@ -263,7 +263,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
               </a>
             </p>
           )}
-          <p className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</p>
+          <Copy className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</Copy>
           {labels.length || notes.length ? (
             <>
               <h2>Labels and notes</h2>
@@ -339,10 +339,10 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
               </tbody>
             </table>
           </div>
-          <p className="muted">The fingerprint is what a replay matches a request on. The response blob is the stored answer, kept once and shared by every run that recorded it.</p>
+          <Copy className="muted">The fingerprint is what a replay matches a request on. The response blob is the stored answer, kept once and shared by every run that recorded it.</Copy>
         </section>
       ) : (
-        <p className="muted">Each call’s fingerprint is in its Details tab, and every hash is in the run’s JSON record.</p>
+        <Copy className="muted">Each call’s fingerprint is in its Details tab, and every hash is in the run’s JSON record.</Copy>
       )}
       <div className="actions">
         {show.data !== null && show.data !== undefined ? (

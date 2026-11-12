@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useRef, type ReactNode } from 'react';
 import type { CallDetail, RunListItem } from '../api.js';
 import { Org } from '../components/bits.js';
+import { Code, Copy, Words } from '../components/Copy.js';
 import { Decision } from '../components/Decision.js';
+import { DotParts } from '../components/DotParts.js';
 import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
@@ -288,7 +290,8 @@ function FailureNote({ by, d, flag }: { by: NonNullable<PathCall['failure']>['by
   const note = failureNote(d.call, by, flag);
   return (
     <p className="cmpnote">
-      <b>{note.word}</b> {note.why.map((p, i) => (typeof p === 'string' ? <Fragment key={i}>{p}</Fragment> : <code key={i}>{p.code}</code>))}
+      {/* as the inspector's note says it (CallNote) */}
+      <b>{note.word}</b> {note.why.map((p, i) => (typeof p === 'string' ? <Words key={i}>{p}</Words> : <Code key={i}>{p.code}</Code>))}
     </p>
   );
 }
@@ -346,7 +349,7 @@ function OpenedSide({ id, otherId, c, other, detail, flag, side, own }: { id: st
     return (
       <>
         {who}
-        <p className="cmpnone">No call: the run had ended.</p>
+        <Copy className="cmpnone">No call: the run had ended.</Copy>
       </>
     );
   const values = toolValues(detail);
@@ -354,7 +357,9 @@ function OpenedSide({ id, otherId, c, other, detail, flag, side, own }: { id: st
     <>
       {who}
       <OpenedCall c={c} other={other} otherId={otherId} detail={detail} flag={flag} side={side} />
-      <p className="cmpmeta">{metaWords(c, detail).join(' · ')}</p>
+      <p className="cmpmeta">
+        <DotParts parts={metaWords(c, detail)} />
+      </p>
       {c.kind !== 'api' && own ? (
         <>
           <p className="cmpk">Arguments</p>

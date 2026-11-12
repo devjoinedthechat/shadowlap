@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { PairGroupView, TrainingView } from '../../api.js';
 import { Chips } from '../../components/bits.js';
-import { CodeText, Words } from '../../components/Copy.js';
+import { CodeText, Copy, Words } from '../../components/Copy.js';
 import { Section } from '../../components/Section.js';
 import { plural, shortId } from '../../format.js';
 import { useListKeys } from '../../list-keys.js';
@@ -74,7 +74,7 @@ export function PairsTab({ view }: { view: TrainingView }) {
               </div>
             ))}
           </div>
-          <p className="pfootnote">{p.footnote}</p>
+          <Copy className="pfootnote">{p.footnote}</Copy>
         </Section>
       </div>
     </>
