@@ -2,12 +2,12 @@ import { Fragment, useId, useMemo, useState, type ReactNode } from 'react';
 import { JUDGE_ASKED } from '../../../engine/src/checks/labels.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
+import { judgeRows } from '../judge-rows.js';
 import type { FixRow } from '../types.js';
 import { breakPoints, cellKeepsWhole, failedMust, flagParts, inlineParts, parseMarkdown, plainCell, wholeParts, type MdBlock } from './model.js';
 
-/** A judge's card, on the Must line and on its line of the Blame step's check: what it asks, what it reads, the model, and when it is asked. */
-export const judgeTip = (j: NonNullable<FixRow['judge']>): string =>
-  tipCard(j.label, [{ label: 'Asks', value: j.question }, { label: 'Reads', value: j.reads }, { label: 'Model', value: j.model }], `${JUDGE_ASKED.charAt(0).toUpperCase()}${JUDGE_ASKED.slice(1)}`);
+/** A judge's card, on the Must line and on its line of the Blame step's check: its rows as Tests' checks draw them (`judgeRows`: what it asks, what it reads, the model), and when it is asked. */
+export const judgeTip = (j: NonNullable<FixRow['judge']>): string => tipCard(j.label, judgeRows(j), `${JUDGE_ASKED.charAt(0).toUpperCase()}${JUDGE_ASKED.slice(1)}`);
 
 /**
  * What a fix's failing runs did and the check they must meet (`failedMust`): "Failed: … · Must: …",
