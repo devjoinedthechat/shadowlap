@@ -81,8 +81,10 @@ for (const [width, height] of [
     await expect(dialog.locator('.cb-k .k').first()).toHaveText('The check of this fix');
     await expectAccessible(page);
     await dialog.locator('.cb-kinds button', { hasText: /^Never$/ }).click();
+    // Save check waits for the change's own answer from the fix's runs, then asks for the job.
     const save = dialog.locator('.dlg-ok');
     await expect(save).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(dialog.locator('.cb-fixr .cb-row').first()).toBeVisible();
     await save.click();
     await expect(dialog.locator('.dwarn')).toHaveText('This fix moved on since the page read it.');
     // The page names the fix by its whole id, the demo by its short one.
