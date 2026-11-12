@@ -24,9 +24,9 @@ export function presetsCounts(p: Pick<Presets, 'failed' | 'inconclusive' | 'pass
     .join(' · ');
 }
 
-/** A preset's cell's card: its words, its verdict with its tally where it took several attempts, and the call it hit. */
+/** A preset's cell's card: its words, its verdict (`not applicable` in words) with its tally where it took several attempts, and the call it hit. */
 export function presetCard(c: Cell): string {
-  const rows: TipRow[] = [{ label: c.verdict, value: c.attempts > 1 ? `${c.passes} of ${c.attempts}` : '', color: COLOUR[c.verdict] ?? 'var(--cq-muted)' }];
+  const rows: TipRow[] = [{ label: c.verdict.replace('-', ' '), value: c.attempts > 1 ? `${c.passes} of ${c.attempts}` : '', color: COLOUR[c.verdict] ?? 'var(--cq-muted)' }];
   if (c.callNo !== null) rows.push({ label: 'at', value: `#${c.callNo}` });
   return tipCard(c.label, rows);
 }
@@ -34,7 +34,8 @@ export function presetCard(c: Cell): string {
 /**
  * A golden's error-path presets under its checks, as the design draws them: `error-path presets`,
  * which opens its recording with their results, a cell a preset in its verdict's colour (one picture,
- * named by its counts, each cell's card on hover: no Tab stop, as a strip's cells have none), then
+ * named by its counts, each cell's card on hover: no Tab stop, as a strip's cells have none; a
+ * preset that couldn't apply to the recording is a muted cell, left out of the counts), then
  * the counts, which open the attempt that proves the verdict. A golden whose tests entry sets its
  * presets, none run yet, says so and offers Run error-path presets…, which waits as Tests' buttons
  * do while a session runs (its presets share the test lane).

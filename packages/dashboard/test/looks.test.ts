@@ -220,6 +220,7 @@ describe('a golden’s presets on Tests', () => {
     const attempts = presets('goldens/forecast', forecast, [
       { preset: 'timeout', verdict: 'failed', callNo: 2 },
       { preset: 'empty', verdict: 'passed', callNo: 2 },
+      { preset: 'malformed', verdict: 'not-applicable', callNo: null },
       { preset: '429', verdict: 'passed', callNo: 3 },
     ]);
     const inbox = run();
@@ -232,7 +233,14 @@ describe('a golden’s presets on Tests', () => {
     const [f, i] = view.rows;
     expect(f.last.line).toBe('1 of 3 presets failed: tool timeout #2 · replay not tested yet');
     expect(f.last.result).toBeNull();
-    expect(f.presets).toEqual({ verdict: 'failed', ran: 3, passed: 2, failed: 1, inconclusive: 0, line: '1 of 3 presets failed: tool timeout #2', runId: attempts.timeout, at: expect.any(Number) });
+    // The strip draws every preset, the one that couldn't apply too (muted, left out of the counts).
+    const cells = [
+      { label: 'tool timeout', verdict: 'failed', passes: 0, attempts: 1, callNo: 2 },
+      { label: 'empty result', verdict: 'passed', passes: 1, attempts: 1, callNo: 2 },
+      { label: 'malformed JSON', verdict: 'not-applicable', passes: 0, attempts: 0, callNo: null },
+      { label: 'provider 429', verdict: 'passed', passes: 1, attempts: 1, callNo: 3 },
+    ];
+    expect(f.presets).toEqual({ verdict: 'failed', ran: 3, passed: 2, failed: 1, inconclusive: 0, line: '1 of 3 presets failed: tool timeout #2', runId: attempts.timeout, at: expect.any(Number), recording: forecast, cells });
     expect(i.presets).toMatchObject({ verdict: 'passed', ran: 1, line: '1 of 1 preset passed' });
     // Its replay not tested yet: said so, and not as a golden nothing ran on.
     expect(view.verdict!.title).toBe('1 of 2 goldens passed · 1 golden tested only by its error-path presets');

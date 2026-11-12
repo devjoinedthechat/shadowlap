@@ -98,7 +98,7 @@ describe('the Tests page while error-path presets run on goldens', () => {
 });
 
 describe('a golden’s error-path presets under its checks', () => {
-  /** A golden recorded here; with `ran`, its presets ran on its recording: tool timeout failed at call 2, empty passed. */
+  /** A golden recorded here; with `ran`, its presets ran on its recording: tool timeout failed at call 2, empty passed, provider 429 couldn't apply. */
   function golden(ran: boolean): { view: TestsView; rec: string; attempt: string } {
     const store = Store.open(':memory:');
     try {
@@ -107,9 +107,10 @@ describe('a golden’s error-path presets under its checks', () => {
       const attempt = store.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'inbox.mjs'], cwd: '.' }, startedAt: 3, meta: { chaos: { preset: 'timeout', callNo: 2, session: 'S', attempt: 1, golden: 'goldens/list-inbox' } } }).runId;
       store.endRun(attempt, 'failed', 4);
       if (ran) {
-        store.startChaosSession({ sessionId: 'S', startedAt: 3, command: ['shadowlap', 'test', 'goldens/list-inbox', '--chaos'], presets: ['timeout', 'empty'] });
+        store.startChaosSession({ sessionId: 'S', startedAt: 3, command: ['shadowlap', 'test', 'goldens/list-inbox', '--chaos'], presets: ['timeout', 'empty', '429'] });
         store.addChaosResult({ sessionId: 'S', runId: rec, golden: 'goldens/list-inbox', preset: 'timeout', verdict: 'failed', callNo: 2, passes: 0, attempts: 1, at: 5, data: { detail: 'list_inbox (#2) timed out: the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: attempt, verdict: 'failed', passed: false, exitCode: 1 }] } });
         store.addChaosResult({ sessionId: 'S', runId: rec, golden: 'goldens/list-inbox', preset: 'empty', verdict: 'passed', callNo: 2, passes: 3, attempts: 3, at: 6, data: { detail: 'list_inbox (#2) answered with nothing: the agent exited 0', runs: [] } });
+        store.addChaosResult({ sessionId: 'S', runId: rec, golden: 'goldens/list-inbox', preset: '429', verdict: 'not-applicable', callNo: null, passes: 0, attempts: 0, at: 6, data: { detail: 'provider 429: the recording makes no model call', runs: [] } });
         store.finishChaosSession('S', { passed: 1, failed: 1, inconclusive: 0, upstreamRequests: 0, endedAt: 7 });
       }
       const goldens: GoldenSource[] = [{ path: 'goldens/list-inbox', runId: rec, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
@@ -144,7 +145,9 @@ describe('a golden’s error-path presets under its checks', () => {
     const picture = strip.querySelector('.pcells')!;
     expect(picture.getAttribute('role')).toBe('img');
     expect(picture.getAttribute('aria-label')).toBe('2 presets: 1 failed, 1 passed');
-    expect([...picture.querySelectorAll('i')].map((c) => c.className)).toEqual(['pc err', 'pc ok']);
+    // A preset that couldn't apply is a muted cell, its card saying so, and left out of the counts.
+    expect([...picture.querySelectorAll('i')].map((c) => c.className)).toEqual(['pc err', 'pc ok', 'pc n']);
+    expect(JSON.parse(picture.querySelectorAll('i')[2].getAttribute('data-tip')!)).toEqual({ t: 'provider 429', rows: [['not applicable', '', 'var(--cq-muted)']] });
     expect(JSON.parse(picture.querySelector('i')!.getAttribute('data-tip')!)).toEqual({ t: 'tool timeout', rows: [['failed', '', 'var(--cq-red)'], ['at', '#2', '']] });
     expect(JSON.parse(picture.querySelectorAll('i')[1].getAttribute('data-tip')!).rows[0]).toEqual(['passed', '3 of 3', 'var(--cq-lime)']);
     const counts = strip.querySelector('a.gpn')!;
