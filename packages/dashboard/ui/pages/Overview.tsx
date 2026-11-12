@@ -84,7 +84,6 @@ export function OverviewPage() {
         title="Overview"
         text="What failed, what got fixed and proven, and what it cost."
         facts={overviewFacts(s.outcomes, s.fixes, s.now)}
-        factsLabel="Overview in figures"
         actions={recording ? <WatchLive runId={recording.runId} about={recording.about?.text ?? recording.command} calls={liveCalls} /> : null}
       />
       <div className="ovg">
