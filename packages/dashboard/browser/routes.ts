@@ -230,6 +230,9 @@ export const show = (page: Page, r: RouteState) => async () => {
   if (r.fixture) {
     await r.fixture(page);
     await page.goto('about:blank');
+    // Requests the page still had out as it went are cancelled with it, and the browser need not say so: a change-feed
+    // poll sent as it left was neither answered nor failed, and the sweep waited a minute on it.
+    apiRequests(page).clear();
   }
   await at(page, await r.path(page), r.drawn)();
   if (r.then) await r.then(page);
