@@ -195,7 +195,8 @@ table.runst .byav .av:not(.bot) { font-size: 10px; }
 table.runst .rline { display: none; padding-left: 22px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: clip; max-width: none; }
 table.runst .rline .rab { flex: 0 1 auto; color: var(--faint); }
 table.runst .rline .rso { display: none; flex: none; }
-table.runst .rline .dot { margin: 0 5px; }
+/* an inline-block, so the line reads its about line, " · " and the status apart */
+table.runst .rline .dot { display: inline-block; margin: 0 5px; }
 table.runst .rline em { font-style: normal; color: var(--err); }
 table.runst .rline em.inc { color: var(--warn); }
 /* what only adds to a row gives way, measured, while About would get less than 200px, or a row would have less than its
