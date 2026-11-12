@@ -208,7 +208,7 @@ One cause is one row. A golden an open fix holds is named on the fix's row (*ref
 
 What the rows mean:
 
-- **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own.
+- **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own. The row opens Tests with the golden's [report](#a-goldens-report) open, as an inconclusive golden's row does.
 - **Inconclusive goldens**: **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection test showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
 - **Failed runs nobody has blamed**: a fork that failed counts as much as a recording, and so does a capture its import judged failed. The row names the newest by its id, with what it was about on hover, and opens Runs on the week's failed runs. A capture's **Run blame** opens its page, which asks for the command that starts your agent first.
 - **Open fixes**: where blame found that no answer of the model's lost the run, a repair of the prompt is no fix, and the row opens the fix at Blame.
@@ -1194,7 +1194,9 @@ Needs a look, the activity feed and the Fixes list say *lost gradually around #5
 
 A blame that rescued the run from no call shows the check and how the recording failed it, instead of the answers. It says why when it knows no answer of the model's lost the run: every attempt met the error a write got when it was recorded, or the attempts that passed answered as the recording did ([blame](./blame.md#the-rescue)).
 
-A test replay whose agent exited with an error is the code's to look at before the model's. Once **Find breaking commit** named the first bad commit, the step shows it under its lead as Tests does, then its change in its file's box, with **Open in editor** and **Copy git revert**. The check's note says to revert the commit or fix the code. Before the search, the note says where to look, then names **Find breaking commit**, *offline and free* where the golden replays offline:
+A test replay whose agent exited with an error is the code's to look at before the model's. Under **As recorded**, the check names the exception the agent died of, as a golden's [report](#a-goldens-report) does: where the agent's own code raised it, the line there, and **Show traceback**.
+
+Once **Find breaking commit** named the first bad commit, the step shows it under its lead, then its change in its file's box, with **Open in editor** and **Copy git revert**, as the report's **First bad commit** part does. The check's note says to revert the commit or fix the code. Before the search, the note says where to look, then names **Find breaking commit**, *offline and free* where the golden replays offline:
 
 - *look at the code first*, then **Run blame with stronger model** where the page offers it;
 - *Neither model rescues it*, once a stronger model was asked too;
@@ -1363,6 +1365,7 @@ Its parts come in this order, each where it has something to say:
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Checks changed       | A check it failed or couldn't decide that has left the config since its test                                                            |
 | Replay               | Its replay against the recording: a cell a call, the call it stopped at red, and its words                                              |
+| Request              | The request it diverged at, as **Show diff** draws it: both heads, the structural diff, and what masks or fixes each changed path       |
 | Error                | The exception the agent died of, where its own code raised it, and the line there                                                       |
 | Checks               | Its checks, marked as its row marks them                                                                                                |
 | Gate                 | The gate's tally and bound, against history its baseline, its interval, pass^5 while inconclusive, and its rule                         |
@@ -1371,6 +1374,7 @@ Its parts come in this order, each where it has something to say:
 | Find breaking commit | Why the search named none                                                                                                               |
 
 - **Replay** is left out for a divergence at call 1, which the verdict says all of.
+- **Request** is asked for once its report opens, never while it is folded. Every normalizer's command is in one box, as on a run's [Show diff](#findings). Where the replay is gone, it shows only the changes its result kept. What followed closes it in grey, such as *Not served from the recording: the agent exited on HTTP 503*. **Show message** opens the body the agent got.
 - **Error** reads Python and Node tracebacks as their runtimes print them, anything else by its last line that says something. **Show traceback** opens the agent's last lines as the store kept them.
 - **Attempts** past 24 fold behind the caret that ends the Gate's line. Those a session carried over come first, with a hairline where this one took over.
 
@@ -2699,10 +2703,12 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 `reports` holds, for each golden that didn't pass:
 
 - its `verdict`, the sentence that says what happened (`head`, in pieces, a path or a check as `code`), and the grey line under it (`sub`);
-- its `parts`, in the order its report draws them: `checks-changed`, `replay`, `error` (the exception the agent died of, read from its last lines, and the file it was raised in), `checks`, `gate`, `attempts`, an injection gate's `proof` and `injection-attempts`, then `commit` or `missed`;
+- its `parts`, in the order its report draws them: `checks-changed`, `replay`, `request`, `error` (the exception the agent died of, read from its last lines, and the file it was raised in), `checks`, `gate`, `attempts`, an injection gate's `proof` and `injection-attempts`, then `commit` or `missed`;
 - what its header opens (`open`), and Runs' Failed view of its failed replays (`failedRuns`: its `href`, `count` and first five `ids`), null where its step is a fix;
 - the key of its `hint`;
 - its lines as `shadowlap test` prints them (`printed`, each with its `tone`).
+
+A divergence's `request` part names the call it diverged at (`callNo`) and the replay to ask its diff of (`runId`). Where the replay is gone, `bodies` holds the changes its result kept. `followed` is what followed from it, such as the offline 503 the agent exited on: its `line`, and the body the agent got as `message`, null where none was kept.
 
 The store keeps the agent's last lines cut: each line at 400 characters, the whole at its last 6000. The CLI prints the last 20 lines whole. The notes the CLI prints under a golden's line aren't kept, so `printed` leaves them out. A report that can't be built is left out, and its row still shows.
 
