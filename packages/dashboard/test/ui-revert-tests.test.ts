@@ -60,7 +60,8 @@ afterEach(async () => {
 
 const base = (tests: () => Promise<TestsView>, tick = 0) =>
   ({
-    client: { tests, jobs: () => Promise.resolve([]), offers: () => Promise.resolve(null), startJob: () => Promise.resolve({ id: 'j1' }) } as unknown as Client,
+    // Security on Tests reads its goldens' untrusted reads: none here.
+    client: { tests, jobs: () => Promise.resolve([]), offers: () => Promise.resolve(null), startJob: () => Promise.resolve({ id: 'j1' }), injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }) } as unknown as Client,
     exported: false,
     meta: { editor: 'code --goto <file>:<line>' },
     tick,
