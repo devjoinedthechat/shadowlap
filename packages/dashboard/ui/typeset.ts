@@ -157,6 +157,8 @@ const NAMES_NUMBER =
   /\b(?:calls?|attempts?|probes?|steps?|turns?|candidates?|revisions?|rev|runs?|sessions?|goldens?|HTTP|PR|exit|exited|code|tier|lines?|version|port|page|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec|against|over|above|below|under|than)$/i;
 /** How a number a word names starts. */
 const A_NUMBER = /^[#≈~$€£]?\d/;
+/** A revision's short hash, after the word that names it (`rev a7b3c2e`): it starts with a letter as often as a digit. */
+const REV_HASH = /^[0-9a-f]{7,40}\b/;
 /** An operator, a word of its own: no line starts with one. */
 const OPERATOR = /^(?:[<>=≤≥≠]|[<>!=]=)$/;
 /** A separator, a word of its own: no line starts with one. */
@@ -206,6 +208,7 @@ function figureJoin(a: string, b: string, before: string | undefined, after: str
   if (a === 'of' && !!before && /\d$/.test(before) && A_NUMBER.test(b)) return JOIN.figure;
   if (NUMBER.test(a) && /^[A-Za-z%×(]/.test(b) && !NOT_A_UNIT.has(b.toLowerCase())) return JOIN.figure;
   if (NAMES_NUMBER.test(a) && A_NUMBER.test(b)) return JOIN.figure;
+  if (/^rev(?:ision)?$/i.test(a) && REV_HASH.test(b)) return JOIN.figure;
   return 0;
 }
 

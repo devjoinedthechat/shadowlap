@@ -8,7 +8,7 @@ import { Tabs } from '../components/Tabs.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
-import { Code, LongWord, Words } from '../components/Copy.js';
+import { Code, Copy, LongWord, Words } from '../components/Copy.js';
 import { copyText } from '../dom.js';
 import { dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { agentOf } from '../scopes.js';
@@ -126,7 +126,9 @@ function ConversationTab({ detail, calls, change, flag, onSelect }: { detail: Ca
     const args = (detail.request as { args?: unknown } | null)?.args ?? detail.request;
     return (
       <>
-        <div className="ibar">Its arguments, then its result:</div>
+        <div className="ibar">
+          <Copy as="span">Its arguments, then its result:</Copy>
+        </div>
         <div className="jbox">{jsonText(args ?? {}, format)}</div>
         <div className="jbox">{result ? jsonText(result.error ?? result.result ?? null, format) : c.outcome === null ? 'no result yet' : 'no result'}</div>
         <ConversationLink detail={detail} calls={calls} onSelect={onSelect} />
@@ -180,7 +182,7 @@ function ConversationLink({ detail, calls, onSelect }: { detail: CallDetail; cal
   if (!link) return null;
   return (
     <div className="ibar convlink">
-      <span>{link.text}</span>
+      <Copy as="span">{link.text}</Copy>
       {onSelect ? (
         <button className="linkbtn" type="button" onClick={() => onSelect(link.callNo)}>
           Show its conversation
@@ -213,7 +215,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
     return (
       <>
         <div className="ibar">
-          <span>{head}</span>
+          <Copy as="span">{head}</Copy>
         </div>
         <div className="jbox">{result ? jsonText(result.error ?? result.result ?? null) : c.outcome === null ? 'no result yet' : 'no result'}</div>
       </>
@@ -235,7 +237,7 @@ function ResponseTab({ detail }: { detail: CallDetail }) {
       <span>{raw && r ? (r.kind === 'sse' ? `the stream as recorded · ${num(r.events)} events` : 'the response as written') : ''}</span>
     </div>
   );
-  if (!r || r.kind === 'empty') return <>{mode}<div className="ibar">{c.outcome === null ? 'No response yet: the call has not finished.' : 'The response body was empty.'}</div></>;
+  if (!r || r.kind === 'empty') return <>{mode}<div className="ibar"><Copy as="span">{c.outcome === null ? 'No response yet: the call has not finished.' : 'The response body was empty.'}</Copy></div></>;
   if (c.outcome === 'error')
     return (
       <>
@@ -359,7 +361,7 @@ function RequestTab({ detail }: { detail: CallDetail }) {
   return (
     <>
       <div className="ibar">
-        <span>{api ? 'The request as stored · credentials are never stored' : 'The tool’s arguments'}</span>
+        <Copy as="span">{api ? 'The request as stored · credentials are never stored' : 'The tool’s arguments'}</Copy>
         <span className="sp" />
         <button className="linkbtn" type="button" onClick={() => void copyText(jsonText(value)).then((ok) => toast(ok ? 'Copied the request' : 'Copying was refused by the browser'))}>
           <Icon name="copy" />

@@ -1,4 +1,5 @@
 import type { Ref } from 'react';
+import { Copy, Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { personName } from '../overview/model.js';
 import type { RunChip } from '../runs.js';
@@ -123,7 +124,9 @@ export function Calendar({ data, chip, range, onPick, byPerson, onFindCommit, on
                 {busiest && sum.busiest ? (
                   <span>
                     {dayText(busiest.day, true)}
-                    <small>{counted(sum.busiest.runs, noun)}</small>
+                    <small>
+                      <Words>{counted(sum.busiest.runs, noun)}</Words>
+                    </small>
                   </span>
                 ) : (
                   <span className="calnone">none</span>
@@ -153,11 +156,15 @@ export function Calendar({ data, chip, range, onPick, byPerson, onFindCommit, on
           <dd>
             <span>
               {sum.failed ? <span className="calerr">{sum.failed.toLocaleString('en-US')}</span> : <span className="calnone">none</span>}
-              {sum.all ? <small>{failedOf(sum.failed, sum.all, failedNoun)}</small> : null}
+              {sum.all ? (
+                <small>
+                  <Words>{failedOf(sum.failed, sum.all, failedNoun)}</Words>
+                </small>
+              ) : null}
             </span>
           </dd>
         </dl>
-        <p className="calhint">Click a day or drag across several to filter the table. Shift-click extends.</p>
+        <Copy className="calhint">Click a day or drag across several to filter the table. Shift-click extends.</Copy>
         <button className="linkbtn" type="button" aria-expanded="true" ref={toggleRef} onClick={onToggle}>
           Hide calendar
         </button>

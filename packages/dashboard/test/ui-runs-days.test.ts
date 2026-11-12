@@ -9,6 +9,9 @@ import type { DayCount, RunsByDay } from '../ui/types.js';
 import { styleRules } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
 
+/** A line's words as read, a no-break space as a space. */
+const said = (el: { textContent: string }) => el.textContent.replace(/\u00a0/g, ' ');
+
 /**
  * The twelve weeks over Runs as the design draws them by default: one slim row of days, a bar each
  * (a week each on a phone or a touch screen), heights on a square-root scale with the failures red
@@ -168,18 +171,18 @@ describe('the twelve weeks over Runs', () => {
 
   it('says in one sentence what it counts, the failures beside, each count kept to its word', async () => {
     let t = await weeks();
-    expect(t.one('.hsum').textContent).toBe('12 runs in 12 weeks, on this machine, 3 failed.');
+    expect(said(t.one('.hsum'))).toBe('12 runs in 12 weeks, on this machine, 3 failed.');
     expect(t.all('.hsum .nw').map((n) => n.textContent)).toEqual(['12 runs', '3 failed']);
     expect(t.all('.hact button').map((b) => b.textContent)).toEqual(['Calendar']);
     await t.unmount();
     t = r = await weeks({ byPerson: true, range: [80, 80] });
-    expect(t.one('.hsum').textContent).toBe('5 runs on Thu, Oct 15, 1 failed.');
+    expect(said(t.one('.hsum'))).toBe('5 runs on Thu, Oct 15, 1 failed.');
     expect(t.all('.hbars button[aria-pressed="true"]').map((b) => b.getAttribute('data-day'))).toEqual(['80']);
     expect(t.all('.hact button').map((b) => b.textContent)).toEqual(['Clear', 'Calendar']);
     await t.unmount();
     t = r = await weeks({ chip: 'failed', data: { ...DATA, days: DAYS.map((d) => ({ ...d, runs: d.failed })) } });
     expect(t.one('section.cal.hist').getAttribute('aria-label')).toBe('Failed runs per day, last 12 weeks');
-    expect(t.one('.hsum').textContent).toBe('3 failed runs in 12 weeks, on this machine.');
+    expect(said(t.one('.hsum'))).toBe('3 failed runs in 12 weeks, on this machine.');
   });
 
   it('offers Find breaking commit for failed days picked under Failed, its card saying where it starts', async () => {

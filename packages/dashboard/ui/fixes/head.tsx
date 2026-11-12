@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { JOB_KINDS } from '../api.js';
+import { DotNodes } from '../components/DotParts.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import type { FixDetail, JobListItem, StepKey } from '../types.js';
@@ -96,12 +97,17 @@ export function FixStepper({ fix, current }: { fix: FixDetail; current: StepKey 
               {STEP_NAMES[x.key]}
             </span>
             <b>{busy ? busy.title : x.title}</b>
-            <span className="m">{busy ? busy.meta : <Flagged text={x.meta} />}</span>
+            <span className="m">{busy ? busy.meta : <StepMeta text={x.meta} />}</span>
           </a>
         );
       })}
     </nav>
   );
+}
+
+/** A step's line as dot parts, each of 32 characters or fewer kept whole ("candidate 3 of 3", "proposed by claude-code"), a flag in its part set as code. */
+function StepMeta({ text }: { text: string }) {
+  return text ? <DotNodes max={32} parts={text.split(' · ').map((t) => ({ text: t, node: <Flagged text={t} /> }))} /> : null;
 }
 
 /** Show patch's card: the patch in the working tree once applied, its goldens where they are; on main once merged with its pull request. */

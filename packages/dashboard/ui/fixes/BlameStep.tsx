@@ -134,7 +134,7 @@ const CELL_TONE: Record<NonNullable<CallCell['verdict']>, string> = { blamed: ' 
 const DENSE = 12;
 
 function CallRow({ b }: { b: BlameStep }) {
-  if (!b.callRow.length) return <p className="fxnote">The run is no longer in the store.</p>;
+  if (!b.callRow.length) return <Copy className="fxnote">The run is no longer in the store.</Copy>;
   const { cells, toolsLeftOut } = callRowCells(b.callRow);
   const probes = new Map(b.probes.map((p) => [p.callNo, p]));
   return (
@@ -287,12 +287,12 @@ function Answers({ b }: { b: BlameStep }) {
           </div>
         </div>
         {b.pairs ? (
-          <p className="pairnote">
+          <Copy className="pairnote">
             Both answers saw the same conversation, so they make a training pair.{' '}
             <a className="more nw" href={href.training()}>
               {plural(b.pairs, 'pair')} in Training →
             </a>
-          </p>
+          </Copy>
         ) : null}
       </div>
     </Section>

@@ -58,16 +58,16 @@ describe('a failed call’s note', () => {
     expect(text(tab(LIVE, 'conversation', { conversation } as unknown as Partial<CallDetail>)).replace(/\u00a0/g, ' ')).toContain('DetailsFailed. The provider answered HTTP 529: Overloaded. This is the conversation the agent sent.0 messages · what the model would have seen at #19');
     const tool = { ...LIVE, kind: 'tool', name: 'refund', outcome: 'ok', status: null, error: null } as Call;
     const html = tab(tool, 'conversation', { request: { args: { amount: 40 } }, result: { result: { ok: true } } });
-    expect(html).toContain('<div class="ibar">Its arguments, then its result:</div>');
+    expect(html.replace(/\u00a0/g, ' ')).toContain('<div class="ibar"><span>Its arguments, then its result:</span></div>');
   });
 });
 
 describe('a tool call’s response, as the fork changed it', () => {
   const tool = { ...LIVE, kind: 'tool', name: 'refund', status: null, error: null } as Call;
   it('says what a blocked write and a blocked read got instead, in one sentence each', () => {
-    expect(tab({ ...tool, origin: 'blocked', effect: 'write' }, 'response')).toContain('Blocked: a write tool after the fork, so the agent got this instead of the real result:');
-    expect(tab({ ...tool, origin: 'blocked', effect: 'read' }, 'response')).toContain('Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:');
-    expect(tab({ ...tool, origin: 'stubbed', effect: 'write' }, 'response')).toContain('Stubbed: a write tool after the fork answered with a stand-in:');
+    expect(tab({ ...tool, origin: 'blocked', effect: 'write' }, 'response').replace(/\u00a0/g, ' ')).toContain('Blocked: a write tool after the fork, so the agent got this instead of the real result:');
+    expect(tab({ ...tool, origin: 'blocked', effect: 'read' }, 'response').replace(/\u00a0/g, ' ')).toContain('Blocked: a read the recording doesn’t hold, after the fork, so the agent got this instead of a live result:');
+    expect(text(tab({ ...tool, origin: 'stubbed', effect: 'write' }, 'response')).replace(/\u00a0/g, ' ')).toContain('Stubbed: a write tool after the fork answered with a stand-in:');
   });
 
   it('says who wrote a failed model call’s HTTP answer', () => {

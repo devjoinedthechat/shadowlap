@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { DecisionCells } from '../changes/DecisionCells.js';
 import { SrSpace } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { CodeText } from '../components/Copy.js';
+import { CodeText, Copy } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { ErrorState } from '../components/States.js';
 import { glossed } from '../components/Term.js';
@@ -36,7 +36,7 @@ export function DecisionsView({ runId, selected, onSelect }: { runId: string; se
   const answer = useLoad<RunDecisionsView>(() => (client.exported ? null : client.runDecisions(runId)), `run-decisions:${runId}`, feeds.decisions ?? 0);
   const [, repick] = useState(0);
   // A copy keeps no previews, so it says so rather than that nobody previewed the run.
-  if (client.exported) return <p className="dview dvnone">An exported copy holds no previews.</p>;
+  if (client.exported) return <Copy className="dview dvnone">An exported copy holds no previews.</Copy>;
   if (answer.error) return <ErrorState retry={answer.reload}>{`This run’s previews could not be read: ${answer.error.message}.`}</ErrorState>;
   if (!answer.data) return <div className="empty">Loading this run’s previews…</div>;
   const { sessions, later } = answer.data;
@@ -68,7 +68,7 @@ export function DecisionsView({ runId, selected, onSelect }: { runId: string; se
           ))}
         </div>
       ) : (
-        <p className="dvnone">{noneLine(s.run)}</p>
+        <Copy className="dvnone">{noneLine(s.run)}</Copy>
       )}
       {later ? (
         <p className="dvlater">
@@ -168,7 +168,7 @@ function Step({ st, sel, onSelect }: { st: ViewStep; sel: boolean; onSelect: (n:
 function Unpreviewed({ runId }: { runId: string }) {
   return (
     <div className="dview dvempty">
-      <p>No change has been previewed on this run. Each of its model calls can be asked again with only the change swapped in, and no tool runs.</p>
+      <Copy>No change has been previewed on this run. Each of its model calls can be asked again with only the change swapped in, and no tool runs.</Copy>
       <CodeBox command={`shadowlap decisions ${runId} --model <model>`} />
     </div>
   );

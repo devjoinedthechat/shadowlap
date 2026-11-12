@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react';
+import { Copy } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { num } from '../format.js';
 import { useMedia, type Loaded } from '../hooks.js';
@@ -67,27 +68,25 @@ export function DaysRow({ data, chip, range, onPick, byPerson, onFindCommit, onT
         </div>
       </div>
       <div className="calside">
-        <p className="hsum">
-          {data ? (
-            <>
-              <span className="nw">
-                <b>{num(sum.runs)}</b> {sum.runs === 1 ? oneOf(noun) : noun}
-              </span>{' '}
-              {shown ? spanText(days, shown) : byPerson ? 'in 12 weeks, by everyone' : 'in 12 weeks, on this machine'}
-              {!failedChip && sum.failed ? (
-                <>
-                  ,{' '}
-                  <span className="nw">
-                    <span className="calerr">{num(sum.failed)}</span> failed
-                  </span>
-                </>
-              ) : null}
-              .
-            </>
-          ) : (
-            ' '
-          )}
-        </p>
+        {data ? (
+          <Copy className="hsum">
+            <span className="nw">
+              <b>{num(sum.runs)}</b> {sum.runs === 1 ? oneOf(noun) : noun}
+            </span>{' '}
+            {shown ? spanText(days, shown) : byPerson ? 'in 12 weeks, by everyone' : 'in 12 weeks, on this machine'}
+            {!failedChip && sum.failed ? (
+              <>
+                ,{' '}
+                <span className="nw">
+                  <span className="calerr">{num(sum.failed)}</span> failed
+                </span>
+              </>
+            ) : null}
+            .
+          </Copy>
+        ) : (
+          <p className="hsum">{' '}</p>
+        )}
         <p className="hact">
           {range ? (
             <button className="linkbtn" type="button" onClick={() => onPick(null)}>

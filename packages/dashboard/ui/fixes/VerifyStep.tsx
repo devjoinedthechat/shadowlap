@@ -286,7 +286,7 @@ function Receipts({ v }: { v: VerifyStep }) {
         {v.unknownModels.length ? ` No price for ${v.unknownModels.join(', ')}.` : ''}
       </p>
       {/* A teammate's verdict: its command line stays theirs; the one here is made from its report. */}
-      {v.pulled ? <p className="fxnote">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</p> : null}
+      {v.pulled ? <Copy className="fxnote">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</Copy> : null}
       <CodeBox command={v.command} />
     </>
   );
