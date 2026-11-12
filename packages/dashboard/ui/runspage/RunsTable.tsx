@@ -213,7 +213,7 @@ function statusTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf }): string
  * interrupted one says so, no dot either. A fork no check judges has no card, so its first term
  * (blocked, stubbed, fenced) is the one the glossary defines.
  */
-function RowStatus({ r }: { r: RunLike }) {
+export function RowStatus({ r }: { r: RunLike }) {
   const out = outcomeOf(r);
   if (out.tone === 'n') {
     return (

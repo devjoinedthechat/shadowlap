@@ -89,6 +89,9 @@ describe('how a job ends, in the words of its kind', () => {
     expect(check(3, { recordings: [1, 2, 3], counts: { passed: 2, inconclusive: 1 } }).text).toBe('inconclusive · 2 of 3 recordings passed · exit 3');
     expect(check(0, { recordings: [1], counts: { passed: 1 } }).text).toBe('passed · 1 of 1 recording passed · exit 0');
     expect(check(2, { recordings: [], counts: {} })).toEqual({ text: 'nothing to check · exit 2', tone: 'warn' });
+    // A recording no check applied to is counted apart, as the command counts it, and never as passed.
+    expect(check(0, { recordings: [1, 2], counts: { passed: 1, notApplicable: 1 } })).toEqual({ text: 'passed · 1 of 2 recordings passed, 1 not applicable · exit 0', tone: 'ok' });
+    expect(check(0, { recordings: [1], counts: { passed: 0, notApplicable: 1 } })).toEqual({ text: 'not applicable · 0 of 1 recording passed, 1 not applicable · exit 0', tone: '' });
   });
 });
 

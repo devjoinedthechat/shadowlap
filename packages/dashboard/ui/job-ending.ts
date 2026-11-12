@@ -118,9 +118,12 @@ function checkStatus(job: EndedJob, code: number): JobWords | null {
   const exit = `exit ${code}`;
   const n = r.recordings.length;
   if (!n) return { text: `nothing to check · ${exit}`, tone: 'warn' };
-  const tally = `${Number(counts.passed ?? 0)} of ${n} recording${n === 1 ? '' : 's'} passed`;
+  // As `shadowlap check` counts them: a recording no check applied to is not applicable, never passed.
+  const na = Number(counts.notApplicable ?? 0);
+  const tally = `${Number(counts.passed ?? 0)} of ${n} recording${n === 1 ? '' : 's'} passed${na ? `, ${na} not applicable` : ''}`;
   if (counts.failed) return { text: `failed · ${tally} · ${exit}`, tone: 'err' };
-  return counts.inconclusive ? { text: `inconclusive · ${tally} · ${exit}`, tone: 'warn' } : { text: `passed · ${tally} · ${exit}`, tone: 'ok' };
+  if (counts.inconclusive) return { text: `inconclusive · ${tally} · ${exit}`, tone: 'warn' };
+  return na === n ? { text: `not applicable · ${tally} · ${exit}`, tone: '' } : { text: `passed · ${tally} · ${exit}`, tone: 'ok' };
 }
 
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */

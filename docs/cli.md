@@ -2839,6 +2839,10 @@ did not pass. Under the totals, the report says when the checks fail a recording
 pass one labelled `bug`. It also names a value the checks read that none of the calls judged has (a
 misspelt `result.totl`), with the key it most likely meant.
 
+The totals count a recording that passed only because none of its checks applied, a `when` whose
+condition never held, as not applicable: `2 passed, 1 not applicable`. It never counts as passed
+there, and it leaves the exit status `0`.
+
 `check` exits with:
 
 | Status | Meaning                               |
@@ -2855,7 +2859,7 @@ A dashboard job that runs `check` gets the same report as its result. `--json` p
 | --- | --- |
 | `expect` | The `expect` given, or null |
 | `recordings` | Each recording judged (below) |
-| `counts` | The recordings by outcome: `passed`, `failed`, `inconclusive` |
+| `counts` | The recordings by outcome: `passed`, `failed`, `inconclusive`, and `notApplicable` apart from `passed` |
 | `unchecked` | The recordings counted apart for want of checks |
 | `notes` | Recordings labelled good that fail, or bug that pass, and values the checks read that no call judged has |
 

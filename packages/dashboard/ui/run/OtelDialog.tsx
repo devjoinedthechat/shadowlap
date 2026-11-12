@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
 import { jobCommand, quoteArg } from '../job-title.js';
-import { EXPORTS, redactsFact, shareDialog } from './share.js';
+import { EXPORTS, shareDialog } from './share.js';
+import { redactsFact } from './share-steps.js';
 
 /**
  * Export OpenTelemetry trace…: the run as one trace, sent to a collector or written to a file in the

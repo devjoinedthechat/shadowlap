@@ -82,6 +82,20 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
   // the time its pages were read. A scroll of the reader's own lets go of it.
   const wanted = useRef<{ key: string | number; centre: boolean; head: number } | null>(null);
   const placedAt = useRef<number | null>(null);
+  /**
+   * Scrolled from where the view was put, whether its scroll's event has come yet or not: the
+   * reader's own scroll, which lets go of the row asked for. The box held at its end as the list
+   * grew shorter under it (a batch's items folding as they are read) is no scroll of the reader's:
+   * the row is placed again once the list is long enough.
+   */
+  const scrolledAway = useCallback((b: HTMLElement): boolean => {
+    const at = placedAt.current;
+    if (at === null || Math.abs(b.scrollTop - at) <= 2) return false;
+    if (b.scrollTop < at && b.scrollTop >= b.scrollHeight - b.clientHeight - 1) return false;
+    wanted.current = null;
+    placedAt.current = null;
+    return true;
+  }, []);
 
   const read = useCallback(() => {
     const b = box.current;
@@ -105,11 +119,7 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
       if (!b) return;
       let frame = 0;
       const soon = () => {
-        // Scrolled from where the view was put: the reader's own scroll.
-        if (placedAt.current !== null && Math.abs(b.scrollTop - placedAt.current) > 2) {
-          wanted.current = null;
-          placedAt.current = null;
-        }
+        scrolledAway(b);
         if (!frame) frame = requestAnimationFrame(() => ((frame = 0), read()));
       };
       b.addEventListener('scroll', soon, { passive: true });
@@ -122,7 +132,7 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
       };
       read();
     },
-    [read, opts],
+    [read, opts, scrolledAway],
   );
 
   // After each draw: the rows drawn are measured, and a height that differs from the one assumed moves the rows after it.
@@ -160,14 +170,16 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
 
   /**
    * Scrolls the box to the row asked for, when it isn't where it should be. A row no longer listed
-   * (a filter left it out) is let go of. The scroll is marked as the list's own (`placedAt`), so the
-   * reader's next one tells from it.
+   * (a filter left it out) is let go of, and so is one the reader has scrolled away from, though the
+   * scroll's event hasn't come yet: a page of a long run drawn in the same frame would otherwise
+   * put the row back over the reader's scroll, and mark that as the list's own. The scroll is marked
+   * as the list's own (`placedAt`), so the reader's next one tells from it.
    */
   const place = useCallback((): void => {
     const w = wanted.current;
     const b = box.current;
     const l = list.current;
-    if (!w || !b || !l) return;
+    if (!w || !b || !l || scrolledAway(b)) return;
     const { keyOf } = opts.current;
     const i = rowsNow.current.findIndex((r) => keyOf(r) === w.key);
     const at = offsetsNow.current;
@@ -182,13 +194,15 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
     }
     b.scrollTop = to;
     placedAt.current = b.scrollTop;
-  }, [opts, rowsNow, offsetsNow]);
+  }, [opts, rowsNow, offsetsNow, scrolledAway]);
 
   const show = useCallback(
     (i: number, s: { centre?: boolean; head?: number } = {}) => {
       const r = rowsNow.current[i];
       if (r === undefined) return;
       wanted.current = { key: opts.current.keyOf(r), centre: !!s.centre, head: s.head ?? 0 };
+      // A row asked for anew is placed from wherever the reader left the list.
+      placedAt.current = null;
       place();
     },
     [opts, rowsNow, place],

@@ -26,6 +26,7 @@ import { repairStep, type RepairStep } from './fix-repair-step.js';
 import { verifyStep, type VerifyStep } from './fix-verify-step.js';
 import { aboutsUpTo, SUMMARY_CALLS_BUDGET } from './run-about.js';
 import { loadRunIndex } from './run-index.js';
+import type { FailedCheck } from './issues.js';
 export { type StepState, type FixStep, type FixRow, type FixList, fixList } from './fix-list.js';
 export { type BlameStep } from './fix-blame-step.js';
 export { type CandidateVerdict, type RepairStep } from './fix-repair-step.js';
@@ -53,6 +54,8 @@ export interface FixDetail extends FixRow {
   /** The check as the oracle's labels: what a verdict must check to count for the fix. */
   oracle: string[];
   failingRuns: FixRunRef[];
+  /** The runs that failed its check, which its header's link opens under Runs › Failed, for the link's card: in the pooled `fix` read alone (read-jobs.ts), null where none are there now. A `fixDetail` built on the server's thread, as `fix show --json` prints it, leaves it out. */
+  failedCheck?: FailedCheck | null;
   goodRuns: FixRunRef[];
   openedBy: string | null;
   upstreamRequests: number;

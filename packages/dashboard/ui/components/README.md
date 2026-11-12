@@ -60,6 +60,10 @@ that draws one has.
 | `onShow` | `OnShow.tsx` | A part of a page heavy enough to wait for a script of its own until it first shows, as a run's views but Calls do. `test/ui-bundle-size.test.ts` holds the structural diff (`JsonDiff.tsx`), the results matrix (`ResultsMatrix.tsx`), the check builder (`ui/checks/`) and each Changes tab (`ui/changes/`, but its `Head.tsx`) to it, failing when one of them is in the first look or loads with a page. The diff's walk (`json-diff.ts`) may load with Compare alone, a heavy page itself. Declare a part beside the page that shows it, never in `pages/lazy.tsx`: the one part the page list shows itself, the page that says another project holds what a link names, is declared in `pages/held-elsewhere.tsx`, which the pages showing it import too, and the bundle test pins it. A part an exported copy never draws, such as Share's menu, is handed in by the served entry instead (`ui/served-parts.ts`, from `ui/pages/served.tsx`), so a copy's script holds none of it, and `test/ui-exported-copy.test.ts` pins what keeps it undrawn there. `preload()` a part on a sign it is about to show (the pointer or the focus on the tabs that switch to it), never as its page opens: what opening a page loads is held to the page's budget. |
 | `LoadFailed` | `bits.tsx` | What a part shows where its script didn't come (`onShow`'s `failed`; a page's in `pages/lazy.tsx`, under its title): an `ErrorState` whose Retry loads the page again, since a browser never asks twice for a script that failed. Retry waits while the server can't be reached (`guard`). |
 
+Share's menu, a part only the served dashboard hands in, brings the words of its rows with it
+(`ui/run/share.ts`). What a run's header, steps and keys say of a copy, such as Pack's command, what
+a pack holds and Push, is in `ui/run/share-steps.ts`, so opening a run loads none of the menu's words.
+
 ## Overlays
 
 Whatever opens over a page stands on one surface (`--pop`, one edge and its shadow, `--shadow-pop`; a 1px outline in forced colours) and in one of three slots beside the app (`ui/overlays/slots.tsx`): a menu or a picker in `#menu`, a modal in `#layer`, the job's drawer in `#dock`. One never destroys another, except that opening a modal closes a menu and opening a menu closes the last. The stores (`ui/overlays/menu-store.ts`, `modal-store.ts`) remember what opened each and give the focus back to it however it closes (`focusBack` in `ui/overlays/focus-back.ts`), to its counterpart if the page drew it anew; their keys run in the capture phase (`overlayKeys`), so no key of the page's fires while one is open. Another page closes what is open over the last, without asking, the focus going to the new page (`closeLeftBehind`, the router's). What stays at the window's foot reads `modalOpen()` and `menuSheetRect()` (a phone's sheet) and hears a menu or a modal open and close with `onOverlayChange()`. A new overlay is one of these parts, never a scrim or a `.pop` of its own.
@@ -199,7 +203,8 @@ the server keeps for its drawer.
 
 Fixes keeps its parts in `fixes/`: a fix's page and its Blame, Repair and Verify steps, the Forks
 view's blame and verify bundles (`Bundles.tsx`), Run blame (`RunBlame.tsx`, which asks for the check
-when the server can't find it), a fix's step on a list row (`RowStep.tsx`, on Fixes and Needs a look:
+when the server can't find it; its dialogs in `RunBlameAsks.tsx`, a part only the served dashboard
+hands in, loaded the first time one asks), a fix's step on a list row (`RowStep.tsx`, on Fixes and Needs a look:
 its words in `lead.ts`, its dialogs in `LeadDialog.tsx`, loaded as one first shows, which reads
 `FixDialogs.tsx` and `verify-asks.tsx` and none of the fix's page), what the breadcrumb and the
 palette know about fixes (`data.ts`),

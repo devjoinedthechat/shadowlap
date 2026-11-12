@@ -657,13 +657,28 @@ export function failureKey(text: string): string {
   return t.replace(/ \(#\d+\)| #\d+/g, '').replace(/\d+(\.\d+)?/g, 'N');
 }
 
-/** The fix that holds the same failure as these words, one not yet applied first; null for a failure of its own. */
-export function fixByFailure(fixes: readonly StoredFix[], failed: string): StoredFix | null {
-  const key = failureKey(failed);
-  const holds = (f: StoredFix) => [...f.check.oracle, ...f.check.text.split('; ')].some((part) => failureKey(part) === key);
-  const found = fixes.filter(holds);
-  return found.find((f) => f.status !== 'applied') ?? found[0] ?? null;
+/**
+ * The fix that holds the same failure as the words it is asked, one not yet applied first; null for a
+ * failure of its own. Each fix's oracle and check are keyed once, so Runs' issues ask it of every
+ * failed run in one read (issues.ts).
+ */
+export function fixesByFailure(fixes: readonly StoredFix[]): (failed: string) => StoredFix | null {
+  const holding = new Map<string, StoredFix[]>();
+  for (const f of fixes) {
+    for (const key of new Set([...f.check.oracle, ...f.check.text.split('; ')].map(failureKey))) {
+      const held = holding.get(key);
+      if (held) held.push(f);
+      else holding.set(key, [f]);
+    }
+  }
+  return (failed) => {
+    const found = holding.get(failureKey(failed)) ?? [];
+    return found.find((f) => f.status !== 'applied') ?? found[0] ?? null;
+  };
 }
+
+/** The fix that holds the same failure as these words, as `fixesByFailure` finds it. */
+export const fixByFailure = (fixes: readonly StoredFix[], failed: string): StoredFix | null => fixesByFailure(fixes)(failed);
 
 /**
  * The rules on calls a capture's import failed it on, as `--expect` takes them, from the config's
@@ -796,6 +811,9 @@ function plainStep(step: Decided): NextStep {
   const { price: _price, reads: _reads, beside: _beside, about: _about, ...plain } = step;
   return plain;
 }
+
+/** Open fix, as a run the fix holds leads with: what Runs' issue of a fix leads with once its runs are blamed (issues.ts). */
+export const openFixStep = (fix: StoredFix): NextStep => plainStep(fixStep(fix, fix.check.text));
 
 /** A run's next step, without what it bills, or null for a run the store doesn't have. */
 export function nextStepOf(store: Store, runId: string, work: NextStepWork | null, o: { judged?: RunJudged | null | undefined; reads?: StepReads } = {}): NextStep | null {

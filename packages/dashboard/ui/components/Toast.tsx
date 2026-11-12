@@ -11,10 +11,12 @@ type Shown = NonNullable<ReturnType<typeof useApp>['toastText']>;
 
 /**
  * ⌘Z, or Ctrl Z, and the undo key do what an Undo on the screen offers, from anywhere but a field
- * being typed in. Ahead of a menu or a dialog: it works over them.
+ * being typed in. Ahead of a menu or a dialog: it works over them. They answer from the commit that
+ * draws the Undo, before it is painted: a key pressed as soon as it shows is never lost, as it was
+ * on a busy machine while they waited for the effects that run after the paint.
  */
-function useUndoKeys(shown: Shown | null, out: boolean, conn: string, act: (t: Shown, action: ToastAction) => void): void {
-  useEffect(() => {
+export function useUndoKeys(shown: Shown | null, out: boolean, conn: string, act: (t: Shown, action: ToastAction) => void): void {
+  useLayoutEffect(() => {
     const action = shown?.action;
     if (!shown || !action?.undo || out) return;
     const run = () => (act(shown, action), true);

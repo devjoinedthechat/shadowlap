@@ -72,6 +72,10 @@
     "packages/dashboard/test/ui-import-verdict.test.ts",
     "packages/dashboard/test/ui-palette-ids.test.ts",
     "packages/dashboard/test/ui-palette-step.test.ts",
+    "packages/dashboard/test/ui-check-entry.test.ts",
+    "packages/dashboard/test/ui-check-builder-dialog.test.ts",
+    "packages/dashboard/test/ui-check-builder-view.test.ts",
+    "packages/dashboard/test/ui-check-builder.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     // These render the Runs page's bulk bar, the Overview's panels and the lists of runs.
     "packages/dashboard/test/ui-runs-bulk.test.ts",
@@ -162,12 +166,14 @@
     // These render a run's page and Runs: where a run opens, its key, its notes, its calls grouped, and Runs from its address.
     "packages/dashboard/test/ui-run-open.test.ts",
     "packages/dashboard/test/ui-runs-url.test.ts",
+    "packages/dashboard/test/ui-issues.test.ts",
     "packages/dashboard/test/ui-run-key.test.ts",
     "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",
     "packages/dashboard/test/ui-findings.test.ts",
     "packages/dashboard/test/ui-findings-status.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts",
+    "packages/dashboard/test/ui-window-hook.test.ts",
     // These render a run's views as their scripts load, and a page or a view whose script didn't come.
     "packages/dashboard/test/ui-run-views.test.ts",
     "packages/dashboard/test/ui-page-failed.test.ts",

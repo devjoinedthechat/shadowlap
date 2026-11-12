@@ -53,6 +53,8 @@ export interface NeedsLookRow {
   name?: string;
   /** A golden's report on Tests (`report-<name>`), which its row scrolls to. */
   report?: string;
+  /** The failed runs nobody has blamed: the issue on Runs › Failed of the newest, which the row opens (issues.ts); null where Failed doesn't count it. */
+  issue?: string | null;
 }
 
 export interface NeedsLook {

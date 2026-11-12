@@ -77,6 +77,23 @@ test('⌘K on a row offers its actions, ⌫ everything, and closing hands the fo
   await expect.poll(() => inFocus(page)).toBe(key);
 });
 
+test('under Failed, j walks the issues, ⌘K offers Open and Show its runs, and Show its runs opens the row’s runs', async ({ page }) => {
+  const ISSUES = 'main#view table.issues tbody tr.iss';
+  await openPage(page, '/runs?types=failed', ISSUES);
+  await page.keyboard.press('j');
+  const key = await page.locator(`${ISSUES}.krow`).getAttribute('data-rowkey');
+  expect(key).toBeTruthy();
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.locator('.palette').waitFor();
+  await expect(page.locator('.palit .pl').nth(0)).toHaveText('Open');
+  await expect(page.locator('.palit .pl').nth(1)).toHaveText('Show its runs');
+  await page.locator('.palit .pl').nth(1).click();
+  await expect(page.locator('.palette')).toHaveCount(0);
+  await expect(page.locator(`${ISSUES}[data-rowkey="${key}"] button.isn`)).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('main#view table.issues .isruns .isr').first()).toBeVisible();
+  expect(await hash(page)).toBe('#/runs?types=failed');
+});
+
 test('a run’s views and the inspector are tabs with one Tab stop, the arrows moving and v going through them all', async ({ page }) => {
   await openPage(page, `/run/${demoId('refundBug')}`, 'run');
   const views = page.locator('[role="tablist"][aria-label="Views"] [role="tab"]');

@@ -28,7 +28,7 @@ import { checksOf, runLikeOf } from './model.js';
 import { blameBesideCard, gateEntry, replayAction, stepCard, stepCostLine, stepEstimate, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
 import { PackAsGolden } from './PackAsGolden.js';
-import { PACK_HOLDS, packRunCommand, redactsFact } from './share.js';
+import { PACK_HOLDS, packRunCommand, redactsFact } from './share-steps.js';
 
 /**
  * The header's one lime button, drawn from the step the server worked out (src/next-step.ts): a link

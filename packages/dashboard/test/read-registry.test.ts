@@ -55,6 +55,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'tests-steps': { kind: 'tests-steps', goldens: ['goldens/refund'], next: null },
   'tests-evidence': { kind: 'tests-evidence', golden: 'goldens/refund' },
   'runs-failures': { kind: 'runs-failures', options: { from: 0, to: NOW + 1, q: 'refund_agent' }, outcome: null },
+  'runs-issues': { kind: 'runs-issues', options: { from: 0, to: NOW + 1, q: 'refund_agent' }, outcome: null, next: null },
   'run-estimates': { kind: 'run-estimates', runId: FORK, at: 1, model: null },
   'fix-estimates': { kind: 'fix-estimates', fixId: FIX, repairer: null, rule: { keptMax: null, baseline: 'paired' }, model: null },
   'tests-estimates': { kind: 'tests-estimates', goldens: [{ path: 'goldens/refund', runId: REC, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: [] }], folder: 'goldens' },
@@ -65,6 +66,8 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'held-by': { kind: 'held-by', what: 'run', ids: [REC], stores: [] },
   'gate-preview': { kind: 'gate-preview', gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, history: null, risk: 0.05 },
   'request-diff': { kind: 'request-diff', runId: FORK, callNo: null, normalizers: [] },
+  'check-context': { kind: 'check-context', runId: REC, at: 3 },
+  'check-preview': { kind: 'check-preview', expect: { tools: { issue_refund: 0 } }, agent: 'node refund_agent.mjs', madeFrom: REC, goldens: [{ path: 'goldens/refund', runId: REC, pack: null }], limit: 200 },
   warm: { kind: 'warm', budgetMs: 50 },
   analyse: { kind: 'analyse', runId: REC },
 };

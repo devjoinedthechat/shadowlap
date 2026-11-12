@@ -171,6 +171,8 @@ test('a run’s inspector tabs, menus and dialogs have no serious or critical ax
   }
   // Edit and fork's dialog, from the inspector of the tool call the run failed at, which it opens on.
   states.push(['run failTool', run(page, dash().runs.failTool as string)], ['run failTool · Edit and fork', click(page, '.insp button', 'Edit and fork', { shows: DIALOG })], ['run failTool · Edit and fork closed', escape(page)]);
+  // The check menu, from the inspector's Add check… on a tool call of the refund bug.
+  states.push(['run refundBug', run(page, dash().runs.refundBug as string)], ['run refundBug · a tool call', click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])')], ['run refundBug · the check menu', click(page, '[data-act="ckmenu"]', undefined, { shows: MENU })], ['run refundBug · the check menu closed', escape(page, MENU)]);
   expect(await sweep(page, states)).toEqual([]);
 });
 
@@ -364,6 +366,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const onPage = (name: string, path: string, text: string) => opened(name, at(page, path), button('main#view button', text));
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
+  const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule));
   const states = (): Array<[string, () => Promise<void>]> => [
     ...opened('Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
     ...onRun('The consent question', 'packed', 'Replay'),
@@ -381,6 +384,9 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...fork('Find breaking commit', 'planted', 'Find breaking commit'),
     ...forceWrite('Force send_email live', 'twice', 'send_email'),
     ...opened('Edit and fork', run(page, id('failTool')), button('.insp button', 'Edit and fork')),
+    ...check('Add check', 'Never call issue_refund'),
+    ...check('Add check: When… then', 'When… then…'),
+    ...check('Add check: Ask a judge', 'Ask a judge…'),
     ...share('Pack', 'Pack'),
     ...share('Export eval dataset', 'Eval dataset'),
     ...share('Export OpenTelemetry trace', 'OpenTelemetry trace'),
