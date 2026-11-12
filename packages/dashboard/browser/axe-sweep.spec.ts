@@ -86,6 +86,16 @@ const revision = (page: Page) => async () => {
   }, view.lead.key);
   await settled(page, { shows: 'main#view table.vdg tbody tr' });
 };
+/** Tests › Not covered, drawn: the demo's scan left behaviours no golden covers, the refund HAR's one the agent no longer does. */
+const NOT_COVERED = 'main#view #notcovered';
+/** The recording the demo's error-path presets ran on, by the matrices the API gives: its page leads with their finding. */
+const presetsRecording = (page: Page) => async () => {
+  const { origin, token } = dash();
+  const view = (await (await page.request.get(`${origin}/api/chaos`, { headers: { 'x-shadowlap-token': token } })).json()) as { matrices: Array<{ runId: string; golden: string | null }> };
+  const m = view.matrices.find((x) => x.golden === 'goldens/refund-in-limit') ?? view.matrices[0];
+  if (!m) throw new Error('the demo store has no error-path presets');
+  await run(page, m.runId)();
+};
 const click = (page: Page, selector: string, text?: string, o: { shows?: string; hides?: string } = {}) => async () => {
   apiRequests(page);
   await page.locator(selector, text ? { hasText: text } : {}).first().click();
@@ -148,6 +158,9 @@ test('a run’s inspector tabs, menus and dialogs have no serious or critical ax
   states.push(['run failTool', run(page, dash().runs.failTool as string)], ['run failTool · Edit and fork', click(page, '.insp button', 'Edit and fork', { shows: DIALOG })], ['run failTool · Edit and fork closed', escape(page)]);
   // The check menu, from the inspector's Add check… on a tool call of the refund bug.
   states.push(['run refundBug', run(page, dash().runs.refundBug as string)], ['run refundBug · a tool call', click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])')], ['run refundBug · the check menu', click(page, '[data-act="ckmenu"]', undefined, { shows: MENU })], ['run refundBug · the check menu closed', escape(page, MENU)]);
+  // The presets' finding on their recording, and the matrix its Show results opens in the inspector's place.
+  const results = 'main#view section.rmxp[data-kind="presets"]';
+  states.push(['the presets’ recording', presetsRecording(page)], ['its presets’ results', click(page, 'button[data-act="results"][data-which="presets"]', undefined, { shows: results })]);
   expect(await sweep(page, states)).toEqual([]);
 });
 
@@ -357,6 +370,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...fork('Replay with your command', 'har', 'Replay with your command'),
     ...forkModel('Find commit that changed it', 'ticket', 'Find commit that changed it'),
     ...fork('Find breaking commit', 'planted', 'Find breaking commit'),
+    ...fork('Run error-path presets', 'ticket', 'Run error-path presets'),
     ...forceWrite('Force send_email live', 'twice', 'send_email'),
     ...opened('Edit and fork', run(page, id('failTool')), button('.insp button', 'Edit and fork')),
     ...check('Add check', 'Never call issue_refund'),
@@ -373,6 +387,8 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...onPage('Update golden', '/tests', 'Update golden'),
     ...onPage('Add normalizer and update', '/tests', 'Add normalizer and update'),
     ...onPage('Run tests’ question', '/tests', 'Run tests'),
+    ...opened('Pack with checks', at(page, '/tests', NOT_COVERED), button(`${NOT_COVERED} li:has(.cvst) .cvacts button`, 'Pack with checks')),
+    ...opened('Pack as golden, from Not covered', at(page, '/tests', NOT_COVERED), click(page, `${NOT_COVERED} li:has(.cvst) button.cvn`, undefined, { shows: `${NOT_COVERED} .cvx` }), button(`${NOT_COVERED} .cvx .cvq button`, 'Pack as golden')),
     ...onPage('Export pairs', '/training', 'Export pairs'),
     ...onPage('Score model', '/training/tasks', 'Score model'),
     ...onPage('A task’s Update golden', '/training/tasks', 'Update golden'),
