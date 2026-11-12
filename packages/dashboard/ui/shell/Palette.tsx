@@ -96,7 +96,7 @@ function useRowScope(input: RefObject<HTMLInputElement | null>) {
 }
 
 /** What runs recorded, from three characters, through the server's search. It answers from what its index holds; while that is behind, the palette asks again, so matches arrive as it catches up. */
-function useRecordedHits(app: AppState, q: string): { hits: RecordedHit[]; note: string | null } {
+function useRecordedHits(app: AppState, q: string): { hits: RecordedHit[]; note: string | null; noteSaid: string | null } {
   const [hits, setHits] = useState<RecordedHit[]>([]);
   // While the server's index is behind: how many runs it has yet to read.
   const [indexing, setIndexing] = useState<{ runs: number; of: number } | null>(null);
@@ -129,7 +129,9 @@ function useRecordedHits(app: AppState, q: string): { hits: RecordedHit[]; note:
       clearTimeout(timer);
     };
   }, [q, app.client, app.exported]);
-  return { hits, note: q.trim().length >= RECORDED_MIN_CHARS ? indexingNote(indexing) : null };
+  // While the index is behind, the line drawn under the list (`note`), and its live region's words, the count left out (`noteSaid`).
+  const behind = q.trim().length >= RECORDED_MIN_CHARS ? indexing : null;
+  return { hits, note: indexingNote(behind), noteSaid: indexingNote(behind, { said: true }) };
 }
 
 /** A run's id, typed in full or its start, that no run in the list (the newest 500) has: the server looks it up among every run, as Runs' filter does. */
@@ -338,7 +340,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived: the run list moving under it would move the selection
   }, [sourcesChanged]);
 
-  const { hits, note } = useRecordedHits(app, scope ? '' : q);
+  const { hits, note, noteSaid } = useRecordedHits(app, scope ? '' : q);
   const byId = useRunsById(app, scope ? '' : q);
 
   const shown = useMemo(() => {
@@ -438,7 +440,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
               ))}
             </div>
           ) : null}
-          <ListNotes none={!shown.length} q={q} note={note} />
+          <ListNotes none={!shown.length} q={q} note={note} noteSaid={noteSaid} />
         </div>
         <div className="palfoot" aria-hidden="true">
           <span>
@@ -475,9 +477,11 @@ function pickRow(x: PaletteCommand | undefined, o: { offline: boolean; toast: (t
 /**
  * What the list says besides its rows: that nothing matches the words typed, and that matches from
  * what the server's index has yet to read may follow. Each tells of a change, so each is said by a
- * region there since the palette opened, as its words come; the lines drawn are for the eye.
+ * region there since the palette opened, as its words come; the lines drawn are for the eye. The
+ * index's note is said without its count (`noteSaid`), which moves each second as the index catches
+ * up: once, and again only when what it says changes.
  */
-function ListNotes({ none, q, note }: { none: boolean; q: string; note: string | null }) {
+function ListNotes({ none, q, note, noteSaid }: { none: boolean; q: string; note: string | null; noteSaid: string | null }) {
   const nothing = note ? 'Nothing matches yet.' : `Nothing matches “${q.trim()}”.`;
   return (
     <>
@@ -487,7 +491,7 @@ function ListNotes({ none, q, note }: { none: boolean; q: string; note: string |
           {nothing}
         </div>
       ) : null}
-      <Said words={note} />
+      <Said words={noteSaid} />
       {note ? (
         <div className="palnote" aria-hidden="true">
           {note}
