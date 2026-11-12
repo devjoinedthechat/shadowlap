@@ -354,7 +354,7 @@ describe('error-path presets', () => {
       s.addChaosResult({ sessionId: 'G1', runId: rec, preset: 'timeout', verdict: 'passed', callNo: 3, passes: 6, attempts: 6, at: T0 + 3, data: { target: { kind: 'tool', name: 'lookup_order' }, runs: runs(6), gate, spent: 0.012, upstreamRequests: 6, judge } });
       s.addChaosResult({ sessionId: 'G1', runId: rec, preset: '429', verdict: 'inconclusive', callNo: 4, passes: 5, attempts: 8, at: T0 + 4, data: { target: { kind: 'api', name: 'model' }, runs: runs(8), gate, spent: 0.02, upstreamRequests: 9, judge, cutShort: 2 } });
       const m = chaosOfRun(s, rec)!;
-      expect(m).toMatchObject({ command: `shadowlap replay ${rec} --chaos --expect '{"tools":{"issue_refund":0}}'`, rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', judge, spent: 0.032, upstreamRequests: 15, toolCall: { name: 'lookup_order', callNo: 3 } });
+      expect(m).toMatchObject({ command: `shadowlap replay ${rec} --chaos --expect '{"tools":{"issue_refund":0}}'`, rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', judge: { ...judge, from: '--expect' }, spent: 0.032, upstreamRequests: 15, toolCall: { name: 'lookup_order', callNo: 3 } });
       expect(m.cells.map((c) => c.bound)).toEqual([keptPresetBound({ gate, verdict: 'passed', reason: null, passes: 6, attempts: 6 }), keptPresetBound({ gate, verdict: 'inconclusive', reason: null, passes: 5, attempts: 8, cutShort: 2 })]);
       expect(m.cells[0].bound).toMatch(/^rate >= /);
       expect(m.cells[1].bound).toMatch(/^rate [\d.]+ to [\d.]+ \(95%\)$/);

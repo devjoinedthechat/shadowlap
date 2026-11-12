@@ -267,7 +267,8 @@ describe('a recording’s presets on its page', () => {
     expect(html).toContain('aria-label="Error-path preset results"');
     expect(html).toContain('Run × presets');
     expect(html).toContain('judged on the agent exiting 0 alone: no checks say what an error path must do');
-    const judged = renderToStaticMarkup(createElement(PresetsResults, { matrix: { ...matrix, rule: 'gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts', judge: { source: 'chaos.expect', checks: ['issue_refund called 0 times'] } }, about }));
+    const judged = renderToStaticMarkup(createElement(PresetsResults, { matrix: { ...matrix, rule: 'gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts', judge: { source: 'chaos.expect', checks: ['issue_refund called 0 times'], from: 'chaos.expect' } }, about }));
+    expect(judged).toContain('&quot;s&quot;:&quot;chaos.expect&quot;');
     expect(judged).toContain('checks: issue_refund called 0 times');
     expect(judged).toContain('gate: tells');
   });

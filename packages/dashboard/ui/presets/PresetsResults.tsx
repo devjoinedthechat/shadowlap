@@ -1,4 +1,3 @@
-import { JUDGED_FROM } from '../../../engine/src/chaos-judge.js';
 import { AboutLine } from '../components/About.js';
 import { FindingPanel, ResultsMatrixPart } from '../components/FindingPanel.js';
 import { tipCard } from '../components/HoverCard.js';
@@ -72,11 +71,10 @@ export function presetsReceipt(m: ChaosMatrix): ReceiptLine[] {
 /** What judged them: the gate's rule, and the checks with where they came from on hover, or that the agent's exit alone did. */
 function judgedLine(m: ChaosMatrix) {
   const checks = m.judge?.checks ?? [];
-  const source = m.judge?.source;
   return [
     m.rule ? <RuleText key="rule" rule={m.rule} /> : null,
     checks.length ? (
-      <span key="checks" data-tip={tipCard('The checks', [], source && source !== 'exit' ? JUDGED_FROM[source] : null)}>
+      <span key="checks" data-tip={tipCard('The checks', [], m.judge?.from ?? null)}>
         checks: {checks.join('; ')}
       </span>
     ) : (

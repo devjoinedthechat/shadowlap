@@ -1,4 +1,4 @@
-import { CHAOS_PRESETS, isChaosPreset, keptGate, keptPresetBound, messageOf, parsePresets, PRESET_LABELS, presetHits, quoteArgv, recorderGone, recordingRule, type ChaosJudge, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { CHAOS_PRESETS, isChaosPreset, JUDGED_FROM, keptGate, keptPresetBound, messageOf, parsePresets, PRESET_LABELS, presetHits, quoteArgv, recorderGone, recordingRule, type ChaosJudge, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type StoreOf } from '@shadowlap/engine';
 
 /**
  * Error-path presets as the dashboard shows them: the results `test --chaos` and `replay --chaos`
@@ -58,11 +58,12 @@ export interface ChaosMatrix {
   /** The gate that decided them, stated once (`gate: tells 90%+ from 70%- …`), or null when none did. */
   rule: string | null;
   /**
-   * What judged every attempt besides the agent exiting 0 and where it came from, as the newest
-   * result kept it; one kept before results kept it gives its last attempt's checks, with no source.
+   * What judged every attempt besides the agent exiting 0 and where it came from (`from`, in the CLI's
+   * words), as the newest result kept it; one kept before results kept it gives its last attempt's
+   * checks, with no source.
    * Null when no attempt ran.
    */
-  judge: { source: ChaosJudge['source'] | null; checks: string[] } | null;
+  judge: { source: ChaosJudge['source'] | null; checks: string[]; from: string | null } | null;
   /** What every attempt spent, and the requests they sent upstream. */
   spent: number;
   upstreamRequests: number;
@@ -158,8 +159,10 @@ function boundOf(r: ChaosResult): string | null {
 function judgeOf(list: readonly ChaosResult[]): ChaosMatrix['judge'] {
   const ran = [...list].sort((a, b) => b.at - a.at).find((r) => r.attempts > 0);
   if (!ran) return null;
-  if (ran.data?.judge) return ran.data.judge;
-  return { source: null, checks: (ran.data?.runs?.at(-1)?.checks ?? []).map((c) => c.label) };
+  const judge = ran.data?.judge;
+  // Where its checks came from, in the CLI's words (JUDGED_FROM), for the panel's card: none for the exit alone, or one kept before results kept it.
+  if (judge) return { ...judge, from: judge.source === 'exit' ? null : JUDGED_FROM[judge.source] };
+  return { source: null, checks: (ran.data?.runs?.at(-1)?.checks ?? []).map((c) => c.label), from: null };
 }
 
 /** The rule its gates decided by, stated once, in the engine's words; a gate it can't read states none. */
