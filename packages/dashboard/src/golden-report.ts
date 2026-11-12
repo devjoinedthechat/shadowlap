@@ -116,10 +116,12 @@ export type TestsAnswer = TestsView & { reports?: Record<string, GoldenReport> }
 
 /**
  * How many attempts a judge check was asked live in, and what that cost: the result's judge summary
- * (every attempt) when it is the result's only judge check and every judge model in it has a price;
- * else, for a result of one attempt, the check's own call. Null for a verdict from the recording,
- * which is free, and when the cost isn't known. The one place Tests counts a judge's asks, the row's
- * and the report's alike, so asking judges only where an attempt passed its other checks changes it here.
+ * (every attempt that asked it: a golden that may fork asks only where an attempt passed its other
+ * checks) when it is the result's only judge check and every judge model in it has a price; else, for
+ * a result of one attempt, the check's own call. `c` is the check as the attempts that asked it came
+ * out (`judgeOverAttempts`). Null for a verdict from the recording, which is free, for a check no
+ * attempt asked, and when the cost isn't known. The one place Tests counts a judge's asks, the row's
+ * and the report's alike.
  */
 export function judgeAsked(r: TestResult, c: StoredCheck): { cost: number; asked: number } | null {
   if (c.source !== 'live' || !c.judge) return null;

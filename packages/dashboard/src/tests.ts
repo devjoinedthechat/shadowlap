@@ -1,4 +1,4 @@
-import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type CheckStatus, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeOverAttempts, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type CheckStatus, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
@@ -663,8 +663,8 @@ export { gatePreview, PREVIEW_HISTORY, type GatePreview } from './tests-gate.js'
 export function gateResultView(r: TestResult, golden: string): GateResultView | null {
   const g = r.data?.gate;
   if (!g || g.decision === 'continue') return null;
-  // What this session's own attempts cost, the agent's calls and its judges' alike (each forked
-  // attempt asks its judges live): carried-over ones were paid for before.
+  // What this session's own attempts cost, the agent's calls and its judges' alike (a forked attempt
+  // asks its judges live where it passed its other checks): carried-over ones were paid for before.
   const agent = r.data?.spent;
   const judges = r.data?.judge?.spent;
   const spent = typeof agent === 'number' ? agent + (typeof judges === 'number' ? judges : 0) : undefined;
@@ -702,29 +702,28 @@ const runIfKept = (store: StoreOf<'recording'>, runId: string | null) => (runId 
 
 /**
  * For a result of more than one attempt: of the attempts that judged each check (it passed, failed or
- * couldn't be decided there), how many passed it, by label. Each attempt's run keeps its checks. Null
- * for a single attempt, when a run is gone, or for a result that carried attempts over from an earlier
- * session (`test --continue`): its `attempts` are this session's alone, and pruning keeps only some of
- * the carried ones' runs. A tally missing an attempt would claim too much.
+ * couldn't be decided there), how many passed it, by label, and a judge check's results where it got a
+ * verdict (`judged`). Each attempt's run keeps its checks. Null for a single attempt, when a run is
+ * gone, or for a result that carried attempts over from an earlier session (`test --continue`): its
+ * `attempts` are this session's alone, and pruning keeps only some of the carried ones' runs. A tally
+ * missing an attempt would claim too much.
  */
-function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, { passed: number; of: number }> | null {
+function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, { passed: number; of: number; judged: StoredCheck[] }> | null {
   const runs = r.data?.attempts?.runs ?? [];
   if (runs.length < 2 || r.data?.continued) return null;
-  const out = new Map<string, { passed: number; of: number }>();
+  const out = new Map<string, { passed: number; of: number; judged: StoredCheck[] }>();
   for (const id of runs) {
     const run = store.getRun(id);
     if (!run) return null;
     const seen = new Set<string>();
     for (const c of run.meta?.checks ?? []) {
-      // A label once per attempt; a check that did not apply there says nothing either way.
+      // A label once per attempt; a check that did not apply there (a judge that attempt didn't ask too) says nothing either way.
       if (seen.has(c.label)) continue;
       seen.add(c.label);
       const status = checkStatus(c);
       if (status === 'not-applicable') continue;
-      const t = out.get(c.label) ?? { passed: 0, of: 0 };
-      t.of++;
-      if (status === 'passed') t.passed++;
-      out.set(c.label, t);
+      const t = out.get(c.label) ?? { passed: 0, of: 0, judged: [] };
+      out.set(c.label, { passed: t.passed + (status === 'passed' ? 1 : 0), of: t.of + 1, judged: c.judge?.verdict ? [...t.judged, c] : t.judged });
     }
   }
   return out;
@@ -734,8 +733,10 @@ function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, {
  * A golden's checks with how its last result came out on each: the status the attempt it shows kept
  * for it (the CLI judges a diverged replay's checks too, and fails what it didn't do), where a judge's
  * verdict came from and what asking it live cost, and over several attempts, how many passed it. A
- * check the result didn't judge has no status, as none has before the golden's first result: one added
- * since (the result judged the golden's checks of then), or one whose golden couldn't run.
+ * judge check the shown attempt didn't ask, another check having failed there, reads as the attempts
+ * that asked it came out (`judgeOverAttempts`). A check the result didn't judge has no status, as none
+ * has before the golden's first result: one added since (the result judged the golden's checks of
+ * then), or one whose golden couldn't run.
  */
 function goldenChecks(store: StoreOf<'recording'>, labels: readonly string[], r: TestResult | null): GoldenCheck[] {
   const kept = r?.data?.checks ?? [];
@@ -747,9 +748,9 @@ function goldenChecks(store: StoreOf<'recording'>, labels: readonly string[], r:
     const i = kept.findIndex((c, j) => !used.has(j) && c.label === label);
     if (i < 0) return { label, status: null, added: ran, detail: null, reason: null, source: null, live: null, attempts: null };
     used.add(i);
-    const c = kept[i]!;
     const tally = tallies?.get(label);
-    return { label, status: checkStatus(c), added: false, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live: judgeAsked(r!, c), attempts: tally && tally.of > 1 ? tally : null };
+    const c = judgeOverAttempts(kept[i]!, tally?.judged ?? []);
+    return { label, status: checkStatus(c), added: false, detail: c.detail ?? null, reason: c.reason ?? null, source: c.source ?? null, live: judgeAsked(r!, c), attempts: tally && tally.of > 1 ? { passed: tally.passed, of: tally.of } : null };
   });
 }
 

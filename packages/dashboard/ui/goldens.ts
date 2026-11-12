@@ -1,5 +1,6 @@
 import { approx, justNow } from './format.js';
 import { ACTIONS, confirmWords } from './labels.js';
+import { notAskedWords } from '../../engine/src/checks/labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
 import { href } from './route.js';
@@ -159,9 +160,9 @@ export interface CheckMarkView {
  * A check in the table, marked by how the golden's last result came out on it: ✓ passed (a judge's,
  * where its verdict came from: the recording, free, or live, at what cost), ✗ failed (for a golden
  * run more than once, how many attempts passed it and what the others did), ? in amber when it
- * couldn't be decided (and why), – when it didn't apply, and no mark on a check not tested yet: before
- * a result exists, when the last test couldn't run the golden, or when it was added since, as the mock
- * says it. `ran`: the golden has a last result.
+ * couldn't be decided (and why), – when it didn't apply (a judge no attempt asked says why), and no
+ * mark on a check not tested yet: before a result exists, when the last test couldn't run the golden,
+ * or when it was added since, as the mock says it. `ran`: the golden has a last result.
  */
 export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
   const text = checkWords(c.label);
@@ -182,7 +183,8 @@ export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
     sub = detail || null;
     value = detail || 'it could not be decided';
   } else if (c.status === 'not-applicable') {
-    sub = 'not applicable';
+    // A judge no attempt asked (another check failed in each) says why on its line: the reason is all it has.
+    sub = notAskedWords(detail) ? detail : 'not applicable';
     value = detail || 'its condition never held';
   } else {
     // A check over several attempts says how many passed it; a judge's verdict, where it came from.
