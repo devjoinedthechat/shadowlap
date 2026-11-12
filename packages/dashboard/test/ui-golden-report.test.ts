@@ -389,6 +389,7 @@ describe('an injection gate’s attempts', () => {
 });
 
 describe('a request part on its own', () => {
+  const BODIES = { was: { metadata: { user_id: 'a' } }, now: { metadata: { user_id: 'b' } } };
   const FOLLOWED = { line: ['Not served from the recording:', 'the agent exited on HTTP 503'] as [string, string], message: '{\n  "type": "error"\n}' };
   type RequestPartOf = Extract<GoldenReport['parts'][number], { kind: 'request' }>;
   /** The parts of a report holding `part` alone, open, Show diff's answers from `answer`, each ask counted in `diffs`. */
@@ -400,9 +401,26 @@ describe('a request part on its own', () => {
     return r.one('dl.rpx > dd');
   }
 
+  it('draws the changes its result kept once the replay is gone, under both heads, with no notes and nothing asked', async () => {
+    const dd = await drawPart({ kind: 'request', runId: null, callNo: 3, against: { runId: '01K5CQ4N7GREC0RD', callNo: 3 }, bodies: BODIES, followed: null });
+    await r!.until('the diff', () => dd.querySelectorAll('.rpdiff .jd .jl').length > 0);
+    expect(dd.querySelectorAll('.rpdiff .jdh h4').map((h) => shownText(h).replace(/\u00a0/g, ' '))).toEqual(['−Recorded request #3 · 01K5CQ4N7G', '+This run’s request #3']);
+    expect([dd.querySelectorAll('.hint').length, dd.querySelectorAll('.rperrw').length, diffs]).toEqual([0, 0, []]);
+  });
+
   it('draws only what followed where the divergence kept no changes: no diff panel, nothing asked', async () => {
     const dd = await drawPart({ kind: 'request', runId: null, callNo: 4, against: null, bodies: null, followed: FOLLOWED });
     expect([dd.children.map((c) => c.className), diffs]).toEqual([['rperrw q'], []]);
     expect(dd.querySelectorAll('p.rperr > span.nw').map((x) => x.textContent)).toEqual(FOLLOWED.line);
+  });
+
+  it('says a failed ask with Retry, which asks again, and where the answer is none says so as Show diff does', async () => {
+    let fail = true;
+    const dd = await drawPart({ kind: 'request', runId: 'run-asked-twice', callNo: 3, against: null, bodies: null, followed: null }, () => (fail ? Promise.reject(new Error('offline')) : Promise.resolve(null)));
+    await r!.until('the error', () => dd.querySelectorAll('.rpdiff .loaderr').length === 1);
+    fail = false;
+    await r!.click(one(dd, '.loaderr button.btn'));
+    await r!.until('the answer', () => dd.querySelectorAll('.rpdiff div.hint').length === 1);
+    expect([diffs, dd.querySelectorAll('.loaderr').length, shownText(one(dd, '.rpdiff div.hint')).replace(/\u00a0/g, ' ')]).toEqual([['run-asked-twice', 'run-asked-twice'], 0, 'The replay kept no call #3 to compare.']);
   });
 });
