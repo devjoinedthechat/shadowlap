@@ -263,5 +263,9 @@ describe('the check builder beside a verified fix', () => {
     expect(said(r!.all('.cmdline').at(-1)!)).toContain(`shadowlap pack ${GOOD.slice(0, 10)} goldens/refund-twice`);
     await r!.click(r!.all('.cb-kinds button')[0]);
     await r!.until('Save’s why', () => r!.one('.dlg-ok').getAttribute('data-why') === 'No golden guards this fix');
+    // The golden is named as fix apply names it, whatever the label holds, and a run not named is left to fill in.
+    await r!.unmount();
+    await open(s, { golden: null, edit: null, fix: fix({ label: 'Refund flow: EU/UK' }) });
+    expect(said(r!.all('.cmdline').at(-1)!)).toContain('shadowlap pack … goldens/refund-flow-eu-uk');
   });
 });

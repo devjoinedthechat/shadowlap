@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { CHECK_MARKS, JUDGE_ASKED } from '../../../engine/src/checks/labels.js';
+import { defaultGoldenNames } from '../../../engine/src/golden-names.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { quoteArgv } from '../../../engine/src/text.js';
@@ -13,6 +14,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { Id, namedIn } from '../components/Id.js';
 import { ErrorState } from '../components/States.js';
 import { goldenName } from '../format.js';
+import { draftCommand } from '../job-title.js';
 import { ACTIONS } from '../labels.js';
 import { packRunCommand } from '../run/share-steps.js';
 import type { BuilderFix } from '../run/check-part.js';
@@ -233,15 +235,20 @@ function FixChange({ fix, merged, uncounted }: { fix: BuilderFix; merged: Fragme
   );
 }
 
-/** Beside a fix no golden guards: The change says how to pack one from a recording of it working. */
+/**
+ * Beside a fix no golden guards: The change says how to pack one from a recording of it working, into
+ * the golden `fix apply` would name for it (the engine's defaultGoldenNames), each word quoted as the
+ * job's is; with no recording named, the run is left to fill in (`…`).
+ */
 function NoGuard({ fix }: { fix: BuilderFix }) {
+  const dir = `goldens/${defaultGoldenNames(fix, 1)[0]!}`;
   return (
     <section className="cb-sec">
       <p className="cb-k">
         <span className="k">The change</span>
       </p>
       <p className="cb-note">No golden guards this fix yet. Pack one of its fixed runs as a golden, then add the check to it.</p>
-      <CodeBox command={fix.fixedRun ? packRunCommand(fix.fixedRun, `goldens/${fix.label ?? '<name>'}`) : `shadowlap pack <run> goldens/${fix.label ?? '<name>'}`} />
+      <CodeBox command={fix.fixedRun ? packRunCommand(fix.fixedRun, dir) : draftCommand(['pack', '', dir])} />
     </section>
   );
 }
