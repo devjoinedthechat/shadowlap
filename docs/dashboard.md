@@ -1080,7 +1080,7 @@ All, Open, Ready to apply and Applied filter them. A merged fix is under Applied
 
 A fix's page heads with its name over its title. Its about line says where it stands as its Fixes row does (*blamed*, *verified*, *merged · PR #138*), then its failing runs, a link to Runs › Failed, its good runs, and when it was opened, verified and applied. Under it: what failed and its check, as the list says them. A check with a judge has the judge's card on the check, on the page and its Fixes row alike: what it asks, what it reads and the model, asked live in each attempt that exits 0.
 
-The check ends on the way to change it. On an open fix, **Edit check…** opens the [check builder](#making-a-check) on the fix's own check. A verified or applied fix keeps the check its verdict was given under, so it offers **Add check to *golden*…**, for the golden that guards it, or **Add check…** where none does.
+The check ends on the way to change it. On an open fix, **Edit check…** opens the [check builder](#making-a-check) on the fix's own check. A verified or applied fix keeps the check its verdict was given under, so it offers **Add check to *golden*…**, for the golden that guards it, or **Add check…** where none does. A verified fix no golden guards is usually one to apply first.
 
 Its buttons follow where it stands, with its next step the one lime button: the step its Fixes row leads with. Where they would crowd the title, they go under it, the lime one first. What each does is under [Actions on a fix](#actions-on-a-fix).
 
@@ -1819,11 +1819,11 @@ A press outside the dialog never closes it. Esc closes it while nothing changed,
 
 - **The check of this fix**: its rules, listed as a golden's are. A fix whose check is the exit code alone opens on one blank rule.
 - **Its runs under this check**: each failing and good run of the fix, judged by the whole check as built, judges in, from what it recorded. A failing run it passes would leave the fix, and a good run it fails would no longer be kept as good: those, and a run it can't settle, read in amber. Then the `shadowlap check` command.
-- **What changes**: blame runs again first under the check, repair and verify use it, the verdicts that would stop counting, and the config, unchanged. Then the [`shadowlap fix check`](./cli.md#fix-check) command.
+- **What changes**: blame runs again first under the check, repair and verify use it, the verdicts that would stop counting, each named by the change it verified, and the config, unchanged. Then the [`shadowlap fix check`](./cli.md#fix-check) command.
 
-**Save check** runs that command as a job, and the drawer ends on the fix's next step. It reads plain while a run needs a look, and stays off while no failing run fails the check, which would no longer be this failure. A refusal keeps the builder open, with the server's words in its amber line.
+**Save check** runs that command as a job, and the drawer ends on the fix's next step. It stays off until the fix's runs are judged by the check as it stands, and while no failing run fails it, since the fix would no longer be this failure. It reads plain while a run needs a look. A refusal keeps the builder open, with the server's words in its amber line.
 
-**Add check to *golden*…**, on a verified or applied fix, opens the builder on the golden that guards it, the fix's runs under the draft folded below Against your recordings, for context. With no golden guarding it, the builder gives the `shadowlap pack` command for a recording of the fix working, and Save check stays off.
+**Add check to *golden*…**, on a verified or applied fix, opens the builder on the golden that guards it, the fix's runs under the draft folded below Against your recordings, for context. With no golden guarding it, the builder gives the `shadowlap pack` command for a recording of the fix working, into the golden `fix apply` would name, and Save check stays off.
 
 ### Actions on a fix
 
