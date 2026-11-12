@@ -50,6 +50,7 @@ import { acceptedVerdict, sprtGate } from './fix-shared.js';
 import { verdictRule, verifyLeftExpected } from './fix-verify-step.js';
 import { fixDetail } from './fixes.js';
 import { causePrice, gatePrice, injectionPrice } from './injection-plan.js';
+import { presetsRowPrice } from './presets-plan.js';
 import { CANT_READ_RECORDING } from './injection-security.js';
 import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, newestGate } from './next-step.js';
 import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
@@ -74,7 +75,7 @@ import { gateResultView, normalizeAndTestJob, runTestsJob, unreadable, type Gold
  * `at`, the whole run's rows alone. `model` is Switch model's, as typed; without it, the recorded
  * model's price.
  */
-export type RunEstimatesJob = { kind: 'run-estimates'; runId: string; at: number | null; model: string | null; prices?: Record<string, Price>; tools?: ToolTrust };
+export type RunEstimatesJob = { kind: 'run-estimates'; runId: string; at: number | null; model: string | null; prices?: Record<string, Price>; tools?: ToolTrust; work?: OutcomeWork | null };
 
 /**
  * Tests' estimates (`GET /api/tests/estimates`): Run tests', and each golden's on disk by its path, as
@@ -138,8 +139,10 @@ function forkChange(key: string, call: CallRecord, model: string | null): Omit<F
 }
 
 /** What a row bills, by its key: a fork from the call, a planted instruction, or the whole run again; null for one that bills nothing (Replay, a normalizer, Pack). */
-function rowPrice(key: string, run: RunRecord, call: CallRecord | undefined, job: RunEstimatesJob): ((p: Pricing) => Estimate) | null {
+function rowPrice(store: Store, key: string, run: RunRecord, call: CallRecord | undefined, job: RunEstimatesJob): ((p: Pricing) => Estimate) | null {
   const o = { prices: job.prices };
+  // Run error-path presets…: every preset at the first read of the recording it runs on, under its golden's gate.
+  if (key === 'c') return presetsRowPrice(store, run, job.work ?? null);
   // Repeat, and Replay with writes stubbed on a replay Shadowlap made: each attempt made again from the parent, live from where it forks.
   if (key === 'e') return (p) => repeatEstimate(run, p.raw(run.runId), REPEAT_TIMES, o);
   if (key === 's') return forkArgs(run) === null ? null : (p) => repeatEstimate(run, p.raw(run.runId), 1, o);
@@ -166,7 +169,7 @@ async function runEstimates(store: Store, job: RunEstimatesJob): Promise<ReadAns
   const actions: Record<string, Estimate> = {};
   // A row turned off runs nothing, so it bills nothing.
   for (const a of buildActions(run, call, actionContext(store, call))) {
-    const price = a.disabled ? null : rowPrice(a.key, run, call, job);
+    const price = a.disabled ? null : rowPrice(store, a.key, run, call, job);
     const e = price ? await estimateOf(price, pricing) : null;
     if (e) actions[a.key] = e;
   }

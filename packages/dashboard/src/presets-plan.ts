@@ -35,7 +35,7 @@ import {
 } from '@shadowlap/engine';
 import { resolve } from 'node:path';
 import { lookupRun, noSuchRun } from './api.js';
-import { estimateOf, pricingOf } from './pricing.js';
+import { estimateOf, pricingOf, type Pricing } from './pricing.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { parseWork, type OutcomeWork } from './run-outcome.js';
 
@@ -106,7 +106,7 @@ interface PlanSpec {
  * entry found through it and its ancestors, or `--expect`). A golden whose entry says `"chaos": false`
  * is skipped by `test --chaos`, so its recording's presets run as a run's.
  */
-function planSpec(store: Store, target: RunRecord, job: PresetsPlanJob): PlanSpec {
+function planSpec(store: Store, target: RunRecord, job: Pick<PresetsPlanJob, 'work' | 'expect'>): PlanSpec {
   const work = job.work;
   const dir = work?.dir ?? process.cwd();
   const entries = parseWork(work)?.entries ?? [];
@@ -150,8 +150,7 @@ async function presetsPlan(store: Store, job: PresetsPlanJob): Promise<ReadAnswe
   const gate = presetsGate(plan.chaos, plan.spec);
   const first = chaosTargets(calls, { tool: plan.chaos.tool }).tool;
   const at = chaosTargets(calls, { tool: job.tool ?? plan.chaos.tool });
-  const presets = job.presets ?? plan.chaos.presets;
-  const price = (p: typeof pricing) => presetsEstimate(p.calls(target.runId), chaosTargets(p.raw(target.runId), { tool: job.tool ?? plan.chaos.tool }), { presets, ...('good' in gate ? { gate: { max: gate.max } } : { repeat: gate.repeat }) });
+  const price = presetsPrice(target.runId, gate, { presets: job.presets ?? plan.chaos.presets, tool: job.tool ?? plan.chaos.tool });
   const body: PresetsPlan = {
     target: target.runId,
     golden: plan.golden,
@@ -168,6 +167,26 @@ async function presetsPlan(store: Store, job: PresetsPlanJob): Promise<ReadAnswe
     estimate: await estimateOf(price, pricing),
   };
   return answer(body, { tagged: true });
+}
+
+/** What presets bill at most on a recording: each picked, at the tool asked for, at most its gate's attempts (presetsEstimate). */
+const presetsPrice = (target: string, gate: PresetGate, o: { presets: readonly ChaosPreset[]; tool: string | null }) => (p: Pricing) =>
+  presetsEstimate(p.calls(target), chaosTargets(p.raw(target), { tool: o.tool }), { presets: o.presets, ...('good' in gate ? { gate: { max: gate.max } } : { repeat: gate.repeat }) });
+
+/**
+ * The fork menu's Run error-path presets… row (rowPrice's `c`): every preset the command runs naming
+ * none, on the recording it runs on, under the gate that decides them, as the dialog first asks it.
+ * Null where that can't be read (a recording no longer in the store, a `chaos` the config can't parse).
+ */
+export function presetsRowPrice(store: Store, run: RunRecord, work: OutcomeWork | null): ((p: Pricing) => Estimate) | null {
+  const target = lookupRun(store, presetsTarget(run));
+  if (!target) return null;
+  try {
+    const plan = planSpec(store, target, { work });
+    return presetsPrice(target.runId, presetsGate(plan.chaos, plan.spec), { presets: plan.chaos.presets, tool: plan.chaos.tool });
+  } catch {
+    return null;
+  }
 }
 
 /** The command each preset runs here when someone else recorded it: a golden's from a pack the repository doesn't track, or a run's from a pack or the team store. */

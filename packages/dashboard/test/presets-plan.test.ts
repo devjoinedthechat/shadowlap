@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Store, type RunRecord } from '@shadowlap/engine';
 import { RunBuilder, text, toolUse, user } from '../../engine/test/run-fixtures.js';
-import { PRESETS_READS, type PresetsPlan, type PresetsPlanJob } from '../src/presets-plan.js';
+import { PRESETS_READS, presetsRowPrice, type PresetsPlan, type PresetsPlanJob } from '../src/presets-plan.js';
+import { estimateOf, pricingOf } from '../src/pricing.js';
 import type { OutcomeWork } from '../src/run-outcome.js';
 
 /**
@@ -72,6 +73,9 @@ describe("Run error-path presets…'s plan", () => {
       const gated = await plan(store, { runId: rec, work: work({ 'goldens/refund': { ...entry, chaos: { presets: ['429', 'timeout'], gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 20 } } } }, goldens) });
       expect(gated).toMatchObject({ presets: ['timeout', '429'], gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, rule: 'tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
       expect(gated.estimate).toMatchObject({ kind: 'presets' });
+      // The fork menu's row bills what the dialog first asks: its presets under its gate.
+      const row = presetsRowPrice(store, store.getRun(rec)!, work({ 'goldens/refund': { ...entry, chaos: { presets: ['429', 'timeout'], gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 20 } } } }, goldens));
+      expect(JSON.parse(JSON.stringify(await estimateOf(row!, pricingOf(store, undefined))))).toEqual(gated.estimate);
       // "chaos": false leaves it out of test --chaos: its presets run as a run's.
       expect((await plan(store, { runId: rec, work: work({ 'goldens/refund': { ...entry, chaos: false } }, goldens) })).golden).toBeNull();
       // A pack the repository doesn't track runs its recorded command here.
