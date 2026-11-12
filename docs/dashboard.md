@@ -2956,7 +2956,7 @@ A matrix also gives the newest session's `command`, the gate's `rule`, and the `
 **Run error-path presets…'s plan** (`/api/chaos/runs/:id/plan`) is read beside the server, for the run's recording:
 
 - the `target`, and its `golden` (`null` for a replay);
-- the `presets` the command runs naming none, the tools the tool presets can hit (`choices`, `tool`), and where the picks hit (`at`);
+- the `presets` the command runs naming none, the tools the tool presets can hit, each with its effect (`choices`, `tool`), and where the picks hit (`at`);
 - what judges them (`judge`, `from`), and the `expect` the field starts from;
 - what decides them (`gate`, `rule`), a command from elsewhere (`runsHere`) and the `estimate`.
 
