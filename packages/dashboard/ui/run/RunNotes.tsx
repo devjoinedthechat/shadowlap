@@ -3,9 +3,6 @@ import { CopyButton } from '../components/bits.js';
 import { num } from '../format.js';
 import type { NotePart, RunNote } from './notes.js';
 
-// The notes' words come with the finding that draws one: a page loads both as it may first draw a note (notes-part.ts).
-export { runNotes } from './notes.js';
-
 /**
  * A thing the run did that Shadowlap did not record, or answered as it went (notes.ts), as one of the
  * run's findings (FindingsBar.tsx): the tools the model called that it never recorded, with how to

@@ -31,7 +31,7 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * the parts they show and none of the dashboard's other pages. A part a copy never draws, such as
  * Share's menu with the dialogs it opens (Export dataset…, Export OpenTelemetry trace… and the
  * Security report), the fork menu and the header's … (a copy forks nothing and draws none of the
- * header's actions), Run blame's dialogs, the check builder (which only Add check… opens), an
+ * header's actions), Run blame's dialogs, the check menu and the builder (which only Add check… opens), an
  * injection test's results (a copy keeps no results) or the dialogs a run's steps ask in
  * (run/StepDialogs.tsx: a copy draws no step that asks), is the exception: the served entry hands
  * it in (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it, and a test

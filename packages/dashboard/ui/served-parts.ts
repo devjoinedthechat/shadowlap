@@ -8,6 +8,7 @@ import type { Proof } from './injection/Proof.js';
 import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
 import type { TestDialog } from './injection/TestDialog.js';
 import type { BuilderProps } from './run/check-part.js';
+import type { CheckMenu } from './run/CheckMenu.js';
 import type { ForkMenu } from './run/ForkMenu.js';
 import type { MoreMenu } from './run/MoreMenu.js';
 import type { ShareMenu } from './run/ShareMenu.js';
@@ -19,6 +20,7 @@ export type ShareMenuProps = ComponentProps<typeof ShareMenu>;
 export type RunBlameAsksProps = ComponentProps<typeof RunBlameAsks>;
 /** What the fork menu takes (run/ForkMenu.tsx), and the header's … (run/MoreMenu.tsx). */
 export type ForkMenuProps = ComponentProps<typeof ForkMenu>;
+export type CheckMenuProps = ComponentProps<typeof CheckMenu>;
 export type MoreMenuProps = ComponentProps<typeof MoreMenu>;
 export type InjectionResultsProps = ComponentProps<typeof InjectionResults>;
 export type StepDialogProps = ComponentProps<typeof StepDialog>;
@@ -33,7 +35,7 @@ export type TestDialogProps = ComponentProps<typeof TestDialog>;
  * holds none of their code, and a page that finds one missing draws nothing in its place. What keeps
  * each undrawn in a copy is pinned by a test (test/ui-exported-copy.test.ts: a copy's run page draws
  * no Share, so nothing there opens Share's menu, no Fork at #n in its header or on a row and no …,
- * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the builder; a
+ * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the check menu or the builder; a
  * copy's next step is only ever Compare, so it draws no Run blame either, and no step that asks; a
  * copy keeps no injection results, so its run page draws no test's finding to open them from, no
  * Run injection test… (its fork menu and step are the served dashboard's), and no Share to download a report from; a copy keeps no attempt's read, so an attempt's page there
@@ -48,6 +50,8 @@ export interface ServedParts {
   MoreMenu?: OnShow<MoreMenuProps>;
   /** The check builder (checks/Builder.tsx), which only Add check… opens (run/check-entry.tsx): loaded ahead as a row's menu offers Add check…, as the pointer or the focus reaches it on the inspector, or as its check menu opens, so it shows at once on a pick. */
   CheckBuilder?: OnShow<BuilderProps>;
+  /** The check menu at a call (run/CheckMenu.tsx), its rules by the call's arguments and Ask a judge…: loaded ahead with the builder, as a row's menu offers Add check… or the pointer or the focus reaches it on the inspector. */
+  CheckMenu?: OnShow<CheckMenuProps>;
   /** What Run blame asks in once pressed (fixes/RunBlameAsks.tsx), with the check a blame needs: loaded the first time one asks. */
   RunBlameAsks?: OnShow<RunBlameAsksProps>;
   /** An injection test's results in the inspector's place (injection/InjectionResults.tsx), with the matrix they draw: loaded ahead as the pointer or the focus reaches Show results. */

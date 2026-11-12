@@ -19,7 +19,7 @@ import { errorText } from '../toast.js';
 import { failedBy, failureNote, type FailedBy } from './calls.js';
 import { EditAndFork } from './EditAndFork.js';
 import { AddCheckLink, type CheckEntry } from './check-entry.js';
-import { viaWords } from './via-words.js';
+import { viaWords } from './notes.js';
 import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
 import { ActionButton } from '../components/ActionButton.js';
 

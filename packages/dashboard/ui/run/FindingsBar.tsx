@@ -29,7 +29,7 @@ import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
-import { notesPart } from './notes-part.js';
+import { NoteFinding } from './RunNotes.js';
 import type { ProofTab } from '../injection/Proof.js';
 import { useServedParts } from '../served-parts.js';
 import { openResults } from './panel-state.js';
@@ -541,11 +541,7 @@ function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSe
   // A kept injection test's finding is handed in where the dashboard runs: a copy keeps no results to draw one from.
   const { InjectionFinding } = useServedParts();
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
-  if (f.note) {
-    // A page has notes only once their part is in (notes-part.ts).
-    const Note = notesPart()?.NoteFinding;
-    return Note ? <Note n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} /> : null;
-  }
+  if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
   if (f.injection) return InjectionFinding ? <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} /> : null;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
 }

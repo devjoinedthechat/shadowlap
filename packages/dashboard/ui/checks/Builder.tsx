@@ -7,7 +7,7 @@ import { namedIn } from '../components/Id.js';
 import { ErrorState } from '../components/States.js';
 import { goldenName, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { argsOf } from '../run/check-entry.js';
+import { argsOf } from '../run/call-args.js';
 import type { BuilderProps } from '../run/check-part.js';
 import { useApp } from '../state.js';
 import { Change } from './Change.js';

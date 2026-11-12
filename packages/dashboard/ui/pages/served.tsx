@@ -14,6 +14,7 @@ export const SERVED_PARTS: ServedParts = {
   ForkMenu: onShow(() => import('../run/ForkMenu.js').then((m) => m.ForkMenu)),
   MoreMenu: onShow(() => import('../run/MoreMenu.js').then((m) => m.MoreMenu)),
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
+  CheckMenu: onShow(() => import('../run/CheckMenu.js').then((m) => m.CheckMenu)),
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks)),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog)),
   TestDialog: onShow(() => import('../injection/TestDialog.js').then((m) => m.TestDialog)),

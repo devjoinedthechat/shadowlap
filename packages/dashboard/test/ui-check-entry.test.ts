@@ -2,9 +2,11 @@ import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { CallDetail, CallRow, RunDetail } from '../ui/api.js';
 import type { OnShow } from '../ui/components/OnShow.js';
-import { addsCheck, argsOf, checkMenuItems, useCheckEntry } from '../ui/run/check-entry.js';
+import { argsOf } from '../ui/run/call-args.js';
+import { addsCheck, useCheckEntry } from '../ui/run/check-entry.js';
+import { checkMenuItems } from '../ui/run/CheckMenu.js';
 import type { BuilderProps } from '../ui/run/check-part.js';
-import { ServedPartsContext } from '../ui/served-parts.js';
+import { ServedPartsContext, type CheckMenuProps } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render } from './ui-render.js';
 
@@ -51,7 +53,7 @@ describe('Add check… on a run’s page', () => {
     expect(argsOf({ request: null } as unknown as CallDetail)).toEqual({});
   });
 
-  it('gives no entry where nothing hands the page the builder, as in an exported copy, whose script holds none', async () => {
+  it('gives no entry where nothing hands the page the menu and the builder, as in an exported copy, whose script holds neither', async () => {
     const offered: boolean[] = [];
     const Page = () => {
       offered.push(!!useCheckEntry({ run: run(), row: { callNo: 3, ...tool } as unknown as CallRow, detail: null }).check);
@@ -59,10 +61,11 @@ describe('Add check… on a run’s page', () => {
     };
     const app = { exported: false, actionsOff: null } as unknown as AppState;
     const part = Object.assign(() => null, { preload: () => undefined, script: 'idle' }) as unknown as OnShow<BuilderProps>;
+    const menu = Object.assign(() => null, { preload: () => undefined, script: 'idle' }) as unknown as OnShow<CheckMenuProps>;
     const copy = await render(createElement(AppContext.Provider, { value: app }, createElement(Page)));
     expect(offered.at(-1)).toBe(false);
     await copy.unmount();
-    const served = await render(createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: { CheckBuilder: part } }, createElement(Page))));
+    const served = await render(createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: { CheckBuilder: part, CheckMenu: menu } }, createElement(Page))));
     expect(offered.at(-1)).toBe(true);
     await served.unmount();
   });
