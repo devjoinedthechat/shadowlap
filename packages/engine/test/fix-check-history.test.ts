@@ -64,11 +64,26 @@ describe("a fix's check, changed", () => {
     // The SQL readers' condition says the same.
     const left = store.query(`SELECT l.ref AS ref FROM fix_links l WHERE l.fix_id = ? AND l.kind IN ('failing', 'good') AND ${leftFixLinkSql('l')} ORDER BY l.ref`, fix.fixId).map((r) => String(r.ref));
     expect(left).toEqual([b, g].sort());
+    const kept = store.query(`SELECT l.ref AS ref FROM fix_links l WHERE l.fix_id = ? AND l.kind IN ('failing', 'good') AND NOT ${leftFixLinkSql('l')} ORDER BY l.ref`, fix.fixId).map((r) => String(r.ref));
+    expect(kept).toEqual([a, c].sort());
 
     // A run that joins after the change stays, as the check never judged it.
     const d = makeRun(store);
     blame(d, { expect: EMAIL, at: 5_000 });
     expect(fixRecords(store, store.getFix(fix.fixId)!).failing).toEqual([a, c, d]);
+  });
+
+  it('finds in SQL the runs that left by their ids, whatever those hold, and none before a check judged them', () => {
+    const a = makeRun(store);
+    const fix = blame(a);
+    const odd = ['run "quoted"', 'run\\slashed', 'run.dotted'];
+    for (const ref of odd) store.addFixLink(fix.fixId, 'failing', ref, 2_500);
+    const kept = () => store.query(`SELECT l.ref AS ref FROM fix_links l WHERE l.fix_id = ? AND l.kind = 'failing' AND NOT ${leftFixLinkSql('l')} ORDER BY l.ref`, fix.fixId).map((r) => String(r.ref));
+    // Its first check judged none of them: every run stays.
+    expect(kept()).toEqual([a, ...odd].sort());
+    changeFixCheck(store, fix.fixId, { check: emailCheck, judged: { failing: { [a]: 'failed', [odd[0]]: 'passed', [odd[1]]: 'passed', [odd[2]]: 'failed' }, good: {} }, at: 3_000 });
+    expect(kept()).toEqual([a, odd[2]].sort());
+    expect([...runsLeft(store.fixChecks(fix.fixId)).failing].sort()).toEqual([odd[0], odd[1]].sort());
   });
 
   it('writes nothing for the check it has, and refuses a fix that is not open or not there', () => {

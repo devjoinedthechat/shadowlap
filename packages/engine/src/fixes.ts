@@ -118,18 +118,32 @@ export function fixLabelInfo(store: StoreOf<'recording' | 'fixes'>, fix: StoredF
  */
 export function runsLeft(checks: ReadonlyArray<Pick<StoredFixCheck, 'judged'>>): { failing: Set<string>; good: Set<string> } {
   const judged = checks.at(-1)?.judged;
-  const of = (runs: FixCheckJudged['failing'] | undefined, outcome: string) => new Set(Object.keys(runs ?? {}).filter((id) => runs![id] === outcome));
-  return { failing: of(judged?.failing, 'passed'), good: of(judged?.good, 'failed') };
+  const of = (role: 'failing' | 'good') => {
+    const runs = judged?.[role] ?? {};
+    return new Set(Object.keys(runs).filter((id) => leavesFix(role, runs[id])));
+  };
+  return { failing: of('failing'), good: of('good') };
 }
+
+/** The outcome by a check that takes a fix's run of each role out of it: a failing run it passes, a good run it fails. */
+const LEAVES = { failing: 'passed', good: 'failed' } as const;
+
+/**
+ * Whether a fix's failing or good run, judged so by a check the fix is given, leaves the fix: the
+ * one rule runsLeft, `shadowlap fix check` and the builder's preview of a check all read.
+ */
+export const leavesFix = (role: 'failing' | 'good', outcome: string | null | undefined): boolean => outcome === LEAVES[role];
 
 /**
  * SQL that holds for a `fix_links` row, by its alias, of a run that left its fix (runsLeft): for the
- * readers of a fix's failing or good runs in SQL.
+ * readers of a fix's failing or good runs in SQL. It is 0 or 1, never null, so `NOT` it keeps a run.
+ * The run is looked up by its key in how the fix's newest check judged its runs (its id quoted in
+ * the path, a quote or backslash in it escaped), reached through fix_checks' primary key: a reader
+ * of every run gains no scan from it. Its alias, fc, keeps clear of the reader's own.
  */
 export const leftFixLinkSql = (l: string): string =>
-  `EXISTS (SELECT 1 FROM fix_checks c, json_each(c.judged, '$.' || ${l}.kind) j
-     WHERE c.fix_id = ${l}.fix_id AND c.position = (SELECT MAX(m.position) FROM fix_checks m WHERE m.fix_id = ${l}.fix_id)
-       AND j.key = ${l}.ref AND j.value = CASE ${l}.kind WHEN 'failing' THEN 'passed' ELSE 'failed' END)`;
+  `(json_extract((SELECT fc.judged FROM fix_checks fc WHERE fc.fix_id = ${l}.fix_id ORDER BY fc.position DESC LIMIT 1),
+     '$.' || ${l}.kind || '."' || replace(replace(${l}.ref, '\\', '\\\\'), '"', '\\"') || '"') IS CASE ${l}.kind WHEN 'failing' THEN '${LEAVES.failing}' ELSE '${LEAVES.good}' END)`;
 
 /** A run's links to the fixes it is still in as a failing or a good run: without those it left (runsLeft). */
 export function fixLinksOfRun(store: StoreOf<'fixes'>, runId: string, kind: 'failing' | 'good'): FixLink[] {
