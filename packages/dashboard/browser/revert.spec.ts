@@ -1,6 +1,6 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import type { FailureView, FixDetail, FoundCommit, NextStep, TestsView } from '../ui/types.js';
-import { demoId, openPage, seriousViolations } from './dashboard.js';
+import { demoId, openPage, patched, seriousViolations } from './dashboard.js';
 
 /**
  * Revert, once Find breaking commit named a crash's first bad commit, on invented data routed over the
@@ -46,14 +46,6 @@ const step = (runId: string) =>
     command: `git revert --no-commit ${REV} && shadowlap test ${GOLDEN}`,
     estimate: FREE,
   }) as unknown as NextStep;
-
-/** The server's answer to the request, changed by `patch`: asked whole (never a 304 with no body to change). */
-async function patched<T>(route: Route, patch: (body: T) => unknown): Promise<void> {
-  const headers = Object.fromEntries(Object.entries(route.request().headers()).filter(([k]) => k !== 'if-none-match' && k !== 'if-modified-since'));
-  const res = await route.fetch({ headers });
-  const text = await res.text();
-  await route.fulfill(text ? { response: res, json: patch(JSON.parse(text) as T) } : { response: res });
-}
 
 /** Open in editor's form on this machine, and the job kinds with revert among them. */
 async function routeMeta(page: Page): Promise<void> {

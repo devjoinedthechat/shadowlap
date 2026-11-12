@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Page, type Route } from '@playwright/test';
 import type { BrowserState } from './global-setup.js';
 
 /** What the browser tests share: the dashboard global-setup.ts started, how to start another, and how to read a page. */
@@ -126,6 +126,14 @@ export async function openPage(page: Page, path: string, drawn: string, at: Serv
   // Fonts settle the layout that the fitted lines (about lines, hints) are measured against.
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await page.waitForTimeout(150);
+}
+
+/** The server's answer to a routed request, changed by `patch`: asked whole (never a 304 with no body to change). */
+export async function patched<T>(route: Route, patch: (body: T) => unknown): Promise<void> {
+  const headers = Object.fromEntries(Object.entries(route.request().headers()).filter(([k]) => k !== 'if-none-match' && k !== 'if-modified-since'));
+  const res = await route.fetch({ headers });
+  const text = await res.text();
+  await route.fulfill(text ? { response: res, json: patch(JSON.parse(text) as T) } : { response: res });
 }
 
 const axeSource = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');

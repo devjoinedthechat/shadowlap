@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, demoId, openPage, seriousViolations, sideways, startJob } from './dashboard.js';
+import { dash, demoId, openPage, patched, seriousViolations, sideways, startJob } from './dashboard.js';
 import { ROUTES, show, type RouteState } from './routes.js';
 
 /**
@@ -442,6 +442,34 @@ test('below 400px a chart of eleven or more calls labels every other one, never 
   }
   // A chart labelled every other call by the rule, and one thinned already past 22 calls.
   expect(sizes.some((n) => n >= 11 && n <= 22) && sizes.some((n) => n > 22)).toBe(true);
+});
+
+test('below 400px a chart labelled every third call, with a call off that step open, shows every other label it draws after the open one', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  // The demo has no chart of 45 to 66 calls, labelled every third: the long batch's first 50 model calls make one.
+  const id = demoId('batchFork');
+  await page.route(new RegExp(`/api/runs/${id}(\\?.*)?$`), (route) =>
+    patched<{ calls: Array<{ kind: string; usage?: unknown; outcome?: string }> }>(route, (d) => {
+      let seen = 0;
+      const calls = d.calls.slice(0, d.calls.findIndex((c) => c.kind === 'api' && !!c.usage && c.outcome !== 'error' && ++seen === 50) + 1);
+      return { ...d, calls, callsTotal: calls.length, callsNext: null };
+    }),
+  );
+  await openPage(page, `/run/${id}/context`, 'run');
+  const bars = page.locator('main#view .cbars .cbar');
+  await expect(bars).toHaveCount(50);
+  // The eighth bar, off the step of three: its neighbours on the step draw no label.
+  await bars.nth(7).evaluate((b) => (b as HTMLElement).click());
+  await expect(page.locator('main#view .clabels > span.sel')).toHaveText(/^#\d/);
+  const after = await page.locator('main#view .clabels > span').evaluateAll((all) => {
+    const at = all.findIndex((s) => s.classList.contains('sel'));
+    const drawn = all.slice(at + 1).filter((s) => !!s.textContent && !s.classList.contains('near'));
+    return { drawn: drawn.length, shown: drawn.filter((s) => getComputedStyle(s).visibility !== 'hidden').length, open: getComputedStyle(all[at]!).visibility };
+  });
+  expect(after.open).toBe('visible');
+  expect(after.drawn).toBeGreaterThan(6);
+  expect(after.shown).toBeGreaterThanOrEqual(Math.floor(after.drawn / 2));
+  expect(await labelsTouch(page)).toEqual([]);
 });
 
 /** The Tab stops in document order: what Tab and Shift+Tab move between. */
