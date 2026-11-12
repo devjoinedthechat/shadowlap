@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { checkKey, fixRecords, recordBlame, recordVerdict, Store } from '@shadowlap/engine';
+import { notOpenWords } from '@shadowlap/dashboard';
+import { changeCheck, FixCheckError } from '../src/fix-check.js';
 import { blameReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 import { departures } from './json-shapes.js';
@@ -101,14 +103,18 @@ describe('shadowlap fix check', () => {
 
     const r = await shadowlap(['fix', 'check', fixId.slice(0, 13), '--expect', JSON.stringify(NO_EMAIL)]);
     expect(r.code).toBe(0);
-    expect(r.stdout.split('\n').slice(0, 7)).toEqual([
+    // Each run as `shadowlap check` prints it, after its role, its checks under one that fails; then the
+    // verdict that stops counting, named by the change it verified, as the fix's page names it.
+    expect(r.stdout.split('\n').slice(0, 9)).toEqual([
       `✓ Changed the check of ${fixId.slice(0, 13)} · A refund issued without approval`,
       '  must: send_email never called',
       '  was:  issue_refund never called',
-      expect.stringMatching(new RegExp(`^ {2}failing ✗ ${emailed.slice(0, 10)} {2}failed: send_email`)),
-      `  failing ✓ ${quiet.slice(0, 10)}  passed · leaves the fix`,
-      expect.stringMatching(new RegExp(`^ {2}good {4}✗ ${good.slice(0, 10)} {2}failed: .* · leaves the fix$`)),
-      `! 1 verdict no longer counts for it: ${verifyId.slice(0, 13)} checked the old one`,
+      `  failing ✗ ${emailed.slice(0, 10)}: failed`,
+      '              ✗ send_email called 0 times: called 1 time',
+      `  failing ✓ ${quiet.slice(0, 10)}: 1 check passed · leaves the fix`,
+      `  good    ✗ ${good.slice(0, 10)}: failed · leaves the fix`,
+      expect.stringMatching(/^ {14}✗ send_email called 0 times: /),
+      '! 1 verdict no longer counts for it: 370712a+dirty checked the old one',
     ]);
     expect(r.stdout).toMatch(/\nnext: shadowlap /);
     // The drawer's way on is the fix, and its result is what --json prints.
@@ -157,7 +163,7 @@ describe('shadowlap fix check', () => {
     const passes = await shadowlap(['fix', 'check', fixId, '--expect', JSON.stringify({ tools: { escalate: 0 } })]);
     expect(passes.code).toBe(2);
     expect(passes.stderr.split('\n')[0]).toBe(`✗ None of ${short}'s failing runs fails this check as recorded, so it would no longer be this failure. Nothing changed.`);
-    expect(passes.stderr).toMatch(/\n {2}failing ✓ \w+ {2}passed · leaves the fix\n/);
+    expect(passes.stderr).toMatch(/\n {2}failing ✓ \w+: 1 check passed · would leave the fix\n/);
 
     const unread = await shadowlap(['fix', 'check', fixId, '--expect', '{"tool":{"send_email":0}}', '--json']);
     expect(unread.code).toBe(2);
@@ -172,7 +178,7 @@ describe('shadowlap fix check', () => {
     const { fixId, emailed, quiet } = withStore(opened);
     withStore((s) => s.updateFix(fixId, { status: 'verified', verifiedAt: 3_000 }));
     const verified = await shadowlap(['fix', 'check', fixId, '--expect', JSON.stringify(NO_EMAIL)]);
-    expect([verified.code, verified.stderr]).toEqual([2, `✗ ${fixId.slice(0, 13)} is verified: it keeps the check its accepted verdict counted under. Add a check to the golden that guards it instead, under "tests" in shadowlap.config.json.\n`]);
+    expect([verified.code, verified.stderr]).toEqual([2, `✗ ${fixId.slice(0, 13)} is verified: it keeps the check its accepted verdict was given under. Add a check to the golden that guards it instead, under "tests" in shadowlap.config.json.\n`]);
 
     withStore((s) => {
       s.updateFix(fixId, { status: 'open', verifiedAt: null });
@@ -183,6 +189,23 @@ describe('shadowlap fix check', () => {
     expect(gone.code).toBe(2);
     expect(gone.stderr.split('\n')[0]).toBe(`✗ None of ${fixId.slice(0, 13)}'s failing runs is left in the store to judge the check on. Nothing changed.`);
     expect(withStore((s) => s.fixChecks(fixId))).toHaveLength(1);
+  });
+
+  it('refuses a fix settled while its runs were judged as one settled before, and logs nothing for a check it was given meanwhile', () => {
+    withStore((s) => {
+      const { fixId } = opened(s);
+      const read = s.getFix(fixId)!;
+      // A verify settles the fix after it was read, as its runs are judged outside the write.
+      s.updateFix(fixId, { status: 'verified', verifiedAt: 3_000 });
+      const settled = () => changeCheck(s, read, JSON.stringify(NO_EMAIL), { cwd: project });
+      expect(settled).toThrow(FixCheckError);
+      expect(settled).toThrow(notOpenWords({ fixId, status: 'verified' }));
+      s.updateFix(fixId, { status: 'open', verifiedAt: null });
+      // Another `fix check` gives it the same check meanwhile: this one changes nothing and says so.
+      expect(changeCheck(s, s.getFix(fixId)!, JSON.stringify(NO_EMAIL), { cwd: project }).result.status).toBe('changed');
+      expect(changeCheck(s, read, JSON.stringify(NO_EMAIL), { cwd: project })).toEqual({ result: expect.objectContaining({ status: 'unchanged', runs: [], uncounted: [] }), codes: [] });
+      expect([s.listEvents({ kinds: ['fix.check'] }).length, s.fixChecks(fixId).length]).toEqual([1, 2]);
+    });
   });
 
   it('gives a fix in a store made before checks kept how they judged runs another check, and leaves out the runs it passes', async () => {

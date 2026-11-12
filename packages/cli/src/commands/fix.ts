@@ -220,7 +220,7 @@ function registerFixes(program: Command): void {
     .command('check')
     .description("Change an open fix's check: judge its failing and good runs again from their recordings, nothing replayed, and keep its blames, repairs and verdicts with the check each ran under")
     .argument('<fix>', 'a fix id or a unique prefix of it')
-    .requiredOption('--expect <json|@file>', 'the check, an expect object as blame takes it: what a passing run must do. A failing run it passes and a good run it fails leave the fix')
+    .requiredOption('--expect <json|@file>', 'the fix\'s new check, an expect object as under "expect" in shadowlap.config.json tests')
     .option('--json', 'print what changed as JSON: the check, how it judged each run, the runs it left out and the verdicts that stopped counting')
     .action((arg: string, flags: { expect: string; json?: boolean }) => {
       const store = readStore(program.opts<GlobalOpts>());
