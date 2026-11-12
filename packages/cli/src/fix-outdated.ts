@@ -8,14 +8,15 @@ import { takeoverReader } from './tasks.js';
 
 /**
  * After `shadowlap fix apply` or `shadowlap migrate apply` puts a patch in: the project's other
- * goldens that now diverge on what it changed. A prompt or a tool description goes into every request the agent sends, so a golden
- * recorded before the change replays differently from its first model call, fails the next test,
- * and, when it may fork, forks there, before its task's takeover. Each is replayed offline, as
- * `shadowlap test` replays a golden that may not fork, in a store of its own that nothing keeps,
- * and listed when it diverged on the patch's change: a request field that now holds text the patch
- * added, or no longer holds text it removed. `shadowlap test <goldens> --update` re-records them.
- * A golden from a pack the repository doesn't track, recorded elsewhere, runs its command only after
- * a yes (golden-consent.ts): this check asks none, so it leaves such a golden out, saying so.
+ * goldens that now diverge on what it changed. A prompt or a tool description goes into every
+ * request the agent sends, so a golden recorded before the change replays differently from its
+ * first model call, fails the next test, and, when it may fork, forks there, before its task's
+ * takeover. Each is replayed offline, as `shadowlap test` replays a golden that may not fork, in a
+ * store of its own that nothing keeps, and listed when it diverged on the patch's change: a request
+ * field that now holds text the patch added, or no longer holds text it removed. `shadowlap test
+ * <goldens> --update` re-records them. A golden from a pack the repository doesn't track, recorded
+ * elsewhere, runs its command only after a yes (golden-consent.ts): this check asks none, so it
+ * leaves such a golden out, saying so.
  */
 
 export interface OutdatedGolden {
