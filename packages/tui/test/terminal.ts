@@ -30,16 +30,19 @@ export class Keyboard extends EventEmitter {
 /**
  * Renders into a terminal of a real size. ink-testing-library's stdout is 100 columns whatever the
  * app is told, and Ink lays its root out at stdout's width, so a test at 80 or 140 columns ran at
- * 100: it never saw a row overflow at 80. Same shape as ink-testing-library's render.
+ * 100: it never saw a row overflow at 80. Same shape as ink-testing-library's render, with `frames`:
+ * every frame drawn, in debug mode each render's, so a test sees one that a later frame replaced.
  */
 export function renderAt(tree: ReactElement, columns = 100, rows = 30) {
   let last: string | undefined;
+  const frames: string[] = [];
   const stdout = Object.assign(new EventEmitter(), {
     columns,
     rows,
     isTTY: true,
     write(frame: string) {
       last = frame;
+      frames.push(frame);
       return true;
     },
   });
@@ -53,5 +56,5 @@ export function renderAt(tree: ReactElement, columns = 100, rows = 30) {
     exitOnCtrlC: false,
     patchConsole: false,
   });
-  return { lastFrame: () => last, stdin, unmount: () => instance.unmount(), rerender: instance.rerender };
+  return { lastFrame: () => last, frames: frames as readonly string[], stdin, unmount: () => instance.unmount(), rerender: instance.rerender };
 }

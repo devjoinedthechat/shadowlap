@@ -343,7 +343,6 @@
       "ProviderState.recorded": 47
     },
     "packages/tui/src/components/Inspector.tsx": {
-      "Inspector > useEffect(…) #2": 34,
       "metaLines": 39
     },
     "packages/tui/src/components/RunsView.tsx": {
