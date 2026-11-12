@@ -1,4 +1,4 @@
-import { recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
+import { recordBlame, recordEvent, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
 import { describe, expect, it } from 'vitest';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { LOOK_GROUPS } from '../src/needs-look/groups.js';
@@ -201,6 +201,19 @@ describe('Needs a look: one cause, one row', () => {
         detail: expect.stringMatching(/ · refund-in-limit fails on Tests$/),
         step: { of: 'run', runId: crash, step: { key: 'bisect', label: 'Find breaking commit…' } },
       });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('leads the fix’s row with the crash’s Revert once Find breaking commit named the commit', () => {
+    const store = Store.open(':memory:');
+    try {
+      const rec = addRun(store, { startedAt: NOW - DAY, calls: 'lll' });
+      const crash = tested(store, rec, 'exit', NOW - 2 * HOUR);
+      const fixId = blame(store, crash, NOW - HOUR);
+      recordEvent(store, { kind: 'bisect.found', ref: GOLDEN, at: NOW - HOUR + 1, data: { commit: 'ccccccc', first: { rev: 'ccccccc', subject: 'Log the total', author: 'Ravi', date: '2026-09-30T10:00:00Z' }, why: 'the agent exited with code 1', untested: [], replays: 3, tokens: 0, answered: { at: NOW - 2 * HOUR + 1, ok: false } } });
+      expect(look(store, rec).find((x) => x.kind === 'open' && x.fixId === fixId)).toMatchObject({ step: { of: 'run', runId: crash, step: { key: 'revert', label: 'Revert', rev: 'ccccccc', golden: GOLDEN } } });
     } finally {
       store.close();
     }

@@ -1,13 +1,14 @@
-import { failedCheckLabels, fixCost, type FixRecords, type FixStatus, type RunRecord, type Store } from '@shadowlap/engine';
+import { failedCheckLabels, fixCost, type FixRecords, type FixStatus, type RunRecord, shownBlame, type Store } from '@shadowlap/engine';
 import { failedWords } from './failed-words.js';
 import { fixActions } from './fix-actions.js';
+import { fixCrash } from './fix-crash.js';
 import { fixLead, type FixLead } from './fix-lead.js';
 import { keptFixRecords } from './fix-records.js';
 import { type FixRow, openingTitles, rowOf } from './fix-list.js';
 import { capturedFailure, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, short, unblamedRuns } from './fix-shared.js';
 import { pulledPatchOf } from './fixes.js';
 import { type FailedCheck, failedChecks, issueKeyOf } from './issues.js';
-import { type NextStepRow, type NextStepWork, stepReads, stepRow, unblamedListedStep } from './next-step.js';
+import { listedWorkKey, type NextStepRow, type NextStepWork, type StepReads, stepReads, stepRow, unblamedListedStep } from './next-step.js';
 import { patchesInTree, rewritesHere } from './patch-in-tree.js';
 import { answer, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsUpTo, SUMMARY_CALLS_BUDGET } from './run-about.js';
@@ -96,14 +97,17 @@ function rank(r: FixesViewRow): number {
   return r.broken ? 4 : 5;
 }
 
-function viewRow(store: Store, rec: FixRecords, opening: () => ReadonlyMap<string, string>, failed: (fixId: string) => FailedCheck | null, o: FixesViewOptions): FixesViewRow {
+function viewRow(store: Store, rec: FixRecords, opening: () => ReadonlyMap<string, string>, failed: (fixId: string) => FailedCheck | null, o: FixesViewOptions, reads: () => StepReads): FixesViewRow {
   const row = rowOf(store, rec, opening);
   const rung = rungOf(rec);
   const actions = fixActions(store, rec, { label: row.label, repairer: o.repairer ?? null, patchInTree: o.patchInTree, rewriteHere: o.rewriteHere });
-  return { ...row, rung, pr: prOf(rec), ci: rec.fix.data.source?.ci ?? null, bucket: bucketOf(rung, rec.fix.status), failingIds: rec.failing.slice(0, 5).map(short), failedCheck: failed(rec.fix.fixId), next: fixLead(rec, actions, { repairer: o.repairer ?? null }) };
+  // A crashed test replay no model rescued leads with its own step, as its page does (fix-crash.ts).
+  const b = rec.fix.status === 'open' ? shownBlame(rec) : null;
+  const crash = b?.outcome === 'unrescuable' ? fixCrash(store, b, { work: o.next ?? null, reads: reads() }) : null;
+  return { ...row, rung, pr: prOf(rec), ci: rec.fix.data.source?.ci ?? null, bucket: bucketOf(rung, rec.fix.status), failingIds: rec.failing.slice(0, 5).map(short), failedCheck: failed(rec.fix.fixId), next: fixLead(rec, actions, { repairer: o.repairer ?? null, crash }) };
 }
 
-/** The failed runs nobody has blamed, kept until runs or fixes change: a recording that adds calls changes neither. */
+/** The failed runs nobody has blamed, kept until runs, fixes or events change: a recording that adds calls changes none of them. */
 const unblamedKept = new WeakMap<object, { key: string; runs: RunRecord[] }>();
 
 /** The failed runs nobody has blamed, as the list's first row; null when there are none. */
@@ -151,21 +155,26 @@ function answersKey(store: Store, records: readonly FixRecords[], o: FixesViewOp
 }
 
 /**
- * The rows, in to-do order, kept until fixes or runs change, the repairer the config names does, or
- * git says something else of a patch: a page polled while a recording adds calls works out none again.
+ * The rows, in to-do order, kept until fixes, runs, events (a search's answer, which a crash's lead
+ * reads) or tests' results change, the repairer the config names does, git says something else of a
+ * patch, or what a crash's step reads of the project does (its goldens and the config's tests:
+ * `listedWorkKey`): a page polled while a recording adds calls works out none again.
  */
 const rowsKept = new WeakMap<object, { key: string; rows: FixesViewRow[] }>();
 
 function viewRows(store: Store, index: RunIndex, records: readonly FixRecords[], changes: string | null, o: FixesViewOptions): FixesViewRow[] {
-  const key = changes === null ? null : `${changes}:${o.repairer ?? ''}:${answersKey(store, records, o)}`;
+  const key = changes === null ? null : `${changes}:${o.repairer ?? ''}:${answersKey(store, records, o)}:${listedWorkKey(o.next ?? null)}`;
   const kept = rowsKept.get(store);
   if (key !== null && kept?.key === key) return kept.rows;
   const once = readingRunsOnce(store);
   const opening = openingTitles(store);
   // The runs that failed each fix's check, from one grouping of every failed run, never one a fix.
   const failed = failedChecks(store, index);
+  // What the crashes' steps read, once for every row that needs it.
+  let reads: StepReads | null = null;
+  const stepsRead = () => (reads ??= stepReads(once));
   // A stable sort over the store's order, the most recently opened first, keeps that order within a rank.
-  const rows = records.map((rec) => viewRow(once, rec, opening, failed, o)).sort((a, b) => rank(a) - rank(b));
+  const rows = records.map((rec) => viewRow(once, rec, opening, failed, o, stepsRead)).sort((a, b) => rank(a) - rank(b));
   if (key !== null) rowsKept.set(store, { key, rows });
   return rows;
 }
@@ -173,9 +182,9 @@ function viewRows(store: Store, index: RunIndex, records: readonly FixRecords[],
 /** The Fixes page's read model (above). */
 export function fixesView(store: Store, o: FixesViewOptions = {}): FixesView {
   const records = keptFixRecords(store);
-  // What the rows and the unblamed runs are worked out from: fixes and runs, as the store counts their changes.
+  // What the rows and the unblamed runs are worked out from: fixes, runs and events (a search's answer, which a crash's lead reads), as the store counts their changes.
   const n = store.changeCounts();
-  const changes = n.fixes === undefined || n.runs === undefined ? null : `${n.fixes}:${n.runs}`;
+  const changes = n.fixes === undefined || n.runs === undefined ? null : `${n.fixes}:${n.runs}:${n.events ?? ''}`;
   const index = loadRunIndex(store);
   // A test's result can fix a failed replay, which leaves the runs that failed a fix's check (`failedCheck`).
   const all = viewRows(store, index, records, changes === null ? null : `${changes}:${n.tests ?? 0}`, o);

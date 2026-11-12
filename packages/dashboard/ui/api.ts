@@ -9,6 +9,7 @@ import { noProjects, noteRefusal, projectHeader, projectsApi, showProject, type 
 import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
 import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
+import { editorApi, type EditorApi } from './editor-api.js';
 import { changesApi, type ChangesApi } from './changes-api.js';
 import { testsApi, type TestsApi } from './tests-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
@@ -66,10 +67,11 @@ export const JOB_KINDS = {
   // Settings → Store's Check again: check the store's access again (store check), writing nothing.
   storeCheck: 'store-check',
   // Tests: update goldens, find the commit (on Tests, the Runs calendar and a run's page), add a
-  // normalizer and re-run (and `tests` above runs them).
+  // normalizer and re-run (and `tests` above runs them), and revert the commit found, then test.
   testUpdate: 'test-update',
   bisect: 'bisect',
   normalizeAndTest: 'normalize-and-test',
+  revert: 'revert',
   // A project's setup (the projects slice registers these): inspect the folder, record a first run,
   // keep it as a golden (pack, then test).
   inspect: 'init',
@@ -248,6 +250,8 @@ export interface Client extends ChangesApi, TestsApi {
   checks: ChecksApi;
   /** What billed jobs would cost, and Spending, the threshold above which one asks first. */
   estimates: EstimatesApi;
+  /** Open in editor: a project file at a line, in the editor $VISUAL or $EDITOR names (`editor-api.ts`). */
+  editor: EditorApi;
   /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
   storeSetup: StoreSetupApi;
 
@@ -521,8 +525,15 @@ export function createClient(token: string): Client {
 }
 
 /** The parts of the client that are APIs of their own, each written beside its routes. */
-function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates'> {
-  return { settings: settingsApi(request), checks: checksApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
+function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates' | 'editor'> {
+  return {
+    settings: settingsApi(request),
+    checks: checksApi(request),
+    storeSetup: storeSetupApi(request),
+    projects: projectsApi(request),
+    estimates: estimatesApi(request),
+    editor: editorApi(request),
+  };
 }
 
 /** An address with `name` set to each of `keys`, after what it asks already. */
@@ -636,6 +647,7 @@ export function createExportedClient(data: StaticPayload): Client {
     settings: noSettings(readOnly),
     checks: noChecks(readOnly),
     estimates: noEstimates(readOnly),
+    editor: { open: readOnly },
     storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),

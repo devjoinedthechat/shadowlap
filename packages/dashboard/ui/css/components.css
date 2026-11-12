@@ -194,6 +194,9 @@ tr.krow > td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
 .codehead.acts { flex-wrap: wrap; row-gap: 2px; }
 .codehead .cdacts { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
 .codehead .cdacts .linkbtn { margin-left: 0; }
+/* The first bad commit's change: under its card on Tests, the panel's whole body on a run's page. */
+.codewrap.bisectdiff { margin: 10px 0 14px; }
+.fbody > .codewrap.bisectdiff { margin: 0; }
 .boxwrap { position: relative; }
 .boxwrap > .boxcopy { position: absolute; top: 5px; right: 5px; }
 .boxwrap > pre.codebox { padding-right: 40px; }

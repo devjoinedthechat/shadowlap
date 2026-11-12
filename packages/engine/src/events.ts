@@ -24,9 +24,12 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  *   source, moments apart) as one entry. An event may instead list its runs in `runIds`.
  * - `test.session`: ref the session; data { passed, failed, inconclusive?, goldens, interrupted?, notRun? }
  * - `bisect.found`: ref the golden or run bisected (runId too, for a run); data { commit, subject, first,
- *   why, untested, answered?, … }; `bisect.none`: ref as for found; data { outcome, why, good, bad,
- *   answered? }: no first bad commit between them. `answered` is the golden's newest result as the
- *   search started { session, at, ok, revision }: the failure the answer is about
+ *   why, untested, answered?, … }. `first` is { rev, subject, author, date, change }: `change` is
+ *   what the commit changed against its first parent { file, files, hunk, line, cut, merge }, or null
+ *   when git couldn't say (absent from answers kept before it); paths are relative to the repository.
+ *   `bisect.none`: ref as for found; data { outcome, why, good, bad, answered? }: no first bad commit
+ *   between them. `answered` is the golden's newest result as the search started { session, at, ok,
+ *   revision }: the failure the answer is about
  * - `blame.done`: runId the blamed run, ref the fix (`fx-…`); data { outcome ('blamed',
  *   'unrescuable' or 'stopped'), callNo, confidence, title, range? { from, to, gradual? }: the calls
  *   it was lost between, two `gradual` ones when it was lost gradually around them }

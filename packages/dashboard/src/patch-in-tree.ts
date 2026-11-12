@@ -77,7 +77,7 @@ function once<T>(key: string, ask: () => Promise<T>): Promise<T> {
 }
 
 /** The repository a project folder is in, as git names it; asked again after a minute. */
-async function rootOf(dir: string, now: number): Promise<string | null> {
+export async function rootOf(dir: string, now = Date.now()): Promise<string | null> {
   const known = roots.get(dir);
   if (known && now - known.at < STANDS_FOR_MS) return known.root;
   return once(`root\0${dir}`, async () => {

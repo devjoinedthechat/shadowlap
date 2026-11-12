@@ -94,6 +94,20 @@ const inside = (outer: string, inner: string): boolean => {
 };
 
 /**
+ * Whether `path`, through its real path, is inside `root` (a project folder through its own): what
+ * a job's files, the folder it runs in and a file Open in editor opens are held to. False for a path
+ * that doesn't resolve, or with no root.
+ */
+export function within(root: string | null, path: string): boolean {
+  if (!root) return false;
+  try {
+    return inside(root, realpathSync(path));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Whether jobs running in folders `a` and `b` (as `treeFolder` gives them) share a working tree: the
  * same folder, or one inside the other. Null, the dashboard's own folder, shares every tree.
  */

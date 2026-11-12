@@ -50,13 +50,13 @@ const FAILED_CHECK = { label: 'send_email called 0 times', ok: false, status: 'f
 
 const props = (run: RunDetail, checks: unknown[] = []) => ({ run, blame: null, rescued: null, checks: checks as never, offers: null, showDiff: false, onToggleDiff: () => undefined, onSelect: () => undefined, onAction: () => undefined });
 
-const NOTE: RunNote = { kind: 'unrecorded', tone: 'err', label: 'not recorded', parts: ['The model called a tool Shadowlap did not record: ', { code: 'Bash' }, '.'], tools: [{ name: 'Bash', count: 2, firstCallNo: 5, effect: 'write', why: 'it runs a command' }] };
+const NOTE: RunNote = { kind: 'unrecorded', tone: 'err', label: 'not recorded', more: true, of: { unrecorded: { tools: [{ name: 'Bash', count: 2, firstCallNo: 5, effect: 'write', why: 'it runs a command' }], partial: false }, mode: 'record' } };
 
 describe('the order of a run’s findings', () => {
   const failed: BannerView = { kind: 'failed', why: 'check failed: send_email · not blamed yet', fix: null, blamed: false };
   const unrecorded: BannerView = { kind: 'not-recorded', why: '1 tool wasn’t wrapped' };
   const differences = { runId: REC, parentRunId: OTHER, from: 5, changes: [], writes: [] } as unknown as ForkDifferences;
-  const note = (tone: RunNote['tone'], label: string): RunNote => ({ kind: 'preload', tone, label, parts: [label] });
+  const note = (tone: RunNote['tone'], label: string): RunNote => ({ kind: 'preload', which: 'missing', tone, label, more: false, of: { unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: label }, mode: 'record' } });
 
   it('puts a failure first, then what needs a look, then the rest, each weight in the order they come', () => {
     const found = runFindings({ own: failed, differences, notRecorded: unrecorded, notes: [note('n', 'extra reads'), note('warn', 'no preload')] });
@@ -117,10 +117,14 @@ describe('the findings bar', () => {
 
   it('opens a lone finding’s tools with Details, and draws nothing for a run that found nothing', async () => {
     page = await render(createElement(AppContext.Provider, { value: app }, createElement(FindingsBar, { ...props(detail()), notes: [NOTE] })));
+    // Its label and the toggle from the first frame; its words with their part, the first time the bar draws a note.
+    expect(page.one('.findings .rnote .bk').textContent).toBe('not recorded');
     const more = page.one('.findings .rnote .fmore');
     expect(more.textContent).toBe('Details');
     expect(more.getAttribute('data-tip')).toBe(null);
+    await page.until('the note’s words', () => page!.all('.rnote .fbody .rntools code').length > 0);
     expect(page.one('.rnote .fbody .rntools code').textContent).toBe('Bash');
+    expect(page.one('.rnote .rnw .why').textContent).toContain('The model called a tool Shadowlap did not record');
     await page.unmount();
     page = await render(createElement(AppContext.Provider, { value: app }, createElement(FindingsBar, { ...props(detail()), notes: [] })));
     expect(page.all('#findings')).toEqual([]);

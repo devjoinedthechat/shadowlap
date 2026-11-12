@@ -2,7 +2,7 @@ import { Fragment, useLayoutEffect, useReducer, useRef, useState, type ReactNode
 import type { BlameView, CheckView, RunDetail, RunOffers } from '../api.js';
 import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
-import type { TestBannerOffer } from '../types.js';
+import type { FoundCommit, TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
@@ -13,6 +13,7 @@ import { tipCard, tipText } from '../components/HoverCard.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { glued, GLUED_SEPARATOR, wholeTallies } from '../format.js';
+import { foundLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
@@ -29,7 +30,6 @@ import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
-import { NoteFinding } from './RunNotes.js';
 import { warmDiff } from './InspectorPanel.js';
 
 /**
@@ -123,6 +123,9 @@ export interface BannerProps {
   offers: RunOffers | null;
   showDiff: boolean;
   onToggleDiff: () => void;
+  /** The first bad commit's change, open in the inspector's place, and its Show change; none on a page that shows no change. */
+  showChange?: boolean;
+  onToggleChange?: () => void;
   onSelect: (n: number) => void;
   onAction: (p: PendingAction) => void;
   /** An error-path preset's attempt: the preset and its verdict, from its recording's presets. */
@@ -158,12 +161,14 @@ interface Draw {
   test: TestBannerOffer | null;
   offers: RunOffers | null;
   leads: (key: NextStepKey) => boolean;
-  /** The header's bisect step has Run blame beside it. */
+  /** The header's bisect or revert step has Run blame beside it. */
   blameBeside: boolean;
   checks: number;
   off: boolean;
   call: (n: number) => ReactNode;
   diffToggle: ReactNode;
+  /** Show change, for the first bad commit's finding: none where it kept no change to show. */
+  changeToggle: ReactNode;
   onAction: (p: PendingAction) => void;
 }
 
@@ -445,7 +450,12 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
       {p.showDiff ? 'Hide diff' : 'Show diff'}
     </button>
   );
-  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: next?.key === 'bisect' && !!next.blame, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, onAction: p.onAction };
+  const changeToggle = p.onToggleChange && p.offers?.commit?.change?.hunk ? (
+    <button className="linkbtn" type="button" data-act="change" aria-expanded={!!p.showChange} onClick={p.onToggleChange}>
+      {p.showChange ? 'Hide change' : 'Show change'}
+    </button>
+  ) : null;
+  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: (next?.key === 'bisect' || next?.key === 'revert') && !!next.blame, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, changeToggle, onAction: p.onAction };
 }
 
 /**
@@ -453,6 +463,26 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
  * (OnShow.tsx), asked for as the differences are, so the two come together.
  */
 const DifferencesPanel = onShow(() => import('./ForkDifferences.js').then((m) => m.DifferencesPanel), { failed: <LoadFailed what="finding" /> });
+
+/** A note's words and what is under them, with the notes' words: a part loaded the first time the bar draws a note (RunNotes.tsx). */
+const NoteWords = onShow(() => import('./RunNotes.js').then((m) => m.NoteWords), { failed: <LoadFailed what="finding" /> });
+
+/**
+ * A thing the run did that Shadowlap did not record, or answered as it went (notes.ts), as one of the
+ * run's findings: its label, then its words and what is under them (`NoteWords`), and `more` (the
+ * bar's toggle) at its end. `fx`: a finding the closed bar folds away.
+ */
+function NoteFinding({ n, fx, more, onSelect }: { n: RunNote; fx: boolean; more: ReactNode; onSelect: (callNo: number) => void }) {
+  return (
+    <section className={`rnote ${n.tone}${fx ? ' fx' : ''}`}>
+      <span className="bk">{n.label}</span>
+      <div className="rnw">
+        <NoteWords n={n} onSelect={onSelect} />
+      </div>
+      {more}
+    </section>
+  );
+}
 
 /** What the fork did differently, read once `want` says the run is a fork that has ended; null until it comes, or with none to say. */
 function useForkDifferences(runId: string, want: boolean): Differences | null {
@@ -494,8 +524,28 @@ function MoreToggle({ findings, open, onToggle }: { findings: readonly Finding[]
   );
 }
 
+/**
+ * The first bad commit Find breaking commit named for the crash: its rev, then its subject leading
+ * the line as every finding's lead does, then who made it (where names are shown), when and what the
+ * search cost (`foundLine`), which give way a part at a time; and Show change where it kept the
+ * change. Gone once a later replay of its golden passed: the run reads fixed by it then.
+ */
+function CommitFinding({ c, x, s }: { c: FoundCommit; x: Draw; s: Slot }) {
+  const f = foundLine(c);
+  return (
+    <section className={cls('blame', s)}>
+      <span className="bk">first bad commit</span>
+      <code>{f.rev}</code>
+      <Why lead={f.subject || undefined}>{f.meta}</Why>
+      {x.changeToggle ? <span className="end">{x.changeToggle}</span> : null}
+      {s.more}
+    </section>
+  );
+}
+
 /** A finding, as its kind draws it. */
 function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSelect: (n: number) => void }) {
+  if (f.commit) return <CommitFinding c={f.commit} x={x} s={s} />;
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
   if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
@@ -509,7 +559,7 @@ function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Dif
   const test = p.offers?.test ?? (next?.key === 'normalizer' || next?.key === 'update-golden' ? next.test : null);
   const x = useDraw(p, test);
   const input = bannerInput(p.run, p, test);
-  const findings = runFindings({ own: ownBanner(input), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes });
+  const findings = runFindings({ own: ownBanner(input), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null) });
   if (!findings.length) return null;
   const open = opened.get(runId) ?? false;
   const toggle = () => {

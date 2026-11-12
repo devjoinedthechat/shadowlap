@@ -9,6 +9,7 @@ import { commandText, sessionLine } from '../goldens.js';
 import { useNow } from '../hooks.js';
 import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
 import { FindCommitButton } from '../pages/TestsDialogs.js';
+import { RevertButton } from '../revert/RevertButton.js';
 import { goldenPrice, type Price } from '../tests-estimates.js';
 import { keepLead } from './job-footer.js';
 import type { Lead } from './lead.js';
@@ -43,6 +44,8 @@ function LeadButton({ lead, p }: { lead: Lead; p: LeadPress }) {
       );
     case 'bisect':
       return <FindCommitButton f={lead.f} live={p.live(lead.f)} why={p.wait('find the breaking commit')} lime onBisect={() => p.onFind(lead.f)} />;
+    case 'revert':
+      return <RevertButton step={lead.step} found={lead.f.found} estimate={goldenPrice(p.prices, lead.f.golden, 'rerun')} runId={lead.f.runId} lead />;
     case 'more':
       return (
         <JobButton className="btn lime" why={p.wait('run the tests')} {...testsJob(moreCard(lead.more), goldenPrice(p.prices, lead.v.golden, 'more'), (e) => p.onMore(lead.v, e))}>

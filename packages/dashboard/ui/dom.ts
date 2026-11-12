@@ -64,10 +64,14 @@ export function pageLeads(): boolean {
   return typeof document !== 'undefined' && !!document.querySelector('#view .btn.lime');
 }
 
-/** The way on a job's end offers, where several show: its primary link, then what its kind adds, then a file, then a link beside them. */
+/**
+ * The way on a job's end offers, where several show: what its kind adds where that claims it
+ * (`data-way`: the step that took the control's place, Revert after Find breaking commit), its
+ * primary link, then what its kind adds, then a file, then a link beside them.
+ */
 export function wayOnControl(root: ParentNode | null): HTMLElement | null {
   if (!root) return null;
-  return root.querySelector<HTMLElement>('.jfoot a.btn') ?? root.querySelector<HTMLElement>('.jfoot .jkind .btn') ?? root.querySelector<HTMLElement>('.jfoot .jfile') ?? root.querySelector<HTMLElement>('.jfoot .jlinks a');
+  return root.querySelector<HTMLElement>('.jfoot .jkind [data-way]') ?? root.querySelector<HTMLElement>('.jfoot a.btn') ?? root.querySelector<HTMLElement>('.jfoot .jkind .btn') ?? root.querySelector<HTMLElement>('.jfoot .jfile') ?? root.querySelector<HTMLElement>('.jfoot .jlinks a');
 }
 
 /** The job's drawer's own place for the focus: its log while it shows, else the button that shows it, else Close. */

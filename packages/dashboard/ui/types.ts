@@ -11,6 +11,7 @@ export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixPr, FixRow, FixRung, FixRunRef, FixStep, RepairStep, StepKey, StepLine, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
 export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fixes-view.js';
 export type { FixLead } from '../src/fix-lead.js';
+export type { BlameCrash } from '../src/fix-blame-step.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
 export type { InjectionRow, ToolTrustRow } from '../src/injection.js';
 export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';
@@ -383,6 +384,8 @@ export interface Meta {
   jobKinds?: string[];
   /** The most an upload may hold, in bytes; null when uploads are not possible. */
   uploadLimit?: number | null;
+  /** Open in editor: what it runs here (`code --goto <file>:<line>`); null or absent where it can't open one, as in an exported copy. */
+  editor?: string | null;
   /**
    * With several projects: its `id` in the list, its folder as the switcher shows it (`display`),
    * whether its setup is finished, why its store can't be opened (`problem`; `missing` when its
@@ -516,7 +519,8 @@ export interface LabelRunsResult {
 // ---- Tests (#/tests) and Settings → CI: the tests slice's read models, as the server sends them.
 
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
-export type { BisectChoices, BisectMiss, BisectRange, BisectRevision, DivergenceView, FailureView, FollowedGolden, FoundCommit, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, HistoryDrop, InconclusiveView, MoreAttempts, RevisionFact, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck, UntestedCommit } from '../src/tests.js';
+export type { BisectChoices, BisectRange, BisectRevision, DivergenceView, FailureView, FollowedGolden, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, HistoryDrop, InconclusiveView, MoreAttempts, RevisionFact, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck, UntestedCommit } from '../src/tests.js';
+export type { BisectMiss, FoundChange, FoundCommit } from '../src/tests-bisect.js';
 /** `GET /api/tests/evidence`: a gated golden's attempts, each judged from its own run, and the words its evidence says why its gate stopped with. */
 export type { EvidenceAttempt, EvidenceWords, TestEvidence } from '../src/tests-evidence.js';
 /** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find breaking commit's choices. */
