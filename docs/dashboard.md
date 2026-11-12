@@ -206,9 +206,11 @@ The header says the week in four facts, the first three each a link: *4 failures
 
 One cause is one row. A golden an open fix holds is named on the fix's row (*refund-in-limit fails on Tests*), when its step is the fix's or a crash's **Find breaking commit** or **Revert**. When a row's **Find breaking commit** ends with the commit named, the focus goes on to the **Revert** in its place. A golden a normalizer or an update fixes keeps its own row, and so does one whose fix is verified.
 
+A golden's row, failed or inconclusive, opens Tests with the golden's [report](#a-goldens-report) open.
+
 What the rows mean:
 
-- **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own. The row opens Tests with the golden's [report](#a-goldens-report) open, as an inconclusive golden's row does.
+- **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own.
 - **Inconclusive goldens**: **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection test showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
 - **Failed runs nobody has blamed**: a fork that failed counts as much as a recording, and so does a capture its import judged failed. The row names the newest by its id, with what it was about on hover, and opens Runs on the week's failed runs. A capture's **Run blame** opens its page, which asks for the command that starts your agent first.
 - **Open fixes**: where blame found that no answer of the model's lost the run, a repair of the prompt is no fix, and the row opens the fix at Blame.
@@ -1374,7 +1376,8 @@ Its parts come in this order, each where it has something to say:
 | Find breaking commit | Why the search named none                                                                                                               |
 
 - **Replay** is left out for a divergence at call 1, which the verdict says all of.
-- **Request** is asked for once its report opens, never while it is folded. Every normalizer's command is in one box, as on a run's [Show diff](#findings). Where the replay is gone, it shows only the changes its result kept. What followed closes it in grey, such as *Not served from the recording: the agent exited on HTTP 503*. **Show message** opens the body the agent got.
+- **Request** is asked for once its report opens, never while it is folded. Every normalizer's command is in one box, as on a run's [Show diff](#findings), and where the replay is gone it shows only the changes its result kept.
+- **What followed** the request closes its part in grey, such as *Not served from the recording: the agent exited on HTTP 503*, and **Show message** opens the body the agent got. Where the divergence changed no request, as with a call past the recording's end, it is all the part shows.
 - **Error** reads Python and Node tracebacks as their runtimes print them, anything else by its last line that says something. **Show traceback** opens the agent's last lines as the store kept them.
 - **Attempts** past 24 fold behind the caret that ends the Gate's line. Those a session carried over come first, with a hairline where this one took over.
 
@@ -2708,7 +2711,7 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 - the key of its `hint`;
 - its lines as `shadowlap test` prints them (`printed`, each with its `tone`).
 
-A divergence's `request` part names the call it diverged at (`callNo`) and the replay to ask its diff of (`runId`). Where the replay is gone, `bodies` holds the changes its result kept. `followed` is what followed from it, such as the offline 503 the agent exited on: its `line`, and the body the agent got as `message`, null where none was kept.
+A divergence's `request` part names the call it diverged at (`callNo`), the replay to ask its diff of (`runId`), and the recording's call it is compared with (`against`, null where the golden's recording isn't known). Where the replay is gone, `bodies` holds the changes its result kept. `followed`, null where nothing followed, is what followed from it, such as the offline 503 the agent exited on: its `line`, and the body the agent got as `message`, null where none was kept. A divergence that changed no request sends only `followed`.
 
 The store keeps the agent's last lines cut: each line at 400 characters, the whole at its last 6000. The CLI prints the last 20 lines whole. The notes the CLI prints under a golden's line aren't kept, so `printed` leaves them out. A report that can't be built is left out, and its row still shows.
 
