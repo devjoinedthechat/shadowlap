@@ -44,3 +44,5 @@ export const NORMALIZER_ASK = pageAsk('normalizer');
 export const REDACTION_ASK = pageAsk('redaction');
 /** A fix's Apply fix dialog, asked for by the fix's id. */
 export const APPLY_ASK = pageAsk('apply');
+/** Changes › Preview's way the palette names, asked for by the way (`model`, `code`): its dialog on every golden. */
+export const PREVIEW_ASK = pageAsk('preview');

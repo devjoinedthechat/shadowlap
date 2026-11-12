@@ -68,7 +68,7 @@ export function usePreviewDialog(target: PreviewTarget): { open: (way: PreviewWa
   const { NewPreview } = useServedParts();
   const [way, setWay] = useState<PreviewWay | null>(null);
   return {
-    open: (w) => setWay(w),
+    open: setWay,
     preload: () => NewPreview?.preload(),
     dialog: way && NewPreview ? <NewPreview way={way} target={target} onClose={() => setWay(null)} /> : null,
   };
@@ -81,10 +81,12 @@ export interface NewPreviewMenuProps {
   small?: boolean;
   /** Why it can't open yet: a run still recording. */
   why?: string | null;
+  /** Runs' `Preview change`, its card the runs it takes, in place of New preview's own. */
+  bulk?: { label: string; tip: string; whyTip?: string | undefined; command: string };
 }
 
 /** `New preview`, its menu and the dialog a pick opens. */
-export function NewPreviewMenu({ target, lime = false, small = false, why = null }: NewPreviewMenuProps) {
+export function NewPreviewMenu({ target, lime = false, small = false, why = null, bulk }: NewPreviewMenuProps) {
   const menu = useMenu();
   const press = useBilledPress();
   const dialog = usePreviewDialog(target);
@@ -101,14 +103,20 @@ export function NewPreviewMenu({ target, lime = false, small = false, why = null
         aria-haspopup="menu"
         aria-expanded={menu.open}
         why={why}
-        data-tip={tipText('Each way shows the flag it runs')}
+        {...(bulk ? { tip: bulk.tip, whyTip: bulk.whyTip, command: bulk.command } : { 'data-tip': tipText('Each way shows the flag it runs') })}
         onPointerEnter={dialog.preload}
         onFocus={dialog.preload}
         onClick={(e) => menu.toggle(e.currentTarget)}
       >
-        <Icon name="plus" />
-        {ACTIONS.newPreview.label}
-        <Icon name="caret" className="caret" />
+        {bulk ? (
+          bulk.label
+        ) : (
+          <>
+            <Icon name="plus" />
+            {ACTIONS.newPreview.label}
+            <Icon name="caret" className="caret" />
+          </>
+        )}
       </ActionButton>
       {menu.anchor ? (
         <Popover anchor={menu.anchor} onClose={menu.close} className="fkm" label={ACTIONS.newPreview.label}>
@@ -126,8 +134,8 @@ export function NewPreviewMenu({ target, lime = false, small = false, why = null
   );
 }
 
-/** The three ways as buttons, the first lime, each card with its command: Preview's empty tab, and a run nobody previewed. */
-export function PreviewWayButtons({ target, why = null }: { target: PreviewTarget; why?: string | null }) {
+/** The three ways as buttons, each card with its command: on Preview's empty tab the first lime, on a run nobody previewed small and plain. */
+export function PreviewWayButtons({ target, why = null, small = false, plain = false }: { target: PreviewTarget; why?: string | null; small?: boolean; plain?: boolean }) {
   const press = useBilledPress();
   const dialog = usePreviewDialog(target);
   const ways = useWayPrices(target, true);
@@ -136,7 +144,7 @@ export function PreviewWayButtons({ target, why = null }: { target: PreviewTarge
       {PREVIEW_WAYS.map((w, i) => (
         <ActionButton
           key={w.way}
-          className={`btn${i === 0 ? ' lime' : ''}`}
+          className={`btn${i === 0 && !plain ? ' lime' : ''}${small ? ' sm' : ''}`}
           why={why}
           tip={confirmWords(w.label)}
           command={wayCommand(w.way, target)}
