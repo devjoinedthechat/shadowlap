@@ -684,7 +684,9 @@ The strip's key is the call filter: *all*, then each kind or origin the run has,
 
 A run of several agents gets a chip per agent, nested ones included, with counts. Picking one dims the strip outside it and narrows every view to it. A run of one agent and no scope shows no chips.
 
-**A judge's calls**, made in Shadowlap's own scope (`shadowlap:judge`), are the check's, none of the agent's. All leaves them out, and so do the strip, the key's and the tabs' counts. They get a chip of their own, **judge**, after the agents' and a hairline, so a judged run of one agent shows the chips for them, the first reading **Agent**. Picking **judge** lists the judge's calls in Calls and Turns, and adds them to the strip, the agent's dimmed. Context and Timeline stay the agent's, and say so. A judge verdict's call opens under the chip.
+**A judge's calls**, made in Shadowlap's own scope (`shadowlap:judge`), are the check's, none of the agent's. They get a chip of their own, **judge**, after the agents' and a hairline, so a judged run of one agent shows the chips for them, the first reading **Agent**.
+
+All leaves the judge's calls out, and so do the strip, the key's and the tabs' counts. Picking **judge** lists them in Calls and Turns, and adds them to the strip, the agent's dimmed. Context and Timeline stay the agent's, and say so. A run never opens on a judge's call by itself, and each press of a judge verdict's call opens it under the chip.
 
 The dashboard names the agents itself, so a run needs no `scope()` to show them. Each conversation is one agent's, named by the first of these that applies:
 
@@ -695,7 +697,9 @@ The dashboard names the agents itself, so a run needs no `scope()` to show them.
 
 A handoff (`transfer_to_billing`) keeps the conversation and changes its agent: the calls after it are `billing`'s. The names are for reading only: replay matches calls by scope, never by them.
 
-The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line, and a judged one says no count, budget or cost of the agent's includes the judge's calls. Blame and Preview never offer the judge's scope.
+The line beside the chips gives the `shadowlap blame --scope` command for the scope picked. With none picked, it gives it for the one that acts: the scope that hands work to a nested one, or makes the most tool calls, not a model that plays its user. With one other scope that calls no tools, it says so (*Blame only the agent, not the customer it answers*). A run with no scopes has no such line.
+
+A judged run with no scopes says there instead that no count, budget or cost of the agent's includes the judge's calls. Blame and Preview never offer the judge's scope.
 
 ### Views of the run
 
@@ -2443,7 +2447,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - **Its state**: a run's `state` (kind, outcome, failed, interrupted) is the one the run list works out for it, and its status is the list's. A run its recorder left running reads `crashed`, ended at its last call.
 - **Its outcome by checks**: `judged` says what judged it (`by`: `own`, `import` or `family`), its `verdict`, the checks' `counts`, the `callNo` it turned on, the `first` check that failed, `today`, `since`, the `goldens` and `why`. It is `null` when no check judges the run. The page's answer and Runs' rows add each of `checks`; the sidebar's rows leave them out.
 - **A judge check's verdict**: each judge check in `checks` carries its `judge`, with the `verdict` (null for none), its `source`, `cost` and `model`, what was done to what it read (`redactions`, `cut`) and the judge's call in the run (`callNo`).
-- **A judge's calls**: a call in one of Shadowlap's own scopes says `reserved`, and a judge's call its `judge`: the `check` it answered and the `verdict` its run kept (null for none). Beside `origins`, `judgeCalls` numbers the judge's calls wherever they come, so the page keeps them out of All before their pages come. It is absent where the run has none.
+- **A judge's calls**: a call in one of Shadowlap's own scopes says `reserved`, and a judge's call its `judge`: the `check` it answered and the `verdict` its run kept (null for none). Beside `origins`, `judgeCalls` numbers the judge's calls wherever they come, absent where the run has none, so the page keeps them out of All before their pages come.
 - **Its agent's exit**: a test replay its agent's exit failed carries `exitCode` where its test result kept the code.
 - **Its next step**: `next` is what its header leads with ([The next step](#the-next-step)): its `key`, `label`, `href` for a link, `off` for why it can't start, the hover's `title` and `sub`, the `command` it runs and `estimate`, what it bills. `later` says this answer left out what would read a long run's calls, which `/api/runs/:id/next` answers with.
 - **A crash's next step**: `blame` is the Run blame beside it, its `offer`, `sub`, `command` and `estimate`.
