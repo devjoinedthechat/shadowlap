@@ -153,8 +153,8 @@ describe('copy set at a width', () => {
     expect(keptWords(flatText('Adds refund-in-limit and get_policy.result.limit'), null).map((w) => w.kind)).toEqual(['w', 'w']);
   });
 
-  it('balances no block, nor sentence, whose every word is kept whole', () => {
-    expect(setAt('refund-in-limit escalate-over-limit', 20).wrap).toBeNull();
+  it('balances no block, nor sentence, whose every word is kept whole: it wraps pretty, outranking a stylesheet’s balance', () => {
+    expect(setAt('refund-in-limit escalate-over-limit', 20).wrap).toBe('ts-pretty');
   });
 
   it('sets copy unmeasured as a block not laid out yet: short copy’s sentences whole, a run of joined words giving way past 30 characters', () => {

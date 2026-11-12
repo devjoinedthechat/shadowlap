@@ -479,8 +479,8 @@ export function planCopy(parts: readonly CopyPart[], m: CopyMeasure | null, opts
   const words = keptWords(f, fitsWord);
   const long = new Map(words.filter((w) => w.kind === 'long').map((w) => [w.from, fitsWord ? fitsWord(f.str.slice(w.from, w.to)) : null] as const));
   const wide = new Set(at ? f.atoms.filter((a) => at.m.atom(a.atom) > at.width).map((a) => a.atom) : []);
-  // never balance a block, nor a sentence, whose words are each kept whole
-  if (wrap === 'ts-bal' && allKept(toks, words, 0, f.str.length)) wrap = null;
+  // never balance a block, nor a sentence, whose words are each kept whole: set it pretty, which outranks a stylesheet's balance
+  if (wrap === 'ts-bal' && allKept(toks, words, 0, f.str.length)) wrap = 'ts-pretty';
   for (const u of units ?? []) if (u.set === 'balanced' && allKept(toks, words, u.from, u.to)) u.set = 'flow';
   return { text: joined(f.str, joins), wrap, units, words, long, wide };
 }

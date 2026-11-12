@@ -209,14 +209,15 @@ tr.krow > td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
    Chromium's renderer. The prompt is never copied with it, in Safari too, which takes only the prefixed rule. */
 .cmdline, code.ts-cmd { text-wrap: balance; }
 .cmdline { overflow-x: auto; }
-.cmdline > b, .cmdline .cmdp > b { -webkit-user-select: none; user-select: none; }
+.cmdline > b, .cmdp > b { -webkit-user-select: none; user-select: none; }
 /* a long argument (JSON, a path, a quoted title) is whole where its line holds it with its flag (.whole), so the command
    breaks between its arguments; only one wider than its line breaks inside (a <wbr> breaks even in nowrap, so where the
    argument is whole its <wbr>s are not laid out) */
 .carg.whole { white-space: nowrap; }
 .carg.whole wbr { display: none; }
-/* a setup step's and an empty state's quiet command: its prompt in the command's own weight, never copied with it */
-.cli code > b { font-weight: inherit; -webkit-user-select: none; user-select: none; }
+/* a setup step's and an empty state's quiet command (Command, inline): its prompt in the command's own weight, a space
+   after it, never copied with it */
+.cli .cmdp > b { font-weight: inherit; margin-right: .6ch; }
 
 /* ---- a run's id (Id): mono, never broken; in a list, its first six characters quieter ---- */
 /* drawn by the id's own ground, so its text is the id as it is, one text that copies, searches and reads whole */
