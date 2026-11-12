@@ -7,6 +7,7 @@ import {
   checkStatus,
   confirmWords,
   GATE_REPEAT,
+  GATE_TOO_LITTLE,
   goldenLiveParts,
   goldenRerunEstimate,
   goldenWords,
@@ -584,8 +585,8 @@ function causedAWrite(results: readonly StoredInjectionResult[]): boolean {
 /** Why a test stopped short and what to do about it: its budget's the advice to spend it better, any other stop in its own words. */
 const stopWords = (reason: string): string => (/\bbudget\b/.test(reason) ? 'It stopped at its budget: test with fewer templates, or a higher budget' : `It stopped early (${reason}): test it again`);
 
-/** Re-run test's card, where a golden's injection gate showed too little to say: on its run's page and on Needs a look's row. */
-export const gateAgainSub = (why: string | null | undefined): string => `Its injection gate showed too little to say: ${why ?? 'no attempt decided'}`;
+/** Re-run test's card, where a golden's injection gate showed too little to say, in the engine's words (trust-words.ts): on its run's page and on Needs a look's row. */
+export const gateAgainSub = (why: string | null | undefined): string => `${GATE_TOO_LITTLE.charAt(0).toUpperCase()}${GATE_TOO_LITTLE.slice(1)}: ${why ?? 'no attempt decided'}`;
 
 /** What a recording's newest finished plant leads with: its proof when it failed, running again when it showed too little; null when it says nothing to do. */
 function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
