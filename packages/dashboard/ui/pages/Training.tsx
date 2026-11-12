@@ -71,11 +71,7 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
       <PageHeader
         eyebrow={[projectOf(meta)?.name, 'training data'].filter(Boolean).join(' · ')}
         title="Training"
-        text={
-          <>
-            <span className="ln">Answers to prefer, from attempts already in the store,</span> <span className="ln">and your goldens as tasks to score.</span>
-          </>
-        }
+        text="Answers to prefer, from attempts already in the store, and your goldens as tasks to score."
         actions={
           action?.kind === 'score' ? (
             <ScoreModelButton why={action.off} onOpen={() => guard(() => setDialog('score'))} />

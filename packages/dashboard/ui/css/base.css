@@ -453,8 +453,6 @@ code.flag { white-space: nowrap; font-size: .92em; }
 .dlink { color: var(--ink); text-decoration: none; }
 .dlink:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 
-/* a page's line under its title, in clauses: with less room than the line needs it breaks between them, never inside one */
-.ph p .ln { display: inline-block; }
 
 code.tipped { cursor: help; }
 

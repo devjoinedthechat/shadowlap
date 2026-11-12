@@ -102,9 +102,9 @@ describe('the Training page', () => {
   it('says where pairs and tasks come from, and what the last export wrote', async () => {
     r = await render(page('pairs'));
     await r.until('the page to load', () => r!.all('.pfacts').length > 0);
-    expect(r.one('.ph p').textContent).toBe('Answers to prefer, from attempts already in the store, and your goldens as tasks to score.');
-    // In two clauses, so with less room than the line needs it breaks between them, not before its last words.
-    expect(text(r, '.ph p .ln')).toEqual(['Answers to prefer, from attempts already in the store,', 'and your goldens as tasks to score.']);
+    // One sentence set by Copy, which breaks it after its clause where the line can't hold it (browser/line-breaks.spec.ts reads it at 320 to 430).
+    expect(text(r, '.ph p')).toEqual(['Answers to prefer, from attempts already in the store, and your goldens as tasks to score.']);
+    expect(r.one('.ph p').textContent).toContain('in\u00a0the\u00a0store,');
     expect(r.document.body.textContent).not.toContain('from failures you fixed');
     // The facts under the header, the last export last and quieter, its card saying what it wrote: main's words, Exported.
     const facts = r.all('.pfacts .metric');
