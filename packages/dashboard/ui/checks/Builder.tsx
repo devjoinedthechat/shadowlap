@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { ApiError } from '../api.js';
 import type { CheckContext, CheckPreview, ChecksConfig, ChecksOf, GoldenEntry } from '../checks-api.js';
+import { Copy } from '../components/Copy.js';
 import { Dialog } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
 import { ErrorState } from '../components/States.js';
@@ -69,7 +70,7 @@ export function Builder(props: BuilderProps) {
   if (!cfg.data || (at && !ctx.data && !ctx.error)) {
     return (
       <Dialog title={head.title} lead={head.lead} doc="checks" className="ckb" scrim="ignore" ok="Save check" okWhy={cfg.error ? 'Its golden’s checks didn’t load' : 'Loading its golden’s checks…'} onClose={props.onClose}>
-        {cfg.error ? <ErrorState retry={cfg.reload}>{messageOf(cfg.error)}</ErrorState> : <p className="cb-note">Loading the golden’s checks…</p>}
+        {cfg.error ? <ErrorState retry={cfg.reload}>{messageOf(cfg.error)}</ErrorState> : <Copy className="cb-note">Loading the golden’s checks…</Copy>}
       </Dialog>
     );
   }

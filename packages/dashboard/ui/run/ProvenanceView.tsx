@@ -254,14 +254,14 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
             // An exported copy says how it was made itself: it has no Settings, and no copy is made from it.
             <Copy className="muted">{exportedLine({ exportedAt: meta?.exportedAt ?? null, rules: meta?.redactedRules ?? null, redacted: meta?.redacted ?? null })}</Copy>
           ) : (
-            <p className="muted">
+            <Copy className="muted" title={uncounted ?? undefined}>
               A copy made now (pack, export html, export dataset or export pairs) applies{' '}
-              <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted, counting, prov?.mask?.unmasked ?? 0, prov?.mask?.returned ?? 0)}</span>
+              {copyRules(rules, masked, !!uncounted, counting, prov?.mask?.unmasked ?? 0, prov?.mask?.returned ?? 0)}
               .{' '}
               <a className="more" href={href.settings('redaction')}>
                 {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}
               </a>
-            </p>
+            </Copy>
           )}
           <Copy className="muted">Exports aren’t signed. A pack’s blobs are checked against their hashes when it’s unpacked, and anything that fails imports nothing.</Copy>
           {labels.length || notes.length ? (

@@ -394,7 +394,7 @@ function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
             </ul>
           </>
         ) : null}
-        {note ? <p className="fxnote">{note}</p> : null}
+        {note ? <Copy className="fxnote">{note}</Copy> : null}
       </div>
     </Section>
   );

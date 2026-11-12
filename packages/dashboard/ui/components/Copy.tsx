@@ -355,9 +355,10 @@ function useAtoms(nodes: readonly ReactNode[], block: { current: HTMLElement | n
  * its last line a third of the measure where it can. `phrases`: a dialog's lead, a row's value, a
  * card or a setup step, which also break before a phrase, and a sentence too long for its line at
  * its clauses. Longer prose (five sentences or more, or past 640 characters) keeps its flow. Data
- * never goes in it: a model's answer, a prompt, code or an id.
+ * never goes in it: a model's answer, a prompt, code or an id. `title`, the block's hover, for a
+ * line whose part would otherwise carry it as an element, kept whole.
  */
-export function Copy({ children, as: Tag = 'p', className, phrases = false, id }: { children: ReactNode; as?: Block; className?: string | undefined; phrases?: boolean; id?: string | undefined }) {
+export function Copy({ children, as: Tag = 'p', className, phrases = false, id, title }: { children: ReactNode; as?: Block; className?: string | undefined; phrases?: boolean; id?: string | undefined; title?: string | undefined }) {
   const ref = useRef<HTMLElement | null>(null);
   const box = useBox(ref);
   const { parts, nodes } = useMemo(() => partsOf(children), [children]);
@@ -378,7 +379,7 @@ export function Copy({ children, as: Tag = 'p', className, phrases = false, id }
   }, [parts]);
   const drawer: Drawer = { plan, atoms: placed, nodes, wrap: atoms.wrap };
   return (
-    <Tag ref={(el: HTMLElement | null) => void (ref.current = el)} id={id} className={[className, plan.wrap].filter(Boolean).join(' ') || undefined} onFocus={(e) => atoms.onFocus(e.target)}>
+    <Tag ref={(el: HTMLElement | null) => void (ref.current = el)} id={id} title={title} className={[className, plan.wrap].filter(Boolean).join(' ') || undefined} onFocus={(e) => atoms.onFocus(e.target)}>
       {plan.units ? drawUnits(drawer, plan.units) : drawRange(drawer, 0, plan.text.length)}
     </Tag>
   );
