@@ -1,6 +1,4 @@
-import type { FactWords } from '../actions.js';
 import { num, shortId } from '../format.js';
-import { draftCommand } from '../job-title.js';
 import { ACTIONS } from '../labels.js';
 import type { RunOffers } from '../types.js';
 
@@ -8,6 +6,9 @@ import type { RunOffers } from '../types.js';
  * The Share menu without the DOM: which copies it lists, in the mock's order and words (parallel nouns,
  * an ellipsis on each that asks first), and the note
  * under them on how many redaction rules each applies (decision 6). The tests import it.
+ * It loads with the menu (ShareMenu.tsx, a part only the served dashboard hands in), the dialogs the
+ * menu opens and the Runs page's bulk bar, never with a run's page: what its header, steps and keys
+ * say of a copy is in share-steps.ts.
  */
 
 export type ShareKey = 'link' | 'html' | 'pack' | 'dataset' | 'otel' | 'har' | 'security';
@@ -36,34 +37,6 @@ const ITEMS: Record<CopyKey, Omit<ShareItem, 'key'>> = {
 
 /** Where the server's jobs write a copy, inside the project (src/run-exports.ts). */
 export const EXPORTS = '.shadowlap/exports';
-
-/**
- * What a copy's dialog says of its redaction rules: how many, and that the store never changes, or
- * that the copy holds what was recorded. A trace holds no prompt text whatever they say. No row where
- * the server doesn't say how many.
- */
-export function redactsFact(rules: number | null, trace = false): FactWords | null {
-  if (rules === null) return null;
-  const by = `by ${num(rules)} ${rules === 1 ? 'rule' : 'rules'}`;
-  if (trace) return rules ? { label: 'Redacts', value: by, quiet: 'a trace holds no prompt, arguments or results' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules; a trace holds no prompt, arguments or results' };
-  return rules ? { label: 'Redacts', value: by, quiet: 'the store never changes' } : { label: 'Redacts', value: 'nothing', quiet: 'no redaction rules: the copy holds what was recorded' };
-}
-
-/** Pack's command for one run, wherever it is asked (Share, the bulk bar, the key `p`): the folder as typed, quoted as its job's is. */
-export function packRunCommand(runId: string, dir: string): string {
-  return draftCommand(['pack', shortId(runId), dir.trim()]);
-}
-
-/** What Pack as golden… waits with, as it packs a golden and tests it: a Tests job holds the goldens. */
-export const PACK_VERB = 'pack it';
-
-/** What Pack as golden… runs, a line each: the pack into the golden's folder, then its test. */
-export function packTestCommands(runId: string, dir: string): readonly string[] {
-  return [packRunCommand(runId, dir), draftCommand(['test', dir.trim()])];
-}
-
-/** What a pack holds, its one fact besides that. */
-export const PACK_HOLDS: FactWords = { label: 'Holds', value: '`run.json`, `calls.jsonl` and one file per blob' };
 
 /** A copy's name in a file or a folder: the run's id, as the server's jobs name it. */
 const fileId = (runId: string) => runId.slice(0, 10).toLowerCase();
@@ -105,21 +78,8 @@ export function shareItems(o: { can: (key: CopyKey) => boolean; team: RunOffers[
   keys.push('html');
   for (const key of ['pack', 'dataset', 'otel', 'har'] as const) if (o.can(key)) keys.push(key);
   const items: ShareItem[] = keys.map((key) => ({ key, ...ITEMS[key] }));
-  if (o.security) items.push({ key: 'security', label: 'Security report', flag: null, why: o.security.mode === 'plant' ? 'The kept test’s report: the matrix and each proof' : 'The kept answer’s report: each write, its verdict and tally' });
+  if (o.security) items.push({ key: 'security', label: ACTIONS.securityReport.label, flag: null, why: o.security.mode === 'plant' ? 'The kept test’s report: the matrix and each proof' : 'The kept answer’s report: each write, its verdict and tally' });
   return items;
-}
-
-/**
- * The link a finished share job made, from its result (`shadowlap share` reports `url` and
- * `expiresAt`), for the drawer's Copy link: a job's own links only ever open pages of the dashboard,
- * and this one is a presigned URL in the team's bucket. Null until the job has ended well, or for
- * anything that isn't a web address.
- */
-export function sharedLink(job: { done: boolean; code: number | null; result?: unknown }): { url: string; expiresAt: number | null } | null {
-  if (!job.done || job.code !== 0 || !job.result || typeof job.result !== 'object') return null;
-  const { url, expiresAt } = job.result as { url?: unknown; expiresAt?: unknown };
-  if (typeof url !== 'string' || url.length > 8192 || !/^https?:\/\/[^\s]+$/.test(url)) return null;
-  return { url, expiresAt: typeof expiresAt === 'number' && Number.isFinite(expiresAt) ? expiresAt : null };
 }
 
 const rulesWord = (n: number) => `${num(n)} redaction ${n === 1 ? 'rule' : 'rules'}`;
@@ -230,22 +190,4 @@ export function shareItemOff(key: ShareKey, o: Pick<ShareContext, 'actionsOff' |
   if (o.live) return STILL_RECORDING;
   if (key === 'html' || key === 'security') return null;
   return o.actionsOff;
-}
-
-/**
- * Push, in the header: a run that is only on this machine goes to the team store the config names,
- * with the runs it came from, and so do attempts filed under it that are only here (a run in the
- * store whose attempts aren't has Push too, as the Runs page tags it local). Never on an exported
- * copy or a run still recording, and only where the server has the team store's `push` job.
- */
-export function canPush(o: { exported: boolean; live: boolean; team: RunOffers['team'] | null | undefined; hasPush: boolean }): boolean {
-  return !o.exported && !o.live && o.team?.state === 'only-here' && o.hasPush;
-}
-
-/** What Push sends, for its hover: the run, its attempts only here, or both. */
-export function pushTitle(team: NonNullable<RunOffers['team']>): string {
-  const a = team.localAttempts;
-  const attempts = a ? (a.attempts === 1 ? 'attempt' : `${num(a.attempts)} attempts`) : '';
-  if (a && !a.run) return `Copy this run’s ${attempts} to the team store, ${team.store}: the run is there already`;
-  return `Copy this run${a ? ` and its ${attempts}` : ''} to the team store, ${team.store}, with the runs it came from`;
 }

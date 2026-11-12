@@ -15,7 +15,7 @@ import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
-import { divergedAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
+import { divergedAsk, gateAgainAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
 import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
@@ -155,6 +155,7 @@ export function TestsPage() {
     onUpdate: (golden, e) => guard(() => setOpen({ kind: 'update', paths: [golden], estimate: e })),
     onFind: findCommit,
     onMore: (v, e) => v.gate?.more && start(JOB_KINDS.tests, v.gate.more.job, moreAttemptsAsk(v.name, v.gate.more), e),
+    onAgain: (lead, e) => start(JOB_KINDS.tests, { golden: lead.golden }, gateAgainAsk(lead.name, lead.golden), e),
   };
 
   return (
@@ -166,7 +167,7 @@ export function TestsPage() {
         <DivergencePanel key={d.golden} d={d} has={hasKind} updateLeads={view.steps?.[d.golden]?.key === 'update-golden'} wait={wait} live={bisectLive(view, d)} prices={prices} onNormalize={(e) => guard(() => normalize(d, e))} onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e }))} onFind={() => findCommit(d)} />
       ))}
       {view.failures.map((f) => (
-        <FailurePanel key={f.golden} f={f} off={findWait} live={bisectLive(view, f)} button={findCommitButton(f, hasKind)} onBisect={() => findCommit(f)} />
+        <FailurePanel key={f.golden} f={f} off={findWait} live={bisectLive(view, f)} button={findCommitButton(f, hasKind)} step={view.steps?.[f.golden]} prices={prices} onBisect={() => findCommit(f)} />
       ))}
       {view.inconclusive.map((v) => (
         <InconclusivePanel

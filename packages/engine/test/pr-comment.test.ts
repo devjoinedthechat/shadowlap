@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { decisionsHeadline, emptyCounts, JUDGED_IN_RECORDED_STATE, type DecisionStep } from '../src/decisions.js';
-import { commentDecisions, commentHead, commentInjection, commentMarkdown, commentRows, costPerRunLine, injectionGateLine, injectionTally, JUDGED_IN_RECORDED_STATE_SHORT, type CommentDecisionsSource, type CommentResult } from '../src/pr-comment.js';
+import { commentDecisions, commentHead, commentInjection, commentMarkdown, commentRows, costPerRunLine, injectionGateLine, JUDGED_IN_RECORDED_STATE_SHORT, type CommentDecisionsSource, type CommentResult } from '../src/pr-comment.js';
 import type { InjectionGateData } from '../src/store/tests.js';
+import { injectionTally } from '../src/trust-words.js';
 import { sessionTally } from '../src/verdict-words.js';
 
 /**

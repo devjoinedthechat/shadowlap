@@ -1,7 +1,8 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FindingPanel, MATRIX_STATES, ResultsMatrixPart, ResultsToggle } from '../ui/components/FindingPanel.js';
+import { FindingPanel, MATRIX_STATES, ResultsMatrixPart } from '../ui/components/FindingPanel.js';
+import { ResultsToggle } from '../ui/components/ResultsToggle.js';
 import { MatrixKey } from '../ui/components/MatrixKey.js';
 import { Receipt } from '../ui/components/Receipt.js';
 import { ResultsMatrix } from '../ui/components/ResultsMatrix.js';
@@ -465,7 +466,7 @@ describe('the matrix’s own script', () => {
 
   it('starts to load as the pointer reaches Show results, before the results open, so they show at once', async () => {
     expect(ResultsMatrixPart.script).toBe('idle');
-    r = await render(createElement(ResultsToggle, { runId: RUN, which: 'presets' }));
+    r = await render(createElement(ResultsToggle, { runId: RUN, which: 'presets', preload: () => ResultsMatrixPart.preload() }));
     expect(ResultsMatrixPart.script).toBe('idle');
     await r.hover(r.one('[data-act="results"]'));
     expect(ResultsMatrixPart.script).not.toBe('idle');

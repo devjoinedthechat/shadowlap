@@ -171,6 +171,52 @@ describe('what each colour may mean', () => {
     expect(value('.seg button', 'min-height')).toBe('24px');
     expect(value('.seg a', 'min-height')).toBe('24px');
     expect(value('.attempts a', 'min-height')).toBe('24px');
+    // Needs a look's ×, drawn 22px, takes taps a pixel past its edge on each side: 24px.
+    expect([value('.arow .adis', 'width'), value('.arow .adis', 'height'), value('.arow .adis', 'position')]).toEqual(['22px', '22px', 'relative']);
+    expect([value('.arow .adis::after', 'position'), value('.arow .adis::after', 'inset')]).toEqual(['absolute', '-1px']);
+  });
+
+  it('mutes a dismissed row of Needs a look by its colours, never by fading it', () => {
+    expect([value('.arow.off .t', 'color'), value('.arow.off .glyph', 'color')]).toEqual(['var(--dim)', 'var(--faint)']);
+    const faded = rules().filter((r) => r.selectors.some((x) => x.startsWith('.arow.off')) && /(^|;)\s*opacity\s*:/.test(r.body));
+    expect(faded.map((r) => r.selectors.join(', '))).toEqual([]);
+  });
+
+  it('hides a × that waits (read-only, offline) at rest as one that runs, and shows it at half strength wherever it shows', () => {
+    // The rule for what waits and is no button of its own style leaves the × to its own look, which hides it at rest.
+    const waits = styleRules().filter((r) => r.selectors.some((x) => x.startsWith('[data-why][aria-disabled="true"]:not(')));
+    expect(waits.flatMap((r) => r.selectors)).toEqual(['[data-why][aria-disabled="true"]:not(.btn, .linkbtn, .rk, .switch, .pop button, .adis)']);
+    expect(value('.arow .adis', 'opacity')).toBe('0');
+    for (const shown of ['.arow:hover .adis[aria-disabled="true"]', '.arow:focus-within .adis[aria-disabled="true"]', '.arow .adis[aria-disabled="true"]:focus-visible']) expect([value(shown, 'opacity'), value(shown, 'cursor')], shown).toEqual(['.5', 'not-allowed']);
+    const touch = styleRules().filter((r) => r.conditions.some((c) => /hover:\s*none/.test(c)));
+    expect(touch.find((r) => r.selectors.includes('.arow .adis'))?.decls).toEqual([['opacity', '1']]);
+    expect(touch.find((r) => r.selectors.includes('.arow .adis[aria-disabled="true"]'))?.decls).toEqual([
+      ['opacity', '.5'],
+      ['cursor', 'not-allowed'],
+    ]);
+  });
+
+  it('tags an untrusted read as its effect is tagged, never in a consequence colour, and marks an injection test in the colours of what it found', () => {
+    // Where a read's text came from is a fact of the call, not a finding: dim, one step brighter than its effect's faint.
+    expect(value('.eff.untrusted', 'color')).toBe('var(--dim)');
+    expect(value('.eff', 'color')).toBe('var(--faint)');
+    // The canary, wherever the inspector marks it, is what got out: the one red, on a tint of it.
+    expect(value('mark.cnry', 'color')).toBe('var(--cq-red)');
+    expect(value('mark.cnry', 'background')).toBe('color-mix(in srgb, var(--cq-red) 16%, transparent)');
+    expect(value('.cnry', 'color')).toBe('var(--cq-red)');
+    // The planted text is the planted origin's violet, as the turn it changed is: an override, not a failure.
+    expect(value('mark.ins-plant', 'color')).toBe('var(--o-over)');
+    expect(value('mark.ins-plant', 'background')).toBe('color-mix(in srgb, var(--o-over) 14%, transparent)');
+    expect(value('.msg.changed.ov .chg', 'color')).toBe('var(--o-over)');
+    // An attempt that ignored it, and a plant's clean replays, are muted: they showed nothing to look at.
+    expect(value('.astrip .ac.mu', 'background')).toBe('var(--cq-muted-fill)');
+    // The Security report's example mask reads as a diff does: the value struck through in the removed colour, its mask in the added one.
+    expect(value('.injmask .del', 'color')).toBe('var(--del)');
+    expect(value('.injmask .add', 'color')).toBe('var(--add)');
+    // A golden's injection gate is one of its checks (`.ck.injck`), its mark in a check's colours, a hairline above it.
+    for (const [status, colour] of [['passed', 'var(--ok)'], ['failed', 'var(--err)'], ['inconclusive', 'var(--warn)']] as const) expect(value(`table.gt .chk .ck.${status} .cm`, 'color'), status).toBe(colour);
+    expect(value('table.gt .chk .ck.injck', 'border-top')).toBe('1px solid var(--line)');
+    expect(value('table.gt .chk .ck.injck', 'color')).toBeNull();
   });
 
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {
@@ -280,7 +326,6 @@ describe('lime', () => {
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.badge.ok': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
-    '.setupdone': 'port/setup-states: a setup that is done says so as a verdict line, “set up” in the passed colour, never a tinted box',
   };
   /** Where lime marks no meaning: the keyboard's focus, a focused field, the text you select, and the row the keys light in a list whose field keeps the focus (`.kb`: a picker's, the palette's). */
   const FOCUS = /:focus(-visible|-within)?\b|^::selection$|^\.labelbar input$|\.kb \.\w+\.on$/;
@@ -374,6 +419,7 @@ describe('amber', () => {
     '.rntools .eff.unknown': 'a tool whose effect no rule says: a look',
     '.fieldnote.warn': 'a field’s value that needs a look',
     'ol.setup .sb > p.fieldnote.warn': 'a setup field’s value that needs a look',
+    '.warnline > p > b': 'a warning in a step: its first words, the rest of its line in the step’s own colour',
     'ol.setup.storesetup dd .warnt': 'a store setting that needs a look',
     '.agentfiles .warn': 'a coding agent’s file that needs a look',
     '.skrow > div:first-child > span.warn': 'a skill that needs a look',
@@ -390,6 +436,10 @@ describe('amber', () => {
     '.rmx-c.warn i': 'a results matrix’s cell that was inconclusive or influenced: its bar',
     '.rmx-c.warn b': 'a results matrix’s cell that was inconclusive or influenced: its word',
     '.mxsw.warn': 'a matrix’s key: what was inconclusive or influenced',
+    '.cb-units li.bad .cb-ul code': 'a rule the check builder refuses, in the engine’s words: Save waits until it is fixed',
+    '.cb-notes li.y': 'a note against the agent’s recordings that needs a look before the check is saved',
+    '.cb-row .cm.inc': 'a recording the check being built can’t decide',
+    '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
     'i.dg.s': 'a preview key’s swatch for a change of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
     'i.dg.jw': 'a preview key’s swatch for a step that waits on a judge: its ring',
     '.dc.s': 'a decision cell of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
@@ -412,7 +462,6 @@ describe('amber', () => {
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
-    '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
   };
 
   it('means needs a look or inconclusive, and nothing else: never a fork, stubbed or blame', () => {

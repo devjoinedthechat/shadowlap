@@ -475,6 +475,8 @@ Replays are offline, so it costs no tokens. The worktrees are removed after each
 - **Commits it can't test.** A commit that won't check out, or where `--build` fails, is skipped, as `git bisect skip` would, and the nearest other commit is tried instead. When the first bad commit could be one it skipped, it names those too.
 - **First parents.** History is followed by first parents, so a merged branch counts as its merge commit. Only commits that have `--good` in their history are replayed: for a `--good` commit on a branch that was merged, that starts at the merge that brought it in.
 - **A `--good` commit on another branch** works from where the two histories meet, which is checked like any good commit.
+- **What the answer keeps.** The first bad commit keeps what it changed against its first parent: the file it opens, the files it changed, that file's hunk and the line it added. The dashboard shows it with the answer, without a checkout.
+- **A gate against history.** A golden gated against its history is judged at each commit against that history, as `shadowlap test` judges it: its last sessions that passed on the baseline branch. With none yet, the search says so under its first line.
 
 ### A run, or a golden that forks
 

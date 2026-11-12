@@ -7,7 +7,9 @@ import { fixForRun, type FixForRun } from './fixes.js';
 import { injectionResults, type InjectionRow } from './injection.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testOf, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
-import { passedSince } from './runs-filter.js';
+import { fixedBy, passedSince } from './runs-filter.js';
+import { GOLDEN_HISTORY } from './bisect-start.js';
+import { standingFound, type FoundCommit } from './tests-bisect.js';
 import { runState } from './runs-list.js';
 
 /**
@@ -84,6 +86,12 @@ export interface RunOffers {
    * any other run, and for a crash that kept no output.
    */
   crash?: { line: string; at: number | null; of: number | null } | null;
+  /**
+   * The first bad commit Find breaking commit named for the failure of a test replay that crashed,
+   * while the answer stands and no later replay of its golden passed: the finding that leads, with
+   * its change. Absent or null otherwise. Served through found-here.ts.
+   */
+  commit?: FoundCommit | null;
 }
 
 export interface RunOffersInput {
@@ -130,10 +138,14 @@ function keepOffer(store: Store, run: RunRecord, input: RunOffersInput): RunOffe
   return row && keepable(row, run, input.dir, input.goldens ?? []) ? { folder: goldenFolder(run.runId) } : null;
 }
 
-/** Share's Security report: the newest of the run's kept injection results with a report, not one still running. */
-function securityOffer(store: Store, run: RunRecord): RunOffers['security'] {
-  const done = injectionResults(store, { runId: run.runId }).results.find((r) => !r.running);
-  return done ? { resultId: done.resultId, mode: done.mode } : null;
+/**
+ * Share's Security report: the run's newest kept test that has ended, the one its finding shows, else
+ * its newest --clean answer that has ended; none while the only one still runs.
+ */
+export function securityOffer(store: Store, run: Pick<RunRecord, 'runId'>): RunOffers['security'] {
+  const done = injectionResults(store, { runId: run.runId }).results.filter((r) => !r.running);
+  const kept = done.find((r) => r.mode === 'plant') ?? done[0];
+  return kept ? { resultId: kept.resultId, mode: kept.mode } : null;
 }
 
 function teamOf(store: StoreOf<'recording' | 'readModels' | 'team'>, run: RunRecord, raw: unknown): RunOffers['team'] {
@@ -288,6 +300,20 @@ export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord
 }
 
 /**
+ * The commit Find breaking commit named for a test replay that crashed (`crashed`, by its golden's
+ * result), by the one rule of whether an answer stands (`standingAnswer`), while no later replay of its
+ * golden passed (`fixedBy`, which Runs' `fixed by <run>` reads). Null for any other run.
+ */
+export function crashCommit(store: StoreOf<'recording' | 'tests' | 'activity' | 'readModels'>, run: RunRecord): FoundCommit | null {
+  const test = testOf(run);
+  const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
+  if (!test || !result || !crashed(null, result)) return null;
+  const row = loadRunIndex(store).byId.get(run.runId);
+  if (!row || fixedBy(store, row, (golden) => store.listTestResults({ golden, limit: GOLDEN_HISTORY }))) return null;
+  return standingFound(store, test.golden);
+}
+
+/**
  * Find breaking commit for a run blame found failing when this store holds no fix to say which check: one
  * that exited 0 and kept no checks of its own failed the check blame was given. With the run's fix
  * here, bisectChoices reads that check from it and searches with it (`--expect`, replayed with
@@ -354,5 +380,6 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     keep: keepOffer(store, run, input),
     security: securityOffer(store, run),
     crash: crashOffer(store, run),
+    commit: crashCommit(store, run),
   };
 }

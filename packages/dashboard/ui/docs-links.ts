@@ -14,6 +14,7 @@ export interface DocsLink {
 }
 
 export const DOCS = {
+  checks: { page: 'checks#make-a-check-in-the-dashboard', what: 'Checks' },
   deletingRuns: { page: 'cli#rm-gc', what: 'Deleting runs' },
   commandsFromSomeoneElse: { page: 'dashboard#commands-from-someone-else', what: 'Commands from someone else' },
   injectInstruction: { page: 'interventions#inject-an-instruction', what: 'Interventions' },
@@ -27,6 +28,7 @@ export const DOCS = {
   changedPrompt: { page: 'interventions#apply-a-changed-prompt-from-a-later-call', what: 'Interventions' },
   injectionTests: { page: 'injection#what-a-test-does', what: 'Injection tests' },
   injectionGate: { page: 'injection#gate-ci-on-it', what: 'Injection tests' },
+  injectionReport: { page: 'injection#the-security-report', what: 'Injection tests' },
   imports: { page: 'cli#import', what: 'Imports' },
   packs: { page: 'cli#pack-unpack', what: 'Packs' },
   datasets: { page: 'cli#export-dataset', what: 'Datasets' },

@@ -2,18 +2,17 @@ import { isObject } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import { chaosMatrices, presetsSummary } from './chaos.js';
 import { coverageNewest } from './coverage.js';
-import { injectionNeedsLook } from './injection.js';
 import { links } from './links.js';
+import { adviceOf } from './needs-look/advice.js';
 import type { LookSource, LookWork, NeedsLookRow } from './needs-look/row.js';
 import type { GoldenList, GoldenSource } from './tests.js';
 
 /**
- * What the upgrades found, as lines of Needs a look: an injection test a planted instruction got
- * through, error-path presets that failed or couldn't say, a preview of a change that flags runs,
- * and behaviours seen in production that no golden covers. The CLI keeps each in the store; this
- * reads what it kept, and each line opens the run that shows it (an attempt that obeyed, a preset's
- * failing attempt, a run whose decision changed, a capture of the behaviour), as no page of their
- * own exists yet. Red lines are failures; amber lines need a look or couldn't decide.
+ * What the upgrades found, as lines of Needs a look: error-path presets that failed or couldn't say,
+ * a preview of a change that flags runs, and behaviours seen in production that no golden covers (an
+ * injection test's lines are needs-look/security.ts'). The CLI keeps each in the store; this reads
+ * what it kept, and each line opens the run that shows it (a preset's failing attempt, a run whose
+ * decision changed, a capture of the behaviour), as no page of their own exists yet. Red lines are failures; amber lines need a look or couldn't decide.
  */
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 const goldenName = (path: string) => path.replace(/^\.\//, '').replace(/^goldens\//, '');
@@ -21,36 +20,6 @@ const pathOf = (g: string | GoldenSource) => (typeof g === 'string' ? g : g.path
 
 /** The run a line opens, when the store still has it. */
 const kept = (store: StoreOf<'recording'>, runId: string | null | undefined): string | null => (runId && store.getRun(runId) ? runId : null);
-
-/**
- * An injection test's lines: obeyed in red, first; influenced or inconclusive in amber. Each opens an
- * attempt that shows it, else the run tested. A golden's injection gate is Tests' to list: a result
- * its newest test result carries (it ran in that test's session) is already a failing or an
- * inconclusive test, so it adds no line of its own; a golden tested on its own (`shadowlap
- * injection goldens/x`) does. A golden no longer on disk, or a run no longer in the store, has none.
- */
-function injectionLooks(store: StoreOf<'recording' | 'tests' | 'injection'>, goldens: GoldenList): NeedsLookRow[] {
-  const onDisk = new Set(goldens.map(pathOf));
-  const tested = new Map(store.latestTestResults().map((t) => [t.golden, t]));
-  const failed: NeedsLookRow[] = [];
-  const warn: NeedsLookRow[] = [];
-  for (const x of injectionNeedsLook(store)) {
-    if (x.golden ? !onDisk.has(x.golden) : !kept(store, x.runId)) continue;
-    const result = store.getInjectionResult(x.resultId);
-    const test = x.golden ? tested.get(x.golden) : undefined;
-    if (test && (test.data?.injection?.resultId === x.resultId || (!!result?.sessionId && test.sessionId === result.sessionId))) continue;
-    const name = x.golden ? goldenName(x.golden) : x.runId.slice(0, 10);
-    // The attempt whose verdict is the line's: the evidence, a run of its own.
-    const attempts = isObject(result?.data) && Array.isArray(result.data.attempts) ? (result.data.attempts as unknown[]).filter(isObject) : [];
-    const shows = attempts.find((a) => a.verdict === x.severity && typeof a.runId === 'string' && kept(store, a.runId));
-    const runId = (shows?.runId as string | undefined) ?? kept(store, x.runId);
-    const row = (icon: 'fail' | 'warn', title: string): NeedsLookRow => ({ key: `attn:injection:${runId ? links.run(runId) : x.resultId}`, group: 'security', kind: 'injection', icon, title, detail: x.text, step: null, href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: result?.endedAt ?? 0 });
-    if (x.severity === 'obeyed') failed.push(row('fail', `An injection test failed: ${name}`));
-    else if (x.severity === 'influenced') warn.push(row('warn', `An injection test needs a look: ${name}`));
-    else warn.push(row('warn', `An injection test is inconclusive: ${name}`));
-  }
-  return [...failed, ...warn];
-}
 
 /**
  * Each golden's presets that failed (in red) or that couldn't say (in amber), as their last session
@@ -175,7 +144,11 @@ export const presetsUnsure: LookSource = {
   rest: (n) => ({ icon: 'warn', title: `${plural(n, 'more error-path test')} inconclusive`, detail: 'each on its run, under Runs', href: links.runs() }),
 };
 
-/** `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it, keyed by the newest behaviour no golden covers. */
+/**
+ * `/api/coverage` serves the look in its own shape, `action` included: the row takes the rest of it,
+ * keyed by the newest behaviour no golden covers. Advice: it states every uncovered behaviour, so a
+ * golden packed for one keeps it put away, and a behaviour seen since brings it back.
+ */
 export const coverage: LookSource = {
   id: 'coverage',
   group: 'tests',
@@ -184,7 +157,7 @@ export const coverage: LookSource = {
     const newest = coverageNewest(w.store);
     if (!newest) return [];
     const { kind, icon, title, detail, href, runId, fixId, at } = newest.look;
-    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at }];
+    return [{ key: `attn:coverage:${newest.key}`, group: 'tests', kind, icon, title, detail, step: null, href, runId, fixId, at, advice: adviceOf('coverage', newest.uncovered) }];
   },
 };
 
@@ -196,11 +169,3 @@ export const decisions: LookSource = {
   rest: (n) => ({ icon: 'warn', title: `${plural(n, 'more preview')} of a change to look at`, detail: 'each on its run, under Runs', href: links.runs() }),
 };
 
-/** Obeyed first: the line for the rest reads in red when any of the rest obeyed. */
-export const injection: LookSource = {
-  id: 'injection',
-  group: 'security',
-  order: 10,
-  rows: (w) => injectionLooks(w.store, w.goldens),
-  rest: (n, rest) => ({ icon: rest.some((x) => x.icon === 'fail') ? 'fail' : 'warn', title: `${plural(n, 'more injection test')} to look at`, detail: 'each on its run, under Runs', href: links.runs() }),
-};

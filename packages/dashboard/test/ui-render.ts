@@ -53,6 +53,21 @@ export class FakeElement {
   get className(): string {
     return this.attributes.get('class') ?? '';
   }
+  /** Its `data-*` attributes by their names in camelCase, read and set as a page does (`data-tip` is `dataset.tip`). */
+  get dataset(): Record<string, string | undefined> {
+    const name = (k: string | symbol) => (typeof k === 'string' ? `data-${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}` : null);
+    return new Proxy({}, {
+      get: (_, k) => {
+        const n = name(k);
+        return n === null ? undefined : this.attributes.get(n);
+      },
+      set: (_, k, v) => {
+        const n = name(k);
+        if (n !== null) this.attributes.set(n, String(v));
+        return true;
+      },
+    });
+  }
   /** No layout here: every box sits at 0, 0 with no size (`clientWidth` below too), and nothing scrolls. */
   scrollLeft = 0;
   scrollTop = 0;

@@ -6,7 +6,7 @@ import { CodeBox } from '../components/CodeBox.js';
 import { Words } from '../components/Copy.js';
 import { Link } from '../components/Link.js';
 import { Section } from '../components/Section.js';
-import { EmptyLine, ErrorState, Skeleton } from '../components/States.js';
+import { EmptyLine, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { Status, statusTone } from '../components/Status.js';
 import { rowOpen } from '../components/Table.js';
 import { glossed } from '../components/Term.js';
@@ -44,7 +44,7 @@ export function RevisionPage({ rev }: { rev: string }) {
           No change {rev}. <Link href={href.changes()}>Open Verdicts</Link>
         </div>
       );
-    return <ErrorState retry={loaded.reload}>{loaded.error instanceof ApiError ? `The dashboard server answered ${loaded.error.status} for this page’s data.` : loaded.error.message}</ErrorState>;
+    return <ErrorState retry={loaded.reload}>{failedRead(loaded.error)}</ErrorState>;
   }
   if (!loaded.data) return <Skeleton what="this change" lines={8} />;
   const page = loaded.data;

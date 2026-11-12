@@ -1,9 +1,11 @@
-import { readStoreFacts, repairerProblem, storeFacts, type Normalizer, type Price, type Store, type StoreOf, type StoreFacts, type Task, type ToolTrust } from '@shadowlap/engine';
+import { readStoreFacts, repairerProblem, storeFacts, type Normalizer, type Price, type Store, type StoredBlame, type StoreOf, type StoreFacts, type Task, type ToolTrust } from '@shadowlap/engine';
 import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareHead, compareView } from './compare.js';
+import { fixCrash } from './fix-crash.js';
 import { fixDetail, goldensFolderIn, patchesToCheck, pulledPatchesToCheck, withAbouts } from './fixes.js';
+import type { FoundServing } from './found-here.js';
 import { forkDifferences } from './fork-differences.js';
 import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
@@ -19,11 +21,13 @@ import { DECISION_READS } from './decision-view.js';
 import { ESTIMATE_READS } from './estimates.js';
 import { TESTS_EVIDENCE_READS } from './tests-evidence.js';
 import { FIXES_READS } from './fixes-view.js';
+import { CHECK_READS } from './check-preview.js';
 import { CROSS_PROJECT_READS } from './cross-project.js';
 import { GATE_READS } from './tests-gate.js';
 import { withExitCodes } from './exit-codes.js';
-import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
-import { judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
+import { NEXT_STEP_READS, nextStepRows, pageSteps, stepReads, type NextStepWork } from './next-step.js';
+import { failedChecks, ISSUES_READS } from './issues.js';
+import { judgeAfter, judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
 import { RUNS_FAILURES_READS } from './runs-failures.js';
 import { REQUEST_DIFF_READS } from './request-diff.js';
 import { analyseRun } from './run-page.js';
@@ -130,7 +134,7 @@ type CoreJob =
    * the config names, whether each patch the fix could apply is in the working tree, as git said on
    * the server's thread, and why `fix apply` refuses a pulled repair's patch there, by the repair.
    */
-  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]>; project?: string };
+  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]>; refusedHere?: Array<[string, string | null]>; project?: string; next?: NextStepWork | null; serving?: FoundServing };
 
 /** A run id that names no single run: several runs (409), or none (404). */
 function noRun(store: StoreOf<'readModels'>, id: string): ReadAnswer {
@@ -151,8 +155,6 @@ function eitherMissing(store: Store, a: string, b: string): ReadAnswer | null {
 /** For a long run answered from a part of its calls: its whole analysis (and its outcome by checks), beside the server once this is answered, for the page to ask again. */
 const analyseAfter = (runId: string, outcome?: OutcomeWork | null): Pick<ReadAnswer, 'then'> => ({ then: { kind: 'analyse', runId, ...(outcome ? { outcome } : {}) } });
 
-/** For a run whose verdict a list's `status:` waits for and whose calls are more than a read judges: judged beside the server once this is answered, kept on this thread for the page's next ask. */
-const judgeAfter = (runId: string | undefined, outcome: OutcomeWork | null): Pick<ReadAnswer, 'then'> => (runId ? { then: { kind: 'outcome', runId, work: outcome } } : {});
 
 /** What git said about the code between two revisions, kept for a minute per pair: one per thread. */
 const code = codeChangeCache();
@@ -180,7 +182,7 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   // A pulled patch `fix apply` refuses here gets no step on Needs a look, as its fix's page applies none.
   const rewriteHere = w.project ? await rewritesHere(w.project, pulledPatchesToCheck(store)) : null;
   // It names the time it was worked out at, so it is never the same twice: no ETag.
-  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(rewriteHere ? { rewriteHere } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}) }));
+  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, localRuns: [...localRunSet(store, status.key)].sort(), setup } : null, ...(patchInTree ? { patchInTree } : {}), ...(rewriteHere ? { rewriteHere } : {}), ...(w.next ? { next: w.next } : {}), ...(w.repairer ? { repairer: w.repairer } : {}) }));
 }
 
 function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'judge'>, team: TeamStoreInput | null, whole: boolean, outcome: OutcomeWork | null, next: NextStepWork | null): ReadAnswer {
@@ -206,13 +208,16 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'ju
 /**
  * A fix's page, with what the server's thread found in the working tree: patches in it already, and
  * pulled ones `fix apply` refuses there. The names the project's goldens folder holds, which the
- * goldens Apply fix copies can't take, are read here, beside the server.
+ * goldens Apply fix copies can't take, are read here, beside the server, and so are the runs that
+ * failed its check, which its header's link opens under Runs › Failed (issues.ts `failedChecks`).
  */
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
-  return d ? answer(withAbouts(store, d), { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+  // A crash no model rescued leads with its run's own step, its commit served as the route read how (fix-crash.ts).
+  const crash = (b: StoredBlame) => fixCrash(store, b, { work: job.next ?? null, reads: stepReads(store), serving: job.serving ?? null });
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}), crash });
+  return d ? answer({ ...withAbouts(store, d), failedCheck: failedChecks(store, loadRunIndex(store))(d.fixId) }, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 
 /**
@@ -347,7 +352,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS, GATE_READS, REQUEST_DIFF_READS, DECISION_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ISSUES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS, GATE_READS, REQUEST_DIFF_READS, CHECK_READS, DECISION_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

@@ -6,12 +6,14 @@ import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
+import { useServedParts } from '../served-parts.js';
 import { errorText } from '../toast.js';
 import type { PendingAction } from './actions.js';
 import { namedIn } from '../components/Id.js';
 import { onShow } from '../components/OnShow.js';
 import { redactRuleCount } from './provenance.js';
-import { defaultPackFolder, htmlCopyVia, PACK_HOLDS, packRunCommand, REDACTION_SETTINGS, redactsFact, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING_CARD, type ShareKey } from './share.js';
+import { defaultPackFolder, htmlCopyVia, REDACTION_SETTINGS, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING_CARD, type ShareKey } from './share.js';
+import { PACK_HOLDS, packRunCommand, redactsFact } from './share-steps.js';
 import { ActionButton } from '../components/ActionButton.js';
 
 /** Export dataset…'s and Export OpenTelemetry trace…'s dialogs: rarely opened from a run's page, so each a part of its own, which loads as it first shows. */
@@ -29,7 +31,8 @@ const OtelDialog = onShow(() => import('./OtelDialog.js').then((m) => m.OtelDial
 export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: HTMLElement; run: RunDetail; offers: RunOffers | null; onClose: () => void; onAction: (p: PendingAction) => void }) {
   const app = useApp();
   const { client, toast, hasKind, meta, guard, actionsOff } = app;
-  const [dialog, setDialog] = useState<'pack' | 'dataset' | 'otel' | null>(null);
+  const [dialog, setDialog] = useState<'pack' | 'dataset' | 'otel' | 'security' | null>(null);
+  const { SecurityReportDialog } = useServedParts();
   const id = run.run.runId;
   const packAction = run.actions.find((a) => a.key === 'p');
   const live = run.run.status === 'running';
@@ -63,8 +66,7 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
           ),
         );
       case 'security':
-        onClose();
-        return offers?.security ? guard(() => void client.injectionReport(offers.security!.resultId).then(saved, (err: unknown) => toast(errorText(err), 'error'))) : undefined;
+        return setDialog('security');
       case 'pack':
         if (hasKind(JOB_KINDS.pack)) return setDialog('pack');
         onClose();
@@ -93,6 +95,7 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
         onRun={(dir) => job(JOB_KINDS.pack, { runId: id, dir })}
       />
     );
+  if (dialog === 'security' && offers?.security && SecurityReportDialog) return <SecurityReportDialog resultId={offers.security.resultId} mode={offers.security.mode} runId={id} onClose={close} />;
   if (dialog === 'dataset') return <DatasetDialog ids={[id]} rules={offers?.copies.formats.find((f) => f.id === 'dataset')?.rules ?? null} onClose={close} />;
   if (dialog === 'otel') return <OtelDialog runId={id} rules={offers?.copies.formats.find((f) => f.id === 'otel')?.rules ?? null} onClose={close} onRun={(fields) => job(JOB_KINDS.otel, fields)} />;
   return (

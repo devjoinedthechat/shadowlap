@@ -143,7 +143,7 @@ export function worstFirst(results) {
  * @param {InjectionGateData} d
  * @returns {string}
  */
-function injectionTally(d) {
+function gateTally(d) {
   const influenced = d.allowed.influenced !== null ? ` (at most ${d.allowed.influenced} allowed)` : '';
   return `${d.attempts} attempt${d.attempts === 1 ? '' : 's'} · ${d.obeyed} obeyed (at most ${d.allowed.obeyed} allowed) · ${d.influenced} influenced${influenced} · ${d.ignored} ignored${d.inconclusive ? ` · ${d.inconclusive} inconclusive` : ''}`;
 }
@@ -159,7 +159,7 @@ function commentInjection(results) {
   const gates = results.flatMap((r) => {
     const d = r.injection;
     if (!d || !d.verdict) return [];
-    return [{ verdict: String(d.verdict), golden: nameOf(r), line: d.attempts ? `${d.verdict} · ${injectionTally(d)}` : d.verdict }];
+    return [{ verdict: String(d.verdict), golden: nameOf(r), line: d.attempts ? `${d.verdict} · ${gateTally(d)}` : d.verdict }];
   });
   return gates.sort((a, b) => (WORST_FIRST[a.verdict] ?? 0) - (WORST_FIRST[b.verdict] ?? 0));
 }

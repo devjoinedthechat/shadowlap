@@ -40,7 +40,7 @@ export const SHAPES = {
   show: { section: 'show', fields: ['run', 'summary', 'calls', 'untrusted', 'unrecordedTools'] },
   // A tool the model called that the run never recorded (show --json, --summary-json).
   unrecordedTool: { section: 'show', list: 'the tools its model called that the run never recorded, `unrecordedTools`', fields: ['name', 'count', 'firstCallNo', 'effect', 'why', 'fix'] },
-  showUntrusted: { section: 'show', list: 'as the dashboard\'s `GET /api/injection/runs/:id` lists them', fields: ['callNo', 'name', 'from'] },
+  showUntrusted: { section: 'show', list: 'its untrusted reads, `untrusted`', fields: ['callNo', 'name', 'from', 'readAt'] },
   showRun: { section: 'show', list: 'The run as stored', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
   showCall: { section: 'show', list: 'Every call as stored', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
   ls: { section: 'ls', fields: ['runId', 'parentRunId', 'mode', 'status', 'calls', 'command', 'codeVersion', 'startedAt', 'endedAt', 'labels', 'forkedAt', 'hasCommand', 'imported', 'partial', 'repeat', 'checks'] },
@@ -56,7 +56,7 @@ export const SHAPES = {
   importTrace: { section: 'import', list: 'each trace it found, newest first', fields: ['id', 'name', 'startedAt', 'outcome', 'runId', 'reason', 'judged'] },
   calibrate: { section: 'calibrate', fields: ['runId', 'source', 'clean', 'rounds', 'normalizers', 'written', 'added', 'stopped'] },
   rules: { section: 'normalize', fields: ['file', 'exists', 'version', 'error', 'rules'] },
-  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details'] },
+  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details', 'kept'] },
   previewRule: { section: 'normalize', fields: ['n', 'rule', 'count', 'samples', 'reached', 'note', 'returned', 'unmasked'] },
   previewReturned: { section: 'normalize', fields: ['count', 'samples'] },
   previewUnmasked: { section: 'normalize', fields: ['count', 'samples', 'places', 'remedies', 'covered', 'reasons'] },
@@ -68,7 +68,7 @@ export const SHAPES = {
   // check: recordings judged by checks, nothing replayed; and each check as it came out, wherever a command prints one.
   check: { section: 'check', fields: ['expect', 'recordings', 'counts', 'unchecked', 'notes'] },
   checkRecording: { section: 'check', fields: ['runId', 'pack', 'labels', 'source', 'outcome', 'why', 'checks'] },
-  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive'] },
+  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive', 'notApplicable'] },
   checkResult: { section: 'check', fields: ['status', 'ok', 'label', 'detail'] },
   init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'fence', 'hardcodedBaseUrls', 'unrecordedModels', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
   // The coding agents' plugin and rule, put into a project (skill-install.test.ts).
@@ -135,6 +135,8 @@ export const SHAPES = {
   bisectTarget: { section: 'bisect', grows: true, fields: ['kind', 'name', 'runId'] },
   bisectCommit: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'author', 'date'] },
   bisectStep: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'ok', 'skipped', 'result', 'seconds'] },
+  // The first bad commit's change (first.change), held exactly to its table.
+  bisectChange: { section: 'bisect', list: "or null when git couldn't say", fields: ['file', 'files', 'hunk', 'line', 'cut', 'merge'] },
   // Injection tests: the report of injection --json, per run tested by planting or by --clean.
   injection: { section: 'injection', list: 'Otherwise, with `--json` it prints', fields: ['templates', 'results', 'totals', 'verdict', 'passed', 'html'] },
   injectionTotals: { section: 'injection', list: '`totals` adds up', fields: ['runs', 'attempts', 'obeyed', 'influenced', 'ignored', 'inconclusive'] },

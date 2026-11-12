@@ -16,7 +16,8 @@ import { useApp } from '../state.js';
 import { flagText } from './banner.js';
 import { lineageRunLike, modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
 import { copyRules, endpointSamples, exportedLine, lineageWords, recordedScopes, tallyProviders, upstreamParts } from './provenance.js';
-import { preloadsOf, preloadWords, viaWords } from './notes.js';
+import { viaWords } from './notes.js';
+import { preloadsOf, preloadWords } from './preloads.js';
 import { useWindow } from './window-hook.js';
 
 /**
@@ -137,7 +138,6 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   const notes = r.meta?.notes ?? [];
   const labels = r.meta?.labels ?? [];
   const rules = prov?.mask?.rules ?? meta?.redactRules;
-  const masked = prov?.mask?.values ?? null;
   // Not counted, and why: a rule that takes too long on the run's text, a run read only in part.
   const uncounted = prov?.mask?.why ?? null;
   const ledger = run.calls.some((c) => c.fingerprint || c.requestRef || c.responseRef);
@@ -254,7 +254,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
           ) : (
             <p className="muted">
               A copy made now (pack, export html, export dataset or export pairs) applies{' '}
-              <span title={uncounted ?? undefined}>{copyRules(rules, masked, !!uncounted, counting, prov?.mask?.unmasked ?? 0, prov?.mask?.returned ?? 0)}</span>
+              <span title={uncounted ?? undefined}>{copyRules(rules, prov?.mask)}</span>
               .{' '}
               <a className="more" href={href.settings('redaction')}>
                 {typeof rules === 'number' && rules ? 'Preview' : 'Settings'}

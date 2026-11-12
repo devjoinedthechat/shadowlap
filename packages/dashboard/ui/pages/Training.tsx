@@ -11,7 +11,7 @@ import { plural } from '../format.js';
 import { commandText } from '../goldens.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
-import { redactsFact } from '../run/share.js';
+import { redactsFact } from '../run/share-steps.js';
 import { useApp } from '../state.js';
 import { ENDPOINT, exportCommand, firstPick, leftOutLine, noteTrainingCounts, notesLine, onTrainingDialog, pickNote, pickReplaces, pipClass, pipTip, scoreCard, scoreCommand, scoreCost, scoreEstimate, scoreFields, sendTaskUpdate, takeTrainingDialog, whenDone, type LiveAsked, type TrainingDialog } from '../training.js';
 import { ACTIONS, confirmWords } from '../labels.js';
@@ -23,8 +23,10 @@ import type { CostLineProps } from '../components/CostLine.js';
 import { goldenPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { testsJob } from './tests-cards.js';
 import { projectOf } from '../shell/ProjectBlock.js';
+import { useNoRunsYet } from './set-up-step.js';
 import { trainingFacts } from './training/facts.js';
 import { PairsTab } from './training/Pairs.js';
+import { TabEmpty } from './training/TabEmpty.js';
 import { OneSided, TaskNotes, TaskTable } from './training/Tasks.js';
 
 /**
@@ -37,7 +39,7 @@ import { OneSided, TaskNotes, TaskTable } from './training/Tasks.js';
 
 
 export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
-  const { client, tick, exported, actionsOff, hasKind, guard, runs, meta } = useApp();
+  const { client, tick, exported, actionsOff, hasKind, guard, meta } = useApp();
   const loaded = useLoad(() => (exported ? null : client.training()), 'training', tick);
   const view = loaded.data;
   const [dialog, setDialog] = useState<TrainingDialog | null>(null);
@@ -59,8 +61,9 @@ export function TrainingPage({ tab }: { tab: 'pairs' | 'tasks' }) {
   const canScore = !!view?.actions.scoreModel && hasKind(JOB_KINDS.score);
   // Scoring runs the agent from the project's working tree: not while a repair or an apply changes it.
   const busy = useTreeBusy('reads', 'score');
-  // A project with no runs yet has nothing to count: no facts, and the tabs say what each will hold.
-  const counted = !!view && runs?.length !== 0;
+  // A project with no runs yet (attempts alone are none) has nothing to count: no facts, and the tabs say what each will hold.
+  const none = useNoRunsYet();
+  const counted = !!view && !none;
   const action = tab === 'pairs' ? (canExport ? { label: ACTIONS.exportPairs.label, kind: 'export' as const, off: actionsOff } : null) : canScore ? { label: ACTIONS.scoreModel.label, kind: 'score' as const, off: actionsOff ?? busy } : null;
   return (
     <Page busy={!view && !loaded.error && !exported}>
@@ -118,7 +121,7 @@ function TasksTab({ view }: { view: TrainingView }) {
   const busy = useTreeBusy('reads', 'update the golden');
   const t = view.tasks;
   if (t.error) return <EmptyState title="The tasks can’t be read" text={t.error} command="shadowlap tasks" />;
-  if (t.empty) return <EmptyState title={t.empty.title} text={t.empty.text} command={t.empty.command} />;
+  if (t.empty) return <TabEmpty empty={t.empty} />;
   // A task its test's early fork blocks: Update golden, off with the reason when nothing can run.
   const updateOff = actionsOff ?? busy;
   const update = hasKind(JOB_KINDS.taskUpdate) ? (u: TaskUpdate, name: string) => <TaskUpdateButton className="btn sm" why={updateOff} update={u} name={name} onOpen={(estimate) => guard(() => setUpdating({ update: u, name, estimate }))} /> : null;

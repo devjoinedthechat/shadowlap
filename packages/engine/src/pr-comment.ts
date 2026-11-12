@@ -2,6 +2,7 @@ import { decisionLine, decisionsHeadline, percentChange, type DecisionRun, type 
 import { markdownCode, markdownText } from './markdown.js';
 import { aboutUsd } from './prices.js';
 import type { InjectionGateData } from './store/tests.js';
+import { injectionTally } from './trust-words.js';
 import { sessionTally } from './verdict-words.js';
 import { plural } from './words.js';
 
@@ -162,14 +163,13 @@ export function commentRows(results: readonly CommentResult[]): Array<{ verdict:
 }
 
 /**
- * An injection gate's attempts by what they did: `6 attempts · 0 obeyed · 0 influenced · 6 ignored`,
- * and `· 2 inconclusive` with any. With `limits`, what the gate allows after each count it limits:
- * `0 obeyed (at most 0 allowed)`, and influenced's when it has one.
+ * An injection gate's tally, the terminal's (trust-words' injectionTally), with what the gate allows
+ * after each count it limits: `6 attempts · 0 obeyed (at most 0 allowed) · 0 influenced · 6 ignored`,
+ * influenced's limit only when it has one.
  */
-export function injectionTally(d: Pick<InjectionGateData, 'attempts' | 'obeyed' | 'influenced' | 'ignored' | 'inconclusive' | 'allowed'>, limits = false): string {
-  const obeyed = limits ? ` (at most ${d.allowed.obeyed} allowed)` : '';
-  const influenced = limits && d.allowed.influenced !== null ? ` (at most ${d.allowed.influenced} allowed)` : '';
-  return `${plural(d.attempts, 'attempt')} · ${d.obeyed} obeyed${obeyed} · ${d.influenced} influenced${influenced} · ${d.ignored} ignored${d.inconclusive ? ` · ${d.inconclusive} inconclusive` : ''}`;
+function gateTally(d: Pick<InjectionGateData, 'attempts' | 'obeyed' | 'influenced' | 'ignored' | 'inconclusive' | 'allowed'>): string {
+  const allowed = (words: string, n: number | null) => (n === null ? words : `${words} (at most ${n} allowed)`);
+  return injectionTally(d, { paint: (verdict, words) => (verdict === 'obeyed' ? allowed(words, d.allowed.obeyed) : verdict === 'influenced' ? allowed(words, d.allowed.influenced) : words) });
 }
 
 /**
@@ -179,7 +179,7 @@ export function injectionTally(d: Pick<InjectionGateData, 'attempts' | 'obeyed' 
  */
 export function injectionGateLine(d: InjectionGateData | null | undefined): string | null {
   if (!d || !d.verdict) return null;
-  return d.attempts ? `${d.verdict} · ${injectionTally(d, true)}` : d.verdict;
+  return d.attempts ? `${d.verdict} · ${gateTally(d)}` : d.verdict;
 }
 
 /**
@@ -190,7 +190,7 @@ export function injectionGateLine(d: InjectionGateData | null | undefined): stri
 export function commentInjection(results: readonly CommentResult[]): Array<{ verdict: string; golden: string; resultId: string | null; line: string; tally: string | null }> {
   const gates = worstFirst(results).flatMap((r) => {
     const line = injectionGateLine(r.injection);
-    return line && r.injection ? [{ verdict: String(r.injection.verdict), golden: nameOf(r), resultId: r.injection.resultId ?? null, line, tally: r.injection.attempts ? injectionTally(r.injection, true) : null }] : [];
+    return line && r.injection ? [{ verdict: String(r.injection.verdict), golden: nameOf(r), resultId: r.injection.resultId ?? null, line, tally: r.injection.attempts ? gateTally(r.injection) : null }] : [];
   });
   return gates.sort((a, b) => (WORST_FIRST[a.verdict] ?? 0) - (WORST_FIRST[b.verdict] ?? 0));
 }

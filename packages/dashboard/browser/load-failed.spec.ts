@@ -2,11 +2,12 @@ import { expect, test } from '@playwright/test';
 import { demoId, expectAccessible, openPage } from './dashboard.js';
 
 /**
- * A page, or a run's view, whose code didn't come from the dashboard server, in a real browser. The
- * browser keeps a script's failure for as long as the page is open and never asks for it again, so
- * the page says so under its title, or in the view, with Retry, which loads the page again: once
- * the server sends the script, the page draws. The script is refused here as a dashboard that
- * stopped refuses it.
+ * A page, a run's view, a Changes tab or the check builder whose code didn't come from the dashboard
+ * server, in a real browser. The browser keeps a script's failure for as long as the page is open and
+ * never asks for it again, so the page says so under its title, in the view, or in a small dialog in
+ * the builder's place, with Retry, which loads the page again: once the server sends the script, the
+ * page draws. A menu or a dialog that opens on a press says so in the error toast instead, the focus
+ * left on its button. The script is refused here as a dashboard that stopped refuses it.
  */
 
 test('a page whose code didn’t come says so under its title, asks for it no more, and draws once Retry loads it again', async ({ page }) => {
@@ -75,4 +76,58 @@ test('a Changes tab whose code didn’t come says so under Changes’ head, with
   await expect(page.locator('main#view .pickers')).toHaveCount(1);
   await expect(tabs.getByRole('link', { name: 'Compare' })).toHaveAttribute('aria-current', 'page');
   await page.unroute(verdicts);
+});
+
+test('a check builder whose code didn’t come says so in a small dialog in its place, which closes back to Add check…', async ({ page }) => {
+  const builder = /\/assets\/chunks\/Builder-\w+\.js$/;
+  await page.route(builder, (route) => route.abort());
+  await openPage(page, `/run/${demoId('refundBug')}`, 'run');
+  await page.locator('main#view tr[data-wi]:has(td.name[title="issue_refund"])').first().click();
+  const link = page.locator('[data-act="ckmenu"]');
+  await link.click();
+  await page.locator('.pop.ckm[role="menu"] [role="menuitem"]', { hasText: 'Never call issue_refund' }).click();
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  await expect(dialog).toHaveAccessibleName('Add check');
+  const line = dialog.locator('.loaderr');
+  await expect(line.locator('.st.err')).toHaveText('couldn’t load');
+  await expect(line).toContainText('This check builder’s code didn’t come from the dashboard server.');
+  await expect(line.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await expectAccessible(page);
+  // Close takes it away, the focus back on what opened it, and the run's page is whole.
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(link).toBeFocused();
+  await expect(page.locator('main#view .rhead .rnm')).toBeVisible();
+  await page.unroute(builder);
+});
+
+test('a menu or a dialog whose code didn’t come says so in the error toast, nothing in its place and the focus on its button, until Retry loads it again', async ({ page }) => {
+  const parts = /\/assets\/chunks\/(ShareMenu|StepDialogs)-\w+\.js$/;
+  await page.route(parts, (route) => route.abort());
+  await openPage(page, `/run/${demoId('digest')}`, 'run');
+  const toast = page.locator('.toasts .toast.err');
+  // Share's menu.
+  const share = page.locator('#shareBtn');
+  await share.click();
+  await expect(toast).toContainText('This menu’s code didn’t come from the dashboard server. Retry loads the page again.');
+  await expect(toast.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await expect(share).toBeFocused();
+  await expect(share).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('[role="menu"]')).toHaveCount(0);
+  await expectAccessible(page);
+  // A step's dialog, and its words.
+  await toast.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(toast).toHaveCount(0);
+  const pack = page.locator('.rhead .actions button', { hasText: 'Pack as golden' });
+  await pack.click();
+  await expect(toast).toContainText('This dialog’s code didn’t come from the dashboard server. Retry loads the page again.');
+  await expect(pack).toBeFocused();
+  await expect(page.locator('[role="dialog"]')).toHaveCount(0);
+  // The server sends them: Retry loads the page again, and Share's menu opens.
+  await page.unroute(parts);
+  await toast.getByRole('button', { name: 'Retry' }).click();
+  await page.locator('main#view .rhead .rnm').waitFor();
+  await page.locator('#shareBtn').click();
+  await expect(page.locator('.pop[role="menu"]')).toBeVisible();
+  await expect(toast).toHaveCount(0);
 });

@@ -11,6 +11,9 @@ import { pathAt, type CallCondition, type CallRule, type CountRange, type Expect
  * here, and nothing here needs Node, so the dashboard's pages can say a check in the same words.
  */
 
+/** What a check on what the agent printed says of a recording, which keeps none: it can't be decided. */
+export const NO_OUTPUT_KEPT = 'a recording keeps no output';
+
 export function formatCount(r: CountRange, noun = 'time'): string {
   const plural = (n: number) => `${n} ${noun}${n === 1 ? '' : 's'}`;
   if (r.min === r.max) return plural(r.min);
@@ -91,7 +94,7 @@ function clause(m: Extract<Matcher, { op: keyof typeof PHRASE }>, subject: strin
   return `${subject} ${word} ${operandText(m.operand)}`;
 }
 
-const andList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}`);
+export const andList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}`);
 export const orList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items.at(-1)!}`);
 
 /** `every issue_refund call: after lookup_order, amount <= lookup_order.result.total`. */

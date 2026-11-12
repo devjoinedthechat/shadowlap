@@ -189,6 +189,14 @@ tr.krow > td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
 .boxcopy:hover { color: var(--ink); background: var(--hover); }
 .boxcopy svg { width: 13px; height: 13px; }
 .cmdline > .boxcopy { float: right; margin: -6px -8px -4px 8px; }
+/* What acts on a file ends its box's header as one group (CodeBox's actions), which takes a second row whole, still at the
+   right, where the header can't hold it beside the name. */
+.codehead.acts { flex-wrap: wrap; row-gap: 2px; }
+.codehead .cdacts { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
+.codehead .cdacts .linkbtn { margin-left: 0; }
+/* The first bad commit's change: under its card on Tests, the panel's whole body on a run's page. */
+.codewrap.bisectdiff { margin: 10px 0 14px; }
+.fbody > .codewrap.bisectdiff { margin: 0; }
 .boxwrap { position: relative; }
 .boxwrap > .boxcopy { position: absolute; top: 5px; right: 5px; }
 .boxwrap > pre.codebox { padding-right: 40px; }
@@ -246,8 +254,13 @@ code.rnm.rl { background: linear-gradient(90deg, var(--faint) 6ch, var(--id-ink,
 .astrip .ac { display: block; width: 6px; height: 12px; border-radius: var(--r-mark); background: var(--cq-lime); }
 .astrip .ac.no { background: var(--cq-red); }
 .astrip .ac.inc { background: var(--cq-amber); }
+/* an injection test's replay that ignored its planted text, or a clean replay: muted, never lime */
+.astrip .ac.mu { background: var(--cq-muted-fill); }
 /* a cell is a mark, no target of its own: its attempt shows on hover, the lines under the strip link the runs */
 .astrip .ac:hover { outline: 1px solid var(--ink); outline-offset: 1px; }
+/* the hairline before an injection test's clean replays (the Forks view); port/golden-report draws the same rule in tests.css, where this session took over, and one of the two goes when both are in */
+.astrip .acsep { flex: none; width: 1px; height: 18px; margin: 0 4px; background: var(--dim); }
+@media (forced-colors: active) { .astrip .acsep { forced-color-adjust: none; background: CanvasText; } }
 
 /* ---- the three states (EmptyState, EmptyLine, Skeleton, ErrorState) ---- */
 /* nothing here yet: a section under a hairline, its heading, one sentence, its step, the command quiet under it */

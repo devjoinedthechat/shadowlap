@@ -1,10 +1,9 @@
 import { Fragment, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { ApiError } from '../api.js';
 import { Chips } from '../components/bits.js';
 import { Words } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Link } from '../components/Link.js';
-import { EmptyLine, EmptyState, ErrorState, Skeleton } from '../components/States.js';
+import { EmptyLine, EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { Status } from '../components/Status.js';
 import { rowOpen, ShowMore } from '../components/Table.js';
 import { VerdictLine } from '../components/VerdictLine.js';
@@ -58,7 +57,7 @@ export function VerdictsTab() {
   const { chip, limit } = shown;
   // The chip in the refresh, not the key: the rows stay until another chip's come. The answer says which chip and how many it is for.
   const loaded = useLoad(() => client.verdicts(chip, limit).then((view) => ({ chip, limit, view })), 'verdicts', `${chip}:${limit}:${runsTick}:${feeds.tests ?? 0}:${feeds.decisions ?? 0}:${feeds.fixes ?? 0}`);
-  const failed = loaded.error ? <ErrorState retry={loaded.reload}>{failedWords(loaded.error)}</ErrorState> : null;
+  const failed = loaded.error ? <ErrorState retry={loaded.reload}>{failedRead(loaded.error)}</ErrorState> : null;
   if (!loaded.data) return failed ?? <Loading />;
   const { view } = loaded.data;
   if (view.counts.all === 0) return failed ?? <EmptyState title="No change checked yet" text="Each test session CI runs checks the change it was given, and each preview a change you might make. Their verdicts collect here, newest first." copy command="shadowlap test goldens/*" />;
@@ -76,9 +75,6 @@ export function VerdictsTab() {
     </>
   );
 }
-
-/** What the page says when its data couldn't be read: the status the server answered, else what went wrong. */
-const failedWords = (err: Error) => (err instanceof ApiError ? `The dashboard server answered ${err.status} for this page’s data.` : err.message);
 
 /** The newest revision's verdict, whatever the chip: its revision and tally, the change, and the way into its page, lime while it failed or couldn't decide. */
 function Lead({ lead }: { lead: SessionVerdict }) {

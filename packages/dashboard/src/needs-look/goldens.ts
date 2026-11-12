@@ -15,7 +15,7 @@ import { goldenName, type LookSource, type LookStep, type LookWork, type NeedsLo
 export function runLookStep(runId: string, step: NextStep | null | undefined): LookStep | null {
   if (!step) return null;
   if (step.capture) return { of: 'link', label: step.label, href: links.run(runId) };
-  if (step.href) return { of: 'link', label: step.label, href: step.href, ...(step.title ? { title: step.title } : {}) };
+  if (step.href) return { of: 'link', label: step.label, href: step.href, ...(step.title ? { title: step.title } : {}), ...(step.key === 'injection-proof' || step.key === 'preset-proof' ? { attempt: true as const } : {}) };
   return { of: 'run', runId, step };
 }
 

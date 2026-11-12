@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { RunDetail } from '../ui/api.js';
 import { AboutLine } from '../ui/components/About.js';
-import { FindingPanel, ResultsToggle } from '../ui/components/FindingPanel.js';
+import { FindingPanel, ResultsMatrixPart } from '../ui/components/FindingPanel.js';
+import { ResultsToggle } from '../ui/components/ResultsToggle.js';
 import { HoverCardLayer, tipCard, tipText } from '../ui/components/HoverCard.js';
 import { Sprite } from '../ui/components/Icon.js';
 import { ResultsMatrix } from '../ui/components/ResultsMatrix.js';
@@ -81,7 +82,7 @@ function Inspector() {
   return (
     <>
       <div className="findings">
-        <ResultsToggle runId={RUN} which="presets" />
+        <ResultsToggle runId={RUN} which="presets" preload={() => ResultsMatrixPart.preload()} />
       </div>
       <InspectorPlace panel={p.panel} run={run} onClose={p.close} onPick={p.close} results={(key) => (key === 'presets' ? presetsPanel : null)}>
         <section className="insp" id="insp" aria-label="Call 4">

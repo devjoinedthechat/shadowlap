@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
+import { CONFIG_FILE, configFilePath, editConfigFile, messageOf, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
 import { declareFormatHosts, formatHostProblem, validHttpHost, type FormatHost, type HttpRule } from '@shadowlap/sidecar';
 import { parseTests, parseTestSettings, type TestEntry, type TestSettings } from './checks.js';
 import { usageError } from './exit-codes.js';
@@ -202,6 +202,20 @@ function parseVerifyConfig(raw: unknown, file: string): NonNullable<ShadowlapCon
   if (baseline !== undefined && baseline !== 'paired' && baseline !== 'history') throw new Error(`${file}: verify.baseline must be "paired" or "history"`);
   if (max !== undefined && (typeof max !== 'number' || !Number.isInteger(max) || max < 1 || max > 1000)) throw new Error(`${file}: verify.max must be a whole number from 1 to 1000`);
   return { ...(margin !== undefined ? { margin: margin } : {}), ...(baseline !== undefined ? { baseline: baseline } : {}), ...(max !== undefined ? { max: max } : {}) };
+}
+
+/**
+ * The normalizers a copy's Show diff reads (export html, team share), as the dashboard's export reads
+ * them: none when one can't be read, which `warn` names once. A broken redaction rule still stops the
+ * copy, which applies it: read the redaction rules first.
+ */
+export function copyNormalizers(config: Pick<ShadowlapConfig, 'normalize'>, warn: (line: string) => void): Normalizer[] {
+  try {
+    return config.normalize;
+  } catch (err) {
+    warn(`${messageOf(err)}; the copy's Show diff applies no normalizers`);
+    return [];
+  }
 }
 
 /**
