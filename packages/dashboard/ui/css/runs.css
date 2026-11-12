@@ -175,7 +175,7 @@ table.runst tr.picked td { background: var(--sel); }
   .runcell .tag-local { flex: none; width: 7px; height: 7px; margin-left: 0; padding: 0; border: 0; border-radius: 50%; background: var(--faint); font-size: 0; letter-spacing: 0; }
 }
 
-.rab:empty + .rso .dot { display: none; }
+.rab:is(:empty, [data-gone]) + .rso .dot { display: none; }
 /* Runs: one row a run at desktop widths, the id and then its about line in a column of its own, fitted, so ids line up,
    with the run's labels as chips at the column's end; on a phone the about line goes under the id, with what needs a
    look, since Status gives way there */

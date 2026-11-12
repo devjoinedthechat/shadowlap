@@ -291,9 +291,37 @@ export function fitAbouts(scope: ParentNode): void {
     const forms = about !== undefined ? aboutForms({ text: about, from: (el.dataset.from ?? 'user') as RunAbout['from'] }) : hintForms(el.dataset.fit ?? '', el.dataset.short ?? null);
     const ordered = orderForms(forms, measureIn(getComputedStyle(el).font));
     // Its text only: React draws the line as one text, and leaves it to the fit until the line itself changes.
+    el.removeAttribute('data-gone');
     lines.push({ el, forms: ordered, write: (t) => (el.textContent = t), overflows: () => overflowing(el), room: () => boxWidth(el) });
   }
   fitLines(lines);
   giveWay(lines);
-  for (const x of lines) if (x.el.dataset.mark) markIn(x.el, x.el.dataset.mark);
+  for (const x of lines) {
+    if (x.el.dataset.about !== undefined) keepWhole(x.el, x.forms[0]!.t);
+    const drawn = x.el.dataset.gone === undefined ? (x.el.querySelector<HTMLElement>(':scope > [aria-hidden="true"]') ?? x.el) : null;
+    if (drawn && x.el.dataset.mark) markIn(drawn, x.el.dataset.mark);
+  }
+}
+
+/**
+ * An about line fitted shorter keeps its whole text for a screen reader: the form is drawn only
+ * (`aria-hidden`) and the whole line follows it, hidden; a line that gave up its place is the whole
+ * line, hidden, marked `data-gone` so what follows it reads it as empty. A line that fits keeps its
+ * one text.
+ */
+function keepWhole(el: HTMLElement, whole: string): void {
+  const shown = el.textContent ?? '';
+  if (shown === whole) return;
+  const hidden = document.createElement('span');
+  hidden.className = 'sr';
+  hidden.textContent = whole;
+  if (shown === '') {
+    el.dataset.gone = '';
+    el.append(hidden);
+    return;
+  }
+  const drawn = document.createElement('span');
+  drawn.setAttribute('aria-hidden', 'true');
+  drawn.textContent = shown;
+  el.replaceChildren(drawn, hidden);
 }
