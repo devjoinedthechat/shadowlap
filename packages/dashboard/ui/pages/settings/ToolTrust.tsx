@@ -116,7 +116,7 @@ export function TrustTable({ data, editor, off, version, test }: TrustProps) {
       const items: Array<{ label: string; hint: string; run: () => void }> = markable(t) ? [{ label: t.trust === 'untrusted' ? ACTIONS.markTrusted.label : ACTIONS.markUntrusted.label, hint: t.flip, run: () => mark(t) }] : [];
       // Run injection test… as the row's own button runs it, so its dialog opens where the row draws it.
       const tested = test && t.trust === 'untrusted' && t.test ? t.test : null;
-      if (tested && items.length) items.push({ label: ACTIONS.runInjectionTest.label, hint: `shadowlap injection ${tested.runId ? shortId(tested.runId) : (tested.golden ?? '')}`, run: () => box.current?.querySelector<HTMLButtonElement>(`[data-rowkey="tool:${CSS.escape(t.name)}"] .tooltest`)?.click() });
+      if (tested && items.length) items.push({ label: ACTIONS.runInjectionTest.label, hint: `shadowlap injection ${tested.runId ? shortId(tested.runId) : (tested.golden ?? '')}`, run: () => Array.from(box.current?.querySelectorAll<HTMLElement>('tr[data-rowkey]') ?? []).find((tr) => tr.dataset.rowkey === `tool:${t.name}`)?.querySelector<HTMLButtonElement>('.tooltest')?.click() });
       return items.length ? { name: t.name, items: () => items } : null;
     },
   });
