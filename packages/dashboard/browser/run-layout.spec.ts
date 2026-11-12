@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { demoId, openPage, seriousViolations, startJob } from './dashboard.js';
+import { demoId, openPage, seriousViolations, sideways, startJob } from './dashboard.js';
 
 /**
  * A run's strip and views as the design lays them out (ui/css/run.css, ui/run/fit-work.ts): the strip
@@ -8,9 +8,6 @@ import { demoId, openPage, seriousViolations, startJob } from './dashboard.js';
  * the inspector under a fitted list from 1001px, the page scrolling under its strip; on a phone the
  * cells at the window's top and no sideways scroll; and the calls in reach under a docked job.
  */
-
-/** How far the page reaches past the window's width. */
-const sideways = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
 /** Where a part of the page is drawn. */
 const rect = (page: Page, selector: string) =>

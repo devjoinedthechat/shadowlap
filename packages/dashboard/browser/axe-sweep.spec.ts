@@ -1,5 +1,6 @@
-import { expect, test, type Page, type Request, type Route } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
+import { apiRequests, at, click, compareOpen, DIALOG, escape, fixes, MENU, NOT_FOUND, press, previews, revision, run, runs, settled, sweep, VERDICTS } from './routes.js';
 import { routeTestsFixture } from './tests-fixture.js';
 
 /**
@@ -11,68 +12,6 @@ import { routeTestsFixture } from './tests-fixture.js';
  * Any serious or critical violation fails, named with the state it was found in.
  */
 
-/** The demo's runs by name, each by its id: every run the demo names. */
-function runs(): Array<[string, string]> {
-  return Object.entries(dash().runs).flatMap(([name, v]) => (typeof v === 'string' && /^01[0-9A-Z]{24}$/.test(v) ? [[name, v] as [string, string]] : []));
-}
-
-/** The demo's fixes, by id. */
-const fixes = () => Object.values(dash().runs).filter((v): v is string => typeof v === 'string' && v.startsWith('fx-'));
-
-/** Each violation found, under the state it was found in. */
-async function sweep(page: Page, states: Array<[string, () => Promise<void>]>): Promise<string[]> {
-  const found: string[] = [];
-  for (const [name, show] of states) {
-    await show();
-    for (const v of await seriousViolations(page)) found.push(`${name}: ${v}`);
-  }
-  return found;
-}
-
-/** The page's requests to the dashboard's API still out: what a view shows comes with them. */
-const inFlight = new WeakMap<Page, Set<Request>>();
-function apiRequests(page: Page): Set<Request> {
-  let open = inFlight.get(page);
-  if (!open) {
-    const out = new Set<Request>();
-    page.on('request', (r) => {
-      if (new URL(r.url()).pathname.startsWith('/api/')) out.add(r);
-    });
-    page.on('requestfinished', (r) => out.delete(r));
-    page.on('requestfailed', (r) => out.delete(r));
-    inFlight.set(page, out);
-    open = out;
-  }
-  return open;
-}
-
-/**
- * A state swept once it has settled, never after a time that a loaded machine can outrun: what it
- * shows is up (`shows`), or what it closed is gone (`hides`); none of the page's requests to the API
- * is still out, as what a view shows comes with them; and two frames have been drawn since, so axe
- * reads what the step changed.
- */
-async function settled(page: Page, o: { shows?: string; hides?: string } = {}): Promise<void> {
-  const open = apiRequests(page);
-  if (o.shows) await page.waitForSelector(o.shows, { state: 'visible' });
-  if (o.hides) await page.waitForSelector(o.hides, { state: 'detached' });
-  // Polled from here, where the requests are seen: a request still out after a minute fails the sweep, naming it.
-  await expect.poll(() => [...open].map((r) => new URL(r.url()).pathname), { message: "the page's requests to the API to come back", timeout: 60_000, intervals: [25] }).toEqual([]);
-  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
-}
-
-/** A dialog on top, the palette's and the shortcuts' included, and a menu open. */
-const DIALOG = '[role="dialog"][aria-modal="true"]';
-const MENU = '.pop[role="menu"]';
-
-const at = (page: Page, path: string, drawn = 'main#view') => async () => {
-  apiRequests(page);
-  await openPage(page, path, drawn);
-  await settled(page);
-};
-const run = (page: Page, id: string, view = '') => at(page, `/run/${id}${view ? `/${view}` : ''}`, 'run');
-/** A link that names nothing: the not-found page, drawn once the other projects were asked whether one holds it. */
-const NOT_FOUND = 'main#view .ph h1:text-is("Nothing here")';
 /**
  * Runs with its table's read held, its rows drawn as quiet bars, then answered 500, the error line
  * with Retry in the table's place. The table reads `/api/runs/page?…`; the shell's own run list,
@@ -103,64 +42,6 @@ function runsTableHeld(page: Page): Array<[string, () => Promise<void>]> {
     ['Runs when its table’s read failed on a phone', failed],
   ];
 }
-/** Changes' Verdicts, drawn with its rows. */
-const VERDICTS = 'main#view table.vdt tbody tr';
-/**
- * The page of the revision Verdicts leads with, by the key the API gives: a key can hold a `+`, which
- * the token link's `open=` stops at, so the page goes there from Verdicts.
- */
-const revision = (page: Page) => async () => {
-  const { origin, token } = dash();
-  const view = (await (await page.request.get(`${origin}/api/verdicts`, { headers: { 'x-shadowlap-token': token } })).json()) as { lead: { key: string } | null };
-  if (!view.lead) throw new Error('the demo store has no test session that ran every golden');
-  await at(page, '/changes', VERDICTS)();
-  await page.evaluate((key) => {
-    location.hash = `#/changes/verdicts/${encodeURIComponent(key)}`;
-  }, view.lead.key);
-  await settled(page, { shows: 'main#view table.vdg tbody tr' });
-};
-/** Changes' Preview, drawn with its matrix's cells; an opened cell, drawn with its head; a run's Decisions view, drawn with its session's line. */
-const PREVIEW = 'main#view .dmx button.dc';
-const CELL = 'main#view .dcell .dch';
-const DVIEW = 'main#view .dview .dvhead';
-/** The demo's preview, a cell of it opened and its run's Decisions view, by the addresses the API gives. */
-async function previewed(page: Page): Promise<{ preview: string; cell: string; view: string }> {
-  const { origin, token } = dash();
-  const get = async <T>(path: string) => (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json()) as T;
-  const { sessions } = await get<{ sessions: Array<{ kind: string; sessionId: string }> }>('decisions');
-  const s = sessions.find((x) => x.kind === 'decisions');
-  if (!s) throw new Error('the demo store has no preview');
-  const { matrix } = await get<{ matrix: Array<{ runId: string; inStore: boolean }> }>(`decisions/${s.sessionId}`);
-  const runId = matrix.find((r) => r.inStore)?.runId;
-  if (!runId) throw new Error('the demo’s preview names no run the store holds');
-  const mine = (await get<{ sessions: Array<{ sessionId: string; href: string; changes: string }> }>(`runs/${runId}/decisions`)).sessions.find((x) => x.sessionId === s.sessionId)!;
-  return { preview: `/changes/decisions/${s.sessionId}`, cell: mine.changes.slice(1), view: mine.href.slice(1) };
-}
-const previews = async (page: Page, on = ''): Promise<Array<[string, () => Promise<void>]>> => {
-  const p = await previewed(page);
-  return [
-    [`Preview${on}`, at(page, p.preview, PREVIEW)],
-    [`a preview’s opened cell${on}`, at(page, p.cell, CELL)],
-    [`a run’s Decisions view${on}`, at(page, p.view, DVIEW)],
-  ];
-};
-const click = (page: Page, selector: string, text?: string, o: { shows?: string; hides?: string } = {}) => async () => {
-  apiRequests(page);
-  await page.locator(selector, text ? { hasText: text } : {}).first().click();
-  await settled(page, o);
-};
-const press = (page: Page, key: string, o: { shows?: string; hides?: string } = {}) => async () => {
-  apiRequests(page);
-  await page.keyboard.press(key);
-  await settled(page, o);
-};
-/** Compare on the pair it opens on, its first row opened by a click, whichever call that is in the demo. */
-const compareOpen = (page: Page) => async () => {
-  await at(page, '/compare', 'main#view .paths2 button.cprow')();
-  await click(page, 'main#view .paths2 button.cprow', undefined, { shows: 'main#view #cmpd' })();
-};
-/** Escape, and the dialog or menu it closes gone. */
-const escape = (page: Page, closes: string = DIALOG) => press(page, 'Escape', { hides: closes });
 /**
  * Update goldens from Tests, as the palette opens it (`#/tests?update`): the header offers it only
  * when more than one golden diverged, and the demo has one, so its dialog is for that one.

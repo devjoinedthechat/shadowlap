@@ -107,6 +107,9 @@ export async function serverLinks(request: APIRequestContext): Promise<Set<strin
   return links;
 }
 
+/** How far the page reaches past the window's width: what a phone would scroll sideways, 0 or less when nothing does. */
+export const sideways = (page: Page): Promise<number> => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
 /** The selector that says a page has drawn what it shows. */
 const DRAWN: Record<string, string> = {
   overview: 'main#view .ov, main#view .ph',
