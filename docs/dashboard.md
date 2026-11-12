@@ -242,6 +242,7 @@ The rest is what commands record as they change the project or write something:
 
 - Normalizers and redaction rules added, by hand or by `calibrate --write`. A redaction rule is named by what it puts in place, never by its pattern.
 - Goldens packed (a pack in a goldens folder or named in the config's `tests`), and other packs.
+- A golden's checks changed in the [check builder](#making-a-check): *Check added*, *Check removed* or *Checks changed*, with the golden and the checks' labels. It opens Tests.
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
 
 An entry no page shows, such as a migration's, is a plain line that opens nothing. A [preview of a change](./decisions.md) opens on [Preview](#preview). A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
@@ -1819,6 +1820,8 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 
 **A run imported from a capture** has no command, so its menu shows a note and one action, **Replay with your command…**. That replay records every kind of call, and every fork works on it.
 
+**Add check…** comes first in a tool call's row menu, never in the header's **Fork at #n**. It is also on the inspector's summary line, and in ⌘K as **Add check at #n…**. Its menu starts a rule from the call, each with the key it writes, then **Ask a judge…** about the whole run, and a pick opens the [check builder](#making-a-check). A capture, a recorded user input, a run still recording and an exported copy offer none.
+
 **Share**'s menu is named for the run (*Share 01K5CQ4R1T*). It copies the run, each copy a job, its items named for the copies they make, in the order it lists them:
 
 | Copy                 | What it makes                                                                            |
@@ -1856,6 +1859,24 @@ On the run's page, the run leaves the lists at once and the page goes to Runs, a
 When the run failed a check none of those give, or nothing says what a passing run must do, it asks for the check. The blame opens the run's fix, or joins one, and links to it.
 
 A capture has no command to run again, so **Run blame** asks for yours, which runs as `shadowlap blame <run> -- <command>`. A capture its import judged failed is blamed on the rules on calls it broke.
+
+### Making a check
+
+The check builder makes a check from a tool call and writes it to the golden's entry under `tests` in `shadowlap.config.json`. [Checks](./checks.md#make-a-check-in-the-dashboard) describes the rules it builds; this is the dialog.
+
+- **The golden it goes to** follows the rule as it changes: the first of the agent's goldens whose own recording passes it. Pick one under **Checks of**, which lists the agent's goldens, and it stays.
+- **The golden's checks**: one row a check, labelled as reports label them. The rule being built reads `new`, or `changed` once it edits one of the file's, and a removed one `removed`, with **Keep**. A tool's count the rule takes the place of reads `replaced`.
+- **An injection gate** set in the golden's entry is a row of its own, read only.
+- **Against your recordings**: the counts, with *not applicable* apart, the notes in amber or grey, the recordings on request, and the `shadowlap check` command with **Copy whole command**.
+- **The change**: the golden's entry as the file will hold it, with the file's version. When saving would also lay out other lines of the file anew, it says so first.
+
+**Save check** turns lime once nothing needs a look, and stays off with its reason until the rule can be saved. For an edited check it reads **Save change**. While the dashboard server can't be reached, it waits.
+
+- **A file changed since the page read it** is never overwritten. The page names what changed, reads the file again, shows your change against it, and the button reads **Save again**.
+- **An entry the server refuses**, as `shadowlap test` would refuse it, shows the server's words in the dialog's amber line.
+- **A save** closes the builder, says *Saved to shadowlap.config.json · goldens/…*, and leaves an entry in the [activity feed](#activity). The run's outcome is judged again by its checks.
+
+A press outside the dialog never closes it. Esc closes it while nothing changed, and asks first once a rule did.
 
 ### Actions on a fix
 
@@ -2367,9 +2388,10 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
-- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's check, Share's eval dataset and OpenTelemetry trace dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
+- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's dialogs and the check it asks for, Share's eval dataset and OpenTelemetry trace dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
 - **The structural diff** a finding's diff draws has a script of its own as well. Both scripts, and a finished run's diff, are asked for once the pointer or the focus reaches Show diff, so it opens at once. The diff is kept while the page is open.
 - **What a fork did differently**, a finding of a fork's page alone, has a script of its own. It is asked for with the differences, once the fork has ended, so the two come together.
+- **The check builder** has a script of its own, asked for as its menu opens, or as the pointer or the focus reaches the inspector's **Add check…**. A builder whose script can't be loaded says so in a small dialog in its place, with **Retry**.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
 
@@ -2646,6 +2668,22 @@ Whether the step pushes is no option: it follows Push from CI in `shadowlap.conf
 - **Spending** (`askAbove`) is in dollars: a billed job asks first when its estimate is above it, so 0 asks of every job that bills. With `null`, Never ask, no amount asks. A job with no estimate still asks, as do a form, a price per unit and a job that asks for what it does, such as Run repair.
 - **Where it is kept**: it is kept in `settings.json` under `SHADOWLAP_HOME` (else `~/.shadowlap`), never in `shadowlap.config.json`, so CI and teammates never take it on. A page showing another project may change it. An amount that isn't whole cents is a 400, and a file it would lose something of, such as a newer Shadowlap's, a 409.
 
+### Checks
+
+The check builder reads a golden's checks from `shadowlap.config.json`, judges a draft on the agent's recordings and writes the golden's checks back.
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/checks/goldens?run=<id>\|golden=<path>` | The agent's goldens with their tests entries as written, the file's `version`, `read` and whether a write lays out other lines anew (`relaid`) |
+| `GET /api/checks/context?run=<id>&at=<n>` | What the run offers a check made from call `n`: each tool by its first call, the tools before it, the results' number fields |
+| `POST /api/checks/preview { expect, run \| golden }` | The draft judged on the agent's 200 newest recordings, its goldens' and the run's, as [`shadowlap check`](./cli.md#check) judges them |
+| `PUT /api/checks/tests { golden, version, read, entry }` | The golden's checks: `entry.expect` set, or taken out with `null` |
+
+- **Reads beside the server.** The context and the preview are worked out beside the server, as they read the run's calls or every recording of the agent. The preview changes nothing. A golden whose recording is only in its pack is read from the pack there.
+- **A write** names the `version` it read and sends back `read`. A file changed since is a 409 that names what changed, such as `"prices" added`. A check `shadowlap test` would refuse is a 400 in its words. As the whole of `tests` is checked, that can name another golden's entry.
+- **A golden that follows a pattern**, such as `goldens/refund-*`, gets an entry of its own with the pattern's other keys. The pattern stays for its other goldens.
+- **The answer** is `{ key, version, added, removed, changed }`: the key written, the file's version after, and the labels of the checks added and removed. A write that changes the file lands in the activity feed.
+
 ### Projects and setup
 
 | Endpoint | What it does |
@@ -2836,7 +2874,9 @@ Settings is checked at a phone's width too: no tab scrolls sideways, each row's 
 - **Attempts**: which runs are attempts is one rule, `packages/engine/src/run-roles.ts`.
 - **Endpoints**: the server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`.
 - **Shared parts**: a page's header and facts, its sections, statuses, verdict lines, switches, pickers, code boxes, run ids and attempts, and its empty, loading and error states are components in `packages/dashboard/ui/components/`, listed in its `README.md`, with their styles in `ui/css/components.css`. `Term` reads its definitions from `ui/glossary.ts`.
-- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a part it lists as heavy loads with a page instead of through `onShow`: Compare, the structural diff (`ui/components/JsonDiff.tsx`), the results matrix (`ui/components/ResultsMatrix.tsx`), and everything under `ui/changes/` but its head, `Head.tsx`.
+- **Scripts**: `packages/dashboard/ui-bundles.mjs` splits the browser app: a chunk per page (`ui/pages/lazy.tsx`), one per part of a page through `onShow` (`ui/components/OnShow.tsx`), and an exported copy's one script from `ui/main-copy.tsx`. `test/ui-bundle-size.test.ts` holds each to its budget, and fails when a heavy part it lists loads with a page, not through `onShow`: Compare, the structural diff (`ui/components/JsonDiff.tsx`), the results matrix (`ui/components/ResultsMatrix.tsx`), everything under `ui/changes/` but its head, `Head.tsx`, and the check builder (`ui/checks/`).
+- **Parts only the served dashboard draws**, Share's menu, Run blame's dialogs and the check builder, are handed to the pages by its entry (`ui/served-parts.ts`, from `ui/pages/served.tsx`). An exported copy never offers Share, Run blame or Add check…, so its one script holds none of them.
+- **Share's words** load with its menu (`ui/run/share.ts`). A run's header, steps and keys read what they say of a copy from `ui/run/share-steps.ts`, so opening a run loads none of the menu's words.
 
 ## Troubleshooting
 

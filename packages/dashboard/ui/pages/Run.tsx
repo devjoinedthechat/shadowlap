@@ -39,6 +39,7 @@ import { followPages } from '../run/paging.js';
 import { useRunExtras } from '../run/run-extras.js';
 import { useRunSelection } from '../run/run-selection.js';
 import { useRunCommands } from '../run/run-commands.js';
+import { useCheckEntry } from '../run/check-entry.js';
 import { useWholeStep } from '../run/NextStepButton.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { useRunKeys } from '../run/run-keys.js';
@@ -350,7 +351,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   useRunKeys(runKeys, { runId, v, selected, step, setTab: (n) => setTab(TABS[n]!), select, setView, setFilterWanted, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canMark, mark: (m) => mark(m), trace, shown, listed, fold, runs: app.runs, toast: app.toast });
 
   // This run, in the palette.
-  useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView });
+  const check = useCheckEntry({ run, row: selectedRow, detail: detail.data });
+  useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView, addCheck: check.fromPalette });
 
   const stripCalls = useStripCalls(calls, paging?.origins, paging?.kinds);
   const inScopeFn = useMemo(() => {
@@ -364,7 +366,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} />} judged={judged} />
+      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} />} judged={judged} />
       <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
       <StripBar strip={{ calls: stripCalls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: inScopeFn, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
@@ -390,10 +392,11 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           </div>
         </section>
         <InspectorPlace panel={panel} run={run} onClose={closePanel} onPick={select}>
-          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} />
+          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} check={check.check} />
         </InspectorPlace>
       </div>
       {actions.dialog}
+      {check.node}
     </div>
   );
 }

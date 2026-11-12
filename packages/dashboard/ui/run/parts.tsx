@@ -13,7 +13,7 @@ import { useApp } from '../state.js';
 import type { PresetAttempt } from './preset.js';
 import { attemptOutcome } from './banner.js';
 import { refusedOffline } from './calls.js';
-import { metricItems, outcomeFact, spentWords, type MetricInput, type OutcomeFact } from './metrics.js';
+import { metricItems, outcomeFact, spentWords, toolsToCheck, type MetricInput, type OutcomeFact } from './metrics.js';
 import { attemptOf, checksOf, originOf, pulledSpender, runLikeOf } from './model.js';
 
 /** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
@@ -26,7 +26,7 @@ export function RunLoading() {
 }
 
 /** The run's numbers, led by its outcome by checks: the payload's, or the one asked for alone (useJudgedAt), pending until it comes. */
-export function RunMetrics(props: { run: RunDetail; judged: RunDetail['judged']; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean }) {
+export function RunMetrics(props: { run: RunDetail; judged: RunDetail['judged']; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean }) {
   return <Metrics {...props} judged={props.judged ?? null} pending={props.judged === undefined} />;
 }
 
@@ -45,8 +45,8 @@ export function useJudgedAt(run: RunDetail): { judged: RunDetail['judged']; outc
  * blame rescued a run with, an error-path preset's verdict or an attempt's. Compare's line a run
  * says it the same way.
  */
-export function runFact(run: RunDetail, judged: NonNullable<RunDetail['judged']> | null, o: { pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean }): OutcomeFact {
-  return outcomeFact({ ...runLikeOf(run), judged }, { tools: run.summary.byKind.tool, ...o, attempt: attemptVerdictOf(run, checksOf(run)) });
+export function runFact(run: RunDetail, judged: NonNullable<RunDetail['judged']> | null, o: { pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean }): OutcomeFact {
+  return outcomeFact({ ...runLikeOf(run), judged }, { tools: toolsToCheck(run.calls, run.callsTotal, run.summary.byKind.tool), ...o, attempt: attemptVerdictOf(run, checksOf(run)) });
 }
 
 /** What a run spent, in its header's words (spentWords): Compare's line a run says it again. */
@@ -63,7 +63,7 @@ function attemptVerdictOf(run: RunDetail, checks: ReturnType<typeof checksOf>) {
  * unless given; `pending` while a long run's analysis is yet to judge it); the counts follow; what
  * replaying saved comes last, as a quieter receipt.
  */
-export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false, preset = null, rescued = false }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean }) {
+export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false, preset = null, rescued = false, offered = false }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean }) {
   const s = run.summary;
   const items = metricItems({
     // A recording's count as the poll says it, as its list has it: its page is asked for again only
@@ -84,7 +84,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
-  const fact = runFact(run, judged ?? null, { pending, preset, rescued });
+  const fact = runFact(run, judged ?? null, { pending, preset, rescued, offered });
   return (
     <section className="metrics" aria-label="How it went">
       <Outcome fact={fact} runId={run.run.runId} />

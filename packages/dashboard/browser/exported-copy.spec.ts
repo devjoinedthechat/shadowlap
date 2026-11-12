@@ -89,6 +89,15 @@ test('an exported copy opens on the run that was shared and draws each of its vi
   expect(seen).toEqual([]);
 });
 
+test('an exported copy offers no Add check… at a tool call, in its row or its inspector, as its one script holds no check builder', async ({ page }) => {
+  await open(page);
+  const tool = page.locator('main#view table.calls tbody tr[data-wi]:has(td.name[title="lookup_order"])').first();
+  await tool.click();
+  await expect(page.locator('main#view .insp')).toBeVisible();
+  await expect(page.locator('[data-act="ckmenu"]')).toHaveCount(0);
+  await expect(tool.locator('button[aria-label^="Fork at #"]')).toHaveCount(0);
+});
+
 test('an exported copy lists its runs, compares them, and opens its runs for any other page', async ({ page }) => {
   const seen = await open(page);
   const sections = page.getByRole('navigation', { name: 'Sections' });

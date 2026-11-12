@@ -5,6 +5,8 @@ import { fixStatusWords, nextStepOf, stepCard, stepCostLine } from '../ui/run/ne
 import { Banner } from '../ui/run/FindingsBar.js';
 import { useWholeStep } from '../ui/run/NextStepButton.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
+import { SERVED_PARTS } from '../ui/pages/served.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import type { NextStep, RunDetail, RunOffers, TestBannerOffer } from '../ui/types.js';
@@ -75,7 +77,9 @@ const lime = (p: Rendered) => p.all('.rhead .actions .lime').map((b) => b.textCo
 const tip = (el: { props: Record<string, unknown> }) => JSON.parse(String(el.props['data-tip'])) as { t: string; s?: string; rows?: string[][]; cmd?: string };
 
 /** The header and the banner, as the page draws them, with the question a Tests job waits on. */
-const both = (run: RunDetail, offers: RunOffers | null = null, a: AppState = app(), more: Parameters<typeof header>[2] = {}) => createElement(AppContext.Provider, { value: a }, createElement('div', null, createElement(RunHeader, header(run, offers, more)), createElement(Banner, bannerProps(run, offers)), createElement(TestsAskHost)));
+/** The header and the banner on the served dashboard, which hands in what only it draws, such as Run blame's dialogs. */
+const both = (run: RunDetail, offers: RunOffers | null = null, a: AppState = app(), more: Parameters<typeof header>[2] = {}) =>
+  createElement(AppContext.Provider, { value: a }, createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, createElement('div', null, createElement(RunHeader, header(run, offers, more)), createElement(Banner, bannerProps(run, offers)), createElement(TestsAskHost))));
 
 /** An app that records the jobs it is asked to start. */
 function jobs(o: Partial<AppState> = {}) {
@@ -180,6 +184,8 @@ describe('the run page’s next step', () => {
     page = await render(both(run, null, a));
     await page.click(page.byText('.rhead .actions button', 'Run blame'));
     expect(started).toEqual([]);
+    // Its dialogs are a part of their own, which loads the first time one asks.
+    await page.until('its command to be asked', () => page!.all('.dialog input').length === 1);
     expect(page.one('.dialog').textContent).toContain('What starts your agent?');
     await page.type(page.one('.dialog input'), 'python agent.py');
     // What runs, its check with it, as its card says.
@@ -193,6 +199,7 @@ describe('the run page’s next step', () => {
     const a = app({}, { startJob: () => Promise.reject(new ApiError(422, 'say what a passing run must do')) });
     page = await render(both(run, null, a));
     await page.click(page.byText('.rhead .actions button', 'Run blame'));
+    await page.until('its command to be asked', () => page!.all('.dialog input').length === 1);
     await page.type(page.one('.dialog input'), 'python agent.py');
     await page.click(page.one('.dialog .dlg-ok'));
     // Its check is asked in a dialog of its own, a part that loads the first time it opens.

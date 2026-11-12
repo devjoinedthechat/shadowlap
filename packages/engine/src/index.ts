@@ -46,17 +46,19 @@ export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses,
 // Outcome checks (checks/): the grammar, its parser, and each check's label and a result's line, none
 // of which needs Node, so the dashboard's pages can bundle them; a run judged by them, a judge check
 // with no verdict inconclusive; and the tests entries in the config. The CLI's checks.ts re-exports them.
-export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, testLive, toolsNamed, withoutOutput } from './checks/grammar.js';
+export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, asNumber, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, testLive, toolsNamed, withoutOutput } from './checks/grammar.js';
 export type { CallCondition, CallRule, CheckResult, CountRange, ExpectSpec, JudgeCheck, Matcher, NamedPath, NamedTool, Operand, Operator, Reference, TestEntry, TestSpec, TextCheck, ToolCheck, WhenRule } from './checks/grammar.js';
-export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen } from './checks/parse.js';
-export { CHECK_MARKS, RULES_ON_CALLS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, fencedLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
-export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
+export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen, referenceParts, referenceTo } from './checks/parse.js';
+export { CHECK_MARKS, RULES_ON_CALLS, andList, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, fencedLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
+export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, intoText, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
 export type { CheckInput, EvaluateOptions, JudgeCheckVerdict, RecordedCalls, UnreadPath } from './checks/evaluate.js';
 export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, recordedChecks, specFor } from './checks/tests-entry.js';
 export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry.js';
 // A recording judged from what it holds, a judge check by the verdict it recorded: `shadowlap check`'s, and the dashboard's for a run judged by its family's checks.
 export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedRole, recordedVerdicts } from './checks/recorded.js';
 export type { Judged, JudgeMaterialSource, RecordingJudged } from './checks/recorded.js';
+export { BUG_LABEL, checkRecording, checkRecordings, labelNoteWords, labelNotes, notApplicable, packRecording, unreadNotes } from './checks/recordings.js';
+export type { CheckReport, CheckedRecording, LabelNote, RecordingToCheck } from './checks/recordings.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHintMessage, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
@@ -69,7 +71,7 @@ export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // Whether a run still `running` has a process recording it (gc, Settings).
 export { SILENT_OWNED_MS, SILENT_UNKNOWN_MS, processAlive, recorderGone, type RunOwner } from './liveness.js';
 // shadowlap.config.json as a file the CLI and the dashboard both edit.
-export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, restoreRule, ruleNoun, sameRule, setClock, validateRule } from './config-file.js';
+export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editRelaysConfig, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, restoreRule, ruleNoun, sameRule, setClock, validateRule } from './config-file.js';
 export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
 // The lock file those edits take, for any small file several Shadowlap processes change.
 export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type LockOptions } from './lock-file.js';

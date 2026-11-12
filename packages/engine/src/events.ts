@@ -64,6 +64,9 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  * - `ci.workflow`: ref the workflow's path (`.github/workflows/agent.yml`); data { added, removed,
  *   created } from Settings → CI's Write file, { undo: true, removed } from its Undo, which put the
  *   file back as it was, or removed the one the write made
+ * - `checks.changed`: ref the golden; data { key, added, removed }: the dashboard's check builder
+ *   changed the checks of the golden's tests entry in shadowlap.config.json (`key`, the entry it
+ *   wrote), `added` and `removed` the checks' labels
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

@@ -684,7 +684,7 @@ export function resultLine(r: TestResult, checks: readonly string[], normalizers
   return parts.join(' · ') || 'passed';
 }
 
-const modeOf = (g: GoldenSource) =>
+export const modeOf = (g: GoldenSource) =>
   g.mode === 'fork' && g.gate
     ? { label: g.gate.kind === 'sprt' ? 'fork · gate' : 'fork · history', hint: `allowed to fork; passes on its checks, decided by its gate: ${describeGate(g.gate)}` }
     : g.mode === 'fork'

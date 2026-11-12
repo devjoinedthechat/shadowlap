@@ -65,18 +65,23 @@ function divergedWhy(r: Pick<RunLike, 'divergence'>): string | null {
 }
 
 /**
- * How one comes to judge a run no check judges. A check is added from a tool call: until Add check…
- * is on the page, by packing the run as a golden with checks, or giving a golden of its family some.
+ * How one comes to judge a run no check judges. Where the page offers Add check… on its tool calls,
+ * a check is added from one there; elsewhere (a capture, an exported copy, a read-only dashboard) it
+ * is told where a golden's checks go.
  */
-function howToCheck(tools: number): string {
-  return tools ? 'Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.' : 'It made no tool call, and a check on calls reads them.';
+function howToCheck(tools: number, offered: boolean): string {
+  if (!offered) return tools ? 'Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.' : 'It made no tool call, and a check on calls reads them.';
+  return tools ? 'Pick a tool call and use Add check… in the inspector, or pack the run as a golden with its checks.' : 'It made no tool call, and a check is added from one.';
 }
 
 /** How a run that failed by its agent's exit says so: with its code where it was one, on Runs and Fixes alike. */
 export const exitWords = (code: number | null | undefined): string => (typeof code === 'number' && code !== 0 ? `The agent exited with code ${code}` : 'The agent exited with an error');
 
-/** The card for a run's status: `out` is its outcome as outcomeOf says it; `tools`, the tool calls it made (null on a list, which doesn't count them). */
-export function outcomeTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf }, tools: number | null = null): OutcomeTip {
+/**
+ * The card for a run's status: `out` is its outcome as outcomeOf says it; `tools`, the tool calls it
+ * made (null on a list, which doesn't count them); `offered`, whether the page offers Add check… on them.
+ */
+export function outcomeTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf }, tools: number | null = null, offered = false): OutcomeTip {
   const j = r.judged;
   const plain = (title: string, sub: string | null = null): OutcomeTip => ({ title, sub, rows: [], said: sub });
   switch (out.of) {
@@ -101,6 +106,6 @@ export function outcomeTip(r: RunLike, out: RunOutcomeWords & { of: OutcomeOf },
     case 'interrupted':
       return plain('Stopped before it ended', 'Ctrl-C, a kill or a crash: it stopped, and did not fail.');
     default:
-      return { title: 'No check applies to this run', sub: tools === null ? null : howToCheck(tools), rows: [], said: null };
+      return { title: 'No check applies to this run', sub: tools === null ? null : howToCheck(tools, offered && !r.source), rows: [], said: null };
   }
 }
