@@ -162,7 +162,8 @@ function MessageBlock({ block, format, names }: { block: TurnBlock; format: bool
     case 'tool_call':
       return (
         <div className="tu">
-          {/* its arguments break only between them: after a comma or a run of opening braces, a short object whole */}
+          {/* its arguments break only between them: after a comma or a run of opening braces, a short object whole; past a few
+              lines (`CODE_SET`), as written */}
           <span className="ar">→</span> <b>{block.name}</b> <CodeText>{JSON.stringify(block.input)}</CodeText>
         </div>
       );

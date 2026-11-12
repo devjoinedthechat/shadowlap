@@ -311,6 +311,8 @@ code.ts-cb.whole { white-space: nowrap; }
 code.ts-cb.whole wbr { display: none; }
 /* a command set as code in a line, and code shown as text, break only between their pieces */
 code.ts-cmd, code.ts-ct { white-space: normal; }
+/* code past what is set in pieces, as written: it breaks anywhere rather than run past its box */
+code.ts-ct.long { overflow-wrap: anywhere; }
 
 /* Forced colours set every colour to the user's own, and drop shadows and fills: what says something by its colour alone
    keeps it, edged in the user's text colour; a chosen option whose fill is lost is underlined. */

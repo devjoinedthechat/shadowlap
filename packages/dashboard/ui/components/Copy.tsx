@@ -557,12 +557,18 @@ export function Command({ cmd, inline = false, prompt = !inline }: { cmd: string
   return inline ? <code className="ts-cmd">{body}</code> : body;
 }
 
+/** The most characters of code shown as text that `CodeText` sets in pieces: a few lines of a tool call's arguments or an answer. */
+export const CODE_SET = 2048;
+
 /**
  * Code shown as text: a failure line, a model's tool call, a decision's step (`codePieces`). It
  * breaks at its spaces, after a comma and after a run of opening braces, a field or a call keeping
  * its number and an operator the word before it, so no line starts with `>`; a short object stays
- * whole. Never with a <wbr> before a space, which crashed Chromium in a block that balances.
+ * whole. Never with a <wbr> before a space, which crashed Chromium in a block that balances. Code
+ * past `CODE_SET` characters (a file a tool writes, a long answer) is drawn as written, one text a
+ * browser breaks where it must (`long`): set, 108 KB of a tool's input was 32,003 pieces.
  */
 export function CodeText({ children, className }: { children: string; className?: string | undefined }) {
-  return <code className={['ts-ct', className].filter(Boolean).join(' ')}>{drawn(codePieces(children))}</code>;
+  const long = children.length > CODE_SET;
+  return <code className={['ts-ct', long ? 'long' : null, className].filter(Boolean).join(' ')}>{long ? children : drawn(codePieces(children))}</code>;
 }

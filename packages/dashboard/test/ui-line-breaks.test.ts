@@ -2,7 +2,7 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PageHeader } from '../ui/components/bits.js';
-import { Code, CodeText, Command, Copy, LongWord, Words } from '../ui/components/Copy.js';
+import { Code, CODE_SET, CodeText, Command, Copy, LongWord, Words } from '../ui/components/Copy.js';
 import { Dialog } from '../ui/components/Dialog.js';
 import { DialogFacts, DialogSteps } from '../ui/components/DialogFacts.js';
 import { DotParts } from '../ui/components/DotParts.js';
@@ -167,6 +167,16 @@ describe('copy set by its parts', () => {
     expect(html).toMatch(/,<\/span><wbr\/>/);
     expect(html).not.toMatch(/<wbr\/>\s/);
     expect(html).toMatch(/<span class="nw">&quot;reason&quot;:&quot;above the refund limit&quot;,<\/span>/);
+  });
+
+  it('draws a tool call’s arguments past a few lines as written, one text a browser breaks where it must, never thousands of pieces', () => {
+    const say = { path: 'notes/refund.md', content: 'The refund went out above the limit, so it waits for a manager. '.repeat(40) };
+    const json = JSON.stringify(say);
+    expect(json.length).toBeGreaterThan(CODE_SET);
+    expect(renderToStaticMarkup(createElement(CodeText, { children: json }))).toBe(`<code class="ts-ct long">${json.replace(/"/g, '&quot;')}</code>`);
+    expect(values('code.ts-ct.long', 'overflow-wrap')).toEqual(['anywhere']);
+    // up to the cap it is still set in pieces
+    expect(renderToStaticMarkup(createElement(CodeText, { children: json.slice(0, CODE_SET) }))).toContain('<span class="nw">');
   });
 
   it('splits a toast at its dots, each part kept whole with its dot, all in the one words span', async () => {
