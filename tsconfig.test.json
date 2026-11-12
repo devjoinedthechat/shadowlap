@@ -78,6 +78,7 @@
     "packages/dashboard/test/ui-check-builder-view.test.ts",
     "packages/dashboard/test/ui-check-builder-fix.test.ts",
     "packages/dashboard/test/ui-check-builder.test.ts",
+    "packages/dashboard/test/ui-suggested-checks.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     // These render the Runs page's bulk bar, the Overview's panels and the lists of runs.
     "packages/dashboard/test/ui-runs-bulk.test.ts",

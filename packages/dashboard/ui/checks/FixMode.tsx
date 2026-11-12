@@ -21,7 +21,8 @@ import type { BuilderFix } from '../run/check-part.js';
 import { useApp } from '../state.js';
 import { fixJudgeCost } from './Judge.js';
 import { useJudged, type Judged } from './judging.js';
-import { blankUnit, checkCommand, editAt, fileUnit, judgesIn, saveWhy, titleOf, unitsOf, type Fragment, type Rule, type Settled, type Units } from './model.js';
+import { blankUnit, checkCommand, editAt, fileUnit, haveOf, judgesIn, saveWhy, titleOf, unitsOf, type Fragment, type Rule, type Settled, type Units } from './model.js';
+import { Suggested, type SuggestedProps } from './Suggested.js';
 
 /**
  * The check builder on a fix. Fix mode (Edit check…, an open fix): the fix's check as units, the
@@ -74,7 +75,7 @@ function needsLook(r: FixCheckRow, left: FixCheckPreview['left']): boolean {
 /** Why Save check waits on the fix's runs: until the draft as it stands is judged on them, after a read of them that failed, and on the read's refusal. */
 function judgedWhy({ answer, error }: Pick<Judged<FixCheckPreview>, 'answer' | 'error'>): string | null {
   if (answer) return answer.refused;
-  return error ? 'The fix’s runs couldn’t be judged: Retry them under Its runs under this check' : 'Judging it on the fix’s runs…';
+  return error ? 'The fix’s runs couldn’t be judged: Retry them in Its runs under this check' : 'Judging it on the fix’s runs…';
 }
 
 /**
@@ -254,14 +255,16 @@ function NoGuard({ fix }: { fix: BuilderFix }) {
 }
 
 /**
- * The fix's sections, after the golden's preview where there is one: its runs, then in fix mode
- * What changes, and beside a fix no golden guards, how to pack one in The change's place.
+ * The fix's sections, after the golden's preview where there is one: its runs, then the rules
+ * suggested from its first failing run (Suggested, the fix's id sent, no call), then in fix mode What
+ * changes, and beside a fix no golden guards, how to pack one in The change's place.
  */
-export function FixSections({ fix, own, settled, judging, guarded }: { fix: BuilderFix; own: boolean; settled: Settled; judging: Judged<FixCheckPreview>; guarded: boolean }) {
+export function FixSections({ fix, own, settled, judging, guarded, verb, onUse }: { fix: BuilderFix; own: boolean; settled: Settled; judging: Judged<FixCheckPreview>; guarded: boolean } & Pick<SuggestedProps, 'verb' | 'onUse'>) {
   const check = judgedBy(own, settled);
   return (
     <>
       {check ? <FixRuns judging={judging} own={own} check={check} /> : null}
+      <Suggested ask={{ run: fix.runId, at: null, have: haveOf(settled), fix: fix.fixId }} verb={verb} onUse={onUse} />
       {own ? <FixChange fix={fix} merged={settled.merged} uncounted={judging.answer?.uncounted ?? []} /> : guarded ? null : <NoGuard fix={fix} />}
     </>
   );

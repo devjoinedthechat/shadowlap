@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { ApiError } from '../api.js';
-import type { CheckContext, CheckPreview, ChecksConfig, ChecksOf, GoldenEntry } from '../checks-api.js';
+import type { CheckContext, CheckPreview, ChecksConfig, ChecksOf, GoldenEntry, SuggestionsAsk } from '../checks-api.js';
 import { Dialog } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
 import { ErrorState } from '../components/States.js';
@@ -9,6 +9,8 @@ import { goldenName, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { argsOf } from '../run/check-entry.js';
 import type { BuilderFix, BuilderProps } from '../run/check-part.js';
+import { runLikeOf } from '../run/model.js';
+import { isFailed, runType } from '../runs.js';
 import { useApp } from '../state.js';
 import { Change } from './Change.js';
 import { fixBase, fixHead, FixSections, fixUnits, fixWays, useFixRuns, useFixSave } from './FixMode.js';
@@ -24,6 +26,7 @@ import {
   unitWithLabel,
   firstCall,
   goldenLead,
+  haveOf,
   judgeAdded,
   judgesIn,
   jsonFrom,
@@ -37,11 +40,13 @@ import {
   saveWhy,
   settle,
   snapOf,
+  suggestVerb,
   titleOf,
   unitsOf,
   withGolden,
   withoutJudges,
   withRule,
+  withSuggestion,
   type Fragment,
   type Rule,
   type RuleContext,
@@ -54,6 +59,7 @@ import {
 import { Preview } from './Preview.js';
 import { RulePicker } from './RulePicker.js';
 import { Sentence } from './Sentence.js';
+import { Suggested } from './Suggested.js';
 
 /**
  * The check builder: a check made from a run's tool call, or added to or changed on a golden, judged
@@ -207,6 +213,13 @@ function notesOf(props: BuilderProps, d: Drawn, golden: string | null, answer: C
   return previewNotes(answer, { golden, failedItsCheck, judges: d.judges, fork: d.fork });
 }
 
+/** What the builder asks suggestions with: made from a call of a recording that failed, never on a golden; the labels it holds left out. */
+function suggestAsk(props: BuilderProps, have: string[]): SuggestionsAsk | null {
+  if (!('call' in props)) return null;
+  const like = runLikeOf(props.run);
+  return runType(like) === 'recording' && isFailed(like) ? { run: props.run.run.runId, at: props.call.call.callNo, have } : null;
+}
+
 /**
  * Save's words, which follow the state: off with why until it can save, plain while a note needs a
  * look, lime once none does. A save the server refused stays off on its words until something changes.
@@ -294,6 +307,8 @@ function Body(props: BuilderProps & BodyProps) {
   };
   const setRule = (r: Rule) => change((x) => ({ units: x.units.map((u, j) => (j === x.active ? withRule(u, r) : u)), active: x.active }));
   const setKind = (k: RuleKind) => setRule(k === 'json' ? jsonFrom(d.rule, rctx) : ruleFrom(k, { ...rctx, call: firstCall(rctx, ruleTool(d.rule) ?? '') ?? rctx.call }));
+  // Suggested's, golden mode's or fix mode's: a rule taken into the builder, never saved by itself.
+  const suggest = { verb: suggestVerb(s), onUse: (f: Fragment) => change((x) => withSuggestion(x, f)) };
   const head = headOf(props, s.golden);
   const runId = fromCall ? props.run.run.runId : null;
   const editor = editorRun(props);
@@ -318,7 +333,7 @@ function Body(props: BuilderProps & BodyProps) {
         {d.unit && !d.unit.gone ? <Sentence rule={d.rule} ctx={rctx} run={editor ? shortId(editor) : null} models={cfg.models} onRule={setRule} onKind={setKind} /> : null}
       </section>
       {own ? null : <Preview answer={judging.answer} error={judging.error} retry={judging.retry} notes={notes} judged={d.judged} judgesOnly={d.judgesOnly} agent={cfg.agent} />}
-      {fix ? <FixSections fix={fix} own={own} settled={d.settled} judging={fixRuns} guarded={!!d.golden} /> : null}
+      {fix ? <FixSections fix={fix} own={own} settled={d.settled} judging={fixRuns} guarded={!!d.golden} {...suggest} /> : <Suggested ask={suggestAsk(props, haveOf(d.settled))} {...suggest} />}
       {own || (fix && !d.golden) ? null : <Change cfg={cfg} error={props.cfgError} retry={props.reread} golden={d.golden} merged={d.settled.merged} changed={d.settled.changed} conflict={conflict} judgeAdded={judgeAdded(s.units)} runId={runId} />}
     </Dialog>
   );

@@ -27,7 +27,8 @@ interface Got<T> {
  * to an older draft is dropped, so what is drawn is always the draft's own: until it comes, the draft
  * is being judged. A failed read says so and keeps the last answer. `key` is the draft with all that
  * its answer depends on, null for nothing to judge, and `ask` reads the answer to it: the golden
- * mode's recordings (Builder.tsx) and a fix's runs (FixMode.tsx) alike.
+ * mode's recordings (Builder.tsx), a fix's runs (FixMode.tsx) and the rules suggested beside them
+ * (Suggested.tsx) alike.
  */
 export function useJudged<T>(key: string | null, ask: (key: string) => Promise<T>): Judged<T> {
   const [got, setGot] = useState<Got<T>>({ key: null, answer: null, error: null });

@@ -65,6 +65,9 @@ export { HIDDEN_IN_NAME, HIDDEN_IN_TEXT, hiddenCharacter, hiddenCharacterWords }
 export type { HiddenCharacter } from './hidden-characters.js';
 export { BUG_LABEL, checkRecording, checkRecordings, labelNoteWords, labelNotes, notApplicable, packRecording, unreadNotes } from './checks/recordings.js';
 export type { CheckReport, CheckedRecording, LabelNote, RecordingToCheck } from './checks/recordings.js';
+export { lowerRecorded, type RecordedField } from './checks/fields.js';
+export { CANDIDATES_PER_SHAPE, GOOD_RUNS_MAX, SUGGESTED_MAX, agentToolCalls, checkCandidates, goodRunsOf, numberFields, suggestChecks, toolCounts } from './suggest-checks.js';
+export type { CheckSuggestion, RunCalls, SuggestChecksOptions, Suggested, SuggestedRule, SuggestionShape } from './suggest-checks.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHintMessage, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';

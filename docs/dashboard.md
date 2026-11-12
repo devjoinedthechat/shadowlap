@@ -1993,6 +1993,7 @@ The check builder makes a check from a tool call and writes it to the golden's e
 - **The golden's checks**: one row a check, labelled as reports label them. The rule being built reads `new`, or `changed` once it edits one of the file's, and a removed one `removed`, with **Keep**. A tool's count the rule takes the place of reads `replaced`.
 - **An injection gate** set in the golden's entry is a row of its own, read only.
 - **Against your recordings**: the counts, with *not applicable* apart, the notes in amber or grey, the recordings on request, and the `shadowlap check` command with **Copy whole command**.
+- **Suggested**, on a failed recording with good runs to compare with: at most three rules that fail it and none of its good runs, the fix's and the agent's recordings labelled `good`. **Use rule** puts one in place of the rule being built, **Add rule** adds it beside a check being edited, and nothing is saved until **Save check**.
 - **The change**: the golden's entry as the file will hold it, with the file's version. When saving would also lay out other lines of the file anew, it says so first.
 
 **Save check** turns lime once nothing needs a look, and stays off with its reason until the rule can be saved. For an edited check it reads **Save change**. While the dashboard server can't be reached, it waits.
@@ -2007,11 +2008,12 @@ A press outside the dialog never closes it. Esc closes it while nothing changed,
 
 - **The check of this fix**: its rules, listed as a golden's are. A fix whose check is the exit code alone opens on one blank rule.
 - **Its runs under this check**: each failing and good run of the fix, judged by the whole check as built, judges in, from what it recorded. A failing run it passes would leave the fix, and a good run it fails would no longer be kept as good: those, and a run it can't settle, read in amber. Then the `shadowlap check` command.
+- **Suggested**, as on a failed recording: rules that fail the fix's first failing run and none of its good runs, the fix's own and the agent's recordings labelled `good`.
 - **What changes**: blame runs again first under the check, repair and verify use it, the verdicts that would stop counting, each named by the change it verified, and the config, unchanged. Then the [`shadowlap fix check`](./cli.md#fix-check) command.
 
 **Save check** runs that command as a job, and the drawer ends on the fix's next step. It stays off until the fix's runs are judged by the check as it stands, and while no failing run fails it, since the fix would no longer be this failure. It reads plain while a run needs a look. A refusal keeps the builder open, with the server's words in its amber line.
 
-**Add check to *golden*…**, on a verified or applied fix, opens the builder on the golden that guards it, the fix's runs under the draft folded below Against your recordings, for context. With no golden guarding it, the builder gives the `shadowlap pack` command for a recording of the fix working, into the golden `fix apply` would name, and Save check stays off.
+**Add check to *golden*…**, on a verified or applied fix, opens the builder on the golden that guards it, the fix's runs under the draft folded below Against your recordings, for context. Suggested reads the fix's first failing run there too. With no golden guarding it, the builder gives the `shadowlap pack` command for a recording of the fix working, into the golden `fix apply` would name, and Save check stays off.
 
 ### Actions on a fix
 
@@ -2482,6 +2484,7 @@ The work done on those threads:
 
 - the Overview, and the totals the Runs table filters and sorts by;
 - a run's page and its calls, its Provenance, and what a run's untrusted reads are;
+- the check builder's reads: what a call offers, a draft judged on your recordings or on a fix's runs, and its suggested checks;
 - Compare, and what a fork did differently;
 - a fix's page and its attempt groups;
 - the activity feed, and a search;
@@ -2872,10 +2875,12 @@ The check builder reads a golden's checks from `shadowlap.config.json`, judges a
 | `GET /api/checks/goldens?run=<id>\|golden=<path>` | The agent's goldens with their tests entries as written, the file's `version`, `read` and whether a write lays out other lines anew (`relaid`) |
 | `GET /api/checks/context?run=<id>&at=<n>` | What the run offers a check made from call `n`: each tool by its first call, the tools before it, the results' number fields |
 | `POST /api/checks/preview { expect, run \| golden }` | The draft judged on the agent's 200 newest recordings, its goldens' and the run's, as [`shadowlap check`](./cli.md#check) judges them |
+| `POST /api/checks/suggestions { run, at, have, fix }` | At most three rules that fail the recording `run` and none of its good runs, leaving out those labelled in `have` |
 | `PUT /api/checks/tests { golden, version, read, entry }` | The golden's checks: `entry.expect` set, or taken out with `null` |
 | `POST /api/checks/tests/undo { was }` | Puts back what the write that answered `was` changed |
 
-- **Reads beside the server.** The context and the preview are worked out beside the server, as they read the run's calls or every recording of the agent. The preview changes nothing. A golden whose recording is only in its pack is read from the pack there.
+- **Reads beside the server.** The context, the preview and the suggestions are worked out beside the server, as they read the run's calls or every recording of the agent; the preview and the suggestions change nothing. A golden whose recording is only in its pack is read from the pack there.
+- **Suggestions** compare `run` with the good runs of its fix, the one `fix` names in a fix's builder, then the agent's recordings labelled `good`. Each rule is judged by its own result, never the exit code, and one that doesn't apply to a good run doesn't fail it.
 - **A write** names the `version` it read and sends back `read`. A file changed since is a 409 that names what changed, such as `"prices" added`. A check `shadowlap test` would refuse is a 400 in its words. As the whole of `tests` is checked, that can name another golden's entry.
 - **A golden that follows a pattern**, such as `goldens/refund-*`, gets an entry of its own with the pattern's other keys. The pattern stays for its other goldens.
 - **The answer** is `{ key, version, added, removed, changed, was }`: the key written, the file's version after, and the labels of the checks added and removed. Only a write that changed the file has a `was`, and it lands in the activity feed.
