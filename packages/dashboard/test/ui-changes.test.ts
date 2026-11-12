@@ -20,6 +20,7 @@ import { unshownKey, useUnshown } from '../ui/shell/unshown.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { FixesViewRow, Meta, PreviewVerdict, RunDetail, RunListItem, SessionVerdict, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerifyVerdict } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * Changes: what a change does to your agent, on its own recorded runs. Its addresses, the tab it
@@ -666,7 +667,7 @@ describe('Changes’ page', () => {
     const asked: string[] = [];
     const holding = (what: string, ids: readonly string[]) => (asked.push(`${what} ${ids.join(' ')}`), Promise.resolve({ current: { id: 'support-agent', name: 'support-agent' }, held: null }));
     const client = { decisionSessions: () => Promise.resolve({ sessions: [], goldens: 0, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')), projects: { holding } };
-    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' })));
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, withServed(createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' }))));
     await page.until('the Preview tab', () => page!.all('.empty.tall').length === 1);
     expect(page.all('nav.stabs a').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)).toEqual(['Preview']);
     expect(bar.hash).toBe('#/changes/decisions/dc-01M5000000000000000000000A');

@@ -44,8 +44,8 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
 const PARTS = ['ActionDialog', 'AttemptPage', 'Builder', 'ChangeBox', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'FailedIssues', 'ForkDifferences', 'ForkMenu', 'ForksView', 'InjectionFinding', 'InjectionResults', 'JsonDiff', 'LeadDialog', 'MoreMenu', 'NewPreview', 'OtelDialog', 'Palette', 'Preview', 'Proof', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'ResultsMatrix', 'RevertDialog', 'RevisionPage', 'RunBlameAsks', 'RunDialogs', 'RunNotes', 'SecurityReportDialog', 'ShareMenu', 'Shortcuts', 'StepDialogs', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
-/** The parts the copy shows, in its one script: a run's views but Calls, the words of a run's notes, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset…, Export OpenTelemetry trace… and Security report it opens; the fork menu and the header's …; Run blame's dialogs with the check a blame asks for (CheckDialog), and the check builder; Runs › Failed as issues; Revert's dialog and the change box; the dialogs a run's steps ask in; an injection test's results, and the matrix they draw; a kept test's finding, which offers them; what only an injection attempt's page draws, its proof and its marks. */
-const COPY_PARTS = ['ActionDialog', 'ContextView', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'Palette', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RunDialogs', 'RunNotes', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
+/** The parts the copy shows, in its one script: a run's views but Calls, the words of a run's notes, what a fork did differently, and the shell's shortcuts sheet. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, and the Export dataset…, Export OpenTelemetry trace… and Security report it opens; the fork menu and the header's …; Run blame's dialogs with the check a blame asks for (CheckDialog), and the check builder; Runs › Failed as issues; Revert's dialog and the change box; the dialogs a run's steps ask in; an injection test's results, and the matrix they draw; a kept test's finding, which offers them; what only an injection attempt's page draws, its proof and its marks; the palette, the job's drawer with the words of a job's kind, and Remove project's dialog; the dialog a run's action asks in, Find breaking commit's, a diverged test's and Edit and fork's; and the In page (test/ui-exported-copy.test.ts pins what keeps each undrawn in a copy). */
+const COPY_PARTS = ['ContextView', 'DecisionsView', 'ForkDifferences', 'ForksView', 'JsonDiff', 'ProvenanceView', 'RequestDiff', 'RunNotes', 'Shortcuts', 'TimelineView', 'TurnsView'];
 
 /**
  * The parts heavy enough that they must wait for a script of their own (`onShow`), by their modules:
@@ -141,12 +141,13 @@ describe('the dashboard’s scripts', () => {
     expect(names(pages)).toEqual(PAGES);
     expect(names(parts)).toEqual(PARTS);
     for (const p of parts) expect(firstInputs.has(p.entry) || p.shownWith.has(p.entry), `${p.name} waits for its own script`).toBe(false);
-    // The page list declares no part, and shows one part itself: the In page, which a link into a
-    // project that can't be opened shows in the setup's place, declared in a module the pages showing it
-    // import too, so an exported copy takes it with its pages and not the page list (OnShow.tsx).
+    // The page list declares no part, and shows none itself: the In page, which a link into a project
+    // that can't be opened shows in the setup's place, is handed in by the served entry, since a copy
+    // never asks another project (OnShow.tsx), so neither the page list nor a copy's pages load it.
     const listed = new Set(metafile.inputs['ui/pages/lazy.tsx'].imports.filter((i) => i.kind === 'import-statement').map((i) => i.path));
     const listShows = dynamicImports(metafile).filter((d) => listed.has(d.by) && d.by.startsWith('ui/pages/'));
-    expect(listShows.map((d) => [d.by, d.entry])).toEqual([['ui/pages/held-elsewhere.tsx', 'ui/pages/Elsewhere.tsx']]);
+    expect(listShows.map((d) => [d.by, d.entry])).toEqual([]);
+    expect(dynamicImports(metafile).filter((d) => d.entry === 'ui/pages/Elsewhere.tsx').map((d) => d.by)).toEqual(['ui/pages/served.tsx']);
     // The heavy parts each wait for a script of their own, wherever they show: in neither the first
     // look nor what opening any other page loads. Compare is one of them already, and the walk loads
     // with it.
@@ -204,6 +205,8 @@ describe('the dashboard’s scripts', () => {
     expect(held.has('ui/runspage/IssuesTable.tsx')).toBe(false);
     // Nor New preview's dialogs: its menu waits in a copy, as every server action does.
     expect(held.has('ui/changes/NewPreview.tsx')).toBe(false);
+    // Nor the shell's parts a copy never draws, a run's page's dialogs a copy never opens, and the In page.
+    for (const part of ['ui/shell/Palette.tsx', 'ui/components/Drawer.tsx', 'ui/jobs.ts', 'ui/shell/RemoveProject.tsx', 'ui/run/ActionDialog.tsx', 'ui/run/RunDialogs.tsx', 'ui/run/DivergedDialogs.tsx', 'ui/run/EditDialog.tsx', 'ui/pages/Elsewhere.tsx']) expect(held.has(part), `${part} is in the copy`).toBe(false);
     // The parts its pages show are in its one script: a file has no server to load them from.
     const shown = dynamicImports(metafile).filter((d) => held.has(d.by));
     for (const part of COPY_PARTS) expect(PARTS).toContain(part);

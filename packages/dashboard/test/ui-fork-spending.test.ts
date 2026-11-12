@@ -12,6 +12,7 @@ import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { Spending } from '../../engine/src/estimates/spending.js';
 import { shell } from './ui-overlays-page.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * The fork menu by Spending: each row's card says what it bills once the server has priced the call,
@@ -53,7 +54,7 @@ async function page(threshold: Spending, answer: RunEstimates | 'never' | ((mode
     const runner = useActionRunner(RUN, false, null, o.forkAt ?? null);
     return createElement(Fragment, null, createElement(ForkMenu, { anchor: null as unknown as HTMLElement, run, call: call(o.rows ?? ROWS), offers: null, onPick: runner.run, onFindCommit: () => undefined, onClose: () => undefined }), runner.dialog);
   }
-  r = await render(shell({ client, hasKind: () => true, actionsOff: null, jobs: [], guard: (fn: () => void) => (fn(), true), watchJob: () => undefined }, createElement(Page)));
+  r = await render(shell({ client, hasKind: () => true, actionsOff: null, jobs: [], guard: (fn: () => void) => (fn(), true), watchJob: () => undefined }, withServed(createElement(Page))));
   await r.wait(0);
   const row = (label: string) => r!.all('[role="menu"] button').find((b) => b.querySelector('b')?.textContent === label) as FakeElement;
   return { sent, row, asked: () => r!.all('.dialog').length > 0 };
