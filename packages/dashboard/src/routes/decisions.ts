@@ -21,6 +21,7 @@ import { namesTeamStore } from './verdicts.js';
  *   GET /api/model-choices                       the models a preview's field offers beside the runs' own: each provider's own listing, and why one couldn't be listed (model-listing.ts)
  *   GET /api/runs/:id/decisions                  a run's decisions under each session that asked it again, beside the server
  *   GET /api/retirements                         the models the goldens use that retire, by the table that ships
+ *   GET /api/migrate/start                       what Migrate opens on (migrate-start.ts): the goldens' retiring models with their goldens, scopes and the migration that checked each, and the models in use
  *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }
  *   POST /api/jobs { kind: "migrate", to, goldens?, runs?, from?, scope?, set?, yes? }   every golden when none are named
  *   POST /api/jobs { kind: "migrate-apply", migrationId }   migrate apply: a kept migration's config change into the working tree, its goldens replayed offline
@@ -141,6 +142,13 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   router.get('/retirements', (r) => r.tagged(retirementsView(ctx.store, goldens())));
+
+  // What Migrate opens on: the goldens' models that retire, with their scopes and whether a migration checked each, and the models in use. It reads every golden's calls, so beside the server.
+  router.get('/migrate/start', async (r) => {
+    const listed = goldens();
+    const { byId } = loadRunIndex(ctx.store);
+    sendAnswer(r, await ctx.reads.run({ kind: 'migrate-start', goldens: listed }, { calls: listed.reduce((n, g) => n + ((g.runId && byId.get(g.runId)?.calls) || 0), 0) }));
+  });
 
   // A golden's pack is read from the project's folder, which is where a job runs the CLI.
   const folder = (b: { project: { path: string } | null }) => b.project?.path ?? process.cwd();

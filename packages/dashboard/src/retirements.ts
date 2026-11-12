@@ -8,9 +8,9 @@ import type { GoldenSource } from './tests.js';
  */
 
 /** A model that retires, with the goldens whose recordings call it. */
-export type RetiringModel = RetirementNotice & { goldens: string[] };
+export type RetiringModel = RetirementNotice & { goldens: string[]; scopes: string[] };
 
-type Model = { provider: string | null; model: string };
+type Model = { provider: string | null; model: string; scopes: string[] };
 
 /**
  * The models each golden's recording calls, by run, kept per store: a finished recording never
@@ -19,7 +19,7 @@ type Model = { provider: string | null; model: string };
  */
 const modelsRead = new WeakMap<object, Map<string, Model[]>>();
 
-function modelsOf(store: StoreOf<'recording'>, runId: string): Model[] {
+export function modelsOf(store: StoreOf<'recording'>, runId: string): Model[] {
   const kept = modelsRead.get(store) ?? new Map<string, Model[]>();
   modelsRead.set(store, kept);
   const known = kept.get(runId);
@@ -30,7 +30,11 @@ function modelsOf(store: StoreOf<'recording'>, runId: string): Model[] {
     const model = c.end?.meta.model ?? c.meta.model ?? null;
     if (!model) continue;
     const provider = c.meta.provider ?? c.end?.meta.provider ?? null;
-    seen.set(`${String(provider)}\u0000${model}`, { provider, model });
+    const key = `${String(provider)}\u0000${model}`;
+    const m = seen.get(key) ?? { provider, model, scopes: [] };
+    // The scopes its calls were made in (the agent's own, or a subagent's), for Migrate's start page.
+    if (typeof c.meta.scope === 'string' && c.meta.scope && !m.scopes.includes(c.meta.scope)) m.scopes.push(c.meta.scope);
+    seen.set(key, m);
   }
   const models = [...seen.values()];
   if (store.getRun(runId)?.status !== 'running') kept.set(runId, models);
@@ -54,10 +58,11 @@ export function retiringModels(store: StoreOf<'recording'>, goldens: readonly Go
       const known = byModel.get(key);
       const notice = known ?? (() => {
         const n = retirementOf(m.provider, m.model, { now });
-        return n ? { ...n, goldens: [] as string[] } : null;
+        return n ? { ...n, goldens: [] as string[], scopes: [] as string[] } : null;
       })();
       if (!notice) continue;
       notice.goldens.push(g.path);
+      notice.scopes = [...new Set([...notice.scopes, ...m.scopes])];
       byModel.set(key, notice);
     }
   }

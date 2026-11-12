@@ -8,6 +8,7 @@ import { DONE, LOOKUP, REFUND, recordRun } from '../../engine/test/training-fixt
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { decisionSession } from '../src/decisions.js';
 import { appliedState, goldensLeftWaiting } from '../src/migrate-applied.js';
+import type { MigrateStartView } from '../src/migrate-start.js';
 import type { MigrateView } from '../src/migrate-view.js';
 
 /**
@@ -103,6 +104,16 @@ describe('a migration’s view', () => {
   it('offers no Apply where migrate apply would refuse it, saying why in its words', async () => {
     const m = await view(NO_FILE);
     expect([m.next, m.config.sub, 'why' in m.apply && m.apply.why]).toEqual([null, 'no file names the model', `mg-01M5000000 has no config change: no string in the project's code or config names claude-sonnet-4-5, so set claude-sonnet-5-5 where your agent reads its model`]);
+  });
+});
+
+describe('Migrate’s start read', () => {
+  it('answers the goldens, each model they call that retires with its goldens, scopes and the newest migration that checked it, and the models in use', async () => {
+    const res = await api(dash, 'migrate/start');
+    expect(res.status).toBe(200);
+    const start = (await res.json()) as MigrateStartView;
+    expect([start.goldens, start.use.map((u) => [u.model, u.goldens])]).toEqual([1, [['claude-sonnet-4-5', 1]]]);
+    expect(start.retiring.map((n) => [n.model, n.goldens, n.scopes, n.owner, n.replacements[0], n.checked])).toEqual([['claude-sonnet-4-5', ['goldens/refund'], [], 'Anthropic', 'claude-sonnet-5-5', { sessionId: BLOCKED, words: 'checked · the config change is ready' }]]);
   });
 });
 
