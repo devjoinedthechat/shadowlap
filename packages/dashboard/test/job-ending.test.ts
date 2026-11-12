@@ -80,6 +80,24 @@ describe('how a job ends, in the words of its kind', () => {
 });
 
 describe('the drawer’s header', () => {
+  it('a preview ends finished, or inconclusive in amber where it settled nothing, and its read of the working tree read', () => {
+    const preview = (code: number) => done({ kind: 'decisions', title: 'Previewing model switch', args: ['decisions', 'goldens/refund', '--model', 'claude-haiku-4-5'], code });
+    expect(jobStatus(preview(0), [])).toEqual({ text: 'finished · exit 0', tone: 'ok' });
+    expect(jobStatus(preview(3), [])).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+    // Its past-tense title says it finished: the toast doesn't say it twice.
+    expect(endToast(preview(0), [])).toBe('Previewed model switch · exit 0');
+    const read = done({ kind: 'decisions-read', title: 'Reading what your working tree sends', args: ['decisions', 'goldens/refund', '--from-code', '--dry-run'], code: 0 });
+    expect(jobStatus(read, [])).toEqual({ text: 'read · exit 0', tone: 'ok' });
+  });
+
+  it('a session’s verify says the verdict the session answers, one it left open inconclusive', () => {
+    const verify = (code: number, verdict: string) => done({ kind: 'decisions-verify', title: 'Verifying 2 runs', args: ['decisions', '--verify', 'dc-01M5'], code, result: { kind: 'decisions-verify', verify: { verdict } } });
+    expect(jobStatus(verify(0, 'accepted'), [])).toEqual({ text: 'accepted · exit 0', tone: 'ok' });
+    expect(jobStatus(verify(1, 'rejected'), [])).toEqual({ text: 'rejected · exit 1', tone: 'err' });
+    expect(jobStatus(verify(3, 'incomplete'), [])).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+    expect(endToast(verify(1, 'rejected'), [])).toBe('Checked 2 runs · rejected · exit 1');
+  });
+
   it('runs in the -ing form, and ends in the past tense its toast leads with', () => {
     const replay = { args: ['replay', 'X'], done: false, code: null };
     expect(jobHeader(replay, [])).toEqual({ title: 'Replaying', text: 'running', tone: '' });

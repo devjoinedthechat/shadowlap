@@ -68,9 +68,21 @@ function bisectStatus(job: EndedJob, all: string, code: number): JobWords | null
 /** A verify, a change's verify and a migration, by the verdict the command reported. */
 function verdictStatus(job: EndedJob, code: number): JobWords | null {
   if (job.kind !== 'verify' && job.kind !== 'decisions-verify' && job.kind !== 'migrate') return null;
-  const verdict = asRecord(job.result)?.verdict;
+  // A session's verify answers with the session (`verify.verdict`), where a verify left open is incomplete.
+  const said = job.kind === 'decisions-verify' ? asRecord(asRecord(job.result)?.verify)?.verdict : asRecord(job.result)?.verdict;
+  const verdict = said === 'incomplete' ? 'inconclusive' : said;
   const tones: Readonly<Record<string, JobWords['tone']>> = { accepted: 'ok', rejected: 'err', inconclusive: 'warn' };
   return typeof verdict === 'string' && tones[verdict] ? { text: `${verdict} · exit ${code}`, tone: tones[verdict] } : null;
+}
+
+/**
+ * A preview: finished, or inconclusive where it settled nothing (exit 3), as a session that didn't
+ * settle ends; a read of what the working tree sends, read. Other codes have the words of any job.
+ */
+function previewStatus(job: EndedJob, code: number): JobWords | null {
+  if (job.kind === 'decisions-read') return code === 0 ? { text: 'read · exit 0', tone: 'ok' } : null;
+  if (job.kind !== 'decisions') return null;
+  return code === 0 ? { text: 'finished · exit 0', tone: 'ok' } : code === 3 ? { text: 'inconclusive · exit 3', tone: 'warn' } : null;
 }
 
 /** Repeat: whether the attempts took one path. A repeat's failed check, or anything else non-zero, has the words of any replay. */
@@ -107,5 +119,5 @@ function checkStatus(job: EndedJob, code: number): JobWords | null {
 
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return verdictStatus(job, code) ?? checkStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return previewStatus(job, code) ?? verdictStatus(job, code) ?? checkStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? sessionStatus(job, all, code);
 }
