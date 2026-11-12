@@ -1,8 +1,11 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { approx } from '../ui/format.js';
 import { normalizeRunDetail, normalizeState } from '../ui/normalize.js';
 import { failedWord, familyLine, familyLineParts, isFailed, isInterrupted, repeatBundle, runGlyph, runOutcome, sideLine, type RunLike } from '../ui/runs.js';
 import { lineageRunLike, runLikeOf } from '../ui/run/model.js';
+import { ScopeBar } from '../ui/run/parts.js';
 import { datasetTooMany, DATASET_MAX_RUNS } from '../ui/run/share.js';
 import { agentsShown, blameScope, inScope, realScopes, scopeChips, scopeHint } from '../ui/scopes.js';
 import type { LineageNode, RunDetail, RunListItem } from '../ui/types.js';
@@ -160,6 +163,20 @@ describe('the run page’s reading of the server’s state', () => {
     // A run whose only undecided check is a judge's with no verdict: no failure.
     expect(normalizeState({ status: 'completed', failed: false, outcome: { kind: 'inconclusive', check: 'polite' } })).toMatchObject({ outcome: { kind: 'inconclusive', check: 'polite' }, failed: false });
     expect(detail(null).state).toBeNull();
+  });
+});
+
+describe('the run’s agents chips', () => {
+  it('say each agent’s word and count apart', () => {
+    const calls = [
+      { callNo: 1, scope: 'customer', kind: 'api' },
+      { callNo: 2, scope: 'agent', kind: 'api' },
+      { callNo: 3, scope: 'agent', kind: 'tool' },
+    ];
+    const run = { run: { runId: '01M781NKXK0SFB6W51R56AKDAE' }, calls } as unknown as RunDetail;
+    const html = renderToStaticMarkup(createElement(ScopeBar, { run, scopes: ['agent', 'customer'], scope: 'all', onScope: () => undefined }));
+    const words = [...html.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map((m) => m[1].replace(/<[^>]*>/g, ''));
+    expect(words).toEqual(['All 3', 'agent 2', 'customer 1']);
   });
 });
 
