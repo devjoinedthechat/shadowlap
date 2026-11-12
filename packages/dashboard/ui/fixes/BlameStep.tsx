@@ -3,6 +3,7 @@ import type { FixAttemptGroups } from '../../src/attempt-groups.js';
 import { type Attempt, AttemptList, AttemptsCell } from '../components/AttemptsCell.js';
 import { EmptyState, SrSpace } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { CodeText } from '../components/Copy.js';
 import { DotParts } from '../components/DotParts.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { Id } from '../components/Id.js';
@@ -71,7 +72,7 @@ function OldCheckNote({ b }: { b: BlameStep }) {
   return (
     <>
       <p className="fxreceipt fxold">
-        Found under the fix’s old check, <code>{old.text}</code>.{old.next ? (old.next === 'stronger' ? ' Its next steps run under the new one:' : ' Run blame again searches under the new one:') : null}
+        Found under the fix’s old check, <CodeText>{old.text}</CodeText>.{old.next ? (old.next === 'stronger' ? ' Its next steps run under the new one:' : ' Run blame again searches under the new one:') : null}
       </p>
       {old.command ? <CodeBox command={old.command} className="fxoldcmd" /> : null}
     </>

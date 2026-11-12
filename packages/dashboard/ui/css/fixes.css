@@ -228,7 +228,6 @@ table.t td.fxwhere { color: var(--faint); }
 .fxreceipt code.rnm { font-size: 12px; }
 /* A blame or verdict made under the fix's old check: what it was made under, then what runs under its check now. */
 .fxreceipt.fxold { margin: 14px 0 8px; }
-.fxreceipt.fxold code { overflow-wrap: anywhere; }
 .cmdline.fxoldcmd { margin: 12px 0 14px; }
 .fxbad { color: var(--err); }
 .fxdim { color: var(--faint); }
