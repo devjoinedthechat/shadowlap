@@ -364,6 +364,12 @@ export function forkCommand(run: RunRecord): string[] {
   return recordedFlags(run)?.some((i) => i.kind === 'command') ? ['--', ...run.command.argv] : [];
 }
 
+/** The recording Run error-path presets… runs on: a clean replay's or a test's comes from its recording, whose presets they are; any other run is its own. */
+export function presetsTarget(run: RunRecord): string {
+  const kind = runKind(run);
+  return (kind === 'clean' || kind === 'test') && run.parentRunId ? run.parentRunId : run.runId;
+}
+
 /**
  * Run error-path presets… (`replay <run> --chaos`): each preset played in at the call it hits, its
  * attempts live from there with writes stubbed, so it asks first (the dashboard in its own dialog).
@@ -372,8 +378,7 @@ export function forkCommand(run: RunRecord): string[] {
  * run are its recording's.
  */
 function presetsAction(run: RunRecord): Action {
-  const kind = runKind(run);
-  const target = (kind === 'clean' || kind === 'test') && run.parentRunId ? run.parentRunId : run.runId;
+  const target = presetsTarget(run);
   const disabled = run.meta?.chaos ? 'A preset’s attempt: run the presets on its recording' : run.meta?.injection ? 'An injection test’s attempt: run the presets on its recording' : null;
   return {
     key: 'c',

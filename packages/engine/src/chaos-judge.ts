@@ -3,6 +3,7 @@ import { checkLabels } from './checks/labels.js';
 import { DEFAULT_CHAOS, type ChaosSpec } from './checks/tests-entry.js';
 import type { EffectOf } from './decisions.js';
 import { describeGate, rateBound, tallyInterval, type GateDecision, type Tally } from './stats.js';
+import type { CallRecord } from './types.js';
 
 /**
  * What judges a recording's error-path presets besides the agent exiting 0, as `test --chaos`,
@@ -152,4 +153,32 @@ export function keptPresetBound(o: Parameters<typeof presetRule>[0] & { passes: 
   if (!presetRule(o)) return null;
   const decision: GateDecision = o.verdict === 'passed' ? 'pass' : o.verdict === 'failed' ? 'fail' : 'inconclusive';
   return presetBound(o.gate, { passes: o.passes, attempts: o.attempts }, decision, o.cutShort ?? 0);
+}
+
+/**
+ * The gate a recording's presets are decided by, as a result keeps it: `chaos.gate` (a gate of
+ * another kind runs its least attempts, all to pass), else the golden's own repeat and passes, one
+ * attempt for a run no golden judges. The CLI decides by it, and the dashboard's dialog and its
+ * estimate read it.
+ */
+export function presetsGate(chaos: Pick<ChaosSpec, 'gate'>, golden: Pick<TestSpec, 'repeat' | 'passes'> | null): PresetGate {
+  const g = chaos.gate;
+  if (g) return g.kind === 'sprt' ? { good: g.good, bad: g.bad, risk: g.risk, max: g.max } : { repeat: g.min, passes: g.min };
+  return { repeat: golden?.repeat ?? 1, passes: golden?.passes ?? golden?.repeat ?? 1 };
+}
+
+/**
+ * What Run error-path presets… puts in its `--expect` field for a run judged by its own checks (its
+ * `--expect`): the upper bound its failed check set on a write, `{"tools":{"<tool>":"<= <max>"}}`,
+ * the first write limit (writeLimits' rule) whose tool the run called more times than it allows.
+ * Null when no such check failed: a bound on a write that held asks nothing of an error path that the
+ * run didn't already do. A bound on some calls of a tool (one with `args`) is left out.
+ */
+export function expectPrefill(own: TestSpec | null, calls: ReadonlyArray<Pick<CallRecord, 'kind' | 'name'>>, effectOf: EffectOf): string | null {
+  for (const t of writeLimits(own, effectOf)?.tools ?? []) {
+    if (t.args) continue;
+    const n = calls.filter((c) => c.kind === 'tool' && c.name === t.name).length;
+    if (n > t.count.max) return JSON.stringify({ tools: { [t.name]: `<= ${t.count.max}` } });
+  }
+  return null;
 }

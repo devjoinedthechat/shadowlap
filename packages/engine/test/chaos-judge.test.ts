@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CHAOS, NOT_PACKED, chaosJudge, chaosToolChoices, gateWords, keptGate, keptPresetBound, nearestThen, parseExpect, presetBound, presetProof, presetRule, recordingRule, replayChaosSpec, Store, type CallRecord, type ChaosSpec } from '../src/index.js';
+import { DEFAULT_CHAOS, NOT_PACKED, chaosIn, chaosJudge, chaosToolChoices, expectPrefill, gateWords, keptGate, keptPresetBound, nearestThen, parseExpect, presetBound, presetProof, presetRule, presetsGate, recordingRule, replayChaosSpec, Store, type CallRecord, type ChaosSpec } from '../src/index.js';
 import { RunBuilder, text, toolUse, user } from './run-fixtures.js';
 
 /** The presets' judge, their proof and the tools they can hit, and coverage's words: the engine's, which the CLI and the dashboard both read. */
@@ -71,6 +71,29 @@ describe("the presets' gate, rule and bound", () => {
     expect(presetBound(sprt, { passes: 1, attempts: 1 }, 'pass')).toBeNull();
     expect(presetBound({ repeat: 3, passes: 3 }, { passes: 3, attempts: 3 }, 'pass')).toBeNull();
     expect(keptPresetBound({ attempts: 2, passes: 0, gate: sprt, verdict: 'inconclusive', reason: 'the replay never reached #4, so the preset was never played in' })).toBeNull();
+  });
+});
+
+describe("what the dialog reads of a golden's entry and a run's checks", () => {
+  it('decides by chaos.gate, else the golden repeating, else one attempt; and reads chaos from the tests as written', () => {
+    const gate = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 20 };
+    expect(presetsGate({ gate }, null)).toEqual({ good: 0.9, bad: 0.7, risk: 0.05, max: 20 });
+    expect(presetsGate({ gate: null }, spec({ tools: {} }))).toEqual({ repeat: 1, passes: 1 });
+    expect(presetsGate({ gate: null }, { ...spec({ tools: {} }), repeat: 3, passes: 2 })).toEqual({ repeat: 3, passes: 2 });
+    expect(presetsGate({ gate: null }, null)).toEqual({ repeat: 1, passes: 1 });
+    const tests = { 'goldens/a': { chaos: { presets: ['429'] } }, 'goldens/b': { chaos: false } };
+    expect(chaosIn(tests, 'goldens/a')).toMatchObject({ presets: ['429'] });
+    expect(chaosIn(tests, 'goldens/b')).toBe(false);
+    expect(chaosIn(tests, 'goldens/c')).toEqual(DEFAULT_CHAOS);
+    expect(chaosIn(tests, null)).toEqual(DEFAULT_CHAOS);
+  });
+
+  it("prefills the write limit a run's own failed check set, never one that held or a read's", () => {
+    const refunded = [{ kind: 'tool' as const, name: 'lookup_order' }, { kind: 'tool' as const, name: 'issue_refund' }, { kind: 'tool' as const, name: 'issue_refund' }];
+    expect(expectPrefill(spec({ tools: { issue_refund: '<= 1' } }), refunded, effectOf)).toBe('{"tools":{"issue_refund":"<= 1"}}');
+    expect(expectPrefill(spec({ tools: { issue_refund: '<= 2' } }), refunded, effectOf)).toBeNull();
+    expect(expectPrefill(spec({ tools: { lookup_order: 0 } }), refunded, effectOf)).toBeNull();
+    expect(expectPrefill(null, refunded, effectOf)).toBeNull();
   });
 });
 

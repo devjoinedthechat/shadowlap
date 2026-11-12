@@ -20,6 +20,7 @@ import {
   safeLine,
   presetBound,
   presetRule,
+  presetsGate,
   storeEffects,
   type CallRecord,
   type ChaosPreset,
@@ -199,8 +200,9 @@ function notApplicable(preset: ChaosPreset, why: string, gate: PresetOutcome['ga
 export async function runPresets(parent: RunRecord, golden: TestSpec | null, chaos: ChaosSpec, ctx: ChaosContext): Promise<{ outcomes: PresetOutcome[]; interrupted: boolean; judge: ChaosJudge }> {
   const calls = ctx.store.getCalls(parent.runId);
   const targets = chaosTargets(calls, { tool: chaos.tool });
-  const gate: Gate | FixedGate = chaos.gate ?? { repeat: golden?.repeat ?? 1, passes: golden?.passes ?? golden?.repeat ?? 1 };
-  const shownGate: PresetOutcome['gate'] = 'kind' in gate ? (gate.kind === 'sprt' ? { good: gate.good, bad: gate.bad, risk: gate.risk, max: gate.max } : { repeat: gate.min, passes: gate.min }) : gate;
+  // The gate as a result keeps it (the engine's rule, which the dashboard's dialog states), decided by the configured one when there is one.
+  const shownGate = presetsGate(chaos, golden);
+  const gate: Gate | FixedGate = chaos.gate ?? (shownGate as FixedGate);
   // A fork passes on its checks: here, what an error path must do, judged on every attempt.
   const configured = new Map<string, Effect>(Object.entries<Effect>(ctx.config.mcp?.effects ?? {}));
   const { checks, judge } = chaosJudge(chaos, golden, effectsFor(calls, storeEffects(ctx.store, configured)));

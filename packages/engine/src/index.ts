@@ -52,7 +52,7 @@ export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parseP
 export { CHECK_MARKS, RULES_ON_CALLS, andList, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, fencedLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
 export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, intoText, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
 export type { CheckInput, EvaluateOptions, JudgeCheckVerdict, RecordedCalls, UnreadPath } from './checks/evaluate.js';
-export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, recordedChecks, specFor } from './checks/tests-entry.js';
+export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, chaosIn, parseChaosFields, parseTestSettings, parseTests, recordedChecks, specFor } from './checks/tests-entry.js';
 export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry.js';
 // A recording judged from what it holds, a judge check by the verdict it recorded: `shadowlap check`'s, and the dashboard's for a run judged by its family's checks.
 export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedRole, recordedVerdicts } from './checks/recorded.js';
@@ -136,7 +136,7 @@ export { messageOf } from './message-of.js';
 // the same way by the CLI, the terminal UI, the dashboard and its pages.
 export { plural, pluralS, shortFixId, shortRunId, toolFailure, twoDigits } from './words.js';
 export { rollBack } from './sqlite.js';
-export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, expectFlag, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
+export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, expectFlag, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, presetsTarget, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';
@@ -270,7 +270,7 @@ export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageSc
 // Error-path presets: where each hits a recording and what it answers there.
 export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, chaosToolChoices, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, resultShape } from './chaos.js';
 export type { ChaosPreset, ChaosTarget, ChaosTargets, ResultShape } from './chaos.js';
-export { JUDGED_FROM, chaosJudge, gateWords, judgedOnExit, keptGate, keptPresetBound, presetBound, presetProof, presetRule, recordingRule, replayChaosSpec, writeLimits } from './chaos-judge.js';
+export { JUDGED_FROM, chaosJudge, expectPrefill, gateWords, judgedOnExit, keptGate, keptPresetBound, presetBound, presetProof, presetRule, presetsGate, recordingRule, replayChaosSpec, writeLimits } from './chaos-judge.js';
 export type { ChaosJudge, PresetGate } from './chaos-judge.js';
 export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult, NewChaosSession } from './store.js';
 // Each billed job's estimate before it runs, one helper per kind (A15), and Spending, the rule for when a job asks
