@@ -1,4 +1,4 @@
-import { askedInScope, isReservedScope, messageOf, type CallRecord, type FromCodeChange, type Normalizer } from '@shadowlap/engine';
+import { askedInScope, isReservedScope, messageOf, NOTHING_TO_ASK, type CallRecord, type FromCodeChange, type Normalizer } from '@shadowlap/engine';
 import { codeVersion, loadConfig } from './config.js';
 import { DecisionsError, fromCodeChange, masking, readFromCode, type DecisionsSettings, type DecisionTarget } from './decisions.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -18,6 +18,8 @@ export interface DecisionsRead {
   /** Each run: its golden, the recorded calls whose prompt or tools the working tree changes, and why it can't be read so (null when it can). */
   runs: Array<{ runId: string; golden: string | null; changed: number[]; refused: string | null }>;
   notes: string[];
+  /** Where no call changed, what the preview would say, in its headline's words (`Nothing to ask: the change leaves every request as recorded`); null where one did. */
+  nothing: string | null;
 }
 
 /** The model calls a preview would ask of a run: the agent's, in `scope`, with their request kept. */
@@ -45,7 +47,8 @@ export async function readDecisions(input: { opts: GlobalOpts; targets: Decision
       const changed = asked.filter((x) => x.target === t && cap?.prompts.get(x.call.callNo)?.changed).map((x) => x.call.callNo);
       return { runId: t.run.runId, golden: t.golden, changed, refused: cap?.refused ?? null };
     });
-    return { kind: 'decisions-read', fromCode, runs, notes: [...new Set([...captures.values()].flatMap((c) => c.notes))] };
+    const nothing = runs.some((r) => r.changed.length) ? null : `${NOTHING_TO_ASK.lead}${asked.length ? NOTHING_TO_ASK.untouched : NOTHING_TO_ASK.noCalls}`;
+    return { kind: 'decisions-read', fromCode, runs, notes: [...new Set([...captures.values()].flatMap((c) => c.notes))], nothing };
   } finally {
     store.close();
   }

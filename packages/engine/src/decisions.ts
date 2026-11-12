@@ -986,6 +986,9 @@ export interface DecisionsHeadline {
  * apart: no headline reads as if it had nothing to ask. Its sentence alone (`lead` and `rest`) is what
  * a list of previews says of one.
  */
+/** What a preview says where it has nothing to ask, as its headline says it: the CLI's report, and a read of what `--from-code` sends, say it in these words. */
+export const NOTHING_TO_ASK = { lead: 'Nothing to ask', untouched: ': the change leaves every request as recorded', noCalls: ': the runs hold no model call' } as const;
+
 export function decisionsHeadline(r: Pick<DecisionsReport, 'counts' | 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'refused' | 'decisions'>> }): DecisionsHeadline {
   const changed = r.counts[1] + r.counts[2] + r.counts[3] + r.counts[4] + r.counts[5];
   const asked = changed + r.counts.same > 0;
@@ -995,7 +998,7 @@ export function decisionsHeadline(r: Pick<DecisionsReport, 'counts' | 'flagged'>
   if (!asked) {
     if (unasked) return head('!', unasked);
     if (r.counts.notAsked) return head('!', 'No step was answered', '', ' (the warnings say why)');
-    return head('✓', 'Nothing to ask', '', r.counts.untouched ? ': the change leaves every request as recorded' : ': the runs hold no model call');
+    return head('✓', NOTHING_TO_ASK.lead, '', r.counts.untouched ? NOTHING_TO_ASK.untouched : NOTHING_TO_ASK.noCalls);
   }
   if (r.flagged.length) return head('✗', `${r.flagged.length} of ${r.runs.length} run${r.runs.length === 1 ? '' : 's'}`, ` ${flaggedFor(r)}`);
   if (changed) return head('!', 'No write and no stop changes', '', `: ${changed} decision${changed === 1 ? ' differs' : 's differ'} in reads or text`);

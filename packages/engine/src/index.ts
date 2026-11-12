@@ -240,7 +240,7 @@ export { DECISIONS_ID, INCONCLUSIVE_STEP, JUDGED_IN_RECORDED_STATE, JUDGED_LATER
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
-export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, migrateBreaks, migrateUnsettled, needsVerify, unsettledRun, type DecisionsHeadline, type MigratePasses, type UnsettledRun } from './decisions.js';
+export { decisionsHeadline, NOTHING_TO_ASK, decisionsMoved, decisionsName, decisionsUnsettled, migrateBreaks, migrateUnsettled, needsVerify, unsettledRun, type DecisionsHeadline, type MigratePasses, type UnsettledRun } from './decisions.js';
 // What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, openRunWhy, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';

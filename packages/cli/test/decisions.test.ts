@@ -289,8 +289,10 @@ describe('shadowlap decisions', () => {
     const before = sessions();
     const r = await shadowlap(['decisions', runId, '--from-code', '--dry-run', '--json'], noEmail);
     expect(r.code, r.out).toBe(0);
-    const read = json<{ kind: string; fromCode: { calls: number; instructions: { before: string; after: string } | null }; runs: Array<{ runId: string; golden: string | null; changed: number[]; refused: string | null }> }>(r);
+    const read = json<{ kind: string; fromCode: { calls: number; instructions: { before: string; after: string } | null }; runs: Array<{ runId: string; golden: string | null; changed: number[]; refused: string | null }>; nothing: string | null }>(r);
     expect(read.kind).toBe('decisions-read');
+    // A call changed, so the preview has something to ask.
+    expect(read.nothing).toBeNull();
     expect(read.fromCode.calls).toBeGreaterThan(0);
     expect(read.fromCode.instructions!.after).toContain('Do not email the summary.');
     // Every model call of the run sends the working tree's prompt, each counted once.
