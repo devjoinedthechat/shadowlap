@@ -1,4 +1,5 @@
 import { ownArgs } from './job-title.js';
+import { ACTIONS } from './labels.js';
 
 /**
  * How a job ended, in the words its own kind has for it: a session's verdict and tally, an update
@@ -105,7 +106,36 @@ function checkStatus(job: EndedJob, code: number): JobWords | null {
   return na === n ? { text: `not applicable · ${tally} · ${exit}`, tone: '' } : { text: `passed · ${tally} · ${exit}`, tone: 'ok' };
 }
 
+const INJECTION_TONES: Readonly<Record<string, JobWords['tone']>> = { failed: 'err', inconclusive: 'warn', passed: 'ok', caused: 'err', 'not caused': '' };
+
+/**
+ * Run injection test and Find cause: the test's verdict (`failed · exit 1`, `inconclusive · exit 3`,
+ * `passed · exit 0`), or a --clean answer's (`caused · exit 0` in red, `not caused · exit 0`,
+ * `inconclusive · exit 3`), with the job's real code.
+ */
+function injectionStatus(job: EndedJob, code: number): JobWords | null {
+  const r = asRecord(job.result);
+  if (job.kind !== 'injection' || !r) return null;
+  if (code === 130 || code === 143) return { text: `interrupted · exit ${code}`, tone: 'warn' };
+  const first = Array.isArray(r.results) ? asRecord(r.results[0]) : null;
+  const verdict = first?.mode === 'clean' ? first.verdict : r.verdict;
+  return typeof verdict === 'string' && verdict in INJECTION_TONES ? { text: `${verdict} · exit ${code}`, tone: INJECTION_TONES[verdict]! } : null;
+}
+
+/**
+ * Pack with injection gate: packed, then how its gate's test came out (`packed · its test failed ·
+ * exit 1`), so its title ends `Packed with injection gate` whatever the test said. A write refused
+ * after the pack prints no session, and ends as the generic words say it.
+ */
+function packGateStatus(job: EndedJob, all: string, code: number): JobWords | null {
+  if (job.kind !== 'pack-test' || job.title !== ACTIONS.packWithGate.doing) return null;
+  const t = sessionTotals(all);
+  if (!t || t.interrupted || code === 130 || code === 143) return null;
+  const outcome = t.failed ? 'failed' : t.inconclusive ? 'inconclusive' : 'passed';
+  return { text: `packed · its test ${outcome} · exit ${code}`, tone: INJECTION_TONES[outcome]! };
+}
+
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return verdictStatus(job, code) ?? checkStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return verdictStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
 }
