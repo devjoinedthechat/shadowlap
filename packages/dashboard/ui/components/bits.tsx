@@ -170,7 +170,7 @@ export function Kpi({ k, value, pill, note, tone, href }: { k: string; value: Re
 export function CmdLine({ children }: { children: string }) {
   return (
     <div className="cmdline">
-      <b>$</b>
+      <b aria-hidden="true">$</b>
       <CommandPieces pieces={cmdParts(children)} room={null} />
     </div>
   );
@@ -184,7 +184,7 @@ export function CmdLine({ children }: { children: string }) {
 export function CommandLine({ command }: { command: string }) {
   return (
     <div className="cmdline words">
-      <b>$</b>
+      <b aria-hidden="true">$</b>
       {shellWords(command).map((w, i) => (
         <Fragment key={i}>
           {i ? ' ' : null}
@@ -246,7 +246,7 @@ export function StepList({ steps }: { steps: Step[] }) {
                 <span>in a terminal</span>
                 {/* the prompt is never copied with the command */}
                 <code>
-                  <b>$ </b>
+                  <b aria-hidden="true">$ </b>
                   {s.command}
                 </code>
               </div>

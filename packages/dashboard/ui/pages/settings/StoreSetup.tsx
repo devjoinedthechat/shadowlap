@@ -49,7 +49,9 @@ function Step({ n, state, title, cli, children }: { n: number; state: SetupStepS
         {cli && state === 'cur' ? (
           <div className="cli">
             <span>or in a terminal</span>
-            <code>$ {cli}</code>
+            <code>
+              <span aria-hidden="true">$</span> {cli}
+            </code>
           </div>
         ) : null}
       </div>

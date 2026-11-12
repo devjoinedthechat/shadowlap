@@ -29,7 +29,7 @@ export function EmptyState({ title, text, copy = false, step, command, children 
           <span>or in a terminal</span>
           {/* the prompt is never copied with the command */}
           <code>
-            <b>$ </b>
+            <b aria-hidden="true">$ </b>
             {command}
           </code>
         </div>

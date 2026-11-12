@@ -71,20 +71,22 @@ const WORDS = /--?[a-z][\w-]* (?!-)\S+|\S+/g;
 
 const LogLine = memo(function LogLine({ line, tone: as }: { line: string; tone?: string }) {
   const parts: ReactNode[] = [];
+  const tone = as ?? lineTone(line);
   let at = 0;
   for (const m of line.matchAll(WORDS)) {
     if (m.index > at) parts.push(line.slice(at, m.index));
     const word = m[0];
     const pieces = word.length > 30 ? word.split(/(?<=\/)/) : [word];
+    // A command's prompt is drawn only: a screen reader reads the command.
+    const prompt = tone === 'p' && word === '$' && !line.slice(0, m.index).trim();
     parts.push(
-      <span className="tk" key={m.index}>
+      <span className="tk" key={m.index} aria-hidden={prompt || undefined}>
         {pieces.flatMap((p, i) => (i ? [<wbr key={i} />, p] : [p]))}
       </span>,
     );
     at = m.index + word.length;
   }
   if (at < line.length) parts.push(line.slice(at));
-  const tone = as ?? lineTone(line);
   return (
     <span className={tone || undefined}>
       {parts}

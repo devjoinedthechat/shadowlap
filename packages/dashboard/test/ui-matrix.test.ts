@@ -424,7 +424,7 @@ describe('the receipt and the panel', () => {
     expect(html).toMatch(/^<section class="rmxp" data-kind="presets" aria-label="Error-path preset results"><div class="rmxp-h"><span class="rmxp-t">Run × presets<\/span><span class="rmxp-meta"><span class="nw">6 presets ·<\/span> <span class="nw">at get_ticket \(#4\) and model call #5 ·<\/span> <span class="nw">just now<\/span><\/span><span class="rmxp-cmd"><code class="ts-cmd">/);
     expect(html.match(/<code/g)).toHaveLength(1);
     expect(html).not.toMatch(/rmxp-cmd[^>]*title=/);
-    expect(html).not.toContain('<b>$</b>');
+    expect(html).not.toMatch(/<b[^>]*>\$\s*<\/b>/);
     // the matrix's script hasn't come: it waits in its place
     expect(html).toContain('Loading the results…');
   });
