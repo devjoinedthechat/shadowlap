@@ -7,6 +7,7 @@ import {
   effectsFor,
   expectPrefill,
   gateWords,
+  goldensNeedingConsent,
   importedCommandSource,
   isObject,
   JUDGED_FROM,
@@ -57,8 +58,6 @@ export type PresetsPlanJob = {
   expect?: boolean;
   /** The config's tests as written, the project's folder and its goldens, read on the server's thread. */
   work: OutcomeWork | null;
-  /** The command a golden from a pack the repository doesn't track runs (goldensNeedingConsent), read on the server's thread. */
-  untracked?: string[] | null;
   /** `mcp.effects` in the config, over the effects the store has seen. */
   effects?: Record<string, string>;
   /** Names show (a team store): who recorded a command someone else did. */
@@ -170,7 +169,7 @@ async function presetsPlan(store: Store, job: PresetsPlanJob): Promise<ReadAnswe
     expect: plan.golden ? null : expectPrefill(ownChecks(target), calls, effectOf),
     gate,
     rule: gateWords(gate),
-    runsHere: runsHere(target, plan.golden, job),
+    runsHere: runsHere(store, target, plan.golden, job),
     estimate: await estimateOf(price, pricing),
   };
   return answer(body, { tagged: true });
@@ -196,9 +195,17 @@ export function presetsRowPrice(store: Store, run: RunRecord, work: OutcomeWork 
   }
 }
 
-/** The command each preset runs here when someone else recorded it: a golden's from a pack the repository doesn't track, or a run's from a pack or the team store. */
-function runsHere(target: RunRecord, golden: string | null, job: PresetsPlanJob): PresetsPlan['runsHere'] {
-  if (golden) return job.untracked ? { command: quoteArgv(job.untracked), from: "a pack this repository doesn't track", by: null } : null;
+/**
+ * The command each preset runs here when someone else recorded it: a golden's from a pack the
+ * repository doesn't track (goldensNeedingConsent: its pack's run.json, and git, read here beside
+ * the server; the route revalidates it by the repository's index), or a run's from a pack or the
+ * team store.
+ */
+function runsHere(store: Store, target: RunRecord, golden: string | null, job: PresetsPlanJob): PresetsPlan['runsHere'] {
+  if (golden) {
+    const sent = job.work ? goldensNeedingConsent(store, [golden], job.work.dir)[0] : undefined;
+    return sent ? { command: quoteArgv(sent.argv), from: "a pack this repository doesn't track", by: null } : null;
+  }
   if (!commandIsImported(target)) return null;
   const author = target.meta?.author;
   return { command: quoteArgv(target.command.argv), from: importedCommandSource(target), by: job.shared && typeof author === 'string' && author ? author : null };

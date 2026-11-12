@@ -1,4 +1,5 @@
 import { ACTIONS, askConsent, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, parsePresets, presetsTarget, quoteArgv, saidYes, type RunRecord } from '@shadowlap/engine';
+import { gitIndexStamp } from '../git-index.js';
 import { lookupRun, noSuchRun } from '../api.js';
 import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
 import type { RouteContext } from '../context.js';
@@ -32,10 +33,11 @@ export const CHAOS_JOB_KIND = 'chaos';
 
 /**
  * The plan's job: the picks checked as the job checks them, and what the server reads first (the
- * config's tests and goldens, `mcp.effects`, whether names show, and the command a golden from a pack
- * the repository doesn't track would run).
+ * config's tests and goldens, `mcp.effects` and whether names show). Whether a golden's pack is one
+ * the repository tracks is read beside the server, so `tracking` stamps the repository's index for
+ * the plan's tag: a recording no golden holds needs none.
  */
-function presetsPlanJob(ctx: RouteContext, run: RunRecord, query: URLSearchParams): PresetsPlanJob | { error: string } {
+function presetsPlanJob(ctx: RouteContext, run: RunRecord, query: URLSearchParams): { job: PresetsPlanJob; tracking: string } | { error: string } {
   const presets = query.get('presets');
   const tool = query.get('tool');
   const flags = chaosFlags({ ...(presets !== null ? { presets: presets ? presets.split(',') : [] } : {}), ...(tool ? { tool } : {}) });
@@ -48,19 +50,18 @@ function presetsPlanJob(ctx: RouteContext, run: RunRecord, query: URLSearchParam
   } catch {
     effects = undefined;
   }
-  const project = ctx.project?.path ?? process.cwd();
-  return {
+  const job: PresetsPlanJob = {
     kind: 'presets-plan',
     runId: run.runId,
     ...(presets !== null ? { presets: parsePresets(presets ? presets.split(',') : [], 'presets') } : {}),
     ...(tool ? { tool } : {}),
     ...(query.get('expect') === '1' ? { expect: true } : {}),
     work,
-    untracked: golden ? (goldensNeedingConsent(ctx.store, [golden.path], project)[0]?.argv ?? null) : null,
     ...(effects ? { effects } : {}),
     shared: namesTeamStore(ctx.project?.path),
     ...(ctx.read.prices ? { prices: ctx.read.prices } : {}),
   };
+  return { job, tracking: golden && work ? gitIndexStamp(work.dir) : '' };
 }
 
 export function register(router: Router, ctx: RouteContext): void {
@@ -80,9 +81,10 @@ export function register(router: Router, ctx: RouteContext): void {
       const no = noSuchRun(ctx.store, r.params.id!);
       throw new HttpError(no.status, no.message);
     }
-    const job = presetsPlanJob(ctx, run, r.query);
-    if ('error' in job) throw new HttpError(400, job.error);
-    const etag = runVersionTag(ctx.store, run, JSON.stringify([ctx.read, job]));
+    const asked = presetsPlanJob(ctx, run, r.query);
+    if ('error' in asked) throw new HttpError(400, asked.error);
+    const { job, tracking } = asked;
+    const etag = runVersionTag(ctx.store, run, JSON.stringify([ctx.read, job, tracking]));
     if (r.req.headers['if-none-match'] === etag) {
       r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });
       r.res.end();

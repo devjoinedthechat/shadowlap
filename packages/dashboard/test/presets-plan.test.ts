@@ -1,5 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { Store, type RunRecord } from '@shadowlap/engine';
+import { PACK_FORMAT, Store, type RunRecord } from '@shadowlap/engine';
 import { RunBuilder, text, toolUse, user } from '../../engine/test/run-fixtures.js';
 import { PRESETS_READS, presetsRowPrice, type PresetsPlan, type PresetsPlanJob } from '../src/presets-plan.js';
 import { withPresetsEntries } from '../src/presets-entries.js';
@@ -81,8 +85,20 @@ describe("Run error-path presets…'s plan", () => {
       expect(JSON.parse(JSON.stringify(await estimateOf(row!, pricingOf(store, undefined))))).toEqual(gated.estimate);
       // "chaos": false leaves it out of test --chaos: its presets run as a run's.
       expect((await plan(store, { runId: rec, work: work({ 'goldens/refund': { ...entry, chaos: false } }, goldens) })).golden).toBeNull();
-      // A pack the repository doesn't track runs its recorded command here.
-      expect((await plan(store, { runId: rec, work: work({ 'goldens/refund': entry }, goldens), untracked: ['node', 'refund.mjs'] })).runsHere).toEqual({ command: 'node refund.mjs', from: "a pack this repository doesn't track", by: null });
+      // A pack the repository doesn't track runs its recorded command here, read from the pack beside the server.
+      const project = realpathSync(mkdtempSync(join(tmpdir(), 'sl-presets-plan-')));
+      try {
+        mkdirSync(join(project, 'goldens', 'refund'), { recursive: true });
+        writeFileSync(join(project, 'goldens', 'refund', 'run.json'), JSON.stringify({ format: PACK_FORMAT, runs: [{ runId: rec, command: { argv: ['node', 'refund.mjs'] } }] }));
+        const sent = { ...work({ 'goldens/refund': entry }, goldens), dir: project };
+        expect((await plan(store, { runId: rec, work: sent })).runsHere).toEqual({ command: 'node refund.mjs', from: "a pack this repository doesn't track", by: null });
+        // Once the repository tracks it, it runs as one of the project's own.
+        execFileSync('git', ['init', '-q'], { cwd: project, stdio: 'ignore' });
+        execFileSync('git', ['add', '-f', '--', 'goldens/refund/run.json'], { cwd: project, stdio: 'ignore' });
+        expect((await plan(store, { runId: rec, work: sent })).runsHere).toBeNull();
+      } finally {
+        rmSync(project, { recursive: true, force: true });
+      }
     } finally {
       store.close();
     }

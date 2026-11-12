@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { keptPresetBound, messageOf, parseExpect, ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
+import { keptPresetBound, messageOf, PACK_FORMAT, parseExpect, ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
 import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
 import { lineage } from '../src/api.js';
 import { chaosMatrices, chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
@@ -313,6 +313,30 @@ describe('error-path presets', () => {
     expect(plan.at).toEqual({ tool: { none: 'the recording makes no tool call' }, model: { none: 'the recording makes no model call' } });
     expect((await api(`chaos/runs/${golden}/plan?presets=nope`)).status).toBe(400);
     expect((await api('chaos/runs/NOPE/plan')).status).toBe(404);
+  });
+
+  it("reads whether the repository tracks a golden's pack beside the server, and asks again once git's index changes", async () => {
+    const pack = join(project, 'goldens', 'forecast');
+    mkdirSync(pack, { recursive: true });
+    writeFileSync(join(pack, 'run.json'), JSON.stringify({ format: PACK_FORMAT, runs: [{ runId: golden, command: { argv: ['node', 'sent.mjs'] } }] }));
+    const path = `chaos/runs/${golden}/plan?presets=timeout`;
+    try {
+      // Someone else recorded it, and no repository tracks it: each preset runs that command here.
+      const first = await api(path);
+      const etag = first.headers.get('etag')!;
+      expect(((await first.json()) as PresetsPlan).runsHere).toEqual({ command: 'node sent.mjs', from: "a pack this repository doesn't track", by: null });
+      const again = (tag: string) => fetch(`${dash.url}/api/${path}`, { headers: { 'x-shadowlap-token': dash.token, 'if-none-match': tag } });
+      expect((await again(etag)).status).toBe(304);
+      // Added to a repository: the tag moves with its index, and the plan asks nothing.
+      execFileSync('git', ['init', '-q'], { cwd: project, stdio: 'ignore' });
+      execFileSync('git', ['add', '-f', '--', 'goldens/forecast/run.json'], { cwd: project, stdio: 'ignore' });
+      const tracked = await again(etag);
+      expect(tracked.status).toBe(200);
+      expect(((await tracked.json()) as PresetsPlan).runsHere).toBeNull();
+    } finally {
+      rmSync(pack, { recursive: true, force: true });
+      rmSync(join(project, '.git'), { recursive: true, force: true });
+    }
   });
 
   it('never gives the CLI a golden whose path would read as one of its options', async () => {
