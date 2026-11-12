@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { ChecksConfig, GoldenEntry } from '../checks-api.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { Copy } from '../components/Copy.js';
+import { Code, Copy } from '../components/Copy.js';
 import { ErrorState } from '../components/States.js';
 import { goldenName } from '../format.js';
 import { packRunCommand } from '../run/share-steps.js';
@@ -45,9 +45,9 @@ export function Change({ cfg, error, retry, golden, merged, changed, conflict, j
     return (
       <section className="cb-sec">
         {head}
-        <p className="cb-note">
-          {cfg.agent ? <code>{cfg.agent}</code> : 'This agent'} has no golden yet. Pack a run you consider correct, then add the check to it.
-        </p>
+        <Copy className="cb-note">
+          {cfg.agent ? <Code>{cfg.agent}</Code> : 'This agent'} has no golden yet. Pack a run you consider correct, then add the check to it.
+        </Copy>
         <CodeBox command={runId ? packRunCommand(runId, 'goldens/<name>') : 'shadowlap pack <run> goldens/<name>'} />
       </section>
     );

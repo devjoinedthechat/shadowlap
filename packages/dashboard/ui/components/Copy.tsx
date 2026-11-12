@@ -74,10 +74,17 @@ export function blockOf(el: HTMLElement): HTMLElement {
   return el;
 }
 
-/** The width a line of a block has: its content width, never more than the window's less its margins. */
+/**
+ * The width a line of a block has: its content width to a fraction of a pixel (a sentence of 563.4px
+ * fits a line of 564), never more than the window's less its margins. The box's own width less its
+ * borders, any scrollbar and its padding; where a transform scales it (a dialog as it opens), its
+ * whole pixels, as `clientWidth` has them.
+ */
 function lineWidth(b: HTMLElement): number {
   const cs = getComputedStyle(b);
-  const w = b.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const box = b.getBoundingClientRect().width;
+  const outer = Math.abs(box - b.offsetWidth) < 1 ? box : b.offsetWidth;
+  const w = outer - (b.offsetWidth - b.clientWidth) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   return typeof innerWidth === 'number' && innerWidth > 0 ? Math.min(w, innerWidth - 32) : w;
 }
 

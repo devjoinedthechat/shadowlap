@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { Eyebrow, PageHeader, StepList } from '../components/bits.js';
+import { Code, Copy, titled } from '../components/Copy.js';
 import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { Page } from '../components/Page.js';
 import { RECORD_PART } from '../../../engine/src/cost-words.js';
@@ -179,14 +180,17 @@ export function ProblemHeader({ id, name, problem }: { id: string; name: string;
 }
 
 function SetupHeader({ view, onSkip }: { view: SetupView; onSkip: (() => void) | null }) {
+  const head = titled(view.title);
   return (
     <div className="ph">
       <div>
         <Eyebrow>
-          {view.project.name} · <code>{view.project.path}</code>
+          {view.project.name} · <Code>{view.project.path}</Code>
         </Eyebrow>
-        <h1 ref={headingRef}>{view.title}</h1>
-        <p>{view.intro}</p>
+        <h1 ref={headingRef} aria-label={head['aria-label']}>
+          {head.children}
+        </h1>
+        <Copy>{view.intro}</Copy>
       </div>
       {view.skip ? (
         <div className="actions">

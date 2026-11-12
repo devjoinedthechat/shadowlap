@@ -240,6 +240,8 @@ describe('a quote in the Decisions view', () => {
     expect(quoteLine(said('This needs tier-2 approval. I have asked a manager to sign off on the refund for order A-1042.'))).toBe('answers and stops: "This needs tier-2 approval. …"');
     expect(quoteLine(said('I have asked a manager to sign off on the refund for order A-1042 before I send anything'))).toBe('answers and stops: "I have asked a manager to sign off on the refund for order …"');
     expect(quoteLine(said('Refunded.'))).toBe('answers and stops: "Refunded."');
+    // a cut after a comma drops it
+    expect(quoteLine(said('I have asked a manager to sign off on the refund for order 42, and then I will write back'))).toBe('answers and stops: "I have asked a manager to sign off on the refund for order 42 …"');
     expect(quoteLine({ stop: 'tools', stopReason: null, tools: [{ name: 'issue_refund', args: { order: 'A-1042' }, effect: 'write' }], text: '' })).toBe('issue_refund({"order":"A-1042"})');
     expect(quoteLine(null)).toBe('no answer');
   });

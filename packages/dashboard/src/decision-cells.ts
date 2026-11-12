@@ -263,14 +263,15 @@ export interface ViewStep {
 /**
  * A decision in a line of the Decisions view, the column beside the inspector: an answer longer
  * than the line is cut where a sentence ends, when one does before the cut, else after a whole word
- * (`This needs tier-2 approval. …`), so no quote breaks inside a sentence or a word.
+ * (`This needs tier-2 approval. …`), so no quote breaks inside a sentence or a word; a comma or a
+ * dash before a word's cut is dropped.
  */
 export function quoteLine(d: DecisionView | null, width = 64): string {
   const text = d && !d.tools.length ? d.text.replace(/\s+/g, ' ') : '';
   if (!d || text.length <= width) return decisionLine(d, width);
   const cut = text.slice(0, width - 1);
   const m = /^.*[.!?](?= )/.exec(cut) ?? /^.*\S(?= )/.exec(cut);
-  return decisionLine(m ? { ...d, text: `${m[0]} …` } : d, width);
+  return decisionLine(m ? { ...d, text: `${m[0].replace(/[\s,;:·…–—-]+$/, '')} …` } : d, width);
 }
 
 /** The steps a run's Decisions view lists: its ranked ones, most consequential first, then those within the model's own variation, the most changed first. */
