@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
+import { messageOf, parseExpect, ProjectHost, ProjectRegistry, projectDbPath, recordEvent, Store, type StoredCoverageGroup } from '@shadowlap/engine';
 import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index.js';
 import { lineage } from '../src/api.js';
 import { chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
@@ -59,6 +59,16 @@ const jobDone = async (id: string) => {
   }
   throw new Error(`job ${id} never ended`);
 };
+/** How the CLI refuses a check it can't read, which a golden that forks is refused in too. */
+const PARSE_REFUSAL = (() => {
+  try {
+    parseExpect({ tools: { issue_refund: 'twice' } }, '--expect');
+  } catch (err) {
+    return messageOf(err);
+  }
+  throw new Error('parseExpect took a count of "twice"');
+})();
+
 /** Starts a job; one that started is waited for, so the next starts on goldens nothing else is using. */
 /** The goldens the dashboard is given: the project's one, and any a test adds for a moment. */
 const goldens: GoldenSource[] = [];
@@ -178,6 +188,7 @@ describe('production coverage', () => {
       [{ key: 'aaaa0000', fork: true, expect: {} }, 'a golden that forks needs the checks that say what the agent must do now, such as {"tools":{"issue_refund":0}}'],
       [{ key: 'aaaa0000', expect: { tools: { issue_refund: 0 } } }, 'expect goes with fork: a golden that replays its capture is judged by the replay itself'],
       [{ key: 'aaaa0000', fork: 'yes' }, 'fork is true, to pack it as a golden that forks'],
+      [{ key: 'aaaa0000', fork: true, expect: { tools: { issue_refund: 'twice' } } }, PARSE_REFUSAL],
     ] as const) {
       expect(coveragePackArgs(store, body)).toEqual({ error });
       const refused = await startJob({ kind: 'coverage-pack', ...body });
@@ -341,6 +352,13 @@ describe('error-path presets', () => {
     expect(spawned.at(-1)).toEqual(['replay', packRun, '--chaos', '--presets', '429', '--yes']);
     expect((await startJob({ kind: 'chaos', runId: packRun, confirmed: question.confirm })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['replay', packRun, '--chaos', '--yes']);
+    // A run's presets are judged by the checks given, checked as the CLI checks --expect and sent as one line, which a yes covers.
+    expect((await startJob({ kind: 'chaos', runId: golden, expect: '{ "tools": { "issue_refund": "<= 1" } }' })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['replay', golden, '--chaos', '--expect', '{"tools":{"issue_refund":"<= 1"}}']);
+    const judged = (await (await startJob({ kind: 'chaos', runId: packRun, expect: { tools: { escalate: 0 } } })).json()) as { error: string; confirm: string };
+    expect(judged.error).toMatch(/under shadowlap replay \S+ --chaos --expect '\{"tools":\{"escalate":0\}\}'\. Confirm to run it\.$/);
+    expect((await startJob({ kind: 'chaos', runId: packRun, expect: { tools: { escalate: 0 } }, confirmed: judged.confirm })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['replay', packRun, '--chaos', '--expect', '{"tools":{"escalate":0}}', '--yes']);
     for (const [body, error] of [
       [{ golden: 'goldens/none' }, 'no golden goldens/none on disk'],
       [{ runId: capture }, 'A capture has no command. Replay it with yours first; the presets run on that replay.'],
@@ -348,6 +366,9 @@ describe('error-path presets', () => {
       [{}, 'name a golden or a run'],
       [{ golden: 'goldens/forecast', presets: ['flood'] }, 'presets: unknown preset "flood" (expected timeout, empty, malformed, oversized, 429, 500, or all)'],
       [{ golden: 'goldens/forecast', tool: '--online x' }, 'tool is the name of a tool the recording calls'],
+      [{ golden: 'goldens/forecast', expect: '{"tools":{"escalate":0}}' }, "expect goes with a run: a golden's presets are judged by its chaos.expect or the write limits of its expect"],
+      [{ runId: golden, expect: '{"tools":' }, '--expect is JSON, such as {"tools":{"send_email":0}}'],
+      [{ runId: golden, expect: 7 }, 'expect is the checks, as JSON such as {"tools":{"issue_refund":0}}'],
     ] as const) {
       const res = await startJob({ kind: 'chaos', ...body });
       expect(res.status, JSON.stringify(body)).toBe(400);

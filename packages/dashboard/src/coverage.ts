@@ -1,4 +1,5 @@
 import { checkCommandTemplate, describeBehaviour, messageOf, NO_COMMAND, OUTCOME_WORDS, packingBehaviour, type Behaviour, type BehaviourOutcome, type CoverageScan, type StoreOf, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
+import { expectArgs } from './expect-field.js';
 import { splitCommandLine } from './settings.js';
 import { links } from './links.js';
 
@@ -165,9 +166,6 @@ export function coverageNewest(store: StoreOf<'recording' | 'coverage'>): { look
   return { look: lookOf(uncovered.length, { path: newest.behaviour.path, sources: newest.sources }, runId, scan.at), key: newest.key };
 }
 
-/** The longest check JSON a pack request may carry, as the fix jobs take theirs. */
-const MAX_EXPECT = 20_000;
-
 /** What `coverage-pack` runs, checked, and the command it asks about before it runs it. */
 export interface CoveragePackPlan {
   args: string[];
@@ -209,9 +207,10 @@ export function coveragePackArgs(store: StoreOf<'coverage'>, req: Record<string,
     if (!keys.length) return { error: 'a golden that forks is packed for one behaviour: name it by its key' };
     const expect = typeof req.expect === 'string' ? safeJson(req.expect) : req.expect;
     if (typeof expect !== 'object' || expect === null || Array.isArray(expect) || !Object.keys(expect).length) return { error: 'a golden that forks needs the checks that say what the agent must do now, such as {"tools":{"issue_refund":0}}' };
-    const text = JSON.stringify(expect);
-    if (text.length > MAX_EXPECT) return { error: 'those checks are too long' };
-    fork.push('--fork', '--expect', text);
+    // Checked as `--expect` is, so a check the CLI would refuse is refused here, in its words.
+    const checked = expectArgs(expect);
+    if ('error' in checked) return checked;
+    fork.push('--fork', ...checked.args);
   } else if (req.expect !== undefined) return { error: 'expect goes with fork: a golden that replays its capture is judged by the replay itself' };
   const args = ['coverage', '--pack', ...keys, ...fork, ...(command.length ? ['--', ...command] : [])];
   // The command shows on the drawer's own line, so the title names only the behaviour.
