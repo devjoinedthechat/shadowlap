@@ -130,7 +130,7 @@ function FixRowStep({ fixId, lead, why, version, className = 'btn sm', fix: deta
             else if (fix) setOpen({ kind: 'fix', fix, estimate: est, label: act?.kind === 'apply' ? act.label : lead.label });
             else press({ estimate: est, form: false, start: (sent) => void start(sent), ask: () => setOpen({ kind: 'ask', estimate: est }) });
           },
-          (err: unknown) => app.toast(errorText(err)),
+          (err: unknown) => app.toast(errorText(err), 'error'),
         )
         .finally(() => {
           out.current = false;

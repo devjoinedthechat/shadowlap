@@ -16,7 +16,7 @@ export function EditorButton({ change, className = 'btn', fold }: { change: Pick
   const { meta, exported, client, toast } = useApp();
   const t = exported ? null : editorTarget(change, meta?.editor);
   if (!t) return null;
-  const open = () => client.editor.open(t.path, t.line).then((o) => toast(editorOpened(o)), (err: unknown) => toast(messageOf(err)));
+  const open = () => client.editor.open(t.path, t.line).then((o) => toast(editorOpened(o)), (err: unknown) => toast(messageOf(err), 'error'));
   const { label } = ACTIONS.openInEditor;
   return (
     <ActionButton className={className} tip={label} sub={editorSub(t)} command={`$ ${t.cmd}`} {...(fold ? { 'data-fold': fold } : {})} onClick={() => void open()}>

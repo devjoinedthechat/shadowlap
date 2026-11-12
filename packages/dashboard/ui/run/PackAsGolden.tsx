@@ -56,7 +56,7 @@ export function PackAsGolden({ runId, folder, offers, lead, tip, fold, label = A
           title={namedIn(`Pack ${id} as golden?`, id)}
           lead="Packs the run into goldens/ and tests it, for shadowlap test to replay on every commit."
           doc="makeGolden"
-          {...(asking.refused ? { warn: { text: asking.refused } } : {})}
+          {...(asking.refused ? { warn: { text: asking.refused, written: true } } : {})}
           facts={[{ label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' }, PACK_HOLDS, redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null)]}
           label="Golden"
           initial={asking.dir}
