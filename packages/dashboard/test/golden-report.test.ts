@@ -71,13 +71,15 @@ describe('a divergence’s request', () => {
   const diverged = (): ReturnType<Parameters<typeof world>[1]> => ({ ok: false, failure: 'diverged', reason: 'diverged at call 3 (api POST /v1/messages)', data: { mode: 'replay', calls: { total: 3, replayed: 2, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata.user_id', op: 'changed', before: 'a', after: 'b' }], text: '✗ Request changed at call 3' } } });
   const at3 = { type: 'request_changed' as const, callNo: 3, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 2, recorded: 30 };
   const BODY = { type: 'error', error: { type: 'shadowlap_offline', message: 'shadowlap is offline: call #3 (POST /v1/messages) was not served from the recording and would need the network' } };
-  /** The replay's call #3 answered with the offline refusal, as `shadowlap test` records it (sidecar model-calls.ts), and its run ended as `status` says. */
-  const refused = (replay: string, store: Store, status: 'failed' | 'completed', body: unknown = BODY) => {
-    const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'fp3', occurrence: 1 };
-    store.appendCallStart({ runId: replay, callNo: 3, ...identity, origin: 'live', effect: null, requestRef: null, meta: {}, at: 10 });
-    store.appendCallEnd(identity, { runId: replay, callNo: 3, attempt: 0, responseRef: body === null ? null : store.putJson(body), outcome: 'error', meta: { status: 503, offline: true, error: { name: 'ShadowlapOffline', message: BODY.error.message } }, at: 20 });
+  /** The replay's call `callNo` answered with the offline refusal, as `shadowlap test` records it (sidecar model-calls.ts), and its run ended as `status` says. */
+  const refused = (replay: string, store: Store, status: 'failed' | 'completed', body: unknown = BODY, callNo = 3) => {
+    const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: `fp${callNo}`, occurrence: 1 };
+    store.appendCallStart({ runId: replay, callNo, ...identity, origin: 'live', effect: null, requestRef: null, meta: {}, at: 10 });
+    store.appendCallEnd(identity, { runId: replay, callNo, attempt: 0, responseRef: body === null ? null : store.putJson(body), outcome: 'error', meta: { status: 503, offline: true, error: { name: 'ShadowlapOffline', message: BODY.error.message } }, at: 20 });
     store.endRun(replay, status, 30);
   };
+  /** A replay that kept no changed request: a call past the recording's end, or one that stopped before the recording did, as the CLI words each. */
+  const keptNone = (type: 'beyond_recording' | 'ended_early', callNo: number, reason: string): ReturnType<Parameters<typeof world>[1]> => ({ ok: false, failure: 'diverged', reason, data: { mode: 'replay', calls: { total: callNo - 1, replayed: callNo - 1, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { type, callNo, kind: 'api', name: 'POST /v1/messages', replayedBefore: callNo - 1, text: '' } } });
 
   it('names the replay and its call, whose diff Tests asks for once the report opens, and the offline 503 the agent exited on, with the body it got', () => {
     const { report, recording, replay } = world('refund', (run, _s, store) => (refused(run, store, 'failed'), diverged()), { divergence: at3 });
@@ -99,6 +101,15 @@ describe('a divergence’s request', () => {
     bare.store.deleteRun(bare.replay);
     const rows = goldenReports(testsView(bare.store, goldens, { folder: 'goldens' }), { store: bare.store, goldens, normalizers: [], project: null });
     expect(rows['goldens/refund']?.parts.some((p) => p.kind === 'request')).toBe(false);
+  });
+
+  it('compares nothing where the divergence kept no changes, as a run offers no Show diff there: only what followed, and no part where nothing did', () => {
+    // A call past the recording's end, answered with the offline 503 the agent exited on: no diff to ask, no recorded call to head it.
+    const past = world('refund', (run, _s, store) => (refused(run, store, 'failed', BODY, 4), keptNone('beyond_recording', 4, 'diverged at call 4 (api POST /v1/messages)')), { divergence: { type: 'beyond_recording', callNo: 4, kind: 'api', name: 'POST /v1/messages', replayedBefore: 3 } });
+    expect(past.report.parts.find((p) => p.kind === 'request')).toEqual({ kind: 'request', runId: null, callNo: 4, against: null, bodies: null, followed: { line: ['Not served from the recording:', 'the agent exited on HTTP 503'], message: JSON.stringify(BODY, null, 2) } });
+    // Every request matched, but the agent exited 0 before the recording ended: it never made call 3, and nothing followed.
+    const early = world('refund', (run, _s, store) => (store.endRun(run, 'completed', 30), keptNone('ended_early', 3, 'ended early at call 3 (api POST /v1/messages): 2 of 3 recorded calls replayed')), { divergence: { type: 'ended_early', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, recorded: 3 } });
+    expect(early.report.parts.map((p) => p.kind)).toEqual(['replay']);
   });
 });
 

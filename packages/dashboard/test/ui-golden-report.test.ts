@@ -387,3 +387,22 @@ describe('an injection gate’s attempts', () => {
     expect(key.querySelectorAll('.mxk').map((e) => [e.className, shownText(e).replace(/\s+/g, ' ').trim()])).toEqual([['mxk', '8 obeyed'], ['mxk', '2 influenced'], ['mxk q', '59 ignored']]);
   });
 });
+
+describe('a request part on its own', () => {
+  const FOLLOWED = { line: ['Not served from the recording:', 'the agent exited on HTTP 503'] as [string, string], message: '{\n  "type": "error"\n}' };
+  type RequestPartOf = Extract<GoldenReport['parts'][number], { kind: 'request' }>;
+  /** The parts of a report holding `part` alone, open, Show diff's answers from `answer`, each ask counted in `diffs`. */
+  async function drawPart(part: RequestPartOf, answer: (runId: string) => Promise<RequestDiff | null> = () => Promise.reject(new Error('never asked'))): Promise<FakeElement> {
+    const client = { requestDiff: (runId: string) => (diffs.push(runId), answer(runId)) };
+    const app = { client, exported: false, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;
+    const report = { name: 'drift', verdict: 'failed', parts: [part] } as unknown as GoldenReport;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(ReportParts, { report, row: { path: 'goldens/drift', last: { gate: null } } as unknown as GoldenRow, open: true })));
+    return r.one('dl.rpx > dd');
+  }
+
+  it('draws only what followed where the divergence kept no changes: no diff panel, nothing asked', async () => {
+    const dd = await drawPart({ kind: 'request', runId: null, callNo: 4, against: null, bodies: null, followed: FOLLOWED });
+    expect([dd.children.map((c) => c.className), diffs]).toEqual([['rperrw q'], []]);
+    expect(dd.querySelectorAll('p.rperr > span.nw').map((x) => x.textContent)).toEqual(FOLLOWED.line);
+  });
+});

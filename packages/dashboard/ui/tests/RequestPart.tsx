@@ -14,11 +14,13 @@ import { FoldedLines } from './ErrorPart.js';
  * open, the structural diff's script with it, never while the report is folded; where the replay is
  * gone, the changes its result kept, with no notes. At its foot, in grey, what followed from it, so it
  * never reads as a second fault: the offline 503 the agent exited on, Show message opening its body.
+ * A divergence that kept no changes, as a run offers no Show diff for it, draws what followed alone.
  */
 export function RequestPart({ p, open, id }: { p: Extract<ReportPart, { kind: 'request' }>; open: boolean; id: string }) {
+  const diff = p.runId ? <Asked runId={p.runId} callNo={p.callNo} /> : p.bodies ? <Kept p={p} bodies={p.bodies} /> : null;
   return (
     <>
-      {open ? <div className="diffpanel jdp rpdiff">{p.runId ? <Asked runId={p.runId} callNo={p.callNo} /> : p.bodies ? <Kept p={p} bodies={p.bodies} /> : null}</div> : null}
+      {open && diff ? <div className="diffpanel jdp rpdiff">{diff}</div> : null}
       {p.followed ? <FollowedLine f={p.followed} id={id} /> : null}
     </>
   );

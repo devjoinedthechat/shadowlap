@@ -41,7 +41,9 @@ export type ReportPart =
   /**
    * A divergence's request, drawn as Show diff draws it on a run: the replay and the call it diverged at, whose diff is read
    * once the report opens (`GET /api/runs/:id/diff`); where the replay is gone, the changes its result kept as two bodies,
-   * drawn with no notes. Then what followed from it, in grey: the offline refusal the agent exited on, with the body it got.
+   * drawn with no notes, under `against`, the recording's call they're compared with. Then what followed from it, in grey:
+   * the offline refusal the agent exited on, with the body it got. A divergence that kept no changes has no `runId`,
+   * `bodies` or `against`, only what followed.
    */
   | { kind: 'request'; runId: string | null; callNo: number; against: { runId: string; callNo: number } | null; bodies: { was: unknown; now: unknown } | null; followed: Followed | null }
   /** A crash: the exception it died of, the file it was raised in (in the project where it can be), and the lines it printed last. */
@@ -305,13 +307,18 @@ function divergenceParts(f: From, d: DivergenceView): Built {
 }
 
 /**
- * A divergence's Request part: the replay's diverged call, its diff asked for once the report opens, and
- * what followed it; where the replay is gone, the changes its result kept. None where it kept neither.
+ * A divergence's Request part. Where its result kept changes, which is where a run offers Show diff
+ * (ui/run/banner.ts), the replay's diverged call, its diff asked for once the report opens, or once
+ * the replay is gone the changes themselves; then what followed it. A divergence that kept none (a
+ * call new to the recording or past its end, a replay that stopped before it did) compares nothing:
+ * its part is only what followed, and there is none where nothing did.
  */
 function requestPart({ r, i, recording, replay }: From, div: NonNullable<ReturnType<typeof divergenceOf>>): ReportPart | null {
+  const followed = r.runId && replay ? followedOf(i.store, replay, div.callNo) : null;
+  if (!div.diff?.length) return followed ? { kind: 'request', runId: null, callNo: div.callNo, against: null, bodies: null, followed } : null;
   const against = recording ? { runId: recording, callNo: div.callNo } : null;
-  if (r.runId && replay) return { kind: 'request', runId: r.runId, callNo: div.callNo, against, bodies: null, followed: followedOf(i.store, replay, div.callNo) };
-  return div.diff?.length ? { kind: 'request', runId: null, callNo: div.callNo, against, bodies: entriesBodies(div.diff), followed: null } : null;
+  if (r.runId && replay) return { kind: 'request', runId: r.runId, callNo: div.callNo, against, bodies: null, followed };
+  return { kind: 'request', runId: null, callNo: div.callNo, against, bodies: entriesBodies(div.diff), followed: null };
 }
 
 /**

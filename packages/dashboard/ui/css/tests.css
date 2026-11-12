@@ -283,7 +283,8 @@ table.gt span.gev small { font-size: inherit; }
 .ms.rpms { flex: none; width: min(calc(var(--n) * 9px), 100%); height: 14px; gap: 2px; }
 /* the error in one line, the line of code it was raised at under it, all of it on request */
 .rperrw > pre.report.tail { margin-top: 8px; }
-.rpx .rperrw.q { margin-top: 10px; }
+/* what followed a request, apart from its diff; alone where the divergence kept no changes */
+.rpx .rpdiff + .rperrw.q { margin-top: 10px; }
 .diffpanel.rpdiff { padding: 0; border: 0; background: none; gap: 8px; }
 /* An injection gate's attempts in the results' key, every entry quiet; its box the matrix's, so the key's columns follow its width. */
 .rpx .rpmx { container: matrix / inline-size; }
