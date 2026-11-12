@@ -138,7 +138,8 @@ A check is also not judged, with the reason, when:
 - the agent exited with an error or was stopped;
 - the replay of a golden that may not fork diverged (the test fails on that anyway);
 - the judge's call failed;
-- its answer held no verdict.
+- its answer held no verdict;
+- it was skipped when another check failed, and that check didn't fail in the end.
 
 A run that can't pass anyway asks no judge: one whose agent exited with an error or was stopped, or whose replay diverged where its golden may not fork. In `shadowlap test` and `bisect` of a golden that may fork, or with `bisect --fork`, an attempt that failed another check asks none either, and its judge checks read not applicable, not inconclusive.
 
