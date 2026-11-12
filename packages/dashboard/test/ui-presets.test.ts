@@ -9,6 +9,9 @@ import { TestsPage } from '../ui/pages/Tests.js';
 import { bannerFor, type BannerInput } from '../ui/run/banner.js';
 import { Banner } from '../ui/run/FindingsBar.js';
 import { exitWords, presetAttempt, presetWhy } from '../ui/run/preset.js';
+import { runFindings } from '../ui/run/findings.js';
+import { presetsLine } from '../ui/presets/PresetsFinding.js';
+import { presetsMatrix, presetsMeta, presetsReceipt, PresetsResults } from '../ui/presets/PresetsResults.js';
 import { ForksView } from '../ui/run/ForksView.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -225,5 +228,47 @@ describe('a golden’s presets on Tests', () => {
     expect(r.document.body.textContent).not.toContain('not run yet');
     // The palette's hint for it says the same.
     expect(testsPalette(v, { update: false }).find((e) => e.label === 'list-inbox')?.hint).toBe('presets failed');
+  });
+});
+
+describe('a recording’s presets on its page', () => {
+  const about = { text: 'Lists the inbox', from: 'user' as const };
+
+  it('is a finding by its verdict and what came of each preset, weighed as a gate is, after the run’s own', () => {
+    expect(presetsLine(matrix)).toBe('tool timeout and provider 429 failed\u00a0· provider 500 inconclusive');
+    const passed = { ...matrix, counts: { passed: 2, failed: 0, inconclusive: 0, notApplicable: 1 }, cells: [matrix.cells[1], { ...matrix.cells[1], preset: 'oversized', label: 'oversized result', verdict: 'not-applicable' as const }] };
+    expect(presetsLine(passed)).toBe('every preset passed, 1 not applicable');
+    const found = runFindings({ own: null, differences: null, notRecorded: null, notes: [], presets: matrix });
+    expect(found.map((f) => [f.key, f.sev, f.says])).toEqual([['presets', 2, 'error-path presets failed']]);
+    expect(runFindings({ own: null, differences: null, notRecorded: null, notes: [], presets: passed })[0].sev).toBe(0);
+  });
+
+  it('lays the recording out against each preset on the shared matrix: where each hit, its tally and the attempt that shows it', () => {
+    const m = presetsMatrix(matrix, about);
+    expect([m.id, m.label, m.rowInLabel, m.corner]).toEqual([`presets-${REC}`, `Error-path presets on ${REC}`, true, 'run']);
+    expect(m.rows).toEqual([{ key: REC, label: REC, chip: 'list-inbox', sub: 'Lists the inbox' }]);
+    expect(m.cols.map((c) => [c.label, c.sub])).toEqual([
+      ['tool timeout', 'list_inbox (#2) timed out'],
+      ['empty result', 'list_inbox (#2) answered with nothing'],
+      ['provider 429', 'model call #3 failed with HTTP 429'],
+      ['provider 500', 'model call #3 failed with HTTP 500'],
+    ]);
+    const cell = (key: string) => m.cell(m.rows[0], m.cols.find((c) => c.key === key)!)!;
+    // The first attempt that didn't pass, else the last, at the call it hit.
+    expect([cell('429').word, cell('429').tally, cell('429').href]).toEqual(['failed', '1 of 2 passed', `#/run/${SECOND}/3`]);
+    expect([cell('empty').word, cell('empty').href]).toEqual(['passed', `#/run/${PASSED}/2`]);
+    expect(JSON.parse(cell('429').tip!)).toMatchObject({ t: 'provider 429 · failed · 1 of 2 passed', s: 'model call #3 failed with HTTP 429' });
+  });
+
+  it('says what ran, where and when, what judged it and what it spent, as the panel draws it', () => {
+    expect(presetsMeta({ ...matrix, at: Date.now() }).slice(0, 2)).toEqual(['4 presets', 'at list_inbox (#2) and model call #3']);
+    expect(presetsReceipt({ ...matrix, spent: 0.486, upstreamRequests: 132 })).toEqual([{ parts: ['these presets spent ≈$0.486', 'every call before #2 replayed free'] }, { parts: ['132 upstream requests'] }]);
+    const html = renderToStaticMarkup(createElement(PresetsResults, { matrix, about }));
+    expect(html).toContain('aria-label="Error-path preset results"');
+    expect(html).toContain('Run × presets');
+    expect(html).toContain('judged on the agent exiting 0 alone: no checks say what an error path must do');
+    const judged = renderToStaticMarkup(createElement(PresetsResults, { matrix: { ...matrix, rule: 'gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts', judge: { source: 'chaos.expect', checks: ['issue_refund called 0 times'] } }, about }));
+    expect(judged).toContain('checks: issue_refund called 0 times');
+    expect(judged).toContain('gate: tells');
   });
 });

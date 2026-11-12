@@ -11,6 +11,8 @@ import type { Proof } from './injection/Proof.js';
 import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
 import type { TestDialog } from './injection/TestDialog.js';
 import type { PresetsDialog } from './presets/PresetsDialog.js';
+import type { PresetsFinding } from './presets/PresetsFinding.js';
+import type { PresetsResults } from './presets/PresetsResults.js';
 import type { BuilderProps } from './run/check-part.js';
 import type { CheckMenu } from './run/CheckMenu.js';
 import type { ForkMenu } from './run/ForkMenu.js';
@@ -36,6 +38,8 @@ export type PackWithGateProps = ComponentProps<typeof PackWithGate>;
 export type FindCauseProps = ComponentProps<typeof FindCause>;
 export type CauseFindingProps = ComponentProps<typeof CauseFinding>;
 export type PresetsDialogProps = ComponentProps<typeof PresetsDialog>;
+export type PresetsFindingProps = ComponentProps<typeof PresetsFinding>;
+export type PresetsResultsProps = ComponentProps<typeof PresetsResults>;
 
 /**
  * The parts a page draws only where the dashboard runs, never in an exported copy, handed in by the
@@ -73,6 +77,10 @@ export interface ServedParts {
   TestDialog?: OnShow<TestDialogProps>;
   /** Run error-path presets…'s dialog (presets/PresetsDialog.tsx): the fork menu's whole run, a golden's row on Tests and the palette open it. Loaded as it first shows. */
   PresetsDialog?: OnShow<PresetsDialogProps>;
+  /** A recording's error-path presets as a finding on its page (presets/PresetsFinding.tsx), with its Show results: loaded as a run's page first draws one. */
+  PresetsFinding?: OnShow<PresetsFindingProps>;
+  /** A recording's presets in the inspector's place (presets/PresetsResults.tsx), with the matrix they draw: loaded ahead as the pointer or the focus reaches Show results. */
+  PresetsResults?: OnShow<PresetsResultsProps>;
   /** Pack with injection gate…'s dialog (injection/PackWithGate.tsx), which the run's lime step opens where a read caused a write or an attempt obeyed. Loaded as it first shows. */
   PackWithGate?: OnShow<PackWithGateProps>;
   /** Find cause… on a write after an untrusted read, the inspector's link and its dialog (injection/FindCause.tsx): loaded as the inspector first shows on a run that has a write to ask about. */

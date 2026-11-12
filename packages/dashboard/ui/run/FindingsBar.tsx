@@ -2,7 +2,7 @@ import { Fragment, useLayoutEffect, useReducer, useRef, useState, type ReactNode
 import type { BlameView, CheckView, RunDetail, RunOffers } from '../api.js';
 import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
-import type { RunInjection, TestBannerOffer } from '../types.js';
+import type { ChaosMatrix, RunInjection, TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
@@ -539,23 +539,24 @@ function MoreToggle({ findings, open, onToggle }: { findings: readonly Finding[]
 /** A finding, as its kind draws it. */
 function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSelect: (n: number) => void }) {
   // A kept injection test's finding is handed in where the dashboard runs: a copy keeps no results to draw one from.
-  const { InjectionFinding, CauseFinding } = useServedParts();
+  const { InjectionFinding, CauseFinding, PresetsFinding } = useServedParts();
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
   if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
   if (f.injection) return InjectionFinding ? <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} /> : null;
   if (f.cause) return CauseFinding ? <CauseFinding runId={x.run.run.runId} cause={f.cause} fx={s.fx} more={s.more} onSelect={onSelect} /> : null;
+  if (f.presets) return PresetsFinding ? <PresetsFinding runId={x.run.run.runId} m={f.presets} fx={s.fx} more={s.more} /> : null;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
 }
 
 /** The bar, from the findings the page has: drawn by FindingsBar, and alone by Banner. */
-function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null; injection?: InjectionFindingView | null; cause?: CauseView | null }) {
+function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null; injection?: InjectionFindingView | null; cause?: CauseView | null; presets?: ChaosMatrix | null }) {
   const runId = p.run.run.runId;
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const next = nextStepOf(p.run);
   const test = p.offers?.test ?? (next?.key === 'normalizer' || next?.key === 'update-golden' ? next.test : null);
   const x = useDraw(p, test);
   const input = bannerInput(p.run, p, test);
-  const findings = runFindings({ own: ownBanner(input), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, injection: p.injection, cause: p.cause });
+  const findings = runFindings({ own: ownBanner(input), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, injection: p.injection, cause: p.cause, presets: p.presets });
   if (!findings.length) return null;
   const open = opened.get(runId) ?? false;
   const toggle = () => {
@@ -574,10 +575,10 @@ function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Dif
 
 /**
  * The run's findings under its header: its own, what its fork did differently from its parent (read
- * once it has ended), what it did not record, its notes, and the injection test kept for it with
- * Find cause's answers.
+ * once it has ended), what it did not record, its notes, the injection test kept for it with Find
+ * cause's answers, and its error-path presets.
  */
-export function FindingsBar(p: BannerProps & { notes: readonly RunNote[]; injection?: InjectionFindingView | null; cause?: CauseView | null }) {
+export function FindingsBar(p: BannerProps & { notes: readonly RunNote[]; injection?: InjectionFindingView | null; cause?: CauseView | null; presets?: ChaosMatrix | null }) {
   const r = p.run.run;
   const differences = useForkDifferences(r.runId, !!r.divergence && !!r.parentRunId && r.status !== 'running');
   return <Findings {...p} differences={differences} />;

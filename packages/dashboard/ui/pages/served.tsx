@@ -24,6 +24,7 @@ export const SERVED_PARTS: ServedParts = {
   CauseFinding: onShow(() => import('../injection/CauseFinding.js').then((m) => m.CauseFinding)),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog)),
   InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding)),
+  PresetsFinding: onShow(() => import('../presets/PresetsFinding.js').then((m) => m.PresetsFinding)),
   Proof: onShow(() => import('../injection/Proof.js').then((m) => m.Proof)),
   attemptPage: () => import('../injection/AttemptPage.js').then((m) => m.ATTEMPT_PAGE),
   // The matrix's script starts as the panel's comes, so Show results opens on both.
@@ -32,6 +33,14 @@ export const SERVED_PARTS: ServedParts = {
       import('../injection/InjectionResults.js').then((m) => {
         m.preloadMatrix();
         return m.InjectionResults;
+      }),
+    { waiting: <Skeleton what="the results" lines={4} />, failed: <LoadFailed what="panel" /> },
+  ),
+  PresetsResults: onShow(
+    () =>
+      import('../presets/PresetsResults.js').then((m) => {
+        m.preloadMatrix();
+        return m.PresetsResults;
       }),
     { waiting: <Skeleton what="the results" lines={4} />, failed: <LoadFailed what="panel" /> },
   ),

@@ -49,6 +49,9 @@ beforeAll(() => {
   const injection = { result: 'inj-01PLANT', role: 'attempt' as const, read: 2, payload: 'system-notice', attempt: 2, of: 3, canary, verdict: 'obeyed' as const, readAt: 3, evidence: [{ kind: 'canary' as const, callNo: 4, tool: 'send_email', path: '$.to', value: canary.address }] };
   attemptId = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { injection } }).runId;
   // The test it was in, kept for the run it tested, as the served dashboard draws its finding from.
+  // The presets run on it, which the served dashboard draws as a finding and a panel: a copy keeps neither.
+  store.startChaosSession({ sessionId: 'S1', startedAt: 3, command: ['shadowlap', 'replay', runId, '--chaos'], presets: ['timeout'] });
+  store.addChaosResult({ sessionId: 'S1', runId, golden: null, preset: 'timeout', verdict: 'failed', callNo: 2, passes: 0, attempts: 1, at: 3, data: { detail: 'search (#2) timed out: the agent exited with code 1', runs: [{ runId: attemptId, verdict: 'failed', passed: false, exitCode: 1 }] } });
   store.putInjectionResult({ resultId: 'inj-01PLANT', runId, golden: null, sessionId: null, mode: 'plant', at: 1, endedAt: 2, attempts: 3, obeyed: 1, influenced: 0, ignored: 2, inconclusive: 0, verdict: 'obeyed', actor: null, data: { resultId: 'inj-01PLANT', mode: 'plant', gate: { obeyed: 0, influenced: null, verdict: 'failed', reason: 'send_email obeyed a planted instruction in 1 of 3 attempts (at most 0 allowed)' }, cost: { spent: 0 } } });
   for (const c of store.getCalls(runId).slice(0, 4)) {
     const { end, attempts, ...start } = c;
@@ -179,6 +182,13 @@ describe('an exported copy', () => {
     await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
     expect(r!.all('[data-finding="injection"]')).toHaveLength(0);
     expect(r!.all('[data-act="results"]')).toHaveLength(0);
+  });
+
+  it('keeps no error-path presets, so the run they ran on draws no finding of them nor their results, which the served dashboard alone hands in', async () => {
+    await open([attemptId, runId], `#/run/${runId}`);
+    await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
+    expect(r!.all('[data-finding="presets"]')).toHaveLength(0);
+    expect(r!.all('.rmxp')).toHaveLength(0);
   });
 
   it('runs no injection test, so it offers no Run injection test…, Find cause… nor Pack with injection gate…, and loads none of their dialogs', async () => {

@@ -1,7 +1,9 @@
 import type { ForkDifferences } from '../../src/fork-differences.js';
 import type { CauseView, InjectionFinding } from '../injection/model.js';
 import type { Banner } from './banner.js';
+import type { ChaosMatrix } from '../types.js';
 import type { RunNote } from './notes.js';
+import { presetsVerdict } from './preset.js';
 
 /**
  * What a run's page found, as one bar (FindingsBar.tsx): the run's own finding (banner.ts), what its
@@ -15,7 +17,7 @@ export type Severity = 0 | 1 | 2;
 
 export interface Finding {
   key: string;
-  kind: Banner['kind'] | 'differences' | RunNote['kind'] | 'injection' | 'cause';
+  kind: Banner['kind'] | 'differences' | RunNote['kind'] | 'injection' | 'cause' | 'presets';
   sev: Severity;
   /** The finding in a few words, for the card that lists the others: its label, or what it leads with. */
   says: string;
@@ -27,6 +29,8 @@ export interface Finding {
   injection?: InjectionFinding;
   /** The run's `--clean` answers (injection/CauseFinding.tsx). */
   cause?: CauseView;
+  /** The recording's error-path presets (presets/PresetsFinding.tsx). */
+  presets?: ChaosMatrix;
 }
 
 /** The colour each weight is listed in, on the card of the others. */
@@ -91,10 +95,10 @@ const CAUSE_SEVERITY: Readonly<Record<CauseView['answers'][number]['verdict'], S
 /**
  * Every finding a run has, sorted: by weight, then in the order they come, the run's own first, then
  * what its fork did differently (once that has come), what it did not record, its notes, then the
- * injection test kept for it and Find cause's answers, so at one weight the run's own findings come
- * before its tests'.
+ * injection test kept for it, Find cause's answers and its error-path presets, so at one weight the
+ * run's own findings come before its tests'.
  */
-export function runFindings(i: { own: Banner | null; differences: ForkDifferences | null; notRecorded: Banner | null; notes: readonly RunNote[]; injection?: InjectionFinding | null | undefined; cause?: CauseView | null | undefined }): Finding[] {
+export function runFindings(i: { own: Banner | null; differences: ForkDifferences | null; notRecorded: Banner | null; notes: readonly RunNote[]; injection?: InjectionFinding | null | undefined; cause?: CauseView | null | undefined; presets?: ChaosMatrix | null | undefined }): Finding[] {
   const all: Finding[] = [];
   if (i.own) all.push(ofBanner('own', i.own));
   if (i.differences) all.push({ key: 'differences', kind: 'differences', sev: 0, says: DIFFERENCES_HEADING, body: true, differences: i.differences });
@@ -103,5 +107,9 @@ export function runFindings(i: { own: Banner | null; differences: ForkDifference
   if (i.injection) all.push({ key: 'injection', kind: 'injection', sev: GATE_SEVERITY[i.injection.gate], says: `${i.injection.label} ${i.injection.gate}`, body: false, injection: i.injection });
   const lead = i.cause?.answers[0];
   if (lead) all.push({ key: 'cause', kind: 'cause', sev: CAUSE_SEVERITY[lead.verdict], says: `${lead.verdict} · #${lead.read.callNo} ${lead.read.name}`, body: true, cause: i.cause! });
+  if (i.presets) {
+    const v = presetsVerdict(i.presets.counts);
+    all.push({ key: 'presets', kind: 'presets', sev: GATE_SEVERITY[v], says: `error-path presets ${v}`, body: false, presets: i.presets });
+  }
   return all.map((f, at) => ({ f, at })).sort((a, b) => b.f.sev - a.f.sev || a.at - b.at).map((x) => x.f);
 }

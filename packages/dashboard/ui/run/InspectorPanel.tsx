@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { Client, RunDetail } from '../api.js';
+import type { ChaosMatrix, RunAbout } from '../types.js';
 import { focusQuiet, wantCallFocus } from '../focus-manager.js';
 import { sameRun } from '../format.js';
 import { useLatest } from '../hooks.js';
@@ -122,12 +123,19 @@ const INJECTION = 'injection:';
 
 /**
  * The bodies of the results a run's findings open, by their key, for InspectorPlace's `results`: an
- * injection test's (`injection:<result id>`), where the served dashboard handed its part in
- * (served-parts.ts). None in an exported copy, which keeps no results.
+ * injection test's (`injection:<result id>`), and the recording's error-path presets (`presets`,
+ * the matrix the page read with its finding, under its about line), where the served dashboard
+ * handed their parts in (served-parts.ts). None in an exported copy, which keeps no results.
  */
-export function useResultsBodies(runId: string): (key: string) => ReactNode {
-  const { InjectionResults } = useServedParts();
-  return useCallback((key: string) => (InjectionResults && key.startsWith(INJECTION) ? <InjectionResults runId={runId} resultId={key.slice(INJECTION.length)} /> : null), [InjectionResults, runId]);
+export function useResultsBodies(runId: string, presets: ChaosMatrix | null, about: RunAbout | null | undefined): (key: string) => ReactNode {
+  const { InjectionResults, PresetsResults } = useServedParts();
+  return useCallback(
+    (key: string) => {
+      if (key === 'presets') return PresetsResults && presets ? <PresetsResults matrix={presets} about={about ?? null} /> : null;
+      return InjectionResults && key.startsWith(INJECTION) ? <InjectionResults runId={runId} resultId={key.slice(INJECTION.length)} /> : null;
+    },
+    [InjectionResults, PresetsResults, runId, presets, about],
+  );
 }
 
 /**
