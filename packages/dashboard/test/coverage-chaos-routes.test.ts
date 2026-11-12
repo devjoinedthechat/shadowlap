@@ -8,6 +8,7 @@ import { startDashboard, type Dashboard, type ProjectConfig } from '../src/index
 import { lineage } from '../src/api.js';
 import { chaosMatrices, chaosOfGolden, chaosOfRun, chaosView, type ChaosMatrix, type ChaosView } from '../src/chaos.js';
 import { coverageLook, coveragePackArgs, coverageView, type CoverageView } from '../src/coverage.js';
+import { MAX_EXPECT } from '../src/expect-field.js';
 import { treeUse } from '../src/worktree.js';
 import type { PresetsPlan } from '../src/presets-plan.js';
 import type { GoldenSource } from '../src/tests.js';
@@ -127,6 +128,12 @@ describe('production coverage', () => {
   it('serves the last scan: the behaviours no golden covers first, with what Pack one runs', async () => {
     const view = await getJson<CoverageView>('coverage');
     expect(view).toEqual(coverageView(store));
+    // A pooled read, revalidated from the store's counters: asked again while nothing moved, a 304.
+    const asked = await api('coverage');
+    await asked.text();
+    const etag = asked.headers.get('etag') ?? '';
+    expect(etag).toMatch(/^"c/);
+    expect((await fetch(`${dash.url}/api/coverage`, { headers: { 'x-shadowlap-token': dash.token, 'if-none-match': etag } })).status).toBe(304);
     expect(view.scan).toMatchObject({ scanId: 'S1', runs: 3, uncovered: 1, actor: 'dana@example.com' });
     // Imported after the scan: a scan now would read it.
     expect(view.newRuns).toBe(1);
@@ -174,6 +181,12 @@ describe('production coverage', () => {
     expect(coverageView(empty).needsLook).toBeNull();
     expect(coverageLook(empty)).toBeNull();
     empty.close();
+    // Never scanned: every imported run is one a scan would read; a pack's run, which has a command of its own, is none.
+    const unscanned = Store.open(':memory:');
+    for (const at of [1, 2]) unscanned.createRun({ mode: 'record', command: { argv: ['<no-recorded-command>'], cwd: '.' }, startedAt: at, meta: { covers: ['api'], imported: { at, from: 'prod.har' } } });
+    unscanned.createRun({ mode: 'record', command: { argv: ['node', 'theirs.mjs'], cwd: '.' }, startedAt: 3, meta: { imported: { at: 3, from: '/tmp/packs/theirs' } } });
+    expect(coverageView(unscanned)).toMatchObject({ scan: null, newRuns: 2, groups: [], uncovered: 0, needsLook: null });
+    unscanned.close();
   });
 
   it('builds the jobs that scan again and pack goldens, from a behaviour the scan has and the command as typed', async () => {
@@ -423,6 +436,8 @@ describe('error-path presets', () => {
       [{ golden: 'goldens/forecast', expect: '{"tools":{"escalate":0}}' }, "expect goes with a run: a golden's presets are judged by its chaos.expect or the write limits of its expect"],
       [{ runId: golden, expect: '{"tools":' }, '--expect is JSON, such as {"tools":{"send_email":0}}'],
       [{ runId: golden, expect: 7 }, 'expect is the checks, as JSON such as {"tools":{"issue_refund":0}}'],
+      [{ runId: golden, expect: '[1]' }, '--expect must be an object'],
+      [{ runId: golden, expect: `{"tools":{"${'x'.repeat(MAX_EXPECT)}":0}}` }, 'those checks are too long'],
     ] as const) {
       const res = await startJob({ kind: 'chaos', ...body });
       expect(res.status, JSON.stringify(body)).toBe(400);
