@@ -5,18 +5,20 @@ import { knownFixes } from './fixes/data.js';
 import { addPaletteSource, type PaletteContext, paletteSourcesChanged } from './palette-sources.js';
 import { href } from './route.js';
 import { lastRunsHref } from './runs-view.js';
-import { APPLY_ASK, IMPORT_ASK, NORMALIZER_ASK, REDACTION_ASK, type PageAsk } from './page-ask.js';
+import { APPLY_ASK, IMPORT_ASK, NORMALIZER_ASK, REDACTION_ASK, SECURITY_TEST_ASK, type PageAsk } from './page-ask.js';
 import { SETTINGS_TABS, type SettingsTab } from './pages/settings/tabs.js';
 import type { StoreSetupView } from './store-api.js';
 import { onTestsChanged, testsPaletteCommands } from './tests-palette.js';
 import { onTrainingCountsChange, trainingPalette } from './training.js';
 import { stepWords } from '../src/store-steps.js';
+import type { SecurityRow } from '../src/injection-security.js';
+import { shortId } from './format.js';
 
 /**
  * The palette's Actions and Tests that belong to pages, listed on a fresh dashboard before any of
  * those pages has opened: the Tests group and Update goldens…, Import capture…, Export pairs… and
  * Score model…, Calibrate, the team store's setup, the Settings tabs by what they hold, Apply fix,
- * and Add normalizer… and Add redaction rule…. They load with the palette, so a page's code waits for its
+ * Add normalizer… and Add redaction rule…, and Run injection test… on goldens' recordings. They load with the palette, so a page's code waits for its
  * page. A row whose dialog lives on its page opens the page and asks there (`page-ask.ts`). Each
  * answers nothing in an exported copy, which runs nothing.
  */
@@ -161,4 +163,44 @@ addPaletteSource(({ app, go }) => {
     { group: 'Actions', label: ACTIONS.addNormalizerRule.label, hint: 'shadowlap normalize add', match: 'matching mask', typed: true, run: asks('matching', NORMALIZER_ASK) },
     { group: 'Actions', label: ACTIONS.addRedactionRule.label, hint: 'shadowlap redact add', match: 'redaction mask', typed: true, run: asks('redaction', REDACTION_ASK) },
   ];
+});
+
+// Run injection test… on up to three goldens' recordings that read something untrusted, newest
+// first, but the one whose page shows (This run's row offers it there): typed only, from Tests →
+// Security's read, read again as the palette opens and kept for the next time. Tests opens, and its
+// row asks as its button does. A recording no golden holds gets no row.
+let security: readonly SecurityRow[] = [];
+let securityAt = 0;
+const securityKey = (rows: readonly SecurityRow[]) => rows.map((g) => `${g.path}:${g.recording}`).join(' ');
+addPaletteSource(({ app, route, go }) => {
+  if (app.exported || app.actionsOff || !app.hasKind(JOB_KINDS.injection)) return [];
+  // Once as it opens: the call a changed answer brings reads no more.
+  if (Date.now() - securityAt > 2000) {
+    securityAt = Date.now();
+    void app.client.injectionSecurity().then(
+      (read) => {
+        const was = securityKey(security);
+        security = read.goldens;
+        if (securityKey(security) !== was) paletteSourcesChanged();
+      },
+      () => undefined,
+    );
+  }
+  const here = route.page === 'run' ? route.id.toUpperCase() : null;
+  return security
+    .filter((g) => !here || !g.recording.startsWith(here))
+    .slice(0, 3)
+    .map((g) => ({
+      group: 'Actions' as const,
+      label: ACTIONS.runInjectionTest.label,
+      hint: `shadowlap injection ${shortId(g.runId ?? g.recording)}`,
+      match: `security prompt injection untrusted ${g.name}`,
+      typed: true,
+      job: true,
+      run: () =>
+        app.guard(() => {
+          SECURITY_TEST_ASK.ask(g.path);
+          go(href.tests());
+        }),
+    }));
 });

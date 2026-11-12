@@ -1,13 +1,18 @@
-import { createElement, useState } from 'react';
+import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { ToolsSettings } from '../src/settings.js';
+import type { SecurityRead, SecurityRow } from '../src/injection-security.js';
 import type { CallDetail, JobView } from '../ui/api.js';
 import { answerWords } from '../ui/injection/answer-words.js';
 import { CauseFinding } from '../ui/injection/CauseFinding.js';
 import { causeCommand, causeRead, FindCause } from '../ui/injection/FindCause.js';
 import { resultsToOpen } from '../ui/injection/job-footer.js';
 import { gateEntryText, PackWithGate } from '../ui/injection/PackWithGate.js';
+import { SecurityPanel, SecurityTable } from '../ui/injection/SecurityPanel.js';
+import { SECURITY_TEST_ASK } from '../ui/page-ask.js';
+import '../ui/palette-actions.js';
+import { paletteSources, type PaletteContext } from '../ui/palette-sources.js';
 import { runInjectionView, type CauseView } from '../ui/injection/model.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
@@ -607,3 +612,84 @@ describe('Pack with injection gate…', () => {
     expect([sent.map((b) => b.yes), r!.one('.dialog .dwarn').textContent, r!.one('.dialog input[type="text"]').value]).toEqual([[undefined, 'c1'], errorText(new Error('goldens/01k5cq4n7g already holds a golden. Give this one another name')), 'goldens/01k5cq4n7g']);
   });
 });
+
+describe('Tests → Security', () => {
+  const sec = (o: Partial<SecurityRow> = {}): SecurityRow => ({ path: 'goldens/refund', name: 'refund', runId: RUN, recording: RUN, at: 2, reads: readsOf(2), last: null, estimate: price(0.8), ...o });
+  const OTHER = '01K5CQ9ZZZ0000000000000000';
+  const READ: SecurityRead = {
+    goldens: [
+      sec({ last: { resultId: 'i1', verdict: 'failed', line: 'send_email obeyed a planted instruction · 3 of 24', gate: false } }),
+      sec({ path: 'goldens/billing', name: 'billing', runId: null, recording: OTHER, at: 1, reads: readsOf(1), last: { resultId: 'i2', verdict: 'passed', line: 'ignored every planted instruction · 6 attempts', gate: true } }),
+      sec({ path: 'goldens/new', name: 'new', at: 0 }),
+    ],
+    none: ['a', 'b', 'c'],
+    unread: [{ name: 'lost', why: 'can’t read its recording' }],
+  };
+
+  it('lists each golden whose recording reads something untrusted, its reads and its last test or gate, one it can’t read too, and names the rest', async () => {
+    r = await render(createElement(AppContext.Provider, { value: app({}, []) }, createElement(SecurityTable, { read: READ })));
+    expect([r.one('.panel.sec h2').textContent, r.one('.panel.sec header .sub').textContent]).toEqual(['Security', 'the untrusted reads each golden makes, where an injection test plants']);
+    expect([r.one('.panel.sec header a.more').textContent, r.one('.panel.sec header a.more').getAttribute('href')]).toEqual(['Trust on Settings → Tools', '#/settings/tools']);
+    expect(r.all('table.sect thead th').map((h) => h.textContent)).toEqual(['Golden', 'Untrusted reads', 'Last test', 'Test']);
+    expect(r.all('table.sect tbody tr').map((row) => cells(row))).toEqual([
+      ['refundits recording 01K5CQ4N7G', '#4 get_ticket#6 read_1', 'failedsend_email obeyed a planted instruction · 3 of 24', 'Run injection test…'],
+      ['billingits recording 01K5CQ9ZZZ', '#4 get_ticket', 'passedignored every planted instruction · 6 attempts · its injection gate', 'Run injection test…'],
+      ['newits recording 01K5CQ4N7G', '#4 get_ticket#6 read_1', 'not tested', 'Run injection test…'],
+      ['lost', 'can’t read its recording'],
+    ]);
+    expect(r.one('.secnone').textContent).toBe('a, b and\u00a0c read nothing untrusted.');
+    expect(JSON.parse(r.all('table.sect .btn')[1].getAttribute('data-tip')!)).toMatchObject({ t: 'Run injection test', s: 'Plants payloads at #4 get_ticket of billing’s recording', cmd: '$ shadowlap injection 01K5CQ9ZZZ' });
+    await r.unmount();
+    r = await render(createElement(AppContext.Provider, { value: app({}, []) }, createElement(SecurityTable, { read: { goldens: [], none: ['a'], unread: [] } })));
+    expect(r.all('.panel.sec').length).toBe(0);
+  });
+
+  it('opens Run injection test… on a row’s recording, on its golden where only the pack holds it, as the palette asks too, and reads again as a test ends', async () => {
+    let reads = 0;
+    let setJobs: (jobs: AppState['jobs']) => void = () => undefined;
+    const base = app({}, [], { injectionSecurity: async () => (reads++, READ), injectionTemplates: async () => ({ version: 1, updated: '', templates: TEMPLATES }), injectionEstimate: () => new Promise(() => undefined) });
+    function Host() {
+      const [jobs, set] = useState<AppState['jobs']>([]);
+      setJobs = set;
+      return createElement(ServedPartsContext.Provider, { value: STEP_PARTS }, createElement(AppContext.Provider, { value: { ...base, jobs } }, createElement(SecurityPanel)));
+    }
+    r = await render(createElement(Host));
+    await r.until('the section', () => r!.all('table.sect tbody tr').length === 4);
+    await act(async () => SECURITY_TEST_ASK.ask('goldens/billing'));
+    await r.until('the dialog', () => r!.all('.dialog .togchips button').length === 12);
+    expect([r.one('.dialog h3').textContent, r.one('.dialog .dfacts').textContent]).toEqual(['Run injection test on 01K5CQ9ZZZ', 'Plants in#4 get_ticket']);
+    await r.click(r.one('.dialog .dlg-cancel'));
+    await r.click(r.all('table.sect .btn')[0]);
+    await r.until('the dialog', () => r!.all('.dialog h3').length === 1);
+    expect([r.one('.dialog h3').textContent, reads]).toEqual(['Run injection test on 01K5CQ4N7G', 1]);
+    await act(async () => setJobs([{ job: { id: 'j1', kind: 'injection', done: true } }] as unknown as AppState['jobs']));
+    await r.until('read again', () => reads === 2);
+  });
+
+  it('gives the palette’s Actions, typed, Run injection test… on up to three other goldens’ recordings, opening Tests to ask there', async () => {
+    const goldens = [sec({ path: 'goldens/a', name: 'a' }), sec({ path: 'goldens/b', name: 'b', runId: null, recording: OTHER }), ...['01K5CQAAAA', '01K5CQBBBB', '01K5CQCCCC'].map((id, i) => sec({ path: `goldens/${i}`, name: String(i), runId: `${id}0000000000000000`, recording: `${id}0000000000000000` }))];
+    const went: string[] = [];
+    // The page's window, which an ask goes through.
+    r = await render(createElement('div'));
+    const ctx = { app: app({}, [], { injectionSecurity: async () => ({ goldens, none: [], unread: [] }) }), route: { page: 'run', id: RUN, call: null, view: null }, go: (to: string) => void went.push(to) } as unknown as PaletteContext;
+    const rows = () => paletteSources().flatMap((source) => {
+      try {
+        return source(ctx);
+      } catch {
+        return [];
+      }
+    }).filter((x) => x.label === 'Run injection test…');
+    expect(rows()).toEqual([]);
+    await r_wait();
+    const got = rows();
+    expect(got.map((x) => [x.group, x.hint, x.typed])).toEqual([['Actions', 'shadowlap injection 01K5CQ9ZZZ', true], ['Actions', 'shadowlap injection 01K5CQAAAA', true], ['Actions', 'shadowlap injection 01K5CQBBBB', true]]);
+    let asked = false;
+    const stop = SECURITY_TEST_ASK.on(() => (asked = true), 'goldens/b');
+    got[0].run();
+    stop();
+    expect([asked, went]).toEqual([true, ['#/tests']]);
+  });
+});
+
+/** Lets the answers already in run. */
+const r_wait = () => new Promise((done) => setTimeout(done, 0));

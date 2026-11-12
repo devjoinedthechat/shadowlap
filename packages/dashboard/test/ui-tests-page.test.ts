@@ -62,6 +62,7 @@ function page(started: Array<{ kind: string; fields: Record<string, unknown> }>,
     },
     jobs: () => Promise.resolve([]),
     offers: () => Promise.resolve(null),
+    injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }),
     startJob: (kind: string, fields: Record<string, unknown>) => {
       started.push({ kind, fields });
       return Promise.resolve({ id: 'j1' });

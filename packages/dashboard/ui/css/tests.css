@@ -261,3 +261,21 @@ table.gt td.glast a.gpre:hover { text-decoration: underline; text-underline-offs
   /* the evidence line's dots keep their colours, edged in the text colour */
   .evl .ed { forced-color-adjust: none; box-shadow: 0 0 0 1px CanvasText; }
 }
+/* Tests → Security (injection/SecurityPanel.tsx): a golden a row, its untrusted reads, its last test, Run injection test… at its end */
+table.sect td { vertical-align: top; }
+table.sect td.sreads { font-size: 12.5px; color: var(--dim); }
+/* the reads and the last test's quiet line wrap where the table would outgrow its section, each read kept whole, so the action column keeps its place */
+table.sect td.sreads, table.sect td:nth-child(3) .rsub { white-space: normal; }
+table.sect td.sreads code { font-size: 12.5px; color: var(--ink); }
+table.sect td.sreads .nw { margin-right: 10px; }
+.secnone { margin: 12px 0 0; font-size: 12.5px; }
+.secnone code { font-size: 12.5px; white-space: nowrap; }
+/* on a phone a golden is a block: its name and Run injection test… on a line, then its reads, then its last test */
+@media (max-width: 640px) {
+  table.sect thead { display: none; }
+  .tscroll table.sect, table.sect tbody { display: block; width: 100%; min-width: 0; }
+  table.sect tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .tscroll table.sect tr > td, .panel.sec table.sect tbody tr:last-child td { display: block; padding: 0; border: 0; white-space: normal; }
+  table.sect td.sreads, table.sect td:nth-child(3) { grid-column: 1 / -1; }
+  table.sect td.num { grid-column: 2; grid-row: 1; justify-self: end; }
+}

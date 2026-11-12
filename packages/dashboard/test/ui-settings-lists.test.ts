@@ -84,7 +84,7 @@ describe('the MCP servers', () => {
     { file: '.mcp.json', name: 'github', transport: 'stdio', target: 'npx -y @modelcontextprotocol/server-github', recorded: null, viaShadowlap: false, line: 'shadowlap mcp -- npx -y @modelcontextprotocol/server-github', putBack: [] },
     { file: '.mcp.json', name: 'linear', transport: 'http', target: 'https://mcp.linear.app/mcp', recorded: { tools: 4, writes: 1 }, viaShadowlap: true, line: null, putBack: [] },
   ];
-  const tools = { live: [], fenced: [], http: [], mcp: { files: [], servers, recorded: [], effects: [], clientConfigs: [], otherForms: [] } } as unknown as ToolsSettings;
+  const tools = { config: { version: 'v1', error: null }, entry: [], live: [], fenced: [], http: [], mcp: { files: [], servers, recorded: [], effects: [], clientConfigs: [], otherForms: [] } } as unknown as ToolsSettings;
   const state = { client: { settings: { tools: async () => tools } }, meta: { project: { id: 'research-agent', name: 'research-agent', path: '/work/research-agent' } }, feeds: {}, toast: () => undefined } as unknown as Partial<AppState>;
 
   it('walks its rows with j, and offers copy the line on Enter where a server has one, nothing where it has none', async () => {

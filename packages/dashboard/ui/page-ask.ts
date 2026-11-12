@@ -44,3 +44,5 @@ export const NORMALIZER_ASK = pageAsk('normalizer');
 export const REDACTION_ASK = pageAsk('redaction');
 /** A fix's Apply fix dialog, asked for by the fix's id. */
 export const APPLY_ASK = pageAsk('apply');
+/** Tests → Security's Run injection test… on a golden's recording, asked for by the golden's path. */
+export const SECURITY_TEST_ASK = pageAsk('security-test');
