@@ -180,7 +180,7 @@ describe('Save check: the fix-check job', () => {
     // Run blame's check dialog shows the same words under its field.
     expect(await refusal({ kind: 'blame', runId: run, expect: { tools: { issue_refund: 'often' } } })).toEqual([400, expect.stringMatching(/^expect\.tools\["issue_refund"\]/)]);
     markFixApplied(store, fix.fixId, { patch: 'none', repairId: null, goldens: [], tests: 'skipped' });
-    expect(await refusal({ kind: 'fix-check', fixId: fix.fixId, expect: DRAFT })).toEqual([409, `${shortFixId(fix.fixId)} is applied: it keeps the check its accepted verdict counted under. Add a check to the golden that guards it instead, under "tests" in shadowlap.config.json.`]);
+    expect(await refusal({ kind: 'fix-check', fixId: fix.fixId, expect: DRAFT })).toEqual([409, `${shortFixId(fix.fixId)} is applied: it keeps the check its accepted verdict was given under. Add a check to the golden that guards it instead, under "tests" in shadowlap.config.json.`]);
     expect(spawned).toEqual([]);
   });
 });
@@ -191,6 +191,8 @@ describe("fix mode's preview", () => {
     const fix = opened(failing);
     const good = makeRun(store, { labels: ['good'], status: 'completed' });
     store.addFixLink(fix.fixId, 'good', good, Date.now());
+    // A verdict made under the fix's check, which counts for it: the draft would stop it counting.
+    const { verifyId } = recordVerdict(store, { report: verifyReport([{ runId: failing, role: 'target', pass: false }], { oracle: ORACLE }), expect: EXPECT, command: 'shadowlap verify', at: Date.now() }).verdict;
     await start({ readOnly: true });
     const res = await preview(fix.fixId, DRAFT);
     expect(res.status, await res.clone().text()).toBe(200);
@@ -199,7 +201,8 @@ describe("fix mode's preview", () => {
       [failing, 'failing', 'failed', false],
       [good, 'good', 'passed', false],
     ]);
-    expect(p).toMatchObject({ refused: null, uncounted: [] });
+    // Named by the change it verified, as the Verify step's switch names it.
+    expect(p).toMatchObject({ refused: null, left: { failing: [], good: [] }, uncounted: [{ verifyId, code: '370712a+dirty' }] });
     // A preview changes nothing: a read-only dashboard answers it, and refuses the job.
     expect((await job({ kind: 'fix-check', fixId: fix.fixId, expect: DRAFT })).status).toBe(403);
     expect(store.fixChecks(fix.fixId)).toHaveLength(1);
@@ -209,14 +212,17 @@ describe("fix mode's preview", () => {
     const passes = makeRun(store, { labels: ['refund-bug'], status: 'completed' });
     const fix = opened(passes);
     await start();
-    expect((await json(await preview(fix.fixId, DRAFT))).refused).toBe(`None of ${shortFixId(fix.fixId)}'s failing runs fails this check as recorded, so it would no longer be this failure. Nothing changed.`);
+    expect(await json(await preview(fix.fixId, DRAFT))).toMatchObject({
+      refused: `None of ${shortFixId(fix.fixId)}'s failing runs fails this check as recorded, so it would no longer be this failure. Nothing changed.`,
+      left: { failing: [passes], good: [] },
+    });
     const bad = await preview(fix.fixId, { tools: { issue_refund: 'often' } });
     expect([bad.status, (await json(bad)).error]).toEqual([400, expect.stringMatching(/^expect\.tools\["issue_refund"\]/)]);
     markFixApplied(store, fix.fixId, { patch: 'none', repairId: null, goldens: [], tests: 'skipped' });
     expect((await preview(fix.fixId, DRAFT)).status).toBe(409);
     // As context for a check added to the golden that guards it: its runs, nothing refused or uncounted.
     const context = await api(`fixes/${fix.fixId}/check-preview`, { method: 'POST', body: JSON.stringify({ expect: DRAFT, context: true }) });
-    expect(await json(context)).toMatchObject({ rows: [{ runId: passes, role: 'failing', outcome: 'passed' }], refused: null, uncounted: [] });
+    expect(await json(context)).toMatchObject({ rows: [{ runId: passes, role: 'failing', outcome: 'passed' }], refused: null, left: { failing: [], good: [] }, uncounted: [] });
   });
 });
 

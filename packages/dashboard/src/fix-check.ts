@@ -1,4 +1,5 @@
-import { checkKey, checkRecordings, fixRecords, hiddenCharacter, hiddenCharacterWords, messageOf, notApplicable, oracleLabels, parseExpect, runsLeft, shortFixId, standingOn, type CheckResult, type FixCheckJudged, type FixRecords, type FixRunOutcome, type Price, type Store, type StoredFix, type StoredFixCheck, type TestSpec } from '@shadowlap/engine';
+import { checkKey, checkRecordings, fixRecords, hiddenCharacter, hiddenCharacterWords, leavesFix, messageOf, notApplicable, oracleLabels, parseExpect, runsLeft, shortFixId, standingOn, type CheckResult, type FixCheckJudged, type FixRecords, type FixRunOutcome, type Price, type Store, type StoredFix, type StoredFixCheck, type TestSpec } from '@shadowlap/engine';
+import { changeName } from './fix-shared.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 
 /**
@@ -58,12 +59,12 @@ export function judgeFixRuns(store: Store, rec: Pick<FixRecords, 'fix'>, check: 
 export function fixCheckRefusal(fixId: string, rows: readonly FixCheckRow[]): string | null {
   const failing = rows.filter((r) => r.role === 'failing' && r.outcome !== 'gone');
   if (!failing.length) return `None of ${shortFixId(fixId)}'s failing runs is left in the store to judge the check on. Nothing changed.`;
-  return failing.every((r) => r.outcome === 'passed') ? `None of ${shortFixId(fixId)}'s failing runs fails this check as recorded, so it would no longer be this failure. Nothing changed.` : null;
+  return failing.every((r) => leavesFix('failing', r.outcome)) ? `None of ${shortFixId(fixId)}'s failing runs fails this check as recorded, so it would no longer be this failure. Nothing changed.` : null;
 }
 
-/** Why a fix that isn't open keeps its check: its accepted verdict counted under it, and a golden takes another. */
+/** Why a fix that isn't open keeps its check: its accepted verdict was given under it, and a golden takes another. */
 export const notOpenWords = (fix: Pick<StoredFix, 'fixId' | 'status'>): string =>
-  `${shortFixId(fix.fixId)} is ${fix.status}: it keeps the check its accepted verdict counted under. Add a check to the golden that guards it instead, under "tests" in shadowlap.config.json.`;
+  `${shortFixId(fix.fixId)} is ${fix.status}: it keeps the check its accepted verdict was given under. Add a check to the golden that guards it instead, under "tests" in shadowlap.config.json.`;
 
 /** Why a check is refused before anything is judged: one holding a character the team store can't keep (hiddenCharacter). */
 export function hiddenCheckWords(expect: unknown): string | null {
@@ -71,7 +72,11 @@ export function hiddenCheckWords(expect: unknown): string | null {
   return hidden ? hiddenCharacterWords(hidden) : null;
 }
 
-/** The verdicts that count for the fix and would stop under `draft`, judged as `judging` says (standingOn, as fixRecords reads them once it is the fix's check). */
+/**
+ * The verdicts that count for the fix and would stop under `draft`, judged as `judging` says (standingOn,
+ * as fixRecords reads them once it is the fix's check), each with its code: the change it verified, as
+ * the Verify step's switch and Changes → Verdicts name it (changeName).
+ */
 export function uncountedUnder(rec: FixRecords, draft: StoredFix['check'], judging: Pick<FixCheckJudging, 'judged'>): Array<{ verifyId: string; code: string }> {
   if (draft.key === rec.fix.check.key) return [];
   const entry: StoredFixCheck = { fixId: rec.fix.fixId, position: rec.checks.length, at: Date.now(), actor: null, check: draft, judged: judging.judged };
@@ -80,7 +85,7 @@ export function uncountedUnder(rec: FixRecords, draft: StoredFix['check'], judgi
   const failing = new Set([...rec.failing, ...rec.left.failing].filter((id) => !left.has(id)));
   return rec.verdicts
     .filter((v) => rec.standing.get(v.verifyId)?.counts !== false && !standingOn({ check: draft }, checks, v, { counts: true, why: null }, { failing, left }).counts)
-    .map((v) => ({ verifyId: v.verifyId, code: v.verifyId.slice(0, 13) }));
+    .map((v) => ({ verifyId: v.verifyId, code: changeName(v) }));
 }
 
 /** The check a fix keeps for `expect`, given its oracle and words, by its key. */
@@ -100,7 +105,9 @@ export interface FixCheckPreview {
   rows: FixCheckRow[];
   /** Why Save check would be refused (fixCheckRefusal), or null. */
   refused: string | null;
-  /** The verdicts that count for the fix and would stop, by id and as the page names them. */
+  /** The runs it would leave out of the fix (judgeFixRuns' `left`, by the engine's leavesFix); none for context. */
+  left: FixCheckJudging['left'];
+  /** The verdicts that count for the fix and would stop, by id and by the change each verified (changeName), as the page names them. */
   uncounted: Array<{ verifyId: string; code: string }>;
 }
 
@@ -119,7 +126,9 @@ function fixCheckPreview(store: Store, job: FixCheckPreviewJob): ReadAnswer {
   }
   const rec = fixRecords(store, fix);
   const judging = judgeFixRuns(store, rec, { spec, expect: job.expect }, job.prices ? { prices: job.prices } : {});
-  const body: FixCheckPreview = job.context ? { rows: judging.rows, refused: null, uncounted: [] } : { rows: judging.rows, refused: fixCheckRefusal(fix.fixId, judging.rows), uncounted: uncountedUnder(rec, fixCheckOf(job.expect, oracleLabels(spec), ''), judging) };
+  const body: FixCheckPreview = job.context
+    ? { rows: judging.rows, refused: null, left: { failing: [], good: [] }, uncounted: [] }
+    : { rows: judging.rows, refused: fixCheckRefusal(fix.fixId, judging.rows), left: judging.left, uncounted: uncountedUnder(rec, fixCheckOf(job.expect, oracleLabels(spec), ''), judging) };
   return answer(body);
 }
 

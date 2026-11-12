@@ -54,7 +54,7 @@ const preview: CheckPreview = { total: 0, judged: [], counts: { passed: 0, faile
 
 const failed = { status: 'failed' as const, ok: false, label: 'issue_refund called 0 times', detail: 'called 1 time' };
 const row = (runId: string, role: FixCheckRow['role'], outcome: FixCheckRow['outcome'], o: Partial<FixCheckRow> = {}): FixCheckRow => ({ runId, role, outcome, na: false, why: outcome === 'failed' ? ['issue_refund called 0 times, but called 1 time'] : [], checks: outcome === 'failed' ? [failed] : [], ...o });
-const runs: FixCheckPreview = { rows: [row(RUN, 'failing', 'failed'), row(LEFT, 'failing', 'passed'), row(GOOD, 'good', 'passed'), row(DROPPED, 'good', 'failed')], refused: null, uncounted: [] };
+const runs: FixCheckPreview = { rows: [row(RUN, 'failing', 'failed'), row(LEFT, 'failing', 'passed'), row(GOOD, 'good', 'passed'), row(DROPPED, 'good', 'failed')], refused: null, left: { failing: [LEFT], good: [DROPPED] }, uncounted: [] };
 
 function stub(o: { cfg?: ChecksConfig; answer?: FixCheckPreview; start?: () => Promise<unknown> } = {}) {
   const checks = {
@@ -143,7 +143,7 @@ describe('the check builder in fix mode', () => {
   });
 
   it('is lime once no run needs a look, and keeps its card on the store', async () => {
-    const s = stub({ answer: { rows: [row(RUN, 'failing', 'failed'), row(GOOD, 'good', 'passed')], refused: null, uncounted: [] } });
+    const s = stub({ answer: { rows: [row(RUN, 'failing', 'failed'), row(GOOD, 'good', 'passed')], refused: null, left: { failing: [], good: [] }, uncounted: [] } });
     await open(s);
     await changeKind(s);
     const ok = r!.one('.dlg-ok');
@@ -152,17 +152,46 @@ describe('the check builder in fix mode', () => {
 
   it('keeps Save off on the refusal the fix’s runs give, and names a verdict that would stop counting', async () => {
     const refused = `None of ${FIX.slice(0, 13)}'s failing runs fails this check as recorded, so it would no longer be this failure. Nothing changed.`;
-    const s = stub({ answer: { rows: [row(RUN, 'failing', 'passed', { na: true })], refused, uncounted: [{ verifyId: 'verify-1', code: 'verify-1abcde' }] } });
+    const s = stub({ answer: { rows: [row(RUN, 'failing', 'passed', { na: true })], refused, left: { failing: [RUN], good: [] }, uncounted: [{ verifyId: 'vf-01K5VERIFY0AAAAAAAAAAAAAA', code: '370712a+dirty' }] } });
     await open(s);
     await changeKind(s);
     expect(r!.one('.dlg-ok').getAttribute('data-why')).toBe(refused);
     expect(rows()).toEqual([['failing', 'not applicable', 'not applicable · it would leave the fix', true]]);
-    expect(facts()).toContain('Verdict | verify-1abcde no longer counts | it checked the old one');
+    // Named by the change it verified, as the Verify step's switch names it, never by its id.
+    expect(facts()).toContain('Verdict | 370712a+dirty no longer counts | it checked the old one');
+  });
+
+  it('keeps Save off until the draft as it stands is judged on the fix’s runs, and after a read of them that failed', async () => {
+    const asked: Array<{ resolve: (a: FixCheckPreview) => void; reject: (e: Error) => void }> = [];
+    const s = stub();
+    s.checks.fixPreview.mockImplementation(() => new Promise<FixCheckPreview>((resolve, reject) => asked.push({ resolve, reject })));
+    await open(s);
+    const ok = () => r!.one('.dlg-ok');
+    const why = () => [ok().getAttribute('aria-disabled'), ok().getAttribute('data-why')];
+    await r!.until('its runs asked for', () => asked.length === 1);
+    asked[0].resolve(runs);
+    await r!.until('its runs judged', () => r!.all('.cb-fixr .cb-row').length > 0);
+    // A change: Save waits for the draft's own answer, and no row of the check before it is drawn meanwhile.
+    await r!.click(r!.all('.cb-kinds button')[1]);
+    await r!.until('the change asked for', () => asked.length === 2);
+    expect([...why(), r!.all('.cb-fixr .cb-row').length]).toEqual(['true', 'Judging it on the fix’s runs…', 0]);
+    // Its read fails: Save stays off, and says where to try again.
+    asked[1].reject(new ApiError(500, 'the read took too long'));
+    await r!.until('the failure', () => r!.all('.loaderr').length > 0);
+    expect(why()).toEqual(['true', 'The fix’s runs couldn’t be judged: Retry them under Its runs under this check']);
+    await r!.click(ok());
+    expect(s.startJob).not.toHaveBeenCalled();
+    // Judged again: Save is on, plain, as the runs it would leave need a look.
+    await r!.click(r!.one('.loaderr .btn'));
+    await r!.until('asked again', () => asked.length === 3);
+    asked[2].resolve(runs);
+    await r!.until('the change judged', () => ok().getAttribute('aria-disabled') === null);
+    expect([ok().className.includes('lime'), rows().length]).toEqual([false, 4]);
   });
 
   it('keeps the builder open on a refusal of the job, its words in the amber line', async () => {
-    const no = 'fx is verified: it keeps the check its accepted verdict counted under.';
-    const s = stub({ answer: { rows: [row(RUN, 'failing', 'failed')], refused: null, uncounted: [] }, start: () => Promise.reject(new ApiError(409, no)) });
+    const no = 'fx is verified: it keeps the check its accepted verdict was given under.';
+    const s = stub({ answer: { rows: [row(RUN, 'failing', 'failed')], refused: null, left: { failing: [], good: [] }, uncounted: [] }, start: () => Promise.reject(new ApiError(409, no)) });
     await open(s);
     await changeKind(s);
     expect(r!.one('.dlg-ok').getAttribute('aria-disabled')).toBeNull();
@@ -184,7 +213,7 @@ describe('the check builder in fix mode', () => {
   it('judges a judge’s rule whole, says when verify asks a judge a recording can’t settle, and bills it in each attempt', async () => {
     const JUDGE = { name: 'explains-refusal', question: 'Does the answer say why the refund was refused?', of: 'run', model: 'claude-haiku-4-5', pass: 'yes' };
     const judge = { status: 'inconclusive' as const, ok: false, label: 'judge "explains-refusal" answers yes', detail: 'no verdict recorded for it' };
-    const s = stub({ answer: { rows: [row(RUN, 'failing', 'inconclusive', { checks: [judge], why: ['judge "explains-refusal" answers yes, but it is inconclusive: no verdict recorded for it'] })], refused: null, uncounted: [] } });
+    const s = stub({ answer: { rows: [row(RUN, 'failing', 'inconclusive', { checks: [judge], why: ['judge "explains-refusal" answers yes, but it is inconclusive: no verdict recorded for it'] })], refused: null, left: { failing: [], good: [] }, uncounted: [] } });
     await open(s, { fix: fix({ expect: { judge: [JUDGE] } }) });
     await r!.until('its runs judged', () => r!.all('.cb-fixr .cb-row').length > 0);
     expect(s.checks.fixPreview).toHaveBeenLastCalledWith(FIX, { judge: [JUDGE] }, {});

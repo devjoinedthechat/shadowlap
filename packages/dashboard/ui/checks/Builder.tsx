@@ -268,7 +268,7 @@ function Body(props: BuilderProps & BodyProps) {
   const fixRuns = useFixRuns(fix, own, d.settled);
   if (judging.answer !== seen.answer || judging.last !== seen.last || judging.pending !== seen.pending) setSeen({ answer: judging.answer, last: judging.last, pending: judging.pending });
   const notes = notesOf(props, d, s.golden, judging.answer);
-  const ways = own ? fixWays(s, d, { answer: fixRuns.answer, warn, redactions: cfg.redactions }) : waysOf(d, s, { amber: notes.some((n) => n.tone === 'amber'), conflict: !!conflict, edit: 'edit' in props && props.edit !== null, cfgError: props.cfgError, warn, redactions: cfg.redactions, none: fix ? 'No golden guards this fix' : undefined });
+  const ways = own ? fixWays(s, d, { judged: fixRuns, warn, redactions: cfg.redactions }) : waysOf(d, s, { amber: notes.some((n) => n.tone === 'amber'), conflict: !!conflict, edit: 'edit' in props && props.edit !== null, cfgError: props.cfgError, warn, redactions: cfg.redactions, none: fix ? 'No golden guards this fix' : undefined });
   const save = useSave(cfg, d.golden, d.settled.merged, { reread: props.reread, onConflict: setConflict, onWarn: setWarn });
   const saveFix = useFixSave(fix, d.settled.merged, setWarn);
   const change = (next: (x: State) => Units) => {

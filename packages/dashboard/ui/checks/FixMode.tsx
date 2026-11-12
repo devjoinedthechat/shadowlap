@@ -64,23 +64,30 @@ export function useFixRuns(fix: BuilderFix | null, own: boolean, s: Settled): Ju
   });
 }
 
-/** A run that would change for the fix: a failing run the check passes, a good one it fails, or one it can't settle. */
-function needsLook(r: FixCheckRow): boolean {
-  if (r.outcome === 'gone') return false;
-  return r.outcome === 'inconclusive' || (r.role === 'failing' ? r.outcome === 'passed' : r.outcome === 'failed');
+/** A run that would change for the fix: one the check takes out of it (the read's `left`, by the engine's rule), or one it can't settle. */
+function needsLook(r: FixCheckRow, left: FixCheckPreview['left']): boolean {
+  return r.outcome === 'inconclusive' || left[r.role].includes(r.runId);
+}
+
+/** Why Save check waits on the fix's runs: until the draft as it stands is judged on them, after a read of them that failed, and on the read's refusal. */
+function judgedWhy({ answer, error }: Pick<Judged<FixCheckPreview>, 'answer' | 'error'>): string | null {
+  if (answer) return answer.refused;
+  return error ? 'The fix’s runs couldn’t be judged: Retry them under Its runs under this check' : 'Judging it on the fix’s runs…';
 }
 
 /**
- * Save check's words, as golden mode's follow its state: off with why until it can save (the read's
- * refusal last), plain while a run needs a look, lime once none does.
+ * Save check's words, as golden mode's follow its state: off with why until it can save (until the
+ * draft is judged on the fix's runs, and the read's refusal, last), plain while a run needs a look,
+ * lime once none does. So Save always matches the rows drawn for the draft as it stands.
  */
-export function fixWays(s: Units, d: { settled: Settled; rule: Rule | null }, o: { answer: FixCheckPreview | null; warn: string | null; redactions: number }) {
-  const amber = !!o.answer?.rows.some(needsLook);
+export function fixWays(s: Units, d: { settled: Settled; rule: Rule | null }, o: { judged: Pick<Judged<FixCheckPreview>, 'answer' | 'error'>; warn: string | null; redactions: number }) {
+  const answer = o.judged.answer;
+  const amber = !!answer && answer.rows.some((r) => needsLook(r, answer.left));
   return {
     ok: ACTIONS.editCheck.confirm,
     tone: amber ? ('plain' as const) : ('lime' as const),
     // Saved to the fix, never to a golden: saveWhy's last check, for a golden to save it under, holds.
-    okWhy: o.warn ?? saveWhy(d.settled, s.units, s.active, 'the fix') ?? o.answer?.refused ?? null,
+    okWhy: o.warn ?? saveWhy(d.settled, s.units, s.active, 'the fix') ?? judgedWhy(o.judged),
     okSub: amber ? 'Saves it as it is, though something above needs a look' : 'The fix keeps it in the store',
     startFocus: d.rule ? '.cb-kinds [aria-pressed="true"]' : '.cb-kinds button',
     cost: d.rule?.kind === 'judge' ? fixJudgeCost(d.rule, o.redactions) : (null as CostLineProps | null),
@@ -108,9 +115,9 @@ export function useFixSave(fix: BuilderFix | null, merged: Fragment, onWarn: (wh
 }
 
 /** A run's words under the check: its say word, why, its mark and whether it needs a look (`context`: the fix's runs beside a golden's check, which change nothing). */
-function runWords(r: FixCheckRow, context: boolean): { say: string; why: string; mark: string; amber: boolean } {
+function runWords(r: FixCheckRow, left: FixCheckPreview['left'], context: boolean): { say: string; why: string; mark: string; amber: boolean } {
   if (r.outcome === 'gone') return { say: 'gone from the store', why: '', mark: '', amber: false };
-  const amber = !context && needsLook(r);
+  const amber = !context && needsLook(r, left);
   if (r.outcome === 'inconclusive') return { say: 'inconclusive', why: shortWhy(r), mark: 'inc', amber };
   if (r.outcome === 'failed') {
     const say = context ? 'fails' : r.role === 'failing' ? 'still fails' : 'fails';
@@ -140,8 +147,8 @@ function runCard(r: FixCheckRow, say: string): string | null {
   return tipCard(title, rows, rows.length ? null : (r.why[0] ?? null));
 }
 
-function RunRow({ r, context }: { r: FixCheckRow; context: boolean }) {
-  const w = runWords(r, context);
+function RunRow({ r, left, context }: { r: FixCheckRow; left: FixCheckPreview['left']; context: boolean }) {
+  const w = runWords(r, left, context);
   const card = runCard(r, w.say);
   const mark = r.outcome === 'gone' || r.na ? CHECK_MARKS['not-applicable'] : CHECK_MARKS[r.outcome];
   return (
@@ -192,7 +199,7 @@ function FixRuns({ judging, own, check }: { judging: Judged<FixCheckPreview>; ow
           {shown && rows.length ? (
             <div className="cb-rows cb-fixr">
               {rows.map((r) => (
-                <RunRow key={`${r.role}:${r.runId}`} r={r} context={!own} />
+                <RunRow key={`${r.role}:${r.runId}`} r={r} left={answer.left} context={!own} />
               ))}
             </div>
           ) : null}
