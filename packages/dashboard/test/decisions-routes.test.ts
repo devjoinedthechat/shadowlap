@@ -281,7 +281,7 @@ describe('the decision routes', () => {
     }
   });
 
-  it("leaves each run it verifies to verify's own gate: no job gives a count or a gate of its own", async () => {
+  it("leaves each run it verifies to verify's own gate unless Run more attempts raises a limit: no job gives a count, or a gate of its own", async () => {
     const jobs = [
       { kind: 'decisions', goldens: 'all', model: 'claude-sonnet-5-5', thenVerify: true },
       { kind: 'migrate', to: 'claude-haiku-4-5' },
@@ -290,7 +290,17 @@ describe('the decision routes', () => {
     ];
     for (const body of jobs) {
       expect((await startJob(dash, body)).status, JSON.stringify(body)).toBe(202);
-      expect(spawned.at(-1)!.filter((a) => ['--attempts', '--passes', '--gate', '--inconclusive'].includes(a)), JSON.stringify(body)).toEqual([]);
+      expect(spawned.at(-1)!.filter((a) => ['--attempts', '--passes', '--gate', '--inconclusive', '--kept-max'].includes(a)), JSON.stringify(body)).toEqual([]);
+    }
+    // Run more attempts raises only the limits: a failing run's attempts, the gate's other figures as the session's verify had them (its defaults here), and a good run's pairs.
+    const more = await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', max: 160, keptMax: 400 });
+    expect(more.status).toBe(202);
+    expect(((await more.json()) as { title: string }).title).toBe('Running more attempts');
+    expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'dc-01M5000000000000000000000A', '--gate', '{"max":160}', '--kept-max', '400']);
+    for (const [bad, said] of [[{ max: 0 }, 'max is the most attempts a run takes, a whole number up to 1000'], [{ max: 1001 }, 'max is the most attempts'], [{ keptMax: 2.5 }, 'keptMax is the most pairs a good run takes']] as const) {
+      const r = await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', ...bad });
+      expect(r.status, JSON.stringify(bad)).toBe(400);
+      expect(((await r.json()) as { error: string }).error).toContain(said);
     }
   });
 

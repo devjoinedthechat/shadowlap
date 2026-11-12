@@ -1,6 +1,7 @@
-import { commandIsImported, type DecisionRun, fieldValue, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyWords } from '@shadowlap/engine';
+import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyWords } from '@shadowlap/engine';
 import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
+import { gateArg, sprtGate } from './fix-shared.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { type RetiringModel, retiringModels } from './retirements.js';
@@ -253,8 +254,8 @@ export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, golde
     yes = consent.yes;
   }
   const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...from, ...scope, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...yes];
-  const what = fromCode ? 'the prompt in your working tree' : typeof req.model === 'string' ? req.model : 'the fields set';
-  return { args, title: `Previewing ${what}`, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
+  const title = fromCode ? ACTIONS.previewChangedPrompt.doing : typeof req.model === 'string' ? ACTIONS.previewModelSwitch.doing : ACTIONS.previewFieldChange.doing;
+  return { args, title, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
 }
 
 /** `shadowlap migrate` as a job: `{ to, goldens?, runs?, from?, scope?, set?, yes? }`; every golden when none are named. */
@@ -308,7 +309,7 @@ export function runsToVerify(session: NonNullable<ReturnType<typeof decisionSess
  * checks, in the role its recording plays under them, with the session's change, and keeps what it
  * finds in the session.
  */
-export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | 'decisions'>, projectDir: string = process.cwd()): JobBuildResult {
+export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | 'decisions' | 'fixes'>, projectDir: string = process.cwd()): JobBuildResult {
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
@@ -330,8 +331,39 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
     req.yes,
   );
   if ('ask' in consent) return consent.ask;
-  const args = ['decisions', '--verify', req.sessionId, ...(named !== undefined ? flagged : []), ...consent.yes];
-  return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} end to end`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
+  const limits = limitArgs(store, session, req);
+  if ('error' in limits) return limits;
+  const args = ['decisions', '--verify', req.sessionId, ...(named !== undefined ? flagged : []), ...limits, ...consent.yes];
+  const title = limits.length ? ACTIONS.runMoreAttempts.doing : runs.length === 1 ? `Verifying ${runs[0]!.runId.slice(0, 10)}` : `Verifying ${runs.length} runs`;
+  return { args, title, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
+}
+
+/**
+ * The gate a session's verify was decided by: that of the newest verdict it kept that the store
+ * still has, null for one decided by a fixed count (`--attempts`, from the CLI), and verify's own
+ * when none is left.
+ */
+export function sessionGate(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<typeof decisionSession>>): SprtGate | null {
+  const verify = (sessionReport(session) as { verify?: { verifyIds?: unknown } | null }).verify;
+  const ids = Array.isArray(verify?.verifyIds) ? (verify.verifyIds as unknown[]) : [];
+  for (const id of [...ids].reverse()) {
+    const kept = typeof id === 'string' ? store.getVerdict(id) : null;
+    if (kept) return sprtGate(kept.report.gate);
+  }
+  return { kind: 'sprt', ...SPRT_DEFAULTS };
+}
+
+/**
+ * Run more attempts' limits, as `decisions --verify` takes them: `max`, the most attempts a failing
+ * run takes, as `--gate` with the figures the session's verify was decided by and only its max
+ * raised; and `keptMax`, the most pairs a good run takes, as `--kept-max`.
+ */
+function limitArgs(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<typeof decisionSession>>, req: JobRequest): string[] | { error: string } {
+  const whole = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= GATE_MAX_ATTEMPTS);
+  if (!whole(req.max)) return { error: `max is the most attempts a run takes, a whole number up to ${GATE_MAX_ATTEMPTS}` };
+  if (!whole(req.keptMax)) return { error: `keptMax is the most pairs a good run takes, a whole number up to ${GATE_MAX_ATTEMPTS}` };
+  const gate = typeof req.max === 'number' ? gateArg({ ...(sessionGate(store, session) ?? { kind: 'sprt', ...SPRT_DEFAULTS }), max: req.max }, SPRT_DEFAULTS) : [];
+  return [...gate, ...(typeof req.keptMax === 'number' ? ['--kept-max', String(req.keptMax)] : [])];
 }
 
 /** The command a job runs, as its dialog shows it. */

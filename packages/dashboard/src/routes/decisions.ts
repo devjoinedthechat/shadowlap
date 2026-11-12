@@ -18,7 +18,7 @@ import { verifyRule } from './estimates.js';
  *   GET /api/retirements                         the models the goldens use that retire, by the table that ships
  *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }
  *   POST /api/jobs { kind: "migrate", to, goldens?, runs?, from?, scope?, set?, yes? }   every golden when none are named
- *   POST /api/jobs { kind: "decisions-verify", sessionId, runId?, runIds?, yes? }   decisions --verify: the runs a session could not clear (or those named), each under its checks
+ *   POST /api/jobs { kind: "decisions-verify", sessionId, runId?, runIds?, max?, keptMax?, yes? }   decisions --verify: the runs a session could not clear (or those named), each under its checks; Run more attempts' limits, a failing run's attempts and a good run's pairs
  *
  * The goldens a job may name are the project's (`DashboardOptions.goldens`); runs are ids in the store.
  */
