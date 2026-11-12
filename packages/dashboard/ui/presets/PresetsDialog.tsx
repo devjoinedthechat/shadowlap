@@ -6,7 +6,7 @@ import { JOB_KINDS } from '../api.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import type { DialogFact } from '../components/DialogFacts.js';
 import { namedIn } from '../components/Id.js';
-import { Skeleton } from '../components/States.js';
+import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { toggled, ToggleChips } from '../components/ToggleChips.js';
 import { useTestsWait } from '../fixes/tree.js';
 import { goldenName, shortId } from '../format.js';
@@ -92,10 +92,11 @@ export function PresetsDialog({ runId, onClose }: PresetsDialogProps) {
   const { client } = useApp();
   const first = useLoad(() => client.presetsPlan(runId, {}), `${runId}:presets-plan`);
   if (!first.data) {
+    // Until the plan comes: what the presets hit as quiet bars, or a read that failed in the line every page says, with Retry.
     const short = shortId(runId);
     return (
-      <Dialog title={namedIn(`${OK} on ${short}`, short)} lead={LEAD} doc="errorPaths" className="cxdlg" warn={first.error ? { text: errorText(first.error), tone: 'red' } : null} ok={OK} okWhy={first.error ? errorText(first.error) : 'Reading what the presets hit'} onClose={onClose}>
-        {first.error ? null : <Skeleton what="what the presets hit" lines={4} />}
+      <Dialog title={namedIn(`${OK} on ${short}`, short)} lead={LEAD} doc="errorPaths" className="cxdlg" ok={OK} okWhy={first.error ? 'What the presets hit didn’t load' : 'Reading what the presets hit'} onClose={onClose}>
+        {first.error ? <ErrorState retry={first.reload}>{failedRead(first.error)}</ErrorState> : <Skeleton what="what the presets hit" lines={4} />}
       </Dialog>
     );
   }

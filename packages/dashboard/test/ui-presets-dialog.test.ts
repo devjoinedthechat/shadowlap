@@ -1,7 +1,7 @@
 import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
-import type { ActionItem, JobView } from '../ui/api.js';
+import { ApiError, type ActionItem, type JobView } from '../ui/api.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { presetsToOpen } from '../ui/presets/job-footer.js';
 import { decidedWords, expectCaption, goldenJudged, presetsCommand, PresetsDialog, sentPicks, whereWords } from '../ui/presets/PresetsDialog.js';
@@ -115,6 +115,23 @@ describe('Run error-path presets…’s words', () => {
 });
 
 describe('Run error-path presets…’s dialog', () => {
+  it('waits for the plan in its shape, and says a read that failed in the line every page says, with Retry, which asks it again', async () => {
+    const opened = (presetsPlan: () => Promise<PresetsPlan>) => createElement(AppContext.Provider, { value: app({ presetsPlan }, []) }, createElement(PresetsDialog, { runId: RUN, onClose: () => undefined }));
+    r = await render(opened(() => new Promise<PresetsPlan>(() => undefined)));
+    expect([r.all('.dialog .skel').length, ok().getAttribute('data-why')]).toEqual([1, 'Reading what the presets hit']);
+    await r.unmount();
+    let fail = true;
+    r = await render(opened(() => (fail ? Promise.reject(new ApiError(500, 'HTTP 500')) : Promise.resolve(PLAN))));
+    await r.until('the read fails', () => r!.all('.dialog .loaderr').length === 1);
+    expect(r.one('.dialog .loaderr').getAttribute('role')).toBe('alert');
+    expect(r.one('.dialog .loaderr p span:not(.st)').textContent).toBe('The dashboard server answered 500 for this page’s data.');
+    expect([r.all('.dialog .dwarn').length, ok().getAttribute('data-why')]).toEqual([0, 'What the presets hit didn’t load']);
+    fail = false;
+    await r.click(r.byText('.dialog .loaderr button', 'Retry'));
+    await r.until('the plan comes', () => r!.all('.dialog .togchips button').length === 6);
+    expect(r.all('.dialog .loaderr')).toEqual([]);
+  });
+
   it('draws a run’s plan: every preset on, the tool it hits and where, the checks its own failed check prefills, the command and its price', async () => {
     await dialog(PLAN);
     expect(r!.one('.dialog h3').textContent).toBe('Run error-path presets on 01K5CQ4N7G');

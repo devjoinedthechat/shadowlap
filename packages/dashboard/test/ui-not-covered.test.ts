@@ -1,6 +1,6 @@
 import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { JOB_KINDS } from '../ui/api.js';
+import { ApiError, JOB_KINDS } from '../ui/api.js';
 import type { Route } from '../ui/route.js';
 import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
@@ -133,11 +133,14 @@ function view(over: Partial<CoverageView> = {}): CoverageView {
   };
 }
 
+/** The scan as the page read it: `v`, or the error its read failed with. */
+const read = (v: CoverageView | null, error: Error | null = null, reload = () => undefined) => ({ data: v, error, loading: false, reload });
+
 /** `el` on the served dashboard, which hands in the parts, the pack dialog among them. */
 const served = (el: ReturnType<typeof createElement>) => createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, el);
 
 function tests(v: CoverageView | null, lime = true, over: Partial<AppState> & { startJob?: () => Promise<unknown> } = {}) {
-  return createElement(AppContext.Provider, { value: app({ hasKind: () => true, feeds: {}, ...over }) }, served(createElement(NotCovered, { v, lime })));
+  return createElement(AppContext.Provider, { value: app({ hasKind: () => true, feeds: {}, ...over }) }, served(createElement(NotCovered, { read: read(v), lime })));
 }
 
 describe('Tests › Not covered', () => {
@@ -235,6 +238,21 @@ describe('Tests › Not covered', () => {
     expect([rescanLeads(view({ newRuns: 2 })), rescanLeads(view()), rescanLeads(view({ scan: null, newRuns: 0 }))]).toEqual([true, false, false]);
   });
 
+  it('says a read that failed where it goes, in the line every page says, with Retry, and keeps a scan it had when a later read fails', async () => {
+    const reload = vi.fn();
+    const failed = (v: CoverageView | null) => createElement(AppContext.Provider, { value: app({ hasKind: () => true, feeds: {} }) }, served(createElement(NotCovered, { read: read(v, new ApiError(500, 'HTTP 500'), reload), lime: true })));
+    r = await render(failed(null));
+    expect(text(r.one('#notcovered > header h2'))).toBe('Not covered');
+    expect(r.one('#notcovered .loaderr').getAttribute('role')).toBe('alert');
+    expect(text(r.one('#notcovered .loaderr p span:not(.st)'))).toBe('The dashboard server answered 500 for this page’s data.');
+    await r.click(r.byText('#notcovered .loaderr button', 'Retry'));
+    expect(reload).toHaveBeenCalledTimes(1);
+    await r.unmount();
+    r = await render(failed(view()));
+    expect(r.all('#notcovered .loaderr')).toEqual([]);
+    expect(rows()).toHaveLength(3);
+  });
+
   it('packs from a dialog that shows the path, the agent’s command and the command it runs, sending the yes it shows', async () => {
     const startJob = vi.fn(() => Promise.resolve({ id: 'j1' }));
     r = await render(tests(view(), true, { startJob }));
@@ -320,7 +338,7 @@ describe('Not covered’s keys', () => {
       return createElement(
         AppContext.Provider,
         { value: app({ hasKind: () => true, feeds: {}, palette: open, setPalette: setOpen, runKeys: { current: null } }) },
-        createElement('main', { id: 'view' }, served(createElement(NotCovered, { v, lime: true }))),
+        createElement('main', { id: 'view' }, served(createElement(NotCovered, { read: read(v), lime: true }))),
         createElement(Keyboard),
         createElement(Palette, { route: { page: 'tests' } }),
       );

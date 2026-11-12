@@ -9,9 +9,10 @@ import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
 import { JobButton } from '../components/JobButton.js';
 import { Section } from '../components/Section.js';
+import { ErrorState, failedRead } from '../components/States.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { goldenName, justNow, minuteStamp, plural, shortId } from '../format.js';
-import { useLoad } from '../hooks.js';
+import { useLoad, type Loaded } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
 import { useListKeys, type RowScope } from '../list-keys.js';
 import { personName } from '../person.js';
@@ -38,11 +39,11 @@ const ENDS = new Set<string>([JOB_KINDS.coverage, JOB_KINDS.coveragePack]);
 const RESCAN_SUB = 'Groups the imported runs by what they did and checks each behaviour against the goldens on disk';
 const LEAD = ['what production did that no golden tests,', 'from where it parts from the nearest one:', 'pack it, and CI replays it on every commit'];
 
-/** The last scan, read again as a scan or a pack writes one, as runs come in, and as this tab's scans and packs end. */
-export function useCoverage(): CoverageView | null {
+/** The last scan, read again as a scan or a pack writes one, as runs come in, and as this tab's scans and packs end: the read, which says a failure too. */
+export function useCoverage(): Loaded<CoverageView | null> {
   const { client, feeds, runsTick, jobs } = useApp();
   const ended = jobs.filter((w) => w.job.done && ENDS.has(w.job.kind ?? '')).length;
-  return useLoad(() => client.coverage(), 'coverage', `${feeds.coverage ?? 0}:${runsTick}:${ended}`).data ?? null;
+  return useLoad(() => client.coverage(), 'coverage', `${feeds.coverage ?? 0}:${runsTick}:${ended}`);
 }
 
 /** A behaviour's name in a list, from its line: `lookup_order → issue_refund · writes …`. */
@@ -383,19 +384,29 @@ function useArrival(v: CoverageView | null): void {
 
 /**
  * The section, from the scan the page read (`useCoverage`): none where there is no imported run to
- * read. `lime`: Rescan coverage leads where runs came in that no scan read, the page's own step not
- * leading (Tests keeps one lime button).
+ * read, nor while the scan is read, since where it shows isn't known until then; a read that failed
+ * says so where the section goes, in the line every page says (`failedRead`), with Retry. `lime`:
+ * Rescan coverage leads where runs came in that no scan read, the page's own step not leading (Tests
+ * keeps one lime button).
  */
-export function NotCovered({ v, lime }: { v: CoverageView | null; lime: boolean }) {
+export function NotCovered({ read, lime }: { read: Loaded<CoverageView | null>; lime: boolean }) {
+  const v = read.data;
   useArrival(v);
-  if (!coverageShows(v)) return null;
-  const rows = v.groups.filter((g) => !g.covered);
   const lead = LEAD.map((clause, i) => (
     <Fragment key={i}>
       {i ? ' ' : null}
       <span className="nw">{clause}</span>
     </Fragment>
   ));
+  if (!v && read.error) {
+    return (
+      <Section className="cov" id="notcovered" title="Not covered" sub={lead}>
+        <ErrorState retry={read.reload}>{failedRead(read.error)}</ErrorState>
+      </Section>
+    );
+  }
+  if (!coverageShows(v)) return null;
+  const rows = v.groups.filter((g) => !g.covered);
   return (
     <Section className="cov" id="notcovered" title="Not covered" sub={lead} actions={<Rescan lime={lime && v.newRuns > 0} />}>
       {!v.scan ? (

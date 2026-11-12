@@ -92,7 +92,7 @@ export function TestsPage() {
     return (
       <Page busy={!view && !loaded.error}>
         {header()}
-        {view ? <TestsEmpty view={view} runs={app.runs} under={(leads) => <NotCovered v={coverage} lime={!leads} />} /> : loaded.error ? <TestsFailed error={loaded.error} retry={loaded.reload} /> : <TestsLoading />}
+        {view ? <TestsEmpty view={view} runs={app.runs} under={(leads) => <NotCovered read={coverage} lime={!leads} />} /> : loaded.error ? <TestsFailed error={loaded.error} retry={loaded.reload} /> : <TestsLoading />}
       </Page>
     );
   }
@@ -119,7 +119,7 @@ export function TestsPage() {
         </JobButton>
       ) : null}
       {runTests ? (
-        <JobButton className={lead || (stale === undefined && rescanLeads(coverage)) ? 'btn' : 'btn lime'} why={runWait} {...runTests}>
+        <JobButton className={lead || (stale === undefined && rescanLeads(coverage.data)) ? 'btn' : 'btn lime'} why={runWait} {...runTests}>
           {ACTIONS.runTests.label}
         </JobButton>
       ) : null}
@@ -183,7 +183,7 @@ export function TestsPage() {
           onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [v.golden], estimate: e }))}
         />
       ))}
-      <NotCovered v={coverage} lime={!lead && stale === undefined} />
+      <NotCovered read={coverage} lime={!lead && stale === undefined} />
       <SecurityPanel />
       <CiSections view={view} />
       {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts); several goldens' normalizer and update is the update this dialog asks about. */}
