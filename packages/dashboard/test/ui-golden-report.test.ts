@@ -379,13 +379,15 @@ describe('a golden’s report under its row', () => {
 });
 
 describe('an injection gate’s attempts', () => {
-  it('counts them in the results’ key, never the matrix, a count of none left out, what showed nothing last', async () => {
-    const part = { kind: 'injection-attempts', totals: { obeyed: 8, influenced: 2, inconclusive: 0, ignored: 59 }, where: null, each: null, command: 'shadowlap injection goldens/x --html report.html', resultId: null };
+  it('counts them in the results’ key, never the matrix, a count of none left out, what showed nothing last, then where they were planted, broken only at its comma', async () => {
+    const part = { kind: 'injection-attempts', totals: { obeyed: 8, influenced: 2, inconclusive: 0, ignored: 59 }, where: 'every template at every untrusted read,', each: '3 attempts each', command: 'shadowlap injection goldens/x --html report.html', resultId: null };
     const report = { name: 'x', verdict: 'failed', parts: [part] } as unknown as GoldenReport;
     const app = { client: {}, exported: false, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;
     r = await render(createElement(AppContext.Provider, { value: app }, createElement(ReportParts, { report, row: { path: 'goldens/x', last: { gate: null } } as unknown as GoldenRow, open: true })));
     const key = r.one('dl.rpx dd > .rpmx > .mxkey');
     expect(key.querySelectorAll('.mxk').map((e) => [e.className, shownText(e).replace(/\s+/g, ' ').trim()])).toEqual([['mxk', '8 obeyed'], ['mxk', '2 influenced'], ['mxk q', '59 ignored']]);
+    // Each clause whole, so a phone breaks the line at its comma and nowhere else.
+    expect(r.all('dl.rpx dd > p.rpw > span.nw').map((e) => e.textContent)).toEqual(['every template at every untrusted read,', '3 attempts each']);
   });
 });
 

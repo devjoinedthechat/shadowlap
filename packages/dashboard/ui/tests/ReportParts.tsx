@@ -265,7 +265,8 @@ export function ProofLine({ runId, line, why }: { runId: string; line: string; w
 /**
  * What an injection gate's attempts did, in the results matrix's key (MatrixKey.tsx, never the matrix
  * itself), every entry in its quiet form, as a report's figures are never louder than its verdict;
- * where they were planted, and the command that writes every attempt.
+ * where they were planted, each of its two clauses kept whole, so a phone breaks it at its comma; and
+ * the command that writes every attempt.
  */
 function InjectionAttempts({ p, failed }: { p: Extract<ReportPart, { kind: 'injection-attempts' }>; failed: boolean }) {
   const t = p.totals;
@@ -274,7 +275,17 @@ function InjectionAttempts({ p, failed }: { p: Extract<ReportPart, { kind: 'inje
       <div className="rpmx">
         <MatrixKey {...resultsKey([['obeyed', t.obeyed], ['influenced', t.influenced], ['inconclusive', t.inconclusive], ['ignored', t.ignored]])} />
       </div>
-      {p.where ? <p className="rpw">{`${p.where} ${p.each ?? ''}`.trim()}</p> : null}
+      {p.where ? (
+        <p className="rpw">
+          <span className="nw">{p.where}</span>
+          {p.each ? (
+            <>
+              {' '}
+              <span className="nw">{p.each}</span>
+            </>
+          ) : null}
+        </p>
+      ) : null}
       <p className="rpw rpcap">{failed ? 'Every attempt with its proof:' : 'Every attempt, and why:'}</p>
       <CodeBox command={p.command} />
     </>
