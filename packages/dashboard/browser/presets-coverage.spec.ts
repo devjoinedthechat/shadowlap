@@ -38,9 +38,13 @@ test('Not covered’s rows: j walks into them after the goldens, Enter opens a r
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => document.activeElement?.closest('.cvacts') !== null)).toBe(true);
   await expect(page.locator(':focus')).toHaveText(/^Pack (as golden|with checks…)$/);
-  // So is a row whose behaviour the agent no longer does, and one whose path folds steps: their cards take no focus.
+  // So is a row whose behaviour the agent no longer does, and one whose path folds steps: their cards take no
+  // focus. j walks to the row from the first, as a row takes focus only once the keys have been on it.
   const stops = async (has: string) => {
-    await page.locator(`${ROWS}:has(${has})`).first().focus();
+    const want = await page.locator(`${ROWS}:has(${has})`).first().getAttribute('data-rowkey');
+    await row.focus();
+    for (let i = 0; i < keys.length && (await inFocus(page)) !== want; i++) await page.keyboard.press('j');
+    expect(await inFocus(page)).toBe(want);
     const seen: string[] = [];
     for (let i = 0; i < 2; i++) {
       await page.keyboard.press('Tab');
