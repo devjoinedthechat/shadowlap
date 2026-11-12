@@ -19,6 +19,7 @@
     "packages/dashboard/test/ui-inspector-panel.test.ts",
     "packages/dashboard/test/ui-injection-results.test.ts",
     "packages/dashboard/test/ui-injection-jobs.test.ts",
+    "packages/dashboard/test/ui-presets-dialog.test.ts",
     "packages/dashboard/test/ui-context-axis.test.ts",
     "packages/dashboard/test/ui-check-words.test.ts",
     "packages/dashboard/test/ui-inspector-notes.test.ts",

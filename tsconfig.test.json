@@ -180,6 +180,7 @@
     "packages/dashboard/test/ui-matrix.test.ts",
     "packages/dashboard/test/ui-injection-results.test.ts",
     "packages/dashboard/test/ui-injection-jobs.test.ts",
+    "packages/dashboard/test/ui-presets-dialog.test.ts",
     "packages/dashboard/test/matrix-page.tsx",
     // This renders the status bar, which measures what fits it.
     "packages/dashboard/test/ui-status-bar.test.ts",
