@@ -249,7 +249,7 @@ describe('the offline bar', () => {
   const value = (o: Partial<AppState> = {}) => ({ conn: 'offline', loadedAt: 1_700_000_000_000, retryIn: 7, retrying: false, retryNow: () => undefined, toast: () => undefined, ...o }) as unknown as AppState;
 
   it('keeps its live region on the page while the server answers, empty, so the words that come are heard', async () => {
-    r = await render(createElement(AppContext.Provider, { value: value({ conn: 'online' }) }, createElement(OfflineBar)));
+    r = await render(createElement(AppContext.Provider, { value: value({ conn: 'ok' }) }, createElement(OfflineBar)));
     expect(r.all('.connbar')).toHaveLength(0);
     expect(r.all('[role="status"]').map((s) => s.textContent)).toEqual(['']);
   });
