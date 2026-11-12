@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { eitherWay, type UpdatePlan } from '../update-plan.js';
 import { CommandRow } from './CommandRow.js';
@@ -73,14 +73,14 @@ export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClos
       {plan.advise ? (
         <div className="advise">
           <b>{plan.advise.title}</b>
-          <p>
+          <Copy phrases>
             {plan.advise.path ? (
               <>
-                <code>{plan.advise.path}</code>{' '}
+                <Code>{plan.advise.path}</Code>{' '}
               </>
             ) : null}
-            <Advice text={plan.advise.text} name={instead?.label ?? null} />
-          </p>
+            {adviceParts(plan.advise.text, instead?.label ?? null)}
+          </Copy>
         </div>
       ) : null}
       {instead ? (
@@ -99,15 +99,15 @@ export function UpdateGoldenDialog({ plan, estimate, onUpdate, onInstead, onClos
   );
 }
 
-/** The advice's words, the action it names (`name`, Add normalizer and update, say) kept whole on its line. */
-function Advice({ text, name }: { text: string; name: string | null }) {
+/** The advice's words as `Copy` sets them, the action it names (`name`, Add normalizer and update, say) kept whole on its line. */
+function adviceParts(text: string, name: string | null): ReactNode[] {
   const at = name ? text.indexOf(name) : -1;
-  if (!name || at < 0) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, at)}
-      <span className="nw">{name}</span>
-      {text.slice(at + name.length)}
-    </>
-  );
+  if (!name || at < 0) return [text];
+  return [
+    text.slice(0, at),
+    <span key="name" className="nw">
+      {name}
+    </span>,
+    text.slice(at + name.length),
+  ];
 }

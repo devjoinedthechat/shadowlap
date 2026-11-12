@@ -1,5 +1,5 @@
 import { Fragment, useRef } from 'react';
-import { Words } from '../components/Copy.js';
+import { Code, Words } from '../components/Copy.js';
 import type { FollowedGolden, GoldenRow, TestsView } from '../api.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { rowOpen } from '../components/Table.js';
@@ -124,21 +124,16 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { 
   );
 }
 
-/** A JSON path in a line, drawn as code that may break after each of its dots. */
+/** A JSON path in a line, drawn as code: whole up to 32 characters, and past that broken only after a dot where its line can't hold it. */
 const JSON_PATH = /(\$\.[\w.[\]]+)/;
 
 /** One part of the line: its JSON paths as code, the rest through the glossary. */
 const partWords = (text: string) =>
   text.split(JSON_PATH).map((x, i) =>
     i % 2 ? (
-      <code key={i} className="jp">
-        {x.split(/(?<=\.)(?=\w)/).map((seg, j) => (
-          <Fragment key={j}>
-            {j ? <wbr /> : null}
-            {seg}
-          </Fragment>
-        ))}
-      </code>
+      <Code key={i} className="jp">
+        {x}
+      </Code>
     ) : (
       <Fragment key={i}>{glossed(x)}</Fragment>
     ),
