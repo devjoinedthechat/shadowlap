@@ -76,6 +76,9 @@ export function besidesLine(d: Parameters<typeof besidesWords>[0]): string {
 /** Why verify didn't run, as What still passes says it: `Not verified yet: <reason>; <reason>`; empty when it ran or no reason was kept. */
 export const notVerifiedYet = (reasons: readonly string[]): string => (reasons.length ? `Not verified yet: ${reasons.join('; ')}` : '');
 
+/** The warning a report keeps when verify didn't run, naming the first reason: `Not verified: <reason>`. A page that says `notVerifiedYet` leaves it out. */
+export const notVerifiedWarning = (reason: string): string => `Not verified: ${reason}`;
+
 /** What to set when the new model takes every field as recorded: `Only the model: claude-haiku-4-5`. */
 export const onlyTheModel = (to: string, code: CodeMark = plainCode): string => `Only the model: ${code(to)}`;
 

@@ -342,13 +342,6 @@ export interface DecisionEstimates {
   runs: Array<{ runId: string; role: 'target' | 'good' }>;
 }
 
-/**
- * What `decisions --verify` bills on a kept session, as it runs: each run in the role its recording
- * plays under its checks (a golden's from the config, else those of the recording it comes from),
- * priced at what a run costs under the change (decisionRunCost), up to verify's own gate and the
- * config's `verify`. Live from the first model call for a switch; where a replay forks for the
- * prompt and tools in the working tree, which verify replays from the code.
- */
 /** Whether a migration's verify waits on a code change (codeChangeNeeded): a remedy the requests must leave out with no value, or send under another name. */
 function migrationBlocked(report: object): boolean {
   const kept = report as { remedies?: unknown; change?: { model?: unknown } };
@@ -356,6 +349,13 @@ function migrationBlocked(report: object): boolean {
   return codeChangeNeeded(remedies, typeof kept.change?.model === 'string' ? kept.change.model : null) !== null;
 }
 
+/**
+ * What `decisions --verify` bills on a kept session, as it runs: each run in the role its recording
+ * plays under its checks (a golden's from the config, else those of the recording it comes from),
+ * priced at what a run costs under the change (decisionRunCost), up to verify's own gate and the
+ * config's `verify`. Live from the first model call for a switch; where a replay forks for the
+ * prompt and tools in the working tree, which verify replays from the code.
+ */
 async function decisionEstimates(store: Store, job: DecisionEstimatesJob): Promise<ReadAnswer> {
   const session = decisionSession(store, job.sessionId);
   if (!session) return failed(404, `no session ${job.sessionId.slice(0, 40)}`);

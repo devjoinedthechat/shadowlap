@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { argsDelta, besidesLine, changePct, controlOpen, credentialFreeCommandLine, decisionLine, endToEndWords, fieldValue, givenField, byHandNote, handOf, judgeOpen, leftBehindLines, leftBehindOf, leftBehindSentence, leftOutInFile, migrateApplyProblem, migrateCostLines, migrateHeadline, migratePassWords, migrateRules, namedInSentence, noChangeWords, notVerifiedYet, onlyTheModel, RANK_LABELS, verifyFlagsLine, remedyText, safeLine, sameModel, shortSessionId, usdOrUnknown, verifiedCount, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type LeftBehind, type RetirementNotice, type SprtGate, type Store, type StoreOf, type VerifyTally } from '@shadowlap/engine';
+import { argsDelta, besidesLine, changePct, controlOpen, credentialFreeCommandLine, decisionLine, endToEndWords, fieldValue, givenField, byHandNote, handOf, judgeOpen, leftBehindLines, leftBehindOf, leftBehindSentence, leftOutInFile, migrateApplyProblem, migrateCostLines, migrateHeadline, migratePassWords, migrateRules, namedInSentence, noChangeWords, notVerifiedWarning, notVerifiedYet, onlyTheModel, RANK_LABELS, verifyFlagsLine, remedyText, safeLine, sameModel, shortSessionId, usdOrUnknown, verifiedCount, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type LeftBehind, type RetirementNotice, type SprtGate, type Store, type StoreOf, type VerifyTally } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -303,7 +303,7 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   const notes = [...decisions.notes];
   const warnings = [...decisions.warnings];
   const blocked = decisions.verify?.verdict === 'not-run' ? decisions.verify.reasons[0] : undefined;
-  if (blocked) warnings.push(`Not verified: ${blocked}`);
+  if (blocked) warnings.push(notVerifiedWarning(blocked));
   if (mentions === 'no-git') notes.push('The project is not a git repository, so its files were not searched for the model it switches from.');
   else if ((mentions === null || !mentions.files.length) && from.length) notes.push(`No string in the project's code or config names ${from.join(' or ')}: set ${s.to} where your agent reads its model (an environment variable, a deployment setting).`);
   if (mentions && mentions !== 'no-git' && mentions.review.length) notes.push(`${mentions.review.length} other mention${mentions.review.length === 1 ? '' : 's'} of ${from.join(' or ')} (prose, history, tests, object keys, Shadowlap's config) ${mentions.review.length === 1 ? 'is' : 'are'} left as ${mentions.review.length === 1 ? 'it is' : 'they are'}, for review.`);

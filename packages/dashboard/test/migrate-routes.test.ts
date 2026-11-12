@@ -10,7 +10,7 @@ import { decisionSession } from '../src/decisions.js';
 import { appliedState, goldensLeftWaiting, migrationOfPreview } from '../src/migrate-applied.js';
 import { newestPreviewOf } from '../src/migrate-estimate.js';
 import type { MigrateStartView } from '../src/migrate-start.js';
-import type { MigrateView } from '../src/migrate-view.js';
+import { migrateView, type MigrateView } from '../src/migrate-view.js';
 
 /**
  * A migration over HTTP and in the store, past its report: the `migrate-apply` job and what it
@@ -24,6 +24,7 @@ const NO_FILE = 'mg-01M5000000000000000000000D';
 const BLOCKED = 'mg-01M5000000000000000000000E';
 const FORKS = 'mg-01M5000000000000000000000A';
 const NEVER = 'mg-01M5000000000000000000000B';
+const PRICED = 'mg-01M50000000000000000000009';
 let store: Store;
 let dash: Dashboard;
 let project = '';
@@ -34,9 +35,9 @@ const api = (d: Dashboard, path: string, init: RequestInit = {}) => fetch(`${d.u
 const startJob = (d: Dashboard, body: unknown) => api(d, 'jobs', { method: 'POST', body: JSON.stringify(body) });
 
 /** A migration from claude-sonnet-4-5 to claude-sonnet-5-5 as `migrate --json` keeps it: all clear, with a config change and its files, and its golden left behind, unless told otherwise. */
-function migration(id: string, o: { files?: boolean; remedies?: unknown[]; stays?: 'fork' | 'no-call' } = {}) {
+function migration(id: string, o: { files?: boolean; remedies?: unknown[]; stays?: 'fork' | 'no-call'; toVerify?: string[] } = {}) {
   const run = { runId, golden: 'goldens/refund', steps: 0, asked: 0, rank: null, majority: null, counts: emptyCounts(), cost: { before: 0.04, after: 0.02, spent: 0.02 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions: [], warnings: [] };
-  const decisions = { decisionsId: null, kind: 'decisions', at: 1_000, change: { model: 'claude-sonnet-5-5', fields: {}, from: ['claude-sonnet-4-5'], fromCode: null, text: 'the model claude-sonnet-5-5' }, command: 'shadowlap migrate --to claude-sonnet-5-5', samples: 1, counts: emptyCounts(), flagged: [], toVerify: [], remedies: o.remedies ?? [], runs: [run], cost: { before: null, after: null, spent: 0, upstreamRequests: 0, unknownModels: [] }, stopReason: null, judge: null, notes: [], warnings: [] };
+  const decisions = { decisionsId: null, kind: 'decisions', at: 1_000, change: { model: 'claude-sonnet-5-5', fields: {}, from: ['claude-sonnet-4-5'], fromCode: null, text: 'the model claude-sonnet-5-5' }, command: 'shadowlap migrate --to claude-sonnet-5-5', samples: 1, counts: emptyCounts(), flagged: [], toVerify: o.toVerify ?? [], remedies: o.remedies ?? [], runs: [run], cost: { before: null, after: null, spent: 0, upstreamRequests: 0, unknownModels: [] }, stopReason: null, judge: null, notes: [], warnings: [] };
   const data = {
     migrateId: id,
     kind: 'migrate',
@@ -65,6 +66,7 @@ beforeAll(async () => {
   migration(FORKS, { stays: 'fork' });
   migration(NEVER, { stays: 'no-call' });
   migration(BLOCKED, { remedies: [{ field: 'temperature', value: null, leftOut: true, renamedTo: null, why: 'refused', source: null, steps: 1 }] });
+  migration(PRICED, { remedies: [{ field: 'temperature', value: 1, leftOut: false, renamedTo: null, why: 'refused', source: null, steps: 1 }], toVerify: [runId] });
   const spawnCli = (args: string[]) => {
     spawned.push(args);
     return spawn(process.execPath, ['-e', ''], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
@@ -102,8 +104,8 @@ describe('a migration’s view', () => {
     const m = await view(CLEAR);
     expect([m.word.text, m.headline, m.next]).toEqual(['nothing to verify', { tone: 'pass', text: 'claude-sonnet-5-5 decided the same in the preview', rest: 'claude-sonnet-4-5 → claude-sonnet-5-5, 1 run' }, 'apply']);
     expect(m.passes.runs.map((x) => [x.golden, x.verdict, x.words, x.leftBehind])).toEqual([['goldens/refund', 'passed', CLEARED, 'diverges at #1 on `$.model` once applied']]);
-    expect([m.passes.verified, m.set.only, m.changes.none, m.changes.sub]).toEqual(['0 of 1 run verified end to end', 'Only the model: claude-sonnet-5-5', 'No write, stop or judged change.', 'the calls made with claude-sonnet-4-5, asked under claude-sonnet-5-5']);
-    expect(m.apply).toEqual({ files: ['agent.py'], leftOut: [], leftBehind: [{ golden: 'goldens/refund', callNo: 1 }], stays: null, command: 'shadowlap migrate apply mg-01M5000000' });
+    expect([m.passes.verified, m.set.only, m.changes.none, m.changes.sub]).toEqual(['0 of 1 run verified end to end', 'Only the model: `claude-sonnet-5-5`', 'No write, stop or judged change.', 'the calls made with claude-sonnet-4-5, asked under claude-sonnet-5-5']);
+    expect(m.apply).toEqual({ files: ['agent.py'], leftOut: null, leftBehind: [{ golden: 'goldens/refund', callNo: 1 }], stays: null, command: 'shadowlap migrate apply mg-01M5000000' });
     expect([m.config.sub, m.config.apply, m.applied]).toEqual(['`agent.py` · 1 place', `git apply .shadowlap/migrations/${CLEAR}/config.patch`, null]);
   });
 
@@ -159,6 +161,31 @@ describe('a migration’s applied state', () => {
     expect(goldensLeftWaiting(store)).toEqual([]);
   });
 
+  it('sets as code the fields a reason names, says What to set’s sub only while a field is refused, words a given field as the terminal does, and says once that verify didn’t run', () => {
+    const why = 'claude-sonnet-5-5 refuses temperature=1 with thinking on, and temperatures above 1';
+    const k = { from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', decisions: { verify: { verdict: 'not-run', reasons: ['the agent asks for a key', 'no goldens'] } }, passes: { verdict: 'not-run', runs: [] }, set: { fields: [{ field: 'temperature', value: null, leftOut: true, renamedTo: null, why, source: null, steps: 1 }], given: {}, flags: [] }, warnings: ['Not verified: the agent asks for a key', '1 step got no answer'] };
+    const m = migrateView(k, CLEAR, { word: 'inconclusive', tone: null });
+    expect([m.set.sub, m.set.fields[0]!.why]).toEqual(['each field claude-sonnet-5-5 refuses, and what it takes instead', 'claude-sonnet-5-5 refuses `temperature=1` with thinking on, and temperatures above 1']);
+    expect([m.passes.notVerified, m.warnings]).toEqual(['Not verified yet: the agent asks for a key; no goldens.', ['1 step got no answer']]);
+    const given = migrateView({ ...k, set: { fields: [], given: { temperature: 1 }, flags: ['--set', 'temperature=1'] } }, CLEAR, { word: 'accepted', tone: 'ok' });
+    expect([given.set.sub, given.set.given, given.set.only, given.set.flags]).toEqual([null, ['`temperature=1` as given'], null, 'verify takes them as: `--set temperature=1`']);
+  });
+
+  it('names each golden an applied migration left waiting by its name, on the field its replay diverged on', () => {
+    const run = { runId, golden: 'goldens/refund', verdict: 'passed', outcome: 'unchanged', verified: false, tally: null, diverges: { callNo: 1 } };
+    const k = { from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', passes: { verdict: 'accepted', runs: [run] }, applied: { at: 1, by: null, outdated: [{ golden: 'goldens/refund', callNo: 3, path: '$.frequency_penalty', waits: true }] } };
+    const m = migrateView(k, CLEAR, { word: 'accepted', tone: 'ok' });
+    expect([m.word.text, m.appliedLine, m.passes.runs[0]!.leftBehind, m.next]).toEqual(['applied', '1 golden to update under claude-sonnet-5-5: refund', 'diverges at #3 on `$.frequency_penalty` until updated', 'update']);
+  });
+
+  it('lists migrations without their applied state, which names who applied it', async () => {
+    store.setMigrationApplied(NEVER, { at: 1, by: 'dev', outdated: [] });
+    const list = (await (await api(dash, 'decisions?kind=migrate')).json()) as { sessions: Array<Record<string, unknown>> };
+    store.setMigrationApplied(NEVER, null);
+    expect(list.sessions.map((x) => x.sessionId)).toContain(NEVER);
+    expect(list.sessions.filter((x) => 'applied' in x)).toEqual([]);
+  });
+
   it('names who applied it only where checks are shared', () => {
     const applied = { at: 1, by: 'dev', outdated: [] };
     expect(appliedState(store, applied)?.by).toBeNull();
@@ -171,6 +198,14 @@ describe('Verify’s price on a migration', () => {
     const res = await api(dash, `decisions/${BLOCKED}/estimates`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ verify: null, runs: [] });
+  });
+
+  it('is priced as before where each field the new model refuses is sent a value it takes', async () => {
+    const res = await api(dash, `decisions/${PRICED}/estimates`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { verify: { usd: number | null } | null; runs: Array<{ runId: string }> };
+    expect(body.verify).not.toBeNull();
+    expect(body.runs.map((r) => r.runId)).toEqual([runId]);
   });
 });
 

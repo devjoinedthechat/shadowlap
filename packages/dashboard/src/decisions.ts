@@ -64,7 +64,8 @@ export function telling(row: Pick<DecisionRow, 'cells'>): number | null {
 export function decisionSessions(store: StoreOf<'decisions'> & Store, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
   const rows = store.listDecisionSessions(o);
   const facts = sessionFacts(store, rows.map((s) => s.sessionId));
-  return rows.map((s) => {
+  // A migration's applied state names who applied it: its page reads it from the session, which names them only where shared.
+  return rows.map(({ applied, ...s }) => {
     const f = facts.get(s.sessionId);
     return { ...s, name: f?.name ?? s.change, goldens: f?.goldens ?? 0, unit: f?.unit ?? 'run', samples: f?.samples ?? null, href: links.changeSession(s.kind, s.sessionId) };
   });

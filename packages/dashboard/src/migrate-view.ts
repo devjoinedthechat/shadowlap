@@ -1,5 +1,6 @@
-import { andList, besidesWords, byHandNote, fieldValue, handOf, leftBehindOf, leftOutNote, migrateApplyProblem, migrateCostWords, migrateHeadline, migratePassWords, migrateRules, quoteArgv, remedyText, retirementOf, shortSessionId, staysWords, verifiedCount, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigrateCosts, type MigrateTone, type RetirementNotice, type Store } from '@shadowlap/engine';
+import { andList, besidesLine, byHandNote, givenField, handOf, leftBehindOf, leftOutNote, migrateApplyProblem, migrateCostLines, migrateHeadline, migratePassWords, migrateRules, noChangeWords, notVerifiedWarning, notVerifiedYet, onlyTheModel, quoteArgv, remedyText, retirementOf, shortSessionId, staysWords, verifiedCount, verifyFlagsLine, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigrateCosts, type MigrateTone, type RetirementNotice } from '@shadowlap/engine';
 import { applyInputOf, type AppliedState } from './migrate-applied.js';
+import { goldenName } from './needs-look/row.js';
 import type { VerdictTone } from './verdict.js';
 
 /**
@@ -30,15 +31,15 @@ export interface MigratePass {
   golden: string | null;
   verdict: string;
   words: string;
-  /** `diverges at #1 on `$.model` once applied`, or `until updated` once applied while it waits; null otherwise. */
+  /** `diverges at #1 on `$.model` once applied`, or, once applied while it waits, `until updated` on the field its replay diverged on; null otherwise. */
   leftBehind: string | null;
 }
 
 export interface MigrateApplyOffer {
   /** The config change's files, as the dialog's first step says them. */
   files: string[];
-  /** The fields the patch takes out with the model. */
-  leftOut: string[];
+  /** The fields the patch takes out with the model, as code: `` `temperature` and `top_p` ``; null for none. */
+  leftOut: string | null;
   /** The goldens it leaves behind, each with the call it diverges at. */
   leftBehind: Array<{ golden: string; callNo: number }>;
   /** Why the goldens it doesn't leave behind stay as recorded, Diverges' quiet line (`1 marked fork passes on its checks, 2 never send claude-opus-5`); null when none says. */
@@ -58,14 +59,16 @@ export interface MigrateView {
   retirements: Array<{ text: string; source: string | null }>;
   changes: { sub: string; steps: MigrateChange[]; none: string | null; besides: string | null };
   passes: { runs: MigratePass[]; rules: Array<{ rule: string; runs: string[] }>; verified: string; notVerified: string | null; notes: string[] };
-  costs: { perRun: string; endToEnd: string | null; checking: string };
-  set: { sub: string; fields: Array<{ text: string; why: string }>; given: string[]; only: string | null; flags: string | null };
+  /** Per run, end to end where verify ran some, and checking it, each under its label. */
+  costs: Array<{ label: string; text: string }>;
+  /** `sub` only while a field is refused; each reason with the fields it names as code; a field given as `` `k=v` as given ``. */
+  set: { sub: string | null; fields: Array<{ text: string; why: string }>; given: string[]; only: string | null; flags: string | null };
   config: { sub: string; files: Array<{ path: string; places: number; leftOut: string[] }>; patch: string | null; leftOut: string | null; byHand: string | null; noFile: string | null; review: Array<{ path: string; line: number; text: string }>; apply: string | null };
   pullRequest: { title: string; body: string; gh: string | null } | null;
   /** Apply config change, offered, or why not. */
   apply: MigrateApplyOffer | { why: string };
   applied: AppliedState | null;
-  /** `3 goldens to update under <to>: a, b and c` while any waits. */
+  /** `3 goldens to update under <to>: a, b and c` while any waits, each by its name. */
   appliedLine: string | null;
   next: 'apply' | 'update' | 'copy-pull-request' | null;
   command: string;
@@ -87,12 +90,18 @@ function changesOf(k: Kept, decisions: { counts?: DecisionCounts; runs?: Array<{
   return {
     sub: `the calls made with ${from.join(', ') || 'the model'}, asked under ${to}`,
     steps,
-    none: steps.length ? null : `No write, stop or judged change${c?.notAsked ? ' in the steps asked' : ''}.`,
-    besides: c && c[3] + c[4] + c[5] ? `besides: ${besidesWords({ counts: c, runs: decisions.runs ?? [] })}` : null,
+    none: steps.length ? null : `${noChangeWords(!!c?.notAsked)}.`,
+    besides: (c && besidesLine({ counts: c, runs: decisions.runs ?? [] })) || null,
   };
 }
 
 type PassRun = Parameters<typeof migratePassWords>[0] & { runId: string; golden: string | null; diverges?: { callNo: number } | null; stays?: 'fork' | 'no-call' };
+
+/** Why verify didn't run, when it didn't: What still passes says them once, and the foot leaves out the warning that says the first. */
+function notRunReasons(k: Kept): string[] {
+  const verify = (k.decisions as { verify?: { verdict?: string; reasons?: string[] } | null } | undefined)?.verify ?? null;
+  return verify?.verdict === 'not-run' ? strings(verify.reasons) : [];
+}
 
 function passesOf(runs: PassRun[], k: Kept, applied: AppliedState | null): MigrateView['passes'] {
   const verify = (k.decisions as { verify?: { verdict?: string; rule?: string | null; reasons?: string[]; warnings?: string[] } | null } | undefined)?.verify ?? null;
@@ -101,26 +110,36 @@ function passesOf(runs: PassRun[], k: Kept, applied: AppliedState | null): Migra
   return {
     runs: runs.map((x) => {
       const after = x.golden ? waiting.get(x.golden) : undefined;
-      const leftBehind = applied ? (after?.waits ? `diverges at #${after.callNo} on ${tick('$.model')} until updated` : null) : x.diverges ? `diverges at #${x.diverges.callNo} on ${tick('$.model')} once applied` : null;
+      // Once applied, the field its replay diverged on, which migrate apply logged; before, the model, which migrate foresaw.
+      const leftBehind = applied ? (after?.waits ? `diverges at #${after.callNo} on ${tick(after.path || '$.model')} until updated` : null) : x.diverges ? `diverges at #${x.diverges.callNo} on ${tick('$.model')} once applied` : null;
       return { runId: x.runId, golden: x.golden, verdict: x.verdict, words: migratePassWords(x), leftBehind };
     }),
     rules: migrateRules(runs.map((x) => ({ ...x, tally: x.tally as { rule?: string | null } | null })), verify?.rule ?? null).map((g) => ({ rule: g.rule, runs: g.runs.map(name) })),
     verified: verifiedCount(runs),
-    notVerified: verify?.verdict === 'not-run' && verify.reasons?.length ? `Not verified yet: ${verify.reasons.join('; ')}.` : null,
+    notVerified: notRunReasons(k).length ? `${notVerifiedYet(notRunReasons(k))}.` : null,
     notes: strings(verify?.warnings),
   };
+}
+
+const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A refused field's reason with each field What to set names, and any `=value` after it, as code. */
+function whyCoded(why: string, names: readonly string[]): string {
+  if (!names.length) return why;
+  return why.replace(new RegExp(`(?<![\\w\`.-])(?:${names.map(escaped).join('|')})(?:=[^\\s.,;:)\`]+)?(?![\\w\`-])`, 'g'), tick);
 }
 
 function setOf(k: Kept, to: string): MigrateView['set'] {
   const set = (k.set ?? {}) as { fields?: DecisionRemedy[]; given?: Record<string, unknown>; flags?: string[] };
   const fields = list<DecisionRemedy>(set.fields);
   const given = Object.entries(set.given ?? {});
+  const names = [...new Set(fields.flatMap((f) => [f.field, ...(f.renamedTo ? [f.renamedTo] : [])]))];
   return {
-    sub: `each field ${to} refuses, and what it takes instead`,
-    fields: fields.map((f) => ({ text: remedyText(f, tick), why: f.why })),
-    given: given.map(([field, v]) => `${tick(field)} = ${tick(fieldValue(v))}, as given`),
-    only: fields.length || given.length ? null : `Only the model: ${to}`,
-    flags: strings(set.flags).length ? `verify takes them as: ${strings(set.flags).join(' ')}` : null,
+    sub: fields.length ? `each field ${to} refuses, and what it takes instead` : null,
+    fields: fields.map((f) => ({ text: remedyText(f, tick), why: whyCoded(f.why, names) })),
+    given: given.map(([field, v]) => `${givenField(field, v, tick)} as given`),
+    only: fields.length || given.length ? null : onlyTheModel(to, tick),
+    flags: verifyFlagsLine(strings(set.flags), tick) || null,
   };
 }
 
@@ -154,7 +173,7 @@ function applyOf(k: Kept, runs: PassRun[]): MigrateView['apply'] {
   const out = list<{ field: string }>((k.configChange as Kept | null | undefined)?.leftOut);
   return {
     files: list<{ path: string }>(input.configChange?.files).map((f) => f.path),
-    leftOut: [...new Set(out.map((x) => x.field))],
+    leftOut: out.length ? andList([...new Set(out.map((x) => x.field))].map(tick)) : null,
     leftBehind: left,
     stays: staysWords(runs, strings(k.from), { short: true }) || null,
     command: quoteArgv(['shadowlap', 'migrate', 'apply', shortSessionId(input.migrateId!)]),
@@ -172,7 +191,7 @@ function retirementsOf(k: Kept, from: string[], now: number): MigrateView['retir
 }
 
 /** A kept migration (its report, its decisions' runs filled in) as the page shows it; `verdict`, Verdicts' word for it. */
-export function migrateView(_store: Store, k: Kept & { applied?: AppliedState | null }, sessionId: string, verdict: { word: string; tone: VerdictTone | null }, now = Date.now()): MigrateView {
+export function migrateView(k: Kept & { applied?: AppliedState | null }, sessionId: string, verdict: { word: string; tone: VerdictTone | null }, now = Date.now()): MigrateView {
   const from = strings(k.from);
   const to = typeof k.to === 'string' ? k.to : '';
   const decisions = (k.decisions ?? {}) as { counts?: DecisionCounts; runs?: Array<{ decisions: DecisionStep[] }> };
@@ -193,16 +212,17 @@ export function migrateView(_store: Store, k: Kept & { applied?: AppliedState | 
     retirements: retirementsOf(k, from, now),
     changes: changesOf(k, decisions, from, to),
     passes: passesOf(runs, k, applied),
-    costs: migrateCostWords((k.costs ?? NO_COSTS) as MigrateCosts, { judged: !!(k.decisions as { judge?: unknown } | undefined)?.judge, unknown: [...new Set([...strings((k.decisions as { cost?: { unknownModels?: unknown } } | undefined)?.cost?.unknownModels), ...strings((k.decisions as { judge?: { unknownModels?: unknown } | null } | undefined)?.judge?.unknownModels)])] }),
+    costs: migrateCostLines((k.costs ?? NO_COSTS) as MigrateCosts, { judged: !!(k.decisions as { judge?: unknown } | undefined)?.judge, unknown: [...new Set([...strings((k.decisions as { cost?: { unknownModels?: unknown } } | undefined)?.cost?.unknownModels), ...strings((k.decisions as { judge?: { unknownModels?: unknown } | null } | undefined)?.judge?.unknownModels)])] }),
     set: setOf(k, to),
     config: configOf(k, notes, applied),
     pullRequest: pr?.title && pr.body ? { title: pr.title, body: pr.body, gh: prPath ? quoteArgv(['gh', 'pr', 'create', '--title', pr.title, '--body-file', prPath]) : null } : null,
     apply,
     applied,
-    appliedLine: waiting.length ? `${waiting.length} golden${waiting.length === 1 ? '' : 's'} to update under ${to}: ${andList(waiting.map((g) => g.golden))}` : null,
+    appliedLine: waiting.length ? `${waiting.length} golden${waiting.length === 1 ? '' : 's'} to update under ${to}: ${andList(waiting.map((g) => goldenName(g.golden)))}` : null,
     next: applied ? (waiting.length ? 'update' : 'copy-pull-request') : 'files' in apply ? 'apply' : null,
     command: typeof k.command === 'string' ? k.command : '',
-    warnings: strings(k.warnings),
+    // Verify not run is said once, under What still passes.
+    warnings: strings(k.warnings).filter((w) => !notRunReasons(k).length || w !== notVerifiedWarning(notRunReasons(k)[0]!)),
     notes: notes.filter((n) => !NO_FILE.test(n) && !REVIEW.test(n)),
   };
 }

@@ -265,7 +265,7 @@ function keptReport(r: Partial<PreviewReport>): PreviewReport {
 }
 
 /** A migration's own view beside its preview's; nothing for a preview. */
-const migrationOf = (store: Store, session: NonNullable<ReturnType<typeof decisionSession>>, sessionId: string, verdict: PreviewVerdict): { migration?: MigrateView } => (session.kind === 'migrate' ? { migration: migrateView(store, session, sessionId, verdict) } : {});
+const migrationOf = (session: NonNullable<ReturnType<typeof decisionSession>>, sessionId: string, verdict: PreviewVerdict): { migration?: MigrateView } => (session.kind === 'migrate' ? { migration: migrateView(session, sessionId, verdict) } : {});
 
 /** One kept session, its matrix's rows with their facts and its `view`; null for an id the store doesn't keep. `redacted`: the project has redaction rules; `clock`, its clock (PreviewView). */
 export function previewSession(store: Store, sessionId: string, o: { redacted?: boolean; clock?: 'auto' | 'exact' | null; keptMax?: number | null; shared?: boolean } = {}): PreviewSession | null {
@@ -311,7 +311,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     clock: o.clock === undefined ? 'auto' : o.clock,
   };
   // A migration is worded whole here too, for Changes › Migrate (migrate-view.ts).
-  return { ...session, sessionId, matrix, view, ...migrationOf(store, session, sessionId, verdict) };
+  return { ...session, sessionId, matrix, view, ...migrationOf(session, sessionId, verdict) };
 }
 
 /** One kept session for Changes' Preview, as `GET /api/decisions/:id` answers it. */

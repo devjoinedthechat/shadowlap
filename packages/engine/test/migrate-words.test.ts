@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { codeChangeNeeded, emptyCounts, type DecisionRemedy, type MigratePasses } from '../src/decisions.js';
-import { besidesLine, besidesWords, byHandNote, givenField, handOf, handWords, leftBehindLines, leftBehindSentence, leftOutInFile, leftOutNote, migrateApplyProblem, migrateCostLines, migrateHeadline, namedInSentence, noChangeWords, notVerifiedYet, onlyTheModel, remedyText, staysWords, verifyFlagsLine, type MigrateApplyInput } from '../src/migrate-words.js';
+import { besidesLine, besidesWords, byHandNote, givenField, handOf, handWords, leftBehindLines, leftBehindSentence, leftOutInFile, leftOutNote, migrateApplyProblem, migrateCostLines, migrateHeadline, namedInSentence, noChangeWords, notVerifiedWarning, notVerifiedYet, onlyTheModel, remedyText, staysWords, verifyFlagsLine, type MigrateApplyInput } from '../src/migrate-words.js';
 
 /**
  * A migration's report in words, the same wherever it shows: `shadowlap migrate`'s terminal report and
@@ -43,6 +43,7 @@ describe('what a migration reports besides', () => {
   it('words the lines the terminal, the pull request and the page share: no change, not verified, only the model, the flags, a given field and the costs', () => {
     expect([noChangeWords(false), noChangeWords(true)]).toEqual(['No write, stop or judged change', 'No write, stop or judged change in the steps asked']);
     expect([notVerifiedYet(['the agent asks for a key']), notVerifiedYet([])]).toEqual(['Not verified yet: the agent asks for a key', '']);
+    expect(notVerifiedWarning('the agent asks for a key')).toBe('Not verified: the agent asks for a key');
     expect([onlyTheModel('claude-new'), onlyTheModel('claude-new', tick)]).toEqual(['Only the model: claude-new', 'Only the model: `claude-new`']);
     expect([verifyFlagsLine(['--set', 'temperature=1'], tick), verifyFlagsLine([])]).toEqual(['verify takes them as: `--set temperature=1`', '']);
     expect([givenField('temperature', 1), givenField('stop', ['a'], tick)]).toEqual(['temperature=1', '`stop=["a"]`']);
