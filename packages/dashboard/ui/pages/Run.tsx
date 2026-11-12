@@ -377,8 +377,9 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
       <div className="work">
         <section className="views" aria-label="Views of the run">
           <Tabs label="Views" idPrefix="vtab" panelId="vbody" items={tabs} value={v} onChange={setView} listRef={useActiveTabInView<HTMLDivElement>(v)} onPointerEnter={warmViews} onFocus={warmViews} />
+          {/* How much of a long run is read: the view's own text as the page opens, with no live role, as it counts each page. */}
           {paging ? (
-            <div className="toolbar muted" role="status">
+            <div className="toolbar muted">
               {paging.gone
                 ? `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read; the run is no longer in ${client.exported ? 'this copy' : 'this store'}.`
                 : paging.error
