@@ -92,12 +92,14 @@ function goldenLead(view: StepView, step: Extract<NextStep, { golden: string }>,
 
 /**
  * Whether a golden's report draws Find breaking commit, as its step or beside it: where the page's
- * helper offers it (findCommitButton), and for a divergence never beside Update golden's lead, which
- * no commit explains. Its hint names Find breaking commit only then.
+ * helper offers it (findCommitButton), for a divergence never beside Update golden's lead, which
+ * no commit explains, and never for a golden whose checks changed since, whose report offers Run
+ * tests alone. Its hint names Find breaking commit only then.
  */
 export function drawsFindCommit(view: StepView, golden: string, has: (kind: string) => boolean): boolean {
   const d = view.divergences.find((x) => x.golden === golden);
   const f = d ?? view.failures.find((x) => x.golden === golden);
-  if (!f || !findCommitButton(f, has)) return false;
-  return !d || view.steps?.[golden]?.key !== 'update-golden';
+  const step = view.steps?.[golden]?.key;
+  if (!f || step === 'run-tests' || !findCommitButton(f, has)) return false;
+  return !d || step !== 'update-golden';
 }

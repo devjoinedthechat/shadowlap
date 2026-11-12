@@ -4,7 +4,7 @@ import { liveChaosSession } from '../chaos.js';
 import { choicesInCheckout, commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
 import { foundsHere, servesFound } from '../found-here.js';
-import { goldenReports, withFailedRuns, type TestsAnswer } from '../golden-report.js';
+import { goldenReports, withFailedRuns, withStepHints, type TestsAnswer } from '../golden-report.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import { searchedCommits, type NextStep } from '../next-step.js';
@@ -276,7 +276,7 @@ export function register(router: Router, ctx: RouteContext): void {
       pooled<Record<string, NextStep>>(() => ctx.reads.run({ kind: 'tests-steps', goldens: listed.map((d) => d.golden), next: nextStepWork(ctx) })),
       named.length ? pooled<Record<string, { count: number; ids: string[] }>>(() => ctx.reads.run({ kind: 'tests-failed-runs', goldens: named, outcome: projectWork(ctx).outcome })) : null,
     ]);
-    return { ...view, ...(steps ? { steps } : {}), reports: withFailedRuns(reports, runs, steps ?? undefined) };
+    return { ...view, ...(steps ? { steps } : {}), reports: withStepHints(withFailedRuns(reports, runs, steps ?? undefined), steps ?? undefined) };
   };
 
   router.get('/tests', async (r) => {

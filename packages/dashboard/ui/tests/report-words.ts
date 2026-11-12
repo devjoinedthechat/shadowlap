@@ -43,6 +43,10 @@ export function hintWords(hint: HintKey, o: { named?: boolean } = {}): string {
       return hint.why === 'unavailable' ? INJECTION_UNSAID.unanswered : 'Attempts the provider cut short could have ended either way: run it again once the provider answers.';
     case 'error':
       return 'The golden could not be replayed.';
+    case 'checks-changed':
+      return 'Run tests judges its checks as they are now.';
+    case 'edit-check':
+      return 'The check, added since, fails the golden’s own recording: edit the check, or update the golden if the agent should now do this.';
   }
 }
 

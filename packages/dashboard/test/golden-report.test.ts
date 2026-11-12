@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gateResult, injectionTemplates, Store, type AttemptReport, type InjectionGateData, type StoredCheck, type TestResult } from '@shadowlap/engine';
-import { failedRunsHref, goldenReports, judgeAsked, printedLines, withFailedRuns, type GoldenReport } from '../src/golden-report.js';
+import { failedRunsHref, goldenReports, judgeAsked, printedLines, withFailedRuns, withStepHints, type GoldenReport } from '../src/golden-report.js';
 import { issueKey } from '../src/issue-keys.js';
 import type { IssuesPage } from '../src/issues.js';
 import { links } from '../src/links.js';
@@ -123,11 +123,16 @@ describe('a check', () => {
     expect(report.hint).toEqual({ key: 'check' });
   });
 
-  it('leads with the checks that left the config since its last test', () => {
+  it('leads with the checks that left the config since its last test, and says what to do from its step', () => {
     const { report } = world('refund', () => ({ ok: false, failure: 'check', reason: 'check failed: issue_refund called 0 times, but called 1 time', data: { mode: 'replay', calls: { total: 7, replayed: 7, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, checks: [check('issue_refund called 0 times', 'failed', 'called 1 time')] } }), { checks: ['output includes "refund"'] });
     expect(report.parts[0]).toEqual({ kind: 'checks-changed', gone: [{ label: 'issue_refund called 0 times', status: 'failed' }] });
     expect(report.sub).toEqual(['its last test, before its checks changed']);
+    // Its last test's hint, until its step says otherwise: Run tests, or Edit check for a check its own recording fails.
     expect(report.hint).toEqual({ key: 'check' });
+    const reports = { 'goldens/refund': report };
+    expect(withStepHints(reports, { 'goldens/refund': { key: 'run-tests' } })['goldens/refund']).toEqual({ ...report, hint: { key: 'checks-changed' } });
+    expect(withStepHints(reports, { 'goldens/refund': { key: 'edit-check' } })['goldens/refund'].hint).toEqual({ key: 'edit-check' });
+    for (const steps of [{ 'goldens/refund': { key: 'fix' } }, {}, undefined]) expect(withStepHints(reports, steps)['goldens/refund']).toBe(report);
   });
 
   it('says no check changed where its last test failed for another reason, by the row’s one rule', () => {

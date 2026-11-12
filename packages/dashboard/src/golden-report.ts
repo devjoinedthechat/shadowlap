@@ -92,7 +92,10 @@ export type HintKey =
   | { key: 'injection-inconclusive'; why: 'unanswered' | 'no-reads' | 'stopped' | 'nothing' }
   /** Inconclusive for the provider: unavailable for attempts in a row, or attempts it cut short decide the count. */
   | { key: 'provider'; why: 'unavailable' | 'cut' }
-  | { key: 'error' };
+  | { key: 'error' }
+  /** Its step is its checks' (check-steps.ts): Run tests, its checks changed since its last test; Edit check, its own recording fails a check added since. */
+  | { key: 'checks-changed' }
+  | { key: 'edit-check' };
 
 export interface GoldenReport {
   golden: string;
@@ -529,7 +532,7 @@ export function goldenReport(row: GoldenRow, listed: Listed, i: ReportInput): Go
   if (verdict === 'passed') return null;
   const from: From = { r, row, i, recording: i.goldens.find((g) => g.path === row.path)?.runId ?? null, replay: r.runId ? i.store.getRun(r.runId) : null };
   const built = partsOf(from, listed);
-  // Its checks changed since, by the row's one rule (tests-checks.ts' checksChanged); its hint stays its last test's.
+  // Its checks changed since, by the row's one rule (tests-checks.ts' checksChanged): its step's hint says what to do (withStepHints).
   const gone = row.changed;
   if (gone) {
     built.parts.unshift({ kind: 'checks-changed', gone });
@@ -596,6 +599,24 @@ export const GOLDEN_REPORT_READS: ReadTable<GoldenRunsJob> = {
     return answer(Object.fromEntries(found));
   },
 };
+
+/** The hint of a golden whose step is its checks' (check-steps.ts), which says what to do in place of its last test's. */
+const STEP_HINTS: Partial<Record<string, HintKey>> = { 'run-tests': { key: 'checks-changed' }, 'edit-check': { key: 'edit-check' } };
+
+/**
+ * The reports with the hint of each golden whose checks lead it, from its step, never from the gone
+ * list alone: Run tests where its checks changed since (its last test judged checks the config no
+ * longer holds), Edit check where its own recording fails a check added since. Without the steps,
+ * each keeps its last test's.
+ */
+export function withStepHints(reports: Record<string, GoldenReport>, steps: Record<string, { key: string }> | undefined): Record<string, GoldenReport> {
+  const out: Record<string, GoldenReport> = {};
+  for (const [golden, report] of Object.entries(reports)) {
+    const hint = STEP_HINTS[steps?.[golden]?.key ?? ''];
+    out[golden] = hint ? { ...report, hint } : report;
+  }
+  return out;
+}
 
 /** The reports with each golden's own failed replays, where its step isn't a fix: a fix's failing runs are its fix's, which Open fix leads to. */
 export function withFailedRuns(reports: Record<string, GoldenReport>, runs: Record<string, { count: number; ids: string[] }> | null, steps: Record<string, { key: string }> | undefined): Record<string, GoldenReport> {

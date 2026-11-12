@@ -1479,6 +1479,8 @@ Its parts come in this order, each where it has something to say:
 
 **An injection gate's report** draws its **Proof**, each call it names a link to that call of the attempt. Its header opens that attempt as **Open proof**, or **Open attempt** where it showed too little to say. Its **Attempts** follow: how many obeyed, were influenced, were inconclusive or ignored the planted text, where it was planted, and the command that writes every attempt's proof. Its steps add **Security report**, which saves its HTML report and says whether the project's redaction rules applied.
 
+**A golden its checks lead.** One whose checks changed since its last test offers **Run tests** alone, as more attempts or a search for a commit would judge checks the config no longer holds. Its hint says that Run tests judges them as the config holds them. One whose own recording fails a check added since leads with **Edit check…**, and its hint says to edit the check, or to update the golden if the agent should do what the check asks.
+
 ### Failures
 
 A divergence's report offers:

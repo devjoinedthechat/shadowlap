@@ -20,30 +20,49 @@ import { LeadButton, type LeadPress } from './Verdict.js';
  * page's own helpers: a divergence's normalizer, Update golden beside it, and Find breaking commit
  * (never where Update golden leads); a crash's Run blame beside its step, from the step's own offer; Find breaking
  * commit where it is offered; Run more attempts and Update golden for an inconclusive golden; an
- * injection gate's Security report. Open proof is the header's link, never a step. A press opens
- * the report, so a job's end has a part to hand the focus to (⌘K presses these while it is folded).
+ * injection gate's Security report. A golden whose checks changed since its last test offers Run
+ * tests alone, the whole session as the page's header runs it, as more attempts or a commit search
+ * would judge checks the config no longer holds; one whose own recording fails a check added since
+ * leads with Edit check…. Open proof is the header's link, never a step. A press opens the report,
+ * so a job's end has a part to hand the focus to (⌘K presses these while it is folded).
  */
 export function ReportSteps({ report, view, press, onPress }: { report: GoldenReport; view: TestsAnswer; press: LeadPress; onPress: () => void }) {
   const { hasKind: has } = useApp();
   const golden = report.golden;
-  const d = view.divergences.find((x) => x.golden === golden);
-  const f = view.failures.find((x) => x.golden === golden);
-  const v = view.inconclusive.find((x) => x.golden === golden);
-  const runId = (d ?? f ?? v)?.runId ?? null;
-  const found = stepFor(view, golden, has, runId);
-  const lead = found?.kind === 'proof' ? null : found;
-  const leads = (kind: Lead['kind']) => lead?.kind === kind;
   const step = view.steps?.[golden];
-  const at: Siblings = { has, press, leads, step };
-  const out: ReactNode[] = [lead ? <LeadButton key="step" lead={lead} p={press} lime={false} /> : null, ...(d ? divergenceSiblings(d, at) : []), ...(f ? failureSiblings(f, runId, at) : []), ...(v ? inconclusiveSiblings(v, at) : [])];
-  const security = report.parts.find((p) => p.kind === 'injection-attempts')?.resultId;
-  if (security) out.push(<SecurityReport key="security" resultId={security} />);
+  const out = step?.key === 'run-tests' ? [press.runTests ? <RunTestsStep key="step" step={step} job={press.runTests} wait={press.wait} /> : null] : reportSteps(report, view, has, press);
   if (!out.some(Boolean)) return null;
   return (
     <div className="actions" onClickCapture={onPress}>
       {out}
     </div>
   );
+}
+
+/** Run tests, plain, as the page's header runs it, saying on its card what it judges. */
+function RunTestsStep({ step, job, wait }: { step: Extract<NextStep, { key: 'run-tests' }>; job: NonNullable<LeadPress['runTests']>; wait: LeadPress['wait'] }) {
+  return (
+    <JobButton className="btn" why={wait('run the tests')} {...job} sub={step.sub}>
+      {step.label}
+    </JobButton>
+  );
+}
+
+/** The golden's own step, plain, then its report's other buttons, an injection gate's Security report last. */
+function reportSteps(report: GoldenReport, view: TestsAnswer, has: (kind: string) => boolean, press: LeadPress): ReactNode[] {
+  const golden = report.golden;
+  const d = view.divergences.find((x) => x.golden === golden);
+  const f = view.failures.find((x) => x.golden === golden);
+  const v = view.inconclusive.find((x) => x.golden === golden);
+  const runId = (d ?? f ?? v)?.runId ?? null;
+  const found = stepFor(view, golden, has, runId, !!press.edit);
+  const lead = found?.kind === 'proof' ? null : found;
+  const leads = (kind: Lead['kind']) => lead?.kind === kind;
+  const at: Siblings = { has, press, leads, step: view.steps?.[golden] };
+  const out: ReactNode[] = [lead ? <LeadButton key="step" lead={lead} p={press} lime={false} /> : null, ...(d ? divergenceSiblings(d, at) : []), ...(f ? failureSiblings(f, runId, at) : []), ...(v ? inconclusiveSiblings(v, at) : [])];
+  const security = report.parts.find((p) => p.kind === 'injection-attempts')?.resultId;
+  if (security) out.push(<SecurityReport key="security" resultId={security} />);
+  return out;
 }
 
 /** What a report's siblings of its step read: the jobs the server runs, the page's presses, whether the step is already of a kind, and the server's step. */

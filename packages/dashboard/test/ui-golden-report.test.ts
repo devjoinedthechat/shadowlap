@@ -2,7 +2,7 @@ import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateResult, Store, type StoredCheck } from '@shadowlap/engine';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
-import { failedRunsHref, goldenReports, withFailedRuns, type TestsAnswer } from '../src/golden-report.js';
+import { failedRunsHref, goldenReports, withFailedRuns, withStepHints, type TestsAnswer } from '../src/golden-report.js';
 import { issueKey } from '../src/issue-keys.js';
 import { links } from '../src/links.js';
 import type { NextStep } from '../src/next-step.js';
@@ -13,6 +13,8 @@ import { ISSUE_ASK } from '../ui/page-ask.js';
 import { moreCard, updateCard } from '../ui/pages/tests-cards.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
+import { shownNow } from './ui-served-now.js';
 import { failedRunsWords } from '../ui/failed-runs.js';
 import type { RequestDiff } from '../src/request-diff.js';
 import type { DivergenceView, GoldenReport, GoldenRow, TestEvidence } from '../ui/types.js';
@@ -37,7 +39,12 @@ describe('a report’s hint', () => {
     expect(hintWords({ key: 'injection' })).toBe('The agent obeyed an instruction planted in what it reads: fix the agent, not the golden.');
     expect(hintWords({ key: 'gate' })).toBe("Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent.");
     expect(hintWords({ key: 'error' })).toBe('The golden could not be replayed.');
-    for (const key of ['normalizer', 'bisect', 'check', 'crash', 'injection', 'gate', 'undecided', 'no-calls', 'no-preload', 'error'] as const) expect(hintWords({ key }).split(/[.?](?: |$)/).filter(Boolean)).toHaveLength(1);
+    for (const key of ['normalizer', 'bisect', 'check', 'crash', 'injection', 'gate', 'undecided', 'no-calls', 'no-preload', 'error', 'checks-changed', 'edit-check'] as const) expect(hintWords({ key }).split(/[.?](?: |$)/).filter(Boolean)).toHaveLength(1);
+  });
+
+  it('says what a golden whose checks lead it should do, from its step: Run tests, or edit a check its own recording fails', () => {
+    expect(hintWords({ key: 'checks-changed' })).toBe('Run tests judges its checks as they are now.');
+    expect(hintWords({ key: 'edit-check' })).toBe('The check, added since, fails the golden’s own recording: edit the check, or update the golden if the agent should now do this.');
   });
 
   it('says what to do with a crash’s first bad commit once it is named', () => {
@@ -175,7 +182,8 @@ function answer(steps: Record<string, NextStep> = {}): TestsAnswer {
   const view = testsView(store, goldens, { folder: 'goldens' });
   const reports = goldenReports(view, { store, goldens, normalizers: [], project: '/work/shop' });
   store.close();
-  return { ...view, reports, steps };
+  // As the route joins them: a golden whose checks lead it takes its step's hint.
+  return { ...view, reports: withStepHints(reports, steps), steps };
 }
 
 const OFFLINE_BODY = { type: 'error', error: { type: 'shadowlap_offline', message: 'shadowlap is offline: call #1 (POST /v1/messages) was not served from the recording and would need the network' } };
@@ -199,8 +207,8 @@ afterEach(async () => {
   said.length = 0;
 });
 
-/** Tests over `view`, arrived at by `hash`: the attempts it reads counted in `asked`, its toasts in `said`. */
-async function draw(view: TestsAnswer, hash = '#/tests'): Promise<Rendered> {
+/** Tests over `view`, arrived at by `hash`, with the parts the served dashboard hands in (`parts`): the attempts it reads counted in `asked`, its toasts in `said`. */
+async function draw(view: TestsAnswer, hash = '#/tests', parts: ServedParts = {}): Promise<Rendered> {
   const location = { hash, pathname: '/', search: '' };
   vi.stubGlobal('location', location);
   vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (location.hash = url.slice(url.indexOf('#'))) });
@@ -219,7 +227,7 @@ async function draw(view: TestsAnswer, hash = '#/tests'): Promise<Rendered> {
     startJob: () => Promise.resolve({ id: 'j1' }),
   } as unknown as Client;
   const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: (words: string) => void said.push(words) };
-  r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage)));
+  r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ServedPartsContext.Provider, { value: parts }, createElement(TestsPage))));
   await r.until('the goldens to load', () => r!.all('table.gt tbody tr[data-rowkey]').length === view.rows.length);
   return r;
 }
@@ -340,6 +348,24 @@ describe('a golden’s report under its row', () => {
     r = null;
     const bisect = await draw(answer({ 'goldens/drift': { key: 'bisect', label: 'Find breaking commit…', golden: 'goldens/drift' } as NextStep }));
     expect(report(bisect, 'drift').querySelectorAll('div.actions .btn').map((b) => b.textContent)).not.toContain('Update golden');
+  });
+
+  it('offers a golden whose checks changed since Run tests alone, and one whose recording fails a check added since Edit check…, each plain, its hint from its step', async () => {
+    const steps: Record<string, NextStep> = {
+      'goldens/flaky': { key: 'run-tests', label: 'Run tests', golden: 'goldens/flaky', gone: [TWICE], sub: 'Its checks changed since its last test: the session judges them as they are now', command: 'shadowlap test goldens/*' },
+      'goldens/refund': { key: 'edit-check', label: 'Edit check…', golden: 'goldens/refund', check: 'issue_refund called 1 time', sub: 'It fails refund’s own recording: edit the check, or update the golden if the agent should now do this' },
+    };
+    const page = await draw(answer(steps), '#/tests', { CheckBuilder: shownNow(() => createElement('div', { className: 'builderstub' })) });
+    const buttons = (name: string) => report(page, name).querySelectorAll('div.actions .btn').map((b) => [b.textContent, b.className]);
+    const hint = (name: string) => report(page, name).querySelector('p.hintx')?.textContent;
+    // More attempts would judge checks the config no longer holds: Run tests, the whole session, alone.
+    expect(buttons('flaky')).toEqual([['Run tests', 'btn']]);
+    expect(hint('flaky')).toBe('Run tests judges its checks as they are now.');
+    expect(buttons('refund')[0]).toEqual(['Edit check…', 'btn']);
+    expect(hint('refund')).toBe('The check, added since, fails the golden’s own recording: edit the check, or update the golden if the agent should now do this.');
+    // Edit check… opens the builder at its check.
+    await page.click(report(page, 'refund').querySelector('div.actions .btn')!);
+    await page.until('the builder', () => page.all('.builderstub').length === 1);
   });
 
   it('opens its golden’s issue on Runs › Failed from Failed runs →, its hover naming the replays', async () => {

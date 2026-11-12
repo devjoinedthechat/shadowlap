@@ -80,7 +80,7 @@ export function LeadButton({ lead, p, lime = true }: { lead: Lead; p: LeadPress;
     case 'edit': {
       const ahead = () => p.edit?.preload();
       return (
-        <ActionButton className="btn lime" data-step="edit-check" data-g={lead.golden} tip={lead.label} sub={lead.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => p.edit?.open(lead.golden, lead.check)}>
+        <ActionButton className={btn} data-step="edit-check" data-g={lead.golden} tip={lead.label} sub={lead.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => p.edit?.open(lead.golden, lead.check)}>
           {lead.label}
         </ActionButton>
       );
