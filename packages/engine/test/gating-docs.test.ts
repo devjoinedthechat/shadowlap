@@ -170,6 +170,9 @@ describe('docs/gating.md, figure by figure', () => {
     const split = gateOdds(plan.planned[0].gate, 0.95);
     expect(goldens * split.inconclusive).toBeLessThan(0.0001);
     const red = runsRed(split, goldens, 'fail');
+    // Under --inconclusive warn the session plans its own max (no half share kept for running out), as Settings → CI's Gates figures it.
+    const warnPlan = planSuite(Array.from({ length: goldens }, (_, i) => ({ golden: `goldens/g${i}`, gate: sprt(), maxGiven: false })), { inconclusive: 'warn' })!;
+    const redWarn = runsRed(gateOdds(warnPlan.planned[0].gate, 0.95), goldens, 'warn');
     const suite = 'The default: 5% for the suite, split 100 ways';
     // Two tables, a row for each way of gating them: what each golden comes to, and what each run does.
     says(
@@ -187,7 +190,7 @@ describe('docs/gating.md, figure by figure', () => {
         '|---|---:|---:|',
         `| 4 of 5 | ${whole(runsRed(four, goldens, 'fail'))} | ${whole(runsRed(four, goldens, 'warn'))} |`,
         ...own.map(([name, o]) => `| ${name} | ${whole(runsRed(o, goldens, 'fail'))} | ${whole(runsRed(o, goldens, 'warn'))} |`),
-        `| ${suite} | ${(100 * red).toPrecision(2)}% | ${(100 * runsRed(split, goldens, 'warn')).toPrecision(2)}% |`,
+        `| ${suite} | ${(100 * red).toPrecision(2)}% | ${(100 * redWarn).toPrecision(2)}% |`,
       ].join('\n'),
     );
     const one = gateOdds(sprt(), 0.95);

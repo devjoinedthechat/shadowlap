@@ -19,12 +19,12 @@ const STEP = { key: 'revert', label: 'Revert', golden: 'goldens/refund', rev: 'c
 
 describe('the first bad commit’s change', () => {
   it('marks what the commit added and removed, and the dialog shows it undone', () => {
-    expect(changeLines(CHANGE)!.map((l) => l.tone)).toEqual([null, null, 'del', 'add', 'add', null]);
+    expect(changeLines(CHANGE)!.map((l) => l.op)).toEqual([' ', ' ', '-', '+', '+', ' ']);
     expect(changeLines({ hunk: null })).toBeNull();
     expect(revertedLines(HUNK).slice(2, 5)).toEqual([
-      { text: '+    log(total)', tone: 'add' },
-      { text: '-    log(order["total"])', tone: 'del' },
-      { text: '-    audit(total)', tone: 'del' },
+      { op: '+', text: '    log(total)' },
+      { op: '-', text: '    log(order["total"])' },
+      { op: '-', text: '    audit(total)' },
     ]);
   });
 

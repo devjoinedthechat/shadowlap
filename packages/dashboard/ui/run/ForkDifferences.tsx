@@ -1,9 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { ForkChange, ForkDifferences as Differences, ForkEnd, ForkWrite } from '../../src/fork-differences.js';
 import { shortId } from '../format.js';
-import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
-import { useApp } from '../state.js';
 
 /**
  * What the fork did differently from its parent, one of its findings: from the call it left its parent
@@ -12,7 +10,8 @@ import { useApp } from '../state.js';
  * changed, how the run ends, a read added or removed, a read asked differently, other words); then
  * its writes and what became of each: a few one by one, more grouped by tool and what became of
  * them, so a batch fork's dozens of writes take a line and leave Calls in view. The first few
- * changes show, and each write, with a click.
+ * changes show, and each write, with a click. A part of its own, which a fork's page loads as it asks
+ * for the differences (FindingsBar.tsx): most runs are no forks.
  */
 
 /** The changes shown before Show all. */
@@ -38,17 +37,6 @@ export function writeGroups(writes: readonly ForkWrite[]): Array<{ tool: string;
 const RANK_WORDS: Record<number, string> = { 1: 'a write', 2: 'how it ends', 3: 'a read', 4: 'a read asked', 5: 'its words' };
 
 const FATE_WORDS: Record<string, string> = { blocked: 'blocked', stubbed: 'stubbed', live: 'ran live', overridden: 'overridden', replayed: 'replayed', failed: 'failed' };
-
-/** What the fork did differently, read once `want` says the run is a fork that has ended; null until it comes, or with none to say. */
-export function useForkDifferences(runId: string, want: boolean): Differences | null {
-  const { client } = useApp();
-  return useLoad(() => (want ? client.forkDifferences(runId) : null), `differences:${runId}:${want ? 'fork' : 'none'}`).data;
-}
-
-export function ForkDifferences({ runId }: { runId: string }) {
-  const d = useForkDifferences(runId, true);
-  return d ? <DifferencesPanel d={d} /> : null;
-}
 
 /**
  * The fork's differences as one of the run's findings (FindingsBar.tsx): its heading, where it left

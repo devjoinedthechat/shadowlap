@@ -74,7 +74,8 @@
 @media (max-width: 1000px) {
   .app { grid-template-columns: minmax(0, 1fr); }
   .side { position: fixed; z-index: 25; left: 0; top: 52px; bottom: 28px; width: 280px; transform: translateX(-100%); visibility: hidden; transition: transform .2s ease, visibility .2s; box-shadow: var(--shadow-pop); }
-  .side.open { transform: none; visibility: visible; }
+  /* shown at once as it opens, so its first item can take the focus however late the slide's first frame comes; hidden only once it has slid away */
+  .side.open { transform: none; visibility: visible; transition: transform .2s ease, visibility 0s; }
   .menu-toggle { display: inline-grid; }
   .livechip { display: none; }
   .top { padding: 0 16px; }

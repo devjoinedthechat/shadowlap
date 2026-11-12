@@ -106,6 +106,8 @@ export interface CallRowExtras {
   conversation?: number | null;
   /** A model call whose request starts its conversation. */
   conversationStart?: boolean;
+  /** A top agent's conversation start: the first sentence of what it was asked; absent from an older server or copy. */
+  conversationInput?: string | null;
   /** A tool call: the model call that asked for it. */
   requestedBy?: number | null;
   /** A tool call: the tool-use id the provider gave the request for it. */
@@ -526,17 +528,19 @@ export interface TestRunView {
   bisect: import('../src/tests.js').BisectChoices | null;
 }
 /** `GET /api/ci/workflows`: both CI panels for the options they are set to. */
-export type { CiListRow, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
+export type { CiListRow, CiSession, CiTeamStore, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../src/ci-workflows.js';
 
 // ---- Training (#/training): the training read model's answers, as the server sends them (src/training.ts) ----
 export type { ModelCardView, ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, ScoreRowView, SourceView, TaskRowView, TaskUpdate, TrainingView } from '../src/training.js';
 
 // The decision diff (`/api/decisions`): the read model's own shapes, as the server sends them.
-export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RetirementsView } from '../src/decisions.js';
+export type { DecisionCell, DecisionRow, DecisionSessionView, DecisionsListView, RetirementsView, RowEnding, RunDecisionsSession, ViewStep } from '../src/decisions.js';
+export type { CellOpen, Toned } from '../src/decision-cells.js';
+export type { PreviewCounts, PreviewKeyEntry, PreviewNext, PreviewReceipt, PreviewRowFacts, PreviewSession, PreviewVerify, PreviewView } from '../src/decision-view.js';
 export type { DecisionChange, DecisionRun, DecisionStep, DecisionsReport, DecisionView } from '../../engine/src/decisions.js';
 export type { RetirementNotice } from '../../engine/src/model-retirements.js';
-/** One session whole: a decisions report (`decisions --json`) or a migrate report, with the matrix the page draws. */
-export type DecisionSessionDetail = Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: import('../src/decisions.js').DecisionRow[] };
+/** One session whole: a decisions report (`decisions --json`) or a migrate report, with the matrix the page draws and its `view`, worded on the server. */
+export type DecisionSessionDetail = import('../src/decision-view.js').PreviewSession;
 /** A run's decisions under each session that asked it again, newest first. */
 export type RunDecisionsView = ReturnType<typeof import('../src/decisions.js').runDecisions>;
 // Changes › Verdicts (`/api/verdicts`): every change checked, and the verdict it got.
@@ -548,4 +552,4 @@ export type { CodeChange } from '../src/compare.js';
 export type { ChaosCell, ChaosMatrix, ChaosPresetInfo, ChaosSessionView, ChaosView } from '../src/chaos.js';
 export type { CoverageGroupView, CoverageLook, CoverageView } from '../src/coverage.js';
 /** `GET /api/compare`: the engine's comparison, and the code card's commits (absent from an exported copy, which has no git behind it). */
-export type CompareView = Omit<import('../src/compare.js').CompareView, 'code'> & { code?: import('../src/compare.js').CodeChange | null };
+export type CompareView = Omit<import('../src/compare.js').CompareView, 'code' | 'pair'> & { code?: import('../src/compare.js').CodeChange | null; pair?: import('../src/fork-differences.js').PairDifferences | null };

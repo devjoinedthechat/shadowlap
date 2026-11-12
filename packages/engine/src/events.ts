@@ -64,6 +64,9 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  * - `skill.installed`: ref where it installed (`claude-code`, `agents` or `kiro`); data { path,
  *   version, outcome ('installed' or 'updated'), previous (the version replaced, or null) }:
  *   `shadowlap skill install` put the plugin, or the skills alone, into the project
+ * - `ci.workflow`: ref the workflow's path (`.github/workflows/agent.yml`); data { added, removed,
+ *   created } from Settings → CI's Write file, { undo: true, removed } from its Undo, which put the
+ *   file back as it was, or removed the one the write made
  * Add new kinds here, with the feature that records them and the fields it records.
  */
 export type EventKind = string;

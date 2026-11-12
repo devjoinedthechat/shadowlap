@@ -59,7 +59,7 @@ export function RevertDialog({ step, found, estimate, runId, onClose }: RevertDi
       onClose={onClose}
       onOk={() => startRevert(app, fields, asked, setConsent)}
     >
-      {change?.hunk ? <CodeBox lines={revertedLines(change.hunk)} change /> : null}
+      {change?.hunk ? <CodeBox lines={revertedLines(change.hunk)} className="fxpatch" /> : null}
     </Dialog>
   );
 }

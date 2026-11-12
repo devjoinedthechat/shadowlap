@@ -13,7 +13,7 @@ export { nestsDeeper } from './credential-shapes.js';
 export { secretNamesMeta, secretNamesOf, withSecretNames, type SecretNamesRule } from './http.js';
 export { credentialFreeArgv, credentialFreeCommandLine, sameCommandLine } from './argv-credentials.js';
 export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, TOKEN_IN_VALUE, capturedHttp, credentialFreeBody, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialFreeUrl, credentialHeader, credentialParam, credentialQueryParam, credentialValue, decodedParam, formShaped, maskBytesCredentials, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskPathCredentials, maskTextCredentials, maskUrlCredentials, rawJsonMember, responseBodyWithoutCredentials, resultBlob, withoutCredentials, withoutStoredCredentials } from './http.js';
-export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
+export { calibratable, calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { asParsed, isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartContents, multipartView, parseMultipart, type MultipartContent, type MultipartPart, type MultipartView } from './multipart.js';
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, nearClock, type ClockMode, type ClockReference, type ClockSeen } from './clock.js';
@@ -58,7 +58,7 @@ export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry
 export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedRole, recordedVerdicts } from './checks/recorded.js';
 export type { Judged, JudgeMaterialSource, RecordingJudged } from './checks/recorded.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
-export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
+export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHintMessage, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
 // The advice Needs a look shows that its owner put away, kept in the project's store alone, and the rule that brings it back.
 export { stillDismissed, type NewDismissal, type StoredDismissal } from './store.js';
@@ -69,7 +69,7 @@ export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // Whether a run still `running` has a process recording it (gc, Settings).
 export { SILENT_OWNED_MS, SILENT_UNKNOWN_MS, processAlive, recorderGone, type RunOwner } from './liveness.js';
 // shadowlap.config.json as a file the CLI and the dashboard both edit.
-export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, ruleNoun, sameRule, setClock, validateRule } from './config-file.js';
+export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, restoreRule, ruleNoun, sameRule, setClock, validateRule } from './config-file.js';
 export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
 // The lock file those edits take, for any small file several Shadowlap processes change.
 export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type LockOptions } from './lock-file.js';
@@ -88,7 +88,7 @@ export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, Rec
 export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
 export { bringRequest, loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
 export { ACCOUNT_HEADERS } from './account-headers.js';
-export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
+export { changedPathLabel, comparedRequest, compareRuns, formatComparison, requestReadRule, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { pathSetByCode, requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
 export type { CallDifference, ComparedIntervention, RunComparison } from './compare.js';
@@ -121,7 +121,8 @@ export { kindFacts, modelResolver, runLabel, type LabelledRun } from './run-labe
 // What the dashboard and the terminal UI both say of a run: why it failed, how an attempt came out,
 // what a fork did differently from its parent and how each ended, and the good/bad key.
 export { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, keptAttemptVerdict, lostRange, lostWords, type AttemptVerdict, type FailureReason } from './run-verdicts.js';
-export { compareFork, forkEnd, MAX_TOOL_CALLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite } from './fork-changes.js';
+export { compareFork, comparePair, forkEnd, MAX_TOOL_CALLS, PATH_ROWS, pairDecisions, pairEnding, pathRows, ROW_TEXT, ROW_TOOLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite, type PairChange, type PairComparison, type PairDecisions, type PairEnd, type PairEnding, type PairOptions, type PathCall, type PathDecision, type PathRow } from './fork-changes.js';
+export { pairVerdict, type PairVerdict, type PairVerdictInput, type PairVerdictWords } from './pair-verdict.js';
 export { markChange, markKey, MARKS, markToast, type RunMark } from './run-marks.js';
 // A request's body, read whole or not at all, for every server here; node:sqlite as every store opens it.
 export { BodyTooLarge, MODEL_BODY_LIMIT, readBody, type BodyLimits } from './body.js';
@@ -160,7 +161,7 @@ export type { BaselineDecision, BaselineOdds, BaselineRule, BaselineSource, Drop
 export { chanceRanked, consequence, CONTROL_MIN_SAMPLES, CONTROL_RISK, rankBeyondNoise } from './control-arm.js';
 export { fisherGreater, permutationGreater } from './exact-tests.js';
 // Statistical gating: verdicts with stated error rates on attempts that vary (test's gate, verify, blame).
-export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, apartWords, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decideCountUnavailable, decideUnavailable, decisionWord, describeGate, dropProbability, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, tallyApart, verdictLine, wilson } from './stats.js';
+export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, apartWords, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decideCountUnavailable, decideUnavailable, decisionWord, describeGate, dropProbability, explainGate, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, tallyApart, verdictLine, wilson } from './stats.js';
 // eslint-disable-next-line @typescript-eslint/no-deprecated -- the bound's old name, kept for code written against it (docs/engine.md)
 export { wilsonBound } from './stats.js';
 export type { ApartKind, BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, GateOdds, GateOutcome, GateResult, SprtBounds, SprtEvidence, SprtGate, Tally } from './stats.js';
@@ -233,7 +234,7 @@ export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
 // in, its answer's decision against the recorded one, ranked by consequence; the providers' model
 // retirement dates; and the sessions the store keeps.
 export { promptOf, promptParts, samePrompt, withoutEarlierThinking, withPrompt, type RequestPrompt } from './prompt.js';
-export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LABELS, STOP_WORDS, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, promoteByJudge, sameModel, shownSample, stepDelta, unjudgedSample } from './decisions.js';
+export { DECISIONS_ID, INCONCLUSIVE_STEP, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, MIGRATE_ID, NO_TOKENS, OWN_VARIATION, RANK_LABELS, STOP_WORDS, WITHIN_VARIATION, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionStepState, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, judgeWords, majorityRank, minorityChange, minorityNotes, modelFamily, percentChange, promoteByJudge, sameModel, samplesWords, shownSample, stepDelta, stepsAsked, tokenTotal, unchangedRunWords, unjudgedSample, unsettledWords, withinVariationLine, type DecisionStepState } from './decisions.js';
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
@@ -241,6 +242,7 @@ export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, m
 // What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
+export { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, type VerifiedTally } from './verified-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
 export { UNTESTED_WORDS } from './bisect-words.js';
@@ -280,3 +282,6 @@ export { CLEAN_GATE, causeEstimate, GATE_REPEAT, injectionAgainEstimate, injecti
 export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';
 export { askedInScope, defaultFrom, modelUse, type ModelUse } from './switch-from.js';
 export { USER_SETTINGS_FILE, USER_SETTINGS_VERSION, UserSettingsError, readSpending, userSettingsFile, writeSpending, type SpendingSetting, type UserSettingsOptions } from './user-settings.js';
+// The project's GitHub Actions workflow that runs the action, as Settings → CI reads, diffs and writes it.
+export { ACTION_REPO, AGENT_WORKFLOW, NO_WORKFLOW, WORKFLOW_READ_MAX, WORKFLOWS_DIR, WorkflowConflictError, WorkflowFileError, blockEnd, diffLines, entriesUnder, findWorkflow, parseWorkflow, readWorkflow, readWorkflowFile, scalarValue, splitComment, stepUses, textLines, workflowSteps, workflowVersion, writeWorkflow } from './workflow-file.js';
+export type { ActionStep, DiffLine, WorkflowDoc, WorkflowFile, WorkflowLine, WorkflowRead, WorkflowStep } from './workflow-file.js';

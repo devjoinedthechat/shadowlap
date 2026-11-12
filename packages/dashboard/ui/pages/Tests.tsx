@@ -114,7 +114,7 @@ export function TestsPage() {
   // as each has its own in its report.
   const actions = (
     <>
-      <a className="btn" href="#/settings/ci">
+      <a className="btn" href={href.settings('ci')}>
         <Icon name="gear" />
         Open CI settings
       </a>

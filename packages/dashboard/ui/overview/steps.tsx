@@ -2,9 +2,10 @@ import { type ReactNode, useMemo, useState } from 'react';
 import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS } from '../api.js';
-import { ConfirmDialog, ConsentDialog } from '../components/Dialog.js';
+import { ConsentDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
+import { MigrateAsk } from '../components/MigrateAsk.js';
 import { LEAD_KIND, LEAD_VERB, leadCard } from '../fixes/lead.js';
 import { treeBusy } from '../fixes/model.js';
 import { RowStep } from '../fixes/RowStep.js';
@@ -222,23 +223,13 @@ function StoreStep({ s, why }: { s: Extract<LookStep, { of: 'push' | 'migrate' }
       </>
     );
   }
-  const from = s.from.join(', ');
   const open = () => setAsking(true);
   return (
     <>
       <JobButton className="btn sm" why={why} {...card} estimate={null} start={open} ask={open}>
         {s.label}
       </JobButton>
-      {asking ? (
-        <ConfirmDialog
-          title={`Migrate ${from} to ${s.to}`}
-          lead={`Asks ${from}’s calls again under ${s.to} and verifies the runs whose decisions change.`}
-          command={s.command}
-          ok={s.label}
-          onClose={() => setAsking(false)}
-          onOk={() => app.guard(() => post({ to: s.to, from: s.from, goldens: s.goldens }))}
-        />
-      ) : null}
+      {asking ? <MigrateAsk from={s.from} to={s.to} command={s.command} ok={s.label} onClose={() => setAsking(false)} onOk={() => app.guard(() => post({ to: s.to, from: s.from, goldens: s.goldens }))} /> : null}
       {consent}
     </>
   );

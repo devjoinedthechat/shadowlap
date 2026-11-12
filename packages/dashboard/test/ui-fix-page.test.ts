@@ -433,7 +433,7 @@ describe('Apply fix', () => {
     expect(text(r!.one('.dialog h3'))).toBe('Show patch');
     expect(text(r!.one('.dialog header p'))).toContain('The fix as repair handed it over, in your working tree since you applied it.');
     expect(text(r!.one('.dialog .dfacts'))).toBe('Path.shadowlap/repairs/repair-munzln2i/fix.patch');
-    expect(text(r!.one('.dialog pre.fxpatch'))).toContain('+You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
+    expect(text(r!.one('.dialog pre.fxpatch'))).toContain('+ You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
     // To read only: Close, and nothing to run.
     expect(r!.all('.dialog footer button').map(text)).toEqual(['Close']);
   });

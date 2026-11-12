@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from 'react';
-import type { RunDetail } from '../api.js';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import type { Client, RunDetail } from '../api.js';
 import { focusQuiet, wantCallFocus } from '../focus-manager.js';
 import { sameRun } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { parseRoute } from '../route.js';
-import type { RunOffers, TestBannerOffer } from '../types.js';
+import type { RunOffers } from '../types.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
+import { Skeleton } from '../components/States.js';
 import { useServedParts } from '../served-parts.js';
 import { closePanelOn, openDiff, usePanel, type Panel } from './panel-state.js';
 
@@ -19,8 +20,27 @@ import { closePanelOn, openDiff, usePanel, type Panel } from './panel-state.js';
  * inspector's keys, 1 to 4. Which is open is kept in panel-state.ts.
  */
 
-/** The diff a finding shows here, a part of its own: it loads the first time it shows (OnShow.tsx). */
-const DiffPanel = onShow(() => import('./DiffPanel.js').then((m) => m.DiffPanel), { failed: <LoadFailed what="diff" /> });
+/**
+ * The diff a finding shows here, a part of its own: it loads the first time it shows (OnShow.tsx), and
+ * asks for the diff's drawing, a part of its own too, as its script comes.
+ */
+const RequestDiff = onShow(
+  () =>
+    import('./RequestDiff.js').then((m) => {
+      m.JsonDiffPart.preload();
+      return m.RequestDiff;
+    }),
+  { waiting: <Skeleton what="diff" lines={6} />, failed: <LoadFailed what="diff" /> },
+);
+
+/**
+ * Show diff about to be pressed (the pointer or the focus on it): its scripts and, for a run that
+ * ended, its answer are asked for now, so the panel draws at once.
+ */
+export function warmDiff(client: Pick<Client, 'requestDiff'>, runId: string, live: boolean): void {
+  RequestDiff.preload();
+  if (!live) import('./RequestDiff.js').then((m) => m.askDiff(client, runId, false)).catch(() => undefined);
+}
 
 /**
  * Where the focus goes as a panel closes from inside it: the finding's toggle that opened it (Show
@@ -106,9 +126,14 @@ export function useFindingPanel(runId: string) {
  * diff, the change at the first bad commit (the page's `offers`) or the results, one column at the
  * inspector's width. The page gives the results' body by their key (`results`); a panel with nothing
  * to show leaves the inspector as it is, as a run with no diff does. `onPick` is the page's pick of a
- * call, which a link in the panel to one of the run's calls makes.
+ * call, which a link in the panel to one of the run's calls makes. The diff's title names the call it
+ * shows: the divergence's, or once the answer came the one it shows (after a tool a fork changed, the
+ * next model call).
  */
-export function InspectorPlace({ panel, run, test, offers = null, onClose, onPick, results, children }: { panel: Panel | null; run: RunDetail; test: TestBannerOffer | null; offers?: RunOffers | null; onClose: () => void; onPick: (n: number) => void; results?: ((key: string) => ReactNode) | undefined; children: ReactNode }) {
+export function InspectorPlace({ panel, run, offers = null, onClose, onPick, results, children }: { panel: Panel | null; run: RunDetail; offers?: RunOffers | null; onClose: () => void; onPick: (n: number) => void; results?: ((key: string) => ReactNode) | undefined; children: ReactNode }) {
+  const runId = run.run.runId;
+  const [shown, setShown] = useState<{ runId: string; at: number } | null>(null);
+  const onAt = useCallback((at: number) => setShown({ runId, at }), [runId]);
   // A part the served dashboard hands in, as a copy never shows a change (served-parts.ts).
   const { ChangeBox } = useServedParts();
   const body = panel?.kind === 'results' ? (results?.(panel.key) ?? null) : null;
@@ -128,8 +153,8 @@ export function InspectorPlace({ panel, run, test, offers = null, onClose, onPic
   const d = run.run.divergence;
   if (panel?.kind !== 'diff' || !d) return <>{children}</>;
   return (
-    <PanelFrame title={`Diff at #${d.callNo}`} hide="Hide diff" panel={panel} onClose={onClose} onPick={onPick}>
-      <DiffPanel run={run} test={test} />
+    <PanelFrame title={`Diff at #${shown?.runId === runId ? shown.at : d.callNo}`} hide="Hide diff" panel={panel} onClose={onClose} onPick={onPick}>
+      <RequestDiff run={run} onAt={onAt} />
     </PanelFrame>
   );
 }

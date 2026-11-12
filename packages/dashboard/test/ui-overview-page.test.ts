@@ -179,3 +179,19 @@ describe('a Needs a look row’s job’s end', () => {
     expect(r!.focused().closest?.('.arow')).toBeFalsy();
   });
 });
+
+describe('a retiring model’s row', () => {
+  it('asks before Migrate to in the one ask a preview’s Migrate asks: what it asks again, its command, and that the provider bills it', async () => {
+    const step = { of: 'migrate' as const, label: 'Migrate to claude-sonnet-5-5', from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', goldens: ['goldens/refund'], command: 'shadowlap migrate --to claude-sonnet-5-5 goldens/refund --from claude-sonnet-4-5' };
+    const retire: NeedsLookRow = { key: 'attn:retire:claude-sonnet-4-5', group: 'housekeeping', kind: 'retire', icon: 'retire', title: 'claude-sonnet-4-5, used by 1 golden, retires on Nov 30, 2026', detail: 'in 19 days · Anthropic recommends claude-sonnet-5-5', step, href: '#/tests', runId: null, fixId: null, at: NOW };
+    await overview({ summary: { ...week, needsLook: { items: [retire], total: 1 } } });
+    await r!.click(r!.byText('.arow .ast .btn', 'Migrate to claude-sonnet-5-5'));
+    await r!.until('the ask', () => r!.all('.dialog').length === 1);
+    expect([text(r!.one('.dialog h3')), text(r!.one('.dialog header p')), text(r!.one('.dialog .dcost'))]).toEqual([
+      'Migrate claude-sonnet-4-5 to claude-sonnet-5-5',
+      'Asks claude-sonnet-4-5’s calls again under claude-sonnet-5-5 and verifies the runs whose decisions change.',
+      'Billed by your provider',
+    ]);
+    expect(text(r!.one('.dialog .cmdline'))).toContain(step.command);
+  });
+});

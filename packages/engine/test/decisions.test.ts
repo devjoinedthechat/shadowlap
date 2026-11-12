@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareDecisions, controlOpen, decisionOf, decisionOfResponse, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, migrateBreaks, migrateUnsettled, modelFamily, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, unsettledRun, type DecisionJudge, type DecisionRun, type DecisionStep, type DecisionsReport, type EffectOf, type ModelDecision, type UnsettledRun, needsVerify, type DecisionView } from '../src/decisions.js';
+import { compareDecisions, controlOpen, decisionOf, decisionOfResponse, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, INCONCLUSIVE_STEP, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, migrateBreaks, migrateUnsettled, modelFamily, decisionLine, NO_TOKENS, promoteByJudge, RANK_LABELS, sameModel, shownSample, unjudgedSample, unsettledRun, type DecisionJudge, type DecisionRun, type DecisionStep, type DecisionsReport, type EffectOf, type ModelDecision, type UnsettledRun, needsVerify, type DecisionView } from '../src/decisions.js';
 import { chanceRanked } from '../src/control-arm.js';
 import type { Effect } from '../src/types.js';
 
@@ -343,6 +343,17 @@ describe('formatDecisions', () => {
     expect(formatDecisions(report).split('\n')[0]).toBe('! No write and no stop changes: 1 decision differs in reads or text, under the model claude-haiku-4-5');
   });
 
+  it('calls a step its control couldn’t settle inconclusive, the word Preview gives it, with how often its samples changed', () => {
+    const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 1 };
+    const unsettled: DecisionStep = { callNo: 7, step: 2, scope: null, rank: null, majority: null, sampled: 1, changes: [{ rank: 1, kind: 'write-removed', tool: 'send_email', effect: 'write', before: {}, after: null, detail: 'send_email is no longer called' }], recorded: { stop: 'tools', stopReason: 'tool_use', tools: [], text: '' }, now: { stop: 'answer', stopReason: 'end_turn', tools: [], text: 'Done.' }, samples: { asked: 3, answered: 3, changed: 2, ranks: [1, 1, 0] }, control: { asked: 3, answered: 1, changed: 0, ranks: [0], error: 'HTTP 529' }, model: { recorded: 'claude-opus-5', asked: 'claude-haiku-4-5' }, tokens: { before: null, after: null }, cost: { before: null, after: null, spent: 0 }, thinkingStripped: 0, error: null };
+    const run: DecisionRun = { runId: '01K1AAAAAAAAAAAAAAAAAAAAAA', golden: null, steps: 1, asked: 1, rank: null, majority: null, counts, cost: { before: null, after: null, spent: 0 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions: [unsettled], warnings: [] };
+    const report: DecisionsReport = { decisionsId: null, kind: 'decisions', at: 0, change: { model: 'claude-haiku-4-5', fields: {}, from: null, fromCode: null, text: 'the model claude-haiku-4-5' }, command: 'shadowlap decisions 01K1 --model claude-haiku-4-5', samples: 3, runs: [run], counts, flagged: [], toVerify: [], cost: { before: null, after: null, spent: 0, upstreamRequests: 6, unknownModels: [] }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, retirements: [], notes: [], warnings: [], verify: null, judge: null, remedies: [], stopReason: null };
+    const text = formatDecisions(report);
+    expect(INCONCLUSIVE_STEP).toBe('inconclusive');
+    expect(text).toContain("#7    step 2  inconclusive  send_email is no longer called · in 2 of 3 samples; 1 of 3 answered as recorded (HTTP 529): too few to tell from the model's own variation");
+    expect(text).not.toContain('not settled');
+  });
+
   it('names a session as the dialog that makes it, and a migration by its switch', () => {
     expect(decisionsName({ kind: 'decisions', change: { model: 'claude-haiku-4-5', fields: {}, fromCode: null } })).toBe('Model switch to claude-haiku-4-5');
     expect(decisionsName({ kind: 'decisions', change: { model: null, fields: {}, fromCode: { calls: 3 } } })).toBe('Changed prompt and tools');
@@ -594,5 +605,18 @@ describe('chanceRanked', () => {
       expect(chanceRanked(n, 1)).toBeCloseTo(1);
       expect(chanceRanked(n, 0)).toBe(0);
     }
+  });
+});
+
+describe('decisionLine', () => {
+  const said = (text: string): DecisionView => ({ tools: [], stop: 'answer', stopReason: null, text });
+  it('cuts a long answer after a whole word, never inside one, and drops the comma or dash before the cut', () => {
+    expect(decisionLine(said('I can refund it, but only with a manager’s sign-off on the order first'), 40)).toBe('answers and stops: "I can refund it, but only with a…"');
+    expect(decisionLine(said('Refunded in full, sent the label – arrives Friday'), 36)).toBe('answers and stops: "Refunded in full, sent the label…"');
+    expect(decisionLine(said('Refunded, and the label is on its way'), 12)).toBe('answers and stops: "Refunded…"');
+  });
+  it('keeps an answer that fits whole, and cuts a word longer than half the line where the line ends', () => {
+    expect(decisionLine(said('Refunded.'), 40)).toBe('answers and stops: "Refunded."');
+    expect(decisionLine(said(`ok ${'x'.repeat(30)}`), 20)).toBe(`answers and stops: "ok ${'x'.repeat(16)}…"`);
   });
 });

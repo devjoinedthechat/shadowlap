@@ -551,8 +551,8 @@ describe('removing a project', () => {
     expect(existsSync(projectDbPath(w.support))).toBe(true);
 
     // Removing the current project forgets it and moves on; the store stays.
-    const removed = await w.api<{ removed: string; current: string; deleted: string[]; message: string }>('projects/support-agent/remove', { method: 'POST', body: {} });
-    expect(removed.body).toEqual({ removed: 'support-agent', current: 'triage-bot', deleted: [], message: 'Removed support-agent · its folder and recordings are untouched' });
+    const removed = await w.api<{ removed: string; current: string; deleted: string[]; message: string; undo: boolean }>('projects/support-agent/remove', { method: 'POST', body: {} });
+    expect(removed.body).toEqual({ removed: 'support-agent', current: 'triage-bot', deleted: [], message: 'Removed support-agent · nothing on disk changed', undo: true });
     expect(existsSync(projectDbPath(w.support))).toBe(true);
     expect((await w.api<{ project: { id: string } }>('meta')).body.project.id).toBe('triage-bot');
     // The only project left can't be removed.
@@ -561,8 +561,8 @@ describe('removing a project', () => {
 
     // Back, then removed with its recordings: the store goes, the folder stays.
     await w.api('projects', { method: 'POST', body: { path: w.support } });
-    const gone = await w.api<{ deleted: string[]; message: string }>('projects/support-agent/remove', { method: 'POST', body: { deleteRecordings: true, name: 'support-agent' } });
-    expect(gone.body.message).toBe('Removed support-agent and deleted its recordings');
+    const gone = await w.api<{ deleted: string[]; message: string; undo: boolean }>('projects/support-agent/remove', { method: 'POST', body: { deleteRecordings: true, name: 'support-agent' } });
+    expect(gone.body).toMatchObject({ message: 'Removed support-agent and deleted its recordings', undo: false });
     expect(gone.body.deleted).toContain('.shadowlap/shadowlap.db');
     expect(existsSync(projectDbPath(w.support))).toBe(false);
     expect(existsSync(join(w.support, 'pyproject.toml'))).toBe(true);

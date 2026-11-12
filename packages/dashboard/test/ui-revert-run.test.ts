@@ -110,7 +110,7 @@ const header = (run: RunDetail, offers: RunOffers | null) => ({ run, judged: nul
 function Place({ run, offers }: { run: RunDetail; offers: RunOffers }) {
   const p = useFindingPanel(run.run.runId);
   const inspector = createElement('section', { className: 'insp', id: 'insp' }, createElement('div', { className: 'ibody', id: 'ibody', role: 'tabpanel' }));
-  return createElement('div', null, createElement(Banner, { ...bannerProps(run, offers), showChange: p.showChange, onToggleChange: p.onToggleChange }), createElement(InspectorPlace, { panel: p.panel, run, test: null, offers, onClose: p.close, onPick: () => undefined, children: inspector }));
+  return createElement('div', null, createElement(Banner, { ...bannerProps(run, offers), showChange: p.showChange, onToggleChange: p.onToggleChange }), createElement(InspectorPlace, { panel: p.panel, run, offers, onClose: p.close, onPick: () => undefined, children: inspector }));
 }
 
 const lead = (a: AppState, o: { parts?: ServedParts; lead?: boolean } = {}) => within(a, createElement(RevertButton, { step: STEP, found: FOUND, estimate: FREE, runId: REC, lead: o.lead ?? true }), o.parts);
@@ -163,8 +163,8 @@ describe('Revert', () => {
     expect(facts[1].value).toContain(UNTESTED_WORDS.row);
     expect(facts[2].value).toBe('refund is tested');
     // The change undone, in a code box: what the commit added taken out, what it removed put back.
-    expect(page.all('pre.codebox.fxpatch span.add').map((s) => s.textContent.trim())).toEqual(['+    log(total)']);
-    expect(page.all('pre.codebox.fxpatch span.del').map((s) => s.textContent.trim())).toEqual(['-    log(order["total"])']);
+    expect(page.all('pre.codebox.fxpatch span.add').map((s) => s.textContent.trim())).toEqual(['+     log(total)']);
+    expect(page.all('pre.codebox.fxpatch span.del').map((s) => s.textContent.trim())).toEqual(['−     log(order["total"])']);
     // Read, not pasted: the change has no Copy of its own.
     expect(page.all('.dialog .boxwrap .fxpatch')).toHaveLength(0);
     expect(page.one('.db').textContent).toContain(`git revert --no-commit ccccccc && shadowlap test ${GOLDEN}`);

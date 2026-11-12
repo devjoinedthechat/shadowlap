@@ -25,6 +25,15 @@ export function canonicalize(value: unknown): string {
   return out.join('');
 }
 
+/** Whether two values are one JSON value once canonical: never when either has no JSON (NaN, Infinity). */
+export function canonicallySame(a: unknown, b: unknown): boolean {
+  try {
+    return canonicalize(a) === canonicalize(b);
+  } catch {
+    return false;
+  }
+}
+
 function write(value: unknown, out: string[]): void {
   if (value === null) {
     out.push('null');

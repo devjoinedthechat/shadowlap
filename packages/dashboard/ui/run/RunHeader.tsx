@@ -24,7 +24,7 @@ import { nextStepOf } from './next-step.js';
 import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton, RevertEditorButton } from './NextStepButton.js';
 import { TraceLink } from './TraceLink.js';
 import { exitWords, type PresetAttempt } from './preset.js';
-import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
+import { checksOf, runDuration, runKindWords, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
 // The share job's drawer offers the link it made, as the run's page loads, whether Share has opened or not.
 import './share-link.js';
@@ -117,8 +117,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   // What kind of run it is, said once and only that, muted, on one line: its golden and what it
   // changed are its about line, under the id; how it stands is the first fact, and why it failed the
   // id's card. An attempt says it is one (its finding says which); a fork, where it forked.
-  const forkWords = forkKindWords(run, type, rescued);
-  const kind = forkWords ? forkWords : type === 'clean' ? 'clean replay' : type === 'replay' ? 'replay' : type === 'test' ? 'test replay' : type === 'capture' ? 'capture' : recordingWords(r);
+  const kind = runKindWords(run, type, rescued);
   const eyebrow = (
     <Eyebrow className="ek">
       <span className="ebk">{kind}</span>

@@ -294,16 +294,22 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   }
 });
 
-test('a preview’s and a migration’s link opens Changes on Verdicts, and neither Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
+test('a preview’s link opens Preview and a migration’s Changes on Verdicts, and neither Preview, Verdicts nor a revision’s page scrolls sideways on a phone', async ({ page, request }) => {
   const { origin, token } = dash();
   const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
   const { sessions } = (await get('decisions')) as { sessions: Array<{ kind: 'decisions' | 'migrate'; href: string }> };
-  for (const kind of ['decisions', 'migrate'] as const) {
-    const link = sessions.find((s) => s.kind === kind)?.href;
-    expect(link, `the demo's ${kind} session`).toMatch(new RegExp(`^#/changes/${kind}/`));
-    await openPage(page, link!.slice(1), 'main#view table.vdt tbody tr');
-    await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/changes');
-  }
+  const preview = sessions.find((s) => s.kind === 'decisions')?.href;
+  expect(preview, 'the demo’s preview').toMatch(/^#\/changes\/decisions\//);
+  await openPage(page, preview!.slice(1), 'main#view .dmx button.dc');
+  expect(await page.evaluate(() => location.hash)).toBe(preview);
+  await expect(page.locator('main#view a[aria-current="page"]', { hasText: 'Preview' })).toHaveCount(1);
+  // At a desk the matrix's key is a line; the matrix is the container its narrow rules ask of (`matrix`).
+  const key = page.locator('main#view .dmx .mxkey');
+  expect(await key.evaluate((k) => [getComputedStyle(k).display, getComputedStyle(k.closest('.dmx')!).containerName])).toEqual(['block', 'matrix']);
+  const migration = sessions.find((s) => s.kind === 'migrate')?.href;
+  expect(migration, 'the demo’s migration').toMatch(/^#\/changes\/migrate\//);
+  await openPage(page, migration!.slice(1), 'main#view table.vdt tbody tr');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/changes');
   const { lead } = (await get('verdicts')) as { lead: { key: string } | null };
   expect(lead, 'the demo’s newest revision a session ran every golden at').not.toBeNull();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -315,6 +321,39 @@ test('a preview’s and a migration’s link opens Changes on Verdicts, and neit
   }, lead!.key);
   await page.waitForSelector('main#view table.vdg tbody tr', { state: 'visible' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  // Preview's matrix scrolls a row's cells in their own box, never the page; its key turns into two aligned columns.
+  await openPage(page, preview!.slice(1), 'main#view .dmx button.dc');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  expect(await key.evaluate((k) => [getComputedStyle(k).display, getComputedStyle(k).gridTemplateColumns.split(' ').length])).toEqual(['grid', 2]);
+});
+
+test.describe('a preview on a touch screen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test('keeps a long row’s cells 18 px with room to tap each, the row scrolling in its own box, with no serious axe violation', async ({ page, request }) => {
+    const { origin, token } = dash();
+    const { sessions } = (await (await request.get(`${origin}/api/decisions`, { headers: { 'x-shadowlap-token': token } })).json()) as { sessions: Array<{ kind: string; sessionId: string; href: string }> };
+    const s = sessions.find((x) => x.kind === 'decisions');
+    expect(s, 'the demo’s preview').toBeTruthy();
+    // A run of 30 model calls, its first row's cells over again: more than a phone's row holds at 18 px.
+    await page.route(`**/api/decisions/${s!.sessionId}`, async (route) => {
+      const body = (await (await route.fetch()).json()) as { matrix: Array<{ cells: Array<Record<string, unknown>> }> };
+      const row = body.matrix[0]!;
+      row.cells = Array.from({ length: 30 }, (_, i) => ({ ...row.cells[i % row.cells.length], callNo: i + 1, step: i + 1 }));
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    await openPage(page, s!.href.slice(1), 'main#view .dmx button.dc');
+    const cells = page.locator('main#view .dmr').first().locator('button.dc');
+    await expect(cells).toHaveCount(30);
+    const sizes = await cells.evaluateAll((bs) => [...new Set(bs.map((b) => `${Math.round(b.getBoundingClientRect().width)}x${Math.round(b.getBoundingClientRect().height)}`))]);
+    expect(sizes).toEqual(['18x22']);
+    // 6 px apart, so each takes 24 px of taps across its step.
+    expect(await cells.evaluateAll((bs) => Math.round(bs[1]!.getBoundingClientRect().left - bs[0]!.getBoundingClientRect().right))).toBe(6);
+    const box = page.locator('main#view .dmr').first().locator('.dmcw');
+    expect(await box.evaluate((b) => b.scrollWidth > b.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+    expect(await seriousViolations(page)).toEqual([]);
+  });
 });
 
 test('Runs keeps its filters in the address, Back goes back through them, and it has no serious axe violation', async ({ page }) => {
@@ -360,20 +399,111 @@ test('the good/bad key labels a run in one press, says so with Undo, and has no 
   expect(await seriousViolations(page)).toEqual([]);
 });
 
-test('a run’s calls sit under the call they belong to, each fold mark announced, with no serious axe violation', async ({ page }) => {
+test('a run’s trace: a model call’s caret, a sub-agent’s row, the fold buttons one Tab stop, with no serious axe violation', async ({ page }) => {
   await openPage(page, `/run/${demoId('eval')}`, 'run');
-  await page.waitForSelector('main#view table.calls.grouped button.tw');
-  const fold = page.locator('main#view table.calls button.tw').first();
-  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  await page.waitForSelector('main#view table.calls.grouped button.tcaret');
+  const caret = page.locator('main#view table.calls button.tcaret').first();
+  await expect(caret).toHaveAttribute('aria-expanded', 'true');
+  await expect(caret).toHaveAttribute('aria-label', /^Hide (tool )?calls? of #\d+$/);
+  // The eval's policy checker runs under the agent: a row of its own names it.
+  await expect(page.locator('main#view table.calls tr.tgr button.tgsum').filter({ hasText: 'policy-checker' }).first()).toHaveAttribute('aria-label', /^policy-checker, sub-agent, \d+ calls?/);
   const rows = await page.locator('main#view table.calls tbody tr[data-wi]').count();
-  await fold.click();
-  await expect(fold).toHaveAttribute('aria-expanded', 'false');
+  // The stop starts in the selected call's group. A press focuses the caret and redraws nothing
+  // until its click, so nothing moves the caret from under the pointer; the click folds and makes it the stop.
+  await expect(caret).toHaveAttribute('tabindex', '-1');
+  await caret.hover();
+  await page.mouse.down();
+  await expect(caret).toBeFocused();
+  await expect(caret).toHaveAttribute('tabindex', '-1');
+  await page.mouse.up();
+  await expect(caret).toHaveAttribute('aria-expanded', 'false');
+  await expect(caret).toHaveAttribute('tabindex', '0');
   expect(await page.locator('main#view table.calls tbody tr[data-wi]').count()).toBeLessThan(rows);
+  expect(await page.locator('main#view table.calls [data-fold][tabindex="0"]').count()).toBe(1);
   expect(await seriousViolations(page)).toEqual([]);
-  // Opened again with its own fold mark: there is no Fold all or Unfold all.
-  await fold.click();
-  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  // Opened again at its own caret: there is no Fold all or Unfold all.
+  await caret.click();
+  await expect(caret).toHaveAttribute('aria-expanded', 'true');
   expect(await page.locator('main#view').getByRole('button', { name: /^(Un)?[Ff]old all$/ }).count()).toBe(0);
+});
+
+test('a batch’s tickets are rows of their own, each named by what it was asked, the fourth folded until opened', async ({ page }) => {
+  await openPage(page, `/run/${demoId('batch')}`, 'run');
+  await page.waitForSelector('main#view table.calls tr.tgr button.tgsum');
+  const items = page.locator('main#view table.calls tr.tgr button.tgsum');
+  await expect(items.first()).toHaveAttribute('aria-label', /^New ticket T-9100 /);
+  // The first three are open; folded, each brings the next into view, and the fourth is folded.
+  for (const n of [0, 1, 2]) {
+    await expect(items.nth(n)).toHaveAttribute('aria-expanded', 'true');
+    await items.nth(n).click();
+    await expect(items.nth(n)).toHaveAttribute('aria-expanded', 'false');
+  }
+  await expect(items.nth(3)).toHaveAttribute('aria-expanded', 'false');
+  // ↓ on a focused fold button moves to the next, and → opens a folded one.
+  await items.nth(2).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(items.nth(3)).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(items.nth(3)).toHaveAttribute('aria-expanded', 'true');
+  expect(await seriousViolations(page)).toEqual([]);
+});
+
+/** Until every page of a long run is read: the line that says how many are read is gone. */
+async function everyPageRead(page: Page): Promise<void> {
+  await expect(page.locator('main#view .toolbar[role="status"]')).toHaveCount(0, { timeout: 60_000 });
+}
+
+test.describe('on a tall window', () => {
+  // A ticket's thirty calls and the row after them drawn at once.
+  test.use({ viewport: { width: 1280, height: 2000 } });
+
+  test('j from a ticket’s last call opens the next ticket, and Home and End on a fold button reach the first ticket and the last', async ({ page }) => {
+    await openPage(page, `/run/${demoId('batch')}`, 'run');
+    await everyPageRead(page);
+    const items = page.locator('main#view table.calls tr.tgr button.tgsum');
+    // The first two folded, the third's last call sits right above the fourth's row.
+    for (const n of [0, 1]) {
+      await items.nth(n).click();
+      await expect(items.nth(n)).toHaveAttribute('aria-expanded', 'false');
+    }
+    const next = page.locator('main#view table.calls tbody tr[data-call] + tr.tgr');
+    await expect(next).toHaveCount(1);
+    const fourth = page.locator(`main#view table.calls tbody tr.tgr[data-fold="${(await next.getAttribute('data-fold')) ?? ''}"] button.tgsum`);
+    await expect(fourth).toHaveAttribute('aria-expanded', 'false');
+    const last = next.locator('xpath=preceding-sibling::tr[1]');
+    const n = Number(await last.getAttribute('data-call'));
+    expect(n).toBeGreaterThan(0);
+    await last.click();
+    await page.keyboard.press('j');
+    await expect(page.locator('main#view table.calls tbody tr[aria-selected="true"]')).toHaveAttribute('data-call', String(n + 1));
+    await expect(fourth).toHaveAttribute('aria-expanded', 'true');
+    await fourth.focus();
+    await page.keyboard.press('End');
+    await expect.poll(() => focusedLabel(page)).toMatch(/^button\.tgsum “New ticket T-9139 /);
+    await page.keyboard.press('Home');
+    await expect.poll(() => focusedLabel(page)).toMatch(/^button\.tgsum “New ticket T-9100 /);
+    expect(await page.locator('main#view table.calls [data-fold][tabindex="0"]').count()).toBe(1);
+  });
+});
+
+test('a batch fork’s ticket folded around the fork holds the selection, with the fork’s mark in its # cell', async ({ page }) => {
+  await openPage(page, `/run/${demoId('batchFork')}/906`, 'run');
+  await everyPageRead(page);
+  const fork = page.locator('main#view table.calls tbody tr[data-call="906"]');
+  await expect(fork).toHaveAttribute('aria-selected', 'true');
+  // Ticket 31's row, the nearest group row above the fork.
+  const key = await fork.locator('xpath=preceding-sibling::tr[contains(concat(" ", @class, " "), " tgr ")][1]').getAttribute('data-fold');
+  const ticket = page.locator(`main#view table.calls tbody tr.tgr[data-fold="${key ?? ''}"]`);
+  await expect(ticket.locator('button.tgsum')).toHaveAttribute('aria-label', /^New ticket T-9130 /);
+  await expect(ticket.locator('td.n .fk')).toHaveCount(0);
+  await ticket.locator('button.tgsum').click();
+  await expect(ticket.locator('button.tgsum')).toHaveAttribute('aria-expanded', 'false');
+  await expect(ticket).toHaveClass('tgr held');
+  await expect(ticket.locator('td.n .fk')).toHaveText('fork');
+  // The selection stays on the fork: the address names it, and no call row is selected in its place.
+  expect(new URL(page.url()).hash).toMatch(/\/906$/);
+  await expect(page.locator('main#view table.calls tbody tr[aria-selected="true"]')).toHaveCount(0);
+  expect(await seriousViolations(page)).toEqual([]);
 });
 
 test('what a run did that Shadowlap did not record is among its findings, with no serious axe violation', async ({ page }) => {

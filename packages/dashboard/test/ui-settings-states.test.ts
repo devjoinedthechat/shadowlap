@@ -24,14 +24,14 @@ const config = (error: string | null) => ({ file: 'shadowlap.config.json', path:
 const form = { kinds: ['api', 'tool'], patterns: ['email', 'uuid'], defaultReplace: '<REDACTED>' };
 
 function matching(error: string | null): MatchingSettings {
-  return { config: config(error), rules: [], form, clock: { mode: 'auto', explicit: false, error: null }, calibrate: { runId: 'R1', source: 'newest', label: 'Calibrate 01M5GS3GZR', command: 'shadowlap calibrate 01M5GS3GZR', argv: ['calibrate', 'R1'] } } as unknown as MatchingSettings;
+  return { config: config(error), rules: [], form, clock: { mode: 'auto', explicit: false, error: null }, calibrate: { runId: 'R1', source: 'newest', command: 'shadowlap calibrate R1', argv: ['calibrate', 'R1'], recordings: [{ runId: 'R1' }] } } as unknown as MatchingSettings;
 }
 
 function redaction(error: string | null): RedactionSettings {
   return { config: config(error), rules: [], form, where: [], runs: [{ runId: 'R1', label: '01M5GS3GZR · node agent.mjs' }], previewRunId: 'R1', previewError: error } as unknown as RedactionSettings;
 }
 
-const store = (error: string | null): StoreSettings => ({ config: config(error), configured: null, error, status: null, ciStep: null, redactRules: error ? null : 0 });
+const store = (error: string | null): StoreSettings => ({ config: config(error), configured: null, error, status: null, policy: null, redactRules: error ? null : 0 });
 
 const SKILLS: SkillOffer['skills'] = [
   { name: 'setup-agent', command: '/shadowlap:setup-agent', shared: 'shadowlap-setup-agent', does: 'sets Shadowlap up for an agent' },
@@ -79,38 +79,40 @@ afterEach(async () => {
 describe('Settings while shadowlap.config.json can’t be read', () => {
   it('says the rules can’t be read where they would be, and offers no Calibrate', async () => {
     r = await page(app({ client: { matching: async () => matching(BROKEN) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
-    expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read until the file is fixed.');
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
+    expect(r.one('.settab .emptyline').textContent).toBe('The rules can’t be read until the file is fixed.');
     expect(r.all('.setrow b').map((b) => b.textContent)).toEqual(['Dates and times']);
-    expect(r.one('.verdict h2').textContent).toBe('Fix shadowlap.config.json to change these settings');
+    // A verdict line: its word first, in the error tone, which its heading names for a screen reader too.
+    expect(r.one('.verdict h2').textContent.replace(/\s+/g, ' ')).toBe('can’t read Fix shadowlap.config.json to change these settings');
+    expect(r.one('.verdict .vw').className).toBe('vw err');
   });
 
   it('says so on Redaction too, with no preview of rules it can’t read', async () => {
     r = await page(app({ client: { redaction: async () => redaction(BROKEN) } }), 'redaction');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
-    expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read until the file is fixed.');
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
+    expect(r.one('.settab .emptyline').textContent).toBe('The rules can’t be read until the file is fixed.');
     expect(r.all('.preview')).toHaveLength(0);
   });
 
   it('offers no store setup, which would write into the file every command refuses', async () => {
     r = await page(app({ client: { store: async () => store(BROKEN) } }), 'store');
-    await r.until('the tab', () => r!.all('.nostore').length > 0);
-    expect(r.one('.nostore h3').textContent).toBe('The store can’t be read');
-    expect(r.one('.nostore p').textContent).toBe('Settings reads the team store from shadowlap.config.json, which can’t be read until it is fixed.');
-    expect(r.all('.nostore a, .nostore button')).toHaveLength(0);
+    await r.until('the tab', () => r!.all('.settab .stepempty').length > 0);
+    expect(r.one('.settab .stepempty h2').textContent).toBe('The store can’t be read');
+    expect(r.one('.settab .stepempty p').textContent).toBe('Settings reads the team store from shadowlap.config.json, which can’t be read until it is fixed.');
+    expect(r.all('.settab .stepempty a, .settab .stepempty button')).toHaveLength(0);
   });
 
   it('offers Set up team store for a file that reads and names none', async () => {
     r = await page(app({ client: { store: async () => store(null) } }), 'store');
-    await r.until('the tab', () => r!.all('.nostore').length > 0);
-    expect(r.one('.nostore h3').textContent).toBe('No store yet');
-    expect(r.byText('.nostore a', 'Set up team store').getAttribute('href')).toBe('#/setup/store');
+    await r.until('the tab', () => r!.all('.settab .stepempty').length > 0);
+    expect(r.one('.settab .stepempty h2').textContent).toBe('No store yet');
+    expect(r.byText('.settab .stepempty a', 'Set up team store').getAttribute('href')).toBe('#/setup/store');
   });
 
   it('still says "No normalizers yet" and offers Calibrate for a file that reads', async () => {
     r = await page(app({ client: { matching: async () => matching(null) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
-    expect(r.one('.ruletable td.none').textContent).toContain('No normalizers yet');
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
+    expect(r.one('.settab .emptyline').textContent).toContain('No normalizers yet');
     expect(r.all('.setrow b').map((b) => b.textContent)).toEqual(['Dates and times', 'Calibrate']);
   });
 
@@ -120,7 +122,7 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
       ['redaction', { redaction: async () => redaction(null) }, 'Add redaction rule…', 'Add redaction rule'],
     ] as const) {
       r = await page(app({ client }), tab);
-      await r.until('the tab', () => r!.all('.ruletable').length > 0);
+      await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
       await r.click(r.byText('.settab header button', button));
       await r.until('the dialog', () => r!.all('.dialog').length === 1);
       expect([r.one('.dialog header h3').textContent, r.one('.dialog .dlg-ok').textContent]).toEqual([name, name]);
@@ -133,7 +135,7 @@ describe('Settings while shadowlap.config.json can’t be read', () => {
 describe('Settings for a project whose folder is gone', () => {
   it('says so in its header, turns every edit off with why, and shows no rules it can’t read', async () => {
     r = await page(app({ missing: true, client: { matching: async () => matching(null) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(r.one('.ph h1').textContent).toBe('Can’t open research-agent');
     expect(r.byText('.ph button', 'Remove project…').disabled).toBe(false);
     const why = 'research-agent’s folder is gone: put it back or remove the project';
@@ -142,24 +144,24 @@ describe('Settings for a project whose folder is gone', () => {
     expect(add.getAttribute('data-why')).toBe(why);
     for (const b of r.all('.settab .seg button')) expect(b.getAttribute('data-why')).toBe(why);
     // Not a healthy project with no normalizers yet, and nothing to calibrate.
-    expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read while the folder is gone.');
+    expect(r.one('.settab .emptyline').textContent).toBe('The rules can’t be read while the folder is gone.');
     expect(r.all('.setrow b').map((b) => b.textContent)).toEqual(['Dates and times']);
   });
 
   it('shows no redaction rules or preview there', async () => {
     r = await page(app({ missing: true, client: { redaction: async () => redaction(null) } }), 'redaction');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
-    expect(r.one('.ruletable td.none').textContent).toBe('The rules can’t be read while the folder is gone.');
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
+    expect(r.one('.settab .emptyline').textContent).toBe('The rules can’t be read while the folder is gone.');
     expect(r.all('.preview')).toHaveLength(0);
     expect(r.byText('.settab header button', 'Add redaction rule…').getAttribute('aria-disabled')).toBe('true');
   });
 
   it('offers no store setup there', async () => {
     r = await page(app({ missing: true, client: { store: async () => store(null) } }), 'store');
-    await r.until('the tab', () => r!.all('.nostore').length > 0);
-    expect(r.one('.nostore h3').textContent).toBe('The store can’t be read');
-    expect(r.one('.nostore p').textContent).toBe('Settings reads the team store from shadowlap.config.json, in the project’s folder, which is gone.');
-    expect(r.all('.nostore a, .nostore button')).toHaveLength(0);
+    await r.until('the tab', () => r!.all('.settab .stepempty').length > 0);
+    expect(r.one('.settab .stepempty h2').textContent).toBe('The store can’t be read');
+    expect(r.one('.settab .stepempty p').textContent).toBe('Settings reads the team store from shadowlap.config.json, in the project’s folder, which is gone.');
+    expect(r.all('.settab .stepempty a, .settab .stepempty button')).toHaveLength(0);
   });
 });
 
@@ -257,7 +259,13 @@ describe('Coding agents, as the design has it', () => {
     const install = r.byText('.skrow button', 'Install the skills');
     expect(install.className).toBe('btn lime');
     expect(rows(r)[0]).toBe('CLAUDE.mdfound · no Shadowlap section yet');
-    await r.click(r.byText('.skrow button', 'In every project on this machine'));
+    const all = r.byText('.skrow button', 'Show commands for every project');
+    expect(all.getAttribute('aria-expanded')).toBe('false');
+    await r.click(all);
+    expect(all.textContent).toBe('Hide commands for every project');
+    expect(all.getAttribute('aria-controls')).toBe('skall');
+    // The commands in a box of their own, its Copy in the corner named for what it copies.
+    expect(r.one('#skall .boxcopy').getAttribute('aria-label')).toBe('Copy commands');
     expect(r.all('.skrow .cmdline')[1].textContent).toBe('$claude plugin marketplace add devjoinedthechat/shadowlap@v0.1.0$claude plugin install shadowlap@shadowlap$claude plugin update shadowlap@shadowlap');
     await r.click(install);
     expect(startJob).toHaveBeenCalledWith('skill-install', { agent: 'claude-code', replace: false });
@@ -308,7 +316,8 @@ describe('Coding agents, as the design has it', () => {
     await r.until('the tab', () => r!.all('.agentsgone').length > 0);
     expect(r.one('.agentsgone').textContent).toBe('The instruction files can’t be read while the folder is gone.');
     expect(r.all('.agentfiles')).toHaveLength(0);
-    expect(r.all('.settab button').map((b) => b.textContent)).toEqual(['Copy the section']);
+    // The section's one Copy, in its box's corner.
+    expect(r.all('.settab button').map((b) => b.getAttribute('aria-label'))).toEqual(['Copy section']);
   });
 });
 
@@ -332,17 +341,42 @@ describe('the rest of Settings while its file or folder can’t be read', () => 
   });
 
   it('shows no clock mode as chosen while the file can’t be read, or the folder is gone', async () => {
-    const pressed = (x: Rendered) => x.all('.settab .seg[aria-label="Clock"] button').map((b) => b.getAttribute('aria-pressed'));
+    const pressed = (x: Rendered) => x.all('.settab .seg[aria-labelledby="clock-name"] button').map((b) => b.getAttribute('aria-pressed'));
     r = await page(app({ client: { matching: async () => matching(BROKEN) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(pressed(r)).toEqual(['false', 'false']);
     await r.unmount();
     r = await page(app({ missing: true, client: { matching: async () => matching(null) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(pressed(r)).toEqual(['false', 'false']);
     await r.unmount();
     r = await page(app({ client: { matching: async () => matching(null) } }), 'matching');
-    await r.until('the tab', () => r!.all('.ruletable').length > 0);
+    await r.until('the tab', () => r!.all('.settab .emptyline, .ruletable').length > 0);
     expect(pressed(r)).toEqual(['true', 'false']);
+  });
+});
+
+describe('a tab that is loading, or whose read failed', () => {
+  it('draws its section in quiet bars under its title while it loads', async () => {
+    r = await page(app({ client: { tools: () => new Promise<never>(() => undefined) } }), 'tools');
+    await r.until('the bars', () => r!.all('.settab .skel').length > 0);
+    expect(r.one('.settab .skel h2').textContent).toBe('Tools');
+    expect(r.one('.settab .skel [role="status"]').textContent.trim()).toBe('Loading Tools…');
+    expect(r.all('.settab .skel .skbars i')).toHaveLength(3);
+  });
+
+  it('says what the server said in one line in the error tone, and reads the tab again on Retry', async () => {
+    let asked = 0;
+    const project = async () => {
+      asked++;
+      throw new Error('The dashboard server answered 500 for this page’s data.');
+    };
+    r = await page(app({ client: { project } }), 'project');
+    await r.until('the error', () => r!.all('.settab .loaderr').length > 0);
+    expect(r.one('.settab .loaderr .st.err').textContent).toBe('couldn’t load');
+    expect(r.one('.settab .loaderr p').textContent).toContain('The dashboard server answered 500 for this page’s data.');
+    const before = asked;
+    await r.click(r.byText('.settab .loaderr button', 'Retry'));
+    await r.until('a second read', () => asked > before);
   });
 });

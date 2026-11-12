@@ -16,7 +16,7 @@ export type ShareMenuProps = ComponentProps<typeof ShareMenu>;
  * revert step and no offers, so no first bad commit to show, and its Tests page is not in it).
  */
 export interface ServedParts {
-  /** Share's menu (run/ShareMenu.tsx), with its Export dataset…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
+  /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
   ShareMenu?: OnShow<ShareMenuProps>;
   /** Revert's dialog (revert/RevertDialog.tsx), which every Revert button opens. */
   RevertDialog?: ComponentType<RevertDialogProps>;

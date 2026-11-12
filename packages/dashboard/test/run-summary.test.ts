@@ -20,7 +20,7 @@ const pick = <T,>(r: () => number, xs: readonly T[]): T => xs[Math.floor(r() * x
 const MODELS = ['claude-sonnet-4-5', 'claude-opus-5', 'gpt-5-mini', 'an-unpriced-model'];
 const SCOPES = [undefined, undefined, undefined, 'agent', 'agent/sub', 'other', JUDGE_SCOPE];
 
-function buildRun(store: Store, seed: number, meta: RunMeta, mode: 'record' | 'replay' = 'record'): RunRecord {
+function buildRun(store: Store, seed: number, meta: RunMeta, mode: 'record' | 'replay' = 'record', scopes: readonly (string | undefined)[] = SCOPES): RunRecord {
   const r = rnd(seed);
   const parent = mode === 'replay' ? store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/w' } }) : null;
   if (parent) store.endRun(parent.runId, 'completed', 1);
@@ -29,7 +29,7 @@ function buildRun(store: Store, seed: number, meta: RunMeta, mode: 'record' | 'r
   for (let callNo = 1; callNo <= calls; callNo++) {
     const kind: CallKind = pick(r, ['api', 'api', 'api', 'tool', 'tool', 'clock', 'random'] as const);
     const origin: Origin = pick(r, ['live', 'live', 'replayed', 'replayed', 'blocked', 'stubbed', 'overridden'] as const);
-    const scope = pick(r, SCOPES);
+    const scope = pick(r, scopes);
     const model = pick(r, MODELS);
     // The model where the call names it: on its start, only in its request, or nowhere.
     const where = pick(r, ['start', 'end', 'request', 'nowhere'] as const);
@@ -96,7 +96,8 @@ describe('what a run page says of the whole run, read in SQL', () => {
     const r = rnd(5);
     for (let i = 0; i < 12; i++) {
       const scope = pick(r, [null, 'agent', 'other']);
-      const run = buildRun(store, 100 + i, {}, 'record');
+      // A scope of Shadowlap's own beside its judge's: none of blame's steps, in SQL as in the engine's blameSteps.
+      const run = buildRun(store, 100 + i, {}, 'record', [...SCOPES, 'shadowlap:probe']);
       const calls = store.getCalls(run.runId);
       const callNo = pick(r, calls).callNo;
       store.updateRunMeta(run.runId, { blame: { at: 1, outcome: 'blamed', callNo, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0, ...(scope ? { scope } : {}) } });

@@ -195,8 +195,8 @@ for (const [width, height] of [
     const dialog = page.locator(DIALOG);
     await expect(dialog).toContainText(`Revert ${REV}?`);
     const box = dialog.locator('pre.codebox.fxpatch');
-    await expect(box.locator('.add')).toHaveText('+    limit = policy.limit(order)');
-    await expect(box.locator('.del')).toHaveText('-    limit = policy.limit()');
+    await expect(box.locator('.add')).toHaveText('+     limit = policy.limit(order)');
+    await expect(box.locator('.del')).toHaveText('−     limit = policy.limit()');
     // An added line's ground reaches the box's edges without widening it: nothing to scroll sideways.
     expect(await box.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
     expect(await seriousViolations(page)).toEqual([]);

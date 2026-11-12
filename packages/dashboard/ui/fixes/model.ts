@@ -186,8 +186,12 @@ export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['appl
   return { label: 'Marked applied', title: apply.change ? `Verified with ${apply.change}, a change to the requests that your agent makes, not to your files` : 'Verified on your working tree as it was, and marked applied' };
 }
 
-/** A patch's lines as the dialog shows them, each line a hunk adds or removes marked; the headers are neither. */
-export function patchLines(diff: string): Array<{ text: string; tone: 'add' | 'del' | null }> {
+/**
+ * A patch's lines as a box of marked lines shows them (CodeBox's `lines`): each line a hunk adds
+ * (`+`) or removes (`-`), and each it keeps, without the sign git leads it with, which the box marks
+ * itself; the headers are kept lines, as written.
+ */
+export function patchLines(diff: string): Array<{ op: ' ' | '+' | '-'; text: string }> {
   let inHunk = false;
   return diff
     .replace(/\n$/, '')
@@ -195,7 +199,8 @@ export function patchLines(diff: string): Array<{ text: string; tone: 'add' | 'd
     .map((text) => {
       if (text.startsWith('@@')) inHunk = true;
       else if (text.startsWith('diff ')) inHunk = false;
-      return { text, tone: inHunk && text.startsWith('+') ? 'add' : inHunk && text.startsWith('-') ? 'del' : null };
+      const op = inHunk && (text.startsWith('+') || text.startsWith('-')) ? (text[0] as '+' | '-') : ' ';
+      return { op, text: inHunk && (op !== ' ' || text.startsWith(' ')) ? text.slice(1) : text };
     });
 }
 

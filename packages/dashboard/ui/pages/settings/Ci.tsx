@@ -1,72 +1,89 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
-import { CodeBlock } from '../../components/bits.js';
+import { useEffect, useState } from 'react';
 import { Tile } from '../../components/Icon.js';
+import { Section } from '../../components/Section.js';
+import { Switch } from '../../components/Switch.js';
 import { shortFixId } from '../../fixes/model.js';
 import { clock } from '../../format.js';
 import { useLatest } from '../../hooks.js';
 import { href } from '../../route.js';
-import type { CiListRow, CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
+import type { CiWorkflowOptions, CiWorkflowsView, PullRequestPreview } from '../../types.js';
 import { useApp } from '../../state.js';
-import { TeamStoreRow } from './CiTeamStore.js';
+import { CiList, Select } from './CiList.js';
+import { Gates } from './CiGates.js';
+import { YourWorkflow } from './CiWorkflow.js';
+import { AGAIN, CHANGES, keptFor } from './ci-kept.js';
 import { ConfigProblem, LoadProblem, Loading } from './common.js';
 import { onSettingsChanged } from './events.js';
 import { ciShown, typedSecret } from './logic.js';
 
 /**
- * CI (`#/settings/alerts`, as Alerts had it): your workflow first, one job in which the action runs
- * the goldens once and the parts you turn on follow it, built from its switches (fix pull requests,
- * Slack, the team store, which follows Push from CI, and what an inconclusive golden does), with
- * what it needs, what fails a golden, and the workflow file across the bottom with Copy. Then a
- * panel for each part, in the same layout: its settings on the left, what lands on the right,
- * dimmed while it is off. The panels come from `GET /api/ci/workflows` (src/ci-workflows.ts), asked
- * again as you pick, which fills in the project's goldens, its newest verified fix, its repository,
- * its default branch and its team store. While shadowlap.config.json can't be read, the tab says so
- * as the others do, and the workflow says what it leaves out. Nothing is stored: the steps go into
- * your own workflow file and run in your CI.
+ * CI (`#/settings/ci`; `#/settings/alerts`, as Alerts had it, opens it too): Your workflow first,
+ * where the repository's workflow stands against the one the switches below build, with Write file;
+ * then a panel for each part the one job runs after the action, each with its switch in its header:
+ * Pull request comment, Fix on failure and Alerts, their settings on the left and what lands on the
+ * right; then Gates, which previews a gate's figures and what an inconclusive golden does in CI. The
+ * panels come from `GET /api/ci/workflows` (src/ci-workflows.ts), asked again as you pick: the
+ * switches start as the repository's workflow sets them, and the file is the repository's with only
+ * what they own changed. While shadowlap.config.json can't be read, the tab says so as the others
+ * do, and Write file waits. A switch changes only what Write file would write.
  */
 
-/** What the panels were changed to, kept while the dashboard is open; what isn't changed is the server's default. */
-const kept: Partial<CiWorkflowOptions> = {};
-
 export function CiTab() {
+  const project = useApp().meta?.project?.id ?? null;
+  // Another project's switches start from its own workflow: the tab starts again, with what was changed there.
+  return <CiPanels key={project ?? ''} project={project} />;
+}
+
+/** The tab for one project. */
+function CiPanels({ project }: { project: string | null }) {
   const { toast } = useApp();
+  // What its switches were changed to (ci-kept.ts).
+  const kept = keptFor(project);
   const [changed, setChanged] = useState<Partial<CiWorkflowOptions>>(() => ({ ...kept }));
+  const [pending, setPending] = useState<{ what: string; for: string } | null>(null);
   const set = (patch: Partial<CiWorkflowOptions>) => {
     Object.assign(kept, patch);
     setChanged({ ...kept });
   };
-  const { view, error } = useCiWorkflows(changed);
+  const toggle = (patch: Partial<CiWorkflowOptions>, what: string) => {
+    set(patch);
+    setPending({ what, for: JSON.stringify(kept) });
+  };
+  const { view, error, reload, servedFor } = useCiWorkflows(changed);
+  useEffect(() => {
+    if (!pending || !view || servedFor !== pending.for) return;
+    toast(`${pending.what} · ${view.workflow.same ? AGAIN : CHANGES}`);
+    setPending(null);
+  }, [pending, view, servedFor, toast]);
   if (!view) {
-    if (error) return <LoadProblem error={error} />;
+    if (error) return <LoadProblem error={error} retry={reload} />;
     return (
       <>
-        <Loading title="Your workflow" />
-        <Loading title="Fix on failure" />
-        <Loading title="Alerts" />
+        {['Your workflow', 'Pull request comment', 'Fix on failure', 'Alerts', 'Gates'].map((t) => (
+          <Loading key={t} title={t} />
+        ))}
       </>
     );
   }
-  // What the controls show: what was changed here, else what the server answered with.
+  // What the controls show: what was changed here, else what the repository's workflow sets.
   const o = ciShown(changed, view);
   return (
     <>
-      {/* The steps read the goldens' tests and the store from it: each says what it leaves out until it is fixed. */}
       {view.configError ? <ConfigProblem error={view.configError} /> : null}
-      <Workflow
-        o={o}
+      <YourWorkflow
         view={view}
-        set={set}
-        onFix={(on) => {
-          set({ fix: on });
-          toast(on ? 'Fix pull requests are on · your workflow has the step' : 'Fix pull requests are off');
-        }}
-        onAlerts={(on) => {
-          set({ alerts: on });
-          toast(on ? 'Slack alerts are on · your workflow has the steps' : 'Slack alerts are off');
+        changed={changed}
+        reload={reload}
+        onWritten={() => {
+          // Written: the switches follow the file again.
+          for (const k of Object.keys(kept) as Array<keyof CiWorkflowOptions>) delete kept[k];
+          setChanged({});
         }}
       />
-      <FixOnFailure o={o} view={view} set={set} />
-      <Alerts o={o} view={view} set={set} />
+      <PullRequestComment o={o} view={view} onSwitch={(on) => toggle({ comment: on }, `The pull request comment is ${on ? 'on' : 'off'}`)} />
+      <FixOnFailure o={o} view={view} set={set} onSwitch={(on) => toggle({ fix: on }, `Fix on failure is ${on ? 'on' : 'off'}`)} />
+      <Alerts o={o} view={view} set={set} toggle={toggle} />
+      <Gates o={o} view={view} set={set} />
       {error ? <p className="fieldnote err">{error.message}</p> : null}
     </>
   );
@@ -74,15 +91,16 @@ export function CiTab() {
 
 /**
  * The panels for what was changed: the server's answer, kept while the next one is asked so nothing
- * empties as you type. Asked again when the window comes back (Push from CI may have been switched
- * in a terminal meanwhile), when Settings changed from elsewhere, and in another project.
+ * empties as you type, with the options it answered for (`servedFor`). Asked again when the window
+ * comes back (the file or Push from CI may have changed meanwhile), when Settings changed from
+ * elsewhere, in another project, and on Retry (`reload`).
  */
-function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView | null; error: Error | null } {
+function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView | null; error: Error | null; reload: () => void; servedFor: string | null } {
   const { client, meta } = useApp();
   const options = useLatest(o);
   const [seen, setSeen] = useState(0);
   const key = `${JSON.stringify(o)}:${meta?.project?.id ?? ''}:${seen}`;
-  const [served, setServed] = useState<{ view: CiWorkflowsView | null; error: Error | null }>({ view: null, error: null });
+  const [served, setServed] = useState<{ view: CiWorkflowsView | null; error: Error | null; servedFor: string | null }>({ view: null, error: null, servedFor: null });
   useEffect(() => {
     const again = () => document.visibilityState === 'visible' && setSeen((n) => n + 1);
     window.addEventListener('focus', again);
@@ -96,162 +114,38 @@ function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView 
   }, []);
   useEffect(() => {
     let alive = true;
-    client.ciWorkflows(options.current).then(
-      (view) => alive && setServed({ view, error: null }),
-      (err: unknown) => alive && setServed((s) => ({ view: s.view, error: err instanceof Error ? err : new Error(String(err)) })),
+    const asked = options.current;
+    client.ciWorkflows(asked).then(
+      (view) => alive && setServed({ view, error: null, servedFor: JSON.stringify(asked) }),
+      (err: unknown) => alive && setServed((s) => ({ ...s, error: err instanceof Error ? err : new Error(String(err)) })),
     );
     return () => {
       alive = false;
     };
   }, [client, key, options]);
-  return served;
+  return { ...served, reload: () => setSeen((n) => n + 1) };
 }
 
-/**
- * A list of rows, each with its dot: the row's own tone (a failure red, one that can't be decided
- * amber), else the list's. A value that lists several (the providers' keys) breaks only after a
- * comma, each one whole.
- */
-function CiList({ rows, tone = '' }: { rows: readonly CiListRow[]; tone?: '' | 'err' }) {
+/** The action's comment on each pull request: its switch, what it carries, and what it needs. Its preview is port/pr-comment's. */
+function PullRequestComment({ o, view, onSwitch }: { o: CiWorkflowOptions; view: CiWorkflowsView; onSwitch: (on: boolean) => void }) {
   return (
-    <ul className="cilist">
-      {rows.map((r) => (
-        <li key={`${r.label}\u0000${r.value}`}>
-          {/* A row's own tone first: an inconclusive golden is amber, never a failure's red. */}
-          <i className={r.tone ?? (tone || undefined)} aria-hidden="true" />
-          <span>{r.label}</span>
-          {r.value ? (
-            <code>
-              {r.value.split(', ').map((v, i) => (
-                <Fragment key={i}>
-                  {i ? ', ' : null}
-                  <span className="nw">{v}</span>
-                </Fragment>
-              ))}
-            </code>
-          ) : null}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function Select({ label, value, options, onChange }: { label: string; value: string; options: ReadonlyArray<{ value: string; label: string }>; onChange: (value: string) => void }) {
-  return (
-    <select className="sel" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((x) => (
-        <option key={x.value} value={x.value}>
-          {x.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-/** A switch, as the design draws one: a pill that takes Space and Enter as a click. */
-function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
-  return (
-    <span
-      className="switch"
-      role="switch"
-      tabIndex={0}
-      aria-checked={on}
-      aria-label={label}
-      onClick={() => onChange(!on)}
-      onKeyDown={(e) => {
-        if (e.key === ' ' || e.key === 'Enter') {
-          e.preventDefault();
-          onChange(!on);
-        }
-      }}
-    >
-      <i />
-    </span>
-  );
-}
-
-/**
- * Your workflow: the switches it is built from, what it needs for what is on, what fails a golden in
- * it, and the one job's steps: one checkout, one Node, the action once (`id: goldens`), then a fix
- * pull request and Slack where they are on.
- */
-function Workflow({ o, view, set, onFix, onAlerts }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void; onFix: (on: boolean) => void; onAlerts: (on: boolean) => void }) {
-  const { toast } = useApp();
-  const w = view.workflow;
-  return (
-    <section className="panel set cip" id="workflow">
-      <header>
-        <h2>Your workflow</h2>
-        <span className="sub">one job: the action runs your goldens once, then what you turn on</span>
-      </header>
-      <div className="alertgrid">
-        <div className="pbody cimain">
-          <div className="setrow tight">
-            <div>
-              <b>Fix pull requests</b>
-              <span>When an outcome check fails, CI runs blame, repair and verify, and opens a pull request with the fix verify accepted.</span>
-            </div>
-            <Switch on={o.fix} label="Fix pull requests" onChange={onFix} />
-          </div>
-          <div className="setrow tight">
-            <div>
-              <b>Tell Slack</b>
-              <span>The action counts the goldens that failed; Slack hears of them, then the job fails.</span>
-            </div>
-            <Switch on={o.alerts} label="Tell Slack" onChange={onAlerts} />
-          </div>
-          {view.fixOnFailure.teamStore ? <TeamStoreRow store={view.fixOnFailure.teamStore} /> : null}
-          <div className="setrow tight">
-            <div>
-              <b>An inconclusive golden</b>
-              <span>{INCONCLUSIVE_WORDS[o.inconclusive ?? 'fail']}</span>
-            </div>
-            <div className="seg" role="group" aria-label="An inconclusive golden in CI">
-              {(['fail', 'warn'] as const).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  aria-pressed={(o.inconclusive ?? 'fail') === k}
-                  onClick={() => {
-                    if ((o.inconclusive ?? 'fail') === k) return;
-                    set({ inconclusive: k });
-                    toast(INCONCLUSIVE_TOAST[k]);
-                  }}
-                >
-                  {k === 'fail' ? 'Fails' : 'Warns'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <span className="k cineeds">it needs</span>
-          <CiList rows={w.needs} />
-        </div>
-        <div className="pbody teamside">
-          <span className="k">a golden fails when</span>
-          <CiList rows={w.failures} tone="err" />
-          {view.fixOnFailure.teamStore?.lands.length ? (
-            <>
-              <span className="k">and in the team store</span>
-              <CiList rows={view.fixOnFailure.teamStore.lands} />
-            </>
-          ) : null}
-        </div>
+    <Section className={`set cip prpanel${o.comment ? '' : ' off'}`} id="pr-comment" title="Pull request comment" sub="the verdict on every pull request" actions={<Switch on={o.comment} label="Pull request comment" onChange={onSwitch} />}>
+      <div className="pbody cimain">
+        <p className="muted">
+          <span className="ln">One comment on each pull request, kept current on every push:</span> <span className="ln">each golden’s verdict by its gate, beside the base branch’s last session.</span>
+          {o.comment ? null : <b className="offnote">{view.comment.offNote}</b>}
+        </p>
+        <span className="k cineeds">it needs</span>
+        <CiList rows={view.comment.needs} />
       </div>
-      <div className="pbody cicode">
-        <CodeBlock file={view.file} code={w.yaml} copyLabel="your workflow’s steps" />
-      </div>
-    </section>
+    </Section>
   );
 }
 
-function FixOnFailure({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
+function FixOnFailure({ o, view, set, onSwitch }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void; onSwitch: (on: boolean) => void }) {
   const f = view.fixOnFailure;
   return (
-    <section className={`panel set cip${o.fix ? '' : ' off'}`} id="fix-on-failure">
-      <header>
-        <h2>Fix on failure</h2>
-        <span className="sub">a fix pull request when a rule breaks in CI</span>
-      </header>
+    <Section className={`set cip${o.fix ? '' : ' off'}`} id="fix-on-failure" title="Fix on failure" sub="a fix pull request when a rule breaks in CI" actions={<Switch on={o.fix} label="Fix on failure" onChange={onSwitch} />}>
       <div className="alertgrid">
         <div className="pbody cimain">
           <p className="muted">
@@ -260,18 +154,20 @@ function FixOnFailure({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflow
           </p>
           <div className="setrow tight">
             <div>
-              <b>Budget per failing golden</b>
-              <span>Repair stops once it’s spent.</span>
+              <b id="cifixBudget-name">Budget per failing golden</b>
+              <span id="cifixBudget-help">Repair stops once it’s spent.</span>
             </div>
-            <Select label="Budget per failing golden" value={o.budget} options={f.budgets} onChange={(budget) => set({ budget })} />
+            <Select id="cifixBudget" value={o.budget} options={f.budgets} onChange={(budget) => set({ budget })} />
           </div>
           <div className="setrow tight">
             <div>
-              <b>Repairer</b>
-              <span>Proposes fixes; verify decides.</span>
+              <b id="cifixRepairer-name">Repairer</b>
+              <span id="cifixRepairer-help">Proposes fixes; verify decides.</span>
             </div>
-            <Select label="Repairer" value={o.repairer} options={f.repairers} onChange={(repairer) => set({ repairer })} />
+            <Select id="cifixRepairer" value={o.repairer} options={f.repairers} onChange={(repairer) => set({ repairer })} />
           </div>
+          <span className="k cineeds">it needs</span>
+          <CiList rows={f.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">{f.preview.example ? 'what lands in GitHub · example' : 'what lands in GitHub'}</span>
@@ -280,7 +176,7 @@ function FixOnFailure({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflow
           <CiList rows={f.never} />
         </div>
       </div>
-    </section>
+    </Section>
   );
 }
 
@@ -343,36 +239,10 @@ function PullRequest({ pr }: { pr: PullRequestPreview }) {
   );
 }
 
-/**
- * What each choice for an inconclusive golden (a gate, a judge or an injection test that can't
- * decide) does, in the design's words for its "in CI" row (the Gates panel's), as the action's
- * `inconclusive` input takes it. Fails writes no input, so the step does as `shadowlap test` does by
- * default: a gate against a history shorter than 30 sessions only warns, until the plan reads a
- * decline or a drop in it.
- */
-const INCONCLUSIVE_WORDS: Record<'fail' | 'warn', ReactNode> = {
-  fail: <>Fails the step, as a failed one does, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them. Run more attempts can settle it.</>,
-  warn: (
-    <>
-      Lets the step pass with a warning: <code>inconclusive: warn</code>. Every report still says inconclusive.
-    </>
-  ),
-};
-
-/** What the toast says when the choice changes. */
-const INCONCLUSIVE_TOAST: Record<'fail' | 'warn', string> = {
-  fail: 'An inconclusive golden fails the step, the default · a gate against fewer than 30 sessions only warns',
-  warn: 'An inconclusive golden warns · the step says inconclusive: warn',
-};
-
-function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void }) {
+function Alerts({ o, view, set, toggle }: { o: CiWorkflowOptions; view: CiWorkflowsView; set: (patch: Partial<CiWorkflowOptions>) => void; toggle: (patch: Partial<CiWorkflowOptions>, what: string) => void }) {
   const a = view.alerts;
   return (
-    <section className={`panel set cip${o.alerts ? '' : ' off'}`} id="alerts">
-      <header>
-        <h2>Alerts</h2>
-        <span className="sub">a message in Slack when a golden fails in CI</span>
-      </header>
+    <Section className={`set cip${o.alerts ? '' : ' off'}`} id="alerts" title="Alerts" sub="a message in Slack when a golden fails in CI" actions={<Switch on={o.alerts} label="Alerts" onChange={(on) => toggle({ alerts: on }, `Alerts are ${on ? 'on' : 'off'}`)} />}>
       <div className="alertgrid">
         <div className="pbody cimain">
           <p className="muted">
@@ -381,10 +251,10 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
           </p>
           <div className="setrow tight">
             <div>
-              <b>Only for the {a.branch} branch</b>
-              <span>Pull requests stay quiet; their checks already show it.</span>
+              <b id="onlyMain-name">Only for the {a.branch} branch</b>
+              <span id="onlyMain-help">Pull requests stay quiet; their checks already show it.</span>
             </div>
-            <Switch on={o.onlyMain} label={`Only for the ${a.branch} branch`} onChange={(onlyMain) => set({ onlyMain })} />
+            <Switch on={o.onlyMain} labelledBy="onlyMain-name" describedBy="onlyMain-help" onChange={(onlyMain) => toggle({ onlyMain }, onlyMain ? `Alerts are for the ${a.branch} branch only` : 'Alerts are for every branch')} />
           </div>
           <div className="setrow tight">
             <div>
@@ -393,6 +263,8 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
             </div>
             <input className="inp" type="text" spellCheck={false} autoComplete="off" aria-label="Webhook secret" value={o.secret} onChange={(e) => set({ secret: typedSecret(e.target.value) })} />
           </div>
+          <span className="k cineeds">it needs</span>
+          <CiList rows={a.needs} />
         </div>
         <div className="pbody teamside">
           <span className="k">what lands in Slack</span>
@@ -408,8 +280,10 @@ function Alerts({ o, view, set }: { o: CiWorkflowOptions; view: CiWorkflowsView;
               <span className="sl">{a.message.link}</span>
             </div>
           </div>
+          <span className="k">a golden fails when</span>
+          <CiList rows={a.failures} tone="err" />
         </div>
       </div>
-    </section>
+    </Section>
   );
 }

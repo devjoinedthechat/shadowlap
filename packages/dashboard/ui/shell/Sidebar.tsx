@@ -17,18 +17,17 @@ import { lessPending, usePendingHidden, useStillCounted, withoutPending } from '
 import { ProjectBlock } from './ProjectBlock.js';
 import { useLastRunsHref } from '../runs-view.js';
 
-/** How long the drawer takes to show: it slides in hidden from the focus, and a hidden element can't take it. */
-const DRAWER_SHOWS_MS = 40;
-
 /**
- * The phone's drawer has opened: its first item takes the focus once it shows, and a click beside it
- * closes it, its button taking the focus. A tap or a mouse's click there does nothing else (a row
- * beside it doesn't open); a key's (Enter on what Tab reached past the drawer) still does what it
- * says, and so does any click on the top bar, which stays in reach while the page can't be (Search or
- * jump to opens over the drawer it closes). Hands back what undoes that.
+ * The phone's drawer has opened: its first item takes the focus at once, since the drawer shows as it
+ * opens (shell.css: its visibility never waits for the slide's first frame, which on a busy phone
+ * could come after a focus that a hidden element can't take), and a click beside it closes it, its
+ * button taking the focus. A tap or a mouse's click there does nothing else (a row beside it doesn't
+ * open); a key's (Enter on what Tab reached past the drawer) still does what it says, and so does any
+ * click on the top bar, which stays in reach while the page can't be (Search or jump to opens over the
+ * drawer it closes). Hands back what undoes that.
  */
 function drawerOpened(aside: RefObject<HTMLElement | null>, close: () => void): () => void {
-  const timer = setTimeout(() => aside.current?.querySelector<HTMLElement>('a[href], button')?.focus({ preventScroll: true }), DRAWER_SHOWS_MS);
+  aside.current?.querySelector<HTMLElement>('a[href], button')?.focus({ preventScroll: true });
   const beside = (e: Event) => {
     const at = e.target as Element | null;
     if (at?.closest?.('#side, .menu-toggle, #menu, #layer')) return;
@@ -40,10 +39,7 @@ function drawerOpened(aside: RefObject<HTMLElement | null>, close: () => void): 
     document.querySelector<HTMLElement>('.menu-toggle')?.focus({ preventScroll: true });
   };
   document.addEventListener('click', beside, true);
-  return () => {
-    clearTimeout(timer);
-    document.removeEventListener('click', beside, true);
-  };
+  return () => document.removeEventListener('click', beside, true);
 }
 
 /** A page in the sidebar's nav: its key, icon, label and address, and the count beside it. */

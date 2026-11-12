@@ -41,21 +41,24 @@ const PAGES = ['Changes', 'Compare', 'Fixes', 'NewProject', 'Overview', 'Run', '
  * The parts of pages, and the shell's palette, shortcuts sheet and Remove project dialog, in scripts of their own, by their chunk's name: the list grows as parts land.
  * The dialogs a list row's step asks in load as the step first asks: a fix's lead's (LeadDialog, on Fixes and Needs a look), and Needs a look's Find breaking commit's and Update golden's.
  */
-const PARTS = ['ActionDialog', 'ChangeBox', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'LeadDialog', 'Palette', 'ProvenanceView', 'RemoveProject', 'RevertDialog', 'RevisionPage', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
+const PARTS = ['ActionDialog', 'ChangeBox', 'CheckDialog', 'ContextView', 'DatasetDialog', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'LeadDialog', 'OtelDialog', 'Palette', 'Preview', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RevertDialog', 'RevisionPage', 'RunDialogs', 'ShareMenu', 'Shortcuts', 'TimelineView', 'TurnsView', 'UpdateGolden', 'Verdicts', 'jobs'];
 /** The pages an exported copy shows (ui/pages/copy.tsx). */
 const COPY_PAGES = ['Compare', 'Run', 'Runs'];
-/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu and the Export dataset… it opens, Revert's dialog and the change box. */
-const COPY_PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DiffPanel', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForksView', 'Palette', 'ProvenanceView', 'RemoveProject', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
+/** The parts the copy shows, in its one script: a run's views but Calls, and what its shell holds. Not those only the served dashboard draws, which it hands in (ui/served-parts.ts): Share's menu, the Export dataset… and Export OpenTelemetry trace… it opens, Revert's dialog and the change box. */
+const COPY_PARTS = ['ActionDialog', 'CheckDialog', 'ContextView', 'DecisionsView', 'DivergedDialogs', 'Drawer', 'EditDialog', 'Elsewhere', 'ForkDifferences', 'ForksView', 'JsonDiff', 'Palette', 'ProvenanceView', 'RemoveProject', 'RequestDiff', 'RunDialogs', 'Shortcuts', 'TimelineView', 'TurnsView', 'jobs'];
 
 /**
  * The parts heavy enough that they must wait for a script of their own (`onShow`), by their modules:
  * the structural diff, the results matrix, the check builder (all of ui/checks/) and each Changes
  * tab with what it opens (all of ui/changes/ but the head every tab shares), Compare among them.
  * Each of them in the build is in neither the first look nor what any page but its own loads up
- * front, so opening a page never loads one.
+ * front, so opening a page never loads one. The structural diff's walk (ui/json-diff.ts) is the one
+ * a page may hold up front, the one its third field names: Compare, a heavy page itself, whose rows
+ * mark the words two calls differ by and whose changed request it walks.
  */
-const HEAVY: ReadonlyArray<readonly [string, RegExp]> = [
+const HEAVY: ReadonlyArray<readonly [string, RegExp, string?]> = [
   ['the structural diff', /^ui\/components\/JsonDiff\.tsx$/],
+  ['the structural diff’s walk', /^ui\/json-diff\.ts$/, 'ui/pages/Compare.tsx'],
   ['the results matrix', /^ui\/components\/ResultsMatrix\.tsx$/],
   ['the check builder', /^ui\/checks\//],
   ['a Changes tab', /^ui\/changes\/(?!Head\.tsx$)/],
@@ -145,12 +148,14 @@ describe('the dashboard’s scripts', () => {
     const listShows = dynamicImports(metafile).filter((d) => listed.has(d.by) && d.by.startsWith('ui/pages/'));
     expect(listShows.map((d) => [d.by, d.entry])).toEqual([['ui/pages/held-elsewhere.tsx', 'ui/pages/Elsewhere.tsx']]);
     // The heavy parts each wait for a script of their own, wherever they show: in neither the first
-    // look nor what opening any other page loads. Compare is one of them already.
-    const heavy = Object.keys(metafile.inputs).flatMap((input) => HEAVY.filter(([, re]) => re.test(input)).map(([what]) => ({ input, what })));
-    expect(heavy.map((h) => h.input)).toContain('ui/pages/Compare.tsx');
-    for (const { input, what } of heavy) {
+    // look nor what opening any other page loads. Compare is one of them already, and the walk loads
+    // with it.
+    const heavy = Object.keys(metafile.inputs).flatMap((input) => HEAVY.filter(([, re]) => re.test(input)).map(([what, , page]) => ({ input, what, page })));
+    expect(heavy.map((h) => h.input)).toEqual(expect.arrayContaining(['ui/pages/Compare.tsx', 'ui/json-diff.ts']));
+    expect(pages.find((p) => p.name === 'Compare')?.upFront.has('ui/json-diff.ts')).toBe(true);
+    for (const { input, what, page } of heavy) {
       expect(firstInputs.has(input), `${what}, ${input}, is in the first look`).toBe(false);
-      for (const p of pages) if (p.entry !== input) expect(p.upFront.has(input), `${what}, ${input}, loads with ${p.name}`).toBe(false);
+      for (const p of pages) if (p.entry !== input && p.entry !== page) expect(p.upFront.has(input), `${what}, ${input}, loads with ${p.name}`).toBe(false);
     }
     // The run page's code is not in the first look.
     expect(firstInputs.has('ui/pages/Run.tsx')).toBe(false);

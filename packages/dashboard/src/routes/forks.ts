@@ -3,15 +3,17 @@ import { isAbsolute, relative, sep } from 'node:path';
 import { buildActions, actionContext, messageOf } from '@shadowlap/engine';
 import type { Normalizer } from '@shadowlap/engine';
 import { importedConsent, lookupRun, noSuchRun } from '../api.js';
-import type { RouteContext } from '../context.js';
+import { projectNormalizers, type RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
 import { recordingNow } from '../run-exports.js';
 import { runAffinity } from '../run-index.js';
+import { count } from './runs.js';
 import type { Router } from '../router.js';
 
 /**
- * Forks: what a fork did differently from its parent (`GET /api/runs/:id/differences`), the tools
+ * Forks: what a fork did differently from its parent (`GET /api/runs/:id/differences`), the request
+ * it changed as recorded and as sent (`GET /api/runs/:id/diff[?call=<n>]`), the tools
  * the model called that the run never recorded, which a replay runs for real (`GET
  * /api/runs/:id/unrecorded`), and a fork
  * from a call's result as a person edited it in the inspector, the `override` job kind: the fork
@@ -31,14 +33,7 @@ export const OVERRIDE_LIMIT = 2 * 1024 * 1024;
 export const OVERRIDE_INLINE = 64 * 1024;
 
 export function register(router: Router, ctx: RouteContext): void {
-  const normalizers = (): readonly Normalizer[] => {
-    if (!ctx.options.loadConfig) return [];
-    try {
-      return ctx.config().normalize;
-    } catch {
-      return [];
-    }
-  };
+  const normalizers = (): readonly Normalizer[] => projectNormalizers(ctx);
 
   // It reads every call of the fork and of its parent: worked out beside the server (read-pool.ts).
   router.get('/runs/:id/differences', async (r) => {
@@ -49,6 +44,19 @@ export function register(router: Router, ctx: RouteContext): void {
       throw new HttpError(no.status, no.message);
     }
     sendAnswer(r, await ctx.reads.run({ kind: 'differences', runId: run.runId, normalizers: [...normalizers()] }, runAffinity(ctx.store, run.runId)));
+  });
+
+  // The request a fork or a diverged replay changed, both bodies whole (request-diff.ts): it reads
+  // the run's calls and its parent's, so it is worked out beside the server too.
+  router.get('/runs/:id/diff', async (r) => {
+    const store = ctx.store;
+    const callNo = count(r, 'call', 'a call number') ?? null;
+    const run = lookupRun(store, r.params.id!);
+    if (!run) {
+      const no = noSuchRun(store, r.params.id!);
+      throw new HttpError(no.status, no.message);
+    }
+    sendAnswer(r, await ctx.reads.run({ kind: 'request-diff', runId: run.runId, callNo, normalizers: [...normalizers()] }, runAffinity(ctx.store, run.runId)));
   });
 
   // What the run did that Shadowlap never recorded: it reads every model call's answer, so it is worked out beside the server too.

@@ -43,6 +43,7 @@
     "packages/dashboard/test/normalize.test.ts",
     // These render the run page's components, which use the DOM too.
     "packages/dashboard/test/ui-strip.test.ts",
+    "packages/dashboard/test/ui-preview.test.ts",
     "packages/dashboard/test/ui-run-width.test.ts",
     "packages/dashboard/test/ui-run-scale.test.ts",
     "packages/dashboard/test/ui-timeline-notch.test.ts",
@@ -111,7 +112,16 @@
     "packages/dashboard/test/ui-run-outcome.test.ts",
     // These render Settings.
     "packages/dashboard/test/ui-settings-states.test.ts",
+    "packages/dashboard/test/ui-settings-shell.test.ts",
+    "packages/dashboard/test/ui-settings-undo.test.ts",
+    "packages/dashboard/test/ui-settings-store.test.ts",
+    "packages/dashboard/test/ui-settings-tools.test.ts",
+    "packages/dashboard/test/ui-training-sections.test.ts",
+    "packages/dashboard/test/ui-project-switcher.test.ts",
+    "packages/dashboard/test/ui-settings-lists.test.ts",
+    "packages/dashboard/test/ui-settings-calibrate.test.ts",
     "packages/dashboard/test/ui-ci-tab.test.ts",
+    "packages/dashboard/test/ui-store-setup-ci.test.ts",
     // This fits run names' about lines, which measures the page.
     "packages/dashboard/test/ui-about.test.ts",
     // This renders the places that name a run.
