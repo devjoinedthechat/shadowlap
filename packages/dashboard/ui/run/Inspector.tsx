@@ -538,7 +538,7 @@ function RequestTab({ detail }: { detail: CallDetail }) {
 function originRows(c: CallDetail['call'], flag: string | null, played: string | null): Array<[string, ReactNode]> {
   const origin = originOf(c);
   const over = origin === 'over' && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
-  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>{played ? `by the ${played} preset` : 'answered by Shadowlap with --fail-at'}</small></> : over ? <>{c.origin} <small>{over}</small></> : c.origin;
+  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>{played ? `by the ${played} preset` : 'answered by Shadowlap with --fail-at'}</small></> : over || (origin === 'over' && played) ? <>{c.origin} <small>{played ? `by the ${played} preset` : over}</small></> : c.origin;
   const http = c.status ? ` · HTTP ${c.status}` : '';
   const by = answeredBy(c);
   const said = played ? `by the ${played} preset${c.kind === 'api' ? ', never sent' : '; the tool didn’t run'}` : by && OUTCOME_BY[by];

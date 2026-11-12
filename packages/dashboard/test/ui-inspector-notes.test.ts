@@ -116,6 +116,10 @@ describe('a preset’s attempt, at the call its preset played in at', () => {
     const details = tab(TIMEOUT, 'details', { result }, null, at(4, 'tool timeout'));
     expect(details).toContain('injected <small>by the tool timeout preset</small>');
     expect(details).toContain('<small> by the tool timeout preset; the tool didn’t run</small>');
+    // The empty, malformed and oversized presets are served as overrides: their call's Origin names the preset, never the flag.
+    const served = tab({ ...TIMEOUT, origin: 'overridden', outcome: 'ok' }, 'details', { result: { result: '{"tickets": [' } }, '--override 4=@malformed.json', at(4, 'malformed JSON'));
+    expect(served).toContain('<dt>Origin</dt><dd>overridden <small>by the malformed JSON preset</small></dd>');
+    expect(served).not.toContain('--override');
     // Any other call of the attempt keeps the inspector's own words.
     expect(text(tab(INJECTED, 'conversation', {}, '--fail-at 19=429', at(4, 'tool timeout')))).toContain('Shadowlap answered with HTTP 529');
   });
