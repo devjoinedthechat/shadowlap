@@ -168,13 +168,16 @@ describe('the check builder in fix mode', () => {
     await open(s);
     const ok = () => r!.one('.dlg-ok');
     const why = () => [ok().getAttribute('aria-disabled'), ok().getAttribute('data-why')];
+    const judging = ['true', 'Judging it on the fix’s runs…'];
+    // A change before the fix's check is judged at all: Save waits for the draft's own answer.
     await r!.until('its runs asked for', () => asked.length === 1);
-    asked[0].resolve(runs);
-    await r!.until('its runs judged', () => r!.all('.cb-fixr .cb-row').length > 0);
-    // A change: Save waits for the draft's own answer, and no row of the check before it is drawn meanwhile.
     await r!.click(r!.all('.cb-kinds button')[1]);
+    await r!.until('the change drawn', () => r!.all('.cb-kinds [aria-pressed="true"]')[0]?.textContent === 'Must call');
+    expect(why()).toEqual(judging);
+    // The answer to the check as it was is dropped, and the change is asked for in its turn.
+    asked[0].resolve(runs);
     await r!.until('the change asked for', () => asked.length === 2);
-    expect([...why(), r!.all('.cb-fixr .cb-row').length]).toEqual(['true', 'Judging it on the fix’s runs…', 0]);
+    expect([...why(), r!.all('.cb-fixr .cb-row').length]).toEqual([...judging, 0]);
     // Its read fails: Save stays off, and says where to try again.
     asked[1].reject(new ApiError(500, 'the read took too long'));
     await r!.until('the failure', () => r!.all('.loaderr').length > 0);
