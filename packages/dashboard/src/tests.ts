@@ -723,7 +723,9 @@ function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, {
       const status = checkStatus(c);
       if (status === 'not-applicable') continue;
       const t = out.get(c.label) ?? { passed: 0, of: 0, judged: [] };
-      out.set(c.label, { passed: t.passed + (status === 'passed' ? 1 : 0), of: t.of + 1, judged: c.judge?.verdict ? [...t.judged, c] : t.judged });
+      // Pushed onto the one list, never copied: a judge check over a thousand attempts costs one pass.
+      if (c.judge?.verdict) t.judged.push(c);
+      out.set(c.label, { passed: t.passed + (status === 'passed' ? 1 : 0), of: t.of + 1, judged: t.judged });
     }
   }
   return out;
