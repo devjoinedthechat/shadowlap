@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type { RunDetail } from '../api.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
@@ -33,9 +33,13 @@ export function useRunExtras(run: RunDetail, parent: RunDetail | null, forkAt: n
   const unrecorded = useLoad(() => (live ? null : client.unrecorded(runId)), `${runId}:unrecorded:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
   const results = useLoad(() => (live ? null : client.injectionResults(runId)), `${runId}:injection-results:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data?.results ?? null;
-  // Read again as a Find cause… ends, so its answer shows.
-  const asked = results?.filter((r) => r.mode === 'clean' && !r.running).length ?? 0;
-  const tested = useLoad(() => (live ? null : client.injectionRun(runId)), `${runId}:injection:${live ? 'live' : 'ended'}`, asked).data ?? null;
+  // Read again as a Find cause… ends, so its answer shows: as more have ended than when the results
+  // first came, never as they first come, so a page opens on one read of every call.
+  const asked = results ? results.filter((r) => r.mode === 'clean' && !r.running).length : null;
+  const first = useRef<{ runId: string; asked: number } | null>(null);
+  if (asked !== null && first.current?.runId !== runId) first.current = { runId, asked };
+  const more = asked === null || !first.current ? 0 : asked - first.current.asked;
+  const tested = useLoad(() => (live ? null : client.injectionRun(runId)), `${runId}:injection:${live ? 'live' : 'ended'}`, more).data ?? null;
   const injection = useMemo(() => runInjectionView(tested, results), [tested, results]);
   return { offers, preset, notes, rescued: rescuedAt(run, parent, forkAt), injection };
 }
