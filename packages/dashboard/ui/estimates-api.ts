@@ -1,12 +1,14 @@
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { Spending } from '../../engine/src/estimates/spending.js';
 import type { DecisionEstimates, FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
+import type { MigrateEstimateView } from '../src/migrate-estimate.js';
 import type { ModelChoicesView } from '../src/model-listing.js';
 import type { PreviewEstimates } from '../src/preview-estimate.js';
 import { typedValue } from '../src/decisions-argv.js';
 import type { Request } from './settings-api.js';
 
 export type { DecisionEstimates, FixEstimates, GoldenEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
+export type { MigrateEstimateView } from '../src/migrate-estimate.js';
 export type { ModelChoicesView } from '../src/model-listing.js';
 export type { PreviewEstimates } from '../src/preview-estimate.js';
 
@@ -68,6 +70,8 @@ export interface EstimatesApi {
   /** The models a preview's field offers beside the runs' own (`GET /api/model-choices`). It asks providers, so it can take a second. */
   modelChoices(): Promise<ModelChoicesView>;
   bisectEstimate(q: BisectQuery): Promise<Estimate>;
+  /** What Migrate to `to` bills on the goldens named (every golden for none), switching from `from`, and the newest preview of that switch. */
+  migrateEstimate(to: string, from: readonly string[], goldens: readonly string[]): Promise<MigrateEstimateView>;
 }
 
 export function estimatesApi(request: Request): EstimatesApi {
@@ -87,6 +91,7 @@ export function estimatesApi(request: Request): EstimatesApi {
       return request(`decisions/${q(sessionId)}/estimates${parts.length ? `?${parts.join('&')}` : ''}`);
     },
     previewEstimates: (p) => request('decisions/estimates', { method: 'POST', body: JSON.stringify(previewBody(p)) }),
+    migrateEstimate: (to, from, goldens) => request(`migrate/estimate?${[`to=${q(to)}`, ...from.map((m) => `from=${q(m)}`), ...goldens.map((g) => `golden=${q(g)}`)].join('&')}`),
     modelChoices: () => request('model-choices'),
     bisectEstimate: (b) => request<{ estimate: Estimate }>(`estimates/bisect${query({ runId: b.runId, golden: b.golden, good: b.good, bad: b.bad })}`).then((r) => r.estimate),
   };
@@ -113,5 +118,5 @@ export function previewBody(p: PreviewQuery): Record<string, unknown> {
 
 /** An exported copy runs no job, so it prices none and keeps no Spending: every call says so. */
 export function noEstimates(refuse: () => Promise<never>): EstimatesApi {
-  return { spending: refuse, setSpending: refuse, runEstimates: refuse, fixEstimates: refuse, testsEstimates: refuse, decisionEstimates: refuse, previewEstimates: refuse, modelChoices: refuse, bisectEstimate: refuse };
+  return { spending: refuse, setSpending: refuse, runEstimates: refuse, fixEstimates: refuse, testsEstimates: refuse, decisionEstimates: refuse, previewEstimates: refuse, modelChoices: refuse, bisectEstimate: refuse, migrateEstimate: refuse };
 }
