@@ -830,7 +830,7 @@ Each rule they were decided by is stated once in the family. Each bundle opens i
 
 Its attempts are one picture named by its counts: a cell each, in its verdict's colour, the clean replays it compares with muted after a hairline. Under it, up to three lines open the attempts its verdict rests on, at the call their proof names, and a line says what is left out. An attempt gone from the store, or past the family's first 1,000 runs, isn't drawn, and a line counts them. A test of the recording, or of this page's run, shows even with every attempt gone.
 
-**[Error-path presets](./error-paths.md)** are filed under the recording they ran on, one node a session: *error-path presets*, then its verdict, how many presets passed, failed and were inconclusive, its attempts and what they spent (*failed · 4 passed, 2 failed · 8 attempts · ≈$0.041*). Its title opens the recording with its results open, plain in an exported copy. Its attempts aren't drawn as forks.
+**[Error-path presets](./error-paths.md)** are filed under the recording they ran on, one node a session: *error-path presets*, then its verdict, the session's totals as the CLI's last line says them, its attempts and what they spent (*failed · 3 passed, 2 failed, 1 not applicable · 8 attempts · ≈$0.041*). Its title opens the recording with its results open, plain in an exported copy. Its attempts aren't drawn as forks.
 
 Its attempts are one picture in the order they ran, a cell each in its verdict's colour, with its preset and attempt on hover. Under it, up to three lines open the attempts that failed or couldn't say, at the call their preset hit, and a line counts the rest.
 

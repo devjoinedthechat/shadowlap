@@ -309,8 +309,11 @@ export interface PresetMark {
   session: string;
   callNo: number | null;
   golden: string | null;
-  /** How its preset came out in that session, and what the preset's attempts spent there: the node's line. */
-  outcome: ChaosVerdict;
+  /**
+   * How that session's presets came out, the ones that couldn't apply too, and what its attempts
+   * spent: the node's verdict and line, which the run's other attempts alone can't say.
+   */
+  counts: ChaosMatrix['counts'];
   spent: number;
 }
 
@@ -328,7 +331,7 @@ export function presetMarks(store: StoreOf<'chaos'>, runs: readonly RunRecord[])
     const m = matrices(attemptResults(store, run, read), commandOf)[0];
     for (const c of m?.cells ?? []) {
       const x = c.runs.find((a) => a.runId === run.runId);
-      if (x) out.set(run.runId, { label: c.label, verdict: x.verdict, session: c.sessionId, callNo: c.callNo, golden: m!.golden, outcome: c.verdict, spent: c.spent });
+      if (x) out.set(run.runId, { label: c.label, verdict: x.verdict, session: c.sessionId, callNo: c.callNo, golden: m!.golden, counts: m!.counts, spent: m!.spent });
     }
   }
   return out;

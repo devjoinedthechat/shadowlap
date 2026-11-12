@@ -169,14 +169,17 @@ describe('a preset’s attempts in the Forks view', () => {
 
   it('draws a session’s attempts on the recording as one node, each attempt a mark of its picture, the ones that failed linked under it', async () => {
     const node = (runId: string, parentRunId: string | null, about: string, status: 'completed' | 'failed', startedAt: number, preset?: LineageNode['preset']): LineageNode => ({ runId, parentRunId, depth: parentRunId ? 1 : 0, mode: parentRunId ? 'replay' : 'record', status, label: parentRunId ? 'fork @2' : 'recording', divergence: parentRunId ? { callNo: 2, type: 'forced' } : null, calls: 2, spent: 0, saved: 0, startedAt, repeat: null, checks: null, about: { text: about, from: parentRunId ? 'change' : 'user' }, ...(preset ? { preset } : {}) });
-    const mark = (label: string, verdict: 'passed' | 'failed' | 'inconclusive', session: string, outcome: 'passed' | 'failed' | 'inconclusive', spent = 0.1) => ({ label, verdict, session, callNo: label === 'provider 500' ? 3 : 2, golden: 'goldens/list-inbox', outcome, spent });
+    // Each mark carries its session's totals, a preset that couldn't apply too, and what the session spent.
+    const S1 = { counts: { passed: 0, failed: 1, inconclusive: 1, notApplicable: 1 }, spent: 0.3 };
+    const S2 = { counts: { passed: 1, failed: 0, inconclusive: 0, notApplicable: 0 }, spent: 0 };
+    const mark = (label: string, verdict: 'passed' | 'failed' | 'inconclusive', session: 'S1' | 'S2') => ({ label, verdict, session, callNo: label === 'provider 500' ? 3 : 2, golden: 'goldens/list-inbox', ...(session === 'S1' ? S1 : S2) });
     const nodes = [
       node(REC, null, 'Triage the unread threads', 'completed', 1),
       // The first session: tool timeout failed, provider 500 couldn't say; the presets ran again since, and passed.
-      node(ATTEMPT, REC, 'tool timeout #2', 'failed', 2, mark('tool timeout', 'failed', 'S1', 'failed')),
-      node(PASSED, REC, 'tool timeout #2', 'completed', 3, mark('tool timeout', 'passed', 'S1', 'failed')),
-      node(UNSURE, REC, 'provider 500 #3', 'completed', 4, mark('provider 500', 'inconclusive', 'S1', 'inconclusive', 0.2)),
-      node(SECOND, REC, 'tool timeout #2', 'completed', 9, mark('tool timeout', 'passed', 'S2', 'passed', 0)),
+      node(ATTEMPT, REC, 'tool timeout #2', 'failed', 2, mark('tool timeout', 'failed', 'S1')),
+      node(PASSED, REC, 'tool timeout #2', 'completed', 3, mark('tool timeout', 'passed', 'S1')),
+      node(UNSURE, REC, 'provider 500 #3', 'completed', 4, mark('provider 500', 'inconclusive', 'S1')),
+      node(SECOND, REC, 'tool timeout #2', 'completed', 9, mark('tool timeout', 'passed', 'S2')),
     ];
     // No matrix to read: the family's tree goes by the lineage alone.
     const client = { lineage: () => Promise.resolve(nodes), fixBundles: () => Promise.resolve([]), injectionResults: () => Promise.resolve({ results: [] }), runChaos: () => Promise.reject(new Error('not asked')) } as unknown as Client;
@@ -187,14 +190,15 @@ describe('a preset’s attempts in the Forks view', () => {
     expect(r.all('.fam > .fnode, .fkids > .fnode').length).toBe(3);
     const [first, second] = r.all('[data-node="presets"]');
     expect(first.querySelector('.fbt')!.textContent).toBe('error-path presets');
-    expect(first.querySelector('.f2')!.textContent).toBe('failed · 1 failed, 1 inconclusive · 3 attempts · ≈$0.300');
+    // The session's totals as the CLI and the activity feed word them: passed and failed always.
+    expect(first.querySelector('.f2')!.textContent).toBe('failed · 0 passed, 1 failed, 1 inconclusive, 1 not applicable · 3 attempts · ≈$0.300');
     expect(first.className).toContain('here');
     const strip = first.querySelector('.astrip')!;
     expect([strip.getAttribute('role'), strip.getAttribute('aria-label')]).toEqual(['img', '3 attempts in the order they ran: 1 passed, 1 failed, 1 inconclusive']);
     expect(strip.querySelectorAll('i').map((i) => i.className)).toEqual(['ac no', 'ac', 'ac inc']);
     expect(first.querySelectorAll('.al a').map((a) => a.getAttribute('href'))).toEqual([`#/run/${ATTEMPT}/2`, `#/run/${UNSURE}/3`]);
     expect(first.querySelector('.al .an')!.textContent).toBe(' · tool timeout · attempt 1 · failed');
-    expect(second.querySelector('.f2')!.textContent).toBe('passed · 1 passed · 1 attempt');
+    expect(second.querySelector('.f2')!.textContent).toBe('passed · 1 passed, 0 failed · 1 attempt');
   });
 });
 
@@ -202,7 +206,7 @@ describe('a session’s presets node in an exported copy', () => {
   afterEach(() => resetPanel());
 
   it('links the recording plain where no results part was handed in, as in a copy, and with its results open where the served dashboard handed it in', async () => {
-    const preset = { label: 'tool timeout', verdict: 'failed' as const, session: 'S1', callNo: 2, golden: null, outcome: 'failed' as const, spent: 0 };
+    const preset = { label: 'tool timeout', verdict: 'failed' as const, session: 'S1', callNo: 2, golden: null, counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, spent: 0 };
     const attempts = [{ runId: ATTEMPT, parentRunId: REC, depth: 1, mode: 'replay', status: 'failed', label: 'fork @2', divergence: null, calls: 2, spent: 0, saved: 0, startedAt: 2, repeat: null, checks: null, about: null, preset }] as unknown as Parameters<typeof PresetsNode>[0]['attempts'];
     const app = appState();
     let r = await render(createElement(AppContext.Provider, { value: app }, createElement(PresetsNode, { attempts, current: REC })));

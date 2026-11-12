@@ -266,7 +266,8 @@ describe('the activity feed', () => {
   it('words a coverage scan and a presets session', async () => {
     const page = await getJson<{ items: Array<{ kind: string; outcome?: string; text: string; href?: string }> }>('activity?limit=10');
     expect(page.items.find((i) => i.text.startsWith('Coverage read'))).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Coverage read · 1 behaviour without a golden · 1 golden packed · 1 not packed', href: '#/tests?at=notcovered' });
-    expect(page.items.find((i) => i.text === 'Error-path presets ran · 1 passed, 1 failed')).toMatchObject({ kind: 'test', outcome: 'err', href: '#/tests' });
+    // Its totals as the CLI's last line words them: a preset that couldn't apply too.
+    expect(page.items.find((i) => i.text === 'Error-path presets ran · 1 passed, 1 failed, 1 not applicable')).toMatchObject({ kind: 'test', outcome: 'err', href: '#/tests' });
     // A session on one run, stopped part way: it opens the run, in amber for its inconclusive preset.
     expect(page.items.find((i) => i.text === 'Error-path presets stopped · 2 passed, 0 failed, 1 inconclusive')).toMatchObject({ kind: 'test', outcome: 'warn', href: `#/run/${golden}` });
   });
@@ -355,16 +356,18 @@ describe('error-path presets', () => {
       expect(chaosOfRun(s, second)!.cells).toEqual([expect.objectContaining({ sessionId: 'N2', verdict: 'passed', runs: [{ runId: second, verdict: 'passed', passed: true, exitCode: 0, reason: null }] })]);
       // The family marks each attempt by its own session's verdict, so the Forks view keeps the first failed.
       const family = new Map(lineage(s, rec)!.map((n) => [n.runId, n.preset]));
-      expect(family.get(first)).toEqual({ label: 'tool timeout', verdict: 'failed', session: 'N1', callNo: 2, golden: 'goldens/inbox', outcome: 'failed', spent: 0 });
-      expect(family.get(second)).toEqual({ label: 'tool timeout', verdict: 'passed', session: 'N2', callNo: 2, golden: 'goldens/inbox', outcome: 'passed', spent: 0 });
+      expect(family.get(first)).toEqual({ label: 'tool timeout', verdict: 'failed', session: 'N1', callNo: 2, golden: 'goldens/inbox', counts: { passed: 0, failed: 1, inconclusive: 0, notApplicable: 0 }, spent: 0 });
+      expect(family.get(second)).toEqual({ label: 'tool timeout', verdict: 'passed', session: 'N2', callNo: 2, golden: 'goldens/inbox', counts: { passed: 1, failed: 0, inconclusive: 0, notApplicable: 0 }, spent: 0 });
       expect(family.get(rec)).toBeUndefined();
       // An attempt whose mark names no session that kept it: found by the result that lists it.
       const lost = s.createRun({ mode: 'replay', parentRunId: rec, command: { argv: ['node', 'inbox.mjs'], cwd: project }, startedAt: T0 + 200, meta: { chaos: { preset: 'empty', callNo: 2, session: 'GONE', attempt: 1, golden: 'goldens/inbox' } } }).runId;
       s.endRun(lost, 'completed', T0 + 201);
-      s.startChaosSession({ sessionId: 'N3', startedAt: T0 + 200, command: ['shadowlap', 'test', 'goldens/inbox', '--chaos'], presets: ['empty'] });
+      s.startChaosSession({ sessionId: 'N3', startedAt: T0 + 200, command: ['shadowlap', 'test', 'goldens/inbox', '--chaos'], presets: ['empty', 'malformed'] });
       s.addChaosResult({ sessionId: 'N3', runId: rec, golden: 'goldens/inbox', preset: 'empty', verdict: 'passed', callNo: 2, passes: 1, attempts: 1, at: T0 + 202, data: { detail: 'list_inbox (#2) answered with nothing: the agent exited 0', runs: [{ runId: lost, verdict: 'passed', passed: true, exitCode: 0 }] } });
-      expect(chaosOfRun(s, lost)!.cells.map((c) => [c.sessionId, c.preset])).toEqual([['N3', 'empty']]);
-      expect(lineage(s, rec)!.find((n) => n.runId === lost)!.preset).toEqual({ label: 'empty result', verdict: 'passed', session: 'N3', callNo: 2, golden: 'goldens/inbox', outcome: 'passed', spent: 0 });
+      // A preset of that session that couldn't apply: no attempt of its own, but the session's totals count it.
+      s.addChaosResult({ sessionId: 'N3', runId: rec, golden: 'goldens/inbox', preset: 'malformed', verdict: 'not-applicable', callNo: null, passes: 0, attempts: 0, at: T0 + 203, data: { detail: 'no tool result to break', runs: [] } });
+      expect(chaosOfRun(s, lost)!.cells.map((c) => [c.sessionId, c.preset])).toEqual([['N3', 'empty'], ['N3', 'malformed']]);
+      expect(lineage(s, rec)!.find((n) => n.runId === lost)!.preset).toEqual({ label: 'empty result', verdict: 'passed', session: 'N3', callNo: 2, golden: 'goldens/inbox', counts: { passed: 1, failed: 0, inconclusive: 0, notApplicable: 1 }, spent: 0 });
       // The matrix says what the panel draws: the newest session's command, what judged the attempts
       // (a result kept before results kept a judge gives its checks with no source), the tool call hit.
       expect(chaosOfRun(s, rec)).toMatchObject({ command: 'shadowlap test goldens/inbox --chaos', rule: null, judge: { source: null, checks: [] }, spent: 0, upstreamRequests: 0, toolCall: { name: 'list_inbox', callNo: 2 } });

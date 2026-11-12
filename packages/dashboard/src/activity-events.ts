@@ -1,4 +1,4 @@
-import { ACTIONS, confirmWords, goldenWords, isObject, type StoredEvent } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, goldenWords, isObject, presetTotals, type StoredEvent } from '@shadowlap/engine';
 import type { ActivityIcon } from './views.js';
 import { links } from './links.js';
 
@@ -49,9 +49,9 @@ export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
     (e, d) => {
       const failed = count(d.failed);
       const inconclusive = count(d.inconclusive);
-      const parts = [`${count(d.passed)} passed`, `${failed} failed`, ...(inconclusive ? [`${inconclusive} inconclusive`] : [])];
+      const totals = presetTotals({ passed: count(d.passed), failed, inconclusive, notApplicable: count(d.notApplicable) });
       const outcome = failed ? 'err' : inconclusive || d.interrupted === true ? 'warn' : null;
-      return { kind: 'test', ...(outcome ? { outcome } : {}), text: `Error-path presets ${d.interrupted === true ? 'stopped' : 'ran'} · ${parts.join(', ')}`, href: e.runId ? links.run(e.runId) : links.tests() };
+      return { kind: 'test', ...(outcome ? { outcome } : {}), text: `Error-path presets ${d.interrupted === true ? 'stopped' : 'ran'} · ${totals}`, href: e.runId ? links.run(e.runId) : links.tests() };
     },
   ],
   // A coverage scan, by what it found no golden covers, and what it packed: amber while a behaviour has no golden. It opens

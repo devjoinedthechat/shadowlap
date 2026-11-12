@@ -12,6 +12,7 @@ import {
   PRESET_LABELS,
   recordingRule,
   presetHits,
+  presetTotals,
   presetReplay,
   presetResult,
   refused,
@@ -465,8 +466,7 @@ export function formatPresets(name: string, outcomes: readonly PresetOutcome[], 
 
 /** The session's totals, as the last line says them. */
 export function chaosTotals(r: ChaosReport, upstreamRequests: number, spent: number): string {
-  const parts = [`${r.passed} passed`, `${r.failed} failed`, ...(r.inconclusive ? [`${r.inconclusive} inconclusive`] : []), ...(r.notApplicable ? [`${r.notApplicable} not applicable`] : [])];
-  return `${parts.join(', ')} · ${plural(upstreamRequests, 'upstream request')}${spent ? ` · ≈${formatUsd(spent)} spent` : ''}`;
+  return `${presetTotals(r)} · ${plural(upstreamRequests, 'upstream request')}${spent ? ` · ≈${formatUsd(spent)} spent` : ''}`;
 }
 
 /** One attempt as a JUnit failure's details list it, by its own verdict: `attempt 2 (run 01J…): inconclusive: <why>`. */

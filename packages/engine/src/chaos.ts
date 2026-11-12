@@ -35,6 +35,15 @@ export const PRESET_LABELS: Readonly<Record<ChaosPreset, string>> = {
   '500': 'provider 500',
 };
 
+/**
+ * A session's presets in a few words, as the CLI's last line, the activity feed and the dashboard's
+ * Forks view say them: passed and failed always, then inconclusive and not applicable where any are
+ * (`2 passed, 0 failed, 1 inconclusive`).
+ */
+export function presetTotals(n: { passed: number; failed: number; inconclusive: number; notApplicable: number }): string {
+  return [`${n.passed} passed`, `${n.failed} failed`, ...(n.inconclusive ? [`${n.inconclusive} inconclusive`] : []), ...(n.notApplicable ? [`${n.notApplicable} not applicable`] : [])].join(', ');
+}
+
 /** The checks an error path must pass, as the CLI's hint and the dashboard's field show them by example. */
 export const CHAOS_EXPECT_EXAMPLE = '{"tools":{"issue_refund":"<= 1"}}';
 

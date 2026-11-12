@@ -268,7 +268,7 @@ export { ENDS_ANOTHER_WAY, GROUP_RUN_IDS, GROUP_SOURCES, NOT_PACKED, OUTCOME_WOR
 export type { Behaviour, BehaviourOutcome, CoverageGolden, CoverageGroup, CoverageMember, InferredCommand, NearestGolden } from './coverage.js';
 export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageScan, CoverageScanData, StoredCoverageGroup, StoredCoveragePack } from './store.js';
 // Error-path presets: where each hits a recording and what it answers there.
-export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, chaosToolChoices, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, resultShape } from './chaos.js';
+export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, chaosToolChoices, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, presetTotals, resultShape } from './chaos.js';
 export type { ChaosPreset, ChaosTarget, ChaosTargets, ResultShape } from './chaos.js';
 export { JUDGED_FROM, chaosJudge, expectPrefill, gateWords, judgedOnExit, keptGate, keptPresetBound, presetBound, presetProof, presetRule, presetsGate, recordingRule, replayChaosSpec, writeLimits } from './chaos-judge.js';
 export type { ChaosJudge, PresetGate } from './chaos-judge.js';

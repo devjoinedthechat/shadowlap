@@ -1,3 +1,4 @@
+import { presetTotals } from '../../../engine/src/chaos.js';
 import { approx, num, plural, shortId } from '../format.js';
 import type { LineageNode } from '../types.js';
 
@@ -59,13 +60,10 @@ const TONE: Readonly<Record<string, PresetsCell['tone']>> = { failed: 'no', inco
 /** How many of each, `4 passed`, leaving out a zero. */
 const each = (counts: ReadonlyArray<readonly [string, number]>): string[] => counts.filter(([, n]) => n).map(([w, n]) => `${num(n)} ${w}`);
 
-/** A session's node: its verdict and line from each preset's outcome, its strip and lines from its attempts. */
+/** A session's node: its verdict and line from how the session's presets came out, its strip and lines from its attempts. */
 export function presetsNode(attempts: readonly Marked[]): PresetsNodeView {
-  const presets = new Map(attempts.map((n) => [n.preset.label, n.preset]));
-  const outcomes = [...presets.values()].map((p) => p.outcome);
-  const verdict = outcomes.includes('failed') ? 'failed' : outcomes.includes('inconclusive') ? 'inconclusive' : 'passed';
-  const spent = [...presets.values()].reduce((sum, p) => sum + p.spent, 0);
-  const tally = each((['passed', 'failed', 'inconclusive'] as const).map((v) => [v, outcomes.filter((o) => o === v).length] as const)).join(', ');
+  const { counts, spent } = attempts[0]!.preset;
+  const verdict = counts.failed ? 'failed' : counts.inconclusive ? 'inconclusive' : 'passed';
   const seen = new Map<string, number>();
   const cells = attempts.map((n): PresetsCell => {
     const i = (seen.get(n.preset.label) ?? 0) + 1;
@@ -79,7 +77,7 @@ export function presetsNode(attempts: readonly Marked[]): PresetsNodeView {
   return {
     runId: attempts[0]!.parentRunId!,
     verdict,
-    parts: [verdict, ...(tally ? [tally] : []), plural(attempts.length, 'attempt'), ...(spent ? [approx(spent)] : [])],
+    parts: [verdict, presetTotals(counts), plural(attempts.length, 'attempt'), ...(spent ? [approx(spent)] : [])],
     cells,
     label: `${plural(attempts.length, 'attempt')} in the order they ran: ${each([['passed', count('passed')], ['failed', count('failed')], ['inconclusive', count('inconclusive')]]).join(', ')}`,
     lines: shown.map((c) => ({ runId: c.runId, tone: c.tone === 'no' ? 'no' : 'inc', callNo: callOf.get(c.runId) ?? null, words: `${c.card.t.slice(0, c.card.t.lastIndexOf(' · '))} · ${c.card.s}` })),
