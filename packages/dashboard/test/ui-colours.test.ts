@@ -388,6 +388,7 @@ describe('amber', () => {
     '.cb-units li.bad .cb-ul code': 'a rule the check builder refuses, in the engine’s words: Save waits until it is fixed',
     '.cb-notes li.y': 'a note against the agent’s recordings that needs a look before the check is saved',
     '.cb-row .cm.inc': 'a recording the check being built can’t decide',
+    '.cb-row.y .cb-d': 'a fix’s run the check being built would change for it: a failing run it passes, a good one it fails, or one it can’t settle',
     '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
