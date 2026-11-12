@@ -254,8 +254,11 @@ describe('a link into another project', () => {
     // A preview on its own tab, at any run or cell of it: the kind is the tab's.
     for (const hash of ['#/changes/decisions/dc-01M51X6N0C', '#/changes/decisions/dc-01M51X6N0C/01M51X7HV4', '#/changes/decisions/dc-01M51X6N0C/01M51X7HV4/5'])
       expect(heldAsk(parseRoute(hash)), hash).toEqual({ what: 'preview', ids: ['dc-01M51X6N0C'] });
-    // A page every project has names nothing of its own: a revision is any project's, and a migration's address opens Verdicts until its tab lands.
-    for (const hash of ['#/', '#/runs', '#/compare', '#/fixes', '#/tests', '#/training', '#/settings/redaction', '#/new', '#/setup', '#/setup/store', '#/nowhere', '#/changes', '#/changes/decisions', '#/changes/verdicts/d2e8a1f', '#/changes/migrate/mg-01M51X6N0C'])
+    // A migration on its own tab likewise, at any run or cell of it.
+    for (const hash of ['#/changes/migrate/mg-01M51X6N0C', '#/changes/migrate/mg-01M51X6N0C/01M51X7HV4/5'])
+      expect(heldAsk(parseRoute(hash)), hash).toEqual({ what: 'migration', ids: ['mg-01M51X6N0C'] });
+    // A page every project has names nothing of its own: a revision is any project's, and the bare tabs open what this project holds.
+    for (const hash of ['#/', '#/runs', '#/compare', '#/fixes', '#/tests', '#/training', '#/settings/redaction', '#/new', '#/setup', '#/setup/store', '#/nowhere', '#/changes', '#/changes/decisions', '#/changes/migrate', '#/changes/verdicts/d2e8a1f'])
       expect(heldAsk(parseRoute(hash)), hash).toBeNull();
   });
 
