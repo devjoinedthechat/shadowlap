@@ -9,6 +9,9 @@ import { dash, demoId, openPage, seriousViolations } from './dashboard.js';
  * call --fail-at failed has none.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 /** Presses Show diff and waits for the structural diff to draw. */
 async function showDiff(page: Page): Promise<void> {
   await page.locator('#view [data-act="diff"]').click();

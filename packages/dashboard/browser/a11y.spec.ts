@@ -12,6 +12,9 @@ import { routeTestsFixture } from './tests-fixture.js';
  * focus. And every link the server writes opens a page the dashboard has.
  */
 
+// A route may still be reading the server's answer as a test ends; the page's close takes it away, and that is no failure.
+test.afterEach(({ page }) => page.unrouteAll({ behavior: 'ignoreErrors' }));
+
 const PAGES: Array<{ name: string; path: () => string; drawn: string }> = [
   { name: 'the Overview', path: () => '/', drawn: 'main#view .ovg' },
   { name: 'Runs', path: () => '/runs', drawn: 'main#view table.runst tbody tr' },
