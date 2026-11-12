@@ -285,6 +285,12 @@ table.gt span.gev small { font-size: inherit; }
 .rperrw > pre.report.tail { margin-top: 8px; }
 .rpx .rperrw.q { margin-top: 10px; }
 .diffpanel.rpdiff { padding: 0; border: 0; background: none; gap: 8px; }
+/* An injection gate's attempts in the results' key, every entry quiet; its box the matrix's, so the key's columns follow its width. */
+.rpx .rpmx { container: matrix / inline-size; }
+.rpx .mxk { gap: 5px; margin-right: 15px; }
+.rpx .mxk b { font: 500 var(--fs-quiet) / 1 var(--body); letter-spacing: 0; color: var(--dim); }
+.rpx .mxkey p { line-height: 1.7; }
+@container matrix (max-width: 560px) { .rpx .mxk { margin: 0; } }
 .rperrw .rpsrc { display: block; margin-top: 2px; font-size: 11px; line-height: 18px; color: var(--dim); white-space: pre-wrap; overflow-wrap: anywhere; }
 .rpx dd > .cmdline { margin-top: 8px; }
 .rpg { color: var(--dim); }

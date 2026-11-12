@@ -68,7 +68,7 @@ describe('a divergence', () => {
 });
 
 describe('a divergence’s request', () => {
-  const diverged = (): ReturnType<Parameters<typeof world>[1]> => ({ ok: false, failure: 'diverged', reason: 'diverged at call 3 (api POST /v1/messages)', data: { mode: 'replay', calls: { total: 3, replayed: 2, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata.user_id', op: 'changed', before: 'a', after: 'b' }] } } });
+  const diverged = (): ReturnType<Parameters<typeof world>[1]> => ({ ok: false, failure: 'diverged', reason: 'diverged at call 3 (api POST /v1/messages)', data: { mode: 'replay', calls: { total: 3, replayed: 2, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata.user_id', op: 'changed', before: 'a', after: 'b' }], text: '✗ Request changed at call 3' } } });
   const at3 = { type: 'request_changed' as const, callNo: 3, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 2, recorded: 30 };
   const BODY = { type: 'error', error: { type: 'shadowlap_offline', message: 'shadowlap is offline: call #3 (POST /v1/messages) was not served from the recording and would need the network' } };
   /** The replay's call #3 answered with the offline refusal, as `shadowlap test` records it (sidecar model-calls.ts), and its run ended as `status` says. */

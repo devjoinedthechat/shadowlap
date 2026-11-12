@@ -13,8 +13,9 @@ import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { failedRunsWords } from '../ui/failed-runs.js';
 import type { RequestDiff } from '../src/request-diff.js';
-import type { DivergenceView } from '../ui/types.js';
+import type { DivergenceView, GoldenReport, GoldenRow } from '../ui/types.js';
 import { drawsFindCommit, stepFor } from '../ui/tests/lead.js';
+import { ReportParts } from '../ui/tests/ReportParts.js';
 import { askedReport, openReports, reportOpen, setAttemptsShown, setReportOpen, shownAttempts } from '../ui/tests/report-open.js';
 import { hintWords, reportHint } from '../ui/tests/report-words.js';
 import { render, shownText, type FakeElement, type Rendered } from './ui-render.js';
@@ -373,5 +374,16 @@ describe('a golden’s report under its row', () => {
     page = await draw(answer());
     expect([toggle(page, 'flaky').getAttribute('aria-expanded'), wrap(page, 'flaky').hasAttribute('hidden')]).toEqual(['true', false]);
     expect(one(report(page, 'flaky'), 'p.rpg button.xbtn').getAttribute('aria-expanded')).toBe('true');
+  });
+});
+
+describe('an injection gate’s attempts', () => {
+  it('counts them in the results’ key, never the matrix, a count of none left out, what showed nothing last', async () => {
+    const part = { kind: 'injection-attempts', totals: { obeyed: 8, influenced: 2, inconclusive: 0, ignored: 59 }, where: null, each: null, command: 'shadowlap injection goldens/x --html report.html', resultId: null };
+    const report = { name: 'x', verdict: 'failed', parts: [part] } as unknown as GoldenReport;
+    const app = { client: {}, exported: false, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(ReportParts, { report, row: { path: 'goldens/x', last: { gate: null } } as unknown as GoldenRow, open: true })));
+    const key = r.one('dl.rpx dd > .rpmx > .mxkey');
+    expect(key.querySelectorAll('.mxk').map((e) => [e.className, shownText(e).replace(/\s+/g, ' ').trim()])).toEqual([['mxk', '8 obeyed'], ['mxk', '2 influenced'], ['mxk q', '59 ignored']]);
   });
 });

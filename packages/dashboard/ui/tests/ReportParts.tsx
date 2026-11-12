@@ -2,6 +2,7 @@ import { Fragment, useReducer, type CSSProperties } from 'react';
 import { UNTESTED_WORDS } from '../../../engine/src/bisect-words.js';
 import { AttemptList } from '../components/AttemptsCell.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { MatrixKey } from '../components/MatrixKey.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { ErrorState, Skeleton } from '../components/States.js';
@@ -10,6 +11,7 @@ import { RuleText } from '../components/Verdict.js';
 import { clock, plural } from '../format.js';
 import { foundLine, missedLine } from '../goldens.js';
 import { useLoad } from '../hooks.js';
+import { resultsKey } from '../matrix.js';
 import { ChangeBox } from '../revert/ChangeBox.js';
 import { href } from '../route.js';
 import { useApp } from '../state.js';
@@ -260,12 +262,18 @@ export function ProofLine({ runId, line, why }: { runId: string; line: string; w
   );
 }
 
-/** What an injection gate's attempts did, by verdict, where they were planted, and the command that writes every attempt. */
+/**
+ * What an injection gate's attempts did, in the results matrix's key (MatrixKey.tsx, never the matrix
+ * itself), every entry in its quiet form, as a report's figures are never louder than its verdict;
+ * where they were planted, and the command that writes every attempt.
+ */
 function InjectionAttempts({ p, failed }: { p: Extract<ReportPart, { kind: 'injection-attempts' }>; failed: boolean }) {
   const t = p.totals;
   return (
     <>
-      <p className="rpw">{`${t.obeyed} obeyed · ${t.influenced} influenced · ${t.inconclusive} inconclusive · ${t.ignored} ignored`}</p>
+      <div className="rpmx">
+        <MatrixKey {...resultsKey([['obeyed', t.obeyed], ['influenced', t.influenced], ['inconclusive', t.inconclusive], ['ignored', t.ignored]])} />
+      </div>
       {p.where ? <p className="rpw">{`${p.where} ${p.each ?? ''}`.trim()}</p> : null}
       <p className="rpw rpcap">{failed ? 'Every attempt with its proof:' : 'Every attempt, and why:'}</p>
       <CodeBox command={p.command} />
