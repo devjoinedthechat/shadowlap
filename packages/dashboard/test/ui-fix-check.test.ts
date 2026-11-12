@@ -5,10 +5,11 @@ import { blameReport, EXPECT, makeRun, ORACLE, repairReport, verifyReport } from
 import { fixAttemptGroups } from '../src/attempt-groups.js';
 import { fixDetail } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
-import type { Client } from '../ui/api.js';
+import { JOB_KINDS, type Client } from '../ui/api.js';
 import type { OnShow } from '../ui/components/OnShow.js';
 import { checkEntryWords } from '../ui/fixes/check-entry.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
+import { jobFooter } from '../ui/job-actions.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
 import type { BuilderProps } from '../ui/run/check-part.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
@@ -175,6 +176,11 @@ describe("the way to change a fix's check", () => {
     await r!.until('the builder', () => b.opened.length > 0);
     expect(b.opened.at(-1)).toMatchObject({ golden: 'goldens/refund-flow', edit: null, fix: { fixId: fix.fixId, runId: run } });
     expect(checkEntryWords({ status: 'verified', guard: null })).toEqual({ label: 'Add check…', sub: 'The fix keeps the check its verdict was given under, and no golden keeps it yet' });
+  });
+
+  it("ends the fix-check job's drawer on the fix's next step, as a blame's ends", () => {
+    expect(jobFooter(JOB_KINDS.fixCheck)).not.toBeNull();
+    expect(jobFooter(JOB_KINDS.fixCheck)).toBe(jobFooter(JOB_KINDS.blame));
   });
 
   it("gives a repair that rejected every candidate Edit check… as its way out, in the notice Run repair's press raises", async () => {
