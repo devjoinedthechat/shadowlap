@@ -15,7 +15,7 @@ import { blameTitle } from '../run/offers.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
 import { useAsking, usePriced } from '../step-asks.js';
-import { bannerNormalizerAsk, gateAgainAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
+import { bannerNormalizerAsk, gateAgainAsk, rerunAsk, sessionAsk, startTestsJob } from '../tests-ask.js';
 import type { Price } from '../tests-estimates.js';
 import type { NextStep } from '../types.js';
 import { updatePlan } from '../update-plan.js';
@@ -53,8 +53,13 @@ export function useLookWaits(): LookWait {
   return useMemo(() => (job) => (job ? ((job.tests ? testsBusy(jobs, job.verb, id) : null) ?? treeBusy(jobs, job.use ?? 'reads', job.verb, path)) : null), [jobs, path, id]);
 }
 
-/** The run steps a row runs from here; any other (a rule, a pack, an injection test, Replay, Compare) opens its page. */
-export const RUN_KINDS: Partial<Record<NextStep['key'], string>> = { blame: JOB_KINDS.blame, normalizer: JOB_KINDS.normalizeAndTest, 'update-golden': JOB_KINDS.testUpdate, 'rerun-test': JOB_KINDS.tests, 'gate-again': JOB_KINDS.tests, bisect: JOB_KINDS.bisect, revert: JOB_KINDS.revert };
+/**
+ * The run steps a row runs from here, Run tests among them, Tests' whole session, where a golden's
+ * checks changed since its last test; Edit check opens the check builder on Needs a look
+ * (overview/steps.tsx `LookStepButton`); any other (a rule, a pack, an injection test, Replay,
+ * Compare) opens its page.
+ */
+export const RUN_KINDS: Partial<Record<NextStep['key'], string>> = { blame: JOB_KINDS.blame, normalizer: JOB_KINDS.normalizeAndTest, 'update-golden': JOB_KINDS.testUpdate, 'rerun-test': JOB_KINDS.tests, 'gate-again': JOB_KINDS.tests, 'run-tests': JOB_KINDS.tests, bisect: JOB_KINDS.bisect, revert: JOB_KINDS.revert };
 
 /** Why a list row's step can't start now: a job this dashboard doesn't run, else what `wait` says of the server's jobs; null where it can. */
 export function stepWhy(hasKind: (kind: string) => boolean, run: { kind: string; job: Job | null }, wait: LookWait): string | null {
@@ -99,10 +104,10 @@ export function updateAsk(app: ReturnType<typeof useApp>, golden: string, estima
 
 /**
  * A run's step as its page leads with it: Run blame, Add normalizer and re-run, Update golden, Re-run
- * test, Find breaking commit or Revert, each taking the step and the run's id, not the run's page,
- * priced from the run's own next step (`GET /api/runs/:id/next`). A crash's Find breaking commit and
- * Revert are revert/CrashStep.tsx's, as on a fix's row: Revert always opens its dialog, with the
- * commit its run's offers name.
+ * test, Run tests, Find breaking commit or Revert, each taking the step and the run's id, not the
+ * run's page, priced from the run's own next step (`GET /api/runs/:id/next`). A crash's Find
+ * breaking commit and Revert are revert/CrashStep.tsx's, as on a fix's row: Revert always opens its
+ * dialog, with the commit its run's offers name.
  */
 export function RunStep({ s, why }: { s: { runId: string; step: NextStep }; why: string | null }) {
   const { runId, step } = s;
@@ -127,7 +132,8 @@ function JobStep({ runId, step, why }: { runId: string; step: NextStep; why: str
   else if (step.key === 'rerun-test' || step.key === 'gate-again') {
     const name = goldenName(step.golden);
     go = (p) => void startTestsJob(app, JOB_KINDS.tests, { golden: step.golden, ...sentEstimate(p) }, { ...(step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden)), estimate: p });
-  } else return <span className="go">Open →</span>;
+  } else if (step.key === 'run-tests') go = (p) => void startTestsJob(app, JOB_KINDS.tests, sentEstimate(p), { ...sessionAsk(step.command ?? ''), estimate: p });
+  else return <span className="go">Open →</span>;
   return (
     <>
       <JobButton className="btn sm" why={why} {...card} estimate={e} {...priced.on} start={() => go(e)} ask={priced.when(go)}>

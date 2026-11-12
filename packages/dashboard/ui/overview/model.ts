@@ -125,7 +125,8 @@ export function keepPieces(kept: string): KeptPart[] {
 /**
  * A Needs a look row's words in the pieces a wrapping line keeps together, as the mock keeps them: a
  * tally (`8 of 72`, `search called 3 times`), a model with what uses it (`used by`), a date with its
- * verb (`retires on Nov 30, 2026`) and a dot with the word before it, joined by no-break spaces; then
+ * verb (`retires on Nov 30, 2026`), a dot with the word before it and an injection test's `planted
+ * instruction`, joined by no-break spaces; then
  * cut as `keepPieces` cuts. No DOM here: the tests import it.
  */
 export function keepParts(text: string): KeptPart[] {
@@ -135,6 +136,7 @@ export function keepParts(text: string): KeptPart[] {
       .replace(/ · /g, `${NB}· `)
       .replace(/\bused by /g, `used${NB}by `)
       .replace(/(\d+) of (\d+)/g, `$1${NB}of${NB}$2`)
+      .replace(/\bplanted instruction\b/g, `planted${NB}instruction`)
       .replace(/([a-z]+) on ([A-Z][a-z]{2}) (\d{1,2})(, \d{4})?/g, (_m, w: string, mo: string, d: string, y?: string) => `${w}${NB}on${NB}${mo}${NB}${d}${y ? `,${NB}${y.slice(2)}` : ''}`),
   );
 }

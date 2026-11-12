@@ -3,8 +3,8 @@ import type { CheckSuggestion, CheckSuggestions, SuggestionsAsk } from '../check
 import { ErrorState } from '../components/States.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
+import { useJudged } from './judging.js';
 import type { Fragment } from './model.js';
-import { useSettledRead } from './settled-read.js';
 
 /**
  * Suggested, in the check builder: at most three rules that fail a failed recording and none of its
@@ -24,7 +24,7 @@ export interface SuggestedProps {
 /** The suggestions for what is asked, read as the draft's preview is: settled, one read in flight, the last answer kept. */
 function useSuggestions(ask: SuggestionsAsk | null) {
   const { client } = useApp();
-  return useSettledRead<CheckSuggestions>(ask ? JSON.stringify(ask) : null, (k) => client.checks.suggestions(JSON.parse(k) as SuggestionsAsk));
+  return useJudged<CheckSuggestions>(ask ? JSON.stringify(ask) : null, (k) => client.checks.suggestions(JSON.parse(k) as SuggestionsAsk));
 }
 
 /** What each suggestion fails, and the good runs it fails none of: its one good run by its id, else how many there are. */

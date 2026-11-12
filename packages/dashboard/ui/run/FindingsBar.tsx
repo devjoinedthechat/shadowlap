@@ -2,7 +2,7 @@ import { Fragment, useLayoutEffect, useReducer, useRef, useState, type ReactNode
 import type { BlameView, CheckView, RunDetail, RunOffers } from '../api.js';
 import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
-import type { FoundCommit, TestBannerOffer } from '../types.js';
+import type { FoundCommit, RunInjection, TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
@@ -21,7 +21,7 @@ import { fixedByWords, runType } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
-import { findingPath, notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
+import { findingPath, judgeVerdicts, notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput, type JudgeVerdict } from './banner.js';
 import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
 import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
@@ -30,6 +30,10 @@ import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
+import type { ProofTab } from '../injection/Proof.js';
+import { useServedParts } from '../served-parts.js';
+import { openResults } from './panel-state.js';
+import type { InjectionFinding as InjectionFindingView } from '../injection/model.js';
 import { warmDiff } from './InspectorPanel.js';
 
 /**
@@ -132,6 +136,10 @@ export interface BannerProps {
   preset?: PresetAttempt | null;
   /** The call `n` jumps to where it is the fork or the lost call, and its card. */
   jump?: { n: number; card: string } | null;
+  /** An injection test's replay: what was planted where, and its proof, once the read of it comes (none in a copy). */
+  attempt?: RunInjection['attempt'];
+  /** A call a proof names, picked on the inspector's tab that shows it. */
+  onPick?: (n: number, tab: ProofTab) => void;
 }
 
 /**
@@ -163,13 +171,17 @@ interface Draw {
   leads: (key: NextStepKey) => boolean;
   /** The header's bisect or revert step has Run blame beside it. */
   blameBeside: boolean;
+  /** The checks its result failed or couldn't decide that the config no longer holds, where its step is Run tests: null otherwise. */
+  gone: readonly string[] | null;
   checks: number;
   off: boolean;
-  call: (n: number) => ReactNode;
+  call: (n: number, tip?: string) => ReactNode;
   diffToggle: ReactNode;
   /** Show change, for the first bad commit's finding: none where it kept no change to show. */
   changeToggle: ReactNode;
   onAction: (p: PendingAction) => void;
+  attempt: RunInjection['attempt'];
+  pick: (n: number, tab: ProofTab) => void;
 }
 
 /** Where a finding sits in the bar: one a closed bar folds away (`fx`), and the bar's toggle at its end (`more`). */
@@ -216,6 +228,7 @@ function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 
     attempt: attemptOf(run),
     codeVersion: r.codeVersion,
     preset: p.preset ?? null,
+    injection: r.meta?.injection ?? null,
   };
 }
 
@@ -313,6 +326,35 @@ function AttemptFinding({ b, x, s }: { b: Of<'attempt'>; x: Draw; s: Slot }) {
   );
 }
 
+/**
+ * An injection test's replay, as the design draws every attempt: what was planted where, with which
+ * attempt, and the writes. Then the way back to the run tested, its results open (a clean attempt's
+ * to the answer it counts in), and an attempt's proof, the line that joins the read to the write.
+ * The way back and the proof wait for the read of what was planted, so a copy, which answers it
+ * empty, draws neither.
+ */
+function InjectionAttemptFinding({ b, x, s }: { b: Of<'injection-attempt'>; x: Draw; s: Slot }) {
+  const tested = x.attempt ? x.run.run.parentRunId : null;
+  // Handed in where the dashboard runs, its script loaded as it first shows: a copy has no attempt's read, so no proof.
+  const { Proof } = useServedParts();
+  return (
+    <section className={cls('fork wrap', s)}>
+      <span className="bk">forked at</span>
+      {b.callNo !== null ? x.call(b.callNo) : null}
+      <span className="why">{said(b.why, null, true)}</span>
+      {tested ? (
+        <span className="end">
+          <a className="more" href={href.run(tested)} onClick={b.role === 'clean' ? undefined : () => openResults(tested, `injection:${b.result}`)}>
+            {b.role === 'clean' ? 'The answer →' : 'Results →'}
+          </a>
+        </span>
+      ) : null}
+      {x.attempt?.parts && Proof ? <Proof parts={x.attempt.parts} why={b.proofWhy} onPick={x.pick} /> : null}
+      {s.more}
+    </section>
+  );
+}
+
 /** A fork: where, on what, the flag that made it or what changed, its path; a fork that failed is blamed as any failed run is: its fix, or Run blame. */
 function ForkFinding({ b, x, s }: { b: Of<'fork'>; x: Draw; s: Slot }) {
   const normalizer = x.run.actions.find((a) => a.key === 'n');
@@ -376,14 +418,40 @@ function InterruptedFinding({ b, s }: { b: Of<'interrupted'>; s: Slot }) {
   );
 }
 
-function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
+/** A judge's call, which selects it, and where its verdict came from: on its line in the checks finding, and on its own finding. */
+function JudgeWhy({ callNo, why, x }: { callNo: number | null; why: string | null; x: Draw }) {
+  return (
+    <>
+      {callNo === null ? null : x.call(callNo, 'Open the judge’s call')}
+      {why ? <span className="why">{glued(why)}</span> : null}
+    </>
+  );
+}
+
+/** A judge's verdict on the run, never tinted: its call first, as the design draws it, then ✓ or ✗ and the check as the CLI labels it, then its reason and where it came from. */
+function JudgeFinding({ j, x, s }: { j: JudgeVerdict; x: Draw; s: Slot }) {
+  return (
+    <section className={cls('jv', s)}>
+      <span className="bk">verdict</span>
+      {j.callNo === null ? null : x.call(j.callNo, 'Open the judge’s call')}
+      <span className="jvw">
+        <b className={j.passed ? 'ok' : 'no'}>{j.passed ? '✓' : '✗'}</b> {j.line}
+      </span>
+      <JudgeWhy callNo={null} why={j.why} x={x} />
+      {s.more}
+    </section>
+  );
+}
+
+function ChecksFinding({ b, x, s }: { b: Of<'checks'>; x: Draw; s: Slot }) {
   return (
     <section className={cls(bannerSeverity(b) === 1 ? 'inc ck' : 'live ck', s)}>
       <span className="bk">checks</span>
       {b.checks.map((c) => (
-        <span className={`st ${c.status === 'not-applicable' ? 'n' : c.status === 'inconclusive' ? 'warn' : 'ok'}`} key={c.label}>
+        <span className={`st ${c.status === 'not-applicable' ? 'n' : c.status === 'inconclusive' ? 'warn' : 'ok'}${c.judge ? ' jvc' : ''}`} key={c.label} data-tip={c.values ? tipText(c.values) : undefined}>
           <i />
           {glued(wholeTallies(c.text))}
+          {c.judge ? <JudgeWhy callNo={c.judge.callNo} why={c.judge.why} x={x} /> : null}
         </span>
       ))}
       {b.why ? <Why gloss>{b.why}</Why> : null}
@@ -395,13 +463,19 @@ function ChecksFinding({ b, s }: { b: Of<'checks'>; s: Slot }) {
 /** Its weight's colour: amber to look at, muted for a test replay its golden passed since, else red. */
 const failedTone = (b: Of<'failed'>): string => (bannerSeverity(b) === 1 ? 'inc' : b.fixedBy ? 'n' : 'blame');
 
+/**
+ * A failed or inconclusive result: its words, then the fix that holds it or Run blame. Where its
+ * golden's checks changed since, it names the checks gone on a line of its own and ends on nothing,
+ * as neither is for a check the config no longer holds: the header leads with Run tests.
+ */
 function FailedFinding({ b, x, s }: { b: Of<'failed'>; x: Draw; s: Slot }) {
-  const end = b.fix ? fixLink(x) : b.blamed ? null : runBlame(x);
+  const end = x.gone ? null : b.fix ? fixLink(x) : b.blamed ? null : runBlame(x);
   return (
     <section className={cls(failedTone(b), s)}>
       {b.label ? <span className="bk">{b.label}</span> : null}
       <Why lead={b.lead}>{b.why}</Why>
       {end ? <span className="end">{end}</span> : null}
+      {x.gone ? <span className="ckline">{`checks changed since: ${x.gone.join('; ')}, no longer in shadowlap.config.json · not tested yet`}</span> : null}
       {s.more}
     </section>
   );
@@ -418,6 +492,8 @@ function BannerFinding({ b, x, s }: { b: BannerView; x: Draw; s: Slot }) {
       return <DivergedFinding b={b} x={x} s={s} />;
     case 'attempt':
       return <AttemptFinding b={b} x={x} s={s} />;
+    case 'injection-attempt':
+      return <InjectionAttemptFinding b={b} x={x} s={s} />;
     case 'fork':
       return <ForkFinding b={b} x={x} s={s} />;
     case 'lost':
@@ -427,7 +503,7 @@ function BannerFinding({ b, x, s }: { b: BannerView; x: Draw; s: Slot }) {
     case 'interrupted':
       return <InterruptedFinding b={b} s={s} />;
     case 'checks':
-      return <ChecksFinding b={b} s={s} />;
+      return <ChecksFinding b={b} x={x} s={s} />;
     case 'failed':
       return <FailedFinding b={b} x={x} s={s} />;
   }
@@ -438,8 +514,8 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
   const app = useApp();
   // The header leads with the run's next step; a finding doesn't offer it again.
   const next = nextStepOf(p.run);
-  const call = (n: number) => (
-    <button className="bn" type="button" onClick={() => p.onSelect(n)} {...jumpMark(n, p.jump)}>
+  const call = (n: number, tip?: string) => (
+    <button className="bn" type="button" data-tip={tip ? tipText(tip) : undefined} onClick={() => p.onSelect(n)} {...jumpMark(n, p.jump)}>
       #{n}
     </button>
   );
@@ -455,7 +531,7 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
       {p.showChange ? 'Hide change' : 'Show change'}
     </button>
   ) : null;
-  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: (next?.key === 'bisect' || next?.key === 'revert') && !!next.blame, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, changeToggle, onAction: p.onAction };
+  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: (next?.key === 'bisect' || next?.key === 'revert') && !!next.blame, gone: next?.key === 'run-tests' ? next.gone : null, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, changeToggle, onAction: p.onAction, attempt: p.attempt ?? null, pick: p.onPick ?? p.onSelect };
 }
 
 /**
@@ -545,21 +621,25 @@ function CommitFinding({ c, x, s }: { c: FoundCommit; x: Draw; s: Slot }) {
 
 /** A finding, as its kind draws it. */
 function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSelect: (n: number) => void }) {
+  // A kept injection test's finding is handed in where the dashboard runs: a copy keeps no results to draw one from.
+  const { InjectionFinding } = useServedParts();
   if (f.commit) return <CommitFinding c={f.commit} x={x} s={s} />;
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
+  if (f.judge) return <JudgeFinding j={f.judge} x={x} s={s} />;
   if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
+  if (f.injection) return InjectionFinding ? <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} /> : null;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
 }
 
 /** The bar, from the findings the page has: drawn by FindingsBar, and alone by Banner. */
-function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null }) {
+function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null; injection?: InjectionFindingView | null }) {
   const runId = p.run.run.runId;
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const next = nextStepOf(p.run);
   const test = p.offers?.test ?? (next?.key === 'normalizer' || next?.key === 'update-golden' ? next.test : null);
   const x = useDraw(p, test);
   const input = bannerInput(p.run, p, test);
-  const findings = runFindings({ own: ownBanner(input), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null) });
+  const findings = runFindings({ own: ownBanner(input), judges: judgeVerdicts(p.checks), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null), injection: p.injection });
   if (!findings.length) return null;
   const open = opened.get(runId) ?? false;
   const toggle = () => {
@@ -578,9 +658,9 @@ function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Dif
 
 /**
  * The run's findings under its header: its own, what its fork did differently from its parent (read
- * once it has ended), what it did not record, and its notes.
+ * once it has ended), what it did not record, its notes, and the injection test kept for it.
  */
-export function FindingsBar(p: BannerProps & { notes: readonly RunNote[] }) {
+export function FindingsBar(p: BannerProps & { notes: readonly RunNote[]; injection?: InjectionFindingView | null }) {
   const r = p.run.run;
   const differences = useForkDifferences(r.runId, !!r.divergence && !!r.parentRunId && r.status !== 'running');
   return <Findings {...p} differences={differences} />;

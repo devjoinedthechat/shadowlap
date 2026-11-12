@@ -253,6 +253,8 @@ See [the reference](./cli.md#check).
 
 On a run's page, **Add check…** starts from a tool call: first in its row's menu, on the inspector's summary line, or in ⌘K as **Add check at #n…**. Its menu starts a rule from the call: **Never call**, **Never with these arguments**, **Must call with…**, **Only after…**, a number argument **at most…**, **When… then…**, or **Ask a judge…** about the whole run.
 
+On Tests, each of a golden's checks ends with **Edit** and **Remove**, and the last one with **Add check…**. Add check… and Edit open the builder on the golden, Edit at its check. On a touch screen or in a narrow window, **Edit checks…** opens it at the first check. **Remove** asks first, then takes the check out of the golden's entry, and its toast's **Undo** puts the entry back. [The dashboard's Tests](./dashboard.md#a-row-per-golden) shows how.
+
 The check builder shows the golden's checks as reports label them, the rule being built marked, and the rule as a sentence of picked values:
 
 - **What it checks**: Never, Must call, Every call, When… then, Ask a judge, or JSON, for a budget or anything with no form.

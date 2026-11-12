@@ -56,6 +56,12 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
         </div>
       ) : null}
       <Verdict v={v} />
+      {v.oldCheck ? (
+        <>
+          <p className="fxreceipt fxold">Checked under the fix’s old check: kept, and no longer counted for it. Verify the change under its check now:</p>
+          <CodeBox command={fix.commands.verify} className="fxoldcmd" />
+        </>
+      ) : null}
       {/* What the lead step will do, in one line; the run's row and the drawer say the rest. */}
       {lead(v) ? (
         <p className="fxreceipt vmore">

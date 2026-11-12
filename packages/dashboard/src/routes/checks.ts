@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { ConfigBusyError, ConfigConflictError, SUGGESTED_MAX, agentOfArgv, agentOfRun, cleanLabel, editWhenFree, isObject, readConfigFile, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import type { CheckPreviewJob } from '../check-preview.js';
-import { ENTRY_KEYS, agentGoldens, changedWords, checksConfig, goldenAgent, printsOf, writeTestsEntry, type EntryEdit } from '../config-tests.js';
+import { ENTRY_KEYS, agentGoldens, changedWords, checksConfig, goldenAgent, printsOf, restoreTestsEntry, writeTestsEntry, type EntryEdit, type TestsWritten } from '../config-tests.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
@@ -260,10 +261,42 @@ export function register(router: Router, ctx: RouteContext): void {
     try {
       const written = await editWhenFree((o) => writeTestsEntry(dir, golden.path, entry, { ...o, expect: version }));
       log(ctx, written.event ? [written.event] : [], dir);
-      r.json({ key: written.key, version: written.version, added: written.added, removed: written.removed, changed: written.changed });
+      r.json({ key: written.key, version: written.version, added: written.added, removed: written.removed, changed: written.changed, ...(written.changed ? { was: holdUndo({ dir, golden: golden.path, prior: written.prior, version: written.version }) } : {}) });
     } catch (err) {
       if (err instanceof ConfigConflictError && !(err instanceof ConfigBusyError)) conflict(dir, printsOf(body.read), err);
       failed(ctx, err, dir);
     }
   });
+
+  // Undo of a write above, by the `was` its answer gave: the entry as that write found it goes back,
+  // written only against the version the write left, so a hand edit since is never written over.
+  router.post('/checks/tests/undo', async (r) => {
+    const body = await r.body();
+    const dir = editFolder(ctx, checksFolder);
+    const held = typeof body.was === 'string' ? undos.get(body.was) : undefined;
+    if (!held || held.dir !== dir) throw new HttpError(404, UNDO_GONE);
+    try {
+      const written = await editWhenFree((o) => restoreTestsEntry(dir, held.golden, held.prior, { ...o, expect: held.version }));
+      undos.delete(body.was as string);
+      log(ctx, written.event ? [written.event] : [], dir);
+      r.json({ key: written.key, version: written.version, added: written.added, removed: written.removed, changed: written.changed });
+    } catch (err) {
+      if (err instanceof ConfigConflictError && !(err instanceof ConfigBusyError)) throw new HttpError(409, UNDO_CHANGED);
+      failed(ctx, err, dir);
+    }
+  });
 }
+
+/** What each write's Undo puts back, by the `was` its answer gave: the golden's entry as the write found it, and the version the write left. The newest few are kept. */
+const undos = new Map<string, { dir: string; golden: string; prior: TestsWritten['prior']; version: string }>();
+const UNDOS_KEPT = 20;
+
+function holdUndo(undo: { dir: string; golden: string; prior: TestsWritten['prior']; version: string }): string {
+  const was = randomUUID();
+  undos.set(was, undo);
+  for (const old of undos.keys()) if (undos.size > UNDOS_KEPT) undos.delete(old);
+  return was;
+}
+
+const UNDO_GONE = 'This change can no longer be undone from here: edit shadowlap.config.json to put it back';
+const UNDO_CHANGED = 'shadowlap.config.json changed on disk since this change was saved, and Undo would write over that: nothing was changed.';

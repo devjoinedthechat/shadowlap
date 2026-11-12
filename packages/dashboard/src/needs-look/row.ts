@@ -16,7 +16,8 @@ import type { LookGroup } from './groups.js';
  * None: the row says `Open →`.
  */
 export type LookStep =
-  | { of: 'link'; label: string; href: string; title?: string }
+  /** `attempt`: it opens an attempt (Open proof), which no list the page holds has, so it waits while the server is out of reach. */
+  | { of: 'link'; label: string; href: string; title?: string; attempt?: true }
   | { of: 'run'; runId: string; step: NextStep }
   | { of: 'fix'; fixId: string; lead: FixLead }
   | { of: 'more'; golden: string; label: string; more: MoreAttempts }
@@ -118,7 +119,7 @@ export interface LookWork {
   fixes: NeedsLookItem[];
   /** Goldens failing now, newest first (`failingTests`). */
   failing: FailingTest[];
-  /** The step of each failing golden's kept run, by its path: undefined where its record can't be read. */
+  /** The step of each failed golden's kept run, and of each inconclusive one's whose checks changed since, by its path: undefined where its record can't be read. */
   steps: Map<string, NextStep | null | undefined>;
   /** The goldens each open fix holds, by fix id. */
   held: Map<string, HeldGolden[]>;

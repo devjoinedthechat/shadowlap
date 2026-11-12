@@ -159,8 +159,8 @@ describe('Suggested in the builder', () => {
   it('asks nothing on a recording that didn’t fail, a replay, a capture, or a golden', async () => {
     // The capture failed and was recorded, not replayed: only that it was imported leaves it out.
     const capture: RunDetail = { ...detail('failed'), source: 'traffic.har' };
-    const golden = (edit: number | null) => ({ golden: 'goldens/refund-flow', edit });
-    for (const props of [fromCall(detail('completed')), fromCall(detail('failed', 'replay')), fromCall(capture), golden(null), golden(0)]) {
+    const golden = (edit: string | null) => ({ golden: 'goldens/refund-flow', edit });
+    for (const props of [fromCall(detail('completed')), fromCall(detail('failed', 'replay')), fromCall(capture), golden(null), golden('send_email called 0 times')]) {
       const checks = stub(async () => ({ runId: RUN, goods: [GOOD], suggestions: [suggestion(VALUE)] }));
       await open(checks, props);
       await new Promise((done) => setTimeout(done, 400));

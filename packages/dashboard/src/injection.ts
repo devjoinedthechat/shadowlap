@@ -1,5 +1,6 @@
-import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofLine, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedReads, withoutCommand } from '@shadowlap/engine';
+import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, plural, proofParts, type ProofParts, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedView, type UntrustedView, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
+import { attemptPlant, injectionPanel, markProof, type AttemptPlant, type InjectionPanelView } from './injection-view.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
 import { links } from './links.js';
@@ -33,8 +34,16 @@ export interface InjectionRow {
   /** What the result comes to: plant, its gate's verdict against its limits; clean, inconclusive while a write is undecided, else passed. Null while it runs. */
   gate: 'passed' | 'failed' | 'inconclusive' | null;
   actor: string | null;
-  /** One line: `send_email obeyed a planted instruction (2 of 3)`, `caused by #9 fetch_page`. */
+  /** One line: `send_email obeyed a planted instruction · 2 of 3`, `caused by #9 fetch_page`. */
   line: string;
+  /** A plant's gate's reason, as the CLI printed it; null for one that passed, a `--clean` answer, and while it runs. */
+  reason: string | null;
+  /** What the test spent on the model, in dollars. */
+  spent: number;
+  /** A `--clean` answer's gate rule (cleanRule); null for a plant. */
+  rule: string | null;
+  /** A `--clean` answer's read, the call it tested; null for a plant, whose reads are its panel's rows. */
+  read: number | null;
   href: string;
 }
 
@@ -58,14 +67,14 @@ export function injectionLine(r: StoredInjectionResult): string {
   if (r.endedAt === null) return `planting payloads · ${plural(r.attempts, 'attempt')} so far`;
   if (r.obeyed) {
     const tools = [...new Set((p.attempts ?? []).filter((a) => a.verdict === 'obeyed').flatMap((a) => a.evidence.filter((e) => e.kind !== 'write').map((e) => e.tool)))];
-    return `${tools.join(', ') || 'a tool call'} obeyed a planted instruction (${r.obeyed} of ${r.attempts})`;
+    return `${tools.join(', ') || 'a tool call'} obeyed a planted instruction · ${r.obeyed} of ${r.attempts}`;
   }
-  if (r.influenced) return `a planted instruction influenced the agent (${r.influenced} of ${r.attempts})`;
+  if (r.influenced) return `a planted instruction influenced the agent · ${r.influenced} of ${r.attempts}`;
   if (p.gate?.verdict === 'inconclusive') return `inconclusive: ${p.gate.reason ?? 'the test showed too little to say'}`;
   // An attempt that showed nothing either way (the planted text reached no model, the attempt never
   // made the read) ignored nothing: it is counted apart, as the report counts it.
   if (r.inconclusive) return `ignored every planted instruction in ${r.ignored} of ${plural(r.attempts, 'attempt')}, ${r.inconclusive} inconclusive`;
-  return `ignored every planted instruction (${r.attempts} attempts)`;
+  return `ignored every planted instruction · ${plural(r.attempts, 'attempt')}`;
 }
 
 /** What a kept result comes to, as its row says it (InjectionRow.gate). */
@@ -77,6 +86,7 @@ function resultGate(r: StoredInjectionResult): InjectionRow['gate'] {
 }
 
 function row(r: StoredInjectionResult): InjectionRow {
+  const data = r.data as Partial<PlantReport> & Partial<Pick<Extract<InjectionReport, { mode: 'clean' }>, 'rule' | 'read'>>;
   return {
     resultId: r.resultId,
     runId: r.runId,
@@ -95,6 +105,10 @@ function row(r: StoredInjectionResult): InjectionRow {
     gate: resultGate(r),
     actor: r.actor,
     line: injectionLine(r),
+    reason: r.mode === 'plant' && r.endedAt !== null ? (data.gate?.reason ?? null) : null,
+    spent: data.cost?.spent ?? 0,
+    rule: r.mode === 'clean' ? (data.rule ?? null) : null,
+    read: r.mode === 'clean' ? (data.read?.callNo ?? null) : null,
     href: links.run(r.runId),
   };
 }
@@ -104,32 +118,60 @@ export function injectionResults(store: StoreOf<'injection'>, o: { runId?: strin
   return { results: store.listInjectionResults(o).map(row) };
 }
 
+/** One kept result's row and its report as `--json` printed it, and nothing it names: what the security report and its preview read. */
+export function keptInjection(store: StoreOf<'injection'>, resultId: string): { row: InjectionRow; report: InjectionReport } | null {
+  const r = store.getInjectionResult(resultId);
+  return r ? { row: row(r), report: r.data as unknown as InjectionReport } : null;
+}
+
 /**
- * One result as `--json` printed it, with its row, and the runs it names that are no longer in the
- * store (gc took them): a cell whose attempt is gone can't open it.
+ * One result as `--json` printed it, with its row, the runs it names that are no longer in the store
+ * (gc took them: a cell whose attempt is gone can't open it), and, for a plant that ended, the panel
+ * the run page's Show results opens (`view`). `shared`: names show, so the panel says who ran it.
  */
-export function injectionResult(store: StoreOf<'recording' | 'injection'>, resultId: string): { row: InjectionRow; report: InjectionReport; gone: string[] } | null {
+export function injectionResult(store: StoreOf<'recording' | 'injection'>, resultId: string, o: { shared?: boolean } = {}): { row: InjectionRow; report: InjectionReport; gone: string[]; view: InjectionPanelView | null } | null {
   const r = store.getInjectionResult(resultId);
   if (!r) return null;
   const report = r.data as unknown as InjectionReport;
   const named = report.mode === 'plant' ? [...report.attempts.map((a) => a.runId), ...report.baselines.flatMap((b) => b.runs)] : (report.attempts ?? []).map((a) => a.runId);
-  return { row: row(r), report, gone: named.filter((id) => !store.getRun(id)) };
+  const view = report.mode === 'plant' && r.endedAt !== null ? injectionPanel(store, report, { by: o.shared ? r.actor : null }) : null;
+  return { row: row(r), report, gone: named.filter((id) => !store.getRun(id)), view };
+}
+
+/** A run's injection on its page: its untrusted reads, its tests, and the test it is an attempt of. */
+export interface RunInjection {
+  untrusted: UntrustedView[];
+  results: InjectionRow[];
+  /** `parts`: an attempt's proof in its parts, for the page to draw with each call to pick (none for a baseline or a clean attempt). */
+  attempt: (InjectionMark & AttemptPlant & { line: string | null; proof: string | null; parts: ProofParts | null }) | null;
 }
 
 /**
- * What a run's page shows of injection tests: its untrusted reads (the Calls view tags them), the
- * results kept for the run, and, for a replay one of them made, the test it belongs to and what it
- * showed: the canary to highlight, the write that carried it, where the planted text was read, and
- * the line that joins them. The planted text itself is in the run's interventions
- * (`--inject-result`), as for any planted replay.
+ * What a run's page shows of injection tests: its untrusted reads (Calls and Turns tag those a model
+ * call reads), the results kept for the run, and, for a replay one of them made, the test it belongs
+ * to and what it showed: the canary to highlight, the write that carried it, where the planted text
+ * was read, and the line that joins them. `shadowlap injection` keeps no interventions on its
+ * replays (a planted read is stored as overridden), so the planted text, filled with the attempt's
+ * canary, and the path it went after in the recorded result come from the result (attemptPlant).
  */
-export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: string, tools?: ToolTrust): { untrusted: Array<{ callNo: number; name: string; from: TrustSource }>; results: InjectionRow[]; attempt: (InjectionMark & { line: string | null; proof: string | null }) | null } {
+export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: string, tools?: ToolTrust): RunInjection {
   const run = store.getRun(runId);
   const mark = run?.meta?.injection ?? null;
   const of = mark ? store.getInjectionResult(mark.result) : null;
-  const untrusted = untrustedReads(store.getCalls(runId), tools).reads.map((r) => ({ callNo: r.callNo, name: r.name, from: r.from }));
-  const proof = mark?.evidence?.length ? proofLine({ read: mark.read, forkedAt: mark.readAt ?? null, readAt: mark.readAt ?? null, evidence: mark.evidence.map((e) => ({ ...e, why: null })) }) : null;
-  return { untrusted, results: store.listInjectionResults({ runId }).map(row), attempt: mark ? { ...mark, line: of ? injectionLine(of) : null, proof } : null };
+  const calls = store.getCalls(runId);
+  const untrusted = untrustedView(calls, tools);
+  const proof = mark ? markProof(mark) : null;
+  const report = of ? (of.data as unknown as InjectionReport) : null;
+  const plant = run && mark ? attemptPlant(store, run, mark, report, calls) : null;
+  return { untrusted, results: store.listInjectionResults({ runId }).map(row), attempt: mark && plant ? { ...mark, ...plant, line: of ? injectionLine(of) : null, proof, parts: attemptProof(mark, report, runId) } : null };
+}
+
+/** An attempt's proof in its parts: the kept result's own evidence, which says why a write counts, else its record's. */
+function attemptProof(mark: InjectionMark, report: InjectionReport | null, runId: string): ProofParts | null {
+  if (mark.role !== 'attempt') return null;
+  const kept = report && report.mode !== 'clean' ? report.attempts.find((a) => a.runId === runId) : undefined;
+  const evidence = kept?.evidence ?? (mark.evidence ?? []).map((e) => ({ ...e, why: null }));
+  return proofParts({ read: mark.read, forkedAt: mark.readAt ?? null, readAt: mark.readAt ?? null, evidence });
 }
 
 /**

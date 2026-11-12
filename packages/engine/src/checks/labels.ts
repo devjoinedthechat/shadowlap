@@ -112,6 +112,16 @@ export function conditionLabel(c: CallCondition): string {
 /** `judge "explains-escalation" answers yes`. */
 export const judgeLabel = (j: JudgeCheck): string => `judge "${j.name}" answers ${j.pass}`;
 
+/** What a judge reads (its `of`), in the words the check builder offers it and a fix's judge card says it. */
+export const JUDGE_READS = [
+  ['answer', 'the answer'],
+  ['output', 'the output'],
+  ['run', 'the whole run'],
+] as const satisfies ReadonlyArray<readonly [JudgeCheck['of'], string]>;
+
+/** When a fix's judge is asked: live, in each attempt of blame, repair or verify that exits 0, as the Must line's card and the builder's fix mode say it. */
+export const JUDGE_ASKED = 'asked live in each attempt that exits 0';
+
 // ---- Each check's label -------------------------------------------------------------------------
 
 /** A count under `tools`: `send_email called 0 times`, `issue_refund with {"order_id":"A-1042"} called at least 1 time`. */
@@ -163,6 +173,19 @@ export const textLabels = (key: TextKey, check: TextCheck): string[] => [...chec
 
 /** A check under a `when` rule, said under its condition: `when lookup_order has result.total > 200: escalate called at least 1 time`. */
 export const whenLabel = (c: CallCondition, label: string): string => `${conditionLabel(c)}: ${label}`;
+
+/** Why a check under a `when` rule didn't apply, before what the calls had instead (`evaluateChecks`). */
+export const NEVER_HELD = 'the condition never held';
+
+/**
+ * A not-applicable check's detail as `evaluateChecks` writes it, why and then, after `: `, what the
+ * calls had instead (`the condition never held: lookup_order #2: result.total 120 <= 200`), for a page
+ * that says why on the line and the values on its hover. A detail with nothing after why is all why.
+ */
+export function notApplicableParts(detail: string): { why: string; values: string | null } {
+  const at = detail.indexOf(': ');
+  return at < 0 ? { why: detail, values: null } : { why: detail.slice(0, at), values: detail.slice(at + 2) };
+}
 
 /**
  * Every check of an expect by its label, in the order `evaluateChecks` reports them: its tools, its
@@ -235,17 +258,28 @@ export function checkWords(c: StoredCheck, join = ': '): string {
 }
 
 /**
- * Where a judge check's verdict came from and what it cost, with what was done to what it read:
- * `judged from the recording, free`, `judged live, ≈$0.0004 · read with 1 redaction rule applied`.
- * Null for a check that was not judged.
+ * A judge check's source in parts: how its verdict was judged (`judged from the recording`, `judged
+ * live`), what that cost (`free`, `≈$0.0004`, `no price for <model>`), and what was done to what it
+ * read. Null for a check that was not judged. The CLI joins them (`judgeSource`); a page joins every
+ * part with ` · `.
  */
-export function judgeSource(j: JudgeOutcome): string | null {
+export function judgeSourceParts(j: JudgeOutcome): { how: string; cost: string; read: string[] } | null {
   if (!j.source) return null;
   const read = [
     j.redactions ? `read with ${j.redactions} redaction rule${j.redactions === 1 ? '' : 's'} applied` : null,
     j.normalized ? 'values that change every run masked' : null,
     j.cut ? `${j.cut.toLocaleString('en-US')} characters left out` : null,
-  ].filter(Boolean);
-  const how = j.source === 'recording' ? 'judged from the recording, free' : `judged live, ${j.cost === null ? `no price for ${j.model}` : aboutUsd(j.cost)}`;
-  return [how, ...read].join(' · ');
+  ].filter((x): x is string => x !== null);
+  if (j.source === 'recording') return { how: 'judged from the recording', cost: 'free', read };
+  return { how: 'judged live', cost: j.cost === null ? `no price for ${j.model}` : aboutUsd(j.cost), read };
+}
+
+/**
+ * Where a judge check's verdict came from and what it cost, with what was done to what it read, as
+ * the CLI prints it: `judged from the recording, free`, `judged live, ≈$0.0004 · read with 1
+ * redaction rule applied`. Null for a check that was not judged.
+ */
+export function judgeSource(j: JudgeOutcome): string | null {
+  const p = judgeSourceParts(j);
+  return p ? [`${p.how}, ${p.cost}`, ...p.read].join(' · ') : null;
 }

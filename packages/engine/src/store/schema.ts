@@ -187,7 +187,11 @@ CREATE TABLE IF NOT EXISTS repairs (
 -- v6: each check a fix has had, in the order it had them, the last the one it has (its own check_*
 -- columns): the check its first blame was made under, then each one it was given since, with when
 -- and by whom. A blame, repair or verdict made under an earlier check keeps that check here, by its
--- key, after the fix takes another. A fix kept before has the check it has as its first.
+-- key, after the fix takes another. A fix kept before has the check it has as its first. judged is
+-- how a check given since judged the fix's failing and good runs from their recordings (shadowlap
+-- fix check), null for the first: the newest decides which runs left the fix. A store whose
+-- fix_checks came before it gains the column in addVersion6's additive part, which runs on every
+-- open, a new store's and a v6 one's alike.
 CREATE TABLE IF NOT EXISTS fix_checks (
   fix_id        TEXT    NOT NULL REFERENCES fixes(fix_id) ON DELETE CASCADE,
   position      INTEGER NOT NULL,
@@ -197,6 +201,7 @@ CREATE TABLE IF NOT EXISTS fix_checks (
   check_oracle  TEXT    NOT NULL,
   check_text    TEXT    NOT NULL,
   actor         TEXT,
+  judged        TEXT,
   PRIMARY KEY (fix_id, position)
 );
 -- Any write to a fix, its links, its checks or the reports behind it moves the 'fixes' counter,
@@ -719,14 +724,16 @@ function columnsOf(db: SqliteDatabase, table: string): string[] {
 /**
  * v6, what the dashboard's pages keep, in one step. The SCHEMA above creates its tables and triggers
  * (dismissals, fix_checks, the 'tests' counter); a store from before gains its columns here: the pull
- * request a CI test session ran for and what its comment carried, and a migration's applied state.
- * A fix kept before (`found` is the version the store was at) has its check as the first of its checks.
+ * request a CI test session ran for and what its comment carried, a migration's applied state, and
+ * how a fix's check judged its runs (fix_checks.judged). A fix kept before (`found` is the version
+ * the store was at) has its check as the first of its checks.
  */
 function addVersion6(db: SqliteDatabase, found: number | null): void {
   const sessionColumns = columnsOf(db, 'test_sessions');
   if (!sessionColumns.includes('pull_request')) db.exec(`ALTER TABLE test_sessions ADD COLUMN pull_request TEXT`);
   if (!sessionColumns.includes('comment')) db.exec(`ALTER TABLE test_sessions ADD COLUMN comment TEXT`);
   if (!columnsOf(db, 'decision_sessions').includes('applied')) db.exec(`ALTER TABLE decision_sessions ADD COLUMN applied TEXT`);
+  if (!columnsOf(db, 'fix_checks').includes('judged')) db.exec(`ALTER TABLE fix_checks ADD COLUMN judged TEXT`);
   if (found === null || found >= 6) return;
   // Its first check's author is the fix's (data.openedBy), when its data says one: data that doesn't
   // read as JSON is never handed to json_type, which would refuse it and the store with it.

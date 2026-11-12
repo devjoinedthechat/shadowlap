@@ -251,7 +251,7 @@ describe('the Repair step', () => {
     await open(fixId, 'repair');
     expect(r!.one('.verdict .vw').className).toBe('vw err');
     expect(text(r!.one('.verdict h2'))).toBe('rejected The gate accepted none of the 1 candidate tried');
-    expect(text(r!.one('p.fxsay'))).toBe('The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the prompt yourself and verify it.');
+    expect(text(r!.one('p.fxsay'))).toBe('The fix stays open, with each candidate and why it was dropped. Repairing again would try the same: change the check, or change the prompt yourself and verify it.');
     expect(r!.all('section.panel.sec > header h2').map(text)).toEqual(['Candidates', 'report.md', 'Why']);
     const subs = r!.all('section.panel.sec > header .sub').map(text);
     expect(subs[0]).toBe(`tried smallest first · ${d.repair!.rule!}`);
@@ -495,7 +495,7 @@ describe('the drawers’ ways on', () => {
     const toasts: Array<{ text: string; action?: ToastAction }> = [];
     const watched: unknown[] = [];
     const fake = { toast: (t: string, _kind?: string, action?: ToastAction) => toasts.push({ text: t, ...(action ? { action } : {}) }), watchJob: (p: Promise<unknown>) => void p.catch((e: unknown) => watched.push(e)) };
-    const moved = new ApiError(409, `${fixId.slice(0, 8)}'s blame settled where its run was lost, or the fix isn't open: there is nothing to blame again`);
+    const moved = new ApiError(409, `${fixId.slice(0, 8)}'s blame settled where its run was lost under the fix's check, or the fix isn't open: there is nothing to blame again`);
     const bar = address(`#/fixes/${fixId}/repair`);
     await open(fixId, 'repair');
     refusedPress(fake, JOB_KINDS.blame, { fixId, again: true }, moved);

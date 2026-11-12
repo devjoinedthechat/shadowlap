@@ -3,7 +3,7 @@ import { followNewest } from '../live.js';
 import { href, type View } from '../route.js';
 import { navigate } from '../router.js';
 import type { CallRow, RunDetail } from '../types.js';
-import { openOn, rememberCall } from './open-at.js';
+import { firstFailedCall, openOn, rememberCall } from './open-at.js';
 import type { Paging } from './paged-run.js';
 
 /**
@@ -42,6 +42,17 @@ export interface SelectionInput {
 }
 
 /**
+ * Where a failed run first failed, for the key that goes there: the agent's first failed call
+ * (open-at.ts), found past the calls read while a long run's pages come; none for a run that didn't fail.
+ */
+export function useFailedAt(run: RunDetail, calls: CallRow[], paging: Paging | null): number | null {
+  const failed = run.state?.failed ?? run.run.status === 'failed';
+  const origins = paging?.origins ?? null;
+  const judge = paging?.judge ?? null;
+  return useMemo(() => (failed ? firstFailedCall(calls, origins, judge) : null), [failed, calls, origins, judge]);
+}
+
+/**
  * The call a run's page shows: the one its address names, else a call picked on this run's page earlier
  * in the session, then the most telling (open-at.ts), and a recording follows its newest. It keeps the
  * address and the session's memory in step (`useOpenAt`), and reads the page that holds it first.
@@ -52,7 +63,7 @@ export function useRunSelection({ run, id, call, view, calls, paging, forkAt, lo
   const live = status === 'running';
   // The newest call: the last of the run's count while its pages come, never the last read.
   const last = paging ? paging.total : calls.length ? calls[calls.length - 1]!.callNo : null;
-  const fallback = useMemo(() => openOn(runId, { forkAt, lostAt, outcomeAt, live, calls, origins: paging?.origins ?? null, kinds: paging?.kinds ?? null, total: paging?.total ?? null }), [runId, forkAt, lostAt, outcomeAt, live, calls, paging?.origins, paging?.kinds, paging?.total]);
+  const fallback = useMemo(() => openOn(runId, { forkAt, lostAt, outcomeAt, live, calls, origins: paging?.origins ?? null, kinds: paging?.kinds ?? null, judge: paging?.judge ?? null, total: paging?.total ?? null }), [runId, forkAt, lostAt, outcomeAt, live, calls, paging?.origins, paging?.kinds, paging?.judge, paging?.total]);
   // While its pages come, a call of the run is one numbered up to its count, read yet or not.
   const isCall = (n: number) => (paging ? n >= 1 && n <= paging.total : calls.some((c) => c.callNo === n));
   const selected = call !== null && isCall(call) ? call : call !== null && live ? call : fallback;

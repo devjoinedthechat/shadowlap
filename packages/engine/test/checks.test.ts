@@ -4,6 +4,7 @@ import { build } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 import { checkLabels, checkLine, evaluateChecks, LABEL_INPUT, notJudgedWhy, parseExpect, parseTests, Store, storedCheckInput, type JudgeCheck, readsMoreThanAStep } from '../src/index.js';
 import type * as labels from '../src/checks/labels.js';
+import { NEVER_HELD, notApplicableParts } from '../src/checks/labels.js';
 import { RunBuilder, text, toolUse, usage, user } from './run-fixtures.js';
 
 // Outcome checks live in the engine (src/checks/), so the CLI, the dashboard's server and its pages
@@ -104,6 +105,21 @@ describe('a run judged by its checks in the engine', () => {
       '✗ every issue_refund call: after lookup_order, amount <= lookup_order.result.total: issue_refund #4: amount 300 > lookup_order.result.total 240 (#2)',
       '✗ when lookup_order has result.total > 200: escalate called at least 1 time: called 0 times; tools called: lookup_order, issue_refund; the condition held at lookup_order #2 (result.total 240 > 200)',
     ]);
+    store.close();
+  });
+
+  it('says why a check under a condition that never held didn’t apply, then what the calls had instead, which a page splits by the engine’s rule', () => {
+    const store = Store.open(':memory:');
+    const runId = refundRun(store);
+    const spec = parseExpect({ when: [{ if: { tool: 'lookup_order', result: { total: { '>': 500 } } }, then: { tools: { escalate: '>= 1' } } }] }, '--expect');
+    const [skipped] = evaluateChecks(spec, storedCheckInput(store, store.getCalls(runId), ''));
+    expect(skipped).toMatchObject({ status: 'not-applicable', ok: true });
+    const parts = notApplicableParts(skipped.detail!);
+    expect(parts.why).toBe(NEVER_HELD);
+    expect(parts.values).toMatch(/^lookup_order #2: result\.total 240/);
+    expect(`${parts.why}: ${parts.values!}`).toBe(skipped.detail);
+    // A detail that says only why is all why.
+    expect(notApplicableParts(NEVER_HELD)).toEqual({ why: NEVER_HELD, values: null });
     store.close();
   });
 

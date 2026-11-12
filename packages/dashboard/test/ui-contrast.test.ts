@@ -188,3 +188,38 @@ describe('the design system’s parts', () => {
     expect(id.decls.get('background')).toBe('linear-gradient(90deg, var(--faint) 6ch, var(--id-ink, var(--ink)) 6ch)');
   });
 });
+
+describe('an injection test’s words and marks', () => {
+  /** The last rule naming `selector`, with its declarations. */
+  const last = (selector: string) => rules().filter((r) => r.selectors.includes(selector)).at(-1);
+
+  it('sets the untrusted tag, the canary, the report’s example mask and a gate check’s marks at 4.5:1 on every surface', () => {
+    const words = ['.eff.untrusted', '.cnry', '.injmask', '.injmask .del', '.injmask .add', '.injmask .why', '.banner .injline', '.banner .injline .pwhy', 'table.gt .chk .ck.passed .cm', 'table.gt .chk .ck.failed .cm', 'table.gt .chk .ck.inconclusive .cm'];
+    const low: string[] = [];
+    for (const w of words) {
+      const c = last(w)?.decls.get('color');
+      expect(c, w).toBeDefined();
+      for (const s of SURFACES) {
+        const x = ratio(resolve(c!)!, resolve(`var(${s})`)!);
+        if (x < 4.5) low.push(`${w} on ${s}: ${x.toFixed(2)}:1`);
+      }
+    }
+    expect(low).toEqual([]);
+  });
+
+  it('sets the canary and the planted text at 4.5:1 on their own tint, over every surface: a tint over transparent is the sheet-wide check’s blind spot', () => {
+    const low: string[] = [];
+    for (const mark of ['mark.cnry', 'mark.ins-plant']) {
+      const r = last(mark)!;
+      const tint = /^color-mix\(in srgb,\s*(.+?)\s+(\d+(?:\.\d+)?)%,\s*transparent\)$/.exec(r.decls.get('background') ?? '');
+      expect(tint, mark).not.toBeNull();
+      for (const s of SURFACES) {
+        // A tint over transparent shows the surface under it: the colour mixed into that surface.
+        const ground = resolve(`color-mix(in srgb, ${tint![1]} ${tint![2]}%, var(${s}))`)!;
+        const x = ratio(resolve(r.decls.get('color')!)!, ground);
+        if (x < 4.5) low.push(`${mark} on its tint over ${s}: ${x.toFixed(2)}:1`);
+      }
+    }
+    expect(low).toEqual([]);
+  });
+});

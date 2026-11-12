@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { JUDGE_SCOPE, judgeAskId, Store, storeApiRequest, type CallRecord } from '@shadowlap/engine';
+import { JUDGE_SCOPE, judgeAskId, judgeSourceParts, Store, storeApiRequest, type CallRecord } from '@shadowlap/engine';
 import { attemptJudgeMissing, judgeRecording, undecidableChecks } from '../src/attempts.js';
 import { checkLine, evaluateChecks, hasChecks, judgeResults, judgeSource, parseExpect, parseTests } from '../src/checks.js';
 import { judgedOptions, judgesOf, liveJudge, recordedVerdicts } from '../src/judge.js';
@@ -50,6 +50,10 @@ describe('a judge check\'s result', () => {
     expect(judgeSource({ ...failed.judge!, cost: 0.0004, redactions: 0, cut: 0 })).toBe('judged live, <$0.001');
     expect(judgeSource({ ...failed.judge!, cost: 0, source: 'recording', redactions: 0, normalized: true, cut: 0 })).toBe('judged from the recording, free · values that change every run masked');
     expect(judgeSource({ ...failed.judge!, cost: null, redactions: 0, cut: 0 })).toBe('judged live, no price for claude-haiku-4-5');
+    // The same words in parts, which a page joins with ` · `.
+    expect(judgeSourceParts(failed.judge!)).toEqual({ how: 'judged live', cost: '≈$0.0025', read: ['read with 2 redaction rules applied', '1,200 characters left out'] });
+    expect(judgeSourceParts({ ...failed.judge!, cost: 0, source: 'recording', redactions: 0, cut: 0 })).toEqual({ how: 'judged from the recording', cost: 'free', read: [] });
+    expect(judgeSourceParts({ ...failed.judge!, source: null })).toBeNull();
   });
 
   it('is inconclusive with why when it has no verdict, and never passes', () => {

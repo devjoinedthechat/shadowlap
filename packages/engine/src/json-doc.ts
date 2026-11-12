@@ -1,3 +1,4 @@
+import { keptWhole } from './kept-canaries.js';
 import { compilePattern, countMatches, normalizerApplies, parsePath, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
 import { withinPatternBudget } from './safe-regex.js';
 import { mayHoldSigned, placeKey, signedParts, signedTexts } from './signed.js';
@@ -377,10 +378,10 @@ function scan(text: string, pathless: Rule[], pathed: Rule[], observer: RewriteO
         if (!exact!.includes(r)) continue;
         reached?.(r.i, v);
         if (!r.regex) {
-          if (v === r.replace) continue;
-          changed?.(r.i, v, r.replace, 1);
-          v = r.replace;
-          raw = false;
+          const kept = keptWhole(v, r.replace);
+          if (v === kept) continue;
+          changed?.(r.i, v, kept, 1);
+          [v, raw] = [kept, false];
           continue;
         }
       } else if (raw && !r.hits) continue;

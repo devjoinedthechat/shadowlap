@@ -64,7 +64,10 @@ test('a run’s buttons sit beside its id from 1280px, the next step last before
       if (!l.folded.length || menuSeen) continue;
       // … lists what folded into it, by its words, then Delete run.
       await page.locator('#moreBtn').click();
-      const items = await page.locator('.pop[role="menu"] [role="menuitem"]').allTextContents();
+      // The menu loads as a part, so its items can draw after the click: wait for its last one before reading them.
+      const menuItems = page.locator('.pop[role="menu"] [role="menuitem"]');
+      await expect(menuItems.last(), at).toContainText('Delete run');
+      const items = await menuItems.allTextContents();
       expect(items.slice(0, l.folded.length).map((s) => s.replace(/\s+/g, ' ').trim()), at).toEqual(l.folded.map((f) => expect.stringContaining(f.words)));
       expect(items.at(-1), at).toContain('Delete run');
       await page.keyboard.press('Escape');

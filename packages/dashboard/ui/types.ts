@@ -4,6 +4,7 @@ import type { NextStep, NextStepRow } from '../src/next-step.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 import type { RunAbout } from '../../engine/src/about.js';
+import type { JudgeOutcome } from '../../engine/src/types.js';
 export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
 export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-step.js';
 
@@ -13,8 +14,12 @@ export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fix
 export type { FixLead } from '../src/fix-lead.js';
 export type { BlameCrash } from '../src/fix-blame-step.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
-export type { InjectionRow, ToolTrustRow } from '../src/injection.js';
-export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';
+export type { InjectionRow, RunInjection, ToolTrustRow } from '../src/injection.js';
+// What a run's page draws of them: a result's panel (its matrix's reads, payloads and cells), an attempt's plant, a report's preview.
+export type { AttemptPlant, InjectionCellView, InjectionPanelView } from '../src/injection-view.js';
+export type { ReportPreview } from '../src/injection-report.js';
+export type { UntrustedView } from '../../engine/src/injection.js';
+export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport, ProofParts } from '../../engine/src/injection.js';
 export type { InjectionMark } from '../../engine/src/types.js';
 
 /**
@@ -161,6 +166,8 @@ export interface CheckView {
   count?: number;
   of?: number;
   detail?: string;
+  /** A judge check's judge, as the run endpoint keeps it: its verdict, where that came from, what it cost and read, and its call in the run. */
+  judge?: JudgeOutcome;
 }
 
 /** How a check came out: passed, failed, inconclusive (it could not be decided) or not applicable (a `when` whose condition never held). */
@@ -212,8 +219,8 @@ export interface ProvenanceView {
   preloads?: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing: string | null; unguarded?: string | null } | null;
   calls?: { model: number; tool: number; other: number; scopes: number };
   upstream?: { requests: number; spent: number };
-  /** What a copy made now would mask: the rules that apply, and the values they hit in a pack (null when not counted, with why when it says; `busy` while it is yet to be counted), what only a copy that is read masks besides (`returned`), and what else they match that a pack leaves as it is (`unmasked`), each when there is any. */
-  mask?: { rules: number; values: number | null; returned?: number; unmasked?: number; why?: string; busy?: true } | null;
+  /** What a copy made now would mask: the rules that apply, and the values they hit in a pack (null when not counted, with why when it says; `busy` while it is yet to be counted), what only a copy that is read masks besides (`returned`), what else they match that a pack leaves as it is (`unmasked`), and the run's own canaries they would have masked, which a copy keeps and the count leaves out (`kept`), each when there is any. */
+  mask?: { rules: number; values: number | null; returned?: number; unmasked?: number; kept?: number; why?: string; busy?: true } | null;
   startedUtc?: string;
   endedUtc?: string | null;
   /** The run and the runs it came from, the recording first, each with its code version. */
