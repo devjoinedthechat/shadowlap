@@ -3,7 +3,7 @@ import { ACTIONS, confirmWords, dialogName } from '../labels.js';
 import type { DocKey } from '../docs-links.js';
 import { shortId } from '../format.js';
 import type { PromptChoice } from '../types.js';
-import { packRunCommand } from './share.js';
+import { packRunCommand } from './share-steps.js';
 import { injectsAsUser, isInject, isOverride, isUserAnswer, menuLabel, type ActionLike, type CostWords, type FactWords } from '../actions.js';
 
 /**

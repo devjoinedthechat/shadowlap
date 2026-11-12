@@ -118,6 +118,10 @@ export interface DialogProps {
   /** `danger` turns the action red; `plain` gives it no colour. */
   tone?: 'lime' | 'danger' | 'plain';
   okDisabled?: boolean;
+  /** Why the way on can't run yet: it reads off, why on its card and, pressed, in a toast (ActionButton's `why`). */
+  okWhy?: string | null | undefined;
+  /** The line on the way on's card while it can run. */
+  okSub?: string | null | undefined;
   onOk?: WayOn;
   /** A second way on: lime, the first reading plain beside it. */
   alt?: { label: string; onClick: WayOn; disabled?: boolean } | null | undefined;
@@ -126,6 +130,10 @@ export interface DialogProps {
   className?: string;
   /** `cancel` focuses Cancel when the dialog opens, for a confirm that can't be undone: Enter twice never deletes anything. */
   initialFocus?: 'cancel';
+  /** A control the focus starts on where the dialog holds one, ahead of the rule, though not on a touch screen (the check builder's pressed kind). */
+  startFocus?: string | undefined;
+  /** `ignore`: a press on the scrim never closes it, edited or not, for a dialog that holds work built up (the check builder). Esc still closes it, or asks first. */
+  scrim?: 'ignore';
   /** Something no field holds was changed (a file dropped): Esc and the scrim ask first, as they do for a field's edit. */
   dirty?: boolean;
   /**
@@ -190,7 +198,7 @@ function DialogBody({ id, warn, facts, children, factsUnder, runs, command, cost
  * does, the dialog staying open with what was typed. A confirm that changes nothing on the server
  * (`local`) is a plain button, and never waits.
  */
-function DialogWays({ ok, alt, local, tone, okDisabled, onOk, press, hidden }: { ok: string | undefined; alt: DialogProps['alt']; local: boolean; tone: NonNullable<DialogProps['tone']>; okDisabled: boolean; onOk: WayOn | undefined; press: (way?: WayOn) => void; hidden: boolean }) {
+function DialogWays({ ok, alt, local, tone, okDisabled, okWhy, okSub, onOk, press, hidden }: { ok: string | undefined; alt: DialogProps['alt']; local: boolean; tone: NonNullable<DialogProps['tone']>; okDisabled: boolean; okWhy: string | null | undefined; okSub: string | null | undefined; onOk: WayOn | undefined; press: (way?: WayOn) => void; hidden: boolean }) {
   const okClass = `btn${alt || tone === 'plain' ? '' : ` ${tone}`} dlg-ok`;
   return (
     <>
@@ -199,7 +207,7 @@ function DialogWays({ ok, alt, local, tone, okDisabled, onOk, press, hidden }: {
           {ok}
         </button>
       ) : ok ? (
-        <ActionButton className={okClass} hidden={hidden} disabled={okDisabled} onClick={() => press(onOk)}>
+        <ActionButton className={okClass} hidden={hidden} disabled={okDisabled} why={okWhy} {...(okSub ? { tip: ok, sub: okSub } : {})} onClick={() => press(onOk)}>
           {ok}
         </ActionButton>
       ) : null}
@@ -212,7 +220,7 @@ function DialogWays({ ok, alt, local, tone, okDisabled, onOk, press, hidden }: {
   );
 }
 
-export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, runs, command, cost, footNote, ok, tone: asked = 'lime', okDisabled = false, onOk, alt, onClose, cancel = 'Cancel', className = '', initialFocus, dirty = false, keepOnSwitch = false, local = false }: DialogProps) {
+export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, runs, command, cost, footNote, ok, tone: asked = 'lime', okDisabled = false, okWhy, okSub, onOk, alt, onClose, cancel = 'Cancel', className = '', initialFocus, startFocus, scrim, dirty = false, keepOnSwitch = false, local = false }: DialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   useScrollStop(body);
@@ -225,7 +233,8 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
   // Where it opens is chosen as it opens: nothing the dialog shows later moves the focus.
   const [[opensOn, touch]] = useState(() => {
     const coarse = coarsePointer();
-    return [dialogFocus(tone, initialFocus, coarse), coarse] as const;
+    const rule = dialogFocus(tone, initialFocus, coarse);
+    return [startFocus && !coarse ? [startFocus, ...rule] : rule, coarse] as const;
   });
   const startedOn = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -263,6 +272,7 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
   const requestClose = (by: 'key' | 'scrim' | 'page') => {
     // The page it was asked on has gone: what it asked about went with it.
     if (by === 'page') return onClose();
+    if (by === 'scrim' && scrim === 'ignore') return;
     // While it asks, a second Esc keeps editing, and the scrim does nothing.
     if (asking) return by === 'key' ? keepEditing(true) : undefined;
     const changed = dirty || (edited.current && !!ref.current && formState(ref.current) !== opened.current);
@@ -349,7 +359,7 @@ export function Dialog({ title, lead, doc, warn, facts, children, factsUnder, ru
           <button type="button" className="btn dlg-cancel" hidden={asking} onClick={onClose}>
             {ok ? cancel : 'Close'}
           </button>
-          <DialogWays {...{ ok, alt, local, tone, okDisabled, onOk, press }} hidden={asking} />
+          <DialogWays {...{ ok, alt, local, tone, okDisabled, okWhy, okSub, onOk, press }} hidden={asking} />
           {asking ? (
             <>
               <span className="dlgask" id={askId}>

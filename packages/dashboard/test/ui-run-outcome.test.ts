@@ -6,7 +6,7 @@ import { runJob } from '../src/read-jobs.js';
 import type { OutcomeWork, RunJudged } from '../src/run-outcome.js';
 import { normalizeJudged, normalizeRunDetail, normalizeRuns } from '../ui/normalize.js';
 import { outcomeTip } from '../ui/outcome-tip.js';
-import { outcomeFact } from '../ui/run/metrics.js';
+import { outcomeFact, toolsToCheck } from '../ui/run/metrics.js';
 import { Metrics } from '../ui/run/parts.js';
 import { RunsTable } from '../ui/runspage/RunsTable.js';
 import { outcomeOf, runOutcome, runStatus, sideStatus, type RunLike } from '../ui/runs.js';
@@ -87,7 +87,7 @@ describe('Status, judged by checks', () => {
 });
 
 describe('the card on hover', () => {
-  const tip = (r: RunLike, tools: number | null = 3) => outcomeTip(r, outcomeOf(r), tools);
+  const tip = (r: RunLike, tools: number | null = 3, offered = true) => outcomeTip(r, outcomeOf(r), tools, offered);
 
   it('says what judged a run, by its goldens’ names, each check with its verdict and what decided it', () => {
     expect(tip({ ...BASE, judged: judged({ checks: CHECKS }) })).toEqual({
@@ -122,9 +122,24 @@ describe('the card on hover', () => {
   it('says where a test diverged, how one comes to judge a run no check applies to, and a run still recording', () => {
     const diverged = { ...BASE, kind: 'test', mode: 'replay' as const, divergence: { callNo: 1, type: 'request_changed', diff: [{ path: '$.system' }] }, outcome: { kind: 'diverged', callNo: 1 }, failed: true };
     expect(tip(diverged)).toMatchObject({ title: 'Diverged at #1', sub: 'A request changed (~ $.system).' });
-    expect(tip({ ...BASE, judged: null })).toMatchObject({ title: 'No check applies to this run', sub: 'Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.' });
-    expect(tip({ ...BASE, judged: null }, 0).sub).toBe('It made no tool call, and a check on calls reads them.');
+    expect(tip({ ...BASE, judged: null })).toMatchObject({ title: 'No check applies to this run', sub: 'Pick a tool call and use Add check… in the inspector, or pack the run as a golden with its checks.' });
+    expect(tip({ ...BASE, judged: null }, 0).sub).toBe('It made no tool call, and a check is added from one.');
+    // A capture offers no Add check…: it is told where a golden's checks go.
+    expect(tip({ ...BASE, source: 'otel', judged: null }).sub).toBe('Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.');
+    expect(tip({ ...BASE, source: 'otel', judged: null }, 0).sub).toBe('It made no tool call, and a check on calls reads them.');
+    // Nor does an exported copy or a read-only dashboard: the same words there.
+    expect(tip({ ...BASE, judged: null }, 3, false).sub).toBe('Pack it as a golden with checks, or give a golden of its family checks under "tests" in shadowlap.config.json.');
+    expect(tip({ ...BASE, judged: null }, 0, false).sub).toBe('It made no tool call, and a check on calls reads them.');
     expect(tip({ ...BASE, status: 'running', outcome: { kind: 'running' } })).toMatchObject({ title: 'Still recording', sub: 'It is judged once it finishes.' });
+  });
+
+  it('counts the tool calls a check is added from, a person’s recorded answers left out once every row is in', () => {
+    const rows: { kind: string; input?: boolean }[] = [{ kind: 'api' }, { kind: 'tool', input: true }, { kind: 'tool' }];
+    expect(toolsToCheck(rows, 3, 2)).toBe(1);
+    // A run whose only tool calls are recorded answers has none to pick: its hover says so.
+    expect(toolsToCheck(rows.slice(0, 2), 2, 1)).toBe(0);
+    // A long run's pages yet to come: its summary's count.
+    expect(toolsToCheck(rows.slice(0, 2), 900, 40)).toBe(40);
   });
 });
 

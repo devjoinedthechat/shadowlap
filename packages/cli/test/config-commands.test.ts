@@ -140,6 +140,35 @@ describe('shadowlap normalize', () => {
     expect(JSON.parse(json.out)).toMatchObject({ error: 'shadowlap.config.json: normalize must be a list of rules', rules: [] });
     expect(JSON.parse((await shadowlap(['redact', 'ls', '--json'])).out)).toMatchObject({ error: null, rules: [] });
   });
+
+  it('compares the runs in a copy export html makes after the rules, as the dashboard does: Compare’s pairs and a fork’s differences alike', async () => {
+    // A recording and its fork that each opened a ticket, its id the one thing between them.
+    const store = Store.open(dbPath());
+    const ticket = (id: string, parent: string | null) => {
+      const r = store.createRun({ mode: parent ? 'replay' : 'record', ...(parent ? { parentRunId: parent } : {}), command: { argv: ['node', 'agent.js'], cwd } });
+      const identity = { kind: 'tool' as const, name: 'create_ticket', fingerprint: `ticket ${id}`, occurrence: 1 };
+      store.appendCallStart({ runId: r.runId, callNo: 1, ...identity, origin: 'live', effect: 'write', requestRef: store.putJson({ args: { id } }), meta: {}, at: 1 });
+      store.appendCallEnd(identity, { runId: r.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ result: { ok: true } }), outcome: 'ok', meta: {}, at: 2 });
+      if (parent) store.setDivergence(r.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'create_ticket', replayedBefore: 0 });
+      store.endRun(r.runId, 'completed');
+      return r.runId;
+    };
+    const parent = ticket('T-1', null);
+    const fork = ticket('T-2', parent);
+    store.close();
+    const copied = async (normalize: unknown[]) => {
+      writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ normalize }));
+      const r = await shadowlap(['export', 'html', fork, 'fork.html', '--lineage']);
+      expect(r.code, r.err).toBe(0);
+      const html = readFileSync(join(cwd, 'fork.html'), 'utf8');
+      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)![1].split('<\\/').join('</')) as { responses: Record<string, unknown> };
+      const pair = data.responses[`compare?a=${parent}&b=${fork}`] as { pair: { verdict: { words: string } } };
+      const differences = data.responses[`runs/${fork}/differences`] as { differences: { rank: number | null } };
+      return [pair.pair.verdict.words, differences.differences.rank];
+    };
+    expect(await copied([])).toEqual(['Different writes', 1]);
+    expect(await copied([{ kind: 'tool', path: '$.args.id', replace: '<id>' }])).toEqual(['The same decisions', null]);
+  });
 });
 
 describe('a broken or long rule in the file', () => {

@@ -194,7 +194,7 @@ export function openingTitles(store: StoreOf<'activity'>): () => ReadonlyMap<str
 }
 
 /** What a fix's failing runs did (`FixRow.failed`): its own title until it was given another, else the title it was opened with. */
-function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, string>): string | null {
+export function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, string>): string | null {
   const f = rec.fix;
   // Blame made the title from the failure when it opened the fix: it says what failed until someone renames it.
   if (!f.data.titleEdited) return f.title;

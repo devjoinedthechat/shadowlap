@@ -1,4 +1,5 @@
 import { sameRun } from './format.js';
+import { settingsTab } from './pages/settings/tabs.js';
 import { parseRoute, type Route } from './route.js';
 
 /**
@@ -42,12 +43,14 @@ export function trapTab<T>(controls: readonly T[], active: T | null, back: boole
  * What counts as one page to the focus: a step within it (a run's call or view, a fix's step, a
  * filter on Runs, a pick in Compare) leaves the focus where it was, and a new page gives it to the
  * page's heading. A Settings or Training tab is a page of its own, and so is each tab of Changes and
- * a revision's page there (`#/changes` and `#/changes/verdicts` are one).
+ * a revision's page there (`#/changes` and `#/changes/verdicts` are one). A Settings tab is the tab
+ * its address opens, so an older name and the tab's own key (`alerts` and `ci`) are one page.
  */
 export function pageSig(r: Route): string {
   if (r.page === 'run') return `run:${r.id}`;
   if (r.page === 'fixes') return r.id ? `fixes:${r.id}` : 'fixes';
-  if (r.page === 'settings' || r.page === 'training') return `${r.page}:${r.tab ?? ''}`;
+  if (r.page === 'settings') return `settings:${settingsTab(r.tab) ?? 'matching'}`;
+  if (r.page === 'training') return `training:${r.tab ?? ''}`;
   if (r.page === 'changes') return `changes:${r.tab}:${r.id ?? ''}`;
   return r.page;
 }

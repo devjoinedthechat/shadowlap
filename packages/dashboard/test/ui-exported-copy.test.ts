@@ -81,6 +81,14 @@ async function open(runIds: string[], hash: string) {
 
 const runOpen = () => r!.all('.rhead .rnm').map((h) => h.getAttribute('data-run'));
 
+/** The modules of the page's code that load a module whose path matches `module`: a type alone loads nothing. */
+function loadersOf(module: RegExp): string[] {
+  const ui = fileURLToPath(new URL('../ui/', import.meta.url));
+  return readdirSync(ui, { recursive: true, encoding: 'utf8' })
+    .filter((f) => /\.tsx?$/.test(f) && readFileSync(join(ui, f), 'utf8').split('\n').some((l) => module.test(l) && !/^import type\b/.test(l.trim())))
+    .map((f) => f.split(sep).join('/'));
+}
+
 describe('an exported copy', () => {
   it('opens on the run that was shared, the one the others lead to, whichever order it lists them in', async () => {
     for (const order of [
@@ -119,14 +127,28 @@ describe('an exported copy', () => {
     expect(r!.all('[role="menu"]')).toHaveLength(0);
   });
 
+  it('keeps Failed a filter over its runs, so draws no issues, which the served dashboard alone hands in', async () => {
+    await open([forkId, runId], '#/runs?types=failed');
+    await r!.until('Failed picked', () => r!.all('.tbar .chips button[aria-pressed="true"]').some((b) => b.childNodes[0]?.textContent === 'Failed'));
+    expect(r!.all('table.issues')).toHaveLength(0);
+  });
+
   it('never opens Export OpenTelemetry trace…: Share’s menu alone loads its dialog, and a copy draws no Share', () => {
     // The page's code that loads the dialog's script: Share's menu, and nothing a copy draws, so the
     // copy's script holds none of it (COPY_PARTS in test/ui-bundle-size.test.ts).
-    const ui = fileURLToPath(new URL('../ui/', import.meta.url));
-    const loaders = readdirSync(ui, { recursive: true, encoding: 'utf8' })
-      .filter((f) => /\.tsx?$/.test(f) && /\bOtelDialog\.js['"]/.test(readFileSync(join(ui, f), 'utf8')))
-      .map((f) => f.split(sep).join('/'));
-    expect(loaders).toEqual(['run/ShareMenu.tsx']);
+    expect(loadersOf(/\bOtelDialog\.js['"]/)).toEqual(['run/ShareMenu.tsx']);
+  });
+
+  it('never opens the check builder or Run blame’s dialogs: the served entry alone loads them, and a copy offers no Add check… at a tool call', async () => {
+    // The page's code that loads their scripts: the parts the served entry hands in, which a copy's
+    // entry never does, so the copy's script holds none of ui/checks/ (HEAVY in test/ui-bundle-size.test.ts)
+    // nor Run blame's dialogs. A copy draws no Run blame: its one next step is Compare (test/next-step.test.ts).
+    expect(loadersOf(/\bchecks\/Builder\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/\bRunBlameAsks\.js['"]/)).toEqual(['pages/served.tsx']);
+    // At a tool call of a finished recording, where the served dashboard offers it on the inspector.
+    await open([forkId, runId], `#/run/${forkId}/4`);
+    await r!.until('the call’s inspector', () => r!.all('.insp').length === 1);
+    expect(r!.all('[data-act="ckmenu"]')).toHaveLength(0);
   });
 
   it('lists its runs, and only those', async () => {
@@ -149,7 +171,7 @@ describe('an exported copy', () => {
       [[forkId, runId], '#/fixes'],
       [[forkId, runId], '#/changes'],
       [[forkId, runId], '#/tests'],
-      [[forkId, runId], '#/settings/alerts'],
+      [[forkId, runId], '#/settings/ci'],
       [[forkId], '#/compare'],
     ] as const) {
       const bar = await open([...runIds], hash);

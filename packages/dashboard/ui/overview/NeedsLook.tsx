@@ -6,13 +6,14 @@ import { EmptyLine } from '../components/States.js';
 import { ruleTip } from '../components/Verdict.js';
 import { num, shortId } from '../format.js';
 import { type RowScope, useListKeys } from '../list-keys.js';
-import { navigate } from '../router.js';
+import { issueClick, openIssue } from '../runspage/open-issue.js';
 import { type PaletteCommand, useApp } from '../state.js';
 import type { NeedsLookRow } from '../types.js';
 import { DismissButton, DismissedFold, type Dismissing, RestoreButton, rowAt, useDismissals } from './Dismiss.js';
 import { drawnRows, type LookGroupRows } from './dismissed.js';
 import { keepParts } from './model.js';
-import { LookStepButton, type LookWait, stepRun, useLookWaits } from './steps.js';
+import { type LookWait, useLookWaits } from '../steps/RunStep.js';
+import { LookStepButton, stepRun } from './steps.js';
 import { type AboutOf, DotPieces, Pieces, useAbouts } from './words.js';
 
 /**
@@ -46,7 +47,7 @@ const LookRow = memo(function LookRow({ x, off, wait, version, aboutOf, focused,
     <div className={`arow${off ? ' off' : ''}${focused ? ' krow' : ''}`} data-rowkey={x.key} data-agrp={x.group} data-adv={x.advice?.key}>
       <EventIcon kind={x.icon} />
       {/* A gate's verdict says its word, tally and bound, whole, and its rule on hover. */}
-      <a className="at" href={x.href} data-tip={x.rule ? ruleTip(x.name ?? x.title, x.rule) : undefined}>
+      <a className="at" href={x.href} data-tip={x.rule ? ruleTip(x.name ?? x.title, x.rule) : undefined} onClick={x.issue ? issueClick(x.issue) : undefined}>
         <span className="t">
           <Pieces parts={keepParts(x.title)} aboutOf={about} />
         </span>
@@ -90,7 +91,7 @@ function lookScope(x: NeedsLookRow, box: RefObject<HTMLElement | null>, off: boo
   return {
     name: x.title.slice(0, 48),
     items: () => {
-      const open = { label: 'Open', hint: x.href, run: () => navigate(x.href) };
+      const open = { label: 'Open', hint: x.href, run: () => openIssue(x.href, x.issue ?? null) };
       const b = inRow('.ast .btn');
       if (off) return b ? [open, pressOf(b, 'Restore', '')] : [open];
       const cross = inRow('.adis');
@@ -128,7 +129,8 @@ function Rows({ d, box, wait, version }: RowsProps) {
   const aboutOf = useAbouts();
   const shown = drawnRows(d.groups, d.open);
   const off = new Set(d.groups.flatMap((g) => g.dismissed.map((x) => x.key)));
-  const inFocus = useListKeys({ rows: shown, keyOf: (x) => x.key, root: box, open: (x) => navigate(x.href), actions: (x) => lookScope(x, box, off.has(x.key)) });
+  // The row of failed runs nobody has blamed opens its newest's issue there (`issue`).
+  const inFocus = useListKeys({ rows: shown, keyOf: (x) => x.key, root: box, open: (x) => openIssue(x.href, x.issue ?? null), actions: (x) => lookScope(x, box, off.has(x.key)) });
   return (
     <div className="attn" ref={box}>
       {d.left ? null : <EmptyLine>Nothing needs a look.</EmptyLine>}

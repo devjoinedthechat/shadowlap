@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { copyText } from '../dom.js';
 import { useApp } from '../state.js';
 import { Command } from './Copy.js';
@@ -11,7 +11,9 @@ import { tipCard, tipText } from './HoverCard.js';
  * by what it copies, without an article (Copy command, Copy commands, Copy whole command, Copy
  * policy); its toast keeps the sentence's article ("Copied the command"). It takes the whole thing,
  * never the `$`: a box of several commands copies one a line, a shortened one its whole text
- * (`full`). A box that shows a change has no Copy (`change`): it is read, not pasted.
+ * (`full`). A box that shows a change has no Copy (`change`): it is read, not pasted. A file's
+ * change is its lines, each kept, added or taken out (`lines`), with what acts on the file, or says
+ * how a save writes it, at its header's right as one group (`actions`).
  */
 export interface CodeBoxProps {
   /** A command, or several, one a line, each shown as `Command` sets it. */
@@ -26,9 +28,34 @@ export interface CodeBoxProps {
   what?: string;
   /** A box that shows a change: read, not pasted, so it has no Copy. */
   change?: boolean;
+  /** At the right of a file's header, as one group that takes a row of its own where the header can't hold it beside the name. */
+  actions?: ReactNode;
   className?: string | undefined;
   /** A command box's, for what folds it. */
   id?: string | undefined;
+  /**
+   * A file shown as a change, a line each: kept (` `), added (`+`, in ink) or taken out (`-`, in
+   * red), each marked at its start while any line differs. Such a box shows a change: no Copy.
+   */
+  lines?: ReadonlyArray<{ op: ' ' | '+' | '-'; text: string }>;
+}
+
+/** A change's lines, one span a line: `+ ` and `− ` lead them while any differs, so the change reads without colour too. */
+function MarkedLines({ lines }: { lines: NonNullable<CodeBoxProps['lines']> }) {
+  const changed = lines.some((l) => l.op !== ' ');
+  return (
+    <>
+      {lines.map((l, i) => (
+        <Fragment key={i}>
+          {i ? '\n' : null}
+          <span className={l.op === '+' ? 'add' : l.op === '-' ? 'del' : undefined}>
+            {changed ? `${l.op === '-' ? '−' : l.op} ` : ''}
+            {l.text}
+          </span>
+        </Fragment>
+      ))}
+    </>
+  );
 }
 
 /** What a box's Copy names and its toast says: what the box names itself, else the whole command, the commands, the command or the code. */
@@ -44,14 +71,14 @@ export function boxWhat({ command, full, what }: Pick<CodeBoxProps, 'command' | 
  * button, its words beside the icon (`children`), or the icon alone, named by `name` for a screen
  * reader and on hover. Every Copy on a page is this one.
  */
-export function CopyButton({ text, label, children = 'Copy', className = 'linkbtn', name, sub }: { text: string; label?: string; children?: ReactNode; className?: string; name?: string; /** A line under its name, on its card. */ sub?: string }) {
+export function CopyButton({ text, label, children = 'Copy', className = 'linkbtn', name, sub, cmd }: { text: string; label?: string; children?: ReactNode; className?: string; name?: string; /** A line under its name, on its card. */ sub?: string; /** What it copies runs, on its card's `$` row. */ cmd?: string }) {
   const { toast } = useApp();
   return (
     <button
       type="button"
       className={className}
       aria-label={name}
-      data-tip={name ? (sub ? tipCard(name, [], sub) : tipText(name)) : undefined}
+      data-tip={name ? (sub ? tipCard(name, [], sub, cmd) : tipText(name)) : undefined}
       onClick={() => {
         void copyText(text).then((ok) => toast(ok ? `Copied ${label ?? text}` : 'Copying was refused by the browser'));
       }}
@@ -82,7 +109,8 @@ function BoxCopy({ text, what, words = false }: { text: string; what: string; wo
 
 /** One code box, with its one Copy: a command, code, or a file of code with its name in the header. */
 export function CodeBox(props: CodeBoxProps) {
-  const { command, code = '', file, full, change = false, className, id } = props;
+  const { command, code = '', file, full, className, id, lines, actions } = props;
+  const change = props.change ?? !!lines;
   const what = boxWhat(props);
   if (command !== undefined) {
     const lines = typeof command === 'string' ? [command] : command;
@@ -104,20 +132,20 @@ export function CodeBox(props: CodeBoxProps) {
   if (file !== undefined) {
     return (
       <div className={`codewrap${className ? ` ${className}` : ''}`}>
-        <div className="codehead">
+        <div className={`codehead${actions ? ' acts' : ''}`}>
           <span>{file}</span>
-          {change ? null : <BoxCopy text={code} what={what} words />}
+          {actions ? <span className="cdacts">{actions}</span> : change ? null : <BoxCopy text={code} what={what} words />}
         </div>
         {/* It scrolls sideways for a long line: by keyboard too. */}
-        <pre className="codebox" tabIndex={0}>
-          {code}
+        <pre className={lines ? 'codebox wfcode' : 'codebox'} tabIndex={0}>
+          {lines ? <MarkedLines lines={lines} /> : code}
         </pre>
       </div>
     );
   }
   const pre = (
-    <pre className={`codebox${change && className ? ` ${className}` : ''}`} tabIndex={0}>
-      {code}
+    <pre className={`codebox${lines ? ' wfcode' : ''}${change && className ? ` ${className}` : ''}`} tabIndex={0}>
+      {lines ? <MarkedLines lines={lines} /> : code}
     </pre>
   );
   return change ? (

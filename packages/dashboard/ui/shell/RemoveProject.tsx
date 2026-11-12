@@ -2,12 +2,31 @@ import { useEffect, useRef, useState } from 'react';
 import { Dialog, pressWayOn } from '../components/Dialog.js';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { expectProject, type RemoveDialogView } from '../projects-api.js';
+import { projectsChanged } from '../project-actions.js';
 import { nameMatches } from '../projects.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { useApp } from '../state.js';
-import { errorText } from '../toast.js';
+import { useApp, type AppState } from '../state.js';
+import { errorText, type ToastAction } from '../toast.js';
 import { flush } from '../pending-delete.js';
+
+/**
+ * A removal's Undo, on its toast: the project back at the place it left, the current project and
+ * the page as they are. The switcher reads its list again, for the project back and for Settings →
+ * Project's Remove project…, which a list of one turns off; the focus goes back to its button.
+ */
+function undoRemoval(app: AppState, id: string): ToastAction {
+  const run = () =>
+    app.client.projects.restore(id).then(
+      async (back) => {
+        app.toast(back.message);
+        await app.reload();
+        projectsChanged();
+      },
+      (err: unknown) => app.toast(errorText(err), 'error'),
+    );
+  return { label: 'Undo', undo: true, returnTo: document.querySelector<HTMLElement>('button.proj'), run: () => void app.guard(() => void run()) };
+}
 
 /**
  * Remove a project, from the switcher's × or Settings → Project (`<RemoveProjectDialog id=… />`).
@@ -63,7 +82,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
       // A delete waiting out its toast goes to this project's store first: removing it switches to another.
       void flush().then(() => client.projects.remove(id, { deleteRecordings: deleting, name: typed })).then(
         async (out) => {
-          toast(out.message);
+          toast(out.message, 'notice', out.undo ? undoRemoval(app, id) : undefined);
           onRemoved?.(out.current);
           onClose();
           expectProject(out.current);

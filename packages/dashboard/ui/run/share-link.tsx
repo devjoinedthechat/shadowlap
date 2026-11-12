@@ -3,7 +3,7 @@ import { copyText } from '../dom.js';
 import { addJobFooter } from '../job-actions.js';
 import { useApp } from '../state.js';
 import type { JobView } from '../types.js';
-import { sharedLink } from './share.js';
+import { sharedLink } from './share-steps.js';
 
 /**
  * A share job's drawer ends on the link it made: **Copy link**, with when it expires on hover. The

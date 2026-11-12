@@ -1,16 +1,15 @@
 import { useEffect } from 'react';
 import type { RunDetail } from '../api.js';
-import { LoadFailed } from '../components/bits.js';
 import { Copy } from '../components/Copy.js';
 import { DiffHead, DiffNotes } from '../components/DiffNotes.js';
-import { onShow } from '../components/OnShow.js';
+import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { ErrorState, Skeleton } from '../components/States.js';
 import { useLoad } from '../hooks.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { askDiff } from './diff-answers.js';
 
-export { askDiff };
+export { askDiff, JsonDiffPart };
 
 /**
  * A fork's or a diverged test's diff, in the inspector's place once its finding's Show diff is pressed
@@ -20,9 +19,6 @@ export { askDiff };
  * drawing is another (JsonDiff.tsx), asked for as this one's script comes, which Compare and a test's
  * report load too.
  */
-
-/** The structural diff, a script of its own: test/ui-bundle-size.test.ts fails the build if it loads with a page. */
-export const JsonDiffPart = onShow(() => import('../components/JsonDiff.js').then((m) => m.JsonDiff), { waiting: <Skeleton what="diff" lines={6} />, failed: <LoadFailed what="diff" /> });
 
 /** What the panel draws once the answer came: the heads and the diff with the notes under it; a fork that changed nothing in words alone. */
 function Answered({ diff }: { diff: NonNullable<Awaited<ReturnType<typeof askDiff>>> }) {

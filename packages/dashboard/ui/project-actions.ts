@@ -41,5 +41,18 @@ export function useProjectRemoval(): ProjectRemoval | null {
   );
 }
 
+const changed = new Set<() => void>();
+
+/** Has `f` told when the project list changes here without a switch (an Undo puts a project back); returns what stops it. */
+export function onProjectsChanged(f: () => void): () => void {
+  changed.add(f);
+  return () => void changed.delete(f);
+}
+
+/** Tells the project switcher the list changed, so it reads it again. */
+export function projectsChanged(): void {
+  for (const f of changed) f();
+}
+
 /** Why the only project can't be removed: what the button says when no dialog is provided. */
 export const ONLY_PROJECT = 'The only project can’t be removed';

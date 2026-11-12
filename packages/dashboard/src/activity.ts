@@ -136,6 +136,17 @@ const EVENT_TEXT = new Map<string, Describe>([
     },
   ],
   ['store.ci', (_e, d) => ({ kind: 'setting', text: `Push from CI ${d.push === false ? 'off' : 'on'}` })],
+  // Settings → CI's Write file, and its Undo: the repository's workflow, written, put back or removed.
+  [
+    'ci.workflow',
+    (e, d) => {
+      const path = e.ref ?? 'the workflow';
+      if (d.undo === true) return { kind: 'setting', text: d.removed === true ? `Removed ${path}` : `Put back ${path}`, href: links.settings('ci') };
+      const lines = (count: unknown, word: string) => (typeof count === 'number' && count > 0 ? `${count} ${count === 1 ? 'line' : 'lines'} ${word}` : null);
+      const counts = [lines(d.added, 'added'), lines(d.removed, 'taken out')].filter(Boolean).join(', ');
+      return { kind: 'setting', text: parts(`Wrote ${path}`, counts), href: links.settings('ci') };
+    },
+  ],
   // The coding agents' skills, put into the project by `shadowlap skill install`: the Claude Code
   // plugin, or the skills alone in .agents/skills or .kiro/skills.
   [

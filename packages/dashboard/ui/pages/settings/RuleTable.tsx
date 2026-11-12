@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ApiError } from '../../api.js';
 import { Seg } from '../../components/bits.js';
 import { Dialog, pressWayOn } from '../../components/Dialog.js';
@@ -6,10 +6,12 @@ import { Icon } from '../../components/Icon.js';
 import { ACTIONS, confirmWords } from '../../labels.js';
 import { messageOf } from '../../../../engine/src/message-of.js';
 import type { RuleRow } from '../../settings-api.js';
-import { useApp } from '../../state.js';
-import { CONFIG_FILE, editErrorText } from './common.js';
-import { emptyRuleForm, ruleCommand, ruleFacts, ruleInput, ruleProblem, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
+import { useApp, type AppState } from '../../state.js';
+import { CONFIG_FILE, editErrorText, type useEditor } from './common.js';
+import { emptyRuleForm, ruleCommand, ruleFacts, ruleInput, ruleProblem, ruleScope, ruleWarning, suggestedReplace, type PatternMode, type RuleFormState, type RuleListName } from './logic.js';
 import { ActionButton } from '../../components/ActionButton.js';
+import { EmptyLine } from '../../components/States.js';
+import { useListKeys, type RowScope } from '../../list-keys.js';
 
 /**
  * The rules of one list, as Matching and Redaction show them (scope, path, pattern, what replaces
@@ -19,13 +21,57 @@ import { ActionButton } from '../../components/ActionButton.js';
 
 const NOUN: Record<RuleListName, string> = { normalize: 'normalizer', redact: 'redaction rule' };
 
+/** A rule's row for the keys: j and k reach it, and Enter or ⌘K on it offers its Remove, waiting as the button waits. */
+const ruleKey = (r: RuleRow) => `rule:${r.n}`;
+
+/** What a list with no rule says: what fills it. */
+const EMPTY: Record<RuleListName, string> = {
+  normalize: 'No normalizers yet: Calibrate, below, proposes one for every value the agent makes anew.',
+  redact: 'No redaction rules yet: a copy holds what was recorded. Add redaction rule masks a value in every copy that leaves this machine.',
+};
+
 /**
  * `unreadable`: why there is no list to show, empty or not (`rulesUnreadable`: shadowlap.config.json
- * can't be read, or the project's folder is gone), said where the rules would be.
+ * can't be read, or the project's folder is gone), said where the rules would be. `onRemove` gets
+ * where the focus goes once the row has gone: the next row's Remove (the same button, which React
+ * keeps for the row that takes its number, a broken rule's or not), else the last row's, else the
+ * section's Add button.
+ * `focus` names a rule whose Remove takes the focus once the table shows it (one put back). Its rows
+ * are in the keys' reach (`useListKeys`): a row leads nowhere, so Enter on it offers its Remove.
  */
-export function RuleTable({ list, rows, off, onRemove, unreadable = null }: { list: RuleListName; rows: RuleRow[]; off: string | null; onRemove: (row: RuleRow) => void; unreadable?: string | null }) {
+export function RuleTable({ list, rows, off, onRemove, unreadable = null, focus }: { list: RuleListName; rows: RuleRow[]; off: string | null; onRemove: (row: RuleRow, returnTo: HTMLElement | null) => void; unreadable?: string | null; focus?: { current: number | null } }) {
+  const body = useRef<HTMLTableSectionElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const actions = (r: RuleRow): RowScope => ({
+    name: `${NOUN[list].charAt(0).toUpperCase()}${NOUN[list].slice(1)} #${r.n}`,
+    items: () => [{ label: 'Remove', hint: `shadowlap ${list} rm ${r.n}`, ...(off ? { wait: off } : {}), run: () => removeFromKeys(r) }],
+  });
+  const inFocus = useListKeys({ rows, keyOf: ruleKey, root: box, actions });
+  useEffect(() => {
+    const n = focus?.current;
+    if (!n) return;
+    const button = body.current?.querySelector<HTMLElement>(`tr[data-n="${n}"] .linkbtn`);
+    if (!button) return;
+    focus.current = null;
+    button.focus();
+  }, [rows, focus]);
+  const press = (row: RuleRow, button: HTMLElement) => {
+    const at = rows.indexOf(row);
+    const buttons = [...(body.current?.querySelectorAll<HTMLElement>('td.num .linkbtn') ?? [])];
+    const add = button.closest('section')?.querySelector<HTMLElement>('header .actions .btn') ?? null;
+    const returnTo = at < rows.length - 1 ? button : (buttons[at - 1] ?? add);
+    if (returnTo !== button) returnTo?.focus();
+    onRemove(row, returnTo);
+  };
+  const removeFromKeys = (row: RuleRow) => {
+    const button = body.current?.querySelector<HTMLElement>(`tr[data-n="${row.n}"] .linkbtn`);
+    if (button && !off) press(row, button);
+  };
+  // With no rule to show, a line under the hairline takes the table's place: what fills it, or why
+  // the list can't be read.
+  if (rows.length === 0) return <EmptyLine>{unreadable ?? EMPTY[list]}</EmptyLine>;
   return (
-    <div className="tscroll">
+    <div className="tscroll" ref={box}>
       <table className="t ruletable">
         <thead>
           <tr>
@@ -36,54 +82,62 @@ export function RuleTable({ list, rows, off, onRemove, unreadable = null }: { li
             <th aria-label="Remove" />
           </tr>
         </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={5} className="none">
-                <span>{unreadable ?? (list === 'normalize' ? 'No normalizers yet. Calibrate finds the ones a recording needs.' : 'No redaction rules yet: exports, packs and share links hold what was recorded.')}</span>
+        <tbody ref={body}>
+          {rows.map((r) => (
+            <tr key={r.n} data-n={r.n} data-rowkey={ruleKey(r)} className={inFocus === ruleKey(r) ? 'krow' : undefined}>
+              {/* The cells a broken rule draws otherwise come first, as one piece, and Remove last in every row: the
+                  row that takes a removed rule's number keeps its button, whichever shape it has, and the focus with it. */}
+              {r.error ? (
+                <Fragment key="error">
+                  <td>
+                    <span className="chip">#{r.n}</span>
+                  </td>
+                  <td colSpan={3} className="wrapcell">
+                    <span className="rerr">can’t be used: {r.error}</span>
+                  </td>
+                </Fragment>
+              ) : (
+                <Fragment key="rule">
+                  <td>
+                    <Scope rule={r.rule ?? {}} />
+                  </td>
+                  <td>{r.path ? <code>{r.path}</code> : <span className="rscope">any string</span>}</td>
+                  <td>{r.pattern ? <code className={r.patternType === 'regex' ? 'rx' : undefined}>{r.pattern}</code> : <span className="rscope">the whole value</span>}</td>
+                  <td>
+                    <code>{r.replace}</code>
+                  </td>
+                </Fragment>
+              )}
+              <td className="num">
+                <RemoveButton list={list} row={r} off={off} onRemove={press} />
               </td>
             </tr>
-          ) : null}
-          {rows.map((r) =>
-            r.error ? (
-              <tr key={r.n}>
-                <td>
-                  <span className="chip">#{r.n}</span>
-                </td>
-                <td colSpan={3} className="wrapcell">
-                  <span className="rerr">can’t be used: {r.error}</span>
-                </td>
-                <td className="num">
-                  <RemoveButton list={list} row={r} off={off} onRemove={onRemove} />
-                </td>
-              </tr>
-            ) : (
-              <tr key={r.n}>
-                <td>{r.scope === 'every call' ? <span className="muted">every call</span> : <span className="chip">{r.scope}</span>}</td>
-                <td>
-                  <code>{r.path ?? 'any string'}</code>
-                </td>
-                <td>
-                  <code className={r.patternType === 'regex' ? 'rx' : undefined}>{r.pattern ?? 'whole value'}</code>
-                </td>
-                <td>
-                  <code>{r.replace}</code>
-                </td>
-                <td className="num">
-                  <RemoveButton list={list} row={r} off={off} onRemove={onRemove} />
-                </td>
-              </tr>
-            ),
-          )}
+          ))}
         </tbody>
       </table>
     </div>
   );
 }
 
-function RemoveButton({ list, row, off, onRemove }: { list: RuleListName; row: RuleRow; off: string | null; onRemove: (row: RuleRow) => void }) {
+/** A rule's scope in words (`ruleScope`), its call's name as code. */
+function Scope({ rule }: { rule: Parameters<typeof ruleScope>[0] }) {
+  const { words, name } = ruleScope(rule);
   return (
-    <ActionButton className="linkbtn" why={off} title={`shadowlap ${list} rm ${row.n}`} aria-label={`Remove ${NOUN[list]} #${row.n}`} onClick={() => onRemove(row)}>
+    <span className="rscope">
+      {words}
+      {name ? (
+        <>
+          {' to '}
+          <code>{name}</code>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+function RemoveButton({ list, row, off, onRemove }: { list: RuleListName; row: RuleRow; off: string | null; onRemove: (row: RuleRow, button: HTMLElement) => void }) {
+  return (
+    <ActionButton className="linkbtn" why={off} title={`shadowlap ${list} rm ${row.n}`} aria-label={`Remove ${NOUN[list]} #${row.n}`} onClick={(e) => onRemove(row, e.currentTarget)}>
       Remove
     </ActionButton>
   );
@@ -291,6 +345,33 @@ export function addedText(list: RuleListName, n: number, added: boolean): string
   return added ? `Added to ${CONFIG_FILE} · ${NOUN[list]} #${n}` : `That ${NOUN[list]} is in ${CONFIG_FILE} already · #${n}`;
 }
 
-export function removedText(list: RuleListName, n: number): string {
-  return `Removed ${NOUN[list]} #${n} from ${CONFIG_FILE}`;
+/** A removal's toast: `Normalizer removed from shadowlap.config.json`. */
+export function removedText(list: RuleListName): string {
+  return `${list === 'normalize' ? 'Normalizer' : 'Redaction rule'} removed from ${CONFIG_FILE}`;
+}
+
+/** What its Undo's toast says once the rule is back at its number. */
+export const RULE_BACK = `Rule back in ${CONFIG_FILE}`;
+
+/**
+ * Remove on a rule's row: the toast, with an Undo that puts the rule back at its number as the file
+ * held it, sent against the version the removal wrote. A rule that can't be used gets none: written
+ * back, every command would refuse the file again. Once back, its Remove takes the focus.
+ */
+export function removeRule(app: AppState, editor: ReturnType<typeof useEditor>, list: RuleListName, version: string, focus: { current: number | null }) {
+  return (row: RuleRow, returnTo: HTMLElement | null): void =>
+    void editor.run(
+      () => app.client.settings.removeRule(list, row.n, version),
+      () => removedText(list),
+      row.error
+        ? undefined
+        : (r) => ({
+            edit: () => app.client.settings.restoreRule(list, r.n, r.rule, r.version),
+            ok: RULE_BACK,
+            returnTo,
+            then: () => {
+              focus.current = r.n;
+            },
+          }),
+    );
 }

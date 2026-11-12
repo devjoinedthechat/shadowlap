@@ -161,10 +161,20 @@ describe('GET /api/tests/gate', () => {
     expect(preview.odds.find((o) => o.rate === 0.7)!.pass).toBeCloseTo(0.0222, 4);
     // About the default gate: 80 attempts turn one in seven of a healthy agent's CI runs red, counting inconclusive ones.
     expect((preview as unknown as { ci: { red: number } }).ci.red).toBeGreaterThan(0.99);
-    expect((await getJson<{ ci: { goldens: number; red: number; redWarn: number } }>(dash, 'tests/gate')).ci).toMatchObject({ goldens: 100, red: expect.closeTo(0.1458, 4), redWarn: expect.closeTo(0.1435, 4) });
+    // Each extreme's verdict line, and the gate's sentence, in the engine's words.
+    expect(preview).toMatchObject({ extremes: { pass: 'passed · 12 of 12 · rate >= 0.73 (95%)', fail: 'failed · 0 of 3 · rate <= 0.71 (95%)' }, sentence: 'Tells an agent that passes 90% of the time or more from one that passes 70% or less, each verdict wrong at most 5% of the time at those two rates, and gives up after 20 attempts.' });
+    // CI's figure is the session `shadowlap test` plans: the suite's 5% split across 100 goldens, about once in 55,000 runs (docs/gating.md).
+    const plain = await getJson<{ ci: { goldens: number; risk: number; red: number; redWarn: number } }>(dash, 'tests/gate');
+    expect(plain.ci).toMatchObject({ goldens: 100, risk: 0.05, red: expect.closeTo(0.000018, 6), redWarn: expect.closeTo(0.0000558, 6), redText: '0.0018%', redWarnText: '0.0056%' });
+    // A suite's risk of its own, as the config's tests.suiteRisk gives it, splits as the session would.
+    expect((await getJson<{ ci: { risk: number; red: number } }>(dash, 'tests/gate?suiteRisk=0.2')).ci).toMatchObject({ risk: 0.2, red: expect.any(Number) });
+    expect((await getJson<{ ci: { red: number } }>(dash, 'tests/gate?suiteRisk=0.2')).ci.red).toBeGreaterThan(plain.ci.red);
+    expect((await api(dash, 'tests/gate?suiteRisk=0.6')).status).toBe(400);
     // A gate against history is figured against a baseline: its power to catch a drop, by the pass rate now.
-    const history = await getJson<{ gate: unknown; toPass: null; history: unknown; odds: Array<{ rate: number; fail: number; attempts: number }> }>(dash, 'tests/gate?baseline=history');
-    expect(history).toMatchObject({ gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40 }, toPass: null, history: { passes: 47, attempts: 50 } });
+    const history = await getJson<{ gate: unknown; toPass: number; history: unknown; odds: Array<{ rate: number; fail: number; attempts: number }> }>(dash, 'tests/gate?baseline=history');
+    // An agent whose attempts all pass needs 5, its verdict line naming the baseline over the window's sessions.
+    expect(history).toMatchObject({ gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40 }, toPass: 5, toFail: null, extremes: { pass: 'passed · 5 of 5 · rate >= 0.47 (95%) · against 0.94 over the last 10 sessions (47 of 50)', fail: null }, history: { passes: 47, attempts: 50 } });
+    expect(history).toMatchObject({ sentence: 'Asks whether this golden’s pass rate dropped 15 points or more from its last 10 sessions: it fails once that is 95% likely and passes once it is no likelier than not, deciding from attempt 5 up to 40.' });
     expect(history.odds.map((o) => o.rate)).toEqual([0.95, 0.9, 0.85, 0.75, 0.6, 0.5, 0.2]);
     expect(history.odds.find((o) => o.rate === 0.75)!.fail).toBeCloseTo(0.242, 3);
     expect(history.odds.find((o) => o.rate === 0.95)!.attempts).toBeCloseTo(5.67, 2);
@@ -320,18 +330,18 @@ describe('GET /api/ci/workflows', () => {
     expect(ci.fixOnFailure).toMatchObject({ on: false, budget: '2.00', repairer: 'claude-code', offNote: 'Off: a failed check fails the build, and nobody opens a fix.' });
     expect(ci.fixOnFailure.budgets.map((b) => b.label)).toEqual(['$1', '$2', '$5']);
     expect(ci.fixOnFailure.repairers.map((r) => r.value)).toEqual(['claude-code', 'anthropic', 'openai:gpt-5']);
-    expect(ci.fixOnFailure.yaml).toContain("    recordings: 'goldens/* evals/kept-elsewhere'\n    fix-on-failure: true\n    fix-budget: 2.00\n    repairer: claude-code");
+    expect(ci.workflow.text).toContain("          recordings: 'goldens/* evals/kept-elsewhere'\n");
     expect(ci.fixOnFailure.needs[0]).toEqual({ label: 'a model key for the repairer', value: 'ANTHROPIC_API_KEY' });
     expect(ci.fixOnFailure.never.map((r) => r.value)).toEqual(['divergence', 'rejected', '$2.00', 'merge']);
     // No fix verified here yet: the pull request is the example, and says so.
     expect(ci.fixOnFailure.preview).toMatchObject({ example: true, fixId: null, author: 'github-actions', base: 'main', spent: '≈$0.84 of $2.00' });
     expect(ci.alerts).toMatchObject({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' });
-    expect(ci.alerts.yaml).toContain("if: steps.goldens.outputs.failed != '0' && github.ref == 'refs/heads/main'");
+    expect(ci.workflow.text).toContain("if: steps.goldens.outputs.failed != '0' && github.ref == 'refs/heads/main'");
     // The golden marked fork runs live in CI; its pack isn't here to say which providers it calls,
     // so the test step's env says to add the agent's keys, as Fix on failure's does.
-    expect(ci.alerts.needs.map((r) => r.value)).toEqual(['Slack app', 'SLACK_WEBHOOK_URL', 'id: goldens', 'their providers’ keys', 'pull-requests: write', 'node-version: 22']);
+    expect(ci.alerts.needs.map((r) => r.value)).toEqual(['Slack app', 'SLACK_WEBHOOK_URL', 'id: goldens', 'their providers’ keys', 'node-version: 22']);
     expect(ci.alerts.needs[3].label).toBe('1 golden runs live (fork)');
-    expect(ci.alerts.yaml).toContain("    fail-on-divergence: false\n  # env:\n  #   your agent's own provider keys: the goldens that run live call them\n");
+    expect(ci.workflow.text).toContain("          fail-on-divergence: false\n        # env:\n        #   your agent's own provider keys: the goldens that run live call them\n");
     expect(ci.configError).toBeNull();
     expect(ci.alerts.failures.map((r) => r.value)).toEqual(['diverged', 'live call', 'exit ≠ 0', 'check failed', 'injection', 'inconclusive']);
     expect(ci.alerts.inconclusive).toBe('fail');
@@ -341,14 +351,14 @@ describe('GET /api/ci/workflows', () => {
   it('follows the panels\' options as they change', async () => {
     const ci = await getJson<CiWorkflowsView>(dash, `ci/workflows?fix=on&budget=5&repairer=openai:gpt-5&onlyMain=off&secret=${encodeURIComponent('TEAM-ALERTS hook')}`);
     expect(ci.fixOnFailure).toMatchObject({ on: true, budget: '5.00', repairer: 'openai:gpt-5' });
-    expect(ci.fixOnFailure.yaml).toContain('    fix-budget: 5.00\n    repairer: openai:gpt-5\n  env:\n    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
-    expect(ci.fixOnFailure.yaml).not.toContain('claude-code');
+    expect(ci.workflow.text).toContain('          fix-budget: 5.00\n          repairer: openai:gpt-5\n        env:\n          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
+    expect(ci.workflow.text).not.toContain('claude-code');
     expect(ci.fixOnFailure.needs[0].value).toBe('OPENAI_API_KEY');
     expect(ci.fixOnFailure.preview.spent).toBe('≈$0.84 of $5.00');
     // The secret keeps the letters, digits and _ GitHub allows, and every branch is told.
     expect(ci.alerts.secret).toBe('TEAMALERTShook');
-    expect(ci.alerts.yaml).toContain('webhook: ${{ secrets.TEAMALERTShook }}');
-    expect(ci.alerts.yaml).not.toContain('refs/heads/main');
+    expect(ci.workflow.text).toContain('webhook: ${{ secrets.TEAMALERTShook }}');
+    expect(ci.workflow.text).not.toContain('refs/heads/main');
     expect(ci.alerts.needs[1].value).toBe('TEAMALERTShook');
     expect(ci.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on fix-refund-limit.');
   });
@@ -367,7 +377,7 @@ describe('GET /api/ci/workflows', () => {
   });
 
   it('pushes each fix to the team store while Push from CI is on, as Settings → Store shows it', async () => {
-    const plain = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).fixOnFailure.yaml;
+    const plain = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).workflow.text;
     expect(plain).not.toContain('push: true');
     const config = join(project, 'shadowlap.config.json');
     writeFileSync(config, `${JSON.stringify({ store: 's3://northwind-agent-runs/support-agent?region=eu-central-1' }, null, 2)}\n`);
@@ -375,13 +385,14 @@ describe('GET /api/ci/workflows', () => {
       // A store and no "ciPush": on, as the Store tab's switch shows it.
       const store = await getJson<{ config: { version: string }; status: { ciPush: boolean } | null }>(dash, 'settings/store');
       expect(store.status?.ciPush).toBe(true);
-      const on = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).fixOnFailure;
+      const onView = await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on');
+      const on = onView.fixOnFailure;
       expect(on.teamStore).toMatchObject({ push: true, name: 'northwind-agent-runs/support-agent', credentials: 'oidc', note: 'Follows Push from CI: on, so the test runs, and fixes from your branches, go there too.' });
-      expect(on.yaml.split('\n')[0]).toBe('# the job needs: permissions: { contents: write, pull-requests: write, actions: write, id-token: write }');
-      // The credentials steps go right before the action, after the checkout, Node and the agent's install.
-      expect(on.yaml).toContain("# here, the bucket's credentials: the two if: steps shadowlap store ci prints\n- uses: devjoinedthechat/shadowlap@");
-      expect(on.yaml).toContain("    recordings: 'goldens/* evals/kept-elsewhere'\n    fix-on-failure: true\n    fix-budget: 2.00\n    repairer: claude-code\n    push: true\n  env:\n");
-      expect(on.needs).toContainEqual({ label: 'the bucket’s credentials: two shadowlap store ci steps', value: 'id-token: write' });
+      expect(onView.workflow.text).toContain('\npermissions:\n  contents: write\n  pull-requests: write\n  actions: write\n  id-token: write\n');
+      // The bucket's two sign-in steps go in the file itself, right before the action.
+      expect(onView.workflow.text.match(/aws-actions\/configure-aws-credentials@/g)).toHaveLength(2);
+      expect(onView.workflow.text).toContain('          fix-on-failure: true\n          fix-budget: 2.00\n          repairer: claude-code\n          push: true\n        env:\n');
+      expect(on.needs).toContainEqual({ label: 'the bucket’s credentials: the two sign-in steps in Your workflow', value: 'id-token: write' });
       expect(on.teamStore.lands).toEqual([
         { label: 'each test run and the session’s report', value: 'test --push' },
         { label: 'the fix and its runs, on teammates’ Fixes page once they pull', value: 'from CI' },
@@ -390,9 +401,10 @@ describe('GET /api/ci/workflows', () => {
       // Switched off on the Store tab: the step is the one it was, byte for byte.
       const res = await api(dash, 'settings/store/ci-push', { method: 'PUT', body: JSON.stringify({ on: false, expect: store.config.version }) });
       expect(res.status, await res.clone().text()).toBe(200);
-      const off = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).fixOnFailure;
+      const offView = await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on');
+      const off = offView.fixOnFailure;
       expect(off.teamStore).toMatchObject({ push: false, note: 'Follows Push from CI: off, so test runs and fixes stay in GitHub.', lands: [] });
-      expect(off.yaml).toBe(plain);
+      expect(offView.workflow.text).toBe(plain);
       expect(off.needs.map((r) => r.value)).toEqual(['ANTHROPIC_API_KEY', 'env', 'contents: write', 'pull-requests: write', 'actions: write', 'workflow_dispatch:', 'ref: head_ref', 'node-version: 22']);
     } finally {
       rmSync(config, { force: true });
@@ -411,10 +423,11 @@ describe('GET /api/ci/workflows', () => {
       expect(ci.configError).toBeTruthy();
       expect(ci.configError).toBe(settings.config.error);
       expect(ci.fixOnFailure.needs).toContainEqual({ label: 'Push from CI and the judges’ keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
-      expect(ci.fixOnFailure.yaml).toContain("# shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out");
+      expect(ci.workflow.text).toContain("# shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out");
       expect(ci.fixOnFailure.teamStore.note).toBe('shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.');
       expect(ci.alerts.needs).toContainEqual({ label: 'which goldens run live, and their keys, from shadowlap.config.json', value: 'can’t be read', tone: 'warn' });
-      expect(ci.alerts.yaml).toContain("#   shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
+      // Without a fix, the step's env says what Alerts' keys leave out.
+      expect((await getJson<CiWorkflowsView>(dash, 'ci/workflows')).workflow.text).toContain("shadowlap.config.json can't be read: the keys of the goldens that run live are left out");
     } finally {
       rmSync(config, { force: true });
     }

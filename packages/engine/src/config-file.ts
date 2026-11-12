@@ -313,7 +313,7 @@ export interface EditOptions {
  * that belongs.
  */
 export interface ConfigEvent {
-  kind: 'normalizer.added' | 'normalizer.removed' | 'redaction.added' | 'redaction.removed' | 'clock.set';
+  kind: 'normalizer.added' | 'normalizer.removed' | 'redaction.added' | 'redaction.removed' | 'clock.set' | 'checks.changed';
   ref: string | null;
   data: Record<string, unknown>;
 }
@@ -394,6 +394,23 @@ export async function editWhenFree<T>(edit: (options: { wait: 0 }) => T, waitMs 
 function serialize(data: Record<string, unknown>, format: ConfigFile['format']): string {
   // JSON.stringify escapes newlines inside strings, so every newline here is the layout's own.
   return JSON.stringify(data, null, format.indent).replace(/\n/g, format.eol) + format.eol;
+}
+
+/**
+ * Whether an edit of the project's config lays out anew lines it doesn't change: editConfigFile
+ * writes the whole file as `serialize` lays it out, with the file's own indent, so a file written
+ * otherwise (an object on one line, a key without its space, no newline at the end) comes back laid
+ * out that way. False with no file, or one that can't be read: an edit of it writes nothing else.
+ */
+export function editRelaysConfig(cwd: string): boolean {
+  const path = configFilePath(cwd);
+  try {
+    const bytes = readFileSync(path);
+    const file = parseConfig(path, bytes);
+    return serialize(file.data, file.format) !== bytes.toString('utf8');
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -515,19 +532,49 @@ export function removeRule(cwd: string, list: RuleList, which: string | number, 
   return { file, rule: result.rule, n: result.n, event: ruleEvent(list, 'removed', result.rule) };
 }
 
+/**
+ * Puts a removed rule back at its number: the Undo of removeRule. `rule` is the entry removeRule
+ * returned, written as given, so a remove and its restore leave the file as it was, byte for byte.
+ * It is checked as the file's own rules are when they load (parseRules, readRules), not as a rule
+ * typed into a form: any rule the list holds without an error goes back, one written by hand that
+ * `add` would refuse included, with keys a newer version wrote kept. A number past the end puts it
+ * last; a rule the list holds already (added again since) stays where it is, and nothing is written.
+ */
+export function restoreRule(cwd: string, list: RuleList, n: number, rule: unknown, options: EditOptions = {}): { file: ConfigFile; n: number; event: ConfigEvent | null } {
+  if (!Number.isInteger(n) || n < 1) throw new RuleError('a rule goes back at its number, from 1');
+  const checked = checkStored(rule);
+  const { file, result, changed } = editConfigFile(cwd, options, (data) => {
+    const rules = [...rulesIn(data, list)];
+    const there = rules.findIndex((r) => sameRule(r, checked) || sameRule(rule, r as Normalizer));
+    if (there >= 0) return there + 1;
+    const at = Math.min(n - 1, rules.length);
+    rules.splice(at, 0, rule);
+    data[list] = rules;
+    return at + 1;
+  });
+  return { file, n: result, event: changed ? ruleEvent(list, 'added', rule) : null };
+}
+
 /** The clock the file sets: `auto` unless it says `exact`. `explicit` tells whether it says either. */
 export function configClock(file: ConfigFile): { mode: ClockMode; explicit: boolean } {
   const raw = file.data.clock;
   return { mode: raw === 'exact' ? 'exact' : 'auto', explicit: raw === 'auto' || raw === 'exact' };
 }
 
-/** Sets `"clock"`: `auto` matches dates near each run's start across days, `exact` requires equality. */
-export function setClock(cwd: string, mode: unknown, options: EditOptions = {}): { file: ConfigFile; clock: ClockMode; changed: boolean; event: ConfigEvent | null } {
-  if (mode !== 'auto' && mode !== 'exact') throw new RuleError('clock must be "auto" or "exact"');
+/**
+ * Sets `"clock"`: `auto` matches dates near each run's start across days, `exact` requires equality.
+ * Null takes the key out, leaving the default (`auto`): how an Undo puts back a file that had none.
+ * `was` is what the file said before, null for nothing.
+ */
+export function setClock(cwd: string, mode: unknown, options: EditOptions = {}): { file: ConfigFile; clock: ClockMode; was: ClockMode | null; changed: boolean; event: ConfigEvent | null } {
+  if (mode !== 'auto' && mode !== 'exact' && mode !== null) throw new RuleError('clock must be "auto" or "exact"');
   let was: unknown;
   const { file, changed } = editConfigFile(cwd, options, (data) => {
     was = data.clock;
-    data.clock = mode;
+    if (mode === null) delete data.clock;
+    else data.clock = mode;
   });
-  return { file, clock: mode, changed, event: changed ? { kind: 'clock.set', ref: mode, data: { clock: mode, was: was === 'exact' || was === 'auto' ? was : null } } : null };
+  const before = was === 'exact' || was === 'auto' ? was : null;
+  const clock = mode ?? 'auto';
+  return { file, clock, was: before, changed, event: changed ? { kind: 'clock.set', ref: clock, data: { clock, was: before } } : null };
 }

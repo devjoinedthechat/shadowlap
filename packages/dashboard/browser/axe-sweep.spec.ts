@@ -86,6 +86,31 @@ const revision = (page: Page) => async () => {
   }, view.lead.key);
   await settled(page, { shows: 'main#view table.vdg tbody tr' });
 };
+/** Changes' Preview, drawn with its matrix's cells; an opened cell, drawn with its head; a run's Decisions view, drawn with its session's line. */
+const PREVIEW = 'main#view .dmx button.dc';
+const CELL = 'main#view .dcell .dch';
+const DVIEW = 'main#view .dview .dvhead';
+/** The demo's preview, a cell of it opened and its run's Decisions view, by the addresses the API gives. */
+async function previewed(page: Page): Promise<{ preview: string; cell: string; view: string }> {
+  const { origin, token } = dash();
+  const get = async <T>(path: string) => (await (await page.request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json()) as T;
+  const { sessions } = await get<{ sessions: Array<{ kind: string; sessionId: string }> }>('decisions');
+  const s = sessions.find((x) => x.kind === 'decisions');
+  if (!s) throw new Error('the demo store has no preview');
+  const { matrix } = await get<{ matrix: Array<{ runId: string; inStore: boolean }> }>(`decisions/${s.sessionId}`);
+  const runId = matrix.find((r) => r.inStore)?.runId;
+  if (!runId) throw new Error('the demo’s preview names no run the store holds');
+  const mine = (await get<{ sessions: Array<{ sessionId: string; href: string; changes: string }> }>(`runs/${runId}/decisions`)).sessions.find((x) => x.sessionId === s.sessionId)!;
+  return { preview: `/changes/decisions/${s.sessionId}`, cell: mine.changes.slice(1), view: mine.href.slice(1) };
+}
+const previews = async (page: Page, on = ''): Promise<Array<[string, () => Promise<void>]>> => {
+  const p = await previewed(page);
+  return [
+    [`Preview${on}`, at(page, p.preview, PREVIEW)],
+    [`a preview’s opened cell${on}`, at(page, p.cell, CELL)],
+    [`a run’s Decisions view${on}`, at(page, p.view, DVIEW)],
+  ];
+};
 const click = (page: Page, selector: string, text?: string, o: { shows?: string; hides?: string } = {}) => async () => {
   apiRequests(page);
   await page.locator(selector, text ? { hasText: text } : {}).first().click();
@@ -95,6 +120,11 @@ const press = (page: Page, key: string, o: { shows?: string; hides?: string } = 
   apiRequests(page);
   await page.keyboard.press(key);
   await settled(page, o);
+};
+/** Compare on the pair it opens on, its first row opened by a click, whichever call that is in the demo. */
+const compareOpen = (page: Page) => async () => {
+  await at(page, '/compare', 'main#view .paths2 button.cprow')();
+  await click(page, 'main#view .paths2 button.cprow', undefined, { shows: 'main#view #cmpd' })();
 };
 /** Escape, and the dialog or menu it closes gone. */
 const escape = (page: Page, closes: string = DIALOG) => press(page, 'Escape', { hides: closes });
@@ -114,8 +144,8 @@ test.describe.configure({ timeout: 300_000 });
 
 test('every page and Settings tab has no serious or critical axe violation', async ({ page }) => {
   const pages = ['/', '/runs', '/runs?types=capture', '/runs?types=test', '/runs?types=failed', '/runs?q=label%3Agood', '/fixes', '/tests', '/training', '/training/tasks', '/compare', '/new'];
-  const settings = ['matching', 'redaction', 'alerts', 'agents', 'tools', 'project', 'store'];
-  const changes: Array<[string, () => Promise<void>]> = [['/changes', at(page, '/changes', VERDICTS)], ['a revision’s page', revision(page)]];
+  const settings = ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'];
+  const changes: Array<[string, () => Promise<void>]> = [['/changes', at(page, '/changes', VERDICTS)], ['a revision’s page', revision(page)], ['/compare with a row open', compareOpen(page)], ...(await previews(page))];
   expect(await sweep(page, [...pages.map((p): [string, () => Promise<void>] => [p, at(page, p)]), ...changes, ...settings.map((t): [string, () => Promise<void>] => [`Settings → ${t}`, at(page, `/settings/${t}`)])])).toEqual([]);
 });
 
@@ -124,7 +154,7 @@ test('every run of the demo, and every view of a few, has no serious or critical
   // A capture's Turns (litellm's, whose model called no tool, hold nothing that takes the focus) and a chat's too.
   const views = ['ticket', 'override', 'batchFork', 'eval', 'litellm', 'chat'].flatMap((name) => {
     const id = dash().runs[name] as string;
-    return ['turns', 'context', 'timeline', 'forks', 'provenance'].map((v): [string, () => Promise<void>] => [`run ${name} · ${v}`, run(page, id, v)]);
+    return ['turns', 'context', 'timeline', 'forks', 'provenance', 'decisions'].map((v): [string, () => Promise<void>] => [`run ${name} · ${v}`, run(page, id, v)]);
   });
   expect(await sweep(page, [...all, ...views])).toEqual([]);
 });
@@ -141,6 +171,8 @@ test('a run’s inspector tabs, menus and dialogs have no serious or critical ax
   }
   // Edit and fork's dialog, from the inspector of the tool call the run failed at, which it opens on.
   states.push(['run failTool', run(page, dash().runs.failTool as string)], ['run failTool · Edit and fork', click(page, '.insp button', 'Edit and fork', { shows: DIALOG })], ['run failTool · Edit and fork closed', escape(page)]);
+  // The check menu, from the inspector's Add check… on a tool call of the refund bug.
+  states.push(['run refundBug', run(page, dash().runs.refundBug as string)], ['run refundBug · a tool call', click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])')], ['run refundBug · the check menu', click(page, '[data-act="ckmenu"]', undefined, { shows: MENU })], ['run refundBug · the check menu closed', escape(page, MENU)]);
   expect(await sweep(page, states)).toEqual([]);
 });
 
@@ -240,7 +272,7 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
   // The top bar's help menu: Keyboard shortcuts, Docs, Command line.
   states.push(['the help menu', click(page, '#helpBtn', undefined, { shows: '.pop.helpmenu' })], ['the help menu closed', escape(page, '.pop.helpmenu')]);
   // The shortcuts on pages of each kind: the keys that don't apply there are listed apart.
-  for (const [where, path, drawn] of [['the Overview', '/', 'overview'], ['Runs', '/runs', 'runs'], ['Fixes', '/fixes', 'main#view'], ['Settings', '/settings/alerts', 'main#view']] as const) {
+  for (const [where, path, drawn] of [['the Overview', '/', 'overview'], ['Runs', '/runs', 'runs'], ['Fixes', '/fixes', 'main#view'], ['Settings', '/settings/ci', 'main#view']] as const) {
     states.push([where, at(page, path, drawn)], [`the shortcuts on ${where}`, press(page, '?', { shows: '.help' })], [`the shortcuts on ${where} closed`, escape(page, '.help')]);
   }
   // A toast with Undo: the good/bad key pressed, then put back with u.
@@ -287,8 +319,8 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
   await page.setViewportSize({ width: 390, height: 844 });
   const states: Array<[string, () => Promise<void>]> = [];
   for (const p of ['/', '/runs', '/runs?types=failed', '/fixes', '/tests', '/training', '/compare', '/new', '/setup/store']) states.push([`${p} on a phone`, at(page, p)]);
-  states.push(['/changes on a phone', at(page, '/changes', VERDICTS)], ['a revision’s page on a phone', revision(page)]);
-  for (const t of ['matching', 'redaction', 'alerts', 'agents', 'tools', 'project', 'store']) states.push([`Settings → ${t} on a phone`, at(page, `/settings/${t}`)]);
+  states.push(['/changes on a phone', at(page, '/changes', VERDICTS)], ['a revision’s page on a phone', revision(page)], ['/compare with a row open on a phone', compareOpen(page)], ...(await previews(page, ' on a phone')));
+  for (const t of ['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store']) states.push([`Settings → ${t} on a phone`, at(page, `/settings/${t}`)]);
   for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step} on a phone`, at(page, `/fixes/${fx}${step}`, 'fix')]);
   for (const name of ['ticket', 'litellm', 'batchFork']) {
     const id = dash().runs[name] as string;
@@ -334,6 +366,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const onPage = (name: string, path: string, text: string) => opened(name, at(page, path), button('main#view button', text));
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
+  const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule));
   const states = (): Array<[string, () => Promise<void>]> => [
     ...opened('Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
     ...onRun('The consent question', 'packed', 'Replay'),
@@ -351,6 +384,9 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...fork('Find breaking commit', 'planted', 'Find breaking commit'),
     ...forceWrite('Force send_email live', 'twice', 'send_email'),
     ...opened('Edit and fork', run(page, id('failTool')), button('.insp button', 'Edit and fork')),
+    ...check('Add check', 'Never call issue_refund'),
+    ...check('Add check: When… then', 'When… then…'),
+    ...check('Add check: Ask a judge', 'Ask a judge…'),
     ...share('Pack', 'Pack'),
     ...share('Export eval dataset', 'Eval dataset'),
     ...share('Export OpenTelemetry trace', 'OpenTelemetry trace'),
@@ -369,6 +405,7 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...onPage('Add redaction rule', '/settings/redaction', 'Add redaction rule'),
     ...onPage('Add MCP server', '/settings/tools', 'Add MCP server'),
     ...onPage('Remove project', '/settings/project', 'Remove project'),
+    ...onPage('Write file', '/settings/ci', 'Write file'),
     ...onFix('Run repair', 'emailFix', 'Run repair'),
     ...onFix('Mark fix applied', 'refundFix', 'Mark applied'),
     ...opened('Rename fix', at(page, `/fixes/${id('emailFix')}`, 'fix'), button('main#view button.fxrename', 'Rename')),
