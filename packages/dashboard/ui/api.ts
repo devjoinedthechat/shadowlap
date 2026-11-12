@@ -10,6 +10,7 @@ import { readTokenLink } from './route.js';
 import { holdWhile, Revalidation } from './revalidate.js';
 import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js';
 import { editorApi, type EditorApi } from './editor-api.js';
+import { dismissalsApi, noDismissals, type DismissalsApi } from './dismissals-api.js';
 import { changesApi, type ChangesApi } from './changes-api.js';
 import { testsApi, type TestsApi } from './tests-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
@@ -252,6 +253,8 @@ export interface Client extends ChangesApi, TestsApi {
   estimates: EstimatesApi;
   /** Open in editor: a project file at a line, in the editor $VISUAL or $EDITOR names (`editor-api.ts`). */
   editor: EditorApi;
+  /** Needs a look's advice put away (Dismiss) and brought back (Restore), in the project's store alone (`dismissals-api.ts`). */
+  dismissals: DismissalsApi;
   /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
   storeSetup: StoreSetupApi;
 
@@ -525,7 +528,7 @@ export function createClient(token: string): Client {
 }
 
 /** The parts of the client that are APIs of their own, each written beside its routes. */
-function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates' | 'editor'> {
+function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates' | 'editor' | 'dismissals'> {
   return {
     settings: settingsApi(request),
     checks: checksApi(request),
@@ -533,6 +536,7 @@ function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeS
     projects: projectsApi(request),
     estimates: estimatesApi(request),
     editor: editorApi(request),
+    dismissals: dismissalsApi(request),
   };
 }
 
@@ -648,6 +652,7 @@ export function createExportedClient(data: StaticPayload): Client {
     checks: noChecks(readOnly),
     estimates: noEstimates(readOnly),
     editor: { open: readOnly },
+    dismissals: noDismissals(readOnly),
     storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
     training: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Training is not part of it')),

@@ -21,8 +21,9 @@
 
 .attn { display: flex; flex-direction: column; }
 /* Needs a look: its groups' heads in the UI face, quiet, with their counts; a row an item: what it is about, which opens it
-   (the whole row is its link), and its next step at its end, a small plain button above the link. The last column is kept
-   empty on every row, for Dismiss, so the steps keep one right edge. On a phone the step goes under the words, and Open hides */
+   (the whole row is its link), and its next step at its end, a small plain button above the link. The last column, which
+   every row keeps so the steps keep one right edge, holds Dismiss on advice. On a phone the step goes under the words, and
+   Open hides */
 .attn .agrp { display: flex; align-items: baseline; gap: 8px; margin: 22px 0 0; padding-bottom: 4px; font: 600 12.5px var(--body); color: var(--dim); }
 .attn .agrp:first-child { margin-top: 0; }
 .attn .agrp span { font: 500 11px var(--mono); color: var(--faint); }
@@ -39,11 +40,33 @@
 .arow .go { color: var(--faint); font-size: 12px; white-space: nowrap; }
 .arow:hover .go { color: var(--ink); }
 .arow .adx { position: relative; z-index: 1; display: flex; justify-content: center; align-self: center; }
+/* Dismiss, on advice only: a quiet × in the last column, shown on the row's hover or focus, always on a touch screen. It draws
+   22px and takes taps over 24px, reaching no neighbour (the step is 12px away, the next row's × 22px). One that waits (read-only,
+   offline) hides at rest as well, and shows at half strength, its card saying why. A group's dismissed rows fold at its end
+   under Dismissed (n), its caret in the icons' column and its words in the titles'; open, each row is muted by its colours,
+   with Restore in its step's place */
+.arow .adis { position: relative; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; opacity: 0; transition: opacity .12s; }
+.arow .adis::after { content: ""; position: absolute; inset: -1px; }
+.arow .adis svg { width: 12px; height: 12px; }
+.arow:hover .adis, .arow:focus-within .adis, .arow .adis:focus-visible { opacity: 1; }
+.arow .adis:hover, .arow .adis:focus-visible { color: var(--ink); background: var(--line); }
+@media (hover: none) { .arow .adis { opacity: 1; } }
+.arow:hover .adis[aria-disabled="true"], .arow:focus-within .adis[aria-disabled="true"], .arow .adis[aria-disabled="true"]:focus-visible { opacity: .5; cursor: not-allowed; }
+.arow .adis[aria-disabled="true"]:hover { color: var(--faint); background: none; }
+@media (hover: none) { .arow .adis[aria-disabled="true"] { opacity: .5; cursor: not-allowed; } }
+.arow.off .t { color: var(--dim); }
+.arow.off .glyph { color: var(--faint); }
+.attn .aoff { padding: 7px 0; border-top: 1px solid var(--line); }
+.agrp + .aoff { border-top: 0; padding-top: 1px; }
+.attn .aoff .linkbtn { padding: 6px 7px; margin: -6px 0 -6px -7px; gap: 0; }
+.attn .aoff .linkbtn svg { width: 10px; height: 10px; margin: 0 14px 0 2px; transform: rotate(-90deg); transition: transform .15s; }
+.attn .aoff .linkbtn[aria-expanded="true"] svg { transform: none; }
 @media (max-width: 640px) {
   .arow { grid-template-columns: 14px minmax(0, 1fr) 22px; }
   .arow .ast { grid-column: 2; justify-content: flex-start; }
   .arow .adx { grid-column: 3; grid-row: 1; align-self: start; }
   .arow .ast:has(.go) { display: none; }
+  .arow.off .ast > .btn.quiet { margin-left: -10px; }
 }
 /* j and k: the row in focus keeps its bar in the bleed, as every list in a section does; the prompt cache's misses bleed by their own box, so .krow's bar is at its edge */
 .panel.sec .attn > .arow.krow, .panel.sec .rrows > a.krow, .panel.sec .feed > a.krow { background: var(--sel); box-shadow: calc(3px - var(--bleed)) 0 0 var(--sel), calc(-1 * var(--bleed)) 0 0 var(--ink), var(--bleed) 0 0 var(--sel); }

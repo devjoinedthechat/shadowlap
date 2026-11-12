@@ -171,6 +171,29 @@ describe('what each colour may mean', () => {
     expect(value('.seg button', 'min-height')).toBe('24px');
     expect(value('.seg a', 'min-height')).toBe('24px');
     expect(value('.attempts a', 'min-height')).toBe('24px');
+    // Needs a look's ×, drawn 22px, takes taps a pixel past its edge on each side: 24px.
+    expect([value('.arow .adis', 'width'), value('.arow .adis', 'height'), value('.arow .adis', 'position')]).toEqual(['22px', '22px', 'relative']);
+    expect([value('.arow .adis::after', 'position'), value('.arow .adis::after', 'inset')]).toEqual(['absolute', '-1px']);
+  });
+
+  it('mutes a dismissed row of Needs a look by its colours, never by fading it', () => {
+    expect([value('.arow.off .t', 'color'), value('.arow.off .glyph', 'color')]).toEqual(['var(--dim)', 'var(--faint)']);
+    const faded = rules().filter((r) => r.selectors.some((x) => x.startsWith('.arow.off')) && /(^|;)\s*opacity\s*:/.test(r.body));
+    expect(faded.map((r) => r.selectors.join(', '))).toEqual([]);
+  });
+
+  it('hides a × that waits (read-only, offline) at rest as one that runs, and shows it at half strength wherever it shows', () => {
+    // The rule for what waits and is no button of its own style leaves the × to its own look, which hides it at rest.
+    const waits = styleRules().filter((r) => r.selectors.some((x) => x.startsWith('[data-why][aria-disabled="true"]:not(')));
+    expect(waits.flatMap((r) => r.selectors)).toEqual(['[data-why][aria-disabled="true"]:not(.btn, .linkbtn, .rk, .switch, .pop button, .adis)']);
+    expect(value('.arow .adis', 'opacity')).toBe('0');
+    for (const shown of ['.arow:hover .adis[aria-disabled="true"]', '.arow:focus-within .adis[aria-disabled="true"]', '.arow .adis[aria-disabled="true"]:focus-visible']) expect([value(shown, 'opacity'), value(shown, 'cursor')], shown).toEqual(['.5', 'not-allowed']);
+    const touch = styleRules().filter((r) => r.conditions.some((c) => /hover:\s*none/.test(c)));
+    expect(touch.find((r) => r.selectors.includes('.arow .adis'))?.decls).toEqual([['opacity', '1']]);
+    expect(touch.find((r) => r.selectors.includes('.arow .adis[aria-disabled="true"]'))?.decls).toEqual([
+      ['opacity', '.5'],
+      ['cursor', 'not-allowed'],
+    ]);
   });
 
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {
