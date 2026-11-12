@@ -864,7 +864,7 @@ The inspector shows the selected call, in four tabs:
 
 **Response**: **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded.
 
-**Find cause…** is on the summary line of a write the agent made after an untrusted read, after **Add check…**. It asks whether a read caused the write, with its price on hover: see [Find what caused a write](#find-what-caused-a-write). Once the run has an answer about the write, it reads **Test another read…**. An exported copy has neither.
+**Find cause…** is on the summary line of a write the agent made after an untrusted read, after **Add check…**. A tool that declares no effect counts as a write, as `--clean` counts it. It asks whether a read caused the write, with its price on hover: see [Find what caused a write](#find-what-caused-a-write). Once the run has an answer about the write, it reads **Test another read…**. An exported copy has neither.
 
 **On an injection test's replay**, the inspector marks what the test planted:
 
@@ -1504,11 +1504,11 @@ The tab also gives the section to paste, in a box with **Copy section** in its c
 
 The table has a row per tool, in three columns:
 
-| Column       | Says                                                                                             |
-| ------------ | ------------------------------------------------------------------------------------------------ |
-| Tool         | The tool's name and its effect: `read`, `pure`, `undeclared`, `input` or `write`                 |
-| After a fork | *runs live* for a read, *served when the same* for a pure tool, *blocked or stubbed* for a write |
-| Trust        | *untrusted*, with where the mark comes from, or *trusted*                                        |
+| Column       | Says                                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Tool         | The tool's name, its calls and its last call on hover, and its effect: `read`, `pure`, `undeclared`, `input` or `write` |
+| After a fork | *runs live* for a read, *served when the same* for a pure tool, *blocked or stubbed* for a write                        |
+| Trust        | *untrusted*, with where the mark comes from, or *trusted*                                                               |
 
 Reads come first, the untrusted ones first among them. A row you mark keeps its place until the page loads again.
 
@@ -1529,7 +1529,7 @@ Only a read takes a mark. A pure tool, a write, a tool that declares no effect a
 
 **Show the tools entry** unfolds the `tools` entry under the table, as the file holds it, with the line written from the page marked. It opens by itself once you mark a tool. **Copy entry**, beside it, copies the entry, folded or not.
 
-**Run injection test…** is on an untrusted read's row. It tests the newest golden's recording that reads the tool, else the newest of the store's 200 latest runs that does, and its card names which: *Plants payloads at #4 get_ticket of refund-over-limit’s recording*. A read no run calls has none. Its dialog is the fork menu's: see [Run an injection test](#run-an-injection-test).
+**Run injection test…** is on an untrusted read's row. It tests the newest golden's recording that reads the tool, else the newest of the store's 200 latest ended recordings that does, and its card names which: *Plants payloads at #4 get_ticket of refund-over-limit’s recording*. A read no run calls has none. Its dialog is the fork menu's: see [Run an injection test](#run-an-injection-test).
 
 Credentials in a copied config:
 
@@ -1936,7 +1936,7 @@ An injection test's own attempts offer none. Its dialog, *Run injection test on 
 **Find cause…** asks whether an untrusted read caused a write, as [`shadowlap injection --clean`](./injection.md#prove-cause-on-an-incident) does. It replays the run with the read made neutral until the gate decides whether the write comes back. Its dialog, *Find cause of #28 send_email*, holds:
 
 - **Gate**: the rule that decides. Its hover says what the write going away means: what the read brought in caused it.
-- **Read to make neutral**: the untrusted reads before the write, one to pick. It starts on the read whose result holds a value the write sends, which says so (*its result holds refunds@…, which #28 sends*), else the last.
+- **Read to make neutral**: the untrusted reads a model call reads before the write, one to pick. It starts on the nearest whose result holds a value the write sends, which says so (*its result holds refunds@…, which #28 sends*), else the last.
 - **The command and its price**: *shadowlap injection 01K5CQ4R1T --clean 4 --write 28*, then *At most ≈$0.481 · up to 10 attempts · live from the read, writes stubbed*.
 
 **Find cause** starts the job, asking first for a command from elsewhere. Its drawer reads *Finding cause: testing #4*, and ends *caused · exit 0* in red, *not caused · exit 0* or *inconclusive · exit 3*. Its toast reads *Searched for cause: testing #4*, whatever the answer.
@@ -1960,9 +1960,9 @@ Its dialog, *Pack 01K5CQ4R1T with injection gate?*, holds:
 
 Its drawer reads *Packing with injection gate*, prints the line it added, then the test. It ends as *Packed with injection gate*, then how the test came out: *its test failed · exit 1*, *its test inconclusive · exit 3* or *its test passed · exit 0*. A refused write ends as *Tried packing with injection gate*, saying the golden is packed without its gate.
 
-- **Open proof** leads where the gate failed, with **Open Tests**.
-- **On the run's page**, the drawer offers the step the page then leads with, such as **Re-run test**, which runs the golden and its gate again.
-- **The activity feed** says *Injection gate added · goldens/01k5cq4r1t*.
+- **Open proof** leads where the gate failed, with **Open Tests**. A gate that passed ends on **Open Tests** alone.
+- **On the run's page**, a gate that showed too little leads with **Re-run test**, which runs the golden and its gate again, **Open Tests** beside it.
+- **The activity feed** says *Injection gate added · 01k5cq4r1t*.
 
 ### Actions on a fix
 
@@ -2576,7 +2576,7 @@ Every request needs the session token in `x-shadowlap-token`.
 - **A crash's next step**: `blame` is the Run blame beside it, its `offer`, `sub`, `command` and `estimate`.
 - **A list's rows** carry `next` too, with only `key`, `label`, `href`, `off`, `title`, `command` and `capture` (a capture's Run blame, which asks for your command on its page), as a list reads no run's calls for it.
 - **Its estimates**: `/api/runs/:id/estimates` answers `blame` and `actions`, each the engine's estimate of the job as it runs, worked out beside the server. A row that runs nothing live is Free, such as Repeat on a recording, and one with nothing to bill has none: Replay, a normalizer, Pack. `model` prices Switch model at that model; without it, as recorded.
-- **An injection test's estimates**: `/api/runs/:id/estimates` also answers `injection`, Run injection test… at the plan nobody picked, and `cause`, Find cause… for each untrusted read by its call number.
+- **An injection test's estimates**: the whole run's `/api/runs/:id/estimates`, without `at`, also answers `injection`, Run injection test… at the plan nobody picked. Find cause… asks its price one read at a time, from `/api/injection/estimate`.
 - **Its Replay**: `replay` is what its Replay button replays: `label` and `runId`, with the `action` that asks for your command where that run has none.
 - **Its family**: each run of the family carries the same `status`, `kind`, `outcome` and `failed`, an attempt the list leaves out included. The HTML file holds such a run the same way.
 - **Its calls**: a call row carries `via` for a model call made to a host of another provider's format (the host; `provider` is then its format), and `extraRead` for a replay's extra read.
@@ -2816,7 +2816,7 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 | `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a run's decisions, and the retirement notices |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
-| `GET /api/injection/estimate?run=&payloads=&repeat=&budget=\|gate=1`, `/api/injection/payloads?upload=`, `/api/injection/security` | A dialog's plan priced, a payload file once sent, and Tests' Security |
+| `GET /api/injection/estimate?run=\|golden=&payloads=&repeat=&budget=\|gate=1\|clean=`, `/api/injection/payloads?upload=`, `/api/injection/security` | A dialog's plan priced, a payload file once sent, and Tests' Security |
 | `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
 | `GET /api/coverage` | [Production coverage](./coverage.md): the last `shadowlap coverage` scan and what it found |
 
@@ -2857,10 +2857,10 @@ The `matrix` has a row per run and a cell per model call. Each cell holds:
 - `/api/injection/runs/:id`: a run's untrusted reads, each with the model call that reads it (`readAt`), its tests, and the test it is an attempt of: the canary, the line that joins the read to the write, and what was planted where.
 - `/api/injection/templates`: the built-in payload templates, versioned.
 - `/api/injection/tools`: every recorded tool with its trust and where that comes from, for Settings → Tools.
-- `/api/injection/estimate`: the price of a dialog's picks, `payloads` planted with `repeat` attempts each and `budget` as Stop at $, from the engine's estimators. With `gate=1`, a gate's price every test session. It needs a run in the store, and is revalidated as a run's estimates are.
+- `/api/injection/estimate`: the price of a dialog's picks, `payloads` planted with `repeat` attempts each and `budget` as Stop at $, from the engine's estimators. With `gate=1`, a gate's price every test session; with `clean=<read>`, Find cause's on that read. It prices a run of the store, or a golden by its path (`golden=`), from its pack where the store doesn't hold its recording, and is revalidated as a run's estimates are.
 - `/api/injection/payloads`: a payload file the dialog sent, before a test takes it: its `name`, `count` and the payloads with no `{{canary}}` (`noCanary`). A file that can't be read is a 400 in the test's words, and one gone a 404.
-- `/api/injection/security`: each golden whose recording reads something untrusted (`goldens`), with its reads, its last test or gate and its test's price; the rest by name (`none`); and those whose recording can't be read, with why (`unread`).
-- **A run's untrusted reads** (`/api/injection/runs/:id`) also carry Find cause's facts (`cause`): each live write after an untrusted read, the reads before it and the one to start on. With them come the run's `--clean` answers, causes first (`answers`), and the gate's rule (`rule`).
+- `/api/injection/security`: each golden whose recording reads something untrusted (`goldens`), with its reads a model call reads, its last test or gate and its test's price; the rest by name (`none`); and those whose recording can't be read, with why (`unread`). It is revalidated from the store's changes, the goldens and the trust marks.
+- **A run's untrusted reads** (`/api/injection/runs/:id`) also carry Find cause's facts (`cause`): each live write after an untrusted read a model call reads, and the read to start on. The reads before it are the run's own `untrusted`. With them come the run's `--clean` answers, causes first (`answers`), and the gate's rule (`rule`).
 
 **Error-path presets:**
 
