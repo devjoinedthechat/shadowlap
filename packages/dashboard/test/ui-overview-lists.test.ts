@@ -1,6 +1,7 @@
 import { act, createElement, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { OnShow } from '../ui/components/OnShow.js';
+import { resetLookMemory } from '../ui/overview/dismissed.js';
 import { NeedsLook } from '../ui/overview/NeedsLook.js';
 import type { BuilderProps } from '../ui/run/check-part.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
@@ -24,6 +25,7 @@ afterEach(async () => {
   await r?.unmount();
   r = null;
   vi.unstubAllGlobals();
+  resetLookMemory();
 });
 
 describe('the Overview’s Usage', () => {
@@ -118,6 +120,17 @@ describe('Needs a look', () => {
     await r.unmount();
     r = await render(inApp(createElement(NeedsLook, { items: [], total: 0 })));
     expect(r.all('.ovattn .emptyline').map(text)).toEqual(['Nothing needs a look.']);
+  });
+
+  it('ends a group on what was dismissed from it, folded under Dismissed (n), each row muted with Restore once opened', async () => {
+    const away: NeedsLookRow = { ...rows[2], step: null, advice: { key: 'local', facts: ['01M5H2EWWY8P621C63CJPVEM4A'], until: 'Until another run is only on this machine', dismissed: true } };
+    r = await render(inApp(createElement(NeedsLook, { items: [rows[0], away], total: 1 })));
+    expect([r.all('.arow').map((x) => x.getAttribute('data-rowkey')), r.all('.agrp').map(text)]).toEqual([[rows[0].key], ['Failing1', 'Housekeeping']]);
+    const fold = r.one('.aoff .linkbtn');
+    expect([text(fold), fold.getAttribute('aria-expanded')]).toEqual(['Dismissed (1)', 'false']);
+    await r.click(fold);
+    expect(r.all('.arow.off').map((x) => [x.getAttribute('data-rowkey'), text(x.querySelector('.ast')!)])).toEqual([[away.key, 'Restore']]);
+    expect(r.all('.arow .adis')).toEqual([]);
   });
 
   it('asks for a step’s price only once the step is reached, and a press before it came waits for it', async () => {

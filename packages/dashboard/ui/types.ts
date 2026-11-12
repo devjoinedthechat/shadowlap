@@ -480,7 +480,7 @@ export interface StaticPayload {
 // ---- overview-runs: the Overview, the Runs page, imports and the team store -------------------
 // The server's own shapes, as its read models answer: nothing other parts of the API reshape.
 
-export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, LookStep, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
+export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, LookAdvice, LookStep, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
 export type { BulkSkip, ChipCounts, DayCount, DeleteResult, RunRow, RunsByDay, RunsPage, RunSort as ServerRunSort, RunType as ServerRunType } from '../src/runs-list.js';
 export type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
 export type { FailedCheck, Issue, IssueDetail, IssueKind, IssueRun, IssueRunsPage, IssuesPage } from '../src/issues.js';
