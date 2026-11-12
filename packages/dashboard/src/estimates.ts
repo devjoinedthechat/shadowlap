@@ -49,6 +49,7 @@ import { verdictRule, verifyLeftExpected } from './fix-verify-step.js';
 import { fixDetail } from './fixes.js';
 import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, newestGate } from './next-step.js';
 import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
+import { previewEstimates, type PreviewEstimateJob } from './preview-estimate.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 import { parseWork, type OutcomeWork } from './run-outcome.js';
@@ -107,7 +108,7 @@ export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: 
 /** `max` and `keptMax`: Run more attempts' raised limits, as `decisions-verify` takes them; absent for Verify, which runs by verify's own. */
 export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runIds: string[]; work: OutcomeWork | null; rule: ConfigVerifyRule; max?: number | null; keptMax?: number | null; prices?: Record<string, Price> };
 
-export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob | DecisionEstimatesJob;
+export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob | DecisionEstimatesJob | PreviewEstimateJob;
 
 /** A run's answer: Run blame's estimate, and each row's by its key. */
 export interface RunEstimates {
@@ -379,4 +380,5 @@ export const ESTIMATE_READS: ReadTable<EstimateJob> = {
   'tests-estimates': (store, job) => testsEstimates(store, job),
   'bisect-estimate': (store, job) => bisectEstimates(store, job),
   'decision-estimates': (store, job) => decisionEstimates(store, job),
+  'preview-estimate': (store, job) => previewEstimates(store, job),
 };

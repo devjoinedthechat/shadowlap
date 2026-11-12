@@ -280,7 +280,7 @@ export { keptMaxOf, lastVerify, VERIFY_LIVE, verifyCeiling, verifyEstimate, veri
 export { REPAIR_CANDIDATES, REPAIR_VERIFIES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, wholeRun, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
 export { bisectCommits, bisectEstimate, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
 export { CLEAN_GATE, causeEstimate, GATE_REPEAT, injectionAgainEstimate, injectionEstimate, injectionGateEstimate, presetsEstimate, type InjectionPlan } from './estimates/injection.js';
-export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';
+export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, otherFamilyWords, previewAsks, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';
 export { askedInScope, defaultFrom, modelUse, type ModelUse } from './switch-from.js';
 export { USER_SETTINGS_FILE, USER_SETTINGS_VERSION, UserSettingsError, readSpending, userSettingsFile, writeSpending, type SpendingSetting, type UserSettingsOptions } from './user-settings.js';
 // The project's GitHub Actions workflow that runs the action, as Settings → CI reads, diffs and writes it.

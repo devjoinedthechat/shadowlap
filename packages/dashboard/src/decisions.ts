@@ -229,13 +229,19 @@ function scopeArgs(raw: unknown): { scope: string | null } | { error: string } {
   return { scope: raw };
 }
 
-/**
- * `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?,
- * thenVerify?, yes? }`. Without `samples`, each step is asked as the CLI asks it by default: 3 times
- * under the change and 3 times as recorded, the control, six requests a step. `samples` given is
- * passed on whatever it is, 1 too, which asks once and has no control.
- */
-export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
+/** A preview's request, checked as its job and its estimate (`GET /api/decisions/estimates`) take it: its targets as the job resolves them, and its change. */
+export interface PreviewRequest {
+  targets: { args: string[]; runIds: string[]; byId: string[]; packs: string[] };
+  model: string | null;
+  set: Array<[string, string]>;
+  from: string[];
+  scope: string | null;
+  fromCode: boolean;
+  samples: number | null;
+}
+
+/** `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples? }` checked, a change or none. */
+export function previewRequest(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[]): PreviewRequest | { error: string; status?: number } {
   const targets = targetArgs(store, req, goldens);
   if ('error' in targets) return targets;
   if (req.model !== undefined && (typeof req.model !== 'string' || !MODEL.test(req.model))) return { error: 'model is a model name, such as claude-sonnet-5-5' };
@@ -245,20 +251,31 @@ export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, golde
   if ('error' in from) return from;
   const scope = scopeArgs(req.scope);
   if ('error' in scope) return scope;
-  const fromCode = req.fromCode === true;
-  if (!req.model && !set.length && !fromCode) return { error: 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree' };
-  if (from.length && !req.model && !set.length) return { error: 'from names the model calls a model or fields change: give one of them' };
   if (req.samples !== undefined && (typeof req.samples !== 'number' || !Number.isInteger(req.samples) || req.samples < 1 || req.samples > 20)) return { error: 'samples is a whole number from 1 to 20' };
-  const runsAgent = fromCode || req.thenVerify === true;
+  return { targets, model: typeof req.model === 'string' ? req.model : null, set, from, scope: scope.scope, fromCode: req.fromCode === true, samples: typeof req.samples === 'number' ? req.samples : null };
+}
+
+/**
+ * `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?,
+ * thenVerify?, yes? }`. Without `samples`, each step is asked as the CLI asks it by default: 3 times
+ * under the change and 3 times as recorded, the control, six requests a step. `samples` given is
+ * passed on whatever it is, 1 too, which asks once and has no control.
+ */
+export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
+  const p = previewRequest(req, store, goldens);
+  if ('error' in p) return p;
+  if (!p.model && !p.set.length && !p.fromCode) return { error: 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree' };
+  if (p.from.length && !p.model && !p.set.length) return { error: 'from names the model calls a model or fields change: give one of them' };
+  const runsAgent = p.fromCode || req.thenVerify === true;
   let yes: string[] = [];
   if (runsAgent) {
-    const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
+    const consent = commandConsent(store, p.targets.byId, p.targets.packs, projectDir, req.yes);
     if ('ask' in consent) return consent.ask;
     yes = consent.yes;
   }
-  const args = [...decisionsArgv({ targets: targets.args, model: typeof req.model === 'string' ? req.model : null, set, from, scope: scope.scope, fromCode, samples: typeof req.samples === 'number' ? req.samples : null, thenVerify: req.thenVerify === true }), ...yes];
-  const title = fromCode ? ACTIONS.previewChangedPrompt.doing : typeof req.model === 'string' ? ACTIONS.previewModelSwitch.doing : ACTIONS.previewFieldChange.doing;
-  return { args, title, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
+  const args = [...decisionsArgv({ targets: p.targets.args, model: p.model, set: p.set, from: p.from, scope: p.scope, fromCode: p.fromCode, samples: p.samples, thenVerify: req.thenVerify === true }), ...yes];
+  const title = p.fromCode ? ACTIONS.previewChangedPrompt.doing : p.model ? ACTIONS.previewModelSwitch.doing : ACTIONS.previewFieldChange.doing;
+  return { args, title, ...(p.targets.runIds.length === 1 ? { runId: p.targets.runIds[0]! } : {}) };
 }
 
 /** The drawer's row for a read of what the working tree sends, as the CLI's own line begins. */

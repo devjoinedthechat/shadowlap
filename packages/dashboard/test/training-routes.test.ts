@@ -7,6 +7,7 @@ import { recordBlame, recordRepair, recordVerdict, Store, type Task, type Verify
 import { blameReport, EXPECT, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, ESCALATE_2, LOOKUP, POLICY, REFUND, recordRun, type Step } from '../../engine/test/training-fixtures.js';
 import { startDashboard, type Dashboard, type JobView, type ModelsView, type TrainingView } from '../src/index.js';
+import type { ModelChoicesView } from '../src/model-listing.js';
 import { readTraining, sourceFixes, trainingView } from '../src/training.js';
 
 /**
@@ -279,6 +280,26 @@ describe('GET /api/models', () => {
       { group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' },
       { group: 'Ollama, on this machine', note: "isn't running" },
     ]);
+  });
+});
+
+describe('GET /api/model-choices', () => {
+  it('offers a preview’s model field what each provider lists at its own API, by family, with why one couldn’t be listed', async () => {
+    asked.length = 0;
+    const view = (await (await api(dash, 'model-choices')).json()) as ModelChoicesView;
+    // Ollama's models run on this machine, so a switch of a recorded request isn't asked of them.
+    expect(view.choices).toEqual([
+      { id: 'claude-sonnet-5', family: 'claude', group: 'Anthropic API' },
+      { id: 'claude-haiku-4-5', family: 'claude', group: 'Anthropic API' },
+    ]);
+    expect(view.notes).toEqual([{ group: 'OpenAI API', note: 'OPENAI_API_KEY is not set' }]);
+    // The listing is the one Score a model's comes from, kept a few seconds: asked again, it asks nobody.
+    expect((await api(dash, 'model-choices')).status).toBe(200);
+    expect(asked.sort()).toEqual(['http://127.0.0.1:11434/api/tags', 'https://api.anthropic.com/v1/models?limit=100']);
+    // A read-only dashboard asks no provider.
+    asked.length = 0;
+    expect(await (await api(readOnly, 'model-choices')).json()).toEqual({ choices: [], notes: [], priced: [] });
+    expect(asked).toEqual([]);
   });
 });
 
