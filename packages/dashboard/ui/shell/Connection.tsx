@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { tokenInUse } from '../api.js';
-import { CmdLine } from '../components/bits.js';
+import { CmdLine, Said } from '../components/bits.js';
 import { CodeBox, CopyButton } from '../components/CodeBox.js';
 import { Icon } from '../components/Icon.js';
 import { pastedLink } from '../connection.js';
@@ -105,12 +105,15 @@ function CopyCommand({ text }: { text: string }) {
 /**
  * Paste the new link: the link the dashboard printed, read from the clipboard, opened in this tab
  * (`pastedLink`): the page starts again with its token. Says why when the clipboard holds no
- * dashboard link, the one this page has, or can't be read.
+ * dashboard link, the one this page has, or can't be read: a refusal, said as an alert from a region
+ * there since the card came, again on each press. The line drawn under the button is for the eye.
  */
 function PasteLink() {
   const [why, setWhy] = useState<string | null>(null);
-  const paste = () =>
-    navigator.clipboard.readText().then(
+  const paste = () => {
+    // The last reason goes as the clipboard is read, so the same one is said again.
+    setWhy(null);
+    return navigator.clipboard.readText().then(
       (text) => {
         const step = pastedLink(text, location.origin);
         if (!step) return setWhy('The clipboard holds no dashboard link: copy the one shadowlap dashboard printed, with its #token=.');
@@ -121,16 +124,20 @@ function PasteLink() {
       },
       () => setWhy('The browser didn’t let the page read the clipboard: paste the link into the address bar instead.'),
     );
+  };
   return (
     <>
-      <button className="btn lime" type="button" onClick={() => void paste()}>
-        Paste the new link
-      </button>
-      {why ? (
-        <p className="fieldnote err" role="status">
-          {why}
-        </p>
-      ) : null}
+      <div className="actions">
+        <button className="btn lime" type="button" onClick={() => void paste()}>
+          Paste the new link
+        </button>
+        {why ? (
+          <p className="fieldnote err" aria-hidden="true">
+            {why}
+          </p>
+        ) : null}
+      </div>
+      <Said words={why} alert />
     </>
   );
 }
@@ -165,9 +172,7 @@ export function ExpiredCard() {
             {DOCS.sessionTokens.what} in the docs<span aria-hidden="true">{'\u00a0→'}</span>
           </a>
         </p>
-        <div className="actions">
-          <PasteLink />
-        </div>
+        <PasteLink />
       </div>
     </div>
   );
