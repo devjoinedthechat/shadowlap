@@ -127,7 +127,7 @@ export function PreviewVerifyButton({ sessionId, change, rows, every = false, la
       kind="decisions-verify"
       fields={{ sessionId, ...(named ? { runIds: named } : {}), ...limits }}
       label={label}
-      verb={more?.kind === 'more' ? 'run more attempts' : 'verify the changed runs'}
+      verb={more?.kind === 'more' ? 'run more attempts' : one ? 'verify it' : 'verify the changed runs'}
       lead={lime}
       tip={tip}
       command={command}

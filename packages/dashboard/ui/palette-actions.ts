@@ -101,7 +101,7 @@ addPaletteSource(({ app, go }) => {
     });
   return [
     { group: 'Actions', label: ACTIONS.previewModelSwitch.label, hint: 'shadowlap decisions goldens/* --model <model>', job: true, run: asks('model') },
-    { group: 'Actions', label: ACTIONS.previewChangedPrompt.label, hint: held ?? 'shadowlap decisions goldens/* --from-code', job: true, ...(held ? { wait: held } : {}), run: asks('code') },
+    { group: 'Actions', label: ACTIONS.previewChangedPrompt.label, hint: held ?? 'shadowlap decisions goldens/* --from-code --samples 1', job: true, ...(held ? { wait: held } : {}), run: asks('code') },
   ];
 });
 

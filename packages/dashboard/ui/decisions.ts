@@ -1,3 +1,4 @@
+import { ACTIONS } from '../../engine/src/action-words.js';
 import { canonicallySame } from '../../engine/src/canonical.js';
 import { approx, clock, minuteStamp, num } from './format.js';
 import type { DecisionCell, DecisionRun, DecisionSessionView, DecisionView, PreviewNext, PreviewReceipt, PreviewView } from './types.js';
@@ -93,7 +94,7 @@ export const verifyLabel = (n: number): string => `Verify ${n} run${n === 1 ? ''
 /** The one next step: Verify the runs left to verify, Run more attempts on those verify left open, Migrate to the model switched to, else none. */
 export type NextStep =
   | { kind: 'verify'; label: string; runs: string[]; every: boolean; gone: number }
-  | ({ kind: 'more'; label: 'Run more attempts' | 'Verify again' } & Omit<NonNullable<PreviewNext['more']>, 'kind'>)
+  | ({ kind: 'more'; label: string } & Omit<NonNullable<PreviewNext['more']>, 'kind'>)
   | { kind: 'migrate'; label: string; to: string; from: string[]; goldens: string[]; runs: string[] }
   | null;
 
@@ -101,7 +102,7 @@ export function nextStep(next: PreviewNext): NextStep {
   if (next.verify) return { kind: 'verify', label: verifyLabel(next.verify.runs.length), runs: next.verify.runs, every: next.verify.every, gone: next.verify.gone };
   if (next.more) {
     const { kind, ...more } = next.more;
-    return { kind: 'more', label: kind === 'again' ? 'Verify again' : 'Run more attempts', ...more };
+    return { kind: 'more', label: kind === 'again' ? ACTIONS.verifyAgain.label : ACTIONS.runMoreAttempts.label, ...more };
   }
   if (next.migrate) return { kind: 'migrate', label: `Migrate to ${next.migrate.to}`, ...next.migrate };
   return null;
