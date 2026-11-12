@@ -1,4 +1,4 @@
-import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyCount, tallyWords } from '@shadowlap/engine';
+import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, MIGRATE_ID, migrateApplyProblem, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyCount, tallyWords } from '@shadowlap/engine';
 import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
 import { sprtGate } from './fix-shared.js';
@@ -6,6 +6,7 @@ import { moreFlags, moreOf, type PreviewMore } from './decision-more.js';
 import { decisionsArgv, FIELD_NAME, fromFlags, MODEL_NAME, PREVIEW_MAX, scopeFlags, setFlags, tooManyToPreview } from './decisions-argv.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
+import { appliedState, applyInputOf, type AppliedState } from './migrate-applied.js';
 import { type RetiringModel, retiringModels } from './retirements.js';
 import { optionLike, type GoldenSource } from './tests.js';
 import { sessionFacts } from './verdicts.js';
@@ -45,8 +46,6 @@ export interface DecisionsListView {
   sessions: DecisionSessionView[];
   /** The project's goldens: with none, a page waits for one before it offers a preview on every golden. */
   goldens: number;
-  /** The models the project's goldens use that retire, for Needs a look. */
-  retirements: RetirementsView;
 }
 
 export interface RetirementsView {
@@ -74,16 +73,17 @@ export function decisionSessions(store: StoreOf<'decisions'> & Store, o: { limit
 /**
  * One session whole: a decisions session is the report `decisions --json` printed, a migrate one the
  * report `migrate --json` printed, its decisions' runs filled in from their rows; with the matrix
- * the page draws (one row per run, one cell per model call). Null for an id the store doesn't have.
+ * the page draws (one row per run, one cell per model call), and a migration's applied state (who
+ * applied it only where `shared`). Null for an id the store doesn't have.
  */
-export function decisionSession(store: StoreOf<'decisions'>, sessionId: string): (Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: DecisionRow[] }) | null {
+export function decisionSession(store: StoreOf<'decisions' | 'tests'>, sessionId: string, o: { shared?: boolean } = {}): (Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: DecisionRow[]; applied?: AppliedState | null }) | null {
   if (!/^(dc|mg)-[0-9A-Z]{26}$/.test(sessionId)) return null;
   const s = store.getDecisionSession(sessionId);
   if (!s) return null;
   const runs = s.runRows.map((r) => r.data as unknown as DecisionRun);
   if (s.kind === 'migrate') {
     const decisions = { ...((s.data.decisions as Record<string, unknown> | undefined) ?? {}), runs };
-    return { ...s.data, kind: 'migrate', decisions, matrix: runs.map((r) => decisionRow(r)) };
+    return { ...s.data, kind: 'migrate', decisions, matrix: runs.map((r) => decisionRow(r)), applied: appliedState(store, s.applied, o) };
   }
   const fromCode = !!(s.data.change as { fromCode?: unknown } | undefined)?.fromCode;
   return { ...s.data, kind: 'decisions', runs, matrix: runs.map((r) => decisionRow(r, { fromCode })) };
@@ -315,6 +315,20 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
   return { args: ['migrate', '--to', req.to, ...targets.args, ...fromFlags(from), ...scopeFlags(scope.scope), ...setFlags(set), ...consent.yes], title: `Migrating to ${req.to}` };
 }
 
+/**
+ * `shadowlap migrate apply <id>` as a job: `{ migrationId }`, a kept migration whose config change can
+ * be applied (migrateApplyProblem, the CLI's own refusal, answers 409 otherwise). No consent is
+ * asked: its offline replay skips a golden from a pack the repository doesn't track.
+ */
+export function migrateApplyJob(req: JobRequest, store: StoreOf<'decisions' | 'tests'>): JobBuildResult {
+  if (typeof req.migrationId !== 'string' || !MIGRATE_ID.test(req.migrationId)) return { error: 'migrationId is a migration’s id: mg- and 26 letters and digits' };
+  const session = decisionSession(store, req.migrationId);
+  if (!session || session.kind !== 'migrate') return { error: `no migration ${req.migrationId}`, status: 404 };
+  const problem = migrateApplyProblem(applyInputOf({ ...session, sessionId: req.migrationId }));
+  if (problem) return { error: problem, status: 409 };
+  return { args: ['migrate', 'apply', req.migrationId], title: ACTIONS.applyConfigChange.doing };
+}
+
 /** A session's report: a decisions session's own, a migration's decisions. */
 export const sessionReport = (session: NonNullable<ReturnType<typeof decisionSession>>) => (session.kind === 'migrate' ? session.decisions : session) as { flagged?: unknown; toVerify?: unknown; runs?: DecisionRun[]; change?: { fromCode?: unknown } };
 
@@ -349,7 +363,7 @@ export function runsToVerify(session: NonNullable<ReturnType<typeof decisionSess
  * checks, in the role its recording plays under them, with the session's change, and keeps what it
  * finds in the session.
  */
-export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | 'decisions' | 'fixes'>, projectDir: string = process.cwd()): JobBuildResult {
+export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | 'decisions' | 'fixes' | 'tests'>, projectDir: string = process.cwd()): JobBuildResult {
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };

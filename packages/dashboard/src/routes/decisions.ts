@@ -1,5 +1,6 @@
+import { ACTIONS } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
-import { decisionSessions, decisionsJob, decisionsReadJob, limitsRefused, READING_TREE, migrateJob, previewRequest, retirementsView, verifyFlaggedJob } from '../decisions.js';
+import { decisionSessions, decisionsJob, decisionsReadJob, limitsRefused, READING_TREE, migrateApplyJob, migrateJob, previewRequest, retirementsView, verifyFlaggedJob } from '../decisions.js';
 import { HttpError } from '../http.js';
 import { modelChoices } from '../model-listing.js';
 import { outcomeWork } from '../outcome-work.js';
@@ -12,7 +13,7 @@ import { verifyRule } from './estimates.js';
 /**
  * The decision diff (`shadowlap decisions`, `migrate`), for the Changes page and a run's Decisions view:
  *
- *   GET /api/decisions[?kind=decisions|migrate][&limit=]   the sessions kept, newest first (50, at most 200), the project's goldens, and their models that retire
+ *   GET /api/decisions[?kind=decisions|migrate][&limit=]   the sessions kept, newest first (50, at most 200), and how many goldens the project has
  *   GET /api/decisions/:id                       one session whole (`dc-…` or `mg-…`): its report, its matrix, and its `view` (decision-view.ts), beside the server
  *   GET /api/decisions/:id/estimates[?runId=…][&max=&keptMax=]   what its Verify bills (estimates.ts), on every run it could not clear or those the runIds name, at Run more attempts' limits where given
  *   POST /api/decisions/estimates { runs?, goldens?, model?, set?, from?, scope?, samples?, fromCode?, changed? }   what a new preview asks and bills (preview-estimate.ts), each way's card while no change is named; changes nothing
@@ -21,6 +22,7 @@ import { verifyRule } from './estimates.js';
  *   GET /api/retirements                         the models the goldens use that retire, by the table that ships
  *   POST /api/jobs { kind: "decisions", runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }
  *   POST /api/jobs { kind: "migrate", to, goldens?, runs?, from?, scope?, set?, yes? }   every golden when none are named
+ *   POST /api/jobs { kind: "migrate-apply", migrationId }   migrate apply: a kept migration's config change into the working tree, its goldens replayed offline
  *   POST /api/jobs { kind: "decisions-verify", sessionId, runId?, runIds?, max?, keptMax?, yes? }   decisions --verify: the runs a session could not clear (or those named), each under its checks; Run more attempts' limits, a failing run's attempts and a good run's pairs
  *
  * The goldens a job may name are the project's (`DashboardOptions.goldens`); runs are ids in the store.
@@ -76,7 +78,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const kind = r.query.get('kind');
     if (kind !== null && !KINDS.has(kind)) throw new HttpError(400, 'kind is decisions or migrate');
     const limit = Math.max(1, Math.min(200, Number(r.query.get('limit') ?? 50) || 50));
-    r.tagged({ sessions: decisionSessions(ctx.store, { limit, ...(kind ? { kind: kind as 'decisions' | 'migrate' } : {}) }), goldens: goldens().length, retirements: retirementsView(ctx.store, goldens()) });
+    r.tagged({ sessions: decisionSessions(ctx.store, { limit, ...(kind ? { kind: kind as 'decisions' | 'migrate' } : {}) }), goldens: goldens().length });
   });
 
   // A session's runs hold every step's two decisions, and their about lines read requests: worked out beside the server.
@@ -144,5 +146,6 @@ export function register(router: Router, ctx: RouteContext): void {
   ctx.jobs.registerJobKind('decisions', { title: () => 'Previewing a change', build: (req, b) => decisionsJob(req, b.store, goldens(), folder(b)) });
   ctx.jobs.registerJobKind('decisions-read', { title: () => READING_TREE, build: (req, b) => decisionsReadJob(req, b.store, goldens(), folder(b)) });
   ctx.jobs.registerJobKind('migrate', { title: () => 'Migrating', build: (req, b) => migrateJob(req, b.store, goldens(), folder(b)) });
+  ctx.jobs.registerJobKind('migrate-apply', { title: () => ACTIONS.applyConfigChange.doing, build: (req, b) => migrateApplyJob(req, b.store) });
   ctx.jobs.registerJobKind('decisions-verify', { title: () => 'Verifying the changed runs', build: (req, b) => verifyFlaggedJob(req, b.store, folder(b)) });
 }

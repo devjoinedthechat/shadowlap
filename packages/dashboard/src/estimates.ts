@@ -1,4 +1,6 @@
 import {
+  codeChangeNeeded,
+  type DecisionRemedy,
   actionContext,
   bisectEstimate,
   blameEstimate,
@@ -347,10 +349,19 @@ export interface DecisionEstimates {
  * config's `verify`. Live from the first model call for a switch; where a replay forks for the
  * prompt and tools in the working tree, which verify replays from the code.
  */
+/** Whether a migration's verify waits on a code change (codeChangeNeeded): a remedy the requests must leave out with no value, or send under another name. */
+function migrationBlocked(report: object): boolean {
+  const kept = report as { remedies?: unknown; change?: { model?: unknown } };
+  const remedies = (Array.isArray(kept.remedies) ? kept.remedies : []).map((r: DecisionRemedy) => ({ ...r, renamedTo: r.renamedTo ?? null, value: r.value ?? null }));
+  return codeChangeNeeded(remedies, typeof kept.change?.model === 'string' ? kept.change.model : null) !== null;
+}
+
 async function decisionEstimates(store: Store, job: DecisionEstimatesJob): Promise<ReadAnswer> {
   const session = decisionSession(store, job.sessionId);
   if (!session) return failed(404, `no session ${job.sessionId.slice(0, 40)}`);
   const report = sessionReport(session);
+  // A migration whose remedies need a code change: verify runs nothing until the agent's code changes (Q15), so there is nothing to price.
+  if (session.kind === 'migrate' && migrationBlocked(report)) return answer({ verify: null, runs: [] } satisfies DecisionEstimates, { tagged: true });
   const ids = runsToVerify(session, job.runIds.length ? job.runIds : undefined);
   const picked = (Array.isArray(ids) ? ids : []).map((id) => ({ row: report.runs?.find((r) => r.runId === id), run: store.getRun(id) }));
   if (!picked.length || picked.some((p) => !p.row || !p.run)) return answer({ verify: null, runs: [] } satisfies DecisionEstimates, { tagged: true });

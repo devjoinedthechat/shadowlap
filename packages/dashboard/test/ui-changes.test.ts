@@ -665,7 +665,7 @@ describe('Changes’ page', () => {
     // Not in this store, nor in another project's: the page asks once, then says so under the head.
     const asked: string[] = [];
     const holding = (what: string, ids: readonly string[]) => (asked.push(`${what} ${ids.join(' ')}`), Promise.resolve({ current: { id: 'support-agent', name: 'support-agent' }, held: null }));
-    const client = { decisionSessions: () => Promise.resolve({ sessions: [], goldens: 0, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')), projects: { holding } };
+    const client = { decisionSessions: () => Promise.resolve({ sessions: [], goldens: 0 }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')), projects: { holding } };
     page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' })));
     await page.until('the Preview tab', () => page!.all('.empty.tall').length === 1);
     expect(page.all('nav.stabs a').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)).toEqual(['Preview']);

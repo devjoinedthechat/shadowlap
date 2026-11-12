@@ -61,7 +61,7 @@ describe('a session verified more than once', () => {
       ['01B', 'kept', 'rate 0.34 to 1 (95%)', null, SHORT],
     ]);
     // What still passes reads it as verify left it: inconclusive, the attempt not judged apart, under its own rule.
-    expect(passesOf([run('01A')], ['01A', '01B'], merged, () => true)[0]).toEqual({ runId: '01A', golden: null, verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 1, attempts: 2, bound: null, rule: GATE, undecided: why } });
+    expect(passesOf([run('01A')], ['01A', '01B'], merged, () => true)[0]).toEqual({ runId: '01A', golden: null, verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 1, attempts: 2, bound: null, rule: GATE, undecided: why }, diverges: null });
     // A run whose attempts stopped before they settled it keeps the session incomplete too; once 01A is kept, both are settled.
     expect(mergeVerify(merged, verified({ verdict: 'incomplete', runs: [{ runId: '01A', role: 'good', outcome: 'unsettled', passes: 1, attempts: 1, bound: null, undecided: null, rule: GATE }] })).verdict).toBe('incomplete');
     const settled = mergeVerify(merged, verified({ runs: [{ runId: '01A', role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', undecided: null, rule: GATE }] }));
@@ -74,7 +74,7 @@ describe('a session verified more than once', () => {
 
   it("reads a migrate session's inconclusive run as inconclusive, with its tally and bound under the rule that decided it", () => {
     const v = verified({ verdict: 'incomplete', runs: [{ runId: '01A', role: 'good', outcome: 'inconclusive', passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)', rule: SHORT }], rule: SHORT });
-    expect(passesOf([run('01A', 'goldens/research')], ['01A'], v, () => true)).toEqual([{ runId: '01A', golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)', rule: SHORT, undecided: null } }]);
+    expect(passesOf([run('01A', 'goldens/research')], ['01A'], v, () => true)).toEqual([{ runId: '01A', golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)', rule: SHORT, undecided: null }, diverges: null }]);
     // A run kept before runs carried their rule: the one the session's verify states.
     const kept = verified({ runs: [{ runId: '01A', role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' }] });
     expect(passesOf([run('01A', 'goldens/research')], ['01A'], kept, () => true)[0].tally).toEqual({ passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', rule: GATE, undecided: null });

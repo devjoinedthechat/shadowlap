@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { argsDelta, besidesWords, byRule, changePct, CLEARED, controlOpen, credentialFreeCommandLine, decisionLine, endToEndWords, fieldValue, byHandNote, handOf, judgeOpen, leftBehindLines, leftBehindSentence, leftOutInFile, migrateApplyProblem, migrateHeadline, namedInSentence, quoteArgv, RANK_LABELS, remedyText, safeLine, sameModel, shortSessionId, usdOrUnknown, verifiedCount, verifiedWords, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type LeftBehind, type RetirementNotice, type SprtGate, type Store, type StoreOf, type VerifyTally } from '@shadowlap/engine';
+import { argsDelta, besidesWords, changePct, controlOpen, credentialFreeCommandLine, decisionLine, endToEndWords, fieldValue, byHandNote, handOf, judgeOpen, leftBehindLines, leftBehindOf, leftBehindSentence, leftOutInFile, migrateApplyProblem, migrateCostWords, migrateHeadline, migratePassWords, migrateRules, namedInSentence, RANK_LABELS, remedyText, safeLine, sameModel, shortSessionId, usdOrUnknown, verifiedCount, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type Footprint, type LeftBehind, type RetirementNotice, type SprtGate, type Store, type StoreOf, type VerifyTally } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -120,7 +120,7 @@ const costsSentence = (r: Omit<MigrateReport, 'pullRequest' | 'files'>): string 
 };
 
 /** How a run came to its verdict, in words. */
-const passWords = (x: MigrateRunPass): string => (x.verified ? verifiedWords(x) : x.outcome === 'unchanged' ? CLEARED : x.outcome);
+const passWords = (x: MigrateRunPass): string => migratePassWords(x);
 
 /**
  * The rules the verified runs were decided by, each once, with the runs it decided: one rule, unless
@@ -128,20 +128,13 @@ const passWords = (x: MigrateRunPass): string => (x.verified ? verifiedWords(x) 
  * the one the decisions report's verify states.
  */
 function verifiedRules(r: Pick<MigrateReport, 'passes' | 'decisions'>): Array<{ rule: string; runs: MigrateRunPass[] }> {
-  return byRule(
-    r.passes.runs.filter((x) => x.verified),
-    (x) => x.tally?.rule,
-    r.decisions.verify?.rule ?? null,
-  ).flatMap((g) => (g.rule === null ? [] : [{ rule: g.rule, runs: g.runs }]));
+  return migrateRules(r.passes.runs, r.decisions.verify?.rule ?? null);
 }
 
 const name = (r: { runId: string; golden: string | null }) => r.golden ?? shortId(r.runId);
 
 /** The goldens the config change leaves behind, each with the first call it makes with a model the switch changes, and the command that re-records them. */
-export function leftBehind(r: Pick<MigrateReport, 'passes'>): { left: LeftBehind[]; update: string } {
-  const left = r.passes.runs.flatMap((x) => (x.diverges && x.golden ? [{ golden: x.golden, callNo: x.diverges.callNo }] : []));
-  return { left, update: quoteArgv(['shadowlap', 'test', ...left.map((x) => x.golden), '--update']) };
-}
+export const leftBehind = (r: Pick<MigrateReport, 'passes'>): { left: LeftBehind[]; update: string } => leftBehindOf(r.passes.runs);
 
 /** The fields the config change takes out, each once, in the order it found them. */
 const takenOut = (c: ConfigChange | null): string[] => [...new Set((c?.leftOut ?? []).map((x) => x.field))];
@@ -394,14 +387,10 @@ function passesLines(r: MigrateReport): string[] {
 
 /** What it costs: per run, end to end, and checking it, with the models no price covers. */
 function costsLines(r: MigrateReport): string[] {
-  const lines = ['', p.bold('What it costs')];
-  lines.push(`  per run      ${usdOrUnknown(r.costs.perRun.before)} → ${usdOrUnknown(r.costs.perRun.after)}${changePct(r.costs.perRun.before, r.costs.perRun.after)} · ${r.costs.tokensPerRun.before.toLocaleString('en-US')} → ${r.costs.tokensPerRun.after.toLocaleString('en-US')} tokens`);
-  if (r.costs.endToEnd) lines.push(`  end to end   ${endToEndWords(r.costs.endToEnd)}`);
   // Asking's models and the judge's with no price: what they cost is not in the figures.
   const unknown = [...new Set([...r.decisions.cost.unknownModels, ...(r.decisions.judge?.unknownModels ?? [])])];
-  const unpriced = unknown.length ? ` (no price for ${unknown.join(', ')}: add it under "prices" in shadowlap.config.json)` : '';
-  lines.push(p.dim(`  checking it  ${usdOrUnknown(r.costs.checking.decisions)} asking, ${r.decisions.judge ? `${usdOrUnknown(r.costs.checking.judge)} judging, ` : ''}${usdOrUnknown(r.costs.checking.verify)} verifying${unpriced}`));
-  return lines;
+  const w = migrateCostWords(r.costs, { judged: !!r.decisions.judge, unknown });
+  return ['', p.bold('What it costs'), `  per run      ${w.perRun}`, ...(w.endToEnd ? [`  end to end   ${w.endToEnd}`] : []), p.dim(`  checking it  ${w.checking}`)];
 }
 
 /** What to set: each field and why, those given, and the flags verify took them as. */

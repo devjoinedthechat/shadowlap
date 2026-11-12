@@ -2848,6 +2848,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
 | `injection { runId \| golden, repeat?, templates?, payloadsUpload?, baselines?, clean?, writes?, liveReads?, yes? }` | `injection <run\|golden> --json` |
 | `migrate { to, goldens?, runs?, from?, scope?, set? }` | A migration, every golden unless some are named |
+| `migrate-apply { migrationId }` | `migrate apply`: the migration's config change into your working tree, its goldens replayed offline. Refused with `migrate apply`'s own words when it can't go in |
 | `normalize-and-test { golden \| runId, path?, yes? }` | A normalizer for each value made anew on every run, then `test` on the golden |
 | `override { runId, callNo, uploadId, yes? }` | Edit and fork: `replay --override` of a tool's result or a person's answer, from an upload checked as untrusted data |
 | `pack-test { runId?, golden?, yes? }` | Pack, then test: with `runId`, any ended run into `golden`; `yes` answers a recording from elsewhere or a live test. Once packed, the test alone |

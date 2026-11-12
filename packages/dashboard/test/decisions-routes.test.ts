@@ -184,7 +184,7 @@ describe('the decision read models', () => {
 });
 
 describe('the decision routes', () => {
-  it('lists the sessions newest first, with the goldens\' models that retire', async () => {
+  it('lists the sessions newest first, and leaves the goldens\' models that retire to their own read', async () => {
     const res = await api(dash, 'decisions');
     expect(res.status).toBe(200);
     expect(res.headers.get('etag')).toBeTruthy();
@@ -194,7 +194,8 @@ describe('the decision routes', () => {
       ['mg-01M5000000000000000000000B', 'migrate', 1, 1, '#/changes/migrate/mg-01M5000000000000000000000B'],
       ['dc-01M5000000000000000000000A', 'decisions', 2, 2, '#/changes/decisions/dc-01M5000000000000000000000A'],
     ]);
-    expect(view.retirements.notices.map((n) => n.model)).toEqual(['claude-sonnet-4-5-20250929']);
+    // Reading every golden's calls belongs on the pool: GET /api/retirements and Migrate's start read have them.
+    expect('retirements' in view).toBe(false);
     const only = (await (await api(dash, 'decisions?kind=decisions')).json()) as DecisionsListView;
     expect(only.sessions.map((s) => s.kind)).toEqual(['decisions']);
     expect((await api(dash, 'decisions?kind=other')).status).toBe(400);

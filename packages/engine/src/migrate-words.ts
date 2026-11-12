@@ -1,6 +1,9 @@
 import { andList } from './checks/labels.js';
-import { judgeOpen, migrateBreaks, migrateUnsettled, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigratePasses } from './decisions.js';
+import { byRule, judgeOpen, migrateBreaks, migrateUnsettled, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigratePasses } from './decisions.js';
 import { fieldValue } from './interventions.js';
+import { quoteArgv } from './text.js';
+import { changePct, CLEARED, endToEndWords, usdOrUnknown, verifiedWords, type VerifiedTally } from './verified-words.js';
+import type { Footprint } from './verify.js';
 import { shortSessionId } from './words.js';
 
 /**
@@ -155,4 +158,53 @@ export function migrateApplyProblem(r: MigrateApplyInput): string | null {
   const hand = handOf(r.set);
   if (hand.length) return `What to set says to ${andList(hand.map((f) => handWords(f)))}, which the config change can't reach: applied alone it would break runs. Change ${hand.length === 1 ? 'it' : 'them'} by hand, then git apply ${r.files.patch}`;
   return null;
+}
+
+/** A run of a migration as What still passes words it: a verified run in verify's words, one the preview cleared as `CLEARED`, else its outcome (`not-asked`, `unsettled`, `not-judged`). */
+export const migratePassWords = (x: { verdict: string; outcome: string; verified: boolean; tally: VerifiedTally | null }): string => (x.verified ? verifiedWords(x) : x.outcome === 'unchanged' ? CLEARED : x.outcome);
+
+/** A run of a migration, as its passes keep it: its golden, and the first call it makes with a model the switch changes when the config change leaves it behind. */
+export interface MigratePassRun {
+  runId: string;
+  golden: string | null;
+  verified: boolean;
+  tally: { rule?: string | null } | null;
+  diverges?: { callNo: number } | null;
+}
+
+/** The goldens a migration's config change leaves behind, each with the first call it makes with a model the switch changes, and the command that re-records them. */
+export function leftBehindOf(runs: ReadonlyArray<Pick<MigratePassRun, 'golden' | 'diverges'>>): { left: LeftBehind[]; update: string } {
+  const left = runs.flatMap((x) => (x.diverges && x.golden ? [{ golden: x.golden, callNo: x.diverges.callNo }] : []));
+  return { left, update: quoteArgv(['shadowlap', 'test', ...left.map((x) => x.golden), '--update']) };
+}
+
+/** The rules verify decided a migration's verified runs by, each with its runs; the session's own rule for a run kept before runs carried theirs. */
+export function migrateRules<T extends MigratePassRun>(runs: readonly T[], sessionRule: string | null): Array<{ rule: string; runs: T[] }> {
+  return byRule(
+    runs.filter((x) => x.verified),
+    (x) => x.tally?.rule,
+    sessionRule,
+  ).flatMap((g) => (g.rule === null ? [] : [{ rule: g.rule, runs: g.runs }]));
+}
+
+/** What a migration's report keeps of what it costs. */
+export interface MigrateCosts {
+  perRun: { before: number | null; after: number | null };
+  tokensPerRun: { before: number; after: number };
+  endToEnd: { recorded: Footprint; now: Footprint } | null;
+  checking: { decisions: number; judge: number; verify: number };
+}
+
+/**
+ * What it costs, as the terminal and the dashboard say it: per run (`≈$0.04 → ≈$0.03 (−25%) · 1,200 →
+ * 900 tokens`), end to end where verify ran some, and checking it, each part named, with the models
+ * no price covers (`unknown`: asking's and the judge's).
+ */
+export function migrateCostWords(c: MigrateCosts, o: { judged: boolean; unknown: readonly string[] }): { perRun: string; endToEnd: string | null; checking: string } {
+  const unpriced = o.unknown.length ? ` (no price for ${o.unknown.join(', ')}: add it under "prices" in shadowlap.config.json)` : '';
+  return {
+    perRun: `${usdOrUnknown(c.perRun.before)} → ${usdOrUnknown(c.perRun.after)}${changePct(c.perRun.before, c.perRun.after)} · ${c.tokensPerRun.before.toLocaleString('en-US')} → ${c.tokensPerRun.after.toLocaleString('en-US')} tokens`,
+    endToEnd: c.endToEnd ? endToEndWords(c.endToEnd) : null,
+    checking: `${usdOrUnknown(c.checking.decisions)} asking, ${o.judged ? `${usdOrUnknown(c.checking.judge)} judging, ` : ''}${usdOrUnknown(c.checking.verify)} verifying${unpriced}`,
+  };
 }
