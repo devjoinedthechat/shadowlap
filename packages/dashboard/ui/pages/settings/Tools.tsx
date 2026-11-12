@@ -355,7 +355,7 @@ export function AddServerDialog({ files, onClose }: { files: ToolsSettings['mcp'
 
 /**
  * What Add MCP server… says about what it hid (`addServerNotes`): where the Basic header's variable is set, and what the copy
- * has as typed. Its pieces, not an element of its own, so the warning's `Copy` sets its sentences rather than keeping one atom.
+ * has as typed. A node, so the dialog draws it as its warning line as it is: only a string warning is set through `Copy`.
  */
 function addServerNote(notes: NonNullable<ReturnType<typeof addServerNotes>>) {
   const KEEP_OUT = 'keep it out of a file you commit, or pass it in an environment variable.';

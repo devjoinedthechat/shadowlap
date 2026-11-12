@@ -128,7 +128,6 @@ function useCiWorkflows(o: Partial<CiWorkflowOptions>): { view: CiWorkflowsView 
   return { ...served, reload: () => setSeen((n) => n + 1) };
 }
 
-/** The action's comment on each pull request: its switch, what it carries, and what it needs. Its preview is port/pr-comment's. */
 /** What a CI feature that is off leaves undone, a line of its own under the panel's lead. */
 const OffNote = ({ children }: { children: string }) => (
   <b className="offnote">
@@ -136,6 +135,7 @@ const OffNote = ({ children }: { children: string }) => (
   </b>
 );
 
+/** The action's comment on each pull request: its switch, what it carries, and what it needs. Its preview is port/pr-comment's. */
 function PullRequestComment({ o, view, onSwitch }: { o: CiWorkflowOptions; view: CiWorkflowsView; onSwitch: (on: boolean) => void }) {
   return (
     <Section className={`set cip prpanel${o.comment ? '' : ' off'}`} id="pr-comment" title="Pull request comment" sub="the verdict on every pull request" actions={<Switch on={o.comment} label="Pull request comment" onChange={onSwitch} />}>

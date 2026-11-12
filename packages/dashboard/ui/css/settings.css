@@ -66,8 +66,7 @@
 .skrow > div:first-child > span.warn { color: var(--warn); }
 .skrow > .btn, .skrow > .st { margin-top: 2px; }
 .skrow .skcmd { margin-top: 10px; max-width: 520px; }
-.skrow .cmdline span { margin: 0; max-width: none; color: inherit; font-size: inherit; }
-.skrow .cmdline:not(.words) span { display: inline; }
+.skrow .cmdline span { display: inline; margin: 0; max-width: none; color: inherit; font-size: inherit; }
 .skrow .cmdline b { display: inline; font-weight: 400; }
 .skrow .skall { margin-top: 10px; margin-left: -7px; }
 .skrow .skall svg { transition: transform .15s; transform: rotate(-90deg); }
@@ -167,7 +166,6 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .prl code { font-size: 12px; color: var(--ink); }
 @media (max-width: 640px) { .setrow.tight:has(.sel, .inp) { flex-wrap: wrap; } .setrow select.sel, .setrow input.inp { min-width: 0; width: 100%; } }
 .cip .cimain > p.muted, .cip .setrow > div > span, .cip .fails li { text-wrap: balance; }
-
 /* CI tab, second pass: settings and the preview side by side, the workflow file across the panel. */
 .cip .cicode { border-top: 1px solid var(--line); padding-top: 16px; }
 .cip .cicode .codewrap { margin-top: 0; }
