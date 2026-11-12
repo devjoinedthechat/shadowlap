@@ -143,6 +143,26 @@ describe('Needs a look: a model the goldens use that retires', () => {
     }
   });
 
+  it('stands for a migration from the model: Needs a look lists no preview row of it, as it does of one from a model that stays', () => {
+    const store = Store.open(':memory:');
+    try {
+      const sonnet = addRun(store, { startedAt: NOW - DAY, calls: [{ code: 'l', endMeta: { provider: 'anthropic' } }] });
+      const goldens = [golden('goldens/refund-flow', sonnet)];
+      // A migration whose verify rejected the run it flagged, from the model given.
+      const migration = (id: string, at: number, from: string) => {
+        const data = { migrateId: id, kind: 'migrate', from: [from], to: 'claude-sonnet-5-5', flagged: [sonnet], decisions: { flagged: [sonnet] }, passes: { verdict: 'rejected', runs: [] } };
+        store.putDecisionSession({ sessionId: id, kind: 'migrate', at, change: 'the model claude-sonnet-5-5', actor: null, revision: null, data, runs: [{ runId: sonnet, golden: null, rank: 1, changed: 1, data: { runId: sonnet, golden: null, rank: 1, decisions: [] } }] });
+      };
+      const previews = () => overviewSummary(store, { tz: 'UTC', now: NOW, goldens }).needsLook.items.filter((r) => r.kind === 'decisions').map((r) => r.key);
+      migration('mg-01M5000000000000000000000A', 1_000, 'acme-small-1');
+      expect(previews()).toEqual(['attn:decisions:mg-01M5000000000000000000000A']);
+      migration('mg-01M5000000000000000000000B', 2_000, 'claude-sonnet-4-5');
+      expect(previews()).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+
   it('names the model, how many goldens use it and when it goes, the soonest first, with Migrate to what replaces it', () => {
     const store = Store.open(':memory:');
     try {
