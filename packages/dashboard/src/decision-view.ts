@@ -1,5 +1,6 @@
-import { byRule, CLEARED, decisionsHeadline, GATE_MAX_ATTEMPTS, keptMaxOf, openRunWhy, type SprtGate, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
+import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
 import { LATER_STEPS, type DecisionCell, type DecisionRow } from './decision-cells.js';
+import { moreOf, type PreviewMore } from './decision-more.js';
 import { decisionSession, runDecisions, sessionGate, sessionReport } from './decisions.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsWithin } from './run-about.js';
@@ -53,50 +54,6 @@ export interface PreviewNext {
   more: PreviewMore | null;
   /** A model switch it can migrate to: the model, the recorded models it switches from, and its goldens and runs. */
   migrate: { to: string; from: string[]; goldens: string[]; runs: string[] } | null;
-}
-
-/**
- * Run more attempts on the runs verify left open whose gate ran out or that stopped first (`kind`
- * more), with each role's limit: a failing run's attempts (`max`) and a good run's pairs
- * (`keptMax`), null where no run of that role is open. Verify again (`again`, no limit raised) where
- * an attempt it could not judge left every open run so.
- */
-export interface PreviewMore {
-  kind: 'more' | 'again';
-  runs: string[];
-  max: number | null;
-  keptMax: number | null;
-}
-
-/**
- * Run more attempts by Fixes' rule (`openRunWhy`): the runs verify left open, `only` that one where
- * given, each role's limit what it ran under (a failing run's the gate's max, a good run's pairs as
- * `keptMax`, the config's `verify.max`, or that gate gives them) or the attempts it took, doubled up
- * to 1000 only where a run of that role ran out. None once verify rejected the change, which more
- * attempts can't turn, for a verify decided by a fixed count, or with no limit to raise and nothing
- * stopped.
- */
-export function moreOf(v: DecisionsVerify | null, gate: SprtGate | null, keptMax: number | null, only?: string): PreviewMore | null {
-  if (!v || v.verdict === 'rejected') return null;
-  const open = v.runs.flatMap((x) => {
-    const why = only && x.runId !== only ? null : openRunWhy(x.outcome, x.undecided);
-    return why ? [{ ...x, why }] : [];
-  });
-  if (!open.length) return null;
-  if (open.every((x) => x.why === 'unjudged')) return { kind: 'again', runs: open.map((x) => x.runId), max: null, keptMax: null };
-  if (!gate) return null;
-  const taken = open.filter((x) => x.why !== 'unjudged');
-  let raised = taken.some((x) => x.why === 'stopped');
-  const limit = (good: boolean): number | null => {
-    const of = taken.filter((x) => (x.role === 'good') === good);
-    if (!of.length) return null;
-    const ran = Math.max(good ? keptMaxOf(keptMax, gate) : gate.max, ...of.map((x) => x.attempts));
-    const now = of.some((x) => x.why === 'ran-out') ? Math.min(GATE_MAX_ATTEMPTS, 2 * ran) : ran;
-    raised ||= now > ran;
-    return now;
-  };
-  const more: PreviewMore = { kind: 'more', runs: taken.map((x) => x.runId), max: limit(false), keptMax: limit(true) };
-  return raised ? more : null;
 }
 
 /** The key's counts: steps by rank, the rest, and the cells a judge waits on or whose samples differ. */
@@ -352,7 +309,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
 export type DecisionSessionJob = { kind: 'decision-session'; sessionId: string; redacted?: boolean; clock?: 'auto' | 'exact' | null; keptMax?: number | null };
 
 /** A run's decisions under each session that asked it again, for its Decisions view, as `GET /api/runs/:id/decisions` answers it. */
-export type RunDecisionsJob = { kind: 'run-decisions'; runId: string };
+export type RunDecisionsJob = { kind: 'run-decisions'; runId: string; keptMax?: number | null };
 
 function sessionRead(store: Store, job: DecisionSessionJob): ReadAnswer {
   const session = previewSession(store, job.sessionId, { redacted: job.redacted === true, clock: job.clock === undefined ? 'auto' : job.clock, keptMax: job.keptMax ?? null });
@@ -361,5 +318,5 @@ function sessionRead(store: Store, job: DecisionSessionJob): ReadAnswer {
 
 export const DECISION_READS: ReadTable<DecisionSessionJob | RunDecisionsJob> = {
   'decision-session': (store, job) => sessionRead(store, job),
-  'run-decisions': (store, job) => (store.getRun(job.runId) ? answer(runDecisions(store, job.runId), { tagged: true }) : failed(404, `no run ${job.runId.slice(0, 40)}`)),
+  'run-decisions': (store, job) => (store.getRun(job.runId) ? answer(runDecisions(store, job.runId, 10, job.keptMax ?? null), { tagged: true }) : failed(404, `no run ${job.runId.slice(0, 40)}`)),
 };

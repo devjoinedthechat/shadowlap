@@ -70,7 +70,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/runs/:id/decisions', async (r) => {
     const run = ctx.store.getRun(r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id!.slice(0, 40)}`);
-    sendAnswer(r, await ctx.reads.run({ kind: 'run-decisions', runId: run.runId }, runAffinity(ctx.store, run.runId)));
+    sendAnswer(r, await ctx.reads.run({ kind: 'run-decisions', runId: run.runId, keptMax: verifyRule(ctx).keptMax }, runAffinity(ctx.store, run.runId)));
   });
 
   router.get('/retirements', (r) => r.tagged(retirementsView(ctx.store, goldens())));

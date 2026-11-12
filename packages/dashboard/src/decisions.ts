@@ -2,6 +2,7 @@ import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTE
 import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
 import { gateArg, sprtGate } from './fix-shared.js';
+import { moreOf, type PreviewMore } from './decision-more.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { type RetiringModel, retiringModels } from './retirements.js';
@@ -108,10 +109,12 @@ export interface RunDecisionsSession {
   toVerify: boolean;
   /** What verify found of it: its outcome, its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`), and the rule it was decided by. Null until verify took it. */
   verified: { outcome: string; tally: string; rule: string | null } | null;
+  /** Run more attempts, or Verify again, on it alone where verify left it open (`moreOf`); null for a migration, which Changes never verifies from here. */
+  more: PreviewMore | null;
 }
 
 /** A run's decisions under each session that asked its model calls again, newest first, for its page's Decisions view; with the line about later steps where one did. */
-export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string, limit = 10): { runId: string; sessions: RunDecisionsSession[]; later: typeof LATER_STEPS | null } {
+export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string, limit = 10, keptMax: number | null = null): { runId: string; sessions: RunDecisionsSession[]; later: typeof LATER_STEPS | null } {
   const rows = store.decisionsOfRun(runId, limit);
   const facts = sessionFacts(store, rows.map((r) => r.sessionId));
   return {
@@ -140,6 +143,7 @@ export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string,
         run,
         toVerify: !!f?.toVerify.includes(runId),
         verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), rule: entry.rule ?? v?.rule ?? null } : null,
+        more: r.kind === 'decisions' && entry && v ? moreOf(v, verdictsGate(store, v.verifyIds), keptMax, runId) : null,
       };
     }),
   };
@@ -345,7 +349,11 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
  */
 export function sessionGate(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<typeof decisionSession>>): SprtGate | null {
   const verify = (sessionReport(session) as { verify?: { verifyIds?: unknown } | null }).verify;
-  const ids = Array.isArray(verify?.verifyIds) ? (verify.verifyIds as unknown[]) : [];
+  return verdictsGate(store, Array.isArray(verify?.verifyIds) ? (verify.verifyIds as unknown[]) : []);
+}
+
+/** The gate of the newest verdict of `ids` still in the store, as `sessionGate` reads a session's: null for a fixed count, the defaults when none is left. */
+function verdictsGate(store: StoreOf<'fixes'>, ids: readonly unknown[]): SprtGate | null {
   for (const id of [...ids].reverse()) {
     const kept = typeof id === 'string' ? store.getVerdict(id) : null;
     if (kept) return sprtGate(kept.report.gate);

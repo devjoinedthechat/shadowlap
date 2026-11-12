@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
-import { moreOf, previewSession } from '../src/decision-view.js';
+import { moreOf } from '../src/decision-more.js';
+import { previewSession } from '../src/decision-view.js';
+import { runDecisions } from '../src/decisions.js';
 import { quoteLine } from '../src/decision-cells.js';
 
 /**
@@ -134,6 +136,10 @@ describe('a preview worded for Changes', () => {
     expect(previewSession(store, id)!.view.next.more).toEqual({ kind: 'more', runs: [a, b], max: 160, keptMax: 200 });
     // The config's verify.max is what a good run ran under.
     expect(previewSession(store, id, { keptMax: 300 })!.view.next.more).toMatchObject({ max: 160, keptMax: 300 });
+    // Each run's Decisions view offers it for that run alone, in its role.
+    const mine = (runId: string) => runDecisions(store, runId, 50).sessions.find((x) => x.sessionId === id)!.more;
+    expect(mine(a)).toEqual({ kind: 'more', runs: [a], max: 160, keptMax: null });
+    expect(mine(b)).toEqual({ kind: 'more', runs: [b], max: null, keptMax: 200 });
     expect(moreOf({ ...v, runs: [{ ...v.runs[1], outcome: 'inconclusive' }] }, { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, null)).toEqual({ kind: 'more', runs: [b], max: null, keptMax: 400 });
     expect(moreOf({ ...v, runs: [{ ...v.runs[0], attempts: 1000 }] }, { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 1000 }, null)).toBeNull();
     expect(moreOf({ ...v, runs: [{ ...v.runs[0], undecided: 'the judge gave no answer' }] }, null, null)).toEqual({ kind: 'again', runs: [a], max: null, keptMax: null });
@@ -147,6 +153,7 @@ describe('a preview worded for Changes', () => {
     expect(s.kind).toBe('migrate');
     expect(s.view.next.migrate).toBeNull();
     expect(s.matrix.map((r) => r.title)).toEqual([a.slice(0, 10)]);
+    expect(runDecisions(store, a, 50).sessions.find((x) => x.sessionId === id)!.more).toBeNull();
   });
 
   it('takes the flagged runs to verify from a session kept before toVerify, and marks a run gone from the store', () => {
