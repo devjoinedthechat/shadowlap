@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { createElement, useState, type ReactElement } from 'react';
+import { createElement, useLayoutEffect, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AttemptsCell, type Attempt } from '../ui/components/AttemptsCell.js';
-import { PageHeader } from '../ui/components/bits.js';
+import { PageHeader, Said } from '../ui/components/bits.js';
 import { CodeBox } from '../ui/components/CodeBox.js';
 import { Code, CodeText, Command, Copy, Words } from '../ui/components/Copy.js';
 import { factOrder, factTip } from '../ui/components/Facts.js';
@@ -516,6 +516,27 @@ describe('the three states', () => {
     expect(line.querySelector('p span:not(.st)')!.textContent).toBe('The goldens didn’t come from the dashboard server.');
     await r!.click(r!.byText('.loaderr button', 'Retry'));
     expect([guarded, tried]).toEqual([['guard'], [1]]);
+  });
+});
+
+describe('a line that tells of a change', () => {
+  /** The page as the components see it: test/ui-render.ts' document, set while a page is drawn. */
+  const page = () => (globalThis as unknown as { document: { querySelectorAll(s: string): FakeElement[] } }).document;
+  const regions = (els: readonly FakeElement[]) => els.map((s) => `${s.getAttribute('role')}: ${s.textContent}`);
+
+  it('is said by a live region on the page before its words, hidden in an anchor of its own, empty when first drawn even with its words there from the start', async () => {
+    let first: string[] = [];
+    // What the page holds as the regions are first drawn, before an effect of theirs has run.
+    function Host() {
+      useLayoutEffect(() => {
+        first = regions(page().querySelectorAll('.said > .sr'));
+      }, []);
+      return createElement('div', null, createElement(Said, { words: 'Nothing matches.' }), createElement(Said, { words: 'The clipboard holds no dashboard link.', alert: true }), createElement(Said, { words: null }));
+    }
+    await draw(createElement(Host));
+    expect(first).toEqual(['status: ', 'alert: ', 'status: ']);
+    // A refusal is an alert; the rest are polite.
+    expect(regions(r!.all('.said > .sr'))).toEqual(['status: Nothing matches.', 'alert: The clipboard holds no dashboard link.', 'status: ']);
   });
 });
 

@@ -224,7 +224,35 @@ describe('Search or jump to', () => {
     expect(r.all('[role="listbox"]')).toEqual([]);
     expect(field.getAttribute('aria-expanded')).toBe('false');
     expect(field.hasAttribute('aria-activedescendant')).toBe(false);
-    expect(r.one('.pallist [role="status"]').textContent).toContain('Nothing matches');
+    expect(r.all('.pallist [role="status"]').map((s) => s.textContent)).toEqual(['Nothing matches “zzzz nothing like it”.', '']);
+  });
+
+  it('says that nothing matches from a live region on the page since it opened, the line drawn for the eye only', async () => {
+    r = await render(createElement(PaletteOpener, { base: app() }));
+    await r.click(r.one('#opener'));
+    // Before a word is typed, the list's two regions are there, empty: nothing found, and the index's note.
+    const [none, note] = r.all('.pallist .said > [role="status"]');
+    expect([none.textContent, note.textContent]).toEqual(['', '']);
+    await r.type(r.one('.palin input'), 'zzzz nothing like it');
+    // The same region takes the words.
+    expect(r.all('.pallist .said > [role="status"]').map((s, i) => s === [none, note][i])).toEqual([true, true]);
+    expect(none.textContent).toBe('Nothing matches “zzzz nothing like it”.');
+    const drawn = r.one('.pallist > .empty');
+    expect([drawn.textContent, drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual([none.textContent, 'true', false]);
+  });
+
+  it('says that the index is still being read from a live region on the page since it opened, and nothing found as not yet', async () => {
+    const search = async () => ({ hits: [], indexing: { runs: 3, of: 200 } });
+    r = await render(createElement(PaletteOpener, { base: app({ client: { ...app().client, search } as unknown as Client }) }));
+    await r.click(r.one('#opener'));
+    const [none, note] = r.all('.pallist .said > [role="status"]');
+    expect([none.textContent, note.textContent]).toEqual(['', '']);
+    await r.type(r.one('.palin input'), 'zzzz');
+    await r.until('the index’s note', () => note.textContent !== '');
+    expect(r.all('.pallist .said > [role="status"]').map((s, i) => s === [none, note][i])).toEqual([true, true]);
+    expect([none.textContent, note.textContent]).toEqual(['Nothing matches yet.', 'Still reading what 3 of 200 runs recorded: more matches may follow.']);
+    const drawn = r.one('.pallist > .palnote');
+    expect([drawn.textContent, drawn.getAttribute('aria-hidden'), drawn.hasAttribute('role')]).toEqual([note.textContent, 'true', false]);
   });
 
   it('says how many rows each word found, once, and leaves none found to the list’s own status', async () => {

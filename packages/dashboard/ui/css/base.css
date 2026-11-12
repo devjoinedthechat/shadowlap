@@ -50,6 +50,9 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .srsp { position: relative; }
 .srsp > .sr { white-space: pre; }
 .turn .tools button > .srsp, .pside .pnm > .srsp { display: contents; }
+/* a live region's anchor (Said), an empty inline box where its line is drawn, so its words sit where they are read: between
+   blocks its line box takes no room, and in a column of flex items it is one of no size */
+.said { position: relative; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; border: 3px solid var(--bg); }
 ::-webkit-scrollbar-track { background: transparent; }

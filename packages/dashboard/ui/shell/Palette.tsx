@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, t
 import { JOB_KINDS, type RecordedHit } from '../api.js';
 import { changesHref } from '../changes-tab.js';
 import { AboutLine, FitHint, useFitAbouts } from '../components/About.js';
+import { Said } from '../components/bits.js';
 import { fontOf, widthIn } from '../components/Copy.js';
 import { Modal } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
@@ -436,16 +437,8 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="empty" role="status">
-              {note ? 'Nothing matches yet.' : `Nothing matches “${q.trim()}”.`}
-            </div>
-          )}
-          {note ? (
-            <div className="palnote" role="status">
-              {note}
-            </div>
           ) : null}
+          <ListNotes none={!shown.length} q={q} note={note} />
         </div>
         <div className="palfoot" aria-hidden="true">
           <span>
@@ -480,9 +473,34 @@ function pickRow(x: PaletteCommand | undefined, o: { offline: boolean; toast: (t
 }
 
 /**
+ * What the list says besides its rows: that nothing matches the words typed, and that matches from
+ * what the server's index has yet to read may follow. Each tells of a change, so each is said by a
+ * region there since the palette opened, as its words come; the lines drawn are for the eye.
+ */
+function ListNotes({ none, q, note }: { none: boolean; q: string; note: string | null }) {
+  const nothing = note ? 'Nothing matches yet.' : `Nothing matches “${q.trim()}”.`;
+  return (
+    <>
+      <Said words={none ? nothing : null} />
+      {none ? (
+        <div className="empty" aria-hidden="true">
+          {nothing}
+        </div>
+      ) : null}
+      <Said words={note} />
+      {note ? (
+        <div className="palnote" aria-hidden="true">
+          {note}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/**
  * Each word typed says how many rows it found, in the one polite live region: as the words change,
  * not as later rows (recorded data, an older run) arrive. None found says so in the list's own
- * status, so it isn't said twice; opening the palette says nothing.
+ * region (`ListNotes`), so it isn't said twice; opening the palette says nothing.
  */
 function useSayCount(q: string, count: number): void {
   const typedOnce = useRef(false);
