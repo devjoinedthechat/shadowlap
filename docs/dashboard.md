@@ -226,7 +226,7 @@ A step that bills names its price on hover, asked for once the pointer or the fo
 **Dismiss** advice you have seen: behaviours no golden covers, runs only on this machine, a model that retires. A failure has no Dismiss.
 
 - **Dismiss**: the **×** at the row's end, which shows on hover or focus and always on a touch screen, or Dismiss in ⌘K on the row. The row folds under its group's **Dismissed (n)**, and the toast's **Undo** or ⌘Z puts it back until you switch projects.
-- **When it comes back**: once it states a fact it didn't, such as another behaviour or run, or another date or golden. **Restore** under **Dismissed (n)** brings it back sooner.
+- **When it comes back**: once it states a fact it didn't, such as another behaviour or run, another date or golden, or a migration that checks it. **Restore** under **Dismissed (n)** brings it back sooner.
 - **Where it is kept**: in this project's store, never pushed or pulled, and never in Activity.
 
 ### Recent runs

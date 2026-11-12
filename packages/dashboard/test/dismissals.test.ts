@@ -17,6 +17,7 @@ import { addRun, DAY } from './read-model-store.js';
  */
 
 const NOW = Date.UTC(2026, 9, 19, 10);
+const MG = 'mg-01M5000000000000000000000A';
 const TEAM = 's3://northwind-agent-runs/support-agent';
 let store: Store;
 
@@ -56,7 +57,7 @@ describe('advice', () => {
   it('states each fact once, sorted, says when it comes back, and is not put away until the store says so', () => {
     expect(adviceOf('local', ['RUN_B', 'RUN_A', 'RUN_B'])).toEqual({ key: 'local', facts: ['RUN_A', 'RUN_B'], until: 'Until another run is only on this machine', dismissed: false });
     expect(adviceOf('coverage', ['bbbb', 'aaaa']).until).toBe('Until another behaviour has no golden');
-    expect(adviceOf('retire claude-sonnet-4-5', ['retires 2026-11-30']).until).toBe('Until a new date or golden');
+    expect(adviceOf('retire claude-sonnet-4-5', ['retires 2026-11-30']).until).toBe('Until a new date or golden, or a migration checks it');
     expect(() => adviceOf('attn:test', ['x'])).toThrow(/no advice/);
   });
 
@@ -101,7 +102,7 @@ describe('the facts each advice states', () => {
     expect(row('retire', { goldens: [golden('goldens/refund-flow', run), golden('goldens/digest', run)] })!.advice!.facts).toEqual(['goldens/digest', 'goldens/refund-flow', 'retires 2026-11-30']);
     expect(retireFacts({ retires: '2026-11-30', goldens: ['goldens/refund-flow'] })).toEqual(['retires 2026-11-30', 'goldens/refund-flow']);
     expect(retireFacts({ retires: null, goldens: ['goldens/mythos'] })).toEqual(['deprecated', 'goldens/mythos']);
-    // Once a migration has checked it (port/migrate passes its line), what that found is a fact too.
+    // Once a migration has checked it, what that found is a fact too; once applied, nothing more is (the walk below).
     expect(retireFacts({ retires: '2026-11-30', goldens: ['goldens/refund-flow'] }, 'checked · the config change is ready')).toEqual(['retires 2026-11-30', 'goldens/refund-flow', 'checked · the config change is ready']);
   });
 });
@@ -136,6 +137,21 @@ describe('the rule, walked as the design walks it', () => {
     // Retiring to retired is no fact.
     expect(row('retire', { goldens: one, now: Date.UTC(2026, 11, 5) })).toMatchObject({ title: 'claude-sonnet-4-5, used by 1 golden, retired on Nov 30, 2026', advice: { dismissed: true } });
     expect(row('retire', { goldens: [...one, golden('goldens/refund-in-limit', run)] })).toMatchObject({ advice: { dismissed: false } });
+  });
+
+  it('a model that retires: put away, a migration that checks it brings it back; applied, it stays put away while its golden waits', () => {
+    const run = sonnet();
+    const one = [golden('goldens/refund-flow', run)];
+    put(row('retire', { goldens: one })!.advice);
+    const passes = { verdict: 'not-run', runs: [{ runId: run, golden: 'goldens/refund-flow', verdict: 'passed', outcome: 'unchanged', verified: false, tally: null }] };
+    const data = { migrateId: MG, kind: 'migrate', from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', decisions: { runs: [{}] }, passes, set: { fields: [], given: {}, byHand: [] }, configChange: { files: [{ path: 'agent.py', places: 1 }], leftOut: [], review: [] }, files: { dir: 'm', patch: 'm/config.patch' }, stopReason: null };
+    store.putDecisionSession({ sessionId: MG, kind: 'migrate', at: 1_000, change: 'the model claude-sonnet-5-5', actor: null, revision: null, data, runs: [] });
+    const checked = { facts: ['checked · the config change is ready', 'goldens/refund-flow', 'retires 2026-11-30'], until: 'Until a new date or golden, or a migration checks it', dismissed: false };
+    expect(row('retire', { goldens: one })).toMatchObject({ detail: 'checked · the config change is ready', advice: checked });
+    put(row('retire', { goldens: one })!.advice);
+    // The applied line is no fact: updating a golden it left behind would bring the row back.
+    store.setMigrationApplied(MG, { at: 2_000, by: null, outdated: [{ golden: 'goldens/refund-flow', callNo: 1, path: '$.model' }] });
+    expect(row('retire', { goldens: one })).toMatchObject({ detail: 'applied · 1 golden to update', advice: { facts: ['goldens/refund-flow', 'retires 2026-11-30'], dismissed: true } });
   });
 
   it('keeps, on a second Dismiss, only the facts stated then', () => {

@@ -34,13 +34,14 @@ export function retireFacts(n: Pick<RetiringModel, 'retires' | 'goldens'>, check
 }
 
 /**
- * A retire row's advice, under `retire <model>`. The name is the recording's, so it may make no key
- * (a space inside it, which the table still reads past in a Vertex AI path): that row shows with no
- * Dismiss, rather than failing the whole list.
+ * A retire row's advice, under `retire <model>`, stating a migration's `checked` line where one
+ * checked it. The name is the recording's, so it may make no key (a space inside it, which the
+ * table still reads past in a Vertex AI path): that row shows with no Dismiss, rather than failing
+ * the whole list.
  */
-function retireAdvice(n: RetiringModel): { advice?: LookAdvice } {
+function retireAdvice(n: RetiringModel, checked: string | null): { advice?: LookAdvice } {
   const key = `retire ${n.model}`;
-  return isAdviceKey(key) ? { advice: adviceOf(key, retireFacts(n)) } : {};
+  return isAdviceKey(key) ? { advice: adviceOf(key, retireFacts(n, checked)) } : {};
 }
 
 /**
@@ -90,7 +91,8 @@ export const retire: LookSource = {
           runId: null,
           fixId: null,
           at: 0,
-          ...retireAdvice(n),
+          // The checked line is a fact; the applied one never is, so updating a golden it left behind brings no row back.
+          ...retireAdvice(n, m && !m.applied ? state : null),
         }];
       });
   },

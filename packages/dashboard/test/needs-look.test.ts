@@ -192,9 +192,9 @@ describe('Needs a look: a model the goldens use that retires', () => {
       expect(rows[2]?.step).toBeNull();
       // Advice, keyed by the model: the day it retires (or deprecated, with none) and each golden that calls it.
       expect(rows.map((r) => r.advice)).toEqual([
-        { key: 'retire claude-3-7-sonnet-20250219', facts: ['goldens/digest', 'retires 2026-02-19'], until: 'Until a new date or golden', dismissed: false },
-        { key: 'retire claude-sonnet-4-5', facts: ['goldens/refund-flow', 'goldens/refund-in-limit', 'retires 2026-11-30'], until: 'Until a new date or golden', dismissed: false },
-        { key: 'retire claude-mythos-preview', facts: ['deprecated', 'goldens/mythos'], until: 'Until a new date or golden', dismissed: false },
+        { key: 'retire claude-3-7-sonnet-20250219', facts: ['goldens/digest', 'retires 2026-02-19'], until: 'Until a new date or golden, or a migration checks it', dismissed: false },
+        { key: 'retire claude-sonnet-4-5', facts: ['goldens/refund-flow', 'goldens/refund-in-limit', 'retires 2026-11-30'], until: 'Until a new date or golden, or a migration checks it', dismissed: false },
+        { key: 'retire claude-mythos-preview', facts: ['deprecated', 'goldens/mythos'], until: 'Until a new date or golden, or a migration checks it', dismissed: false },
       ]);
     } finally {
       store.close();
@@ -229,7 +229,7 @@ describe('Needs a look: a model the goldens use that retires', () => {
         title: 'claude-sonnet-4-5, used by 4 goldens, retires on Nov 30, 2026',
         step: { from: ['claude-sonnet-4-5'], command: 'shadowlap migrate --to claude-sonnet-5-5 goldens/g0 goldens/g1 goldens/g2 goldens/g3 --from claude-sonnet-4-5' },
       });
-      expect(rows[0]?.advice).toEqual({ key: 'retire claude-sonnet-4-5', facts: ['goldens/g0', 'goldens/g1', 'goldens/g2', 'goldens/g3', 'retires 2026-11-30'], until: 'Until a new date or golden', dismissed: false });
+      expect(rows[0]?.advice).toEqual({ key: 'retire claude-sonnet-4-5', facts: ['goldens/g0', 'goldens/g1', 'goldens/g2', 'goldens/g3', 'retires 2026-11-30'], until: 'Until a new date or golden, or a migration checks it', dismissed: false });
     } finally {
       store.close();
     }
