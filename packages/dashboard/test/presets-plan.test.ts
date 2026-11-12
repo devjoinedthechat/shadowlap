@@ -26,7 +26,7 @@ function recording(store: Store, meta: RunRecord['meta'] = {}): string {
 const work = (tests: Record<string, unknown>, goldens: OutcomeWork['goldens'] = []): OutcomeWork => ({ version: JSON.stringify(tests), tests, dir: '/project', goldens });
 
 async function plan(store: Store, job: Omit<PresetsPlanJob, 'kind' | 'shared'> & { shared?: boolean }): Promise<PresetsPlan> {
-  const a = await PRESETS_READS['presets-plan'](store, { kind: 'presets-plan', shared: false, ...job });
+  const a = await PRESETS_READS['presets-plan'](store, { kind: 'presets-plan', shared: false, ...job }, { whole: true });
   expect(a.status, String(a.body)).toBe(200);
   return JSON.parse(String(a.body)) as PresetsPlan;
 }
@@ -89,7 +89,7 @@ describe("Run error-path presets…'s plan", () => {
     const store = Store.open(':memory:');
     try {
       // A replay a test made of the golden is tied to its entry (meta.test.golden).
-      const rec = recording(store, { test: { golden: 'goldens/refund' } });
+      const rec = recording(store, { test: { golden: 'goldens/refund', session: 'T1' } });
       const tests = { 'goldens/refund': { expect: { tools: { issue_refund: '<= 1' } }, repeat: 2, passes: 2 } };
       expect(await plan(store, { runId: rec, work: work(tests) })).toMatchObject({ golden: null, judge: { source: 'write-limits' }, gate: { repeat: 2, passes: 2 } });
       expect(await plan(store, { runId: rec, work: work(tests), expect: true })).toMatchObject({ golden: null, judge: { source: '--expect' }, gate: { repeat: 1, passes: 1 } });
@@ -104,7 +104,7 @@ describe("Run error-path presets…'s plan", () => {
       const run = recording(store, { imported: { at: 1, from: 'prod.har' }, author: 'dana@example.com' });
       expect((await plan(store, { runId: run, work: work({}) })).runsHere).toMatchObject({ from: 'an imported pack', by: null });
       expect((await plan(store, { runId: run, work: work({}), shared: true })).runsHere).toMatchObject({ from: 'an imported pack', by: 'dana@example.com' });
-      expect((await PRESETS_READS['presets-plan'](store, { kind: 'presets-plan', runId: 'nope', work: null, shared: false })).status).toBe(404);
+      expect((await PRESETS_READS['presets-plan'](store, { kind: 'presets-plan', runId: 'nope', work: null, shared: false }, { whole: true })).status).toBe(404);
     } finally {
       store.close();
     }
