@@ -3,7 +3,7 @@ import type { CompareHead } from '../../src/compare.js';
 import { ApiError, type CompareView, type RunDetail, type RunListItem } from '../api.js';
 import { ChangesHead } from '../changes/Head.js';
 import { forgetComparePair, noteComparePair } from '../changes-tab.js';
-import { CmdLine, PageHeader } from '../components/bits.js';
+import { CmdLine, PageHeader, Said } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { Page } from '../components/Page.js';
@@ -334,6 +334,8 @@ function ComparisonBody({ c, failed, retry, head, hub, ra, rb, a, b, runs, call 
   // The rest of a long pair that couldn't be worked out (a 503: it ran past the time a request is
   // given): what came first stays, and the terminal, which has no such limit, works out the rest.
   const stopped = failed && !hub && head ? { why: failed.message, command: `shadowlap diff ${shortId(ra?.run.runId ?? a)} ${shortId(rb?.run.runId ?? b)}` } : null;
+  // The head shown while the rest is worked out, or once it stopped short.
+  const first = !c && head && (!failed || stopped) ? head : null;
   return (
     <>
       {failed && hub ? (
@@ -341,13 +343,8 @@ function ComparisonBody({ c, failed, retry, head, hub, ra, rb, a, b, runs, call 
       ) : failed && !stopped ? (
         <ErrorState retry={retry}>{failedRead(failed)}</ErrorState>
       ) : null}
-      {c ? (
-        <Compared c={c} a={a} b={b} ra={ra} rb={rb} runs={runs} call={call} />
-      ) : head && (!failed || stopped) ? (
-        <HeadFirst h={head} stopped={stopped} />
-      ) : failed ? null : (
-        COMPARISON_LOADING
-      )}
+      {c ? <Compared c={c} a={a} b={b} ra={ra} rb={rb} runs={runs} call={call} /> : first ? <HeadFirst h={first} /> : failed ? null : COMPARISON_LOADING}
+      <TheRest h={first} stopped={stopped} />
     </>
   );
 }
@@ -464,31 +461,49 @@ function WhatChanged({ c }: { c: CompareView }) {
 
 /**
  * What a comparison shows while the rest of it is worked out: the identical prefix and the first
- * request that differs, then what is still to come, said as it is under way.
+ * request that differs. What is still to come follows it (`TheRest`).
  */
-function HeadFirst({ h, stopped = null }: { h: CompareHead; stopped?: { why: string; command: string } | null }) {
+function HeadFirst({ h }: { h: CompareHead }) {
+  return (
+    <>
+      <Prefix c={{ ...h, responseDifferences: [], intervention: null }} />
+      {h.firstRequestDifference ? <ChangedRequest c={h} /> : null}
+    </>
+  );
+}
+
+/** What is still to come of a comparison whose head shows: what changed, the answers that differ, where each run went. */
+function restListed(h: CompareHead): string {
   const rest = [
     'what changed between the two runs',
     ...(h.answersDiffer ? [`what ${plural(h.answersDiffer, 'call')} with the same request got instead`] : []),
     ...(h.firstRequestDifference ? [`where each went from #${h.firstRequestDifference.callNo}`] : []),
   ];
-  const listed = rest.length > 1 ? `${rest.slice(0, -1).join(', ')} and ${rest.at(-1)!}` : rest[0]!;
+  return rest.length > 1 ? `${rest.slice(0, -1).join(', ')} and ${rest.at(-1)!}` : rest[0]!;
+}
+
+/**
+ * Under a comparison's head (`h`), what is still to come, said as it is under way, or, when it
+ * stopped short (`stopped`), why, and the command a terminal works it out with. Each tells of a
+ * change, so each is said by a live region there before the head came; the lines are drawn for the
+ * eye, the command to be read and copied.
+ */
+function TheRest({ h, stopped }: { h: CompareHead | null; stopped: { why: string; command: string } | null }) {
+  const listed = h ? restListed(h) : '';
+  const words = !h ? null : stopped ? `The rest, ${listed}, could not be worked out here: ${stopped.why}. What shows above is whole. A terminal compares the two runs with no time limit:` : `Comparing the rest: ${listed}…`;
   return (
     <>
-      <Prefix c={{ ...h, responseDifferences: [], intervention: null }} />
-      {h.firstRequestDifference ? <ChangedRequest c={h} /> : null}
-      {stopped ? (
-        <div className="cmpwait" role="status">
-          <p>
-            The rest, {listed}, could not be worked out here: {stopped.why}. What shows above is whole. A terminal compares the two runs with no time limit:
-          </p>
+      <Said words={words} />
+      {h && stopped ? (
+        <div className="cmpwait">
+          <p aria-hidden="true">{words}</p>
           <CmdLine>{stopped.command}</CmdLine>
         </div>
-      ) : (
-        <p className="cmpwait" role="status">
-          Comparing the rest: {listed}…
+      ) : h ? (
+        <p className="cmpwait" aria-hidden="true">
+          {words}
         </p>
-      )}
+      ) : null}
     </>
   );
 }
