@@ -4,6 +4,7 @@ import { AttemptsCell, type Attempt } from '../ui/components/AttemptsCell.js';
 import { StepList } from '../ui/components/bits.js';
 import { CodeBox } from '../ui/components/CodeBox.js';
 import { Code, Copy } from '../ui/components/Copy.js';
+import { HoverCardLayer, tipCard } from '../ui/components/HoverCard.js';
 import { Sprite } from '../ui/components/Icon.js';
 import { EmptyState } from '../ui/components/States.js';
 import { Term } from '../ui/components/Term.js';
@@ -74,6 +75,11 @@ function Page() {
           <div id="steps">
             <StepList steps={[{ title: 'Record', state: 'cur', command: 'shadowlap run -- node agent.mjs' }]} />
           </div>
+          <p id="card">
+            <span id="opens" tabIndex={0} data-tip={tipCard('Open in editor', [], 'Opens refund.py at line 12', '$ code --goto refund.py:12')}>
+              Open in editor
+            </span>
+          </p>
           <div id="terms" data-glossary="">
             <details open={fold}>
               <summary>How it works</summary>
@@ -90,6 +96,7 @@ function Page() {
           </div>
         </div>
       </main>
+      <HoverCardLayer />
     </AppContext.Provider>
   );
 }

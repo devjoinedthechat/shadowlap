@@ -6,11 +6,15 @@ import { Code, CodeText, Command, Copy, LongWord, Words } from '../ui/components
 import { Dialog } from '../ui/components/Dialog.js';
 import { DialogFacts, DialogSteps } from '../ui/components/DialogFacts.js';
 import { DotParts } from '../ui/components/DotParts.js';
+import { namedIn } from '../ui/components/Id.js';
 import { EmptyState } from '../ui/components/States.js';
 import { ToastWords } from '../ui/components/Toast.js';
-import { dotParts } from '../ui/components/Verdict.js';
+import { dotParts, RuleText } from '../ui/components/Verdict.js';
 import { FixTitle } from '../ui/fixes/parts.js';
+import { EditorButton } from '../ui/revert/EditorButton.js';
+import { AppContext, type AppState } from '../ui/state.js';
 import { planCopy } from '../ui/typeset-lines.js';
+import { SMALL } from '../ui/typeset.js';
 import { styleRules } from './css-sheet.js';
 import { shell } from './ui-overlays-page.js';
 import { render, type Rendered } from './ui-render.js';
@@ -179,6 +183,11 @@ describe('copy set by its parts', () => {
     await draw(createElement(PageHeader, { title: 'Runs of the support agent', text: 'It passed in 3 of 4 attempts. Open one to see why.' }));
     expect([r!.one('h1').textContent.includes('\u00a0'), r!.one('h1').textContent.replace(/\u00a0/g, ' ')]).toEqual([true, 'Runs of the support agent']);
     expect(r!.one('.ph p').textContent).toContain('3\u00a0of\u00a04\u00a0attempts');
+    // each sentence a unit of its own, which a screen reader reads on as one paragraph
+    expect(r!.one('.ph p').children.map((c) => [c.tagName, c.className, c.getAttribute('role')])).toEqual([
+      ['TS-S', 'snt', 'none'],
+      ['TS-S', 'snt', 'none'],
+    ]);
     await r!.unmount();
     await draw(createElement(PageHeader, { title: 'Can’t open support-agent', text: 'run_8f3a: not in the store after 3 of 4 tries', copy: false }));
     expect(r!.one('.ph p').textContent).toBe('run_8f3a: not in the store after 3 of 4 tries');
@@ -209,5 +218,49 @@ describe('copy set by its parts', () => {
     expect(r!.one('.cmdp').className).toBe('nw cmdp');
     expect(values('.cmdp > b', 'user-select')).toEqual(['none']);
     expect(values('.cmdp > b', '-webkit-user-select')).toEqual(['none']);
+  });
+});
+
+describe('where a line may end', () => {
+  it('never breaks before a phrase where a small word would end the line', () => {
+    const lead = 'Adds the text after what the tool returned, and runs the agent on from there three times.';
+    for (const width of [40, 44, 46]) {
+      const plan = planCopy([{ text: lead }], { width, text: (s) => s.length, atom: () => 0 }, { phrases: true });
+      const ends = (plan.units ?? []).map((u) => plan.text.slice(u.from, u.to).split(/[\s\u00a0]+/).at(-1)!.toLowerCase());
+      expect([width, ends.filter((w) => SMALL.has(w)), plan.text.includes('on\u00a0from')]).toEqual([width, [], true]);
+    }
+  });
+
+  it('sets a dialog’s title that names a run as copy, the name whole and the small word before it kept with it, named by its id', async () => {
+    await draw(shell({}, createElement(Dialog, { key: 'd', title: namedIn('Find breaking commit for 01M7870JTF', '01M7870JTF'), ok: 'Find', onOk: () => undefined, onClose: () => undefined })));
+    const h3 = r!.one('[role="dialog"] header h3');
+    expect([h3.getAttribute('id'), h3.textContent.replace(/\u00a0/g, ' '), r!.one('[role="dialog"] header h3 code').textContent]).toEqual([r!.one('[role="dialog"]').getAttribute('aria-labelledby'), 'Find breaking commit for 01M7870JTF', '01M7870JTF']);
+    expect(h3.textContent).toContain('for\u00a001M7870JTF');
+  });
+
+  it('keeps a history gate’s “from” with its last sessions, so no line ends on it', async () => {
+    await draw(createElement('p', null, createElement(RuleText, { rule: 'fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40' })));
+    expect(drawn()).toContain('from\u00a0its\u00a0last\u00a010\u00a0sessions');
+    expect(drawn()).toContain('from\u00a05\u00a0attempts\u00a0up\u00a0to\u00a040');
+  });
+
+  it('glues a dialog’s warning and each part of its cost line, and draws a warning the server wrote as written', async () => {
+    const ask = { key: 'd', title: 'Pack', ok: 'Pack', onOk: () => undefined, onClose: () => undefined };
+    await draw(shell({}, createElement(Dialog, { ...ask, warn: { text: 'It replays 3 of 4 runs live from the fork' }, cost: { price: 'About $0.40', parts: ['3 attempts from #5'] } })));
+    expect(r!.one('.dwarn').textContent).toContain('3\u00a0of\u00a04\u00a0runs');
+    expect(r!.all('.dcp').map((p) => p.textContent.replace(/ ·$/, ''))).toEqual([expect.stringContaining('About\u00a0$0.40'), expect.stringContaining('3\u00a0attempts')]);
+    await r!.unmount();
+    const said = 'shadowlap test goldens/x is running: pack it as a golden once it is done';
+    await draw(shell({}, createElement(Dialog, { ...ask, warn: { text: said, written: true } })));
+    expect(r!.one('.dwarn').textContent).toBe(said);
+  });
+
+  it('toasts an editor that wouldn’t open as an error, its message as the server wrote it', async () => {
+    const toasts: unknown[][] = [];
+    const app = { meta: { editor: 'code --goto <file>:<line>' }, exported: false, client: { editor: { open: () => Promise.reject(new Error('no editor: set $VISUAL or $EDITOR')) } }, toast: (...a: unknown[]) => toasts.push(a) } as unknown as AppState;
+    await draw(createElement(AppContext.Provider, { value: app }, createElement(EditorButton, { change: { path: 'refund.py', line: 12 } })));
+    await r!.click(r!.one('button'));
+    await r!.until('the toast', () => toasts.length > 0);
+    expect(toasts).toEqual([['no editor: set $VISUAL or $EDITOR', 'error']]);
   });
 });
