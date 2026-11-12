@@ -66,6 +66,7 @@
     "packages/dashboard/test/ui-dialog-anatomy.test.ts",
     "packages/dashboard/test/ui-job-end.test.ts",
     "packages/dashboard/test/ui-route-helpers.ts",
+    "packages/dashboard/test/ui-served-now.ts",
     "packages/dashboard/test/ui-list-keys.test.ts",
     "packages/dashboard/test/ui-row-step.test.ts",
     "packages/dashboard/test/ui-row-replay.test.ts",
@@ -98,6 +99,10 @@
     // These render the Tests and Training pages.
     "packages/dashboard/test/ui-tests-chaos.test.ts",
     "packages/dashboard/test/ui-tests-page.test.ts",
+    "packages/dashboard/test/ui-tests-check-entries.test.ts",
+    "packages/dashboard/test/ui-run-check-steps.test.ts",
+    "packages/dashboard/test/ui-judge-calls.test.ts",
+    "packages/dashboard/test/ui-judge-findings.test.ts",
     // This renders the question a Tests job asks before it runs goldens live, from Tests, a run's banner and the palette.
     "packages/dashboard/test/ui-tests-ask.test.ts",
     "packages/dashboard/test/ui-job-button.test.ts",
@@ -178,9 +183,11 @@
     "packages/dashboard/test/ui-findings-status.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts",
     "packages/dashboard/test/ui-window-hook.test.ts",
-    // These render a run's views as their scripts load, and a page or a view whose script didn't come.
+    // These render a run's views as their scripts load, and a page, a view or a part opened on a press
+    // whose script didn't come.
     "packages/dashboard/test/ui-run-views.test.ts",
     "packages/dashboard/test/ui-page-failed.test.ts",
+    "packages/dashboard/test/ui-press-failed.test.ts",
     // This renders the design system's shared parts, which measure the page as they set their copy,
     // and this is the page of them browser/primitives.spec.ts measures in a real browser.
     "packages/dashboard/test/ui-primitives.test.ts",
@@ -188,6 +195,7 @@
     // This renders the results matrix, its key, its receipt and the panel they open in, and this is
     // the page of them browser/matrix.spec.ts measures in a real browser.
     "packages/dashboard/test/ui-matrix.test.ts",
+    "packages/dashboard/test/ui-injection-results.test.ts",
     "packages/dashboard/test/matrix-page.tsx",
     // This renders the status bar, which measures what fits it.
     "packages/dashboard/test/ui-status-bar.test.ts",

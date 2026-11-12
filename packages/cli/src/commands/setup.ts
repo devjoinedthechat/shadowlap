@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { Command } from 'commander';
-import { CONFIG_FILE, RULE_KINDS, addRule, describeRule, hasRecordedCommand, previewRedaction, readConfigFile, readRules, removeRule, ruleNoun, type Normalizer, type RedactionPreview, type RedactionUnmasked, type RuleList, type RunRecord } from '@shadowlap/engine';
+import { CONFIG_FILE, RULE_KINDS, addRule, describeRule, hasRecordedCommand, previewKeepingCanaries, readConfigFile, readRules, removeRule, ruleNoun, type Normalizer, type RedactionPreview, type RedactionUnmasked, type RuleList, type RunRecord } from '@shadowlap/engine';
 import { recordActivity } from '../activity.js';
 import { configPath, loadConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
@@ -164,7 +164,8 @@ function registerPreview(program: Command, cmd: Command): void {
         const recording = new Set(store.recordingRuns().live.map((r) => r.run.runId));
         const run = runArg ? requireRun(store, runArg) : (store.listRuns(200).find((r) => !recording.has(r.runId)) ?? null);
         if (!run) throw new Error(noRun);
-        const preview = previewRedaction(store, run.runId, rules);
+        // As every copy masks it: an injection attempt's own canaries kept, and so not counted.
+        const preview = previewKeepingCanaries(store, run.runId, rules);
         emitJobEvent({ type: 'result', data: preview });
         if (flags.json) {
           process.stdout.write(JSON.stringify(preview, null, 2) + '\n');
@@ -186,9 +187,9 @@ function describedRun(run: RunRecord): string {
 /** What only the copies that are read mask, where a pack keeps what calls got back. */
 const READ_COPIES = 'export html, har and dataset';
 
-function formatPreview(preview: RedactionPreview, what: string): string {
+function formatPreview(preview: RedactionPreview & { kept: number }, what: string): string {
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
-  const total = `${preview.total} ${plural(preview.total, 'value', 'values')} would be masked${preview.unmasked ? `, ${preview.unmasked} left as ${plural(preview.unmasked, 'it is', 'they are')}` : ''}${preview.returned ? `; ${READ_COPIES} mask ${preview.returned} more in what calls got back` : ''}`;
+  const total = `${preview.total} ${plural(preview.total, 'value', 'values')} would be masked${preview.unmasked ? `, ${preview.unmasked} left as ${plural(preview.unmasked, 'it is', 'they are')}` : ''}${preview.returned ? `; ${READ_COPIES} mask ${preview.returned} more in what calls got back` : ''}${preview.kept ? '; canaries kept' : ''}`;
   const lines = [`${shortId(preview.runId)} (${safe(what)}): ${preview.rules.length ? total : 'no redaction rules in shadowlap.config.json, so nothing would be masked'}`];
   for (const r of preview.rules) {
     lines.push(`  #${r.n}  ${safe(describeRule(r.rule))}  ${r.count ? p.bold(String(r.count)) : p.dim('0')}${r.note ? p.dim(`  ${safe(r.note)}`) : ''}`);

@@ -1,5 +1,5 @@
-import { REDACTION_EXPORTS, messageOf, parseRules, readConfigFile, type Normalizer, type RedactionExport, type RedactionPreview, type RunAbout, type RunRecord } from '@shadowlap/engine';
-import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type PreviewLimitsConfig } from './redaction-preview.js';
+import { REDACTION_EXPORTS, messageOf, parseRules, readConfigFile, type Normalizer, type RedactionExport, type RunAbout, type RunRecord } from '@shadowlap/engine';
+import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type KeptPreview, type PreviewLimitsConfig } from './redaction-preview.js';
 import { aboutsOf } from './run-about.js';
 import { loadRunIndex, type IndexedRun } from './run-index.js';
 import { asksFor } from './run-stats.js';
@@ -77,9 +77,10 @@ export interface RedactionPreviewView {
   /**
    * What `redact preview <run> --json` prints: per rule, a count and up to two samples, and what it
    * matches that a copy leaves as it is (`unmasked`, with the path rules that mask it); the run's
-   * details apart. `partial` says how far a long run was read before a limit stopped it.
+   * details apart. `partial` says how far a long run was read before a limit stopped it. `kept`: the
+   * run's own canaries the rules would have masked, which a copy keeps and the counts leave out.
    */
-  preview: RedactionPreview;
+  preview: KeptPreview;
   /** The command that previews the whole run in a terminal. */
   command: string;
 }
@@ -103,7 +104,7 @@ export async function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd
     throw new SettingsRefusal(422, messageOf(err));
   }
   const limits = options.limits ?? PREVIEW_LIMITS;
-  let preview: RedactionPreview;
+  let preview: KeptPreview;
   try {
     preview = ctx.dbPath && ctx.dbPath !== ':memory:' ? await previewApart({ dbPath: ctx.dbPath, runId: run.runId, rules }, { limits, ...(options.signal ? { signal: options.signal } : {}) }) : previewHere(ctx.store, run.runId, rules, limits);
   } catch (err) {

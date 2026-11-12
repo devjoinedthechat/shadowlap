@@ -40,7 +40,7 @@ export const SHAPES = {
   show: { section: 'show', fields: ['run', 'summary', 'calls', 'untrusted', 'unrecordedTools'] },
   // A tool the model called that the run never recorded (show --json, --summary-json).
   unrecordedTool: { section: 'show', list: 'the tools its model called that the run never recorded, `unrecordedTools`', fields: ['name', 'count', 'firstCallNo', 'effect', 'why', 'fix'] },
-  showUntrusted: { section: 'show', list: 'as the dashboard\'s `GET /api/injection/runs/:id` lists them', fields: ['callNo', 'name', 'from'] },
+  showUntrusted: { section: 'show', list: 'its untrusted reads, `untrusted`', fields: ['callNo', 'name', 'from', 'readAt'] },
   showRun: { section: 'show', list: 'The run as stored', fields: ['runId', 'parentRunId', 'mode', 'status', 'divergence', 'command', 'codeVersion', 'startedAt', 'endedAt', 'meta'] },
   showCall: { section: 'show', list: 'Every call as stored', fields: ['runId', 'callNo', 'kind', 'name', 'fingerprint', 'occurrence', 'origin', 'effect', 'requestRef', 'meta', 'at', 'end', 'attempts'] },
   ls: { section: 'ls', fields: ['runId', 'parentRunId', 'mode', 'status', 'calls', 'command', 'codeVersion', 'startedAt', 'endedAt', 'labels', 'forkedAt', 'hasCommand', 'imported', 'partial', 'repeat', 'checks'] },
@@ -56,7 +56,7 @@ export const SHAPES = {
   importTrace: { section: 'import', list: 'each trace it found, newest first', fields: ['id', 'name', 'startedAt', 'outcome', 'runId', 'reason', 'judged'] },
   calibrate: { section: 'calibrate', fields: ['runId', 'source', 'clean', 'rounds', 'normalizers', 'written', 'added', 'stopped'] },
   rules: { section: 'normalize', fields: ['file', 'exists', 'version', 'error', 'rules'] },
-  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details'] },
+  preview: { section: 'normalize', fields: ['runId', 'calls', 'unreadable', 'partial', 'total', 'returned', 'unmasked', 'rules', 'details', 'kept'] },
   previewRule: { section: 'normalize', fields: ['n', 'rule', 'count', 'samples', 'reached', 'note', 'returned', 'unmasked'] },
   previewReturned: { section: 'normalize', fields: ['count', 'samples'] },
   previewUnmasked: { section: 'normalize', fields: ['count', 'samples', 'places', 'remedies', 'covered', 'reasons'] },

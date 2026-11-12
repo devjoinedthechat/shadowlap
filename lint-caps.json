@@ -84,7 +84,7 @@
       "rebuildResponse": 37
     },
     "packages/cli/src/injection.ts": {
-      "cleanInjection": 57,
+      "cleanInjection": 56,
       "formatPlant": 44
     },
     "packages/cli/src/migrate.ts": {
@@ -134,7 +134,7 @@
       "startFakeMcpHttpServer > createServer(…) > async () => { const…(…)": 33
     },
     "packages/dashboard/src/activity.ts": {
-      "derived": 41,
+      "derived": 34,
       "replayEnd": 34,
       "testEnd": 50
     },
@@ -193,7 +193,7 @@
       "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 37
+      "Workspace": 31
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
@@ -202,10 +202,10 @@
       "StoreSetup": 50
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
-      "ProvenanceView": 95
+      "ProvenanceView": 87
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 59
+      "RunHeader": 56
     },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31
@@ -408,7 +408,7 @@
       "StoreSetup": 215
     },
     "packages/dashboard/ui/run/ProvenanceView.tsx": {
-      "ProvenanceView": 267
+      "ProvenanceView": 266
     },
     "packages/dashboard/ui/shell/Palette.tsx": {
       "PaletteDialog": 175
@@ -472,11 +472,11 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 968,
+    "packages/dashboard/src/tests.ts": 910,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 810,
-    "packages/engine/src/pairs.ts": 819,
+    "packages/engine/src/pairs.ts": 818,
     "packages/engine/src/redact.ts": 983,
     "packages/remote/test/sync.test.ts": 1059,
     "packages/sidecar/test/failure-modes.test.ts": 805

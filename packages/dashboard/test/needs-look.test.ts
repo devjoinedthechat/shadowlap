@@ -355,3 +355,30 @@ describe('Needs a look: an inconclusive golden', () => {
     }
   });
 });
+
+describe('Needs a look: a golden whose checks changed since its last test', () => {
+  it('leads with Run tests, as its run’s page does, its line saying so, failed or inconclusive', () => {
+    const store = Store.open(':memory:');
+    try {
+      const path = 'goldens/refund';
+      const rec = addRun(store, { startedAt: NOW - DAY, calls: 'lll' });
+      const tested = (verdict: 'failed' | 'inconclusive', at: number) => {
+        const session = store.startTestSession({ command: ['shadowlap', 'test', path], startedAt: at, revision: 'bbbbbbb' }).sessionId;
+        const run = addRun(store, { parent: rec, startedAt: at, status: verdict === 'failed' ? 'failed' : 'completed', calls: 'rrr', meta: { test: { golden: path, session } } });
+        const check = verdict === 'failed' ? { label: 'issue_refund called 0 times', ok: false, status: 'failed' as const, detail: 'called 1 time' } : { label: 'judge "explains" answers yes', ok: false, status: 'inconclusive' as const, detail: 'not judged: no recorded verdict and the test runs offline' };
+        store.addTestResult({ sessionId: session, golden: path, ok: false, failure: 'check', reason: `check ${verdict}: ${check.label}`, runId: run, goldenRunId: rec, revision: 'bbbbbbb', at: at + 1, data: { verdict, checks: [check] } });
+        store.finishTestSession(session, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: at + 2 });
+        return run;
+      };
+      // The config holds neither check now: each changed since the test that judged it.
+      const goldens = [golden(path, rec)];
+      const look = () => overviewSummary(store, { tz: 'UTC', now: NOW, goldens, next: { goldens, tests: undefined, normalize: undefined, dir: '/work/project' } }).needsLook.items.find((x) => x.kind === 'test');
+      const failed = tested('failed', NOW - 3 * HOUR);
+      expect(look()).toMatchObject({ group: 'failing', detail: expect.stringMatching(/ · checks changed since$/), step: { of: 'run', runId: failed, step: { key: 'run-tests', label: 'Run tests' } } });
+      const unsure = tested('inconclusive', NOW - HOUR);
+      expect(look()).toMatchObject({ group: 'tests', detail: expect.stringMatching(/ · checks changed since$/), step: { of: 'run', runId: unsure, step: { key: 'run-tests', label: 'Run tests' } } });
+    } finally {
+      store.close();
+    }
+  });
+});

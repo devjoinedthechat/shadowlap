@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
 import { JOB_KINDS } from '../api.js';
+import { useOfflineLink } from '../components/ActionButton.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import { MigrateAsk } from '../components/MigrateAsk.js';
@@ -9,6 +10,7 @@ import { RowStep } from '../fixes/RowStep.js';
 import { goldenName } from '../format.js';
 import { PUSH_LOCAL } from '../labels.js';
 import { moreCard } from '../pages/tests-cards.js';
+import { EditCheckStep } from '../run/check-entry.js';
 import { stepCard } from '../run/next-step.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
@@ -83,19 +85,23 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
 }
 
 /**
- * A row's step: a link as itself; a job's button where this dashboard runs jobs, else `Open →`, as a
- * step that opens its page has (a read-only dashboard's rows each open what they are about).
+ * A row's step: a link as itself, one to an attempt waiting while the server is out of reach; a job's
+ * button where this dashboard runs jobs, else `Open →`, as a step that opens its page has (a
+ * read-only dashboard's rows each open what they are about).
  */
 export function LookStepButton({ row, wait, version }: { row: NeedsLookRow; wait: LookWait | null; version: string }) {
   const app = useApp();
+  const offline = useOfflineLink();
   const s = row.step;
   if (s?.of === 'link') {
     return (
-      <a className="btn sm" href={s.href} {...(s.title ? { 'data-tip': tipCard(s.label, [], s.title) } : {})}>
+      <a className="btn sm" href={s.href} {...(s.title ? { 'data-tip': tipCard(s.label, [], s.title) } : {})} {...(s.attempt ? { onClick: offline } : {})}>
         {s.label}
       </a>
     );
   }
+  // Edit check opens the check builder at the check on its golden, as Tests and the run's page do: no job, so no wait.
+  if (s?.of === 'run' && s.step.key === 'edit-check' && !app.actionsOff && !app.exported) return <EditCheckStep step={s.step} className="btn sm" />;
   const run = stepRun(s);
   if (!s || !run || !wait || app.actionsOff || app.exported) return <span className="go">Open →</span>;
   const why = stepWhy(app.hasKind, run, wait);

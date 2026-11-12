@@ -138,10 +138,14 @@ function keepOffer(store: Store, run: RunRecord, input: RunOffersInput): RunOffe
   return row && keepable(row, run, input.dir, input.goldens ?? []) ? { folder: goldenFolder(run.runId) } : null;
 }
 
-/** Share's Security report: the newest of the run's kept injection results with a report, not one still running. */
-function securityOffer(store: Store, run: RunRecord): RunOffers['security'] {
-  const done = injectionResults(store, { runId: run.runId }).results.find((r) => !r.running);
-  return done ? { resultId: done.resultId, mode: done.mode } : null;
+/**
+ * Share's Security report: the run's newest kept test that has ended, the one its finding shows, else
+ * its newest --clean answer that has ended; none while the only one still runs.
+ */
+export function securityOffer(store: Store, run: Pick<RunRecord, 'runId'>): RunOffers['security'] {
+  const done = injectionResults(store, { runId: run.runId }).results.filter((r) => !r.running);
+  const kept = done.find((r) => r.mode === 'plant') ?? done[0];
+  return kept ? { resultId: kept.resultId, mode: kept.mode } : null;
 }
 
 function teamOf(store: StoreOf<'recording' | 'readModels' | 'team'>, run: RunRecord, raw: unknown): RunOffers['team'] {

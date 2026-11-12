@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { PACK_FORMAT, PACK_LIMITS, isObject, messageOf, testLive, type Gate, type Normalizer } from '@shadowlap/engine';
+import { PACK_FORMAT, PACK_LIMITS, isObject, messageOf, testLive, type Gate, type InjectionEntry, type Normalizer } from '@shadowlap/engine';
 import { specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath, loadTests } from './config.js';
 import { oracleLabels } from './oracle.js';
@@ -157,8 +157,10 @@ export function rawExpectFor(entries: readonly TestEntry[], recordingDir: string
 }
 
 /** How a golden is tested, in the words the Tests screen uses. */
-export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[]; injection: boolean; judges: string[] } {
+export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[]; injection: boolean; injectionGate: InjectionEntry | null; judges: string[] } {
   return {
+    // Its injection gate as parsed, with its defaults, for Tests to show among its checks.
+    injectionGate: spec?.injection ?? null,
     repeat: spec?.repeat ?? 1,
     passes: spec?.passes ?? 1,
     // With a gate, it decides how many attempts run: repeat and passes are 1.
@@ -183,9 +185,13 @@ export interface GoldenInfo {
   checks: string[];
   /** Its tests entry gives it an injection test (`"injection"`), which `shadowlap test` runs live. */
   injection: boolean;
+  /** That injection gate, as parsed with its defaults; null when it has none. */
+  injectionGate: InjectionEntry | null;
   /** The models of its judge checks (`claude-haiku-4-5`, `openai:gpt-5.5`). */
   judges: string[];
   error: string | null;
+  /** Set where the config's tests couldn't be read (a file mid-edit): `checks` is then empty for want of a read, not for a golden with none. */
+  checksUnread?: boolean;
 }
 
 /**
@@ -220,15 +226,17 @@ export function listGoldens(projectDir: string, entries: readonly TestEntry[], f
 
 /**
  * A project's goldens as the dashboard's Tests screen lists them: `listGoldens` with the `tests` of
- * its config. A config that can't be read still lists the goldens folder. This is what the dashboard
- * server is given to call (`GoldenSource[]` in @shadowlap/dashboard).
+ * its config. A config that can't be read still lists the goldens folder, each golden's checks marked
+ * unread (`checksUnread`), so that nothing says they changed. This is what the dashboard server is
+ * given to call (`GoldenSource[]` in @shadowlap/dashboard).
  */
 export function projectGoldens(projectDir: string, folder = GOLDENS_FOLDER): GoldenInfo[] {
-  let entries: TestEntry[] = [];
+  let entries: TestEntry[];
   try {
     entries = loadTests(projectDir);
   } catch {
-    // a config being edited: the folder alone
+    // a config being edited: the folder alone, its checks unknown until the file reads again
+    return listGoldens(projectDir, [], folder).map((g) => ({ ...g, checksUnread: true }));
   }
   return listGoldens(projectDir, entries, folder);
 }

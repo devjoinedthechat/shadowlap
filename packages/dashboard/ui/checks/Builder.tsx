@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { messageOf } from '../../../engine/src/message-of.js';
 import { ApiError } from '../api.js';
 import type { CheckContext, CheckPreview, ChecksConfig, ChecksOf, GoldenEntry } from '../checks-api.js';
@@ -20,6 +20,8 @@ import {
   blankUnit,
   editAt,
   fileUnit,
+  NOT_AS_WRITTEN,
+  unitWithLabel,
   firstCall,
   goldenLead,
   judgeAdded,
@@ -64,13 +66,26 @@ import { Sentence } from './Sentence.js';
  * so its focus starts on what it checks.
  */
 export function Builder(props: BuilderProps) {
-  const { client } = useApp();
+  const { client, toast } = useApp();
   const golden = goldenOf(props);
   // A fix's own check, or one beside a fix no golden guards, reads the agent of the fix's failing run.
   const of: ChecksOf = 'call' in props ? { run: props.run.run.runId } : golden ? { golden } : { run: fixOf(props)!.runId };
   const cfg = useLoad(() => client.checks.goldens(of), JSON.stringify(of));
+  // A check to change that the entry, as first read, doesn't yield: it closes and says where to edit it.
+  // Only the first read decides: one again after a 409 rebases the draft instead (Body).
+  const [first, setFirst] = useState<ChecksConfig | null>(null);
+  if (cfg.data && !first) setFirst(cfg.data);
+  const edit = 'edit' in props ? props.edit : null;
+  const gone = edit !== null && !!first && unitWithLabel(baseOf(goldenAt(first, golden)), edit) < 0;
+  const { onClose } = props;
+  useEffect(() => {
+    if (!gone) return;
+    toast(NOT_AS_WRITTEN);
+    onClose();
+  }, [gone, toast, onClose]);
   const at = contextAt(props, cfg.data);
   const ctx = useLoad(() => (at ? client.checks.context(at.runId, at.callNo) : null), at ? `${at.runId}:${at.callNo}` : 'none');
+  if (gone) return null;
   const head = headOf(props, golden);
   if (!cfg.data || (at && !ctx.data && !ctx.error)) {
     const what = ownFix(props) ? 'the fix’s run' : 'the golden’s checks';
@@ -148,8 +163,10 @@ function startOf(props: BuilderProps, cfg: ChecksConfig, rctx: RuleContext): Sta
   if (ownFix(props)) return { ...fixUnits(fixOf(props)!.expect), golden: null, picked: true };
   const golden = goldenOf(props);
   const edit = 'edit' in props ? props.edit : null;
-  const file = unitsOf(baseOf(goldenAt(cfg, golden))).map(fileUnit);
-  const opened = edit !== null && file[edit] ? editAt({ units: file, active: 0 }, edit) : { units: [...file, blankUnit()], active: file.length };
+  const base = baseOf(goldenAt(cfg, golden));
+  const file = unitsOf(base).map(fileUnit);
+  const at = edit === null ? -1 : unitWithLabel(base, edit);
+  const opened = at >= 0 ? editAt({ units: file, active: 0 }, at) : { units: [...file, blankUnit()], active: file.length };
   return { ...opened, golden, picked: true };
 }
 

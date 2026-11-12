@@ -1,0 +1,18 @@
+/* What a run's page draws of injection tests: an attempt's proof under its finding (injection/Proof.tsx),
+   the canary it carried in red, and in the inspector, the planted text in violet, as a planted read's
+   origin is. */
+.banner .injline { flex-basis: 100%; font: 12.5px/1.6 var(--mono); color: var(--dim); }
+.banner .injline .pwhy { font-family: var(--body); color: var(--faint); }
+.pbn { border: 0; background: none; padding: 0; font: 600 12.5px var(--mono); color: var(--ink); cursor: pointer; text-decoration: underline; text-decoration-color: var(--line2); text-underline-offset: 3px; }
+.pbn:hover { text-decoration-color: var(--ink); }
+.cnry { color: var(--cq-red); font-weight: 600; }
+mark.cnry { background: color-mix(in srgb, var(--cq-red) 16%, transparent); color: var(--cq-red); border-radius: 2px; padding: 0 1px; font-weight: 600; }
+mark.ins-plant { background: color-mix(in srgb, var(--o-over) 14%, transparent); color: var(--o-over); border-radius: 2px; }
+.msg.changed.ov .chg { color: var(--o-over); }
+/* The Security report's dialog: each value a rule masks, struck through, then its mask, as a diff's lines
+   read; a canary it keeps, with why. */
+.injmask { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 9px 0; border-top: 1px solid var(--line); font: 12.5px var(--mono); color: var(--ink); }
+.injmask span { min-width: 0; overflow-wrap: anywhere; }
+.injmask .del { color: var(--del); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--del) 50%, transparent); }
+.injmask .add { color: var(--add); }
+.injmask .why { flex-basis: 100%; font: 12px var(--body); color: var(--faint); }

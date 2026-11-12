@@ -140,10 +140,10 @@ const ROW_LINE: Readonly<Record<string, string>> = {
 /** A fork menu's row on its hover card: what it is for in a short line, the server's hint for an action this page has none for. */
 export const forkRowLine = (a: Pick<ActionLike, 'key' | 'hint'>): string | null => ROW_LINE[a.key] ?? a.hint ?? null;
 
-/** The menu's header: the call and its kind. */
-export function forkMenuTitle(call: { callNo: number; kind: string; name: string; effect: string | null; input?: boolean }, shortName: string): string {
+/** The menu's header: the call and its kind, `untrusted read` for a read injection tests plant in, as the engine's forkMenuTitle says it where the server gives none. */
+export function forkMenuTitle(call: { callNo: number; kind: string; name: string; effect: string | null; input?: boolean }, shortName: string, o: { untrusted?: boolean } = {}): string {
   const kind =
-    call.kind === 'api' ? 'model call' : call.kind === 'clock' ? 'clock read' : call.kind === 'random' ? 'random value' : call.input ? 'recorded input' : call.effect ? `${call.effect} tool` : 'tool';
+    call.kind === 'api' ? 'model call' : call.kind === 'clock' ? 'clock read' : call.kind === 'random' ? 'random value' : call.input ? 'recorded input' : o.untrusted && call.effect === 'read' ? 'untrusted read' : call.effect ? `${call.effect} tool` : 'tool';
   return `At #${call.callNo}${call.kind === 'api' ? '' : ` · ${shortName}`} · ${kind}`;
 }
 

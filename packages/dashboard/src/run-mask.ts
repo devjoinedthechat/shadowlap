@@ -1,5 +1,5 @@
-import { messageOf, type Normalizer, type RedactionPreview, type RunRecord, type Store } from '@shadowlap/engine';
-import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type PreviewLimitsConfig } from './redaction-preview.js';
+import { messageOf, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
+import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type KeptPreview, type PreviewLimitsConfig } from './redaction-preview.js';
 import { recordingNow } from './run-exports.js';
 
 /**
@@ -25,6 +25,8 @@ export interface MaskCount {
   returned?: number;
   /** When counted, what else they match that a pack leaves as it is (numbers a pattern never rewrites: the preview's `unmasked`), when there is any. */
   unmasked?: number;
+  /** When counted, the run's own canaries the rules would have masked, which a copy keeps and leaves out of `values` (an injection attempt's), when there are any. */
+  kept?: number;
   /** Why they were not counted: a rule took too long, or the run was read only in part. */
   why?: string;
   /** Not counted yet: the preview threads, or the store, were busy. Asked again in a moment, it is. */
@@ -75,7 +77,7 @@ async function apart(dbPath: string, runId: string, rules: Normalizer[], limits:
   }
 }
 
-function fromPreview(rules: Normalizer[], preview: RedactionPreview): MaskCount {
+function fromPreview(rules: Normalizer[], preview: KeptPreview): MaskCount {
   if (preview.partial) return { rules: rules.length, values: null, why: `the run is long: ${preview.partial.read.toLocaleString('en-US')} of its ${preview.partial.of.toLocaleString('en-US')} calls were read before the preview's limit` };
-  return { rules: rules.length, values: preview.total, ...(preview.returned ? { returned: preview.returned } : {}), ...(preview.unmasked ? { unmasked: preview.unmasked } : {}) };
+  return { rules: rules.length, values: preview.total, ...(preview.returned ? { returned: preview.returned } : {}), ...(preview.unmasked ? { unmasked: preview.unmasked } : {}), ...(preview.kept ? { kept: preview.kept } : {}) };
 }

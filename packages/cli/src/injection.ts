@@ -1,4 +1,4 @@
-import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, messageOf, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, plural, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
+import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, messageOf, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, plural, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn, baselineWritesWords, goneWords, injectionCountsLine, injectionTally, isWrite, writesFrom } from '@shadowlap/engine';
 import type { AttemptReport, BaselineReport, CallRecord, Canary, CauseVerdict, CleanReport, Evidence, Gate, GateReport, InjectionEntry, InjectionGateData, InjectionMark, InjectionReport, InjectionVerdict, Limits, Normalizer, Payload, PlantReport, ReadReport, RunMeta, RunRecord, Store, StoreOf, VerdictCounts, WriteBaseline, WriteSeen } from '@shadowlap/engine';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -47,7 +47,6 @@ export interface PlantSettings {
 const UNUSABLE_IN_A_ROW = 3;
 
 const argsOf = (store: StoreOf<'recording'>, c: CallRecord): unknown => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined) ?? null;
-const isWrite = (c: CallRecord) => c.kind === 'tool' && (c.effect === 'write' || c.effect === null);
 const clip = (s: string, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** The rules a run's tool arguments are compared under: the project's normalizers, and those its recording was redacted with. */
@@ -362,12 +361,10 @@ export async function plantInjections(runner: AttemptRunner, target: AttemptTarg
           return;
         }
         // Its writes from where an attempt's planted text could first be read: after the read, from the fork.
-        const servedRead = a.calls.find((c) => c.kind === 'tool' && c.end?.meta.replayedFrom === r.callNo);
-        const from = servedRead ? Math.max(a.summary.divergence?.callNo ?? 0, servedRead.callNo + 1) : (a.summary.divergence?.callNo ?? Infinity);
-        const writes = writesOf(store, a.calls, from, normalizers);
+        const writes = writesOf(store, a.calls, writesFrom(a.calls, r.callNo, a.summary.divergence?.callNo ?? null), normalizers);
         baselines.get(r.callNo)!.push(writes);
         b.writes += writes.length;
-        say(`  ${p.dim(`#${r.callNo} ${safe(r.name)}  clean replay ${i + 1} of ${s.baselines}`)}  ${p.dim(`${plural(writes.length, 'write')} after the read · ${shortId(a.run.runId)}`)}`);
+        say(`  ${p.dim(`#${r.callNo} ${safe(r.name)}  clean replay ${i + 1} of ${s.baselines}`)}  ${p.dim(`${baselineWritesWords(writes.length)} · ${shortId(a.run.runId)}`)}`);
       }),
     ),
   );
@@ -560,7 +557,7 @@ export async function cleanInjection(runner: AttemptRunner, target: AttemptTarge
         // The bound its verdict rests on, beside the tally; both ends while it is undecided.
         w.bound = cleanBound(w, s.gate);
       }
-      say(`  ${p.dim(`clean attempt ${i + 1}`)}  ${forkedAt === null ? p.dim('replayed clean: the neutral result changed no request') : `forked at #${forkedAt}`} · ${gone.length ? `${gone.map((x) => `#${x}`).join(', ')} gone` : 'every write made again'}${p.dim(` · ${shortId(a.run.runId)}`)}`);
+      say(`  ${p.dim(`clean attempt ${i + 1}`)}  ${forkedAt === null ? p.dim('replayed clean: the neutral result changed no request') : `forked at #${forkedAt}`} · ${goneWords(gone)}${p.dim(` · ${shortId(a.run.runId)}`)}`);
     }
     try {
       store.updateRunMeta(a.run.runId, { injection: { result: resultId, role: 'clean', read: call.callNo, attempt: i + 1, of: max, readAt: forkedAt, ...(why ? { why } : {}) } });
@@ -584,7 +581,9 @@ export async function cleanInjection(runner: AttemptRunner, target: AttemptTarge
 
 // ---- the terminal ----
 
-const counts = (t: VerdictCounts & { attempts: number }) => `${plural(t.attempts, 'attempt')}: ${t.obeyed ? p.red(`${t.obeyed} obeyed`) : '0 obeyed'} · ${t.influenced ? p.yellow(`${t.influenced} influenced`) : '0 influenced'} · ${t.ignored} ignored${t.inconclusive ? ` · ${p.yellow(`${t.inconclusive} inconclusive`)}` : ''}`;
+/** A verdict's count as the terminal shows it: obeyed red and influenced or inconclusive yellow, where any did. */
+const paintCount = (verdict: keyof VerdictCounts, words: string, n: number) => (!n || verdict === 'ignored' ? words : verdict === 'obeyed' ? p.red(words) : p.yellow(words));
+const counts = (t: VerdictCounts & { attempts: number }) => injectionCountsLine(t, { paint: paintCount });
 
 /** A plant report as the terminal prints it after the attempts: per read, how its payloads came out, and what the test comes to. */
 export function formatPlant(r: PlantReport): string {
@@ -734,7 +733,7 @@ export async function injectionGate(input: GateInput, say: Say): Promise<{ data:
 
 /** The gate's line under the golden's, as `shadowlap test` prints it; `mode` says what an inconclusive gate did to the golden. */
 export function gateLine(d: InjectionGateData, mode: InconclusiveMode = 'fail'): string {
-  const tally = `${plural(d.attempts, 'attempt')} · ${d.obeyed} obeyed · ${d.influenced} influenced · ${d.ignored} ignored${d.inconclusive ? ` · ${d.inconclusive} inconclusive` : ''}`;
+  const tally = injectionTally(d);
   if (d.verdict === 'passed') return `    ${p.green('✓')} injection: ${tally}`;
   if (d.verdict === 'failed') return `    ${p.red('✗')} injection: ${tally}`;
   // Why it is inconclusive is the golden's own line, above this one.

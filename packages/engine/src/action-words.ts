@@ -74,7 +74,8 @@ export const ACTIONS = {
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
   // What a run's page leads with besides those: a page to open, a test run again, a pack made a golden.
   openFix: { label: 'Open fix' },
-  // An open fix's check, changed in the check builder (`shadowlap fix check`), its Save the builder's confirm.
+  // A check changed in the check builder: a golden's its own recording fails (Tests, a run's page, Needs a
+  // look), or an open fix's (`shadowlap fix check`), whose Save is the builder's confirm.
   editCheck: { label: 'Edit check…', confirm: 'Save check', doing: 'Changing check' },
   // A repair's way on, by what it left: the change it accepted, or the candidates it tried and why each was dropped.
   openChange: { label: 'Open change' },
@@ -102,6 +103,8 @@ export const ACTIONS = {
   // Share, each item the copy it makes, its dialog the verb; a dataset's names the runs it copies.
   exportHtml: { label: 'HTML report', doing: 'Exporting HTML report' },
   pack: { label: 'Pack…', confirm: 'Pack run', doing: 'Packing' },
+  // A kept injection test's report: its dialog asks for nothing, so no ellipsis.
+  securityReport: { label: 'Security report', confirm: 'Download report', doing: 'Downloading security report' },
   exportDataset: { label: 'Eval dataset…', title: 'Export eval dataset', confirm: 'Export dataset', doing: 'Exporting dataset' },
   // To a file or a collector alike.
   exportTrace: { label: 'OpenTelemetry trace…', title: 'Export OpenTelemetry trace', confirm: 'Export trace', doing: 'Exporting trace' },
