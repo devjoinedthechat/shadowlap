@@ -1,8 +1,10 @@
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
+import { PageHeader } from '../ui/components/bits.js';
 import { Code, CodeText, Command, Copy, LongWord, Words } from '../ui/components/Copy.js';
-import { DialogFacts } from '../ui/components/DialogFacts.js';
+import { Dialog } from '../ui/components/Dialog.js';
+import { DialogFacts, DialogSteps } from '../ui/components/DialogFacts.js';
 import { DotParts } from '../ui/components/DotParts.js';
 import { EmptyState } from '../ui/components/States.js';
 import { ToastWords } from '../ui/components/Toast.js';
@@ -10,6 +12,7 @@ import { dotParts } from '../ui/components/Verdict.js';
 import { FixTitle } from '../ui/fixes/parts.js';
 import { planCopy } from '../ui/typeset-lines.js';
 import { styleRules } from './css-sheet.js';
+import { shell } from './ui-overlays-page.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -170,6 +173,34 @@ describe('copy set by its parts', () => {
   it('never balances a block whose every word is kept whole: it sets it pretty', () => {
     const plan = planCopy([{ text: 'refund-in-limit escalate-over-limit send-email-once' }], { width: 30, text: (s) => s.length, atom: () => 0 });
     expect(plan.wrap).toBe('ts-pretty');
+  });
+
+  it('glues a page’s string title by Words and sets its lead by Copy, unless the lead is a message the server wrote', async () => {
+    await draw(createElement(PageHeader, { title: 'Runs of the support agent', text: 'It passed in 3 of 4 attempts. Open one to see why.' }));
+    expect([r!.one('h1').textContent.includes('\u00a0'), r!.one('h1').textContent.replace(/\u00a0/g, ' ')]).toEqual([true, 'Runs of the support agent']);
+    expect(r!.one('.ph p').textContent).toContain('3\u00a0of\u00a04\u00a0attempts');
+    await r!.unmount();
+    await draw(createElement(PageHeader, { title: 'Can’t open support-agent', text: 'run_8f3a: not in the store after 3 of 4 tries', copy: false }));
+    expect(r!.one('.ph p').textContent).toBe('run_8f3a: not in the store after 3 of 4 tries');
+  });
+
+  it('describes a dialog by its lead as written, in a hidden span read last, and shows the lead set', async () => {
+    const lead = 'Runs 3 of 4 tools live from the fork.';
+    await draw(shell({}, createElement(Dialog, { key: 'd', title: 'Fork from #5', lead, warn: { text: 'Spends about $0.40 of your key.' }, ok: 'Fork', onOk: () => undefined, onClose: () => undefined })));
+    const [written, shown] = r!.all('[role="dialog"] header p > span');
+    const ids = (r!.one('[role="dialog"]').getAttribute('aria-describedby') ?? '').split(' ');
+    expect([written.props['hidden'], written.textContent, ids.at(-1), ids[0]]).toEqual([true, lead, written.getAttribute('id'), r!.one('.dwarn').getAttribute('id')]);
+    expect(shown.textContent).toContain('3\u00a0of\u00a04\u00a0tools');
+  });
+
+  it('glues a dialog row’s value and a step’s what and where, so a count stays with its noun', async () => {
+    const facts = createElement(DialogFacts, { key: 'f', rows: [{ label: 'Attempts', value: 'passed in 3 of 4 attempts' }] });
+    await draw(createElement('div', null, facts, createElement(DialogSteps, { key: 's', steps: [{ what: 'Replays 3 of 4 runs', where: 'on 2 machines' }] })));
+    expect([r!.one('.dfacts dd').textContent, r!.one('.steps li > span').textContent, r!.one('.steps li > small').textContent]).toEqual([
+      expect.stringContaining('3\u00a0of\u00a04\u00a0attempts'),
+      expect.stringContaining('3\u00a0of\u00a04\u00a0runs'),
+      expect.stringContaining('2\u00a0machines'),
+    ]);
   });
 
   it('draws a command’s prompt as a $ the selection leaves out, kept with the program', async () => {
