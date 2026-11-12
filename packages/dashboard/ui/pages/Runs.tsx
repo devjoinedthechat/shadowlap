@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JOB_KINDS, type Client } from '../api.js';
 import { Chips, PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
-import { EmptyLine } from '../components/States.js';
+import { EmptyLine, EmptyState } from '../components/States.js';
 import { ShowMore } from '../components/Table.js';
 import { pageUp } from '../focus-manager.js';
 import { viewerTimeZone } from '../format.js';
@@ -24,7 +24,7 @@ import { useKeptScroll } from '../runspage/scroll.js';
 import type { RunsFilterRead } from '../../src/links.js';
 import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
-import { RunsTable, RunsTableEmpty, type TableRun } from '../runspage/RunsTable.js';
+import { RunsLoading, RunsTable, RunsTableEmpty, type TableRun } from '../runspage/RunsTable.js';
 import { noteShownRuns } from '../runspage/shown-runs.js';
 import { goneFromCounts, lessChips, shownWarming, tableNote, withFirstPage } from '../runspage/rows.js';
 import { useServedParts, type FailedIssuesProps } from '../served-parts.js';
@@ -34,6 +34,7 @@ import { projectOf } from '../shell/ProjectBlock.js';
 import { keyColumn } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import { useTeamStoreState } from '../teamstore.js';
+import { SetUpStep, useNoRunsYet } from './set-up-step.js';
 import { errorText } from '../toast.js';
 import type { BisectChoices, ChipCounts, RunsByDay, RunsPage as RunsPageView, RunsPageRow, RunsQuery, TeamStoreView } from '../types.js';
 
@@ -79,7 +80,31 @@ function useRunsFilter(filter: RunsFilterRead | undefined): RunsFilterRead {
 
 export function RunsPage({ filter }: { filter?: RunsFilterRead | undefined }) {
   const { exported } = useApp();
-  return exported ? <ExportedRuns filter={filter} /> : <ServerRuns filter={filter} />;
+  const none = useNoRunsYet();
+  return exported ? <ExportedRuns filter={filter} /> : none ? <NoRuns /> : <ServerRuns filter={filter} />;
+}
+
+/** Runs' line where there are no attempts to bundle: an exported copy that holds none, a project with no runs yet. */
+const RUNS_LINE = 'Recordings, and the replays and forks made from them.';
+
+/**
+ * Runs in a project with no runs yet: its header, with Import capture… alone (a team store's Pull
+ * and Push wait for the list, as the setup is the way to a first run), then what the page will hold,
+ * with Set up <project> and the command quiet under it. No calendar, chips or filter: nothing to
+ * pick from. The first run recorded turns it into the list.
+ */
+function NoRuns() {
+  const { meta } = useApp();
+  const { store, known } = useTeamStoreState();
+  const [importing, setImporting] = useState(() => IMPORT_ASK.take());
+  useImportAsked(useCallback(() => setImporting(true), []));
+  return (
+    <Page>
+      <PageHeader eyebrow={runsEyebrow(projectOf(meta), store, known)} title="Runs" text={RUNS_LINE} actions={<RunsActions store={null} onImport={() => setImporting(true)} />} />
+      <EmptyState title="No runs yet" text="Every recording shows here with its replays and forks: record the agent once, or import a capture another tool made." copy step={<SetUpStep />} command="shadowlap run -- <command>" />
+      {importing ? <ImportDialog onClose={() => setImporting(false)} /> : null}
+    </Page>
+  );
 }
 
 /**
@@ -171,7 +196,7 @@ const asError = (err: unknown) => (err instanceof Error ? err : new Error(String
  * says it is still working out what the filter or the sort reads (`warming`), the first page is read
  * again every second and a half.
  */
-function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: string, limit: number): TableState {
+function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: string, limit: number): TableState & { retry: () => void } {
   const [state, setState] = useState<TableState>(() => emptyTable(key));
   const queryNow = useLatest(query);
   const limitNow = useLatest(limit);
@@ -234,7 +259,9 @@ function useRunsTable(client: Client, query: RunsQuery, key: string, refresh: st
     const t = setTimeout(() => setNudge((n) => n + 1), ASK_AGAIN_MS);
     return () => clearTimeout(t);
   }, [state.warming, state.indexing]);
-  return state;
+  // Retry, where the first page could not be read: it is read again as a change of runs reads it.
+  const retry = useCallback(() => setNudge((n) => n + 1), []);
+  return useMemo(() => ({ ...state, retry }), [state, retry]);
 }
 
 /** While the server is still working out what the filter reads, or the search index is behind: how often what is shown is asked for again. */
@@ -299,7 +326,7 @@ function pickedRun(r: TableRun): PickedRun {
  * takes, its total and its chips' counts less them (`goneFromCounts`) until the table is read again
  * after the delete lands. The days above aren't adjusted: they catch up once the delete lands.
  */
-function useShownTable(table: TableState, o: { chip: RunChip; q: string; times: { from: number; to: number } | null }): TableState {
+function useShownTable<T extends TableState>(table: T, o: { chip: RunChip; q: string; times: { from: number; to: number } | null }): T {
   const hidden = usePendingHidden();
   const counted = useStillCounted(table.chipCounts);
   const { chip, q } = o;
@@ -509,7 +536,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         ) : (
           <>
             <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} rowActions={(r) => runRowScope(r, { runs: appRuns ?? [], toast, pick: () => onPick(r, !picked.has(r.runId)), picked: picked.has(r.runId), pickKey: keyColumn('rowPick') })} />
-            <RunsTableEmpty error={table.error} loaded={table.loaded} shown={rows.length} counts={counts} days={days} />
+            <RunsTableEmpty error={table.error} loaded={table.loaded} shown={rows.length} counts={counts} days={days} retry={table.retry} />
             <ShowMore shown={rows.length} total={table.total} onMore={() => setLimit(limit + PAGE)} />
           </>
         )}
@@ -549,7 +576,7 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
       <PageHeader
         eyebrow="exported copy"
         title="Runs"
-        text={bundlesAttempts(runs ?? []) ? RUNS_TEXT : 'Recordings, and the replays and forks made from them.'}
+        text={bundlesAttempts(runs ?? []) ? RUNS_TEXT : RUNS_LINE}
       />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />
@@ -557,7 +584,7 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
       </div>
       <section className="panel sec tscroll runsec">
         <RunsTable rows={shown} picked={new Set()} selectable={false} byColumn={false} sort={sort} onSort={setSort} onPick={() => undefined} onPickAll={() => undefined} now={Date.now()} />
-        {runs === null ? <div className="empty">Loading runs…</div> : shown.length === 0 ? <EmptyLine>No runs match.</EmptyLine> : null}
+        {runs === null ? <RunsLoading /> : shown.length === 0 ? <EmptyLine>No runs match.</EmptyLine> : null}
         <ShowMore shown={shown.length} total={matched.length} onMore={() => setLimit(limit + PAGE)} />
       </section>
     </Page>

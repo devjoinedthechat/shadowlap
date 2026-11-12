@@ -117,9 +117,15 @@ describe('a long list drawn a window at a time', () => {
     expect(count(html, /class="cbar( sel)?"/g)).toBeLessThanOrEqual(MAX_BARS);
   });
 
-  it('says the run page is loading while it does', () => {
-    const html = renderToStaticMarkup(createElement(RunLoading));
+  it('says the run page is loading while it does, under its header, the calls in bars of their own', () => {
+    const html = renderToStaticMarkup(createElement(RunLoading, { id: 'run_8f3a2c1d9e7b6a5f', project: 'support-agent' }));
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('Loading the run…');
+    // The header a failed read keeps too, as lazy.tsx's PageFailed draws a run's: the project, then the id.
+    expect(html).toMatch(/<div class="ph rerr">.*support-agent · run.*<h1>run_8f3a2c<\/h1>/);
+    expect(count(html, /class="rskcall"/g)).toBe(8);
+    // Never the drawn run's classes, which the tests and the browser suite wait on.
+    expect(html).not.toMatch(/rnm|rhead|table|data-wi/);
+    expect(renderToStaticMarkup(createElement(RunLoading, { id: 'r1', project: undefined }))).toMatch(/>run<.*<h1>r1<\/h1>/);
   });
 });

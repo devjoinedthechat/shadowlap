@@ -493,7 +493,7 @@ describe('adding a project', () => {
     expect(page.body.folders.some((f) => f.display.includes('.ssh'))).toBe(false);
     expect((await w.api<{ folders: unknown[]; empty: string }>('projects/folders?q=~/.ssh/')).body).toMatchObject({ folders: [], empty: 'Hidden folders aren’t listed.' });
     expect(page.body.button).toEqual({ label: 'Add project', disabled: true, path: null, title: null });
-    expect(page.body.next.steps.map((s) => s.title)).toEqual(['Inspect', 'Record', 'Calibrate', 'Keep it as a test']);
+    expect(page.body.next.steps.map((s) => s.title)).toEqual(['Inspect', 'Record', 'Calibrate', 'Pack']);
 
     // Typing filters; picking names the folder on the button.
     const typed = await w.api<{ folders: Array<{ display: string }> }>('projects/folders?q=~/re');
@@ -615,19 +615,19 @@ describe('the setup', () => {
     const w = await world();
     await w.api('projects', { method: 'POST', body: { path: w.research } });
     const fresh = await w.api<{ title: string; eyebrow: string; shows: string; steps: Array<{ title: string; state: string; cli: string[] }> }>('setup');
-    expect(fresh.body).toMatchObject({ title: 'No runs yet', eyebrow: 'research-agent · ~/research-agent', shows: 'everywhere' });
+    expect(fresh.body).toMatchObject({ title: 'Set up research-agent', eyebrow: 'research-agent · ~/research-agent', shows: 'everywhere' });
     expect(fresh.body.steps.map((s) => [s.title, s.state])).toEqual([
-      ['Inspect the folder', 'current'],
-      ['Record a first run', 'todo'],
-      ['Make the replay clean', 'todo'],
-      ['Keep it as a test', 'todo'],
+      ['Inspect', 'current'],
+      ['Record', 'todo'],
+      ['Calibrate', 'todo'],
+      ['Pack', 'todo'],
     ]);
     expect(fresh.body.steps[0].cli).toEqual(['shadowlap init']);
 
     // What init finds (here noted as init notes it), with the unwrapped tool and its code.
     w.registry.noteInspected('research-agent', findings());
     const inspected = await w.api<{ inspect: { state: string; warning: { title: string; recheck: { label: string } } }; record: { state: string; command: { value: string; enabled: boolean } } }>('setup');
-    expect(inspected.body.inspect).toMatchObject({ state: 'done', warning: { title: '1 write tool isn’t wrapped.', recheck: { label: 'I wrapped it, check again' } } });
+    expect(inspected.body.inspect).toMatchObject({ state: 'done', warning: { title: '1 write tool isn’t wrapped.', recheck: { label: 'Check again' } } });
     expect(inspected.body.record).toMatchObject({ state: 'current', command: { value: 'uv run agent.py', enabled: true } });
 
     // The first command in the folder asks first; the browser's line is split without a shell.
@@ -684,7 +684,7 @@ describe('the setup', () => {
     const recorded = await w.api<{ record: { state: string; recorded: { text: string } }; calibrate: { state: string; button: { label: string; action: string } }; skip: { label: string } | null }>('setup');
     expect(recorded.body.record).toMatchObject({ state: 'done', recorded: { text: expect.stringMatching(new RegExp(`^Recorded ${runId.slice(0, 10)} · 4 calls`)) } });
     expect(recorded.body.calibrate).toMatchObject({ state: 'current', button: { label: 'Calibrate', action: 'calibrate' } });
-    expect(recorded.body.skip).toEqual({ label: 'Skip the rest', action: 'finishsetup' });
+    expect(recorded.body.skip).toEqual({ label: 'Skip setup', action: 'finishsetup' });
 
     // Calibrate finds the replay clean: step 3 is done, and noted.
     const cal = await w.api<{ id: string }>('jobs', { method: 'POST', body: { kind: 'calibrate', runId } });
@@ -711,15 +711,15 @@ describe('the setup', () => {
     expect(packedAndTested.lines).toContain(`args ${JSON.stringify(['--db', db, 'test', 'goldens/research-agent'])}`);
     expect(packedAndTested.lines.filter((l) => l === `cwd ${w.research}`)).toHaveLength(2);
     expect(w.registry.get('research-agent')!.setup).toMatchObject({ stage: 'tested', golden: 'goldens/research-agent' });
-    const tested = await w.api<{ test: { state: string; result: { text: string } }; done: { title: string; button: { label: string } } }>('setup');
+    const tested = await w.api<{ test: { state: string; result: { text: string } }; done: { word: string; title: string; button: { label: string } } }>('setup');
     expect(tested.body.test).toMatchObject({ state: 'done', result: { text: 'goldens/research-agent replayed clean offline · 4/4 calls' } });
-    expect(tested.body.done).toMatchObject({ title: 'research-agent is set up.', button: { label: 'Go to the overview' } });
+    expect(tested.body.done).toMatchObject({ word: 'set up', title: 'research-agent replays exactly.', button: { label: 'Go to Overview' } });
     // Packed already: the job runs the test alone.
     const again = await w.api<{ id: string; title: string; args: string[] }>('jobs', { method: 'POST', body: { kind: 'pack-test', project: 'research-agent' } });
     expect(again.body).toMatchObject({ title: 'Testing the golden', args: ['test', 'goldens/research-agent'] });
     await w.waitJob(again.body.id);
 
-    // Go to the overview: set up, and the Overview is the Overview again.
+    // Go to Overview: set up, and the Overview is the Overview again.
     expect((await w.api('setup/finish', { method: 'POST', body: { project: 'research-agent' } })).body).toMatchObject({ project: 'research-agent', stage: 'done', skipped: false });
     expect((await w.api<{ project: { settingUp: boolean } }>('meta')).body.project.settingUp).toBe(false);
     expect((await w.api<{ shows: string }>('setup')).body.shows).toBe('none');
@@ -737,15 +737,15 @@ describe('the setup', () => {
     const setup = await w.api<{ test: { state: string; button: { label: string; action: string }; packed: { failed: boolean; text: string; link: { href: string } } }; done: unknown; skip: unknown }>('setup');
     expect(setup.body.test).toMatchObject({
       state: 'current',
-      button: { label: 'Run the test again', action: 'testgolden' },
+      button: { label: 'Re-run test', action: 'testgolden' },
       packed: { failed: true, text: 'goldens/x failed its test: diverged at call 2. Fix what changed, or record again, then run it again.', link: { href: '#/tests' } },
     });
     expect(setup.body.done).toBeNull();
-    expect(setup.body.skip).toEqual({ label: 'Skip the rest', action: 'finishsetup' });
+    expect(setup.body.skip).toEqual({ label: 'Skip setup', action: 'finishsetup' });
     expect(w.registry.get('research-agent')!.setup.stage).not.toBe('tested');
     expect(setup.body.test).not.toHaveProperty('result.text');
     expect(w.host.setup('research-agent')).toMatchObject({ golden: 'goldens/x', goldenTest: { ok: false }, run: { runId } });
-    // Skip the rest now: set up, its last step skipped, the golden kept.
+    // Skip setup now: set up, its last step skipped, the golden kept.
     expect((await w.api('setup/finish', { method: 'POST', body: { project: 'research-agent' } })).body).toMatchObject({ stage: 'done', skipped: true, golden: 'goldens/x' });
   });
 
@@ -796,21 +796,21 @@ describe('the setup', () => {
     expect(packed.body.test).toMatchObject({
       state: 'current',
       cli: ['shadowlap test goldens/research-agent'],
-      button: { label: 'Run the test', action: 'testgolden' },
+      button: { label: 'Run test', action: 'testgolden' },
       golden: null,
       packed: { failed: false, text: 'Packed as goldens/research-agent. Its test replays it offline: run it to finish.' },
     });
     expect(packed.body.done).toBeNull();
-    // Run the test: the test alone, and it passes.
+    // Run test: the test alone, and it passes.
     const job = await w.api<{ id: string; title: string; args: string[] }>('jobs', { method: 'POST', body: { kind: 'pack-test', project: 'research-agent' } });
     expect(job.body).toMatchObject({ title: 'Testing the golden', args: ['test', 'goldens/research-agent'] });
     expect((await w.waitJob(job.body.id)).code).toBe(0);
     const tested = await w.api<{ test: { state: string }; done: { title: string } }>('setup');
-    expect(tested.body).toMatchObject({ test: { state: 'done' }, done: { title: 'research-agent is set up.' } });
+    expect(tested.body).toMatchObject({ test: { state: 'done' }, done: { title: 'research-agent replays exactly.' } });
     expect((await w.api('setup/finish', { method: 'POST', body: { project: 'research-agent' } })).body).toMatchObject({ stage: 'done', skipped: false, golden: 'goldens/research-agent' });
   });
 
-  it('waits to keep it as a test while a test session runs in the project, as the Tests jobs do', async () => {
+  it('waits to pack it as a golden while a test session runs in the project, as the Tests jobs do', async () => {
     const w = await world();
     await w.api('projects', { method: 'POST', body: { path: w.research } });
     w.registry.noteInspected('research-agent', findings({ tools: [], wrap: [] }));
@@ -820,7 +820,7 @@ describe('the setup', () => {
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'd2e8a1f' });
     try {
       const refused = await w.api<{ error: string }>('jobs', { method: 'POST', body: { kind: 'pack-test', golden: 'goldens/x', project: 'research-agent' } });
-      expect(refused).toMatchObject({ status: 409, body: { error: 'shadowlap test goldens/* is running: keep it as a test once it is done' } });
+      expect(refused).toMatchObject({ status: 409, body: { error: 'shadowlap test goldens/* is running: pack it as a golden once it is done' } });
     } finally {
       store.finishTestSession(s.sessionId, { passed: 0, failed: 0, upstreamRequests: 0 });
     }

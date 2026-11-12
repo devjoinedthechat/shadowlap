@@ -323,13 +323,34 @@ describe('Failed’s issues, as they are used', () => {
     const t = await drawn(state({ runsIssues: () => Promise.resolve({ issues: [x], total: 2 }), issueRuns }));
     await t.click(count(t, key));
     await t.until('why', () => t.all('.isruns .loaderr').length > 0);
-    expect(shownText(t.one('.isruns .loaderr p'))).toContain('Its runs couldn’t be read: the dashboard server could not be reached');
+    expect(t.all('.isruns .loaderr p > span').map(shownText)).toEqual(['couldn’t load', 'the dashboard server could not be reached']);
     expect(t.all('.isruns .empty')).toHaveLength(0);
     fails = false;
     await t.click(t.one('.isruns .loaderr button'));
     await t.until('its runs', () => shownRuns(t).length === 2);
     expect(asks).toEqual([null, null]);
     expect(t.all('.isruns .loaderr')).toHaveLength(0);
+  });
+
+  it('draws the issues as quiet bars while they load, which are no table rows, and a read that failed as the line every page says, with Retry', async () => {
+    const { ApiError } = await import('../ui/api.js');
+    let reads = 0;
+    let answer: (p: Promise<IssuesPage>) => void = () => undefined;
+    const runsIssues = () => (reads++, new Promise<IssuesPage>((resolve) => (answer = resolve)));
+    r = await render(createElement(AppContext.Provider, { value: state({ runsIssues, issueRuns: () => new Promise(() => undefined) }) }, failed()));
+    expect(r.all('[role="status"]').map(shownText)).toEqual(['Loading the issues…']);
+    expect(r.all('.skel .iskrow')).toHaveLength(5);
+    expect([r.one('.skel .skin').getAttribute('aria-hidden'), r.one('.skel .skin').hasAttribute('inert')]).toEqual(['true', true]);
+    expect([r.all('table.issues').length, r.all('.empty').length]).toEqual([0, 0]);
+    answer(Promise.reject(new ApiError(500, 'HTTP 500')));
+    await r.until('the failure', () => r!.all('.loaderr').length === 1);
+    expect(r.all('.loaderr p > span').map(shownText)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    expect(r.all('.skel')).toHaveLength(0);
+    await r.click(r.one('.loaderr button'));
+    expect(reads).toBe(2);
+    answer(Promise.resolve({ issues: [], total: 0 }));
+    await r.until('the issues read again', () => r!.all('.emptyline').length === 1);
+    expect(r.all('.loaderr')).toHaveLength(0);
   });
 
   it('keeps an issue open while the dashboard is, as Back finds it, and a reload opens each closed', async () => {

@@ -24,7 +24,7 @@ import { countsOf, readTeamStoreInput } from '../team-store.js';
  *   GET  /api/setup                        the current project's setup: four steps, each with its command
  *   POST /api/setup/record {command}       what recording that command runs, and whether it asks first (changes nothing)
  *   POST /api/setup/golden {golden}        where the golden would go, checked (changes nothing)
- *   POST /api/setup/finish {project?}      Skip the rest, or Go to the overview: the project is set up
+ *   POST /api/setup/finish {project?}      Skip setup, or Go to Overview: the project is set up
  *
  * And three job kinds: `init` (inspect the folder: `shadowlap init`, which writes what it finds to
  * the project list), `record` (`shadowlap run -- <command>`, the one place the browser sends a
@@ -256,7 +256,7 @@ export function register(router: Router, ctx: RouteContext): void {
     r.json({ project: id, stage: entry.setup.stage, skipped: entry.setup.skipped, golden: entry.setup.golden });
   });
 
-  // Pack as golden…, for any run on a dashboard with a project folder, and the setup's Keep it as a test.
+  // Pack as golden…, for any run on a dashboard with a project folder, and the setup's Pack.
   ctx.jobs.registerJobKind('pack-test', packTestKind(ctx, projects));
 
   if (!projects) return;
