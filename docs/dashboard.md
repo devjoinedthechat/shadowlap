@@ -2358,6 +2358,7 @@ The dashboard's first script holds the shell and what the pages share. The rest 
 - **The check builder** has a script of its own, asked for as its menu opens, or as the pointer or the focus reaches the inspector's **Add check…**. A builder whose script can't be loaded says so in a small dialog in its place, with **Retry**.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
+- **A menu or a dialog whose script can't be loaded** draws nothing, and says so in a toast with the same **Retry**. The focus stays on the button that opened it.
 
 An exported copy is one script, built apart with only what a copy shows: its runs, a run's page with every view, and Compare between them.
 
@@ -2844,7 +2845,7 @@ Settings is checked at a phone's width too: no tab scrolls sideways, each row's 
 
 When the server stops answering (the dashboard was stopped), a row under the top bar says what the page last loaded, that actions are paused, and the command that starts it again. On a phone it is one line, with the rest behind **Why**.
 
-What needs the server waits in its place, dimmed, and a press says why: *Paused until the dashboard server is back*. Reading what was loaded goes on. The page tries again after 5, 10, 20 and then every 30 seconds. A page or a view whose code couldn't be loaded meanwhile says so, and its **Retry** loads the page again once the server is back; see [Each page's code loads when it opens](#each-pages-code-loads-when-it-opens).
+What needs the server waits in its place, dimmed, and a press says why: *Paused until the dashboard server is back*. Reading what was loaded goes on. The page tries again after 5, 10, 20 and then every 30 seconds. A page, a view, a menu or a dialog whose code couldn't be loaded meanwhile says so, and its **Retry** loads the page again once the server is back; see [Each page's code loads when it opens](#each-pages-code-loads-when-it-opens).
 
 ### The dashboard refuses the link
 

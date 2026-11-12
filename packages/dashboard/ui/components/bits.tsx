@@ -211,14 +211,18 @@ export function CodeBlock({ file, code, copyLabel = 'the code' }: { file: string
   );
 }
 
+/** What LoadFailed says of a page, or a part of one, whose code didn't load. */
+export const loadFailedText = (what: string): string => `This ${what}’s code didn’t come from the dashboard server. Retry loads the page again.`;
+
 /**
  * In place of a page, or a part of one, whose code didn't load (`onShow`'s `failed`): one line in the
  * error tone, and Retry, which loads the page again, since a browser never asks a second time for a
  * script it failed to load. While the dashboard server can't be reached, Retry waits for it
- * (`guard`): loading the page then would leave nothing but the browser's own error.
+ * (`guard`): loading the page then would leave nothing but the browser's own error. A part that opens
+ * on a press says the same in an error toast (pages/served.tsx).
  */
 export function LoadFailed({ what }: { what: string }) {
-  return <ErrorState retry={() => location.reload()}>{`This ${what}’s code didn’t come from the dashboard server. Retry loads the page again.`}</ErrorState>;
+  return <ErrorState retry={() => location.reload()}>{loadFailedText(what)}</ErrorState>;
 }
 
 export interface Step {
