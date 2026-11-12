@@ -60,8 +60,8 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { events?: bo
     let out = '';
     let stdout = '';
     let events = '';
-    child.stdout.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
-    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    child.stdout!.on('data', (d: Buffer) => ((out += d.toString()), (stdout += d.toString())));
+    child.stderr!.on('data', (d: Buffer) => (out += d.toString()));
     (child.stdio[3] as NodeJS.ReadableStream | null)?.on('data', (d: Buffer) => (events += d.toString()));
     child.on('close', (code) => resolve({ code, out, stdout, events: events.split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>) }));
   });

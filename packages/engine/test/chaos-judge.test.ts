@@ -31,7 +31,7 @@ describe("the presets' judge", () => {
 
   it("replay --chaos: --expect judges the defaults, a golden's entry its own presets, and \"chaos\": false the defaults by its write limits", () => {
     const golden = spec({ tools: { issue_refund: 1 } });
-    const own: ChaosSpec = { ...DEFAULT_CHAOS, presets: ['tool-timeout'], tool: 'lookup_order' };
+    const own: ChaosSpec = { ...DEFAULT_CHAOS, presets: ['timeout'], tool: 'lookup_order' };
     expect(replayChaosSpec({ spec: golden, source: '--expect' }, () => own)).toEqual({ chaos: { ...DEFAULT_CHAOS, expect: golden, expectFrom: '--expect' }, golden: null });
     expect(replayChaosSpec({ spec: golden, source: 'goldens/refund' }, (folder) => (folder === 'goldens/refund' ? own : false))).toEqual({ chaos: own, golden });
     expect(replayChaosSpec({ spec: golden, source: 'goldens/refund' }, () => false)).toEqual({ chaos: DEFAULT_CHAOS, golden });
