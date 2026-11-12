@@ -2310,11 +2310,16 @@ One that can't start leaves the dialog open, with what you typed.
 - **Closing a job's drawer** from inside it hands the focus back to where it was, or else to the page. Hiding a running job from inside its drawer hands the focus to the status bar's chip, and pressing the chip hands it back.
 - **The sidebar on a phone** takes the focus to its first item as it opens. Closing it from inside it, or with a click beside it, hands the focus to its button. A tap on the page or the status bar only closes it: what it lands on doesn't act. The top bar stays in reach, so its Search or jump to opens as the drawer closes.
 - **A link in a menu or a dialog** hands the focus to the page it opened, and so does Back with one open. A run picked in Compare leaves it on the picker, and a row opened or closed leaves it on the row.
-- **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls and may hold no control (Calls, the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it.
+- **A focus ring** is drawn whole in every pane that scrolls. A pane that scrolls and may hold no control (Calls, the Timeline, Turns and Context, a run's calls on Provenance, a code block, a command to copy, a job's output, a dialog's body) takes the focus itself, so the keyboard can scroll it. So does a response's raw stream.
+- **What scrolls into view** stops clear of the docked drawer, the selection bar and the calls list's head.
 - **What has a hover card and no action of its own** takes the focus where it stands on its own (a run's outcome, a fact), so what a hover shows is never only a hover's. In a row or a chart it doesn't, and a mark with no words of its own is named by its card.
-- **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
+- **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on. On a touch screen a run's checkbox takes a tap across 44 px, a caret across 32 px and a calendar day across 24 px.
 - **A field's edge** reaches 3:1 on whatever it sits on, as WCAG 1.4.11 asks of a control.
-- **On a phone**, no label is under 11 px: the small labels over titles, column heads, tags and shortcut keys rise to it.
+- **On a phone**, no label is under 11 px: the small labels over titles, column heads, tags and shortcut keys rise to it. Down to 320 px wide, no page scrolls sideways.
+- **A screen reader** hears each part a margin sets apart as its own word: a filter's name and its count, a call's kind, name and effect. Where a run's about line is drawn shorter, it hears the whole line, and it reads a command without its `$`.
+- **Headings** step down one level at a time: each page has one top heading, and its parts sit under it.
+- **With reduced motion** set, nothing moves: the live ring, a switch and the carets keep still.
+- **The offline bar** is read out once when the dashboard can't be reached, never its countdown.
 - **In a high-contrast theme** that forces its own colors, a mark that says something by its color keeps it, edged in the theme's text color. The current page and run and the selected call take the highlight color, a chosen option is underlined, and menus, dialogs, hover cards and toasts are outlined.
 
 ## Limits
