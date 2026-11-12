@@ -24,7 +24,7 @@ function world(name: string, result: (replay: string, session: string, store: St
   const view = testsView(store, goldens, { folder: 'goldens' });
   o.view?.(view);
   const reports = goldenReports(view, { store, goldens, normalizers: [], project: '/work/shop' });
-  return { store, replay: replay.runId, report: reports[`goldens/${name}`], reports };
+  return { store, recording: recording.runId, replay: replay.runId, report: reports[`goldens/${name}`], reports };
 }
 
 const text = (head: GoldenReport['head']): string => head.map((p) => (typeof p === 'string' ? p : `\`${p.code}\``)).join('');
@@ -49,20 +49,56 @@ describe('a crash', () => {
 describe('a divergence', () => {
   const diverged = (callNo: number) => ({ ok: false, failure: 'diverged' as const, reason: `diverged at call ${callNo} (api POST /v1/messages)`, data: { mode: 'replay' as const, calls: { total: callNo, replayed: callNo - 1, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { type: 'request_changed', callNo, kind: 'api', name: 'POST /v1/messages', replayedBefore: callNo - 1, diff: [{ path: '$.metadata.user_id', op: 'changed', before: 'a', after: 'b' }], cause: '$.metadata.user_id', volatile: { values: [{ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed' as const, certain: true, normalizer: { path: '$.metadata.user_id', replace: '<uuid>' } }], explainsAll: true }, text: '✗ Request changed at call 3' }, details: '✗ Request changed at call 3\n  - before\n  + after' } });
 
-  it('says what changed at the call, and draws no strip for a divergence at call 1', () => {
-    const { report } = world('refund', () => diverged(1), { divergence: { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, recorded: 30 } });
+  it('says what changed at the call, and draws no strip for a divergence at call 1, only its request', () => {
+    const { report, recording, replay } = world('refund', () => diverged(1), { divergence: { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, recorded: 30 } });
     expect(text(report.head)).toBe('Diverged at call 1: `$.metadata.user_id` changed, a UUID');
-    expect(report.parts).toEqual([]);
+    expect(report.parts).toEqual([{ kind: 'request', runId: replay, callNo: 1, against: { runId: recording, callNo: 1 }, bodies: null, followed: null }]);
     expect(report.sub).toEqual(['0 upstream requests']);
     expect(report.hint).toEqual({ key: 'normalizer' });
   });
 
   it('draws its replay up to the call that diverged past call 1', () => {
     const { report } = world('refund', () => diverged(3), { divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, recorded: 30 } });
-    expect(report.parts).toEqual([{ kind: 'replay', recorded: 30, replayed: 2, stop: 3, words: '2 of 30 recorded calls replayed, then call 3 diverged · 0 upstream requests' }]);
+    expect(report.parts.map((p) => p.kind)).toEqual(['replay', 'request']);
+    expect(report.parts[0]).toEqual({ kind: 'replay', recorded: 30, replayed: 2, stop: 3, words: '2 of 30 recorded calls replayed, then call 3 diverged · 0 upstream requests' });
     expect(report.sub).toEqual([]);
     expect(report.printed.map((l) => l.tone)).toEqual(['no', '', 'del', 'add']);
     expect(report.printed[0]).toEqual({ text: '✗ refund: diverged at call 3 (api POST /v1/messages)', tone: 'no' });
+  });
+});
+
+describe('a divergence’s request', () => {
+  const diverged = (): ReturnType<Parameters<typeof world>[1]> => ({ ok: false, failure: 'diverged', reason: 'diverged at call 3 (api POST /v1/messages)', data: { mode: 'replay', calls: { total: 3, replayed: 2, live: 0, blocked: 0, stubbed: 0 }, upstreamRequests: 0, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.metadata.user_id', op: 'changed', before: 'a', after: 'b' }] } } });
+  const at3 = { type: 'request_changed' as const, callNo: 3, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 2, recorded: 30 };
+  const BODY = { type: 'error', error: { type: 'shadowlap_offline', message: 'shadowlap is offline: call #3 (POST /v1/messages) was not served from the recording and would need the network' } };
+  /** The replay's call #3 answered with the offline refusal, as `shadowlap test` records it (sidecar model-calls.ts), and its run ended as `status` says. */
+  const refused = (replay: string, store: Store, status: 'failed' | 'completed', body: unknown = BODY) => {
+    const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'fp3', occurrence: 1 };
+    store.appendCallStart({ runId: replay, callNo: 3, ...identity, origin: 'live', effect: null, requestRef: null, meta: {}, at: 10 });
+    store.appendCallEnd(identity, { runId: replay, callNo: 3, attempt: 0, responseRef: body === null ? null : store.putJson(body), outcome: 'error', meta: { status: 503, offline: true, error: { name: 'ShadowlapOffline', message: BODY.error.message } }, at: 20 });
+    store.endRun(replay, status, 30);
+  };
+
+  it('names the replay and its call, whose diff Tests asks for once the report opens, and the offline 503 the agent exited on, with the body it got', () => {
+    const { report, recording, replay } = world('refund', (run, _s, store) => (refused(run, store, 'failed'), diverged()), { divergence: at3 });
+    expect(report.parts[1]).toEqual({ kind: 'request', runId: replay, callNo: 3, against: { runId: recording, callNo: 3 }, bodies: null, followed: { line: ['Not served from the recording:', 'the agent exited on HTTP 503'], message: JSON.stringify(BODY, null, 2) } });
+  });
+
+  it('says what followed only where the replay then ended failed, and leaves out a body the recording didn’t keep', () => {
+    expect(world('refund', (run, _s, store) => (refused(run, store, 'completed'), diverged()), { divergence: at3 }).report.parts[1]).toMatchObject({ kind: 'request', followed: null });
+    expect(world('refund', (run, _s, store) => (refused(run, store, 'failed', null), diverged()), { divergence: at3 }).report.parts[1]).toMatchObject({ followed: { line: ['Not served from the recording:', 'the agent exited on HTTP 503'], message: null } });
+  });
+
+  it('draws the changes its result kept once the replay is gone, and no request where it kept none', () => {
+    const { store, replay, recording } = world('refund', diverged, { divergence: at3 });
+    store.deleteRun(replay);
+    const goldens: GoldenSource[] = [{ path: 'goldens/refund', runId: recording, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
+    const report = goldenReports(testsView(store, goldens, { folder: 'goldens' }), { store, goldens, normalizers: [], project: null })['goldens/refund'];
+    expect(report.parts.find((p) => p.kind === 'request')).toEqual({ kind: 'request', runId: null, callNo: 3, against: { runId: recording, callNo: 3 }, bodies: { was: { metadata: { user_id: 'a' } }, now: { metadata: { user_id: 'b' } } }, followed: null });
+    const bare = world('refund', () => ({ ...diverged(), data: { ...diverged().data!, divergence: { ...diverged().data!.divergence!, diff: [] } } }), { divergence: at3 });
+    bare.store.deleteRun(bare.replay);
+    const rows = goldenReports(testsView(bare.store, goldens, { folder: 'goldens' }), { store: bare.store, goldens, normalizers: [], project: null });
+    expect(rows['goldens/refund']?.parts.some((p) => p.kind === 'request')).toBe(false);
   });
 });
 

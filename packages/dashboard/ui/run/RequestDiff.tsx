@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { RunDetail } from '../api.js';
 import { Copy } from '../components/Copy.js';
-import { DiffHead, DiffNotes } from '../components/DiffNotes.js';
+import { DiffAnswer } from '../components/DiffNotes.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { ErrorState, Skeleton } from '../components/States.js';
 import { useLoad } from '../hooks.js';
@@ -20,20 +20,6 @@ export { askDiff, JsonDiffPart };
  * report load too.
  */
 
-/** What the panel draws once the answer came: the heads and the diff with the notes under it; a fork that changed nothing in words alone. */
-function Answered({ diff }: { diff: NonNullable<Awaited<ReturnType<typeof askDiff>>> }) {
-  // The server says whether the two sides are the same (`same`): no render reads both bodies to find out.
-  if (diff.same) return <DiffNotes diff={diff} lines={[]} />;
-  return (
-    <>
-      <DiffHead diff={diff} />
-      <JsonDiffPart was={diff.was} now={diff.now} leftOut={diff.leftOut}>
-        {(lines) => <DiffNotes diff={diff} lines={lines} />}
-      </JsonDiffPart>
-    </>
-  );
-}
-
 /** The panel's body: `onAt` hears the call the diff shows once the answer came, for the panel's head. */
 export function RequestDiff({ run, onAt }: { run: RunDetail; onAt: (at: number) => void }) {
   const { client } = useApp();
@@ -47,7 +33,7 @@ export function RequestDiff({ run, onAt }: { run: RunDetail; onAt: (at: number) 
   return (
     <section className="diffpanel jdp">
       {answer.data ? (
-        <Answered diff={answer.data} />
+        <DiffAnswer diff={answer.data} />
       ) : answer.error ? (
         <ErrorState retry={answer.reload}>{errorText(answer.error)}</ErrorState>
       ) : answer.loading ? (

@@ -1,52 +1,72 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Icon } from '../components/Icon.js';
-import type { ReportPart } from '../types.js';
+import type { CrashError } from '../types.js';
 import { useUntilFound } from './until-found.js';
+
+/**
+ * A line of what went wrong, with the lines behind it on request: Show <what> opens them under it, each
+ * dim, folded until found (find in page opens them). `src`, a line of code under it; `quiet`, what
+ * followed from a fault rather than the fault, in grey. A module of its own, so a page that names a
+ * crash the same way (a fix's Blame step) takes nothing else of the report.
+ */
+export function FoldedLines({ head, what, lines, id, quiet = false, src = null }: { head: ReactNode; what: string; lines: readonly string[] | null; id: string; quiet?: boolean; src?: string | null }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLPreElement>(null);
+  useUntilFound(box, !open, () => setOpen(true));
+  return (
+    <div className={quiet ? 'rperrw q' : 'rperrw'}>
+      <p className="rperr">
+        {head}
+        {lines ? (
+          <>
+            {' '}
+            <button type="button" className="linkbtn rptog" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+              {open ? `Hide ${what}` : `Show ${what}`}
+              <Icon name="caret" />
+            </button>
+          </>
+        ) : null}
+      </p>
+      {src ? <code className="rpsrc">{src}</code> : null}
+      {lines ? (
+        <pre className="report tail" id={id} ref={box}>
+          {lines.map((l, i) => (
+            <span key={i} className="dim">
+              {l}
+              {i < lines.length - 1 ? '\n' : ''}
+            </span>
+          ))}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * What a crash died of, as the engine's parser read it from the agent's last lines: the exception
  * in one line, where the agent's own code raised it (no frame where the tail kept none of the
- * agent's), the line of code there, and Show traceback, the lines as the store kept them, each dim,
- * folded until found. A module of its own, so a page that names a crash the same way takes nothing
- * else of the report.
+ * agent's), the line of code there, and Show traceback, the lines as the store kept them.
  */
-export function ErrorPart({ part, id }: { part: Extract<ReportPart, { kind: 'error' }>; id: string }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLPreElement>(null);
-  useUntilFound(box, !open, () => setOpen(true));
+export function ErrorPart({ part, id }: { part: CrashError; id: string }) {
   const { error, file, lines } = part;
   const raised = error.raised;
-  return (
-    <div className="rperrw">
-      <p className="rperr">
-        <code>{error.exception}</code>
-        {raised && file ? (
-          <span className="m">
-            {' in '}
-            <code>{file}</code>
-            {raised.line !== null ? `, line ${raised.line}` : ''}
-            {raised.fn ? (
-              <>
-                {', in '}
-                <code>{raised.fn}</code>
-              </>
-            ) : null}
-          </span>
-        ) : null}{' '}
-        <button type="button" className="linkbtn rptog" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
-          {open ? 'Hide traceback' : 'Show traceback'}
-          <Icon name="caret" />
-        </button>
-      </p>
-      {raised?.code ? <code className="rpsrc">{raised.code}</code> : null}
-      <pre className="report tail" id={id} ref={box}>
-        {lines.map((l, i) => (
-          <span key={i} className="dim">
-            {l}
-            {i < lines.length - 1 ? '\n' : ''}
-          </span>
-        ))}
-      </pre>
-    </div>
+  const head = (
+    <>
+      <code>{error.exception}</code>
+      {raised && file ? (
+        <span className="m">
+          {' in '}
+          <code>{file}</code>
+          {raised.line !== null ? `, line ${raised.line}` : ''}
+          {raised.fn ? (
+            <>
+              {', in '}
+              <code>{raised.fn}</code>
+            </>
+          ) : null}
+        </span>
+      ) : null}
+    </>
   );
+  return <FoldedLines head={head} what="traceback" lines={lines} id={id} src={raised?.code ?? null} />;
 }

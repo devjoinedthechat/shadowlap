@@ -1,9 +1,10 @@
-import { relative, isAbsolute, resolve } from 'node:path';
-import { baselineWords, checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, outputTail, parseTraceback, plural, proofHead, proofLine, rateBound, safe, safeLines, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type ParsedTraceback, type PlantReport, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { baselineWords, checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, outputTail, plural, proofHead, proofLine, rateBound, safe, safeLines, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type PlantReport, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { crashError, type CrashError } from './crash-error.js';
 import { commandLine, shortFailure } from './fix-shared.js';
 import { links } from './links.js';
 import { answer, type ReadTable } from './read-registry.js';
 import { judgeFor, type OutcomeWork } from './run-outcome.js';
+import { entriesBodies } from './request-diff.js';
 import { matchingRunsEach } from './runs-list.js';
 import type { BisectMiss, FoundCommit } from './tests-bisect.js';
 import { forkedWords } from './tests-evidence.js';
@@ -12,8 +13,8 @@ import type { DivergenceView, FailureView, GoldenRow, GoldenSource, Inconclusive
 
 /**
  * A golden's report drawn rather than printed (Tests, under the golden's row): its verdict in one
- * sentence, a grey line of what no part says, and its parts (Replay, Error, Checks, Gate, Attempts,
- * First bad commit, Checks changed), each from the golden's last result read by key; with its lines
+ * sentence, a grey line of what no part says, and its parts (Replay, Request, Error, Checks, Gate,
+ * Attempts, First bad commit, Checks changed), each from the golden's last result read by key; with its lines
  * as `shadowlap test` prints them, for Show as printed and Copy report.
  *
  * Every word the CLI also prints comes from the engine helper or the stored text that words it
@@ -37,8 +38,14 @@ export type ReportPart =
   | { kind: 'checks-changed'; gone: Array<{ label: string; status: 'failed' | 'inconclusive' }> }
   /** The replay against its recording, as the mini strip draws a run: `recorded` cells, `replayed` of them replayed, `stop` the call it stopped at. */
   | { kind: 'replay'; recorded: number; replayed: number; stop: number | null; words: string }
+  /**
+   * A divergence's request, drawn as Show diff draws it on a run: the replay and the call it diverged at, whose diff is read
+   * once the report opens (`GET /api/runs/:id/diff`); where the replay is gone, the changes its result kept as two bodies,
+   * drawn with no notes. Then what followed from it, in grey: the offline refusal the agent exited on, with the body it got.
+   */
+  | { kind: 'request'; runId: string | null; callNo: number; against: { runId: string; callNo: number } | null; bodies: { was: unknown; now: unknown } | null; followed: Followed | null }
   /** A crash: the exception it died of, the file it was raised in (in the project where it can be), and the lines it printed last. */
-  | { kind: 'error'; error: ParsedTraceback; file: string | null; lines: string[] }
+  | ({ kind: 'error' } & CrashError)
   /** Which of the row's checks to draw, in the row's order: the row's own component draws them. */
   | { kind: 'checks'; labels: string[] }
   /** A gate's figures: the row's `last.gate`, with its bound, against history the baseline it compared with, and where inconclusive its pass^5 (`pass^5 0.32`), each in the engine's words. */
@@ -51,6 +58,12 @@ export type ReportPart =
   | { kind: 'proof'; runId: string; line: string; why: string | null }
   /** What an injection gate's attempts did, by verdict; where they were planted, while the kept result says; the command that writes every attempt. */
   | { kind: 'injection-attempts'; totals: { obeyed: number; influenced: number; inconclusive: number; ignored: number }; where: string | null; each: string | null; command: string; /** The kept result Security report writes, while the store has it. */ resultId: string | null };
+
+/** What followed a diverged call, said apart so it never reads as a second fault: its two clauses, and the body the agent got as indented JSON, while the recording keeps it. */
+export interface Followed {
+  line: [string, string];
+  message: string | null;
+}
 
 /**
  * The hint under a report's next steps, by what the report is: the browser words it in one sentence
@@ -250,18 +263,10 @@ interface Built {
   open?: GoldenReport['open'];
 }
 
-/** The project's own name for a file the agent's traceback names: relative where it is inside the folder, else as printed. */
-function fileHere(file: string, project: string | null): string {
-  if (!project || !isAbsolute(file)) return file;
-  const rel = relative(project, resolve(file));
-  return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : file;
-}
-
 /** The exception the attempt a result shows died of, from the lines it printed last; null where none reads as one. */
 function errorPart({ r, i }: From): ReportPart | null {
-  const output = r.data?.output;
-  const error = output ? parseTraceback(output) : null;
-  return error && output ? { kind: 'error', error, file: error.raised ? fileHere(error.raised.file, i.project) : null, lines: output.split('\n') } : null;
+  const e = crashError(r, i.project);
+  return e ? { kind: 'error', ...e } : null;
 }
 
 function crashParts(f: From): Built {
@@ -294,7 +299,37 @@ function divergenceParts(f: From, d: DivergenceView): Built {
   const parts: ReportPart[] = [];
   const recorded = div.callNo > 1 ? recordedCalls(f) : null;
   if (recorded) parts.push({ kind: 'replay', recorded, replayed: div.replayedBefore, stop: div.callNo, words: dot(`${div.replayedBefore} of ${recorded} recorded calls replayed, then call ${div.callNo} diverged`, upstream(r)) });
+  const request = requestPart(f, div);
+  if (request) parts.push(request);
   return { head: divergenceHead(r, div, i.normalizers), sub: [recorded ? null : upstream(r)], parts, hint: divergenceHint(d) };
+}
+
+/**
+ * A divergence's Request part: the replay's diverged call, its diff asked for once the report opens, and
+ * what followed it; where the replay is gone, the changes its result kept. None where it kept neither.
+ */
+function requestPart({ r, i, recording, replay }: From, div: NonNullable<ReturnType<typeof divergenceOf>>): ReportPart | null {
+  const against = recording ? { runId: recording, callNo: div.callNo } : null;
+  if (r.runId && replay) return { kind: 'request', runId: r.runId, callNo: div.callNo, against, bodies: null, followed: followedOf(i.store, replay, div.callNo) };
+  return div.diff?.length ? { kind: 'request', runId: null, callNo: div.callNo, against, bodies: entriesBodies(div.diff), followed: null } : null;
+}
+
+/**
+ * What followed a diverged call: the offline refusal the agent got in its place, said where the replay
+ * then ended failed, with the body the call's record kept, the bytes the agent got, never one rebuilt
+ * from its message. Read by key: the one call.
+ */
+function followedOf(store: ReportInput['store'], replay: NonNullable<From['replay']>, callNo: number): Followed | null {
+  const end = store.getCalls(replay.runId, { only: [callNo] })[0]?.end;
+  if (!end?.meta.offline || end.meta.status !== 503 || replay.status !== 'failed') return null;
+  let message: string | null = null;
+  try {
+    const body = end.responseRef ? store.getJson(end.responseRef) : null;
+    message = body === null ? null : JSON.stringify(body, null, 2);
+  } catch {
+    // A body that can't be read is left out: the line still says what followed.
+  }
+  return { line: ['Not served from the recording:', 'the agent exited on HTTP 503'], message };
 }
 
 /** A result's gate, where it decided (or ran out); null where it went on, which decided nothing. */

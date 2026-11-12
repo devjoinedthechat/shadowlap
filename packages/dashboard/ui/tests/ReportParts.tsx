@@ -18,6 +18,7 @@ import { Check, Checks } from './Checks.js';
 import { ErrorPart } from './ErrorPart.js';
 import { gated, GateIntervalBar, type GateShown } from './Evidence.js';
 import { attemptsShown, setAttemptsShown } from './report-open.js';
+import { RequestPart } from './RequestPart.js';
 import { partId } from './until-found.js';
 
 /**
@@ -30,6 +31,7 @@ import { partId } from './until-found.js';
 const NAMES: Record<ReportPart['kind'], string> = {
   'checks-changed': 'Checks changed',
   replay: 'Replay',
+  request: 'Request',
   error: 'Error',
   checks: 'Checks',
   gate: 'Gate',
@@ -85,6 +87,8 @@ function Part({ p, report, row, g, open, fold }: { p: ReportPart; report: Golden
       );
     case 'replay':
       return <ReplayLine recorded={p.recorded} replayed={p.replayed} stop={p.stop} words={p.words} />;
+    case 'request':
+      return <RequestPart p={p} open={open} id={partId('rpm', report.name)} />;
     case 'error':
       return <ErrorPart part={p} id={partId('rpe', report.name)} />;
     case 'checks':

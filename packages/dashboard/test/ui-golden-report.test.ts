@@ -12,6 +12,7 @@ import { moreCard, updateCard } from '../ui/pages/tests-cards.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { failedRunsWords } from '../ui/failed-runs.js';
+import type { RequestDiff } from '../src/request-diff.js';
 import type { DivergenceView } from '../ui/types.js';
 import { drawsFindCommit, stepFor } from '../ui/tests/lead.js';
 import { askedReport, openReports, reportOpen, setAttemptsShown, setReportOpen, shownAttempts } from '../ui/tests/report-open.js';
@@ -134,25 +135,33 @@ const calls = (replayed: number, total = replayed) => ({ total, replayed, live: 
 
 /**
  * Tests' answer over a store of four goldens that didn't pass, as GET /api/tests sends it: a crash
- * at call 19 of 30 (a Python tail), a divergence at call 1 a normalizer masks, a judge check a
+ * at call 19 of 30 (a Python tail), a divergence at call 1 a normalizer masks, which the replay
+ * answered with the offline 503 the agent exited on, a judge check a
  * replay couldn't ask offline, and a fork golden whose gate ran out; each with its report.
  */
 function answer(steps: Record<string, NextStep> = {}): TestsAnswer {
   const store = Store.open(':memory:');
   const s = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'abc1234', startedAt: T0 });
   const goldens: GoldenSource[] = [];
-  const add = (name: string, checks: string[], result: Omit<Parameters<Store['addTestResult']>[0], 'sessionId' | 'golden' | 'runId'>, o: { mode?: 'replay' | 'fork'; divergence?: Parameters<Store['setDivergence']>[1] } = {}) => {
+  const add = (name: string, checks: string[], result: Omit<Parameters<Store['addTestResult']>[0], 'sessionId' | 'golden' | 'runId'>, o: { mode?: 'replay' | 'fork'; divergence?: Parameters<Store['setDivergence']>[1]; refused?: number } = {}) => {
     const command = { argv: ['python', 'refund_agent.py'], cwd: '/work/shop' };
     const recording = store.createRun({ mode: 'record', command });
     const replay = store.createRun({ mode: 'replay', command, meta: { test: { golden: `goldens/${name}`, session: s.sessionId } } });
     if (o.divergence) store.setDivergence(replay.runId, o.divergence);
+    if (o.refused) {
+      // The call answered with the offline refusal, as `shadowlap test` records it, and the replay ended failed.
+      const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'fp', occurrence: 1 };
+      store.appendCallStart({ runId: replay.runId, callNo: o.refused, ...identity, origin: 'live', effect: null, requestRef: null, meta: {}, at: T0 });
+      store.appendCallEnd(identity, { runId: replay.runId, callNo: o.refused, attempt: 0, responseRef: store.putJson(OFFLINE_BODY), outcome: 'error', meta: { status: 503, offline: true }, at: T0 });
+      store.endRun(replay.runId, 'failed', T0);
+    }
     store.addTestResult({ sessionId: s.sessionId, golden: `goldens/${name}`, runId: replay.runId, at: T0, ...result });
     goldens.push({ path: `goldens/${name}`, runId: recording.runId, packedAt: T0, mode: o.mode ?? 'replay', repeat: 1, passes: 1, checks });
   };
   add('refund', ['issue_refund called 1 time'], { ok: false, failure: 'exit', reason: 'the agent exited with code 1', data: { mode: 'replay', calls: calls(18), upstreamRequests: 0, checks: [check('issue_refund called 1 time', 'failed', 'called 0 times')], output: PY_TAIL } }, { divergence: { type: 'ended_early', callNo: 19, kind: 'api', name: 'POST /v1/messages', replayedBefore: 18, recorded: 30 } });
   const divergence = { type: 'request_changed' as const, callNo: 1, kind: 'api' as const, name: 'POST /v1/messages', replayedBefore: 0 };
   const volatile = { values: [{ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed' as const, certain: true, normalizer: { path: '$.metadata.user_id', replace: '<uuid>' } }], explainsAll: true };
-  add('drift', [], { ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', data: { mode: 'replay', calls: calls(0, 1), upstreamRequests: 0, divergence: { ...divergence, diff: [{ path: '$.metadata.user_id', op: 'changed', before: 'a', after: 'b' }], cause: '$.metadata.user_id', volatile, text: '✗ Request changed at call 1' }, details: '✗ Request changed at call 1\n  - "a"\n  + "b"' } }, { divergence: { ...divergence, recorded: 30 } });
+  add('drift', [], { ok: false, failure: 'diverged', reason: 'diverged at call 1 (api POST /v1/messages)', data: { mode: 'replay', calls: calls(0, 1), upstreamRequests: 0, divergence: { ...divergence, diff: [{ path: '$.metadata.user_id', op: 'changed', before: 'a', after: 'b' }], cause: '$.metadata.user_id', volatile, text: '✗ Request changed at call 1' }, details: '✗ Request changed at call 1\n  - "a"\n  + "b"' } }, { divergence: { ...divergence, recorded: 30 }, refused: 1 });
   const judge = { name: 'polite', model: 'claude-x', of: 'answer' as const, verdict: null, source: null, cost: null, redactions: 0, cut: 0 } as unknown as NonNullable<StoredCheck['judge']>;
   add('judged', [JUDGE], { ok: false, failure: 'inconclusive', reason: 'check inconclusive: judge "polite" answers yes: its pack holds no verdict', data: { mode: 'replay', verdict: 'inconclusive', calls: calls(7), upstreamRequests: 0, checks: [check(JUDGE, 'inconclusive', 'not judged: no recorded verdict and the test runs offline', { judge })] } });
   const outcomes = [...Array<boolean>(67).fill(true), ...Array<boolean>(16).fill(false)];
@@ -165,8 +174,13 @@ function answer(steps: Record<string, NextStep> = {}): TestsAnswer {
   return { ...view, reports, steps };
 }
 
+const OFFLINE_BODY = { type: 'error', error: { type: 'shadowlap_offline', message: 'shadowlap is offline: call #1 (POST /v1/messages) was not served from the recording and would need the network' } };
+/** Show diff's answer for a replay's diverged call 1, a test's one value a normalizer masks. */
+const diffOf = (runId: string): RequestDiff => ({ at: 1, what: 'request', call: { kind: 'api', name: 'POST /v1/messages' }, against: { runId: '01K5CQ4N7GREC0RD', callNo: 1 }, was: { metadata: { user_id: 'a' } }, now: { metadata: { user_id: 'b' } }, whole: true, leftOut: [], same: false, askedAgain: false, type: 'request_changed', path: '$.metadata.user_id', paths: [{ path: '$.metadata.user_id', what: null, fix: { kind: 'normalizer', looks: 'a UUID', op: 'changed', certain: true, message: '$.metadata.user_id looks like a UUID', args: [], command: `shadowlap normalize add '$.metadata.user_id' --replace '<UUID>' (${runId})` } }], updates: false, masked: [], outside: [], hints: [], flag: null, tool: null, next: null, test: true });
+
 const g = globalThis as { location?: { hash: string; pathname: string; search: string } };
 const asked: string[] = [];
+const diffs: string[] = [];
 const said: string[] = [];
 let r: Rendered | null = null;
 afterEach(async () => {
@@ -177,6 +191,7 @@ afterEach(async () => {
   for (const name of openReports()) setReportOpen(name, false);
   for (const name of shownAttempts()) setAttemptsShown(name, false);
   asked.length = 0;
+  diffs.length = 0;
   said.length = 0;
 });
 
@@ -190,6 +205,10 @@ async function draw(view: TestsAnswer, hash = '#/tests'): Promise<Rendered> {
     testEvidence: (golden: string) => {
       asked.push(golden);
       return Promise.resolve({ attempts: [{ runId: 'run-a1', href: '#/run/run-a1', outcome: 'failed', note: 'called 2 times' }], carried: 0, gone: 0 });
+    },
+    requestDiff: (runId: string) => {
+      diffs.push(runId);
+      return Promise.resolve(diffOf(runId));
     },
     jobs: () => Promise.resolve([]),
     offers: () => Promise.resolve(null),
@@ -228,7 +247,7 @@ describe('a golden’s report under its row', () => {
       return { head: one(s, '.verdict').textContent.replace(/\u00a0/g, ' '), parts: s.querySelectorAll('dl.rpx > dt').map((dt) => dt.textContent), hint: s.querySelectorAll('p.hintx').map((p) => p.textContent) };
     };
     expect(drawn('refund')).toEqual({ head: expect.stringContaining('The agent exited with code 1 at call 19'), parts: ['Replay', 'Error', 'Checks'], hint: ['The agent stopped part way, so its checks say little.'] });
-    expect(drawn('drift')).toEqual({ head: expect.stringContaining('Diverged at call 1: $.metadata.user_id changed, a UUID'), parts: [], hint: ['Normalizers apply at match time, so older goldens keep working.'] });
+    expect(drawn('drift')).toEqual({ head: expect.stringContaining('Diverged at call 1: $.metadata.user_id changed, a UUID'), parts: ['Request'], hint: ['Normalizers apply at match time, so older goldens keep working.'] });
     expect(drawn('judged')).toEqual({ head: expect.stringContaining('Replayed clean, but its judge check wasn’t judged'), parts: ['Checks'], hint: [hintWords({ key: 'judge', held: 'none', name: 'polite' })] });
     expect(drawn('flaky')).toEqual({ head: expect.stringContaining('and its gate ran out before deciding'), parts: ['Gate', 'Attempts'], hint: [hintWords({ key: 'gate' })] });
     // The lines as printed, the CLI's, under Show as printed: the golden's line red, a crash's tail dim.
@@ -317,6 +336,25 @@ describe('a golden’s report under its row', () => {
     r = null;
     const bisect = await draw(answer({ 'goldens/drift': { key: 'bisect', label: 'Find breaking commit…', golden: 'goldens/drift' } as NextStep }));
     expect(report(bisect, 'drift').querySelectorAll('div.actions .btn').map((b) => b.textContent)).not.toContain('Update golden');
+  });
+
+  it('draws a divergence’s request as Show diff draws it once its report is open, then what followed, its message folded until found', async () => {
+    const page = await draw(answer());
+    const part = () => one(report(page, 'drift'), 'dl.rpx > dd');
+    // Folded, it asks for no diff and holds none: only what followed, in grey.
+    expect([diffs.length, part().querySelectorAll('.rpdiff').length, part().querySelectorAll('.rperrw.q').length]).toEqual([0, 0, 1]);
+    await page.click(toggle(page, 'drift'));
+    await page.until('the diff', () => part().querySelectorAll('.rpdiff .jd .jl').length > 0);
+    expect(diffs).toHaveLength(1);
+    expect(part().querySelectorAll('.rpdiff .jdh h4').map((h) => shownText(h).replace(/\u00a0/g, ' '))).toEqual(['−Recorded request #1 · 01K5CQ4N7G', '+This run’s request #1']);
+    expect(shownText(one(part(), '.rpdiff .hint')).replace(/\u00a0/g, ' ')).toContain('Only a value changed at $.metadata.user_id, and it looks like a UUID: the agent makes a new one on every run.');
+    const foot = one(part(), '.rperrw.q');
+    expect(foot.querySelectorAll('p.rperr > span.nw').map((x) => x.textContent)).toEqual(['Not served from the recording:', 'the agent exited on HTTP 503']);
+    const box = one(foot, 'pre.report.tail');
+    expect([one(foot, 'button.rptog').textContent, box.getAttribute('hidden')]).toEqual(['Show message', 'until-found']);
+    await page.click(one(foot, 'button.rptog'));
+    expect([one(foot, 'button.rptog').textContent, box.hasAttribute('hidden'), box.getAttribute('id')]).toEqual(['Hide message', false, 'rpm-drift']);
+    expect(box.textContent).toBe(JSON.stringify(OFFLINE_BODY, null, 2));
   });
 
   it('folds no report on Esc, leaving Esc to the evidence, and asks a report’s attempts only once it is open', async () => {
