@@ -284,11 +284,17 @@ export function crashed(row: Pick<IndexedRun, 'status' | 'outcome'> | null, resu
   return !!row && row.status === 'failed' && row.outcome.kind === 'check-failed' && row.outcome.check === null;
 }
 
-/** A test replay that crashed (`crashed`, by its golden's result): the exception it died of (the engine's parseTraceback), and where it stopped. */
-export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord): NonNullable<RunOffers['crash']> | null {
+/** A test replay's newest result for its golden, read by key, where it says the agent exited with an error (`crashed`); null for any other run. */
+export function crashResult(store: StoreOf<'tests'>, run: RunRecord): TestResult | null {
   const test = testOf(run);
   const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
-  if (!result || !crashed(null, result)) return null;
+  return result && crashed(null, result) ? result : null;
+}
+
+/** A test replay that crashed (`crashResult`): the exception it died of (the engine's parseTraceback), and where it stopped. */
+export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord): NonNullable<RunOffers['crash']> | null {
+  const result = crashResult(store, run);
+  if (!result) return null;
   const line = result.data?.output ? parseTraceback(result.data.output)?.exception : null;
   if (!line) return null;
   const d = run.divergence?.type === 'ended_early' ? run.divergence : null;
@@ -296,14 +302,13 @@ export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord
 }
 
 /**
- * The commit Find breaking commit named for a test replay that crashed (`crashed`, by its golden's
- * result), by the one rule of whether an answer stands (`standingAnswer`), while no later replay of its
- * golden passed (`fixedBy`, which Runs' `fixed by <run>` reads). Null for any other run.
+ * The commit Find breaking commit named for a test replay that crashed (`crashResult`), by the one
+ * rule of whether an answer stands (`standingAnswer`), while no later replay of its golden passed
+ * (`fixedBy`, which Runs' `fixed by <run>` reads). Null for any other run.
  */
 export function crashCommit(store: StoreOf<'recording' | 'tests' | 'activity' | 'readModels'>, run: RunRecord): FoundCommit | null {
   const test = testOf(run);
-  const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
-  if (!test || !result || !crashed(null, result)) return null;
+  if (!test || !crashResult(store, run)) return null;
   const row = loadRunIndex(store).byId.get(run.runId);
   if (!row || fixedBy(store, row, (golden) => store.listTestResults({ golden, limit: GOLDEN_HISTORY }))) return null;
   return standingFound(store, test.golden);

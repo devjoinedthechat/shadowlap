@@ -1,4 +1,5 @@
 import { agentCallsOf, type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, blameStateWord, blameSteps, probedInScope, describeBlocks, describeRescue, expectArgs, failureReason, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeInterval, probeTally, probeWord, type PulledFrom, rescueRule, type RunRecord, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedHead, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
+import type { CrashError } from './crash-error.js';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
 import type { FixCrash } from './fix-crash.js';
 import type { FoundCommit } from './tests-bisect.js';
@@ -102,20 +103,23 @@ export interface BlameStep {
   /**
    * Where no model rescued a test replay that crashed, whose own step is Find breaking commit or
    * Revert (fix-crash.ts): the first bad commit once that named it, whether its golden replays offline
-   * (its search "offline and free"), and whether a stronger model asked again too. Null otherwise.
+   * (its search "offline and free"), whether a stronger model asked again too, and the exception the
+   * agent died of. Null otherwise.
    */
   crash: BlameCrash | null;
 }
 
-/** A crash's facts, as the Blame step's note and its commit line read them. */
+/** A crash's facts, as the Blame step's note, its commit line and its check's exception read them. */
 export interface BlameCrash {
   commit: FoundCommit | null;
   offline: boolean;
   stronger: boolean;
+  /** What the agent died of, drawn under As recorded as Tests' report draws it; null where its lines read as no exception. */
+  error: CrashError | null;
 }
 
 /** The crash's facts of a blame whose run crashed, as fix-crash.ts found them. */
-const crashOf = (r: BlameReport, crash: FixCrash | null): BlameCrash | null => (crash ? { commit: crash.commit, offline: crash.offline, stronger: typeof r.rescue?.fields.model === 'string' } : null);
+const crashOf = (r: BlameReport, crash: FixCrash | null): BlameCrash | null => (crash ? { commit: crash.commit, offline: crash.offline, stronger: typeof r.rescue?.fields.model === 'string', error: crash.error } : null);
 
 
 /**

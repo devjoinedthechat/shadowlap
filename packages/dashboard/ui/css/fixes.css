@@ -242,9 +242,11 @@ table.t td.fxwhere { color: var(--faint); }
 .fxwarn.bad li.unsure { color: var(--warn); }
 .fxlist { margin: 6px 0 12px; padding-left: 18px; color: var(--dim); font-size: 13.5px; }
 .fxlist.bad li::marker { color: var(--cq-red); }
+/* a crash's blame names its exception as Tests' report does (ErrorPart), under what was recorded */
+.fxlist + .rperrw, .lbl + .rperrw { margin: 8px 0 12px; color: var(--faint); font-size: 12.5px; }
 /* a part's label in sentence case, over what it labels: the recording, a rescued fork, as recorded */
 .lbl { display: block; font: 500 12px var(--body); color: var(--faint); }
-.lbl + .fxlist, .lbl + code { margin-top: 4px; }
+.lbl + .fxlist, .lbl + code, .lbl + .rperrw { margin-top: 4px; }
 .ans .lbl { display: inline; }
 .ans .rfid code { display: inline; margin: 0; font-size: 12.5px; }
 /* on a fix's step the two answers are one column: a hairline between them, none above the first */

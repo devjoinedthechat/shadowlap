@@ -17,6 +17,7 @@ import { navigate } from '../router.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { FoundCommitLine } from '../revert/FoundLine.js';
 import { useServedParts } from '../served-parts.js';
+import { ErrorPart } from '../tests/ErrorPart.js';
 import type { BlameCrash, BlameStep, FixDetail, FoundCommit } from '../types.js';
 import { type CallCell, callRowCells, headBlameNext, otherBlameWords, probeTone, probeVerdictWords } from './model.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
@@ -372,9 +373,13 @@ function checkNote(b: BlameStep, fix: FixDetail): ReactNode {
   return glossed(b.look ?? 'Asking any model call again did not let the run pass often enough: the cause may be before the first model call, in a tool, or in the check itself.');
 }
 
-/** For a blame that placed the failure on no call: what it checked, and how the recording failed it. */
+/**
+ * For a blame that placed the failure on no call: what it checked, and how the recording failed it,
+ * a crash with the exception its agent died of under that, as Tests' report names it.
+ */
 function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
   const note = checkNote(b, fix);
+  const error = b.crash?.error ?? null;
   return (
     <Section title="The check" sub="what a passing run must do">
       <div className="pbody">
@@ -383,14 +388,17 @@ function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
             <li key={o}>{o}</li>
           ))}
         </ul>
-        {b.recordedFailures.length ? (
+        {b.recordedFailures.length || error ? (
           <>
             <span className="lbl">As recorded</span>
-            <ul className="fxlist bad">
-              {b.recordedFailures.map((f) => (
-                <li key={f}>{f}</li>
-              ))}
-            </ul>
+            {b.recordedFailures.length ? (
+              <ul className="fxlist bad">
+                {b.recordedFailures.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            ) : null}
+            {error ? <ErrorPart part={error} id={`bte-${b.blameId}`} /> : null}
           </>
         ) : null}
         {note ? <p className="fxnote">{note}</p> : null}

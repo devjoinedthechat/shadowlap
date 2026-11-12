@@ -214,8 +214,8 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'ju
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
-  // A crash no model rescued leads with its run's own step, its commit served as the route read how (fix-crash.ts).
-  const crash = (b: StoredBlame) => fixCrash(store, b, { work: job.next ?? null, reads: stepReads(store), serving: job.serving ?? null });
+  // A crash no model rescued leads with its run's own step, its commit served as the route read how, and the exception it died of (fix-crash.ts).
+  const crash = (b: StoredBlame) => fixCrash(store, b, { work: job.next ?? null, reads: stepReads(store), serving: job.serving ?? null, error: true });
   const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}), crash });
   return d ? answer(withAbouts(store, d), { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
