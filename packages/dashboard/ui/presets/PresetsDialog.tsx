@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { CHAOS_EXPECT_EXAMPLE, CHAOS_PRESETS, PRESET_LABELS } from '../../../engine/src/chaos.js';
+import { PRESETS_PART } from '../../../engine/src/cost-words.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS } from '../api.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
@@ -190,7 +191,7 @@ function PresetsForm({ first, onClose }: { first: PresetsPlan; onClose: () => vo
       warn={refused ? { text: refused } : null}
       facts={facts}
       command={presetsCommand(first, sent)}
-      cost={picked ? { price: 'Billed by your provider', parts: ['live from each preset’s call, writes stubbed'], estimate: plan.estimate } : { price: PICK, estimate: null }}
+      cost={picked ? { price: 'Billed by your provider', parts: [PRESETS_PART], estimate: plan.estimate } : { price: PICK, estimate: null }}
       ok={OK}
       okWhy={picked ? busy : PICK}
       onOk={() => guardedWayOn(app.guard, () => start())}

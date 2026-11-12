@@ -1,7 +1,7 @@
 import { CHAOS_PRESETS, presetHits, type ChaosPreset, type ChaosTargets } from '../chaos.js';
 import { DEFAULT_BASELINES, type PlantReport, type UntrustedRead } from '../injection.js';
 import type { SprtGate } from '../stats.js';
-import { INJECTION_PART } from '../cost-words.js';
+import { INJECTION_PART, PRESETS_PART } from '../cost-words.js';
 import { counted, liveSums, noEstimate, noPriceWords, type Estimate, type PricedCall } from './estimate.js';
 import { amountWords } from './spending.js';
 
@@ -145,7 +145,7 @@ export function presetsEstimate(calls: readonly PricedCall[], targets: ChaosTarg
   }
   if (!n) return { kind: 'presets', usd: 0, ceiling: false, parts: ['no preset applies to this run'] };
   // A gate, or a count that stops at a preset's first failure (decideCount), may end it early: a ceiling either way.
-  const e: Estimate = { kind: 'presets', usd, ceiling: true, parts: [`${o.gate ? 'up to ' : ''}${counted(n, 'attempt')}`, 'live from each preset’s call, writes stubbed'], attempts: n };
+  const e: Estimate = { kind: 'presets', usd, ceiling: true, parts: [`${o.gate ? 'up to ' : ''}${counted(n, 'attempt')}`, PRESETS_PART], attempts: n };
   if (!o.gate) return e;
   // `chaos.gate` counts an attempt the provider cut short after the model answered against either
   // verdict, but not toward its max, however many it cuts (decideUnavailable, as `shadowlap test` reads it).
