@@ -631,9 +631,10 @@ table.calls tbody tr.wspace:hover td { background: none; }
 /* Add check… before Edit and fork…, the two kept together at the line's end. */
 .ihead .ckins { margin-left: auto; flex: none; padding-left: 10px; min-height: 24px; font-size: 12px; }
 .ihead .ckins + .iedit { margin-left: 0; }
+/* on a touch screen a 32px tap: its 24px box and 4px above and below, which keeps it clear of the tabs under it */
 @media (pointer: coarse) {
   .ihead .ckins { position: relative; }
-  .ihead .ckins::after { content: ''; position: absolute; inset: -6px -2px; }
+  .ihead .ckins::after { content: ''; position: absolute; inset: -4px -2px; }
 }
 .ibar.stopline { margin-top: 10px; font-family: var(--mono); }
 
