@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { links as built } from '../src/links.js';
 import { parseRoute, routeHref } from '../ui/route.js';
 import { runsLinkQuery } from '../ui/runspage/query.js';
 import { contrast, dash, demoId, focusedLabel, openPage, serverLinks, seriousViolations, tabUntil } from './dashboard.js';
@@ -288,7 +289,14 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   for (const link of links) {
     const route = parseRoute(link);
     expect(route.page, link).not.toBe('notfound');
-    // A link to Runs with a filter opens that filter, and every link reads back as it was written.
+    // A link to a golden's report opens Tests, which opens the report it names and sets the address back to
+    // #/tests (ui/tests/report-open.ts): it reads as links.tests writes that name.
+    const report = /^#\/tests\?report=([^&#]+)$/.exec(link)?.[1];
+    if (report) {
+      expect([route.page, built.tests({ report: decodeURIComponent(report) })], link).toEqual(['tests', link]);
+      continue;
+    }
+    // A link to Runs with a filter opens that filter, and every other link reads back as it was written.
     if (link.includes('?')) expect(runsLinkQuery(link), link).not.toBeNull();
     expect(routeHref(route), link).toBe(link);
   }
