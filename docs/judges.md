@@ -61,8 +61,8 @@ $ shadowlap test goldens/research
 
 ### When a judge is asked live
 
-- **A golden that may fork** (`"fork": true`) asks the judge live wherever what the judge reads changed, in each attempt that passed its other checks, and its replay keeps the call. The judge reads what the fork did, so a prompt fix is judged on the reply it gives.
-- **An attempt that failed another check** fails whatever the judge says, so a golden that may fork doesn't ask the judge there. The judge check reads not applicable, `not asked: another check failed`, with no call and no cost. Where no attempt got that far, the golden's result reads `not asked: no attempt passed its other checks`.
+- **A golden that may fork** (`"fork": true`) asks the judge live wherever what the judge reads changed, and its replay keeps the call. The judge reads what the fork did, so a prompt fix is judged on the reply it gives.
+- **An attempt that failed another check** fails whatever the judge says, so `shadowlap test` and `bisect` of a golden that may fork, and `bisect --fork`, don't ask the judge there. The judge check reads not applicable, `not asked: another check failed`, with no call and no cost. Where no attempt got that far, the golden's result reads `not asked: no attempt passed its other checks`.
 - **A replay** (`shadowlap replay`, with the checks of the golden it came from or `--expect`) is judged the same way: from the recording when it asks what the recording asked, live when what the judge reads changed.
 - **Blame, verify and repair** fork every attempt, so an attempt asks the judge live unless its recording holds the very same request. What that costs is reported apart from the agent's cost (`judge` in their JSON, and on their cost line), and counts against `--budget`.
 - **A judge no attempt can ask live** (no key for its provider, and no upstream set for it) is refused before anything runs, since every attempt would read inconclusive.
@@ -140,7 +140,7 @@ A check is also not judged, with the reason, when:
 - the judge's call failed;
 - its answer held no verdict.
 
-A run that can't pass anyway asks no judge: one whose agent exited with an error or was stopped, or whose replay diverged where its golden may not fork. In a golden that may fork, an attempt that failed another check asks none either, and its judge checks read not applicable, not inconclusive.
+A run that can't pass anyway asks no judge: one whose agent exited with an error or was stopped, or whose replay diverged where its golden may not fork. In `shadowlap test` and `bisect` of a golden that may fork, or with `bisect --fork`, an attempt that failed another check asks none either, and its judge checks read not applicable, not inconclusive.
 
 ### Keys and upstreams
 
