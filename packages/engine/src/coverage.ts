@@ -10,7 +10,7 @@ import { loadApiRequest } from './manifest.js';
 import { commandIsImported, hasRecordedCommand } from './pack.js';
 import { normalizeResponse } from './responses.js';
 import { PatternBudgetError, patternProblem, regexProblem, withinPatternBudget } from './safe-regex.js';
-import type { CoverageNotPacked, StoreOf } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallRecord, Effect, RunRecord } from './types.js';
 
 /**
@@ -177,27 +177,7 @@ export interface NearestGolden {
   differs: { step: number; seen: string | null; golden: string | null } | null;
 }
 
-/**
- * Where a behaviour parts from its nearest golden, after the steps they share, as the CLI's report
- * says it on its own line: `then it calls <x> where the golden calls <y>`, `then it calls <x> where
- * the golden has stopped`, `then it stops where the golden calls <y>`. Null when the two take the same
- * steps and only end another way (the report then says `but it ends another way`). `name` shows each
- * tool's name as its reader prints it: the CLI passes its terminal-safe `safe`.
- */
-export function nearestThen(differs: NearestGolden['differs'], name: (tool: string) => string = (tool) => tool): string | null {
-  if (!differs) return null;
-  if (differs.seen === null) return `then it stops where the golden calls ${name(differs.golden ?? '')}`;
-  return differs.golden === null ? `then it calls ${name(differs.seen)} where the golden has stopped` : `then it calls ${name(differs.seen)} where the golden calls ${name(differs.golden)}`;
-}
-
-/** Why the last `coverage --pack` couldn't pack a behaviour, as the CLI's report and Tests' Not covered say it (`--json` has the sentence). */
-export const NOT_PACKED: Readonly<Record<CoverageNotPacked, string>> = {
-  'no-command': 'nothing says what starts the agent (give its command after --, with {message} where its input goes)',
-  'other-message': 'the command given starts the agent with another first message than production',
-  'not-reproduced': 'the agent no longer does this (--fork with --expect keeps it as a golden that forks)',
-  'agent-error': 'the agent failed on what production got back',
-  gone: 'its runs are no longer in the store',
-};
+export { ENDS_ANOTHER_WAY, NOT_PACKED, nearestThen, notPackedHead } from './coverage-words.js';
 
 export interface CoverageGroup {
   key: string;

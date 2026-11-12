@@ -8,6 +8,7 @@ import {
   hasRecordedCommand,
   messageOf,
   NO_COMMAND,
+  ENDS_ANOTHER_WAY,
   NOT_PACKED,
   nearestThen,
   OUTCOME_WORDS,
@@ -284,7 +285,7 @@ export function formatCoverage(result: CoverageScanResult, p: Palette, o: { now?
       // Where the two part goes on a line of its own, so the report stays within a terminal's width.
       const n = g.nearest;
       const then = nearestThen(n.differs, safe);
-      lines.push(p.dim(`             nearest golden: ${safe(n.golden)}, the same for ${plural(n.shared, 'step')}${then ? ';' : ', but it ends another way'}`));
+      lines.push(p.dim(`             nearest golden: ${safe(n.golden)}, the same for ${plural(n.shared, 'step')}${then ? ';' : `, ${ENDS_ANOTHER_WAY}`}`));
       if (then) lines.push(p.dim(`             ${then}`));
     }
     if (!covered) lines.push(p.dim(`             runs: ${g.runIds.slice(0, 3).map((id) => shortId(id)).join(' ')}${g.runIds.length > 3 ? ' …' : ''} · behaviour ${g.key}`));

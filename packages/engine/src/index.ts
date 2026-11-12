@@ -264,7 +264,7 @@ export type { AttemptCounts, CountStyle } from './trust-words.js';
 export type { AttemptReport, BaselineReport, CauseVerdict, CellReport, CleanAttemptReport, CleanReport, CleanWriteReport, CostReport, Evidence, GateReport, InjectionReport, Limits, PayloadReport, PlantReport, ProofParts, ReadReport } from './injection.js';
 export type { InjectionGateData, StoredInjectionResult } from './store.js';
 // Production coverage: imported runs grouped by behaviour (path, writes, outcome), and the goldens that cover each.
-export { GROUP_RUN_IDS, GROUP_SOURCES, NOT_PACKED, OUTCOME_WORDS, behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, hasPlaceholder, inferCommand, nearestGolden, nearestThen, requestMessage, runBehaviour, sharedSteps, storeEffects, strongest } from './coverage.js';
+export { ENDS_ANOTHER_WAY, GROUP_RUN_IDS, GROUP_SOURCES, NOT_PACKED, OUTCOME_WORDS, behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, hasPlaceholder, inferCommand, nearestGolden, nearestThen, notPackedHead, requestMessage, runBehaviour, sharedSteps, storeEffects, strongest } from './coverage.js';
 export type { Behaviour, BehaviourOutcome, CoverageGolden, CoverageGroup, CoverageMember, InferredCommand, NearestGolden } from './coverage.js';
 export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageScan, CoverageScanData, StoredCoverageGroup, StoredCoveragePack } from './store.js';
 // Error-path presets: where each hits a recording and what it answers there.
