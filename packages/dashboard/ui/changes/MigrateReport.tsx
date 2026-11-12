@@ -330,7 +330,7 @@ function ApplyButton({ sessionId, m, offer }: { sessionId: string; m: MigrateVie
   );
 }
 
-/** Apply config change?: what it does in steps, what it leaves out and which goldens diverge, the patch, the goldens left behind, and the command. */
+/** Apply config change?: what it does in steps, what it leaves out, the patch, the goldens left behind (else why none diverges), and the command. */
 function ApplyDialog({ m, offer, onOk, onClose }: { m: MigrateView; offer: MigrateApplyOffer; onOk: () => void; onClose: () => void }) {
   const behind = offer.leftBehind;
   const one = behind.length === 1;
@@ -339,7 +339,6 @@ function ApplyDialog({ m, offer, onOk, onClose }: { m: MigrateView; offer: Migra
     { what: 'Goldens replayed', where: 'offline, any that diverge are named' },
     ...(behind.length ? [{ what: 'Update goldens next', where: `to re-record ${one ? 'it' : 'them'} under ${m.to}` }] : []),
   ];
-  const diverges = behind.length ? behind.map((g) => goldenName(g.golden)).join(', ') : 'no golden';
   return (
     <Dialog
       title={`${ACTIONS.applyConfigChange.label}?`}
@@ -347,7 +346,8 @@ function ApplyDialog({ m, offer, onOk, onClose }: { m: MigrateView; offer: Migra
       doc="migrate"
       facts={[
         offer.leftOut.length ? { label: 'Leaves out', value: inCode(offer.leftOut.map((f) => `\`${f}\``).join(', ')), quiet: 'as What to set says' } : null,
-        { label: 'Diverges', value: diverges, quiet: offer.others ? `${offer.others} ${offer.others === 1 ? 'other doesn’t' : 'others don’t'}` : undefined },
+        // The goldens left behind are listed under the patch; with none, why each stays as recorded.
+        behind.length ? null : { label: 'Diverges', value: 'no golden', quiet: offer.stays ?? undefined },
       ]}
       command={offer.command}
       ok={ACTIONS.applyConfigChange.label}

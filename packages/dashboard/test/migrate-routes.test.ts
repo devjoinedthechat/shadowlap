@@ -22,6 +22,8 @@ import type { MigrateView } from '../src/migrate-view.js';
 const CLEAR = 'mg-01M5000000000000000000000C';
 const NO_FILE = 'mg-01M5000000000000000000000D';
 const BLOCKED = 'mg-01M5000000000000000000000E';
+const FORKS = 'mg-01M5000000000000000000000A';
+const NEVER = 'mg-01M5000000000000000000000B';
 let store: Store;
 let dash: Dashboard;
 let project = '';
@@ -31,8 +33,8 @@ const spawned: string[][] = [];
 const api = (d: Dashboard, path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, ...(typeof init.body === 'string' ? { 'content-type': 'application/json' } : {}) } });
 const startJob = (d: Dashboard, body: unknown) => api(d, 'jobs', { method: 'POST', body: JSON.stringify(body) });
 
-/** A migration from claude-sonnet-4-5 to claude-sonnet-5-5 as `migrate --json` keeps it: all clear, with a config change and its files unless told otherwise. */
-function migration(id: string, o: { files?: boolean; remedies?: unknown[] } = {}) {
+/** A migration from claude-sonnet-4-5 to claude-sonnet-5-5 as `migrate --json` keeps it: all clear, with a config change and its files, and its golden left behind, unless told otherwise. */
+function migration(id: string, o: { files?: boolean; remedies?: unknown[]; stays?: 'fork' | 'no-call' } = {}) {
   const run = { runId, golden: 'goldens/refund', steps: 0, asked: 0, rank: null, majority: null, counts: emptyCounts(), cost: { before: 0.04, after: 0.02, spent: 0.02 }, tokens: { before: NO_TOKENS, after: NO_TOKENS }, thinkingStripped: 0, refused: null, decisions: [], warnings: [] };
   const decisions = { decisionsId: null, kind: 'decisions', at: 1_000, change: { model: 'claude-sonnet-5-5', fields: {}, from: ['claude-sonnet-4-5'], fromCode: null, text: 'the model claude-sonnet-5-5' }, command: 'shadowlap migrate --to claude-sonnet-5-5', samples: 1, counts: emptyCounts(), flagged: [], toVerify: [], remedies: o.remedies ?? [], runs: [run], cost: { before: null, after: null, spent: 0, upstreamRequests: 0, unknownModels: [] }, stopReason: null, judge: null, notes: [], warnings: [] };
   const data = {
@@ -43,7 +45,7 @@ function migration(id: string, o: { files?: boolean; remedies?: unknown[] } = {}
     to: 'claude-sonnet-5-5',
     command: 'shadowlap migrate --to claude-sonnet-5-5',
     decisions,
-    passes: { verdict: 'not-run', runs: [{ runId, golden: 'goldens/refund', verdict: 'passed', outcome: 'unchanged', verified: false, tally: null, diverges: { callNo: 1, path: '$.model' } }] },
+    passes: { verdict: 'not-run', runs: [{ runId, golden: 'goldens/refund', verdict: 'passed', outcome: 'unchanged', verified: false, tally: null, ...(o.stays ? { diverges: null, stays: o.stays } : { diverges: { callNo: 1, path: '$.model' } }) }] },
     set: { flags: [], fields: [], given: {}, byHand: [] },
     configChange: o.files === false ? null : { files: [{ path: 'agent.py', places: 1 }], leftOut: [], review: [], patch: '--- a/agent.py\n+++ b/agent.py\n' },
     files: { dir: `.shadowlap/migrations/${id}`, pullRequest: `.shadowlap/migrations/${id}/pull-request.md`, patch: o.files === false ? null : `.shadowlap/migrations/${id}/config.patch` },
@@ -60,6 +62,8 @@ beforeAll(async () => {
   runId = recordRun(store, [LOOKUP, REFUND, DONE], { model: 'claude-sonnet-4-5' }).run.runId;
   migration(CLEAR);
   migration(NO_FILE, { files: false });
+  migration(FORKS, { stays: 'fork' });
+  migration(NEVER, { stays: 'no-call' });
   migration(BLOCKED, { remedies: [{ field: 'temperature', value: null, leftOut: true, renamedTo: null, why: 'refused', source: null, steps: 1 }] });
   const spawnCli = (args: string[]) => {
     spawned.push(args);
@@ -99,8 +103,16 @@ describe('a migration’s view', () => {
     expect([m.word.text, m.headline, m.next]).toEqual(['nothing to verify', { tone: 'pass', text: 'claude-sonnet-5-5 decided the same in the preview', rest: 'claude-sonnet-4-5 → claude-sonnet-5-5, 1 run' }, 'apply']);
     expect(m.passes.runs.map((x) => [x.golden, x.verdict, x.words, x.leftBehind])).toEqual([['goldens/refund', 'passed', CLEARED, 'diverges at #1 on `$.model` once applied']]);
     expect([m.passes.verified, m.set.only, m.changes.none, m.changes.sub]).toEqual(['0 of 1 run verified end to end', 'Only the model: claude-sonnet-5-5', 'No write, stop or judged change.', 'the calls made with claude-sonnet-4-5, asked under claude-sonnet-5-5']);
-    expect(m.apply).toEqual({ files: ['agent.py'], leftOut: [], leftBehind: [{ golden: 'goldens/refund', callNo: 1 }], others: 0, command: 'shadowlap migrate apply mg-01M5000000' });
+    expect(m.apply).toEqual({ files: ['agent.py'], leftOut: [], leftBehind: [{ golden: 'goldens/refund', callNo: 1 }], stays: null, command: 'shadowlap migrate apply mg-01M5000000' });
     expect([m.config.sub, m.config.apply, m.applied]).toEqual(['`agent.py` · 1 place', `git apply .shadowlap/migrations/${CLEAR}/config.patch`, null]);
+  });
+
+  it('says why a golden the switch leaves alone stays as recorded, for Apply config change?’s Diverges: one marked fork, one that never sends the model', async () => {
+    for (const [id, stays] of [[FORKS, '1 marked fork passes on its checks'], [NEVER, '1 never sends claude-sonnet-4-5']]) {
+      const m = await view(id);
+      expect(m.apply, id).toMatchObject({ leftBehind: [], stays });
+      expect(m.passes.runs.map((x) => x.leftBehind), id).toEqual([null]);
+    }
   });
 
   it('offers no Apply where migrate apply would refuse it, saying why in its words', async () => {
@@ -172,7 +184,7 @@ describe('the same switch, a preview’s and a migration’s', () => {
 
   it('leads a preview to the newest migration made since that asked every run it asked, and the dialog to the newest preview that asked the migration’s', () => {
     preview('dc-01M50000000000000000000P01', 900, SWITCH, [runId], { verified: true });
-    // The newest of the three migrations at 1,000, by id, made after the preview.
+    // The newest of the migrations at 1,000, by id, made after the preview.
     expect(migrationOfPreview(store, 'dc-01M50000000000000000000P01')).toBe(BLOCKED);
     // A preview made after every migration, one with a field besides the model, one of the working tree's prompt, one switching another model, one asking a run no migration asked.
     preview('dc-01M50000000000000000000P02', 2_000, SWITCH, [runId]);

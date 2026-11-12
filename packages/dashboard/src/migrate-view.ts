@@ -41,8 +41,8 @@ export interface MigrateApplyOffer {
   leftOut: string[];
   /** The goldens it leaves behind, each with the call it diverges at. */
   leftBehind: Array<{ golden: string; callNo: number }>;
-  /** How many of the goldens the switch asks don't diverge on it. */
-  others: number;
+  /** Why the goldens it doesn't leave behind stay as recorded, Diverges' quiet line (`1 marked fork passes on its checks, 2 never send claude-opus-5`); null when none says. */
+  stays: string | null;
   /** What the job runs. */
   command: string;
 }
@@ -92,7 +92,7 @@ function changesOf(k: Kept, decisions: { counts?: DecisionCounts; runs?: Array<{
   };
 }
 
-type PassRun = Parameters<typeof migratePassWords>[0] & { runId: string; golden: string | null; diverges?: { callNo: number } | null };
+type PassRun = Parameters<typeof migratePassWords>[0] & { runId: string; golden: string | null; diverges?: { callNo: number } | null; stays?: 'fork' | 'no-call' };
 
 function passesOf(runs: PassRun[], k: Kept, applied: AppliedState | null): MigrateView['passes'] {
   const verify = (k.decisions as { verify?: { verdict?: string; rule?: string | null; reasons?: string[]; warnings?: string[] } | null } | undefined)?.verify ?? null;
@@ -156,9 +156,18 @@ function applyOf(k: Kept, runs: PassRun[]): MigrateView['apply'] {
     files: list<{ path: string }>(input.configChange?.files).map((f) => f.path),
     leftOut: [...new Set(out.map((x) => x.field))],
     leftBehind: left,
-    others: runs.filter((x) => x.golden).length - left.length,
+    stays: staysWords(runs, strings(k.from)),
     command: quoteArgv(['shadowlap', 'migrate', 'apply', shortSessionId(input.migrateId!)]),
   };
+}
+
+/** Why the goldens a switch leaves alone stay as recorded, as migrate marked them: those marked fork, then those that never send a from-model. */
+function staysWords(runs: PassRun[], from: string[]): string | null {
+  const n = (why: PassRun['stays']) => runs.filter((x) => x.golden && x.stays === why).length;
+  const fork = n('fork');
+  const none = n('no-call');
+  const parts = [fork ? `${fork} marked fork ${fork === 1 ? 'passes on its checks' : 'pass on their checks'}` : '', none ? `${none} never ${none === 1 ? 'sends' : 'send'} ${from.join(' or ')}` : ''];
+  return parts.filter(Boolean).join(', ') || null;
 }
 
 /** Each from-model's retirement in today's words (the table's, by the provider and model migrate read), its kept words where the table no longer has it. */

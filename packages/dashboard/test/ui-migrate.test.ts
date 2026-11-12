@@ -85,7 +85,7 @@ describe('Changes › Migrate', () => {
         verdict: 'accepted',
         runs: [
           { runId: x.runId, golden: 'goldens/refund', verdict: 'passed', outcome: 'kept', verified: true, tally: { passes: 4, attempts: 4, bound: 'rate >= 0.6 (95%)', rule: 'rate >= 0.6 (95%)' }, diverges: { callNo: 1, path: '$.model' } },
-          { runId: y.runId, golden: 'goldens/lookup', verdict: 'passed', outcome: 'unchanged', verified: false, tally: null, diverges: null },
+          { runId: y.runId, golden: 'goldens/lookup', verdict: 'passed', outcome: 'unchanged', verified: false, tally: null, diverges: null, stays: 'fork' },
         ],
       },
       costs: { perRun: { before: 0.04, after: 0.03 }, total: { before: 0.08, after: 0.06 }, tokensPerRun: { before: 1200, after: 900 }, endToEnd: null, checking: { decisions: 0.01, judge: 0, verify: 0.02 } },
@@ -345,12 +345,27 @@ describe('Changes › Migrate', () => {
       expect(shown(p.one('.dialog h3'))).toBe('Apply config change?');
       expect(shown(p.one('.dialog header p'))).toBe('Applies the migration’s config change to your working tree, for you to review before you commit. Migrate in the docs →');
       expect(p.all('.dialog .steps li').map(shown)).toEqual(['1Patch appliedagent.py, with git apply', '2Goldens replayedoffline, any that diverge are named', `3Update goldens nextto re-record it under ${TO}`]);
-      expect(facts(p)).toEqual(['Leaves outtemperatureas What to set says', 'Divergesrefund1 other doesn’t']);
+      // The golden left behind is listed under the patch, so no Diverges row names it.
+      expect(facts(p)).toEqual(['Leaves outtemperatureas What to set says']);
       expect(p.all('.dialog .fxpatch')).toHaveLength(1);
       expect(p.all('.dialog .mgbehind li').map(shown)).toEqual(['refund #1 · $.model']);
       expect(shown(p.one('.dialog .cmdline'))).toContain('shadowlap migrate apply mg-01M5000000');
       await p.click(p.one('.dialog .dlg-ok'));
       expect(started).toEqual([['migrate-apply', { migrationId: MG }]]);
+    });
+
+    it('says in Apply config change? why no golden diverges where none is left behind, as the server words it, with no Update goldens step', async () => {
+      const stays = `1 marked fork passes on its checks, 1 never sends ${FROM}`;
+      const clear = async (id: string) => {
+        const s = await sessionOf(id);
+        return { ...s, migration: { ...s.migration!, apply: { ...s.migration!.apply, leftBehind: [], stays } } };
+      };
+      const p = await report(MG, { client: { decisionSession: clear } as unknown as Partial<Client> });
+      await p.click(p.byText('.mgverdict .actions button', 'Apply config change'));
+      await p.until('the dialog', () => p.all('.dialog').length === 1);
+      expect(facts(p)).toEqual(['Leaves outtemperatureas What to set says', `Divergesno golden${stays}`]);
+      expect(p.all('.dialog .steps li').map(shown)).toEqual(['1Patch appliedagent.py, with git apply', '2Goldens replayedoffline, any that diverge are named']);
+      expect(p.all('.dialog .mgbehind')).toHaveLength(0);
     });
 
     it('opens a call’s cell under What changes from a run’s Decisions view, its links back to the run and to the migration, with no Verify', async () => {
