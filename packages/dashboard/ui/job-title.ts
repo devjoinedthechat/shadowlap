@@ -15,6 +15,8 @@ export interface JobLike {
   result?: unknown;
   /** Someone asked it to stop. */
   stopped?: boolean;
+  /** What its git step left in the working tree (Revert's), once it ended. */
+  git?: 'done' | 'untouched' | 'conflicts';
 }
 
 /** What following a job does after a poll for it failed. */

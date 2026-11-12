@@ -307,7 +307,7 @@ export interface SetupState {
   calibration?: { added: ReadonlyArray<{ path: string; why: string | null }> } | null;
   /** The golden kept from the named recording. */
   golden?: string | null;
-  /** Finished with Skip the rest, before the golden's test passed: the last step wasn't done then. */
+  /** Finished with Skip setup, before the golden's test passed: the last step wasn't done then. */
   skipped?: boolean;
 }
 
@@ -330,8 +330,9 @@ export interface EffectiveSetup {
   /** That recording is still being made. */
   live: boolean;
   /**
-   * Where the dashboard shows the setup: on every page but Settings while the project has no runs,
-   * on the Overview while it is being set up, nowhere once it is.
+   * Where the dashboard shows the setup: `everywhere` while the project has no runs, which the
+   * dashboard reads as its Overview and `#/setup` (every other page offers the setup from its empty
+   * state); on the Overview while it is being set up; nowhere once it is.
    */
   shows: 'everywhere' | 'overview' | 'none';
   /** Which steps are done for that recording: what the list says it made for it, or what the store and the repository show. */

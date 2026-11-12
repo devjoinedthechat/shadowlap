@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, outcomeCounts, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, GATE_TOO_LITTLE, hintsFor, INCONCLUSIVE_FIRST, lostRange, lostWords, outcomeCounts, pulledRun, summarizeRun, unrescuedWords, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
 import { num } from './fields.js';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
@@ -421,7 +421,7 @@ function testEnd(store: StoreOf<'recording' | 'tests'>, run: RunRecord, test: { 
   // A count settled before an attempt a check could not decide keeps that attempt apart: it neither passed nor failed.
   const tally = (a: NonNullable<typeof repeated>) => `${a.passed} of ${a.total} attempts passed${a.inconclusive ? `, ${a.inconclusive} inconclusive` : ''}`;
   // Its gate ran out of attempts, or a check could not be judged (which stops a gate before it decides), or its injection gate showed too little to say.
-  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden}${gate?.decision === 'inconclusive' ? `: ${gateTally(gate)}` : ` · ${result.failure === 'injection' ? 'its injection test showed too little to say' : 'a check could not be judged'}`}`, ...(gate?.decision === 'inconclusive' ? gateRuleOf(gate) : {}) };
+  if (result && verdictOfResult(result) === 'inconclusive') return { ...item, kind: 'warn', text: `Test inconclusive · ${golden}${gate?.decision === 'inconclusive' ? `: ${gateTally(gate)}` : ` · ${result.failure === 'injection' ? GATE_TOO_LITTLE : 'a check could not be judged'}`}`, ...(gate?.decision === 'inconclusive' ? gateRuleOf(gate) : {}) };
   if (result?.ok) {
     if (gate) return { ...item, kind: 'test', text: `Test passed · ${golden}: ${gateTally(gate)}`, ...gateRuleOf(gate) };
     const how = repeated ? tally(repeated) : judged?.length ? checksPassed(judged) : checks ? checks.text : d ? `forked at call ${d.callNo}` : `${f.summary.byOrigin.replayed}/${f.summary.total} replayed`;
@@ -661,6 +661,14 @@ function unpackGroups(runs: RunRecord[]): Array<{ at: number; runs: RunRecord[] 
   return groups;
 }
 
+/**
+ * A run another entry tells: blame's probes and verify's attempts are bundled under what made them, an
+ * error-path preset's attempt is told by its session's chaos.session event, a scoring attempt (tasks
+ * score) by its model.scored event, and an injection test's replay by its injection.tested event. The
+ * last two are a --repeat group too, and never told as one.
+ */
+const toldElsewhere = (m: RunRecord['meta']): boolean => !!(m?.probe || m?.verify || m?.chaos || m?.task || m?.injection);
+
 /** Every item the runs tell, as stubs: cheap to sort, rendered only for the page asked for. */
 function derived(store: StoreOf<'recording' | 'activity' | 'tests'>, runs: RunRecord[], covered: Set<string>): Stub[] {
   const stubs: Stub[] = [];
@@ -673,9 +681,7 @@ function derived(store: StoreOf<'recording' | 'activity' | 'tests'>, runs: RunRe
   for (const run of runs) {
     const m = run.meta;
     if (m?.blame && !covered.has(`blame:${run.runId}`)) stubs.push({ id: `r:${run.runId}:blame`, at: time(m.blame.at, run.endedAt ?? run.startedAt), render: () => blamed(run) });
-    if (m?.probe || m?.verify) continue; // bundled under the blame or verify that made them
-    if (m?.chaos) continue; // an error-path preset's attempt: its session's chaos.session event tells it
-    if (m?.task) continue; // a scoring attempt (tasks score): told by its model.scored event, not as a --repeat
+    if (toldElsewhere(m)) continue;
     if (m?.repeat) {
       const group = String(m.repeat.group);
       const list = groups.get(group) ?? [];

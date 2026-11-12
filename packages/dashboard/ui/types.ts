@@ -11,9 +11,14 @@ export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-
 export type { BlameStep, CandidateVerdict, FixActions, FixBundle, FixBundleAttempt, FixDetail, FixList, FixPr, FixRow, FixRung, FixRunRef, FixStep, RepairStep, StepKey, StepLine, StepState, VerifyMore, VerifyRow, VerifyStep } from '../src/fixes.js';
 export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fixes-view.js';
 export type { FixLead } from '../src/fix-lead.js';
+export type { BlameCrash } from '../src/fix-blame-step.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
-export type { InjectionRow, ToolTrustRow } from '../src/injection.js';
-export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';
+export type { InjectionRow, RunInjection, ToolTrustRow } from '../src/injection.js';
+// What a run's page draws of them: a result's panel (its matrix's reads, payloads and cells), an attempt's plant, a report's preview.
+export type { AttemptPlant, InjectionCellView, InjectionPanelView } from '../src/injection-view.js';
+export type { ReportPreview } from '../src/injection-report.js';
+export type { UntrustedView } from '../../engine/src/injection.js';
+export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport, ProofParts } from '../../engine/src/injection.js';
 export type { InjectionMark } from '../../engine/src/types.js';
 
 /**
@@ -211,8 +216,8 @@ export interface ProvenanceView {
   preloads?: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing: string | null; unguarded?: string | null } | null;
   calls?: { model: number; tool: number; other: number; scopes: number };
   upstream?: { requests: number; spent: number };
-  /** What a copy made now would mask: the rules that apply, and the values they hit in a pack (null when not counted, with why when it says; `busy` while it is yet to be counted), what only a copy that is read masks besides (`returned`), and what else they match that a pack leaves as it is (`unmasked`), each when there is any. */
-  mask?: { rules: number; values: number | null; returned?: number; unmasked?: number; why?: string; busy?: true } | null;
+  /** What a copy made now would mask: the rules that apply, and the values they hit in a pack (null when not counted, with why when it says; `busy` while it is yet to be counted), what only a copy that is read masks besides (`returned`), what else they match that a pack leaves as it is (`unmasked`), and the run's own canaries they would have masked, which a copy keeps and the count leaves out (`kept`), each when there is any. */
+  mask?: { rules: number; values: number | null; returned?: number; unmasked?: number; kept?: number; why?: string; busy?: true } | null;
   startedUtc?: string;
   endedUtc?: string | null;
   /** The run and the runs it came from, the recording first, each with its code version. */
@@ -383,6 +388,8 @@ export interface Meta {
   jobKinds?: string[];
   /** The most an upload may hold, in bytes; null when uploads are not possible. */
   uploadLimit?: number | null;
+  /** Open in editor: what it runs here (`code --goto <file>:<line>`); null or absent where it can't open one, as in an exported copy. */
+  editor?: string | null;
   /**
    * With several projects: its `id` in the list, its folder as the switcher shows it (`display`),
    * whether its setup is finished, why its store can't be opened (`problem`; `missing` when its
@@ -474,9 +481,10 @@ export interface StaticPayload {
 // ---- overview-runs: the Overview, the Runs page, imports and the team store -------------------
 // The server's own shapes, as its read models answer: nothing other parts of the API reshape.
 
-export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, LookStep, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
+export type { CacheMissRow, CacheUse, DaySums, FixesFunnel, LookAdvice, LookStep, NeedsLook, NeedsLookRow, OutcomeStrip, OverviewSummary, TestsTile, TodayPanel, WeekSums } from '../src/overview.js';
 export type { BulkSkip, ChipCounts, DayCount, DeleteResult, RunRow, RunsByDay, RunsPage, RunSort as ServerRunSort, RunType as ServerRunType } from '../src/runs-list.js';
 export type { DaysBisect, RunsPageRow } from '../src/routes/runs-list.js';
+export type { FailedCheck, Issue, IssueDetail, IssueKind, IssueRun, IssueRunsPage, IssuesPage } from '../src/issues.js';
 export type { TraceSourceView } from '../src/routes/imports.js';
 export type { TeamStoreStatus } from '../src/team-store.js';
 export type { ActivityIcon, ActivityItem, ActivityPage, UploadView } from '../src/views.js';
@@ -515,7 +523,8 @@ export interface LabelRunsResult {
 // ---- Tests (#/tests) and Settings → CI: the tests slice's read models, as the server sends them.
 
 /** `GET /api/tests`: the goldens on disk and how each did, with the reports as the CLI prints them. */
-export type { BisectChoices, BisectMiss, BisectRange, BisectRevision, DivergenceView, FailureView, FollowedGolden, FoundCommit, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, HistoryDrop, InconclusiveView, MoreAttempts, RevisionFact, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck, UntestedCommit } from '../src/tests.js';
+export type { BisectChoices, BisectRange, BisectRevision, DivergenceView, FailureView, FollowedGolden, GatePreview, GateResultView, GateView, GoldenCheck, GoldenRow, GoldenVerdict, HistoryCell, HistoryDrop, InconclusiveView, MoreAttempts, RevisionFact, SinceResult, TestRunBanner, TestsSessionView, TestsVerdict, TestsView, UnjudgedCheck, UntestedCommit } from '../src/tests.js';
+export type { BisectMiss, FoundChange, FoundCommit } from '../src/tests-bisect.js';
 /** `GET /api/tests/evidence`: a gated golden's attempts, each judged from its own run, and the words its evidence says why its gate stopped with. */
 export type { EvidenceAttempt, EvidenceWords, TestEvidence } from '../src/tests-evidence.js';
 /** `GET /api/tests/runs/:id`: what a run's page offers about a test replay, and Find breaking commit's choices. */

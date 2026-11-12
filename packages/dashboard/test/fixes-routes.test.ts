@@ -9,6 +9,7 @@ import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport
 import { fixBundles } from '../src/fixes.js';
 import { verifyMore } from '../src/fix-verify-step.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView, type ProjectConfig } from '../src/index.js';
+import { crashFixtures, MIN, source, T0 } from './crash-fixtures.js';
 
 /**
  * Fixes over HTTP: the list, a fix, its title, the bundles the Forks view shows, and the blame,
@@ -922,5 +923,25 @@ describe('what settles an unsettled fix', () => {
     expect((await job({ kind: 'blame', fixId: other.fixId, model: '--writes=allow' })).status).toBe(400);
     expect((await job({ kind: 'blame', fixId: other.fixId, again: true })).status).toBe(409);
     expect((await job({ kind: 'blame', fixId: fix.fixId, model: 'claude-opus-5-5' })).status).toBe(409);
+  });
+});
+
+describe('a crash’s fix, as GET /api/fixes/:id serves it', () => {
+  const crash = crashFixtures(() => store);
+
+  it('leads with Revert once Find breaking commit named the commit, its Blame step serving the commit with no author and its change’s file in the project', async () => {
+    const git = (...args: string[]) => spawnSync('git', args, { cwd: project, stdio: 'ignore' });
+    git('init', '-q');
+    mkdirSync(join(project, 'agent'));
+    writeFileSync(join(project, 'agent', 'refund.py'), 'def total(items):\n    log(items)\n    return sum(items)\n');
+    const { rec, fixId } = crash.blamed();
+    crash.named(T0 + 2 * MIN, { file: 'agent/refund.py', files: ['agent/refund.py'], hunk: '@@ -1,2 +1,3 @@\n def total(items):\n+    log(items)\n     return sum(items)', line: 2, merge: false });
+    await start({ goldens: () => [source(rec)] });
+    const res = await api(`fixes/${fixId}`);
+    expect(res.status).toBe(200);
+    const d = await json(res);
+    expect(d.lead).toMatchObject({ key: 'revert', label: 'Revert', step: { rev: 'ccccccc' } });
+    expect(d.blame.crash.commit).toMatchObject({ rev: 'ccccccc', subject: 'Log the total', author: '' });
+    expect(d.blame.crash.commit.change).toMatchObject({ file: 'agent/refund.py', path: 'agent/refund.py' });
   });
 });

@@ -44,7 +44,7 @@ function app(groups: FixAttemptGroups | null = null): AppState {
 
 async function open(fixId: string, step: string, groups: FixAttemptGroups | null = null): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app(groups) }, createElement(FixPage, { id: fixId, step, sub: null })));
-  await r.until('the fix to load', () => r!.all('h1').length === 1);
+  await r.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
   return r;
 }
 

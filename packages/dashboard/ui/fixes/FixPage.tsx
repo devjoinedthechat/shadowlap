@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { issueKey } from '../../src/issue-keys.js';
+import { issueClick } from '../runspage/open-issue.js';
 import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError } from '../api.js';
 import { tipCard } from '../components/HoverCard.js';
@@ -6,7 +8,9 @@ import { Link } from '../components/Link.js';
 import { Status } from '../components/Status.js';
 import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { headingRef } from '../focus-manager.js';
+import { PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
+import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { Elsewhere } from '../pages/held-elsewhere.js';
 import { APPLY_ASK } from '../page-ask.js';
@@ -23,14 +27,16 @@ import { rememberFix } from './data.js';
 import { blameNextAsk } from './BlameAgain.js';
 import { blameNextPrice, repairCard, useFixEstimates, verifyPrice } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
-import { appliedButton, blameNextStep, failingLine, fixAction, fixName, fixStamp, laterStamp, leadingVerdict, repairAside, shortFixId, stepFor } from './model.js';
+import { appliedButton, failingLine, fixAction, fixName, fixStamp, headBlameNext, laterStamp, leadingVerdict, repairAside, shortFixId, stepFor } from './model.js';
 import { FixStepper, REPAIR_SPENT, showPatchCard, useFitFixHead } from './head.js';
-import { failingCard, leadCard, rungStatus } from './list.js';
+import { failingCard, leadCard, rungStatus, STEP_NAMES } from './list.js';
 import { useFixRead, useFollowJobs } from './page-fix.js';
 import { FailedMust } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
-import { useTreeBusy } from './tree.js';
-import { verifyTip } from './lead.js';
+import { useServerJobs, useTreeBusy } from './tree.js';
+import { leadWait, verifyTip } from './lead.js';
+import { CrashStepButton } from '../revert/CrashStep.js';
+import { EditorButton } from '../revert/EditorButton.js';
 import { VerifyAsk } from './verify-asks.js';
 import { VerifyLeftButton, VerifyStepView } from './VerifyStep.js';
 
@@ -46,21 +52,19 @@ import { ActionButton } from '../components/ActionButton.js';
  * Run repair on an open fix, Apply fix on a verified one.
  */
 export function FixPage({ id, step, sub }: { id: string; step: string | null; sub: string | null }) {
-  const { client, tick, feeds } = useApp();
-  // Again when runs change, or fixes do (a title set in a terminal, a repair's report), each answer
-  // shared with what a job of the fix ends on in the drawer.
-  const loaded = useFixRead(client, id, `${tick}:${feeds.fixes ?? 0}`);
+  const { client, tick, feeds, jobs } = useApp();
+  // A search or a revert of this tab's running: once it ends, the crash's step it leads with moves on.
+  const crashJob = jobs.some((w) => !w.job.done && !w.lost && (w.job.kind === JOB_KINDS.bisect || w.job.kind === JOB_KINDS.revert));
+  // Again when runs change, or fixes do (a title set in a terminal, a repair's report), or such a job
+  // ends, each answer shared with what a job of the fix ends on in the drawer.
+  const loaded = useFixRead(client, id, `${tick}:${feeds.fixes ?? 0}:${crashJob}`);
   const fix = loaded.data;
   useEffect(() => {
     if (fix) rememberFix(fix, id);
   }, [fix, id]);
   useFollowJobs(id, fix);
   if (!fix) {
-    const loading = (
-      <Page>
-        <div className="empty tall">Loading the fix…</div>
-      </Page>
-    );
+    const loading = <FixWaiting id={id} failed={null} retry={loaded.reload} />;
     // Another project may hold it: a link from there, or a page left open across a switch.
     if (loaded.error instanceof ApiError && loaded.error.status === 404)
       return (
@@ -72,22 +76,13 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
           fallback={
             <>
               <Unshown at={`fixes:${id}`} />
-              <NotFoundPage what={`No fix ${id}.`} />
+              <NotFoundPage kind="fix" id={id} />
             </>
           }
         />
       );
     if (!loaded.error) return loading;
-    return (
-      <Page>
-        <div className="empty tall">
-          {`Could not load the fix: ${loaded.error.message}. `}
-          <a className="more" href={href.fixes()}>
-            All fixes
-          </a>
-        </div>
-      </Page>
-    );
+    return <FixWaiting id={id} failed={loaded.error} retry={loaded.reload} />;
   }
   const current = stepFor(fix, step);
   return (
@@ -95,6 +90,48 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
       <FixHeader fix={fix} reload={loaded.reload} shown={leadingVerdict(fix, step, sub)} />
       <FixStepper fix={fix} current={current} />
       {current === 'repair' ? <RepairStepView fix={fix} /> : current === 'verify' ? <VerifyStepView fix={fix} sub={sub} /> : <BlameStepView fix={fix} />}
+    </Page>
+  );
+}
+
+/** What the fix page's step is drawn as while it loads: its lines, as long as a step's run. */
+const SKEL_STEP = ['The call the run went wrong at, and why', 'What the repair changed, and the run that proves it', 'The check it must meet'];
+
+/**
+ * The fix page before its fix has come: `fix · <id>` over the id, until the fix names its title, then
+ * the three steps and the open one in their places as quiet bars; or, where the read failed, that
+ * header over the error line with Retry. Neither wears the fix's own classes (`.ph.fxh`, `.stepper`),
+ * which the tests read as the fix drawn.
+ */
+function FixWaiting({ id, failed, retry }: { id: string; failed: Error | null; retry: () => void }) {
+  return (
+    <Page busy={!failed}>
+      <PageHeader
+        eyebrow={
+          <>
+            fix · <code>{shortFixId(id)}</code>
+          </>
+        }
+        title={shortFixId(id)}
+      />
+      {failed ? (
+        <ErrorState retry={retry}>{failedRead(failed)}</ErrorState>
+      ) : (
+        <Skeleton what="the fix">
+          <div className="fxsks">
+            {Object.values(STEP_NAMES).map((name) => (
+              <div key={name}>
+                <span className="k">{name}</span>
+                <b>Find the call that went wrong</b>
+                <span className="m">Not started</span>
+              </div>
+            ))}
+          </div>
+          {SKEL_STEP.map((l) => (
+            <p key={l}>{l}</p>
+          ))}
+        </Skeleton>
+      )}
     </Page>
   );
 }
@@ -114,7 +151,7 @@ function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void;
   const [renaming, setRenaming] = useState(false);
   const head = useFitFixHead();
   const status = rungStatus(fix);
-  const card = failingCard({ failing: fix.failing, failingIds: fix.failingRuns.slice(0, 5).map((r) => shortId(r.runId)) });
+  const card = failingCard({ failing: fix.failing, failingIds: fix.failingRuns.slice(0, 5).map((r) => shortId(r.runId)), failedCheck: fix.failedCheck ?? null });
   const prNamed = fix.rung === 'merged' && fix.pr?.number != null;
   return (
     <div className="ph fxh" ref={head}>
@@ -128,7 +165,7 @@ function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void;
           <Status tone={status.tone}>{status.text}</Status>
           {GLUED_SEPARATOR}
           <span>
-            <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)}>
+            <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)} onClick={issueClick(issueKey.fix(fix.fixId))}>
               {failingLine(fix)}
             </Link>
           </span>
@@ -318,7 +355,7 @@ function OpenButtons({ fix, prices, lime, why, ask, shown }: ButtonsProps & { sh
   const repair = fix.actions.repair;
   const spent = !!repair?.spent;
   const aside = repairAside(fix);
-  const blameNext = spent ? null : blameNextStep(fix);
+  const blameNext = headBlameNext(fix);
   const left = spent && !shown && (lime?.key === 'more' || lime?.key === 'again') ? fix.verify.find((v) => v.verifyId === lime.verifyId) : undefined;
   const none = fixAction(fix);
   return (
@@ -346,7 +383,30 @@ function OpenButtons({ fix, prices, lime, why, ask, shown }: ButtonsProps & { sh
           ask={blameNextAsk(fix, blameNext.kind, blameNextPrice(blameNext.kind, prices))}
         />
       ) : null}
+      <CrashButtons fix={fix} lime={lime} />
       {left ? <VerdictNext fix={fix} v={left} prices={prices} /> : null}
+    </>
+  );
+}
+
+/**
+ * A crash's own step at the head's end, where the fix leads with it (fix-lead.ts): Find breaking
+ * commit, then, once that named the commit, Open in editor at the line the commit added and Revert,
+ * the page's lead, with the commit the Blame step shows. Find breaking commit is gone once the commit
+ * is named: the run's page keeps it, to search again. Each waits as its row on Fixes does.
+ */
+function CrashButtons({ fix, lime }: Pick<ButtonsProps, 'fix' | 'lime'>) {
+  const app = useApp();
+  const lead = fix.lead?.key === 'bisect' || fix.lead?.key === 'revert' ? fix.lead : null;
+  const jobs = useServerJobs(!!lead);
+  if (!lead) return null;
+  const leads = lime?.key === lead.key;
+  const why = app.actionsOff ?? leadWait(lead, { jobs, folder: app.meta?.project?.path ?? null, projectId: app.meta?.project?.id ?? null, hasKind: app.hasKind });
+  const found = fix.blame?.crash?.commit ?? null;
+  return (
+    <>
+      {lead.key === 'revert' ? <EditorButton change={found?.change} /> : null}
+      <CrashStepButton runId={lead.runId} step={lead.step} why={why} className={leads ? 'btn lime' : 'btn'} lead={leads} found={found} />
     </>
   );
 }

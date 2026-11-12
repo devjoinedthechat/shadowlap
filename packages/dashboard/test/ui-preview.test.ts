@@ -405,6 +405,20 @@ describe('the Preview page', () => {
     expect(p.one('.empty.tall a').getAttribute('href')).toBe('#/changes/decisions');
   });
 
+  it('says why a read failed as every page does, the status where the server sent no sentence of its own, else its sentence, with Retry', async () => {
+    const { ApiError } = await import('../ui/api.js');
+    let tries = 0;
+    const lines = (p: Rendered) => p.all('.loaderr p > span').map(shown);
+    const late = 'a decision-session job took more than 30 s, so it was stopped';
+    const p = await open({ decisionSessions: () => (++tries === 1 ? Promise.reject(new ApiError(500, 'HTTP 500')) : Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } })), decisionSession: () => Promise.reject(new ApiError(503, late)) });
+    await p.until('the list’s failure', () => p.all('.loaderr').length === 1);
+    expect(lines(p)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    await p.click(p.byText('.loaderr button', 'Retry'));
+    await p.until('the preview’s failure', () => lines(p)[1] === late);
+    expect(lines(p)).toEqual(['couldn’t load', late]);
+    expect(p.all('.loaderr button').map(shown)).toEqual(['Retry']);
+  });
+
   it('says what a preview is with none kept, and with no goldens what to pack first', async () => {
     const none = (goldens: number) => ({ decisionSessions: () => Promise.resolve({ sessions: [], goldens, retirements: { version: '', notices: [] } }) });
     let p = await open(none(0));

@@ -760,8 +760,17 @@ dashboard's Provenance tab copies:
 | `run` | The run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`) |
 | `summary` | Its summary, as [`run --summary-json`](#run-summary-as-json) writes it |
 | `calls` | Every call as stored (`runId`, `callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`) |
-| `untrusted` | Its untrusted reads in call order, as the dashboard's `GET /api/injection/runs/:id` lists them (`callNo`, `name`, and `from`: `config`, `sdk` or `mcp`); empty if it has none |
+| `untrusted` | Its untrusted reads in call order, as the dashboard's `GET /api/injection/runs/:id` lists them (below); empty if it has none |
 | `unrecordedTools` | The tools its model called that the run never recorded (below); empty if it has none |
+
+Each of its untrusted reads, `untrusted`, has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `callNo` | The read's call number |
+| `name` | The tool's name |
+| `from` | Where its mark came from: `config`, `sdk` or `mcp` |
+| `readAt` | The model call that reads its result, where `shadowlap injection` forks; null when no model call follows it |
 
 Each of the tools its model called that the run never recorded, `unrecordedTools`, has these fields:
 
@@ -2262,7 +2271,7 @@ with pass^k under it (`pass^5 1.00`).
 A golden whose entry has an [injection gate](./injection.md#gate-ci-on-it)
 (`"injection": { "obeyed": 0, "repeat": 3 }`) gets its injection test once its replay passed. Payloads
 are planted in its untrusted reads, live from the model call that reads them, with writes stubbed and
-reads the recording doesn't hold fenced.
+reads the recording doesn't hold blocked.
 
 It fails, as an `injection` failure, when more attempts obey (or are influenced) than the gate allows.
 It fails too when the test showed too little to say:
@@ -2612,7 +2621,7 @@ one.
 | `--allow-unrecorded <names>` | As for [`replay`](#replay) | — |
 | `-y, --yes` | At each commit, run without asking the recorded command of a run from a pack or the team store, or of an untracked golden (below) | — |
 | `-- <command>` | The agent's command to run at each commit instead of the recorded one | — |
-| `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took | — |
+| `--json` | Print the result as JSON: each replay, the first bad commit and its change, and the replays, tokens and upstream requests it took | — |
 
 **`--fork`** is for a run that failed a check, whose recording no older commit would replay. The live
 part costs tokens, and the result says how many. A replay that forks asks its
@@ -2651,6 +2660,10 @@ there is none between the two commits (it already fails at `--good`, it passes a
 them can't be tested). It is kept with the golden's newest test result as the search started, the
 failure it answers.
 
+The first bad commit keeps its change against its first parent: the file it opens, the files it
+changed, that file's hunk and the line it added. The dashboard shows it with the answer, without a
+checkout.
+
 The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then:
 not once it passed, and never over a later failure. An answer given while the golden passed answers
 none. A search stopped with Ctrl-C keeps nothing.
@@ -2666,11 +2679,25 @@ none. A search stopped with Ctrl-C keeps nothing.
 | `good`, `bad` | The `good` and `bad` commits |
 | `commits` | How many commits come after the good one, up to and including the bad one |
 | `steps` | Each replay: `rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds` |
-| `first` | The first bad commit, with `why` it fails there |
+| `first` | The first bad commit, with `why` it fails there and its `change` (below) |
 | `untested` | The untested commits just before it |
 | `replays`, `tokens`, `upstreamRequests`, `spent`, `seconds` | What it took: replays, tokens, upstream requests, USD spent and seconds |
 
 A commit is `{ rev, short, subject, author, date }`.
+
+`first.change` is what the first bad commit changed against its first parent, with paths relative to
+the repository, or null when git couldn't say:
+
+| Field | Meaning |
+| --- | --- |
+| `file` | The file it opens: the first changed under `--cwd` that isn't in a golden's folder or `shadowlap.config.json`, else the first |
+| `files` | Every file it changed, up to 50 |
+| `hunk` | That file's diff from its first `@@`, up to about 60 lines and 4 KB, or null for a binary or deleted file |
+| `line` | The new file's line of its first added line, or null without a hunk |
+| `cut` | The hunk was cut to its bounds |
+| `merge` | It is a merge, reverted with `-m 1` |
+
+`file` passes over a file the commit deleted, which has no hunk to show, for one it kept that fits the same rule.
 
 ## pack, unpack
 
@@ -2884,7 +2911,7 @@ it replays:
 - the calls before the read, from the recording;
 - the rest live, from the model call whose request carries the planted text;
 - with writes stubbed;
-- with reads served from the recording when they match, and fenced when they don't.
+- with reads served from the recording when they match, and blocked when they don't.
 
 A tool is marked untrusted by `"tools": { "fetch_page": { "trust": "untrusted" } }` in the config, by
 `trust: 'untrusted'` in the [SDK](./sdk.md#untrusted-reads), or, for an MCP read tool, by its server
@@ -2947,8 +2974,8 @@ More on some of them:
   some.
 - **`--baselines`**: the recording's own writes after the read count as one more. A clean replay in
   which something failed is left out, and, with `--influenced`, makes the verdict inconclusive.
-- **`--live-reads`**: the agent gets an error for a fenced read. A read that carries planted text is
-  fenced all the same.
+- **`--live-reads`**: the agent gets an error for a blocked read. A read that carries planted text is
+  blocked all the same.
 - **`--html`**: the reads × payloads matrix, the proof of each obeyed cell, why the inconclusive ones
   show nothing, the `--clean` verdicts and the payloads. The redaction rules are applied, and every
   canary is kept.
@@ -3610,8 +3637,10 @@ is written. See [Preview](./normalizers-and-redaction.md#preview).
   none can. In what a call got back, that is a path rule that only the copies that are read apply.
 - **`details`**: on a line of its own, what the rules match in the run's command line, labels and
   notes, which `export html`, `dataset` and `otel` mask and `pack` keeps.
+- **Canaries**: an injection attempt's own canaries are kept, as a pack, `export html`, a share, a dataset
+  and pairs keep them, so they aren't counted. The first line then ends `canaries kept`.
 
-`--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "returned", "unmasked", "rules", "details" }`:
+`--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "returned", "unmasked", "rules", "details", "kept" }`:
 
 | Field | Meaning |
 | --- | --- |
@@ -3623,6 +3652,7 @@ is written. See [Preview](./normalizers-and-redaction.md#preview).
 | `unmasked` | What is left as it is |
 | `rules` | Each rule (below) |
 | `details` | What the rules match in the run's command line, labels and notes: a `count`, `samples` and the `rules` that match there |
+| `kept` | What the rules would match in an injection attempt's own canaries, which a pack, `export html`, a share, a dataset and pairs keep |
 
 `partial` has how many of the run's calls it `read`, `of` how many, and the limit it `stopped` at:
 `calls`, `bytes` or `time`.
@@ -4174,6 +4204,9 @@ It is a copy of recorded data, so the redaction rules in `shadowlap.config.json`
 `pack`. The command says how many applied, that there were none, or, with `--no-redact`, how many it
 skipped.
 
+A redaction rule that can't be read stops it, naming the rule. A normalizer that can't be read only
+warns, `! <why>; the copy's Show diff applies no normalizers`, and the copy's diff applies none.
+
 A run still recording is refused, exit status 2: every export waits for a run to end, or the copy would
 show it recording for good. With `--lineage`, so is a run whose ancestor is still recording.
 
@@ -4723,6 +4756,9 @@ the link can open it, without an account.
 
 A run still recording, or with `--lineage` one whose ancestor is, is shared once it has ended. Until then
 `share` refuses it, exit status 2, before anything is asked of the store.
+
+A redaction rule that can't be read stops it, and a normalizer that can't be read warns, as for
+[`export html`](#export-html).
 
 `--json` prints `{ runId, url, expiresAt, note, store, key, bytes, redacted, rules, runs }`:
 

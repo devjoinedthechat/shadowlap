@@ -113,7 +113,7 @@ body.docked .bulkbar { bottom: calc(44px + var(--dock-h)); }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } .toast.out { transition: none; } }
 
 /* what waits and is no button of its own style (a row's fork icon, a segment, a label's ×): half strength, its card saying why */
-[data-why][aria-disabled="true"]:not(.btn, .linkbtn, .rk, .switch, .pop button) { opacity: .5; cursor: not-allowed; }
+[data-why][aria-disabled="true"]:not(.btn, .linkbtn, .rk, .switch, .pop button, .adis) { opacity: .5; cursor: not-allowed; }
 
 /* The offline bar is a plain row under the top bar, a hairline under it, its amber dot and its words saying what is paused. It
    sits inside the app's grid (#conn adds no box of its own), in its flow at every width: over the page beside the sidebar on a

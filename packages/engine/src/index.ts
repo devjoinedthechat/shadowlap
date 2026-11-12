@@ -27,7 +27,7 @@ export type { SqlValue } from './store.js';
 export type { QueuedWrites } from './store.js';
 export { ulidNow } from './store/core.js';
 export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
-export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
+export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, checkKey, cleanTitle, coversCheck, fixAmong, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
 // A run by its full id or the unique prefix the CLI prints, for the dashboard's routes and the fix jobs.
 export { lookupRun } from './run-lookup.js';
@@ -247,6 +247,7 @@ export { fixVerifyHead, goldensPassed, openRunWhy, outcomeCounts, runOutcomeWord
 export { CLEARED, changePct, endToEndWords, tallyCount, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, type VerifiedTally } from './verified-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
+export { UNTESTED_WORDS } from './bisect-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,
 // and the most characters one takes, as a judge's name in a check does.
 export { asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, type GoldenNameProblem } from './golden-names.js';
@@ -257,9 +258,11 @@ export type { FieldRetirement, ModelRetirement, RetirementNotice, RetirementPlat
 export type { DecisionRunRow, DecisionSessionRow, MigrationApplied, NewDecisionSession } from './store.js';
 // Injection tests: trust, payloads and their canaries, what an attempt wrote, and --clean's neutral
 // result (shadowlap injection, and the dashboard's read model of its results).
-export { DEFAULT_BASELINES, INJECTION_CHECK, INJECTION_VERDICTS, PAYLOAD_LIMITS, atPath, canaryIn, carriesMark, cleanBound, cleanDecided, cleanRule, configuredTrust, describeIdentifiers, displayPath, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, keepingCanaries, neutralResult, newCanary, normalizedArgs, noVerdicts, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, proofLine, selectTemplates, strongestVerdict, templatePayload, trustOf, unexplainedWrites, untrustedReads, writeBaseline, writeRecurs } from './injection.js';
-export type { Canary, CanaryForm, CanaryHit, InjectionEntry, InjectionVerdict, Payload, PayloadShape, PayloadTemplate, TemplateSet, ToolTrust, TrustSource, UntrustedRead, VerdictCounts, WriteBaseline, WriteSeen } from './injection.js';
-export type { AttemptReport, BaselineReport, CauseVerdict, CellReport, CleanAttemptReport, CleanReport, CleanWriteReport, CostReport, Evidence, GateReport, InjectionReport, Limits, PayloadReport, PlantReport, ReadReport } from './injection.js';
+export { DEFAULT_BASELINES, INJECTION_CHECK, INJECTION_VERDICTS, PAYLOAD_LIMITS, atPath, baselineWrites, canaryIn, carriesMark, cleanBound, cleanDecided, cleanRule, configuredTrust, describeIdentifiers, displayPath, fillPayload, findCanary, goneWrites, hasCanary, identifiersOf, injectionTemplates, isWrite, keepingCanaries, keepingRunCanaries, neutralResult, newCanary, normalizedArgs, noVerdicts, parseInjectionEntry, parsePayloads, parseToolTrust, plantMarks, previewKeepingCanaries, proofLine, proofParts, selectTemplates, strongestVerdict, templatePayload, trustOf, unexplainedWrites, untrustedReads, untrustedView, writeBaseline, writeRecurs, writesFrom } from './injection.js';
+export type { Canary, CanaryForm, CanaryHit, InjectionEntry, InjectionVerdict, Payload, PayloadShape, PayloadTemplate, TemplateSet, ToolTrust, TrustSource, UntrustedRead, UntrustedView, VerdictCounts, WriteBaseline, WriteSeen } from './injection.js';
+export { baselineWritesWords, EVERY_WRITE_AGAIN, GATE_TOO_LITTLE, goneWords, injectionCountParts, injectionCountsLine, injectionTally, TRUST_FROM } from './trust-words.js';
+export type { AttemptCounts, CountStyle } from './trust-words.js';
+export type { AttemptReport, BaselineReport, CauseVerdict, CellReport, CleanAttemptReport, CleanReport, CleanWriteReport, CostReport, Evidence, GateReport, InjectionReport, Limits, PayloadReport, PlantReport, ProofParts, ReadReport } from './injection.js';
 export type { InjectionGateData, StoredInjectionResult } from './store.js';
 // Production coverage: imported runs grouped by behaviour (path, writes, outcome), and the goldens that cover each.
 export { GROUP_RUN_IDS, GROUP_SOURCES, OUTCOME_WORDS, behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, hasPlaceholder, inferCommand, nearestGolden, requestMessage, runBehaviour, sharedSteps, storeEffects, strongest } from './coverage.js';
@@ -278,7 +281,7 @@ export { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES
 export { BLAME_SCAN, blameBound, blameEstimate, blameRules, blameSteps, probedCalls, probedInScope, type BlameBound, type BlameEstimateOptions, type BlameRule, type BlameRules } from './estimates/blame.js';
 export { keptMaxOf, lastVerify, VERIFY_LIVE, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type LastVerify, type VerifyEstimateOptions, type VerifyLimits, type VerifyRule, type VerifyRunCost } from './estimates/verify.js';
 export { REPAIR_CANDIDATES, REPAIR_VERIFIES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, wholeRun, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
-export { bisectCommits, bisectEstimate, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
+export { bisectCommits, bisectEstimate, goldenLiveParts, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
 export { CLEAN_GATE, causeEstimate, GATE_REPEAT, injectionAgainEstimate, injectionEstimate, injectionGateEstimate, presetsEstimate, type InjectionPlan } from './estimates/injection.js';
 export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, otherFamilyWords, previewAsks, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';
 export { askedInScope, defaultFrom, modelUse, type ModelUse } from './switch-from.js';

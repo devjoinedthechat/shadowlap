@@ -12,8 +12,11 @@ export type Lead =
   | { kind: 'normalize'; label: string; d: DivergenceView; n: NonNullable<DivergenceButtons['normalize']> }
   | { kind: 'update'; label: string; golden: string; judge: readonly string[] | null }
   | { kind: 'bisect'; label: string; f: DivergenceView | FailureView }
+  | { kind: 'revert'; label: string; step: Extract<NextStep, { key: 'revert' }>; f: FailureView }
   | { kind: 'more'; label: string; v: InconclusiveView; more: MoreAttempts }
   | { kind: 'fix'; label: string; href: string; title: string | null; check: string }
+  | { kind: 'proof'; label: string; href: string; title: string | null; sub: string | null }
+  | { kind: 'again'; label: string; golden: string; name: string; sub: string | null }
   | { kind: 'blame'; runId: string; step: Extract<NextStep, { key: 'blame' }> };
 
 /** The golden whose step leads, and that step as the server sent it; null without one. */
@@ -27,6 +30,8 @@ export function leadStep(view: Pick<TestsView, 'verdict' | 'steps' | 'divergence
   const step = whole ? null : leadingStep(view);
   if (!step) return null;
   if (step.key === 'fix') return step.href ? { kind: 'fix', label: step.label, href: step.href, title: step.title ?? null, check: step.check } : null;
+  // An injection gate that failed: the attempt that proves it, at the call that carried the canary.
+  if (step.key === 'injection-proof') return step.href ? { kind: 'proof', label: step.label, href: step.href, title: step.title ?? null, sub: step.sub ?? null } : null;
   if (step.key === 'blame') {
     const runId = view.verdict?.first?.runId;
     return runId && has('blame') ? { kind: 'blame', runId, step } : null;
@@ -51,8 +56,16 @@ function goldenLead(view: Pick<TestsView, 'divergences' | 'failures' | 'inconclu
       const report = d ?? view.failures.find((x) => x.golden === golden);
       return report && findCommitButton(report, has) ? { kind: 'bisect', label, f: report } : null;
     }
+    // A crash, its first bad commit named: only a failure crashes (its agent exited with an error).
+    case 'revert': {
+      const f = view.failures.find((x) => x.golden === golden);
+      return f && has('revert') ? { kind: 'revert', label, step, f } : null;
+    }
     case 'more-attempts':
       return v?.gate?.more && has('test') ? { kind: 'more', label, v, more: v.gate.more } : null;
+    // An injection gate that showed too little to say: its test again, which plants its payloads again.
+    case 'gate-again':
+      return has('test') ? { kind: 'again', label, golden, name: v?.name ?? golden, sub: step.sub ?? null } : null;
     default:
       return null;
   }

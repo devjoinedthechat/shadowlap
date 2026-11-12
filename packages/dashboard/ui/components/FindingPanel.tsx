@@ -1,6 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
 import type { Matrix } from '../matrix.js';
-import { closePanelOn, openResults, usePanel } from '../run/panel-state.js';
 import { LoadFailed } from './bits.js';
 import { Command } from './Copy.js';
 import { DotParts } from './DotParts.js';
@@ -22,7 +21,8 @@ export const MATRIX_STATES = { waiting: <Skeleton what="the results" lines={4} /
 
 /**
  * The results matrix, a part of its own: its script loads the first time it shows, or as the pointer
- * or the focus reaches Show results. Exported for Tests, which draws a golden's presets through it.
+ * or the focus reaches Show results (ResultsToggle.tsx, whose `preload` the page hands it). Exported
+ * for Tests, which draws a golden's presets through it.
  */
 export const ResultsMatrixPart = onShow(() => import('./ResultsMatrix.js').then((m) => m.ResultsMatrix), MATRIX_STATES);
 
@@ -81,21 +81,5 @@ export function FindingPanel({ kind, name, label, meta, cmd, matrix, none, keys,
       {parts.length ? <PartsLine parts={parts} /> : null}
       <Receipt lines={receipt} />
     </section>
-  );
-}
-
-/**
- * A finding's Show results, Hide results once they are open: they take the inspector's place on the
- * run's page (`which` names them there: `injection:<result id>`, `presets`), and the focus stays on it.
- * Its matrix's script loads as the pointer or the focus reaches it, so it shows at once.
- */
-export function ResultsToggle({ runId, which }: { runId: string; which: string }) {
-  const panel = usePanel(runId);
-  const open = panel?.kind === 'results' && panel.key === which;
-  const preload = () => ResultsMatrixPart.preload();
-  return (
-    <button className="linkbtn" type="button" data-act="results" data-which={which} aria-expanded={open} aria-controls="insp" onPointerEnter={preload} onFocus={preload} onClick={() => (open ? closePanelOn(runId) : openResults(runId, which))}>
-      {open ? 'Hide results' : 'Show results'}
-    </button>
   );
 }

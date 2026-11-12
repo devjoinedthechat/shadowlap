@@ -1,5 +1,6 @@
 import { setOwn } from './canonical.js';
 import { cloneExact, isRawNumber } from './json-exact.js';
+import { keptWhole, patternFor } from './kept-canaries.js';
 import { patternProblem, textSize, withinPatternBudget } from './safe-regex.js';
 import type { CallKind, Normalizer } from './types.js';
 
@@ -31,12 +32,12 @@ export function namedPatterns(): string[] {
  */
 export function compilePattern(pattern: string): RegExp {
   const named = NAMED_PATTERNS[pattern];
-  if (named) return new RegExp(named.source, named.flags);
+  if (named) return patternFor(named.source, named.flags);
   const problem = patternProblem(pattern, namedPatterns());
   if (problem) throw new Error(problem);
   const m = /^\/(.*)\/([a-z]*)$/s.exec(pattern)!;
   const flags = m[2]!.includes('g') ? m[2]! : m[2]! + 'g';
-  return new RegExp(m[1]!, flags);
+  return patternFor(m[1]!, flags);
 }
 
 export function parsePath(path: string): Segment[] {
@@ -304,8 +305,10 @@ export function countMatches(text: string, regex: RegExp): number {
 
 function rewriteLeaf(leaf: unknown, regex: RegExp | null, replace: string, onChange?: (before: unknown, after: unknown, count: number) => void): unknown {
   if (regex === null) {
-    if (onChange && leaf !== replace) onChange(leaf, replace, 1);
-    return replace;
+    // A copy that keeps canaries keeps those the value held (keptWhole).
+    const out = keptWhole(leaf, replace);
+    if (onChange && leaf !== out) onChange(leaf, out, 1);
+    return out;
   }
   if (typeof leaf !== 'string') return leaf;
   regex.lastIndex = 0;

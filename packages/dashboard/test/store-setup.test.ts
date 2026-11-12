@@ -198,7 +198,7 @@ describe('the setup page', () => {
     expect(parseRoute('#/setup/store/more')).toEqual({ page: 'setup' });
     const noRuns = { exported: false, meta: null, runs: [] };
     expect(setupShowsOn({ page: 'store-setup' }, noRuns)).toBe(false);
-    expect(setupShowsOn({ page: 'runs' }, noRuns)).toBe(true);
+    expect(setupShowsOn({ page: 'overview' }, noRuns)).toBe(true);
   });
 
   it('names the next step, each unlocking the next', () => {

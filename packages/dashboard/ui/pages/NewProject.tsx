@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { CmdLine, PageHeader } from '../components/bits.js';
+import { PageHeader } from '../components/bits.js';
+import { EmptyState } from '../components/States.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
 import { ACTIONS, confirmWords } from '../labels.js';
@@ -69,11 +70,7 @@ export function NewProjectPage() {
     return (
       <Page>
         <PageHeader eyebrow="projects" title={confirmWords(ACTIONS.addProject.label)} text="A project is a folder with your agent’s code, and it keeps its own store." />
-        <section className="panel stepempty">
-          <h3>Start the dashboard in that folder</h3>
-          <p>This dashboard serves one store: start one with shadowlap dashboard to add and switch projects.</p>
-          <CmdLine>{'cd <folder> && shadowlap dashboard'}</CmdLine>
-        </section>
+        <EmptyState title="Start the dashboard in that folder" text="This dashboard serves one store: start one with shadowlap dashboard to add and switch projects." command="cd <folder> && shadowlap dashboard" />
       </Page>
     );
 
@@ -103,7 +100,7 @@ export function NewProjectPage() {
     <Page>
       <PageHeader eyebrow="projects" title={view?.title ?? confirmWords(ACTIONS.addProject.label)} text={view?.intro ?? 'Pick the folder your agent’s code is in. Nothing runs until you click.'} />
       <div className="newgrid">
-        <section className="panel">
+        <section className="panel sec">
           <div className="pbody">
             <label className="pathin">
               <span className="k">{view?.field.label ?? 'Folder'}</span>
@@ -178,7 +175,7 @@ export function NewProjectPage() {
             </ActionButton>
           </footer>
         </section>
-        <section className="panel nextsteps">
+        <section className="panel sec nextsteps">
           <header>
             <h2>{next?.title ?? 'What happens next'}</h2>
           </header>

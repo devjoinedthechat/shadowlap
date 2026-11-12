@@ -173,7 +173,7 @@ function server(total: number, first: number, o: { failed: boolean; failAt: numb
     offers: () => Promise.resolve(null),
     runChaos: () => Promise.resolve(null),
     forkDifferences: () => Promise.resolve(null),
-    unrecorded: () => Promise.resolve(null),
+    injectionRun: () => Promise.resolve({ untrusted: [], results: [], attempt: null }), injectionResults: () => Promise.resolve({ results: [] }), unrecorded: () => Promise.resolve(null),
     lineage: () => Promise.resolve([]),
     // Run blame on a failed run's banner waits for any job that holds the working tree.
     jobs: () => Promise.resolve([]),
