@@ -1313,7 +1313,7 @@ repairer from here (`claude` isn't on the PATH).
 | `broken` | For an applied fix that doesn't hold, why: its test failed, or a verify rejected it after it was applied |
 | `failingRuns`, `goodRuns` | The runs, each with `runId`, `exists` (false once deleted from the store), `status` and `labels` |
 | `left` | The `failing` and `good` run ids a check given later left out (see [`fix check`](#fix-check)) |
-| `guard` | The golden that guards it, as its key under `tests` names it, or `null` (below) |
+| `guard`, `fixedRun` | The golden that guards it, as its key under `tests` names it, and a run to pack as one; each `null` for none (below) |
 | `steps` | Blame, repair and verify (below) |
 | `blame`, `repair`, `verify` | Each step in full (below) |
 | `blames`, `repairs` | Every blame and repair behind the fix, newest first (below) |
@@ -1336,6 +1336,8 @@ The fix's own fields:
 - `source` says where it came from, such as `from CI · PR #138`.
 - `guard` is the golden a failing run of it replayed, else one that applying it copied and the
   goldens folder still holds. A verified fix with none is usually one to apply first.
+- `fixedRun` is a recording of it working, to pack as that golden: the first passing attempt of its
+  accepted verdict on its first failing run. It is `null` without an accepted verdict that counts.
 
 `steps` holds blame, repair and verify, each with `state` (`done`, `todo`, `no` for a verify that
 only rejected, or `warn` for a step that ran and needs a look), a `title`, a `meta` line and a `short`
