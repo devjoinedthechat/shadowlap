@@ -27,9 +27,9 @@ const runs = (d: Record<string, unknown>) => `${Number(d.runs) || 0} run${Number
 /** A preview by its name, lower-cased to run on in a sentence (`model switch to claude-haiku-4-5`), else its change in words. */
 const previewName = (d: Record<string, unknown>) => (typeof d.name === 'string' && d.name ? `${d.name.charAt(0).toLowerCase()}${d.name.slice(1)}` : typeof d.change === 'string' ? d.change : 'a change');
 const flagged = (d: Record<string, unknown>) => (Number(d.flagged) ? ` · ${Number(d.flagged)} with a write, stop or judged change` : '');
-/** The labels an event names, as text. */
 /** A migration's event opens its report, when its ref is the migration's id. */
 const migrationAt = (e: StoredEvent): { href?: string } => (e.ref && MIGRATE_ID.test(e.ref) ? { href: links.changeSession('migrate', e.ref) } : {});
+/** The labels an event names, as text. */
 const labels = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [

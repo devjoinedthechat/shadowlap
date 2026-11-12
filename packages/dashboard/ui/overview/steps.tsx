@@ -36,8 +36,6 @@ import { updatePlan } from '../update-plan.js';
  * Overview's script holds none of a fix's page.
  */
 
-
-
 /** What a step bills: undefined until its estimate comes, null for none. */
 type Price = Estimate | null | undefined;
 
