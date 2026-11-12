@@ -9,6 +9,7 @@ import type { Price } from '../prices.js';
 import type { Store } from '../store.js';
 import type { CallRecord, Normalizer, RunRecord } from '../types.js';
 import type { VerifyRole } from '../verify.js';
+import { NO_OUTPUT_KEPT } from './labels.js';
 import { evaluateChecks, notJudgedWhy, storedCheckInput, type EvaluateOptions, type JudgeCheckVerdict } from './evaluate.js';
 import { hasChecks, judgeChecksOf, readsOutput, withoutOutput, type CheckResult, type ExpectSpec, type JudgeCheck, type TestSpec } from './grammar.js';
 
@@ -127,8 +128,7 @@ export function recordedVerdicts(store: Store, calls: readonly CallRecord[], jud
 /** Why a recording can't settle checks that read what the agent printed (`judgeRecording`'s `unsettled`). */
 export const READS_OUTPUT = "a check reads what the agent printed, which a recording doesn't keep";
 
-/** What a check on what the agent printed says of a recording, which keeps none: it can't be decided. */
-export const NO_OUTPUT_KEPT = 'a recording keeps no output';
+export { NO_OUTPUT_KEPT };
 
 /** A spec's checks on what the agent printed alone, under the `when` rules that hold them: what `withoutOutput` leaves out. */
 function outputPart(spec: ExpectSpec): ExpectSpec {

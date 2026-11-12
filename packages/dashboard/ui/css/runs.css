@@ -225,3 +225,53 @@ table.runst.tight td.stcell .st i { flex: none; transform: translateY(-1px); }
   .cal button.cd:hover { outline-color: CanvasText; }
   .cal button.cd:focus-visible { outline-color: Highlight; }
 }
+
+/* Failed, as issues (runspage/IssuesTable.tsx): a row an issue, its title the link to it, its runs under it on request; the
+   row itself stays still, as a row whose parts each go somewhere of their own */
+table.issues tr.still { cursor: default; }
+table.issues tr.still:hover td { background: none; }
+table.issues .isw { width: 100%; max-width: 1px; }
+.tscroll table.issues td.isw { white-space: normal; }
+table.issues .it { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+table.issues .it .ic { flex: none; transform: translateY(2px); }
+table.issues .it a { font-weight: 500; color: var(--ink); text-decoration: none; }
+table.issues .it a:hover { text-decoration: underline; text-underline-offset: 3px; }
+table.issues .it code.gn { font: 500 12.5px var(--mono); }
+table.issues .rsub { display: block; padding-left: 24px; }
+table.issues .xbtn.isn { width: auto; gap: 5px; padding: 0 6px; margin-right: -6px; display: inline-flex; align-items: center; font: 500 12.5px var(--mono); color: var(--ink); }
+table.issues td.isfix { white-space: nowrap; }
+/* the fix's status at the column's start, its step at the end, so the steps line up down the table */
+table.issues .isfx { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+table.issues .isst { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; }
+table.issues .isnb { font-size: 12.5px; color: var(--faint); }
+/* what the count and the time are, said on a phone only, where the column heads aren't */
+table.issues .phw { display: none; }
+.isruns { display: flex; flex-direction: column; padding: 0 0 6px 24px; }
+.isr { display: grid; grid-template-columns: 14px auto minmax(0, 1fr) auto 48px; gap: 12px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); color: var(--dim); font-size: 12.5px; text-decoration: none; }
+.isr:first-child { border-top: 0; }
+.isr:hover { background: var(--hover); box-shadow: -12px 0 0 var(--hover), 12px 0 0 var(--hover); }
+.isr code { font: 500 12.5px var(--mono); color: var(--ink); }
+.isr .rab { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.isr .w { font: 11px var(--mono); color: var(--faint); text-align: right; }
+.isruns .attn-more { align-self: flex-start; }
+/* where its read carried the count alone: the loading line, or why its runs couldn't be read, in the runs' place */
+.isruns > .empty { padding: 7px 0; text-align: left; font-size: 12.5px; }
+.isruns > .loaderr { margin: 0; padding: 8px 0; border-top: 0; }
+/* on a phone an issue is a block: its title and line, then its runs, when last seen and its step on one line; the
+   status waits for a wider screen */
+@media (max-width: 640px) {
+  .isr { grid-template-columns: 14px auto minmax(0, 1fr) 48px; }
+  .isr .st { display: none; }
+  table.issues thead { display: none; }
+  .tscroll table.issues, table.issues tbody { display: block; width: 100%; min-width: 0; }
+  table.issues tr.iss { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; column-gap: 14px; row-gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  table.issues tr.iss > td { display: block; width: auto; max-width: none; padding: 0; border: 0; }
+  table.issues td.isw { grid-column: 1 / -1; }
+  table.issues tr.iss > td.hide-sm { display: none; }
+  table.issues td.isfix { justify-self: end; }
+  table.issues .isfx .isst { display: none; }
+  table.issues .phw { display: inline; }
+  table.issues .rsub { padding-left: 24px; white-space: normal; }
+  table.issues tr.sub { display: block; }
+  table.issues tr.sub > td { display: block; padding: 0; border: 0; }
+}

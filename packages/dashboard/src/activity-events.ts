@@ -1,11 +1,11 @@
-import { ACTIONS, confirmWords, type StoredEvent } from '@shadowlap/engine';
+import { ACTIONS, confirmWords, DECISIONS_ID, goldenWords, type StoredEvent } from '@shadowlap/engine';
 import type { ActivityIcon } from './views.js';
 import { links } from './links.js';
 
 /**
  * How the activity feed words the events a feature's own routes start: previews of a change and
- * migrations, error-path presets, coverage, injection tests, and a Find breaking commit that named no
- * commit. They live here, beside the feed (activity.ts spreads them into its table), not in their
+ * migrations, error-path presets, coverage, injection tests, a Find breaking commit that named no
+ * commit, and a golden's checks changed in the check builder. They live here, beside the feed (activity.ts spreads them into its table), not in their
  * route modules: the feed is read on a read-model thread, which loads no route module, so a
  * describer registered from one never reached it, and those events read as their bare kind there.
  */
@@ -27,11 +27,21 @@ const runs = (d: Record<string, unknown>) => `${Number(d.runs) || 0} run${Number
 /** A preview by its name, lower-cased to run on in a sentence (`model switch to claude-haiku-4-5`), else its change in words. */
 const previewName = (d: Record<string, unknown>) => (typeof d.name === 'string' && d.name ? `${d.name.charAt(0).toLowerCase()}${d.name.slice(1)}` : typeof d.change === 'string' ? d.change : 'a change');
 const flagged = (d: Record<string, unknown>) => (Number(d.flagged) ? ` · ${Number(d.flagged)} with a write, stop or judged change` : '');
+/** The labels an event names, as text. */
+const labels = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
-  // A session of `shadowlap decisions` or `migrate` (the Changes page opens one), by its name; one
-  // kept before events had a name, by its change. One that settled nothing says why, as its page does.
-  ['decisions.done', (_e, d) => (typeof d.why === 'string' && d.why ? { kind: 'fork', outcome: 'warn', text: `Preview inconclusive · ${previewName(d)} on ${runs(d)} · ${d.why}` } : { kind: 'fork', text: `Previewed ${previewName(d)} on ${runs(d)}${flagged(d)}` })],
+  // A session of `shadowlap decisions` or `migrate`, by its name; one kept before events had a name,
+  // by its change. One that settled nothing says why, as its page does. A preview opens on its tab
+  // under Changes, at its session; a migration, its run if it has one, until its tab lands.
+  [
+    'decisions.done',
+    (e, d) => {
+      const at = e.ref && DECISIONS_ID.test(e.ref) ? { href: links.changeSession('decisions', e.ref) } : {};
+      if (typeof d.why === 'string' && d.why) return { kind: 'fork', outcome: 'warn', text: `Preview inconclusive · ${previewName(d)} on ${runs(d)} · ${d.why}`, ...at };
+      return { kind: 'fork', text: `Previewed ${previewName(d)} on ${runs(d)}${flagged(d)}`, ...at };
+    },
+  ],
   [
     'migrate.done',
     (_e, d) => {
@@ -69,6 +79,16 @@ export const FEATURE_EVENT_TEXT: ReadonlyArray<readonly [string, Describe]> = [
   // Find breaking commit that named no first bad commit: why, so the next search starts elsewhere.
   // A golden's answer opens Tests, which shows it; a run's, the run.
   ['bisect.none', (e, d) => ({ kind: 'test', outcome: 'warn', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() })],
+  // A golden's checks changed in the check builder (routes/checks.ts records it): what it gained, or
+  // lost, by the golden's name; its ref stays the path.
+  [
+    'checks.changed',
+    (e, d) => {
+      const [added, removed, golden] = [labels(d.added), labels(d.removed), e.ref ? goldenWords(e.ref) : 'a golden'];
+      const text = added.length && !removed.length ? `Check added · ${golden}: ${added.join('; ')}` : removed.length && !added.length ? `Check removed · ${golden}: ${removed.join('; ')}` : `Checks changed · ${golden}`;
+      return { kind: 'setting', text, href: links.tests() };
+    },
+  ],
 ];
 
 function injectionText(e: StoredEvent, d: Record<string, unknown>): EventText {

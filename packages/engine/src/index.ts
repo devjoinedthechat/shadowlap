@@ -27,7 +27,7 @@ export type { SqlValue } from './store.js';
 export type { QueuedWrites } from './store.js';
 export { ulidNow } from './store/core.js';
 export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
-export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
+export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, checkKey, cleanTitle, coversCheck, fixAmong, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
 // A run by its full id or the unique prefix the CLI prints, for the dashboard's routes and the fix jobs.
 export { lookupRun } from './run-lookup.js';
@@ -46,17 +46,19 @@ export { CHECK_STATUSES, STATUS_WORDS, checkOutcome, checkStatus, countStatuses,
 // Outcome checks (checks/): the grammar, its parser, and each check's label and a result's line, none
 // of which needs Node, so the dashboard's pages can bundle them; a run judged by them, a judge check
 // with no verdict inconclusive; and the tests entries in the config. The CLI's checks.ts re-exports them.
-export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, testLive, toolsNamed, withoutOutput } from './checks/grammar.js';
+export { EXPECT_KEYS, JUDGE_MODEL, OPERATORS, OPERATOR_ALIASES, aliasOf, asNumber, hasChecks, judgeChecksOf, pathsNamed, readsMoreThanAStep, readsOutput, testLive, toolsNamed, withoutOutput } from './checks/grammar.js';
 export type { CallCondition, CallRule, CheckResult, CountRange, ExpectSpec, JudgeCheck, Matcher, NamedPath, NamedTool, Operand, Operator, Reference, TestEntry, TestSpec, TextCheck, ToolCheck, WhenRule } from './checks/grammar.js';
-export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen } from './checks/parse.js';
-export { CHECK_MARKS, RULES_ON_CALLS, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, fencedLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
-export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
+export { parseAmount, parseCallRule, parseCount, parseExpect, parseJudge, parsePredicate, parseWhen, referenceParts, referenceTo } from './checks/parse.js';
+export { CHECK_MARKS, RULES_ON_CALLS, andList, callRuleLabel, checkLabels, checkLine, checkWords, conditionLabel, costLabel, countLabel, fencedLabel, formatAmount, formatCount, judgeLabel, judgeSource, passedWords, showValue, textLabels, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './checks/labels.js';
+export { LABEL_INPUT, argsMatch, closestName, evaluateChecks, intoText, judgeProvider, judgeResults, notJudgedWhy, storedCalls, storedCheckInput, unreadPaths } from './checks/evaluate.js';
 export type { CheckInput, EvaluateOptions, JudgeCheckVerdict, RecordedCalls, UnreadPath } from './checks/evaluate.js';
 export { CHAOS_TIMEOUT, DEFAULT_CHAOS, TEST_SETTINGS, chaosFor, parseChaosFields, parseTestSettings, parseTests, recordedChecks, specFor } from './checks/tests-entry.js';
 export type { ChaosSpec, ExpectParser, TestSettings } from './checks/tests-entry.js';
 // A recording judged from what it holds, a judge check by the verdict it recorded: `shadowlap check`'s, and the dashboard's for a run judged by its family's checks.
 export { NO_OUTPUT_KEPT, READS_OUTPUT, checkFailures, heldVerdict, judgeMaterialFor, judgeRecording, judgedOptions, outputUnjudged, recordedRole, recordedVerdicts } from './checks/recorded.js';
 export type { Judged, JudgeMaterialSource, RecordingJudged } from './checks/recorded.js';
+export { BUG_LABEL, checkRecording, checkRecordings, labelNoteWords, labelNotes, notApplicable, packRecording, unreadNotes } from './checks/recordings.js';
+export type { CheckReport, CheckedRecording, LabelNote, RecordingToCheck } from './checks/recordings.js';
 export type { NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession, TestSessionComment, TestSessionPullRequest } from './store.js';
 export { looksGenerated, maskedChange, normalizeAddArgs, normalizeAddCommand, unmaskedHints, valueHintMessage, valueHints, volatileValue, volatileValues, type VolatileValue, type VolatileValues } from './volatile.js';
 export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store.js';
@@ -69,7 +71,7 @@ export { ciProvider, resolveAuthor, type AuthorOptions } from './author.js';
 // Whether a run still `running` has a process recording it (gc, Settings).
 export { SILENT_OWNED_MS, SILENT_UNKNOWN_MS, processAlive, recorderGone, type RunOwner } from './liveness.js';
 // shadowlap.config.json as a file the CLI and the dashboard both edit.
-export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, restoreRule, ruleNoun, sameRule, setClock, validateRule } from './config-file.js';
+export { CONFIG_FILE, ConfigBusyError, ConfigConflictError, ConfigFileError, DEFAULT_REPLACE, NO_CONFIG, RULE_KINDS, RuleError, addRule, addRules, configClock, configFilePath, describeRule, editConfigFile, editRelaysConfig, editWhenFree, findRule, parseRules, readConfigFile, readRules, removeRule, restoreRule, ruleNoun, sameRule, setClock, validateRule } from './config-file.js';
 export type { ConfigEvent, ConfigFile, EditOptions, RuleAdded, RuleList } from './config-file.js';
 // The lock file those edits take, for any small file several Shadowlap processes change.
 export { LOCK_STALE_MS, releaseLock, takeLock, withLockFile, type HeldLock, type LockOptions } from './lock-file.js';
@@ -121,7 +123,8 @@ export { kindFacts, modelResolver, runLabel, type LabelledRun } from './run-labe
 // What the dashboard and the terminal UI both say of a run: why it failed, how an attempt came out,
 // what a fork did differently from its parent and how each ended, and the good/bad key.
 export { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, keptAttemptVerdict, lostRange, lostWords, type AttemptVerdict, type FailureReason } from './run-verdicts.js';
-export { compareFork, forkEnd, MAX_TOOL_CALLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite } from './fork-changes.js';
+export { compareFork, comparePair, forkEnd, MAX_TOOL_CALLS, PATH_ROWS, pairDecisions, pairEnding, pathRows, ROW_TEXT, ROW_TOOLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite, type PairChange, type PairComparison, type PairDecisions, type PairEnd, type PairEnding, type PairOptions, type PathCall, type PathDecision, type PathRow } from './fork-changes.js';
+export { pairVerdict, type PairVerdict, type PairVerdictInput, type PairVerdictWords } from './pair-verdict.js';
 export { markChange, markKey, MARKS, markToast, type RunMark } from './run-marks.js';
 // A request's body, read whole or not at all, for every server here; node:sqlite as every store opens it.
 export { BodyTooLarge, MODEL_BODY_LIMIT, readBody, type BodyLimits } from './body.js';
@@ -233,7 +236,7 @@ export type { NewPairsExport, PairsExport, TaskScoreRow } from './store.js';
 // in, its answer's decision against the recorded one, ranked by consequence; the providers' model
 // retirement dates; and the sessions the store keeps.
 export { promptOf, promptParts, samePrompt, withoutEarlierThinking, withPrompt, type RequestPrompt } from './prompt.js';
-export { DECISIONS_ID, JUDGED_IN_RECORDED_STATE, MIGRATE_ID, NO_TOKENS, RANK_LABELS, STOP_WORDS, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, majorityRank, modelFamily, promoteByJudge, sameModel, shownSample, stepDelta, unjudgedSample } from './decisions.js';
+export { DECISIONS_ID, INCONCLUSIVE_STEP, JUDGED_IN_RECORDED_STATE, JUDGED_LATER, MIGRATE_ID, NO_TOKENS, OWN_VARIATION, RANK_LABELS, STOP_WORDS, WITHIN_VARIATION, argsDelta, bareModel, byConsequence, byRule, callLine, clipText, compareDecisions, controlOpen, decisionLine, decisionOf, decisionOfResponse, decisionStepState, decisionView, effectsOf, emptyCounts, estimatedTokens, formatDecisions, hostedToolEffect, isHandover, isReservedScope, judgedOutcome, judgeOpen, judgeWords, majorityRank, minorityChange, minorityNotes, modelFamily, percentChange, promoteByJudge, sameModel, samplesWords, shownSample, stepDelta, stepsAsked, tokenTotal, unchangedRunWords, unjudgedSample, unsettledWords, withinVariationLine, type DecisionStepState } from './decisions.js';
 export type { DecisionCall, DecisionChange, DecisionChangeKind, DecisionComparison, DecisionCounts, DecisionJudge, DecisionJudgeSide, DecisionOptions, DecisionRank, DecisionRemedy, DecisionRun, DecisionStep, DecisionStop, DecisionsChange, DecisionsJudged, DecisionsReport, DecisionsVerify, DecisionView, EffectOf, FromCodeChange, ModelDecision, TokenCount } from './decisions.js';
 // A session's headline, its name and what it moved, and why a preview or a migration settles nothing,
 // in the words and by the rules the CLI and the dashboard's Verdicts share.
@@ -241,8 +244,10 @@ export { decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, m
 // What a test session and a verify came to, as the dashboard's pages say it beside the verdict: a
 // preview's verify by verify's head, a fix's as its Verify step heads it.
 export { fixVerifyHead, goldensPassed, runOutcomeWord, verdictWord, verifyHead } from './verdict-words.js';
+export { CLEARED, changePct, endToEndWords, tallyWords, usdOrUnknown, verifiedCount, verifiedWords, type VerifiedTally } from './verified-words.js';
 export { ACTIONS, confirmWords, forceLiveLabel, STRONGER_MODEL, type ActionWords } from './action-words.js';
 export { GOLDEN_JOB_WORDS } from './golden-job-words.js';
+export { UNTESTED_WORDS } from './bisect-words.js';
 // The names the goldens a fix's apply copies go by, for `fix apply --name` and the dashboard's Apply fix,
 // and the most characters one takes, as a judge's name in a check does.
 export { asGoldenName, defaultGoldenNames, goldenNameArgs, goldenNamesProblem, type GoldenNameProblem } from './golden-names.js';
@@ -274,7 +279,7 @@ export { forkEstimate, plantEstimate, PLANT_REPEAT, repeatEstimate, REPEAT_TIMES
 export { BLAME_SCAN, blameBound, blameEstimate, blameRules, blameSteps, probedCalls, probedInScope, type BlameBound, type BlameEstimateOptions, type BlameRule, type BlameRules } from './estimates/blame.js';
 export { keptMaxOf, lastVerify, VERIFY_LIVE, verifyCeiling, verifyEstimate, verifyLimits, verifyMoreEstimate, verifyParts, verifyRunCosts, type LastVerify, type VerifyEstimateOptions, type VerifyLimits, type VerifyRule, type VerifyRunCost } from './estimates/verify.js';
 export { REPAIR_CANDIDATES, REPAIR_VERIFIES, REPAIRER_LIMITS, repairerBound, repairEstimate, splitHoldout, wholeRun, type NoFixToTry, type RepairPlan, type RepairRun } from './estimates/repair.js';
-export { bisectCommits, bisectEstimate, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
+export { bisectCommits, bisectEstimate, goldenLiveParts, goldenRerunEstimate, goldenTestEstimate, moreEstimate, runBisectEstimate, testsEstimate, updateEstimate, type GateSpend, type MoreFigure, type SessionResult } from './estimates/tests.js';
 export { CLEAN_GATE, causeEstimate, GATE_REPEAT, injectionAgainEstimate, injectionEstimate, injectionGateEstimate, presetsEstimate, type InjectionPlan } from './estimates/injection.js';
 export { decisionRunCost, MIGRATE_SAMPLES, migrateEstimate, PREVIEW_SAMPLES, previewEstimate, type MigratePlan, type PreviewChange, type PreviewOptions } from './estimates/changes.js';
 export { askedInScope, defaultFrom, modelUse, type ModelUse } from './switch-from.js';

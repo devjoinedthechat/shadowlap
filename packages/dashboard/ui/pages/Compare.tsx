@@ -1,19 +1,23 @@
 import { Fragment, useEffect, useMemo, type ReactNode } from 'react';
 import type { CompareHead } from '../../src/compare.js';
-import { ApiError, type CallRow, type CompareView, type RunDetail, type RunListItem } from '../api.js';
+import { ApiError, type CompareView, type RunDetail, type RunListItem } from '../api.js';
 import { ChangesHead } from '../changes/Head.js';
 import { forgetComparePair, noteComparePair } from '../changes-tab.js';
-import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
+import { CmdLine, PageHeader } from '../components/bits.js';
+import { tipCard } from '../components/HoverCard.js';
+import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { Page } from '../components/Page.js';
-import { answersSub, changedAnswers, changeCards, comparingLive, diffTexts, oneRunPair, pickable, prefixLine, replayCommand, samePlaces } from '../compare/model.js';
+import { Section } from '../components/Section.js';
+import { EmptyState } from '../components/States.js';
+import { answersSub, changedAnswers, changeCards, compareFacts, comparingLive, DIFF_SHOWN, madeCard, oneRunPair, pickable, prefixCells, prefixLine, replayCommand, requestLines } from '../compare/model.js';
+import { PairRows } from '../compare/Rows.js';
 import { RunPicker } from '../compare/RunPicker.js';
-import { callName, clip, num, plural, shortId } from '../format.js';
+import { PairVerdict, rescuedIn } from '../compare/Verdict.js';
+import { callName, num, plural, shortId } from '../format.js';
 import { useLoad, type Loaded } from '../hooks.js';
-import { displayOrigin } from '../origins.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import { runLikeOf } from '../run/model.js';
-import { defaultComparePair, isAttempt, kindTag } from '../runs.js';
+import { defaultComparePair, isAttempt } from '../runs.js';
 import { useApp } from '../state.js';
 import { Elsewhere } from './held-elsewhere.js';
 import { lastRunsHref } from '../runs-view.js';
@@ -22,13 +26,14 @@ import { lastRunsHref } from '../runs-view.js';
  * Compare, a tab of Changes: what changed between two runs (code, system prompt, tools, model), then call by call: the
  * identical prefix, what made the fork when no request shows it, the first request that differs,
  * where the paths went from there, and calls where the same request got a different answer. With no
- * runs named it opens the newest fork or replay against its parent; with one, that run against its
+ * runs named it opens the newest fork against its parent (with none, the newest replay that is no
+ * test's and has ended; defaultComparePair); with one, that run against its
  * newest fork or replay, else its parent, else it says there is nothing to compare yet. The same run
  * on both sides, or a run not in the store, says so. A run still recording is compared again as its
  * calls arrive. Every state stands under Changes' head, the pickers on a row under its tabs; an
  * exported copy's Compare is a page of its own.
  */
-export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
+export function ComparePage({ a, b, call }: { a: string | null; b: string | null; /** The row opened, `#/compare/<a>/<b>/<n>`: a row's number after the identical prefix, or none. */ call?: number | null }) {
   const { runs, exported, meta } = useApp();
   const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
   // An exported copy of many runs holds only the pairs with its first run: it opens on one of those.
@@ -46,11 +51,15 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
     const page = (
       <Page>
         <CompareTop />
-        <section className="panel stepempty">
-          <h3>Compare needs two runs</h3>
-          <p>{one ? 'Replay or fork the run you have, and compare the two call by call.' : 'Record a run, then replay or fork it, and compare the two call by call.'}</p>
-          {one ? <CmdLine>{`shadowlap replay ${shortId(one.runId)}`}</CmdLine> : null}
-        </section>
+        <EmptyState title="Compare needs two runs" text={one ? 'Replay or fork the run you have, and compare the two call by call.' : 'Record a run, then replay or fork it, and compare the two call by call.'} command={one ? `shadowlap replay ${shortId(one.runId)}` : undefined}>
+          {one ? (
+            <div className="actions">
+              <a className="btn" href={href.run(one.runId)}>
+                Open run
+              </a>
+            </div>
+          ) : null}
+        </EmptyState>
       </Page>
     );
     // A pair this project can't hold: another project may.
@@ -59,7 +68,7 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
   if (!a || !b) return HEAD_ONLY;
   // Not keyed on the pair: another run picked keeps the pickers, and the focus on the one used,
   // while what the comparison reads starts anew for the new pair (useLoad's keys).
-  return <Comparison a={a} b={b} runs={listed} />;
+  return <Comparison a={a} b={b} runs={listed} call={call ?? null} />;
 }
 
 /** Compare's head: Changes', with its tabs, or an exported copy's own; then the pickers, when given, on a row under it. */
@@ -108,6 +117,12 @@ const ambiguous = (err: Error | null | undefined): boolean => !!err && ((err ins
 /** A run the store doesn't hold: the run page says it so, and so does Compare, naming it. */
 const notHeld = (err: Error | null | undefined): boolean => !!err && !ambiguous(err) && ((err instanceof ApiError && err.status === 404) || /no run|not part of it|does not exist/.test(err.message));
 
+/** The same run on both sides: the same id twice, unless it names none (then that is what the page says), or two ids the store reads as one run. */
+function bothSame(same: boolean, ra: Loaded<RunDetail>, rb: Loaded<RunDetail>): boolean {
+  if (same && !notHeld(ra.error) && !ambiguous(ra.error)) return true;
+  return !!ra.data && !!rb.data && ra.data.run.runId === rb.data.run.runId;
+}
+
 /** A run's id as a link to its page. */
 function RunLink({ id }: { id: string }) {
   return (
@@ -143,21 +158,24 @@ function OneRun({ id }: { id: string }) {
   return (
     <Page>
       <CompareTop />
-      <section className="panel stepempty">
-        <h3>Nothing to compare yet</h3>
-        <p>
-          <RunLink id={r.run.runId} /> has no replay or fork, and no parent. Replay it, or fork it at a call, and the two compare call by call.
-        </p>
-        <CmdLine>{replayCommand(r)}</CmdLine>
+      <EmptyState
+        title="Nothing to compare yet"
+        text={
+          <>
+            <RunLink id={r.run.runId} /> has no replay or fork, and no parent. Replay it, or fork it at a call, and the two compare call by call.
+          </>
+        }
+        command={replayCommand(r)}
+      >
         <div className="actions">
           <a className="btn" href={href.run(r.run.runId)}>
-            Open the run
+            Open run
           </a>
           <a className="btn" href={href.compare()}>
             Compare other runs
           </a>
         </div>
-      </section>
+      </EmptyState>
     </Page>
   );
 }
@@ -167,10 +185,10 @@ function OneRunMissing({ id, error, where }: { id: string; error: Error; where: 
   return (
     <Page>
       <CompareTop />
-      <section className="panel stepempty">
-        <h3>{ambiguous(error) ? 'More than one run' : notHeld(error) ? `Not in ${where}` : 'Could not load the run'}</h3>
-        <p>
-          {ambiguous(error) ? (
+      <EmptyState
+        title={ambiguous(error) ? 'More than one run' : notHeld(error) ? `Not in ${where}` : 'Could not load the run'}
+        text={
+          ambiguous(error) ? (
             <>
               <code>{id}</code> matches several runs; use more of the id. Pick two runs to compare, or open Runs to find the one you meant.
             </>
@@ -180,8 +198,9 @@ function OneRunMissing({ id, error, where }: { id: string; error: Error; where: 
             </>
           ) : (
             `${id}: ${error.message}`
-          )}
-        </p>
+          )
+        }
+      >
         <div className="actions">
           <a className="btn" href={href.compare()}>
             Compare other runs
@@ -190,12 +209,12 @@ function OneRunMissing({ id, error, where }: { id: string; error: Error; where: 
             Open Runs
           </a>
         </div>
-      </section>
+      </EmptyState>
     </Page>
   );
 }
 
-function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] }) {
+function Comparison({ a, b, runs, call }: { a: string; b: string; runs: RunListItem[]; call: number | null }) {
   const { client, live, tick, exported, meta } = useApp();
   // While either run records, each change to the store reads the comparison again; once both have ended, once more.
   const refresh = comparingLive(live, a, b) ? tick : 'ended';
@@ -214,18 +233,18 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
   useNotePair(ra, rb);
   const hub = exported ? (meta?.compareWith ?? null) : null;
   const header = <CompareTop pickers={<Pickers a={a} b={b} runs={runs} hub={hub} />} />;
-  // The same id twice names the same run, unless it names none: then that is what the page says.
-  const unnamed = (err: Error | null | undefined) => notHeld(err) || ambiguous(err);
-  if ((same && !unnamed(ra.error)) || (ra.data && rb.data && ra.data.run.runId === rb.data.run.runId))
+  if (bothSame(same, ra, rb))
     return (
       <Page>
         {header}
-        <section className="panel stepempty">
-          <h3>The same run on both sides</h3>
-          <p>
-            <RunLink id={ra.data?.run.runId ?? a} /> against itself is identical. Pick another run for A or B.
-          </p>
-        </section>
+        <EmptyState
+          title="The same run on both sides"
+          text={
+            <>
+              <RunLink id={ra.data?.run.runId ?? a} /> against itself is identical. Pick another run for A or B.
+            </>
+          }
+        />
       </Page>
     );
   // A run the store doesn't hold is named, and so is an id that starts several runs' ids, with the side to pick again.
@@ -246,28 +265,34 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
     return missing.length ? <Elsewhere ask={{ what: 'run', ids: missing.map((m) => m.id) }} error={ra.error ?? rb.error} waiting={waiting} retry={retry} fallback={page} /> : page;
   }
   const c = cmp.data;
-  const error = cmp.error ? (hub ? `This copy compares each run with ${shortId(hub)} only: pick it on one side.` : `Could not compare these runs: ${cmp.error.message}`) : null;
-  // The rest of a long pair that couldn't be worked out (a 503: it ran past the time a request is
-  // given): what came first stays, and the terminal, which has no such limit, works out the rest.
-  const stopped = cmp.error && !hub && head.data ? { why: cmp.error.message, command: `shadowlap diff ${shortId(ra.data?.run.runId ?? a)} ${shortId(rb.data?.run.runId ?? b)}` } : null;
   return (
     <Page>
       {header}
+      <ComparisonBody c={c} failed={cmp.error} head={head.data} hub={hub} ra={ra.data} rb={rb.data} a={a} b={b} runs={runs} call={call} />
+    </Page>
+  );
+}
+
+/**
+ * What the comparison shows under the pickers: the whole of it; while a long pair's rest is worked
+ * out, its head first; or why it couldn't be compared, an exported copy naming the run it pairs with.
+ */
+function ComparisonBody({ c, failed, head, hub, ra, rb, a, b, runs, call }: { c: CompareView | null; failed: Error | null; head: CompareHead | null; hub: string | null; ra: RunDetail | null; rb: RunDetail | null; a: string; b: string; runs: RunListItem[]; call: number | null }) {
+  const error = failed ? (hub ? `This copy compares each run with ${shortId(hub)} only: pick it on one side.` : `Could not compare these runs: ${failed.message}`) : null;
+  // The rest of a long pair that couldn't be worked out (a 503: it ran past the time a request is
+  // given): what came first stays, and the terminal, which has no such limit, works out the rest.
+  const stopped = failed && !hub && head ? { why: failed.message, command: `shadowlap diff ${shortId(ra?.run.runId ?? a)} ${shortId(rb?.run.runId ?? b)}` } : null;
+  return (
+    <>
       {error && !stopped ? <div className="empty">{error}</div> : null}
       {c ? (
-        <>
-          <Changes c={c} />
-          <Prefix c={c} />
-          {c.firstRequestDifference ? <FirstDifference c={c} /> : null}
-          {ra.data && rb.data ? <Paths c={c} a={ra.data} b={rb.data} /> : null}
-          <ResponseDifferences c={c} />
-        </>
-      ) : head.data && (!cmp.error || stopped) ? (
-        <HeadFirst h={head.data} stopped={stopped} />
-      ) : cmp.error ? null : (
+        <Compared c={c} a={a} b={b} ra={ra} rb={rb} runs={runs} call={call} />
+      ) : head && (!failed || stopped) ? (
+        <HeadFirst h={head} stopped={stopped} />
+      ) : failed ? null : (
         <div className="empty">Comparing…</div>
       )}
-    </Page>
+    </>
   );
 }
 
@@ -283,23 +308,25 @@ function PairMissing({ header, missing, several, sides, where }: { header: React
   return (
     <Page>
       {header}
-      <section className="panel stepempty">
-        <h3>{missing.length ? `Not in ${where}` : 'More than one run'}</h3>
-        <p>
-          {missing.length ? (
-            <>
-              No run {ids(missing)} in {where}
-              {several.length ? '; ' : '. '}
-            </>
-          ) : null}
-          {several.length ? (
-            <>
-              {ids(several)} {several.length === 2 ? 'each match' : 'matches'} several runs; use more of the id, or{' '}
-            </>
-          ) : null}
-          {several.length ? 'pick' : 'Pick'} another run for {sides.length === 2 ? 'A and for B' : sides[0]}.
-        </p>
-      </section>
+      <EmptyState
+        title={missing.length ? `Not in ${where}` : 'More than one run'}
+        text={
+          <>
+            {missing.length ? (
+              <>
+                No run {ids(missing)} in {where}
+                {several.length ? '; ' : '. '}
+              </>
+            ) : null}
+            {several.length ? (
+              <>
+                {ids(several)} {several.length === 2 ? 'each match' : 'matches'} several runs; use more of the id, or{' '}
+              </>
+            ) : null}
+            {several.length ? 'pick' : 'Pick'} another run for {sides.length === 2 ? 'A and for B' : sides[0]}.
+          </>
+        }
+      />
     </Page>
   );
 }
@@ -329,16 +356,52 @@ function Pickers({ a, b, runs, hub }: { a: string; b: string; runs: RunListItem[
   );
 }
 
-function Changes({ c }: { c: CompareView }) {
+/**
+ * The whole comparison, once the server has it: the verdict and a line a run, what changed and what
+ * didn't, the identical prefix and where the two part, the request that differs first, both paths in
+ * one list from there, and the calls where the same request got a different answer.
+ */
+function Compared({ c, a, b, ra, rb, runs, call }: { c: CompareView; a: string; b: string; ra: RunDetail | null; rb: RunDetail | null; runs: RunListItem[]; call: number | null }) {
+  const pair = c.pair ?? null;
+  const sides = { a: { id: c.a.runId, run: ra, rescued: !!ra && rescuedIn(ra, rb) }, b: { id: c.b.runId, run: rb, rescued: !!rb && rescuedIn(rb, ra) } };
+  const recording = ra?.run.status === 'running' || rb?.run.status === 'running';
   return (
-    <div className="changes">
-      {changeCards(c).map((card) => (
-        <div key={card.key} className={card.changed ? 'diff' : undefined} title={card.tip ?? undefined}>
-          <span className="k">{card.key}</span>
-          <b>{card.title}</b>
-          <small>{card.note}</small>
-        </div>
+    <>
+      {pair && sides.a.run && sides.b.run ? <PairVerdict pair={pair} a={{ ...sides.a, run: sides.a.run }} b={{ ...sides.b, run: sides.b.run }} /> : null}
+      <WhatChanged c={c} />
+      <Prefix c={c} />
+      {c.firstRequestDifference ? <ChangedRequest c={c} /> : null}
+      {pair?.rows.length ? <PairRows a={sides.a} b={sides.b} at={{ a, b }} pair={pair} call={call} runs={runs} flag={c.intervention?.kind === 'fail' ? c.intervention.flag : null} /> : null}
+      {pair?.more ? <p className="cmpmore">… {num(pair.more)} more calls</p> : null}
+      {pair && recording ? <p className="cmpmore">recording · more calls as they arrive</p> : null}
+      <ResponseDifferences c={c} />
+    </>
+  );
+}
+
+/** What changed between the two, a line a changed fact, and what didn't on one quiet line, its card naming each. */
+function WhatChanged({ c }: { c: CompareView }) {
+  const facts = compareFacts(changeCards(c));
+  if (!facts.changed.length && !facts.same) return null;
+  return (
+    <div className="cmpfacts">
+      {facts.changed.map((f) => (
+        <p key={f.key} className="cmpch" title={f.tip ?? undefined}>
+          <b>{f.lead}</b>
+          {f.code ? (
+            <>
+              {' '}
+              <code>{f.code}</code>
+            </>
+          ) : null}
+          {f.note ? <span className="muted"> · {f.note}</span> : null}
+        </p>
       ))}
+      {facts.same ? (
+        <p className="cmpsame" data-tip={tipCard('The same on both sides', facts.sameRows.map((r) => ({ label: r.key, value: r.value })))}>
+          {facts.same}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -357,7 +420,7 @@ function HeadFirst({ h, stopped = null }: { h: CompareHead; stopped?: { why: str
   return (
     <>
       <Prefix c={{ ...h, responseDifferences: [], intervention: null }} />
-      {h.firstRequestDifference ? <FirstDifference c={h} /> : null}
+      {h.firstRequestDifference ? <ChangedRequest c={h} /> : null}
       {stopped ? (
         <div className="cmpwait" role="status">
           <p>
@@ -374,13 +437,19 @@ function HeadFirst({ h, stopped = null }: { h: CompareHead; stopped?: { why: str
   );
 }
 
+/**
+ * The identical prefix as a quiet strip, a cell a call (at most 60), beside its sentence: how far the
+ * two agree and where they part, what made the fork carrying the flag that made it on its card.
+ */
 function Prefix({ c }: { c: Parameters<typeof prefixLine>[0] }) {
   const n = c.identicalPrefix;
-  const cells = Math.max(1, Math.min(n, 120));
+  const cells = prefixCells(n);
   const line = prefixLine(c);
+  const iv = c.intervention ?? null;
+  const card = line.made && iv ? madeCard(iv) : null;
   return (
     <div className="prefix">
-      {/* Nothing identical: no bar, so the line has the row to itself. */}
+      {/* Nothing identical: no strip, so the line has the row to itself. */}
       {n ? (
         <span className="ms" style={{ gridTemplateColumns: `repeat(${cells}, minmax(0, 1fr))` }} aria-hidden="true">
           {Array.from({ length: cells }, (_, i) => (
@@ -389,49 +458,51 @@ function Prefix({ c }: { c: Parameters<typeof prefixLine>[0] }) {
         </span>
       ) : null}
       <span>
-        <b>{line.lead}</b> {line.rest}
+        <b>{line.lead}</b>{' '}
+        {line.made && card ? (
+          <>
+            <span className="lead" data-tip={tipCard(card.title, [], card.line, card.command)}>
+              {line.made}
+            </span>
+            {line.rest.slice(line.made.length)}
+          </>
+        ) : (
+          line.rest
+        )}
       </span>
     </div>
   );
 }
 
-/** How many differing fields the panel shows. */
-const DIFF_SHOWN = 12;
-
-function FirstDifference({ c }: { c: Pick<CompareView, 'a' | 'b' | 'firstRequestDifference'> }) {
+/**
+ * The first request that differs, under the strip: one structural diff, unified, a line naming each
+ * differing field (at most 12) and its two values walked under it, each head's id opening its run at
+ * that call; then how many fields differ, or that the stored requests are equal, and the engine's hints.
+ */
+function ChangedRequest({ c }: { c: Pick<CompareView, 'a' | 'b' | 'firstRequestDifference'> }) {
   const f = c.firstRequestDifference!;
   const diff = f.diff ?? [];
-  const shown = diff.slice(0, DIFF_SHOWN);
-  // Each field as the mock shows it: what it is (`tool_result lookup_policy`, its path on hover), then its value on each side.
-  const side = (which: 'before' | 'after') =>
-    shown.length
-      ? shown.map((e, i) => {
-          const value = diffTexts(e)[which];
-          return (
-            <span key={i}>
-              <span title={e.what ? e.path : undefined}>{e.what ?? e.path}</span>
-              {'\n'}
-              {which === 'after' ? <span className="add">{value}</span> : `${value}\n`}
-            </span>
-          );
-        })
-      : `${f.kind} ${callName(f.kind, f.name)}`;
   const count = diff.length > 1 ? `${diff.length} fields differ${diff.length > DIFF_SHOWN ? `; the first ${DIFF_SHOWN} are shown` : ''}.` : null;
   const hints = f.hints ?? [];
+  const lines = useMemo(() => requestLines(f.diff ?? []), [f.diff]);
+  const head = (sign: '−' | '+', id: string) => (
+    <h4>
+      <span className={`js ${sign === '+' ? 'add' : 'del'}`} aria-hidden="true">
+        {sign}
+      </span>
+      #{f.callNo} in{' '}
+      <a href={href.run(id, f.callNo)}>
+        <code className="rnm">{shortId(id)}</code>
+      </a>
+    </h4>
+  );
   return (
-    <section className="diffpanel boxed">
-      <div>
-        <h4>
-          #{f.callNo} in <a href={href.run(c.a.runId, f.callNo)}>{shortId(c.a.runId)}</a>
-        </h4>
-        <pre>{side('before')}</pre>
+    <section className="diffpanel jdp cmpdiff">
+      <div className="jdh">
+        {head('−', c.a.runId)}
+        {head('+', c.b.runId)}
       </div>
-      <div>
-        <h4>
-          #{f.callNo} in <a href={href.run(c.b.runId, f.callNo)}>{shortId(c.b.runId)}</a>
-        </h4>
-        <pre>{side('after')}</pre>
-      </div>
+      {diff.length ? <JsonDiffPart lines={lines} /> : <p className="cmpfn">{`${f.kind} ${callName(f.kind, f.name)}`}</p>}
       {!diff.length || count || hints.length ? (
         <div className="hint">
           {!diff.length ? (
@@ -450,48 +521,6 @@ function FirstDifference({ c }: { c: Pick<CompareView, 'a' | 'b' | 'firstRequest
   );
 }
 
-function PathColumn({ run, calls, same, from, answer }: { run: RunDetail; calls: CallRow[]; same: boolean[]; from: number; answer: string | null | undefined }) {
-  // Each side by its kind, as the run page's eyebrow names it (a fork that failed is still fork @7): its paths show what it did.
-  const tag = kindTag(runLikeOf(run));
-  const shown = calls.slice(0, 200);
-  const recording = run.run.status === 'running';
-  return (
-    <div>
-      <h4>
-        <Tag cls={tag.cls}>{tag.text}</Tag>
-        <a href={href.run(run.run.runId, from + 1)}>{shortId(run.run.runId)}</a> {from ? `after #${from}` : 'from #1'}
-      </h4>
-      {shown.map((c, i) => (
-        <a key={c.callNo} className={`pcall${same[i] ? ' same' : ''}`} href={href.run(run.run.runId, c.callNo)} title={same[i] ? 'The other run made the same call here' : undefined}>
-          <span className="pn">#{c.callNo}</span>
-          <span>
-            {callName(c.kind, c.name)}
-            {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
-          </span>
-          <Org origin={displayOrigin(c)} />
-        </a>
-      ))}
-      {calls.length > shown.length ? <div className="pcall more">… {num(calls.length - shown.length)} more calls</div> : null}
-      {calls.length === 0 ? <div className="pcall more">{recording ? `no calls ${from ? `after #${from} ` : ''}yet` : `no calls after #${from}`}</div> : null}
-      {recording ? <div className="pcall more">recording · more calls as they arrive</div> : answer ? <p className="pans">{clip(answer, 400)}</p> : null}
-    </div>
-  );
-}
-
-function Paths({ c, a, b }: { c: CompareView; a: RunDetail; b: RunDetail }) {
-  const from = c.firstRequestDifference ? c.firstRequestDifference.callNo - 1 : c.identicalPrefix;
-  const ca = a.calls.filter((x) => x.callNo > from);
-  const cb = b.calls.filter((x) => x.callNo > from);
-  const first = c.firstRequestDifference?.callNo ?? null;
-  if (!ca.length && !cb.length && a.run.status !== 'running' && b.run.status !== 'running') return null;
-  return (
-    <div className="paths">
-      <PathColumn run={a} calls={ca} same={samePlaces(ca, cb, first)} from={from} answer={c.after?.a.answer} />
-      <PathColumn run={b} calls={cb} same={samePlaces(cb, ca, first)} from={from} answer={c.after?.b.answer} />
-    </div>
-  );
-}
-
 export function ResponseDifferences({ c }: { c: CompareView }) {
   const first = c.firstRequestDifference?.callNo;
   // A call the model answered the same way in a new response is in the prefix line, not here.
@@ -499,11 +528,7 @@ export function ResponseDifferences({ c }: { c: CompareView }) {
   if (!rows.length)
     return <p className="cmpnote">Same request, different response: none.{first ? ` The paths differ because the request at #${first} did.` : ''}</p>;
   return (
-    <section className="panel cmpresp">
-      <header>
-        <h2>Same request, different answer</h2>
-        <span className="sub">{answersSub(c)}</span>
-      </header>
+    <Section className="cmpresp" title="Same request, different answer" sub={answersSub(c)}>
       <div className="tscroll">
         <table className="t">
           <thead>
@@ -544,6 +569,6 @@ export function ResponseDifferences({ c }: { c: CompareView }) {
           </tbody>
         </table>
       </div>
-    </section>
+    </Section>
   );
 }

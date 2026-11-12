@@ -3,6 +3,7 @@ import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
 import { choicesInCheckout, commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
+import { foundsHere, servesFound } from '../found-here.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
 import { searchedCommits, type NextStep } from '../next-step.js';
@@ -11,6 +12,7 @@ import { answerData, sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { namesTeamStore } from './verdicts.js';
+import { revertJob } from '../revert-job.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { gateQuery } from '../tests-gate.js';
 import { liveAsk } from '../tests-live.js';
@@ -52,7 +54,7 @@ export const GOLDENS_FOLDER = 'goldens';
 const FOLDER = GOLDENS_FOLDER;
 
 /** The job kinds this module registers, by what they do. */
-export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bisect', normalize: 'normalize-and-test' } as const;
+export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bisect', normalize: 'normalize-and-test', revert: 'revert' } as const;
 
 /**
  * Jobs that replay the goldens on disk or rewrite them, by what each is doing: a second one at once
@@ -60,7 +62,8 @@ export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bi
  * setup's Pack packs a new golden and tests it. Find breaking commit on a golden reads its
  * pack and answers the failure it started from, so it runs alone too; on a run, it touches none.
  * The error-path presets replay a golden's pack (on a run, they touch none), and packing goldens
- * of production writes new ones into the goldens folder.
+ * of production writes new ones into the goldens folder. Revert tests the golden once git has
+ * reverted its first bad commit (revert-job.ts).
  */
 const TEST_FAMILY = new Map<string, string>([
   ['test', 'a test session'],
@@ -70,6 +73,7 @@ const TEST_FAMILY = new Map<string, string>([
   ['bisect', confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase()],
   ['chaos', 'a session of error-path presets'],
   ['coverage-pack', 'a coverage pack'],
+  ['revert', 'a revert'],
 ]);
 
 /** Whether a job is one of those: a bisect counts when it searches a golden rather than a run (by its id), the presets when they run on a golden. */
@@ -192,6 +196,13 @@ async function revisionsInCheckout(view: TestsView, root: string | null | undefi
   return { ...withRevisionFacts(view, subjects, authors, shared), older: olderThanTree(session, tree) };
 }
 
+/** Each first bad commit as the dashboard serves one (found-here.ts): its author only where names show, its file's place in the project folder. */
+async function foundInCheckout(view: TestsView, root: string | null | undefined): Promise<TestsView> {
+  const serve = servesFound(root);
+  const [divergences, failures] = await Promise.all([foundsHere(view.divergences, serve), foundsHere(view.failures, serve)]);
+  return { ...view, divergences, failures };
+}
+
 /**
  * Find breaking commit's job as `req` asks it: whether this checkout has the commit a run's search
  * would end at is asked of git in `project` first, beside the server, as bisectJob looks it up.
@@ -252,7 +263,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/tests', async (r) => {
     const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
-    r.tagged(await withSteps(await revisionsInCheckout(view, ctx.project?.path)));
+    r.tagged(await withSteps(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path)));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's
@@ -347,6 +358,18 @@ export function register(router: Router, ctx: RouteContext): void {
     build: async (req, { store, project, projectId }) => {
       const job = await bisectHere(store, goldens(), req, project?.path ?? null);
       return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, 'find the breaking commit') : null);
+    },
+  });
+  // Revert: git first, from the golden's standing answer, then its test, which asks first as Run
+  // tests does when it runs live. It holds the working tree, and waits for the tests as they for it.
+  ctx.jobs.registerJobKind(TEST_JOB_KINDS.revert, {
+    title: () => ACTIONS.revert.doing,
+    build: async (req, { store, project, projectId }) => {
+      const list = goldens();
+      const job = await revertJob(store, list, req, project?.path ?? null);
+      if ('error' in job) return job;
+      const waits = busy(store, projectId, 'revert it');
+      return waits ? { error: waits, status: 409 } : (liveAsk(list, { title: job.title ?? ACTIONS.revert.doing, args: job.args }, req.yes) ?? job);
     },
   });
   // The golden's test after the rule asks first as Run tests does, when it runs live.

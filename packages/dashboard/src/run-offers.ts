@@ -7,7 +7,9 @@ import { fixForRun, type FixForRun } from './fixes.js';
 import { injectionResults, type InjectionRow } from './injection.js';
 import { copyRules, recordingNow, type CopyRules } from './run-exports.js';
 import { bisectChoices, testOf, testRunBanner, type BisectChoices, type GoldenSource, type TestRunBanner } from './tests.js';
-import { passedSince } from './runs-filter.js';
+import { fixedBy, passedSince } from './runs-filter.js';
+import { GOLDEN_HISTORY } from './bisect-start.js';
+import { standingFound, type FoundCommit } from './tests-bisect.js';
 import { runState } from './runs-list.js';
 
 /**
@@ -84,6 +86,12 @@ export interface RunOffers {
    * any other run, and for a crash that kept no output.
    */
   crash?: { line: string; at: number | null; of: number | null } | null;
+  /**
+   * The first bad commit Find breaking commit named for the failure of a test replay that crashed,
+   * while the answer stands and no later replay of its golden passed: the finding that leads, with
+   * its change. Absent or null otherwise. Served through found-here.ts.
+   */
+  commit?: FoundCommit | null;
 }
 
 export interface RunOffersInput {
@@ -288,6 +296,20 @@ export function crashOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord
 }
 
 /**
+ * The commit Find breaking commit named for a test replay that crashed (`crashed`, by its golden's
+ * result), by the one rule of whether an answer stands (`standingAnswer`), while no later replay of its
+ * golden passed (`fixedBy`, which Runs' `fixed by <run>` reads). Null for any other run.
+ */
+export function crashCommit(store: StoreOf<'recording' | 'tests' | 'activity' | 'readModels'>, run: RunRecord): FoundCommit | null {
+  const test = testOf(run);
+  const result = test ? (store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0] ?? null) : null;
+  if (!test || !result || !crashed(null, result)) return null;
+  const row = loadRunIndex(store).byId.get(run.runId);
+  if (!row || fixedBy(store, row, (golden) => store.listTestResults({ golden, limit: GOLDEN_HISTORY }))) return null;
+  return standingFound(store, test.golden);
+}
+
+/**
  * Find breaking commit for a run blame found failing when this store holds no fix to say which check: one
  * that exited 0 and kept no checks of its own failed the check blame was given. With the run's fix
  * here, bisectChoices reads that check from it and searches with it (`--expect`, replayed with
@@ -354,5 +376,6 @@ export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInpu
     keep: keepOffer(store, run, input),
     security: securityOffer(store, run),
     crash: crashOffer(store, run),
+    commit: crashCommit(store, run),
   };
 }

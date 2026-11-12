@@ -698,8 +698,8 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     // A gate against history compares with this golden's last sessions: under the same recording
     // and checks, this session's own result left out, and those whose attempts carry over.
     // Only sessions that passed on the baseline branch, for no pull request, are a baseline (gate-history.ts).
-    const history = gate?.kind === 'baseline' ? gateHistory(ctx.store, golden, { window: gate.window, first: gate.min, goldenRunId: parent.runId, checks, mode: 'fork', excludeSession: [...(ctx.test?.session ? [ctx.test.session] : []), ...(carry?.sessions ?? [])], ...(ctx.baselineBranch !== undefined ? { branch: ctx.baselineBranch } : {}) }) : null;
-    if (gate?.kind === 'baseline' && !history?.attempts) notes.push(ctx.baselineBranch === null ? `${NO_HISTORY_YET}: ${NO_BASELINE_BRANCH}` : NO_HISTORY);
+    const { history, note } = goldenHistory(ctx.store, golden, gate, { goldenRunId: parent.runId, checks, excludeSession: [...(ctx.test?.session ? [ctx.test.session] : []), ...(carry?.sessions ?? [])], ...(ctx.baselineBranch !== undefined ? { baselineBranch: ctx.baselineBranch } : {}) });
+    if (note) notes.push(note);
     const tested: RecordingTestContext = { ...ctx, ...(packed.length ? { config: { ...ctx.config, normalize: [...ctx.config.normalize, ...packed] } } : {}), ...(history ? { history } : {}), carry };
     const result = await testRecording(parent, spec, tested);
     return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000, normalizers, interrupted: result.interrupted, notes };
@@ -708,6 +708,18 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     // The session's provider stopped it before it ran: inconclusive, the provider named, never failed.
     return { ...base, parent, result: null, failure: { message, details: message }, kind: err instanceof ProviderStopped ? 'inconclusive' : 'error', seconds: (Date.now() - started) / 1000, normalizers, interrupted: err instanceof ReplayInterrupted, notes };
   }
+}
+
+/**
+ * What a gate against history compares with: the golden's last sessions under the same recording
+ * and checks, the sessions given left out (gate-history.ts), and what to say when there are none.
+ * Nothing for any other gate. `test` reads it for each golden, `bisect` once for its search.
+ */
+export function goldenHistory(store: StoreOf<'tests'>, golden: string, gate: Gate | null, o: { goldenRunId: string; checks: readonly string[]; excludeSession?: readonly string[]; baselineBranch?: string | null }): { history: GateHistory | null; note: string | null } {
+  if (gate?.kind !== 'baseline') return { history: null, note: null };
+  const history = gateHistory(store, golden, { window: gate.window, first: gate.min, goldenRunId: o.goldenRunId, checks: o.checks, mode: 'fork', excludeSession: o.excludeSession ?? [], ...(o.baselineBranch !== undefined ? { branch: o.baselineBranch } : {}) });
+  if (history.attempts) return { history, note: null };
+  return { history, note: o.baselineBranch === null ? `${NO_HISTORY_YET}: ${NO_BASELINE_BRANCH}` : NO_HISTORY };
 }
 
 /** Said when a gate against history has none to compare with. */

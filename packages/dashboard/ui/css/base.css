@@ -23,7 +23,7 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .rmx-in[tabindex="0"]:focus-visible, .hbody[tabindex="0"]:focus-visible, .dialog > .db[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
-:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .rmx-in, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .diffpanel pre, .gotw) :focus-visible { outline-offset: -2px; }
+:is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .help .hbody, .pklist, .dialog .db, .dialog > .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .rmx-in, .dmcw, .fxtable, .stabs, .views .tabs, .insp .tabs, .bulkbar, .rawsse, .codebox, .cmdline, pre.report, .gotw) :focus-visible { outline-offset: -2px; }
 /* Skip to content: the first stop for Tab, out of sight until it has the focus; it shows as an overlay does, the page's
    own ground set apart by an edge and a shadow, never lime, which means the primary action and passed. */
 .skip { position: fixed; z-index: 70; left: 12px; top: 10px; padding: 7px 12px; border: 1px solid transparent; border-radius: var(--r-control); color: var(--ink); font-weight: 600; text-decoration: none; transform: translateY(-200%); }
@@ -484,9 +484,9 @@ code.rnm { white-space: nowrap; }
   :is(#root, body) :is(
     .eyebrow, .k:not(.stepper>a>.k), .sec-k, .hgroup h4, .pop .pk, .palg, .eff, .tag, .tag-local, .badge,
     .tchip em, .cells button .flag, .cbar .miss, table.t th:not(.mh), table.calls th, table.calls .n .fk, th.hist span,
-    .fxtable th, .godds th, .msg .role small, .callrow .pp, .callrow .pl, .diffpanel:not(.jdp) h4,
-    .paths h4, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,
-    .hkey .hkh, .evl .ev
+    .fxtable th, .godds th, .msg .role small, .callrow .pp, .callrow .pl,
+    .dstop, .prov h3, .slackmsg .sh .sapp, .kbd, .palfoot kbd, .palit .palk kbd, .clabels, .tl-axis, .yaxis, .xlabels, .calwd,
+    .hkey .hkh, .evl .ev, .cb-l, .cb-ua em, .drk
   ) { font-size: var(--fs-label); }
   /* a pseudo-element can't sit in :is(): report.md's labels over its values on a narrow panel */
   :is(#root, body) .fxtable td::before { font-size: var(--fs-label); }

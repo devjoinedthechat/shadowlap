@@ -25,7 +25,7 @@ import {
   type TestEntry,
 } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from './api.js';
-import { answer, failed, type ReadTable } from './read-registry.js';
+import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import type { JudgeRun } from './runs-filter.js';
@@ -363,6 +363,9 @@ export function judgeFor(store: Store, work: OutcomeWork | null): JudgeRun {
   const w = parseWork(work);
   return (runId, quick) => judgeRun(store, index, runId, w, { quick });
 }
+
+/** For a run whose verdict a list's `status:` waits for and whose calls are more than a read judges: judged beside the server once this is answered, kept on this thread for the page's next ask. */
+export const judgeAfter = (runId: string | undefined, outcome: OutcomeWork | null): Pick<ReadAnswer, 'then'> => (runId ? { then: { kind: 'outcome', runId, work: outcome } } : {});
 
 /** The job this module's table answers: one run's outcome by checks, whole, each check with it. */
 export type OutcomeJob = { kind: 'outcome'; runId: string; work: OutcomeWork | null };

@@ -123,9 +123,9 @@ export function formatCheckReport(report: CheckReport, given: ReadonlyArray<Pick
     for (const why of r.why.filter((w) => w !== onLine && !r.checks.some((c) => w.startsWith(c.label)))) lines.push(`    ${p.dim(safe(why))}`);
   }
   const n = report.recordings.length;
-  const { passed, failed, inconclusive } = report.counts;
+  const { passed, failed, inconclusive, notApplicable } = report.counts;
   if (n) {
-    const parts = [failed ? `${failed} failed` : '', passed ? `${passed} passed` : '', inconclusive ? `${inconclusive} inconclusive` : ''].filter(Boolean).join(', ');
+    const parts = [failed ? `${failed} failed` : '', passed ? `${passed} passed` : '', notApplicable ? `${notApplicable} not applicable` : '', inconclusive ? `${inconclusive} inconclusive` : ''].filter(Boolean).join(', ');
     lines.push(`${n} recording${n === 1 ? '' : 's'} judged from what ${n === 1 ? 'it' : 'they'} recorded, nothing replayed: ${parts}`);
   } else {
     lines.push(report.unchecked.length ? `no checks to judge ${report.unchecked.length === 1 ? 'this recording' : `these ${report.unchecked.length} recordings`} by: give them with --expect, or under "tests" in shadowlap.config.json` : 'no recordings to judge');

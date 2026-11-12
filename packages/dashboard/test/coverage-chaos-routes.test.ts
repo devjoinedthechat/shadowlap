@@ -59,13 +59,25 @@ const jobDone = async (id: string) => {
   }
   throw new Error(`job ${id} never ended`);
 };
-/** Starts a job; one that started is waited for, so the next starts on goldens nothing else is using. */
 /** The goldens the dashboard is given: the project's one, and any a test adds for a moment. */
 const goldens: GoldenSource[] = [];
 
+/**
+ * What a job's start answered, read once and handed back as a response of its own. On Node 22 a
+ * clone dropped while the job is waited for cancels the original's body once the collector takes it
+ * (undici 6), and the original then reads as consumed: under load, `res.clone()` failed that way.
+ */
+const readOnce = async (res: Response): Promise<{ res: Response; text: string }> => {
+  const text = await res.text();
+  return { res: new Response(text, { status: res.status, headers: res.headers }), text };
+};
+
+/** Starts a job; one that started is waited for, so the next starts on goldens nothing else is using. */
 const startJob = async (body: unknown, o: { wait?: boolean } = {}) => {
-  const res = await api('jobs', { method: 'POST', body: JSON.stringify(body) });
-  if (res.status === 202 && o.wait !== false) await jobDone(((await res.clone().json()) as { id: string }).id);
+  const started = await api('jobs', { method: 'POST', body: JSON.stringify(body) });
+  if (started.status !== 202 || o.wait === false) return started;
+  const { res, text } = await readOnce(started);
+  await jobDone((JSON.parse(text) as { id: string }).id);
   return res;
 };
 
@@ -370,9 +382,10 @@ describe('a dashboard over projects', () => {
     const projectDash = await startDashboard({ projects: host, spawnCli: (args: string[]) => (ran.push(args), spawn(process.execPath, ['-e', ''], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'] })) });
     const headers = { 'x-shadowlap-token': projectDash.token, 'content-type': 'application/json' };
     const post = async (body: unknown) => {
-      const res = await fetch(`${projectDash.url}/api/jobs`, { method: 'POST', headers, body: JSON.stringify(body) });
-      if (res.status !== 202) return res;
-      const { id } = (await res.clone().json()) as { id: string };
+      const started = await fetch(`${projectDash.url}/api/jobs`, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (started.status !== 202) return started;
+      const { res, text } = await readOnce(started);
+      const { id } = JSON.parse(text) as { id: string };
       for (let i = 0; i < 200; i++) {
         const job = (await (await fetch(`${projectDash.url}/api/jobs/${id}`, { headers })).json()) as { done: boolean };
         if (job.done) break;
