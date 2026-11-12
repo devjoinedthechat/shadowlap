@@ -2315,6 +2315,7 @@ One that can't start leaves the dialog open, with what you typed.
 - **Every target** is 24 px at least, as WCAG 2.5.8 asks, and text reaches WCAG AA's contrast on every surface it is drawn on.
 - **A field's edge** reaches 3:1 on whatever it sits on, as WCAG 1.4.11 asks of a control.
 - **On a phone**, no label is under 11 px: the small labels over titles, column heads, tags and shortcut keys rise to it.
+- **Line breaks** fall where they read at every width. A short sentence stays whole on its line where it fits, a number keeps its unit, and a small word keeps the word after it. An id, a name or a command's argument stays whole where its line holds it, and a long path breaks only after a slash. A screen reader reads each paragraph as one.
 - **In a high-contrast theme** that forces its own colors, a mark that says something by its color keeps it, edged in the theme's text color. The current page and run and the selected call take the highlight color, a chosen option is underlined, and menus, dialogs, hover cards and toasts are outlined.
 
 ## Limits
