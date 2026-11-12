@@ -3,7 +3,7 @@ import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { JOB_KINDS } from '../api.js';
 import type { MigrateEstimateView } from '../estimates-api.js';
 import { FixJobButton, useConsentStart } from '../fixes/FixJobButton.js';
-import { useLoad } from '../hooks.js';
+import { useLoad, useSettled } from '../hooks.js';
 import { migrateCommand, type MigrateSwitch } from '../migrate-command.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
@@ -24,12 +24,23 @@ export const MIGRATE_CARD = 'Verify runs the agent live from the switched calls,
 /** The `migrate` job's fields: every golden where it names none and no run. */
 const fieldsOf = (s: MigrateSwitch): Record<string, unknown> => ({ to: s.to, ...(s.from.length ? { from: [...s.from] } : {}), ...(s.goldens.length ? { goldens: [...s.goldens] } : s.runs?.length ? { runs: [...s.runs] } : {}) });
 
-
-/** What a switch bills and the preview that asked it already; nothing in an exported copy or a read-only dashboard, undefined while it is worked out. */
+/**
+ * What a switch bills and the preview that asked it already; nothing in an exported copy or a
+ * read-only dashboard, undefined while it is worked out. A field's switch is read once it has held
+ * still (`useSettled`), not on each keystroke: each read reads every golden's calls on the pool.
+ */
 export function useMigrateEstimate(s: MigrateSwitch, ask = true): { estimate: Estimate | null | undefined; preview: MigrateEstimateView['preview'] } {
   const { client, exported, actionsOff } = useApp();
   const on = ask && !exported && !actionsOff && !!s.to;
-  const priced = useLoad(() => (on ? (client.estimates?.migrateEstimate?.(s.to, s.from, s.goldens) ?? null) : null), `migrate-estimate:${s.to}:${s.from.join(',')}:${s.goldens.join(',')}:${on ? 1 : 0}`);
+  const now = on ? JSON.stringify([s.to, s.from, s.goldens]) : '';
+  const key = useSettled(now);
+  const priced = useLoad(() => {
+    if (!key) return null;
+    const [to, from, goldens] = JSON.parse(key) as [string, string[], string[]];
+    return client.estimates?.migrateEstimate?.(to, from, goldens) ?? null;
+  }, `migrate-estimate:${key}`);
+  // While the field still moves, what was read is another switch's: worked out, not shown.
+  if (key !== now) return { estimate: on ? undefined : null, preview: null };
   return { estimate: priced.data ? priced.data.estimate : priced.error || !on ? null : undefined, preview: priced.data?.preview ?? null };
 }
 
