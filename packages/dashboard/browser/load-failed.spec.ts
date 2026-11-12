@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { demoId, expectAccessible, openPage } from './dashboard.js';
 
+/** A line the copy parts set, as a pattern reads it: each space in `re` may be a no-break one, where the copy glued two words. */
+const glued = (re: RegExp) => new RegExp(re.source.replaceAll(' ', '[ \\u00a0]'), re.flags);
+
 /**
  * A page, a run's view, a Changes tab or the check builder whose code didn't come from the dashboard
  * server, in a real browser. The browser keeps a script's failure for as long as the page is open and
@@ -35,7 +38,7 @@ test('a page whose code didn’t come says so under its title, asks for it no mo
   await line.getByRole('button', { name: 'Retry' }).click();
   await expect(page.locator('main#view .ph h1')).toHaveText('Tests');
   // `golden` is a defined term there, its definition hidden after it in the line.
-  await expect(page.locator('main#view .ph p')).toHaveText(/^Every golden.+ CI runs, and how it did at each revision\.$/);
+  await expect(page.locator('main#view .ph p')).toHaveText(glued(/^Every golden.+ CI runs, and how it did at each revision\.$/));
   await expect(page.locator('main#view .loaderr')).toHaveCount(0);
   expect(asked).toBe(2);
 });

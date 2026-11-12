@@ -11,6 +11,9 @@ import { openPage, seriousViolations } from './dashboard.js';
 
 const hash = (page: import('@playwright/test').Page) => page.evaluate(() => location.hash);
 
+/** A line the copy parts set, as a pattern reads it: each space in `re` may be a no-break one, where the copy glued two words. */
+const glued = (re: RegExp) => new RegExp(re.source.replaceAll(' ', '[ \\u00a0]'), re.flags);
+
 test('the months under the row start at its first bar, and the first gives way only where the next runs into it', async ({ page }) => {
   const spans = 'main#view section.cal.hist .hmon span';
   const boxes = () => page.locator(`${spans}:visible`).evaluateAll((els) => els.map((e) => [e.getBoundingClientRect().left, e.getBoundingClientRect().right] as const));
@@ -47,7 +50,7 @@ test('the twelve weeks are a row of days a drag picks from, and Calendar opens t
   await page.mouse.up();
   await expect.poll(() => hash(page)).toMatch(/^#\/runs\?from=\d{4}-\d\d-\d\d&to=\d{4}-\d\d-\d\d$/);
   await expect(row.locator('.hbars button[aria-pressed="true"]')).toHaveCount(3);
-  await expect(row.locator('.hsum')).toHaveText(/^\d[\d,]* (run|runs) from \w{3} \d+ to \w{3} \d+(, \d[\d,]* failed)?\.$/);
+  await expect(row.locator('.hsum')).toHaveText(glued(/^\d[\d,]* (run|runs) from \w{3} \d+ to \w{3} \d+(, \d[\d,]* failed)?\.$/));
   await expect(row.locator('.hact button', { hasText: 'Clear' })).toBeVisible();
   expect(await seriousViolations(page)).toEqual([]);
   // Calendar shows the grid in the row's place, its own button in focus; Hide calendar brings the row back.
