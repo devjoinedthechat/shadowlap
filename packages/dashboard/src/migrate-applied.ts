@@ -1,4 +1,4 @@
-import type { MigrateApplyInput, MigratePasses, MigrateSetInput, MigrationApplied, StoreOf } from '@shadowlap/engine';
+import { migrateApplyProblem, migrateHeadline, sameModel, type MigrateApplyInput, type MigratePasses, type MigrateSetInput, type MigrationApplied, type StoreOf } from '@shadowlap/engine';
 
 /**
  * A migration's applied state as the dashboard reads it: when its config change went into the
@@ -85,4 +85,44 @@ export function applyInputOf(kept: Record<string, unknown>): MigrateApplyInput {
     set: { fields: Array.isArray(set.fields) ? set.fields : [], given: set.given && typeof set.given === 'object' ? set.given : {}, ...(Array.isArray(set.byHand) ? { byHand: strings(set.byHand) } : {}) },
     files: files && typeof files.dir === 'string' ? { dir: files.dir, patch: typeof files.patch === 'string' ? files.patch : null } : null,
   };
+}
+
+/** A kept migration from a model: its id, its report, and its applied state. */
+export interface MigrationFrom {
+  sessionId: string;
+  kept: Record<string, unknown>;
+  applied: MigrationApplied | null;
+}
+
+/**
+ * The newest migration from each of `models` (by `sameModel`, either way round), read newest first
+ * from the 200 newest: a retiring model's row and Migrate's start page say whether one checked it.
+ */
+export function newestMigrationsFrom(store: StoreOf<'decisions'>, models: readonly string[]): Map<string, MigrationFrom> {
+  const found = new Map<string, MigrationFrom>();
+  for (const row of store.listDecisionSessions({ kind: 'migrate', limit: 200 })) {
+    if (found.size === models.length) break;
+    const open = models.filter((m) => !found.has(m));
+    const kept = store.getDecisionSession(row.sessionId)?.data ?? {};
+    const from = strings(kept.from);
+    for (const m of open) if (from.some((f) => sameModel(f, m) || sameModel(m, f))) found.set(m, { sessionId: row.sessionId, kept, applied: row.applied });
+  }
+  return found;
+}
+
+/**
+ * A retiring model's state once a migration checked it, as Needs a look's row says it: `checked ·
+ * the config change is ready` where Apply is offered, else `checked · <its headline>`; `applied · 3
+ * goldens to update` while any golden it left behind waits; null once applied with none waiting.
+ */
+export function checkedWords(store: StoreOf<'tests'>, m: MigrationFrom): string | null {
+  if (m.applied) {
+    const waits = m.applied.outdated.filter((g) => stillWaits(store, g.golden, m.applied!.at)).length;
+    return waits ? `applied · ${waits} golden${waits === 1 ? '' : 's'} to update` : null;
+  }
+  const input = applyInputOf({ ...m.kept, sessionId: m.sessionId });
+  if (!migrateApplyProblem(input)) return 'checked · the config change is ready';
+  const runs = Array.isArray((m.kept.decisions as { runs?: unknown } | undefined)?.runs) ? ((m.kept.decisions as { runs: unknown[] }).runs.length) : input.passes.runs.length;
+  const text = migrateHeadline({ from: input.from, to: input.to, runs, passes: input.passes }).text;
+  return `checked · ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
 }
