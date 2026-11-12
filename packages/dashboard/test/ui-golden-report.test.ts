@@ -1,4 +1,4 @@
-import { act, createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateResult, Store, type StoredCheck } from '@shadowlap/engine';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
@@ -14,6 +14,7 @@ import { AppContext, type AppState } from '../ui/state.js';
 import { failedRunsWords } from '../ui/failed-runs.js';
 import type { RequestDiff } from '../src/request-diff.js';
 import type { DivergenceView, GoldenReport, GoldenRow } from '../ui/types.js';
+import { FoldedLines } from '../ui/tests/ErrorPart.js';
 import { drawsFindCommit, stepFor } from '../ui/tests/lead.js';
 import { ReportParts } from '../ui/tests/ReportParts.js';
 import { askedReport, openReports, reportOpen, setAttemptsShown, setReportOpen, shownAttempts } from '../ui/tests/report-open.js';
@@ -422,5 +423,23 @@ describe('a request part on its own', () => {
     await r!.click(one(dd, '.loaderr button.btn'));
     await r!.until('the answer', () => dd.querySelectorAll('.rpdiff div.hint').length === 1);
     expect([diffs, dd.querySelectorAll('.loaderr').length, shownText(one(dd, '.rpdiff div.hint')).replace(/\u00a0/g, ' ')]).toEqual([['run-asked-twice', 'run-asked-twice'], 0, 'The replay kept no call #3 to compare.']);
+  });
+
+  it('folds a body that came after its line first drew without one, until found', async () => {
+    function Later() {
+      const [lines, setLines] = useState<string[] | null>(null);
+      return createElement('div', null, createElement('button', { type: 'button', className: 'later', onClick: () => setLines(['{', '}']) }), createElement(FoldedLines, { head: 'Not served from the recording:', what: 'message', lines, id: 'rpm-later', quiet: true }));
+    }
+    const app = { client: {}, exported: false, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(Later)));
+    expect(r.all('pre.report.tail')).toEqual([]);
+    await r.click(r.one('button.later'));
+    const box = r.one('pre.report.tail');
+    expect([r.one('button.rptog').textContent, box.getAttribute('hidden'), box.heard('beforematch').length]).toEqual(['Show message', 'until-found', 1]);
+    // Find in page matching a word inside it: the browser fires beforematch on the folded box, then shows it.
+    await act(async () => {
+      for (const fn of box.heard('beforematch')) fn({ type: 'beforematch' } as never);
+    });
+    expect([r.one('button.rptog').textContent, box.hasAttribute('hidden')]).toEqual(['Hide message', false]);
   });
 });

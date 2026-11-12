@@ -11,8 +11,6 @@ import { useUntilFound } from './until-found.js';
  */
 export function FoldedLines({ head, what, lines, id, quiet = false, src = null }: { head: ReactNode; what: string; lines: readonly string[] | null; id: string; quiet?: boolean; src?: string | null }) {
   const [open, setOpen] = useState(false);
-  const box = useRef<HTMLPreElement>(null);
-  useUntilFound(box, !open, () => setOpen(true));
   return (
     <div className={quiet ? 'rperrw q' : 'rperrw'}>
       <p className="rperr">
@@ -28,17 +26,27 @@ export function FoldedLines({ head, what, lines, id, quiet = false, src = null }
         ) : null}
       </p>
       {src ? <code className="rpsrc">{src}</code> : null}
-      {lines ? (
-        <pre className="report tail" id={id} ref={box}>
-          {lines.map((l, i) => (
-            <span key={i} className="dim">
-              {l}
-              {i < lines.length - 1 ? '\n' : ''}
-            </span>
-          ))}
-        </pre>
-      ) : null}
+      {lines ? <Tail lines={lines} id={id} open={open} found={() => setOpen(true)} /> : null}
     </div>
+  );
+}
+
+/**
+ * The lines, each dim, folded until found while shut: a component of its own, so the box is folded
+ * and heard the moment it mounts, though its lines came after the line first drew without them.
+ */
+function Tail({ lines, id, open, found }: { lines: readonly string[]; id: string; open: boolean; found: () => void }) {
+  const box = useRef<HTMLPreElement>(null);
+  useUntilFound(box, !open, found);
+  return (
+    <pre className="report tail" id={id} ref={box}>
+      {lines.map((l, i) => (
+        <span key={i} className="dim">
+          {l}
+          {i < lines.length - 1 ? '\n' : ''}
+        </span>
+      ))}
+    </pre>
   );
 }
 
