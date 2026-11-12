@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { messageOf, outputTail, UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type StoreOf, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
+import { askedInNone, JUDGE_NOT_ASKED, messageOf, notAskedWords, outputTail, UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type StoreOf, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { notRunMessage } from './golden-consent.js';
 import { oracleLabels } from './oracle.js';
@@ -190,10 +190,24 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   // In a row across the session when its streak stopped it, else this golden's own.
   const inARow = ctx.streak?.gaveUp ? ctx.streak.inARow : run.providers.inARow;
   const failure = failureOf(plan, run, judged, inARow);
-  const { verdict, shown } = judged;
+  const { verdict } = judged;
+  const shown = askedInNoAttempt(judged.shown, run);
   const kind: TestFailure | null = verdict === 'passed' ? null : verdict === 'inconclusive' ? 'inconclusive' : (shown.kind ?? 'error');
   const carried = run.carry ? { sessions: run.carry.sessions, attempts: run.carry.outcomes.length } : null;
   return { spec, attempts: run.attempts, shown, passed: judged.passed, required: judged.required, failure, kind, verdict, gate: judged.result, inconclusive: run.unjudged, unavailable: run.providers.unavailable, cutShort: run.providers.cutShort, interrupted: judged.interrupted, carried };
+}
+
+/**
+ * The attempt a result shows, with each judge check no attempt asked said of its golden
+ * (`askedInNone`): one every attempt this session ran skipped as another check failed there, in a
+ * result that carried no attempt over (one carried over may have asked it). A copy: each attempt's
+ * run keeps the checks it was judged with.
+ */
+function askedInNoAttempt(shown: GoldenAttempt, run: AttemptsRun): GoldenAttempt {
+  const skipped = (a: TestAttempt, name: string) => a.checks?.some((c) => c.judge?.name === name && notAskedWords(c.detail) === JUDGE_NOT_ASKED) ?? false;
+  if (run.carry || !shown.checks) return shown;
+  const checks = shown.checks.map((c) => (c.judge && run.attempts.every((a) => skipped(a, c.judge!.name)) ? askedInNone(c) : c));
+  return checks.some((c, i) => c !== shown.checks![i]) ? { ...shown, checks } : shown;
 }
 
 /** How many attempts a golden runs and what they continue, and how each attempt's run is filed. */
@@ -252,6 +266,8 @@ function attemptOptions(parent: RunRecord, spec: TestSpec | null, ctx: Recording
     ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
     ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
     ...(ctx.allowUnrecorded ? { allowUnrecorded: ctx.allowUnrecorded } : {}),
+    // Its judges go live, so an attempt that another check failed asks none: no verdict could pass it.
+    ...(spec?.fork ? { skipJudgesOnFailure: true } : {}),
   };
 }
 
