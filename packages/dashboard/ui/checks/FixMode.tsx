@@ -75,7 +75,7 @@ function needsLook(r: FixCheckRow, left: FixCheckPreview['left']): boolean {
 /** Why Save check waits on the fix's runs: until the draft as it stands is judged on them, after a read of them that failed, and on the read's refusal. */
 function judgedWhy({ answer, error }: Pick<Judged<FixCheckPreview>, 'answer' | 'error'>): string | null {
   if (answer) return answer.refused;
-  return error ? 'The fix’s runs couldn’t be judged: Retry them under Its runs under this check' : 'Judging it on the fix’s runs…';
+  return error ? 'The fix’s runs couldn’t be judged: Retry them in Its runs under this check' : 'Judging it on the fix’s runs…';
 }
 
 /**

@@ -187,7 +187,7 @@ describe('the check builder in fix mode', () => {
     // Its read fails: Save stays off, and says where to try again.
     asked[1].reject(new ApiError(500, 'the read took too long'));
     await r!.until('the failure', () => r!.all('.loaderr').length > 0);
-    expect(why()).toEqual(['true', 'The fix’s runs couldn’t be judged: Retry them under Its runs under this check']);
+    expect(why()).toEqual(['true', 'The fix’s runs couldn’t be judged: Retry them in Its runs under this check']);
     await r!.click(ok());
     expect(s.startJob).not.toHaveBeenCalled();
     // Judged again: Save is on, plain, as the runs it would leave need a look.
