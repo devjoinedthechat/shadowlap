@@ -5,7 +5,7 @@ import { CodeBox } from '../components/CodeBox.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Link } from '../components/Link.js';
-import { MigrateAsk } from '../components/MigrateAsk.js';
+import { MigrateButton } from '../components/MigrateDialog.js';
 import { NewPreviewMenu, NO_GOLDENS, PreviewWayButtons, usePreviewDialog } from '../components/NewPreviewMenu.js';
 import { Picker } from '../components/Picker.js';
 import { useMenu } from '../components/Popover.js';
@@ -14,7 +14,6 @@ import { glossed } from '../components/Term.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { forgetPreviewSession, notePreviewSession } from '../changes-tab.js';
 import { nextStep, sessionHint, verdictState } from '../decisions.js';
-import { FixJobButton } from '../fixes/FixJobButton.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { PREVIEW_ASK } from '../page-ask.js';
@@ -308,19 +307,5 @@ function NextStepButton({ session }: { session: PreviewSession }) {
       );
     return <PreviewVerifyButton sessionId={id} change={v.change} rows={verifyRows(session, step.runs, false)} every={step.every} label={step.label} lime tip="Each runs end to end under the change, writes stubbed, until verify’s gate decides" />;
   }
-  const targets = step.goldens.length ? step.goldens : step.runs.map(shortId);
-  const command = `shadowlap migrate --to ${step.to} ${targets.join(' ')}${step.from.map((f) => ` --from ${f}`).join('')}`;
-  return (
-    <FixJobButton
-      kind="migrate"
-      fields={{ to: step.to, ...(step.from.length ? { from: step.from } : {}), ...(step.goldens.length ? { goldens: step.goldens } : { runs: step.runs }) }}
-      label={step.label}
-      verb="migrate"
-      lead
-      tip="The switch checked end to end, ending on the config change and a pull request body"
-      command={command}
-      estimate={null}
-      ask={(start, close) => <MigrateAsk from={step.from} to={step.to} command={command} ok={step.label} onOk={() => start({})} onClose={close} />}
-    />
-  );
+  return <MigrateButton s={{ from: step.from, to: step.to, goldens: step.goldens, runs: step.runs }} label={step.label} lime />;
 }

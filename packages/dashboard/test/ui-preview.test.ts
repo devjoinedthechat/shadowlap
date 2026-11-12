@@ -374,7 +374,7 @@ describe('the Preview page', () => {
     await p.until('the ask', () => p.all('.dialog').length === 1);
     expect([shown(p.one('.dialog h3')), shown(p.one('.dialog header p')), shown(p.one('.dialog .dcost'))]).toEqual([
       'Migrate claude-sonnet-4-5-20250929 to claude-haiku-4-5',
-      'Asks claude-sonnet-4-5-20250929’s calls again under claude-haiku-4-5 and verifies the runs whose decisions change.',
+      'Asks claude-sonnet-4-5-20250929’s calls again under claude-haiku-4-5, then verifies end to end the runs the preview can’t clear. Migrate in the docs →',
       'Billed by your provider',
     ]);
     expect(shown(p.one('.dialog .cmdline'))).toContain('shadowlap migrate --to claude-haiku-4-5 goldens/refund --from claude-sonnet-4-5-20250929');
