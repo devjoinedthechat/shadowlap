@@ -8,7 +8,9 @@ import { Link } from '../components/Link.js';
 import { Status } from '../components/Status.js';
 import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { headingRef } from '../focus-manager.js';
+import { PageHeader } from '../components/bits.js';
 import { Page } from '../components/Page.js';
+import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { Elsewhere } from '../pages/held-elsewhere.js';
 import { APPLY_ASK } from '../page-ask.js';
@@ -27,7 +29,7 @@ import { blameNextPrice, repairCard, useFixEstimates, verifyPrice } from './esti
 import { FixJobButton } from './FixJobButton.js';
 import { appliedButton, failingLine, fixAction, fixName, fixStamp, headBlameNext, laterStamp, leadingVerdict, repairAside, shortFixId, stepFor } from './model.js';
 import { FixStepper, REPAIR_SPENT, showPatchCard, useFitFixHead } from './head.js';
-import { failingCard, leadCard, rungStatus } from './list.js';
+import { failingCard, leadCard, rungStatus, STEP_NAMES } from './list.js';
 import { useFixRead, useFollowJobs } from './page-fix.js';
 import { MustCheckLink, useFixCheckEntry } from './check-entry.js';
 import { FailedMust } from './parts.js';
@@ -63,11 +65,7 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
   }, [fix, id]);
   useFollowJobs(id, fix);
   if (!fix) {
-    const loading = (
-      <Page>
-        <div className="empty tall">Loading the fix…</div>
-      </Page>
-    );
+    const loading = <FixWaiting id={id} failed={null} retry={loaded.reload} />;
     // Another project may hold it: a link from there, or a page left open across a switch.
     if (loaded.error instanceof ApiError && loaded.error.status === 404)
       return (
@@ -79,22 +77,13 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
           fallback={
             <>
               <Unshown at={`fixes:${id}`} />
-              <NotFoundPage what={`No fix ${id}.`} />
+              <NotFoundPage kind="fix" id={id} />
             </>
           }
         />
       );
     if (!loaded.error) return loading;
-    return (
-      <Page>
-        <div className="empty tall">
-          {`Could not load the fix: ${loaded.error.message}. `}
-          <a className="more" href={href.fixes()}>
-            All fixes
-          </a>
-        </div>
-      </Page>
-    );
+    return <FixWaiting id={id} failed={loaded.error} retry={loaded.reload} />;
   }
   const current = stepFor(fix, step);
   return (
@@ -102,6 +91,48 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
       <FixHeader fix={fix} reload={loaded.reload} shown={leadingVerdict(fix, step, sub)} />
       <FixStepper fix={fix} current={current} />
       {current === 'repair' ? <RepairStepView fix={fix} /> : current === 'verify' ? <VerifyStepView fix={fix} sub={sub} /> : <BlameStepView fix={fix} />}
+    </Page>
+  );
+}
+
+/** What the fix page's step is drawn as while it loads: its lines, as long as a step's run. */
+const SKEL_STEP = ['The call the run went wrong at, and why', 'What the repair changed, and the run that proves it', 'The check it must meet'];
+
+/**
+ * The fix page before its fix has come: `fix · <id>` over the id, until the fix names its title, then
+ * the three steps and the open one in their places as quiet bars; or, where the read failed, that
+ * header over the error line with Retry. Neither wears the fix's own classes (`.ph.fxh`, `.stepper`),
+ * which the tests read as the fix drawn.
+ */
+function FixWaiting({ id, failed, retry }: { id: string; failed: Error | null; retry: () => void }) {
+  return (
+    <Page busy={!failed}>
+      <PageHeader
+        eyebrow={
+          <>
+            fix · <code>{shortFixId(id)}</code>
+          </>
+        }
+        title={shortFixId(id)}
+      />
+      {failed ? (
+        <ErrorState retry={retry}>{failedRead(failed)}</ErrorState>
+      ) : (
+        <Skeleton what="the fix">
+          <div className="fxsks">
+            {Object.values(STEP_NAMES).map((name) => (
+              <div key={name}>
+                <span className="k">{name}</span>
+                <b>Find the call that went wrong</b>
+                <span className="m">Not started</span>
+              </div>
+            ))}
+          </div>
+          {SKEL_STEP.map((l) => (
+            <p key={l}>{l}</p>
+          ))}
+        </Skeleton>
+      )}
     </Page>
   );
 }

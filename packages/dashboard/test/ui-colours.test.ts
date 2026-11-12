@@ -301,7 +301,6 @@ describe('lime', () => {
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.badge.ok': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
-    '.setupdone': 'port/setup-states: a setup that is done says so as a verdict line, “set up” in the passed colour, never a tinted box',
   };
   /** Where lime marks no meaning: the keyboard's focus, a focused field, the text you select, and the row the keys light in a list whose field keeps the focus (`.kb`: a picker's, the palette's). */
   const FOCUS = /:focus(-visible|-within)?\b|^::selection$|^\.labelbar input$|\.kb \.\w+\.on$/;
@@ -395,6 +394,7 @@ describe('amber', () => {
     '.rntools .eff.unknown': 'a tool whose effect no rule says: a look',
     '.fieldnote.warn': 'a field’s value that needs a look',
     'ol.setup .sb > p.fieldnote.warn': 'a setup field’s value that needs a look',
+    '.warnline > p > b': 'a warning in a step: its first words, the rest of its line in the step’s own colour',
     'ol.setup.storesetup dd .warnt': 'a store setting that needs a look',
     '.agentfiles .warn': 'a coding agent’s file that needs a look',
     '.skrow > div:first-child > span.warn': 'a skill that needs a look',
@@ -433,7 +433,6 @@ describe('amber', () => {
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
-    '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
   };
 
   it('means needs a look or inconclusive, and nothing else: never a fork, stubbed or blame', () => {

@@ -1,6 +1,7 @@
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
 import { BuilderLost } from '../run/check-part.js';
+import { IssuesLoading } from '../runspage/IssuesLoading.js';
 import type { ServedParts } from '../served-parts.js';
 
 /**
@@ -14,5 +15,5 @@ export const SERVED_PARTS: ServedParts = {
   ChangeBox: onShow(() => import('../revert/ChangeBox.js').then((m) => m.ChangeBox), { failed: <LoadFailed what="change" /> }),
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks)),
-  FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues)),
+  FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues), { waiting: <IssuesLoading />, failed: <LoadFailed what="view" /> }),
 };

@@ -4,8 +4,8 @@
  * config-file module (addRule, removeRule, setClock), which takes the `version` returned here so a
  * page showing an old list can't remove the wrong rule; jobs run the CLI for calibrate and gc.
  *
- * Settings is the one page a project with no runs can open, so nothing here needs a run, and a
- * config file that can't be read is reported on the page rather than failing it.
+ * Settings opens before a project has runs, so nothing here needs a run, and a config file that
+ * can't be read is reported on the page rather than failing it.
  *
  * Each tab has a module of its own (settings-matching.ts, settings-redaction.ts, settings-agents.ts,
  * settings-tools.ts with the MCP servers in settings-mcp.ts, settings-project.ts, settings-store.ts),

@@ -108,7 +108,7 @@ export function liveAsk(goldens: readonly LiveSource[], job: TestsJob, yes: unkn
 }
 
 /**
- * The question Setup's Keep it as a test asks before its test runs a golden live, as Run tests asks
+ * The question Setup's Pack asks before its test runs a golden live, as Run tests asks
  * it: by the tests entry the config gives the golden's path (the engine's `testLive`, as the CLI
  * lists goldens by it), since a golden it is about to pack is in no list yet. `commands` are the
  * job's, after `shadowlap`. A config that can't be read gives no entry: the test then stops on it

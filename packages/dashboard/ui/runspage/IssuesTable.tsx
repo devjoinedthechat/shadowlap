@@ -4,7 +4,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
 import { Glyph, RunIcon } from '../components/RunIcon.js';
-import { ErrorState } from '../components/States.js';
+import { ErrorState, failedRead } from '../components/States.js';
 import { Status } from '../components/Status.js';
 import { ShowMore } from '../components/Table.js';
 import { Whole } from '../fixes/parts.js';
@@ -152,7 +152,7 @@ function IssueRuns({ x, id, now, asked, onMore, onRetry }: { x: Issue; id: strin
   if (!x.runs) {
     return (
       <div className="isruns" id={id} {...(asked?.error ? {} : { 'aria-busy': true })}>
-        {asked?.error ? <ErrorState retry={() => onRetry(x.key)}>Its runs couldn’t be read: {asked.error}</ErrorState> : <div className="empty">Loading runs…</div>}
+        {asked?.error ? <ErrorState retry={() => onRetry(x.key)}>{failedRead(asked.error)}</ErrorState> : <div className="empty">Loading runs…</div>}
       </div>
     );
   }
