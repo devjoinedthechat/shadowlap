@@ -5,7 +5,7 @@ import { CodeBox } from '../components/CodeBox.js';
 import { MatrixKey } from '../components/MatrixKey.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
-import { ErrorState, Skeleton } from '../components/States.js';
+import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { glossed } from '../components/Term.js';
 import { RuleText } from '../components/Verdict.js';
 import { clock, plural } from '../format.js';
@@ -189,6 +189,22 @@ function GateLine({ g, p, fold }: { g: GateShown; p: Extract<ReportPart, { kind:
   );
 }
 
+/**
+ * The attempts while they are read, in their list's shape as quiet bars: a line an attempt, four at
+ * most. Its class is its own (tests.css), as tests wait for the list's `.alist`.
+ */
+function AttemptsReading({ total }: { total: number }) {
+  return (
+    <Skeleton what="the attempts">
+      <div className="rpska">
+        {Array.from({ length: Math.min(Math.max(total, 1), 4) }, (_, i) => (
+          <span key={i}>01K8RG01AB · called 2 times</span>
+        ))}
+      </div>
+    </Skeleton>
+  );
+}
+
 /** The attempts, read once the report opens; past 24 of a gate's, folded behind its caret. Then the attempts carried over, the check they failed, and where they forked. */
 function AttemptsPart({ p, row, open, fold }: { p: Extract<ReportPart, { kind: 'attempts' }>; row: GoldenRow; open: boolean; fold: Fold }) {
   const { client } = useApp();
@@ -196,8 +212,8 @@ function AttemptsPart({ p, row, open, fold }: { p: Extract<ReportPart, { kind: '
   const total = row.last.gate?.attempts ?? loaded.data?.attempts.length ?? 0;
   const list = () => {
     if (!open || !client.testEvidence || (fold.many && !fold.shown)) return null;
-    if (loaded.error) return <ErrorState retry={loaded.reload}>Its attempts couldn’t be read: {loaded.error.message}</ErrorState>;
-    if (!loaded.data) return <Skeleton what="the attempts" lines={2} />;
+    if (loaded.error) return <ErrorState retry={loaded.reload}>{failedRead(loaded.error)}</ErrorState>;
+    if (!loaded.data) return <AttemptsReading total={total} />;
     const { attempts, gone, carried } = loaded.data;
     if (!attempts.length) return <p className="muted">The attempts aren’t in the store any more.</p>;
     return (

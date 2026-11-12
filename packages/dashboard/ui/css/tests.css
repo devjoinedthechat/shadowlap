@@ -283,6 +283,12 @@ table.gt span.gev small { font-size: inherit; }
 .ms.rpms { flex: none; width: min(calc(var(--n) * 9px), 100%); height: 14px; gap: 2px; }
 /* the error in one line, the line of code it was raised at under it, all of it on request */
 .rperrw > pre.report.tail { margin-top: 8px; }
+/* a part while it is read, in its shape as quiet bars: the request's heads and its lines in their box, the attempts' lines; classes of
+   their own, as tests wait for the diff's .jdh and .jl and the list's .alist */
+.rpskh { display: flex; flex-wrap: wrap; gap: 2px 22px; font-size: 12px; }
+.rpskd { display: grid; margin-top: 8px; padding: 9px 14px; border: 1px solid var(--line); border-radius: var(--r-box); background: var(--code); font: 12.5px/1.7 var(--mono); }
+.rpska { display: grid; gap: 3px; margin-top: 8px; }
+.rpska > span { min-height: 24px; font-size: var(--fs-quiet); }
 /* what followed a request, apart from its diff; alone where the divergence kept no changes */
 .rpx .rpdiff + .rperrw.q { margin-top: 10px; }
 .diffpanel.rpdiff { padding: 0; border: 0; background: none; gap: 8px; }

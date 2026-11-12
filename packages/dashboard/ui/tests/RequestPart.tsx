@@ -1,10 +1,9 @@
 import { DiffAnswer, DiffHead, NoDiffAnswer } from '../components/DiffNotes.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
-import { ErrorState, Skeleton } from '../components/States.js';
+import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { useLoad } from '../hooks.js';
 import { askDiff } from '../run/diff-answers.js';
 import { useApp } from '../state.js';
-import { errorText } from '../toast.js';
 import type { Followed, ReportPart } from '../types.js';
 import { FoldedLines } from './ErrorPart.js';
 
@@ -26,14 +25,37 @@ export function RequestPart({ p, open, id }: { p: Extract<ReportPart, { kind: 'r
   );
 }
 
-/** The replay's diff, asked for as the report opens and kept for the page's life (diff-answers.ts), Retry on a failure. */
+/** The replay's diff, asked for as the report opens and kept for the page's life (diff-answers.ts): in its shape while asked, Retry on a failure. */
 function Asked({ runId, callNo }: { runId: string; callNo: number }) {
   const { client } = useApp();
   const answer = useLoad(() => askDiff(client, runId, false), `request-diff:${runId}`);
   if (answer.data) return <DiffAnswer diff={answer.data} as="h4" />;
-  if (answer.error) return <ErrorState retry={answer.reload}>{errorText(answer.error)}</ErrorState>;
-  if (answer.loading) return <Skeleton what="diff" lines={6} />;
+  if (answer.error) return <ErrorState retry={answer.reload}>{failedRead(answer.error)}</ErrorState>;
+  if (answer.loading) return <Asking at={callNo} />;
   return <NoDiffAnswer who="The replay" at={callNo} />;
+}
+
+/** A diff's lines while it is asked, as long as such lines run. */
+const ASKING = ['model: "claude-sonnet-4"', 'max_tokens: 1024', 'metadata: {', '  user_id: "6f1c2a9e-0b4d-4e8a"', '}', 'messages: [ … ]'];
+
+/**
+ * The diff while it is asked, in its shape as quiet bars: both heads, then its lines in their box.
+ * Its classes are its own (tests.css), as tests wait for the diff's `.jdh` and `.jl`.
+ */
+function Asking({ at }: { at: number }) {
+  return (
+    <Skeleton what="the request’s diff">
+      <div className="rpskh">
+        <span>Recorded request #{at} · the recording</span>
+        <span>This run’s request #{at}</span>
+      </div>
+      <div className="rpskd">
+        {ASKING.map((line, i) => (
+          <span key={i}>{line}</span>
+        ))}
+      </div>
+    </Skeleton>
+  );
 }
 
 /** The changes the result kept, the replay gone: both sides hold only what changed. */

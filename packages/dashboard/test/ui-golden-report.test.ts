@@ -15,7 +15,7 @@ import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { failedRunsWords } from '../ui/failed-runs.js';
 import type { RequestDiff } from '../src/request-diff.js';
-import type { DivergenceView, GoldenReport, GoldenRow } from '../ui/types.js';
+import type { DivergenceView, GoldenReport, GoldenRow, TestEvidence } from '../ui/types.js';
 import { FoldedLines } from '../ui/tests/ErrorPart.js';
 import { drawsFindCommit, stepFor } from '../ui/tests/lead.js';
 import { ReportParts } from '../ui/tests/ReportParts.js';
@@ -439,14 +439,40 @@ describe('a request part on its own', () => {
     expect(dd.querySelectorAll('p.rperr > span.nw').map((x) => x.textContent)).toEqual(FOLLOWED.line);
   });
 
-  it('says a failed ask with Retry, which asks again, and where the answer is none says so as Show diff does', async () => {
-    let fail = true;
-    const dd = await drawPart({ kind: 'request', runId: 'run-asked-twice', callNo: 3, against: null, bodies: null, followed: null }, () => (fail ? Promise.reject(new Error('offline')) : Promise.resolve(null)));
+  it('draws its shape while asked, says a failed ask as every page does, with Retry, which asks again, and where the answer is none says so as Show diff does', async () => {
+    const { ApiError } = await import('../ui/api.js');
+    let fail: ((err: Error) => void) | null = null;
+    const ask = () => (fail ? Promise.resolve(null) : new Promise<null>((_resolve, reject) => (fail = reject)));
+    const dd = await drawPart({ kind: 'request', runId: 'run-asked-twice', callNo: 3, against: null, bodies: null, followed: null }, ask);
+    // While it is asked: both heads, then its lines in their box, as quiet bars in classes of their own.
+    expect(dd.querySelectorAll('.rpdiff .skel [role="status"]').map(shownText)).toEqual(['Loading the request’s diff…']);
+    expect([dd.querySelectorAll('.skel .rpskh > span').length, dd.querySelectorAll('.skel .rpskd > span').length, dd.querySelectorAll('.jdh, .jl, .hint').length]).toEqual([2, 6, 0]);
+    await act(async () => fail!(new ApiError(500, 'HTTP 500')));
     await r!.until('the error', () => dd.querySelectorAll('.rpdiff .loaderr').length === 1);
-    fail = false;
+    expect(dd.querySelectorAll('.loaderr p > span').map(shownText)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
     await r!.click(one(dd, '.loaderr button.btn'));
     await r!.until('the answer', () => dd.querySelectorAll('.rpdiff div.hint').length === 1);
     expect([diffs, dd.querySelectorAll('.loaderr').length, shownText(one(dd, '.rpdiff div.hint')).replace(/\u00a0/g, ' ')]).toEqual([['run-asked-twice', 'run-asked-twice'], 0, 'The replay kept no call #3 to compare.']);
+  });
+
+  it('draws its attempts’ lines while they are read, and a failed read as every page says it, with Retry, which reads them again', async () => {
+    const { ApiError } = await import('../ui/api.js');
+    const reads: Array<{ resolve: (e: TestEvidence) => void; reject: (err: Error) => void }> = [];
+    const testEvidence = () => new Promise<TestEvidence>((resolve, reject) => reads.push({ resolve, reject }));
+    const app = { client: { testEvidence }, exported: false, toast: () => undefined, guard: (fn: () => void) => fn() } as unknown as AppState;
+    const report = { name: 'flaky', verdict: 'inconclusive', parts: [{ kind: 'attempts', check: null, carried: null, forked: null }] } as unknown as GoldenReport;
+    r = await render(createElement(AppContext.Provider, { value: app }, createElement(ReportParts, { report, row: { path: 'goldens/flaky', last: { at: T0, gate: { attempts: 3 } } } as unknown as GoldenRow, open: true })));
+    const dd = r.one('dl.rpx > dd');
+    expect(dd.querySelectorAll('.skel [role="status"]').map(shownText)).toEqual(['Loading the attempts…']);
+    expect([dd.querySelectorAll('.skel .rpska > span').length, dd.querySelectorAll('.alist').length]).toEqual([3, 0]);
+    await act(async () => reads[0].reject(new ApiError(500, 'HTTP 500')));
+    await r.until('the failure', () => dd.querySelectorAll('.loaderr').length === 1);
+    expect(dd.querySelectorAll('.loaderr p > span').map(shownText)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    await r.click(one(dd, '.loaderr button.btn'));
+    expect(reads).toHaveLength(2);
+    await act(async () => reads[1].resolve({ attempts: [{ runId: 'run-a1', href: '#/run/run-a1', outcome: 'failed', note: 'called 2 times' }], carried: 0, gone: 0 }));
+    await r.until('the attempts', () => dd.querySelectorAll('.alist > .al').length === 1);
+    expect(dd.querySelectorAll('.skel, .loaderr')).toHaveLength(0);
   });
 
   it('folds a body that came after its line first drew without one, until found', async () => {
