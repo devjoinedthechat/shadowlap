@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { dash, seriousViolations, sideways } from './dashboard.js';
+import { dash, openPage, seriousViolations, sideways } from './dashboard.js';
 import { ROUTES, show, type RouteState } from './routes.js';
 
 /**
@@ -224,4 +224,18 @@ test('the cards that stand for a page, signed out and with a refused link, each 
   // The card's title is its h1, and the page behind it is inert: ariaSnapshot still reads an inert page, so its h1 is found inert.
   expect(await headings(page, '.connblock')).toEqual([{ level: 1, name: 'This link’s session token isn’t this dashboard’s' }]);
   expect(await page.locator('main#view').evaluate((el) => !!el.closest('[inert]'))).toBe(true);
+});
+
+test('the offline bar is said once, by one live region that was on the page before it, and never its countdown', async ({ page }) => {
+  await openPage(page, `/run/${dash().runs.ticket as string}`, 'run');
+  const said = page.getByRole('status').filter({ hasText: /Offline/ });
+  expect(await page.locator('.sr[role="status"]').count()).toBeGreaterThan(0);
+  // The server stops answering: the bar comes once the page's next look fails.
+  await page.route('**/api/**', (route) => route.abort());
+  await page.waitForSelector('.connbar', { state: 'visible', timeout: 30_000 });
+  await expect(said).toHaveCount(1);
+  await expect(said).toHaveText(/^Offline · actions paused · Can’t reach the dashboard server · showing what loaded/);
+  expect(await page.locator('[role="status"]').evaluateAll((all) => all.filter((s) => /Retrying in/.test(s.textContent ?? '')).length)).toBe(0);
+  expect(await page.locator('.connbar').ariaSnapshot()).not.toMatch(/Offline · actions paused/);
+  await page.unroute('**/api/**');
 });

@@ -21,6 +21,9 @@ import { useApp } from '../state.js';
  * which explains where the link comes from.
  */
 
+/** What the bar's live region says while the server can't be reached, once as it comes: never the countdown or the buttons. */
+export const OFFLINE_SAID = 'Offline · actions paused · Can’t reach the dashboard server · showing what loaded';
+
 export function OfflineBar() {
   const { conn, loadedAt, retryIn, retrying, retryNow } = useApp();
   const [why, setWhy] = useState(false);
@@ -28,37 +31,49 @@ export function OfflineBar() {
     document.body.classList.toggle('is-offline', conn === 'offline');
     return () => document.body.classList.remove('is-offline');
   }, [conn]);
-  if (conn !== 'offline') return null;
+  const offline = conn === 'offline';
   const when = loadedAt ? ` at ${clock(loadedAt)}` : '';
+  // The live region is on the page before its words come, as the toast's is: one on a display: contents box, or drawn
+  // with its words already in it, may never be heard (Safari drops such a box's role). What the bar draws is drawn only.
+  const said = (
+    <span className="sr" role="status">
+      {offline ? `${OFFLINE_SAID}${when}` : ''}
+    </span>
+  );
+  if (!offline) return said;
   return (
-    <div className={`connbar${why ? ' open' : ''}`}>
-      <span className="cdot" />
-      {/* Said once as it comes: the countdown and the buttons are outside what is read out. */}
-      <span className="csay" role="status">
-        <span className="cs">Offline · actions paused</span>
-        <span className="ct">
-          <b className="nw">Can’t reach the dashboard server</b> · <span className="nw">showing what loaded{when}</span> · <span className="nw">actions paused ·</span>
+    <>
+      {said}
+      <div className={`connbar${why ? ' open' : ''}`}>
+        <span className="cdot" />
+        <span className="csay">
+          <span className="cs" aria-hidden="true">
+            Offline · actions paused
+          </span>
+          <span className="ct" aria-hidden="true">
+            <b className="nw">Can’t reach the dashboard server</b> · <span className="nw">showing what loaded{when}</span> · <span className="nw">actions paused ·</span>
+          </span>
         </span>
-      </span>
-      <button className="linkbtn cwhy" type="button" aria-expanded={why} aria-controls="connWhyText" onClick={() => setWhy(!why)}>
-        Why
-      </button>
-      {/* What Why discloses, next after it as a screen reader moves on: it shows only when asked for. */}
-      <span className="cw" id="connWhyText">
-        <span className="cwt">Can’t reach the dashboard server, so this shows what loaded{when}.</span> <span className="cwa">Start it again:</span>
-      </span>
-      <span className="cc">
-        <span className="cwith">start it with </span>
-        <code>shadowlap dashboard</code>
-        <CopyButton text="shadowlap dashboard" label="the command" name="Copy command" sub="Starts the dashboard server again" className="linkbtn ccopy">
-          {null}
-        </CopyButton>
-      </span>
-      <span className="cr">{retrying ? 'Reconnecting…' : `Retrying in ${retryIn}s`}</span>
-      <button className="btn sm" type="button" disabled={retrying} onClick={retryNow}>
-        Retry now
-      </button>
-    </div>
+        <button className="linkbtn cwhy" type="button" aria-expanded={why} aria-controls="connWhyText" onClick={() => setWhy(!why)}>
+          Why
+        </button>
+        {/* What Why discloses, next after it as a screen reader moves on: it shows only when asked for. */}
+        <span className="cw" id="connWhyText">
+          <span className="cwt">Can’t reach the dashboard server, so this shows what loaded{when}.</span> <span className="cwa">Start it again:</span>
+        </span>
+        <span className="cc">
+          <span className="cwith">start it with </span>
+          <code>shadowlap dashboard</code>
+          <CopyButton text="shadowlap dashboard" label="the command" name="Copy command" sub="Starts the dashboard server again" className="linkbtn ccopy">
+            {null}
+          </CopyButton>
+        </span>
+        <span className="cr">{retrying ? 'Reconnecting…' : `Retrying in ${retryIn}s`}</span>
+        <button className="btn sm" type="button" disabled={retrying} onClick={retryNow}>
+          Retry now
+        </button>
+      </div>
+    </>
   );
 }
 

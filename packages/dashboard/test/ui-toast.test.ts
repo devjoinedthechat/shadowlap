@@ -248,12 +248,21 @@ describe('the keyboard’s way out', () => {
 describe('the offline bar', () => {
   const value = (o: Partial<AppState> = {}) => ({ conn: 'offline', loadedAt: 1_700_000_000_000, retryIn: 7, retrying: false, retryNow: () => undefined, toast: () => undefined, ...o }) as unknown as AppState;
 
+  it('keeps its live region on the page while the server answers, empty, so the words that come are heard', async () => {
+    r = await render(createElement(AppContext.Provider, { value: value({ conn: 'online' }) }, createElement(OfflineBar)));
+    expect(r.all('.connbar')).toHaveLength(0);
+    expect(r.all('[role="status"]').map((s) => s.textContent)).toEqual(['']);
+  });
+
   it('says what failed, what shows and the command, the countdown outside what is read out', async () => {
     r = await render(createElement(AppContext.Provider, { value: value() }, createElement(OfflineBar)));
     const bar = r.one('.connbar');
     expect(bar.hasAttribute('role')).toBe(false);
-    expect(r.one('.connbar [role="status"] .ct').textContent).toMatch(/^Can’t reach the dashboard server · showing what loaded at .+ · actions paused ·$/);
-    expect(r.all('.connbar [role="status"] .cr')).toHaveLength(0);
+    // One live region, on the page before the bar, says the bar's words; what the bar draws is drawn only, the countdown never read.
+    expect(r.all('[role="status"]').map((s) => s.textContent)).toEqual([expect.stringMatching(/^Offline · actions paused · Can’t reach the dashboard server · showing what loaded at .+$/)]);
+    expect(r.all('.connbar [role="status"]')).toHaveLength(0);
+    expect(r.one('.connbar .ct').textContent).toMatch(/^Can’t reach the dashboard server · showing what loaded at .+ · actions paused ·$/);
+    expect(['.cs', '.ct'].map((c) => r!.one(`.connbar ${c}`).getAttribute('aria-hidden'))).toEqual(['true', 'true']);
     expect(r.one('.connbar .cr').textContent).toBe('Retrying in 7s');
     expect(r.one('.connbar .cc code').textContent).toBe('shadowlap dashboard');
     expect(r.one('.ccopy').getAttribute('aria-label')).toBe('Copy command');
