@@ -660,7 +660,7 @@ describe('Changes’ page', () => {
     const asked: string[] = [];
     const holding = (what: string, ids: readonly string[]) => (asked.push(`${what} ${ids.join(' ')}`), Promise.resolve({ current: { id: 'support-agent', name: 'support-agent' }, held: null }));
     const client = { decisionSessions: () => Promise.resolve({ sessions: [], goldens: 1 }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')), migrateStart: () => Promise.resolve({ goldens: 1, retiring: [], use: [] }), projects: { holding } };
-    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ChangesPage, { tab: 'migrate', id: 'mg-01M5000000000000000000000B' })));
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, withServed(createElement(ChangesPage, { tab: 'migrate', id: 'mg-01M5000000000000000000000B' }))));
     await page.until('the Migrate tab', () => page!.all('.empty.tall').length === 1);
     expect(page.all('nav.stabs a').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)).toEqual(['Migrate']);
     expect(bar.hash).toBe('#/changes/migrate/mg-01M5000000000000000000000B');
