@@ -24,6 +24,7 @@ import { checksOf, runLikeOf } from './model.js';
 import { blameBesideCard, replayAction, stepCard, stepEstimate, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
 import { PackAsGolden, StepDialogPart } from './PackAsGolden.js';
+import { TestDialogPart } from '../injection/test-part.js';
 import { packRunCommand } from './share-steps.js';
 
 /**
@@ -199,9 +200,9 @@ function RuleStep({ run, step, onAction }: StepProps) {
 }
 
 /**
- * Run injection test… and Re-run injection test: what it plants and bills, why the last test leads
- * to it, then the `injection` job, which asks again for a command someone else recorded, as every
- * such command is asked (ConsentDialog).
+ * Run injection test… opens its dialog (TestDialog.tsx), why the last test leads to it its amber
+ * line; Re-run injection test confirms what it plants again and bills. Each starts the `injection`
+ * job, which asks again for a command someone else recorded, as every such command is asked (ConsentDialog).
  */
 function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-test' | 'injection-again' }> }) {
   const app = useApp();
@@ -209,7 +210,8 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
   const busy = useTreeBusy('reads', stepJob(step)!.verb);
   const title = confirmWords(step.label);
   // The job keeps the estimate its card and Cost line said, so its drawer says it too; the consent's yes sends it again.
-  const fields = { ...(step.key === 'injection-again' ? { runId: step.runId, repeat: step.job.repeat, ...(step.job.templates.length ? { templates: step.job.templates } : {}), baselines: step.job.baselines, liveReads: step.job.liveReads } : { runId: step.runId }), ...sentEstimate(stepEstimate(step)) };
+  const again = step.key === 'injection-again' ? step.job : null;
+  const fields = { runId: step.runId, ...(again ? { repeat: again.repeat, ...(again.templates.length ? { templates: again.templates } : {}), baselines: again.baselines, liveReads: again.liveReads, again: true } : {}), ...sentEstimate(stepEstimate(step)) };
   const start = (yes?: string) =>
     app.guard(() => {
       void app.client.startJob(JOB_KINDS.injection, yes === undefined ? fields : { ...fields, yes }).then(
@@ -226,7 +228,7 @@ function InjectionStep({ step }: { step: Extract<NextStep, { key: 'injection-tes
       <ActionButton className="btn lime" why={busy} data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => app.guard(() => setAsking({ kind: 'step' }))}>
         {step.label}
       </ActionButton>
-      {asking?.kind === 'step' ? <StepDialogPart ask={{ kind: 'injection', step, onOk: () => start() }} onClose={() => setAsking(null)} /> : null}
+      {asking?.kind === 'step' ? step.key === 'injection-test' ? <TestDialogPart runId={step.runId} why={step.sub} estimate={stepEstimate(step)} onClose={() => setAsking(null)} /> : <StepDialogPart ask={{ kind: 'injection', step, onOk: () => start() }} onClose={() => setAsking(null)} /> : null}
       {asking?.kind === 'consent' ? <StepDialogPart ask={{ kind: 'consent', why: asking.why, ok: title, onOk: () => start(asking.confirm) }} onClose={() => setAsking(null)} /> : null}
     </>
   );

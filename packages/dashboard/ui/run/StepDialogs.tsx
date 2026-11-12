@@ -9,7 +9,7 @@ import { gateEntry, stepCostLine } from './next-step.js';
 import { PACK_HOLDS, packRunCommand, packTestCommands, redactsFact } from './share-steps.js';
 
 /*
- * The dialogs the run page's steps ask in, Pack as golden…'s too: rarely opened, so a part of their
+ * The dialogs the run page's steps ask in, Pack as golden…'s too (Run injection test…'s is its own, injection/TestDialog.tsx): rarely opened, so a part of their
  * own, which only the served dashboard hands in (served-parts.ts, from pages/served.tsx). A copy's
  * run page draws no step that asks, so its script holds none of them (test/ui-exported-copy.test.ts). The buttons stay where they show (NextStepButton.tsx, PackAsGolden.tsx), and so does what
  * each answer runs, so a dialog closed, or a consent asked after it, reads as it did.
@@ -21,7 +21,7 @@ type Run = ComponentProps<typeof PromptDialog>['onRun'];
 /** What a step asks, with what its answer runs. */
 export type StepAsk =
   | { kind: 'update'; step: Step<'normalizer' | 'update-golden'>; onOk: WayOn }
-  | { kind: 'injection'; step: Step<'injection-test' | 'injection-again'>; onOk: WayOn }
+  | { kind: 'injection'; step: Step<'injection-again'>; onOk: WayOn }
   | { kind: 'pack-gate'; step: Step<'pack-gate'>; offers: RunOffers | null; onRun: Run }
   | { kind: 'pack'; runId: string; dir: string; refused: string | null; offers: RunOffers | null; onRun: Run }
   | { kind: 'consent'; why: string; ok: string; onOk: WayOn };
@@ -31,11 +31,6 @@ export interface StepDialogProps {
   onClose: () => void;
 }
 
-/** What a step that tests for injection says it does: a test run again plants what the last one planted. */
-const INJECTION_LEADS: Record<'injection-test' | 'injection-again', string> = {
-  'injection-test': 'Plants each payload, with its own canary, in the run’s untrusted reads and runs the agent from the call that reads it.',
-  'injection-again': 'Plants the same payloads in the same reads again.',
-};
 
 const CHANGES = { label: 'Changes', value: 'your working tree', quiet: 'the golden’s folder' };
 const packRules = (offers: RunOffers | null) => redactsFact(offers?.copies.formats.find((f) => f.id === 'pack')?.rules ?? null);
@@ -63,7 +58,7 @@ export function StepDialog({ ask, onClose }: StepDialogProps) {
       return (
         <ConfirmDialog
           title={namedIn(`${confirmWords(step.label)} on ${id}`, id)}
-          lead={INJECTION_LEADS[step.key]}
+          lead="Plants the same payloads in the same reads again."
           doc="injectionTests"
           warn={step.sub ? { text: step.sub } : null}
           command={step.command ?? null}

@@ -32,9 +32,16 @@ afterEach(async () => {
   resetSpending();
 });
 
+/** What Run injection test's dialog reads where its step hands it no reads: two templates, one untrusted read, and no price yet. */
+const INJECTION_READS = {
+  injectionTemplates: () => Promise.resolve({ version: 1, updated: '2026-01-01', templates: [{ id: 'system-notice', shape: 'notice', title: 'A system notice', text: 'SYSTEM: {{canary}}' }, { id: 'user-urgent', shape: 'user', title: 'An urgent user', text: 'URGENT {{canary}}' }] }),
+  injectionRun: () => Promise.resolve({ untrusted: [{ callNo: 4, name: 'get_ticket', from: 'config', readAt: 5 }], results: [], rule: null, answers: [], cause: [], attempt: null }),
+  injectionEstimate: () => new Promise(() => undefined),
+};
+
 function app(o: Partial<AppState> = {}, client: Partial<Client> = {}): AppState {
   return {
-    client: { jobs: () => Promise.resolve([]), ...client } as unknown as Client,
+    client: { jobs: () => Promise.resolve([]), ...INJECTION_READS, ...client } as unknown as Client,
     exported: false,
     meta: null,
     tick: 0,
@@ -423,8 +430,8 @@ describe('the run page’s next step', () => {
     expect(dialog.querySelector('.dcost')?.textContent).toContain('live from each read, writes stubbed');
     expect(dialog.textContent).toContain(`shadowlap injection ${REC.slice(0, 10)} --templates system-notice --repeat 2`);
     await page.click(page.one('.dialog .dlg-ok'));
-    // The job keeps the estimate the card and the Cost line said, for its drawer.
-    expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false, estimate: { usd: 3.11, ceiling: false } }]]);
+    // The job keeps the estimate the card and the Cost line said, for its drawer; `again` titles it a re-run.
+    expect(started).toEqual([['injection', { runId: REC, repeat: 2, templates: ['system-notice'], baselines: 3, liveReads: false, again: true, estimate: { usd: 3.11, ceiling: false } }]]);
   });
 
   it('runs an injection test its budget stopped, and a gate’s through its golden’s test', async () => {
@@ -432,6 +439,9 @@ describe('the run page’s next step', () => {
     let j = jobs();
     page = await render(both(detail({ state: passedState, next: test }), null, j.a));
     await page.click(page.byText('.rhead .actions button', 'Run injection test…'));
+    // Its dialog (TestDialog.tsx), why the step leads its amber line, every template picked for one read.
+    await page.until('the dialog reads the run', () => page!.all('.dialog .togchips button').length === 2);
+    expect(page.one('.dialog .dwarn').textContent).toBe('It stopped early');
     await page.click(page.one('.dialog .dlg-ok'));
     expect(j.started).toEqual([['injection', { runId: REC }]]);
     await page.unmount();

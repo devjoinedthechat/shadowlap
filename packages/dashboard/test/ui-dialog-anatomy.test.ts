@@ -337,11 +337,14 @@ describe('a run’s next steps that ask first', () => {
   const RUN = '01K5CQ4N7G0000000000000000';
   const GOLDEN = 'goldens/refund-in-limit';
   const run = { run: { runId: RUN, parentRunId: null, status: 'completed', meta: {} }, actions: [], children: [], calls: [] } as unknown as RunDetail;
-  const served = (client: Record<string, unknown> = {}) => appWith({ client: { jobs: () => Promise.resolve([]), ...client }, feeds: {}, live: [], runs: [] });
-  /** The step's lime button, pressed: the dialog it asks in. */
+  // Run injection test's dialog reads the templates and the run's untrusted reads where its step hands it none.
+  const reads = { injectionTemplates: async () => ({ version: 1, updated: '', templates: [{ id: 'system-notice', shape: 'notice', title: 'A notice', text: '{{canary}}' }] }), injectionRun: async () => ({ untrusted: [{ callNo: 4, name: 'get_ticket', from: 'config', readAt: 5 }], results: [], rule: null, answers: [], cause: [], attempt: null }), injectionEstimate: () => new Promise(() => undefined) };
+  const served = (client: Record<string, unknown> = {}) => appWith({ client: { jobs: () => Promise.resolve([]), ...reads, ...client }, feeds: {}, live: [], runs: [] });
+  /** The step's lime button, pressed: the dialog it asks in, once what it reads has come. */
   async function pressed(step: NextStep, app = served()): Promise<Rendered> {
     const page = await open(createElement('div', null, createElement(NextStepButton, { run, step, offers: null, onAction: () => undefined, onFindCommit: () => undefined }), createElement(TestsAskHost)), app);
     await page.click(page.byText('button', step.label));
+    await page.until('its dialog', () => page.all('[role="dialog"] .dlg-ok').some((b) => b.props['aria-disabled'] !== 'true'));
     return page;
   }
   const estimate = { kind: 'injection', usd: 3.11, ceiling: false, note: 'as the last test’s 6 attempts', parts: ['live from each read, writes stubbed'] } as NonNullable<NextStep['estimate']>;
@@ -375,7 +378,7 @@ describe('a run’s next steps that ask first', () => {
     holds(await pressed(step), { title: 'Update refund-in-limit?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
   });
   it.each<[string, NextStep, Expect]>([
-    ['Run injection test', { key: 'injection-test', label: 'Run injection test…', runId: RUN, command: `shadowlap injection ${RUN.slice(0, 10)}`, sub: 'It stopped early' }, { title: 'Run injection test on 01K5CQ4N7G', doc: 'injectionTests', first: OK, ok: 'Run injection test', warn: 'It stopped early' }],
+    ['Run injection test', { key: 'injection-test', label: 'Run injection test…', runId: RUN, command: `shadowlap injection ${RUN.slice(0, 10)}`, sub: 'It stopped early' }, { title: 'Run injection test on 01K5CQ4N7G', doc: 'injectionTests', first: 'input[type="number"]', ok: 'Run injection test', warn: 'It stopped early' }],
     ['Re-run injection test', { key: 'injection-again', label: 'Re-run injection test', runId: RUN, job: { repeat: 2, templates: [], baselines: 3, liveReads: false }, command: `shadowlap injection ${RUN.slice(0, 10)} --repeat 2`, sub: 'It showed too little to say: no model read it', estimate }, { title: 'Re-run injection test on 01K5CQ4N7G', doc: 'injectionTests', first: OK, ok: 'Re-run injection test', warn: 'It showed too little to say: no model read it' }],
     ['Pack as golden', { key: 'pack', label: 'Pack as golden…', runId: RUN, folder: 'goldens/01k5cq4n7g', command: `shadowlap pack ${RUN.slice(0, 10)} goldens/01k5cq4n7g` }, { title: 'Pack 01K5CQ4N7G as golden?', doc: 'makeGolden', first: FIELD, ok: 'Pack as golden' }],
     ['Pack with injection gate', { key: 'pack-gate', label: 'Pack with injection gate…', runId: RUN, folder: 'goldens/01k5cq4n7g', gate: { obeyed: 0, repeat: 3 }, command: `shadowlap pack ${RUN.slice(0, 10)} goldens/01k5cq4n7g`, estimate }, { title: 'Pack 01K5CQ4N7G with injection gate?', doc: 'injectionGate', first: FIELD, ok: 'Pack with injection gate' }],

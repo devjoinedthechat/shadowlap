@@ -13,6 +13,7 @@ import { nextStepOf, replayAction, stepEntry } from './next-step.js';
 import { plainPackFolder, useStepWait } from './NextStepButton.js';
 import { PACK_VERB, packRunCommand } from './share-steps.js';
 import { bisectLabel } from './offers.js';
+import type { NextStep } from '../types.js';
 
 /** Presses the header's lime button, or another by its selector, or says why not, where a job started since the palette opened. */
 function pressStep(toast: (text: string) => void, selector = '.rhead [data-next]'): void {
@@ -39,6 +40,12 @@ function leadCommands(run: RunDetail, o: { exported: boolean; actionsOff: string
  * This run, in the palette, while its page is open: its next step first, as the header's lime button
  * has it, then what else the page offers, none of them said twice.
  */
+/** Run injection test…, after Fork at #n…: where the run reads something untrusted, never on an attempt (no `open`) or a live run, nor while the lime step is that test. */
+function testRow(runId: string, reads: number, o: { live: boolean; exported: boolean; next: NextStep | null; open: (() => void) | undefined }): PaletteCommand[] {
+  if (!o.open || o.exported || o.live || !reads || o.next?.key === 'injection-test') return [];
+  return [{ group: 'This run', label: ACTIONS.runInjectionTest.label, hint: `shadowlap injection ${shortId(runId)}`, match: 'security prompt injection untrusted', job: true, run: o.open }];
+}
+
 export function useRunCommands(o: {
   run: RunDetail;
   selected: number | null;
@@ -54,6 +61,8 @@ export function useRunCommands(o: {
   setView: (v: View) => void;
   /** Add check at #n…, where the selected call takes it: the check menu at its row's button, else at the inspector's link. */
   addCheck?: (() => void) | undefined;
+  /** Run injection test… on the run's untrusted reads (how many: `reads`); none on an attempt. */
+  test?: { reads: number; open: () => void } | undefined;
 }): void {
   const app = useApp();
   const { exported, actionsOff, setRunCommands, hasKind, toast } = app;
@@ -81,6 +90,7 @@ export function useRunCommands(o: {
           if (btn) setTimeout(() => now.current.forkMenu.openAt(btn));
         },
       });
+    items.push(...testRow(runId, o.test?.reads ?? 0, { live, exported, next, open: o.test ? () => now.current.test?.open() : undefined }));
     // Pack as golden… where another step leads: the header's plain button, pressed as the lead is.
     if (packFolder) items.push({ group: 'This run', label: ACTIONS.packAsGolden.label, hint: packRunCommand(runId, packFolder), match: 'golden keep test', job: true, ...(packWait ? { wait: packWait } : {}), run: () => pressStep(toast, '.rhead [data-fold="pack"]') });
     if (!exported)
@@ -105,6 +115,6 @@ export function useRunCommands(o: {
     if (run.parent && next?.key !== 'compare') items.push({ group: 'This run', label: ACTIONS.compareWithParent.label, hint: `shadowlap diff ${shortId(run.parent.runId)} ${shortId(runId)}`, short: `against ${shortId(run.parent.runId)}`, key: keyColumn('compare'), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the commands change with what they show; the functions they call are read when they run, and taking them in would register the commands again on every render
-  }, [runId, selected, live, exported, actionsOff, canFork, !!o.addCheck, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n'), next?.key, next?.label, next?.href, next?.command, run.replay?.label, wait, packFolder, packWait]);
+  }, [runId, selected, live, exported, actionsOff, canFork, !!o.addCheck, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n'), next?.key, next?.label, next?.href, next?.command, run.replay?.label, wait, packFolder, packWait, o.test?.reads]);
   useEffect(() => () => setRunCommands([]), [setRunCommands]);
 }

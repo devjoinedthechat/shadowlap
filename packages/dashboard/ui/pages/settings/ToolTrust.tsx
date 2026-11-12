@@ -5,6 +5,7 @@ import { CodeBox, CopyButton } from '../../components/CodeBox.js';
 import { tipCard } from '../../components/HoverCard.js';
 import { Icon } from '../../components/Icon.js';
 import { Term } from '../../components/Term.js';
+import { shortId } from '../../format.js';
 import { ACTIONS } from '../../labels.js';
 import { useListKeys } from '../../list-keys.js';
 import type { ToolsSettings } from '../../settings-api.js';
@@ -112,7 +113,10 @@ export function TrustTable({ data, editor, off, version, test }: TrustProps) {
     keyOf: (t) => `tool:${t.name}`,
     root: box,
     actions: (t) => {
-      const items = markable(t) ? [{ label: t.trust === 'untrusted' ? ACTIONS.markTrusted.label : ACTIONS.markUntrusted.label, hint: t.flip, run: () => mark(t) }] : [];
+      const items: Array<{ label: string; hint: string; run: () => void }> = markable(t) ? [{ label: t.trust === 'untrusted' ? ACTIONS.markTrusted.label : ACTIONS.markUntrusted.label, hint: t.flip, run: () => mark(t) }] : [];
+      // Run injection test… as the row's own button runs it, so its dialog opens where the row draws it.
+      const tested = test && t.trust === 'untrusted' && t.test ? t.test : null;
+      if (tested && items.length) items.push({ label: ACTIONS.runInjectionTest.label, hint: `shadowlap injection ${tested.runId ? shortId(tested.runId) : (tested.golden ?? '')}`, run: () => box.current?.querySelector<HTMLButtonElement>(`[data-rowkey="tool:${CSS.escape(t.name)}"] .tooltest`)?.click() });
       return items.length ? { name: t.name, items: () => items } : null;
     },
   });

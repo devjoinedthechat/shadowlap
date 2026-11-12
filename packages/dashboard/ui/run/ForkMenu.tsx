@@ -7,7 +7,9 @@ import type { TipEst } from '../components/HoverCard.js';
 import { tipEst } from '../components/JobButton.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
-import { confirmWords } from '../labels.js';
+import { ACTIONS, confirmWords } from '../labels.js';
+import { href } from '../route.js';
+import { navigate } from '../router.js';
 import { bisectQuery, useBisectEstimate } from '../runspage/bisect-estimate.js';
 import { useApp } from '../state.js';
 import type { UntrustedView } from '../types.js';
@@ -27,7 +29,7 @@ import { bisectBlocked, bisectCardCommand, bisectLabel, unknownBisect } from './
  * The fork menu at a call: what applies to that call, each with its flag on the right, then what
  * applies to the whole run. A capture has no command, so it says so and offers its replay.
  */
-export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommit, onClose, untrusted }: { anchor: HTMLElement; run: RunDetail; call: CallDetail | null; offers: RunOffers | null; check?: CheckEntry | undefined; onPick: (p: PendingAction) => void; onFindCommit: () => void; onClose: () => void; untrusted?: ReadonlyMap<number, UntrustedView> | undefined }) {
+export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommit, onTest, onClose, untrusted }: { anchor: HTMLElement; run: RunDetail; call: CallDetail | null; offers: RunOffers | null; check?: CheckEntry | undefined; onPick: (p: PendingAction) => void; onFindCommit: () => void; onTest?: TestOpener | undefined; onClose: () => void; untrusted?: ReadonlyMap<number, UntrustedView> | undefined }) {
   const { hasKind } = useApp();
   // What each row bills at this call, asked as the menu opens on it: its answer redraws the menu in place.
   const estimates = useRunEstimates(run.run.runId, call ? call.call.callNo : undefined);
@@ -108,6 +110,7 @@ export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommi
               <small>{m.flag}</small>
             </ActionButton>
           ))}
+          {onTest ? <TestRow runId={runId} reads={[...(untrusted?.values() ?? [])]} estimate={estimates?.injection} onTest={onTest} onClose={onClose} /> : null}
           <ActionButton
             role="menuitem"
             why={blocked}
@@ -126,6 +129,41 @@ export function ForkMenu({ anchor, run, call, offers, check, onPick, onFindCommi
         </>
       )}
     </Popover>
+  );
+}
+
+/** Opens Run injection test…'s dialog on the run's untrusted reads, at the price its row said. */
+export type TestOpener = (reads: readonly UntrustedView[], estimate: Estimate | null | undefined) => void;
+
+/** The tools entry a read takes to be planted in, as a waiting row's card shows it. */
+const UNTRUSTED_LINE = '"tools": { "<name>": { "trust": "untrusted" } }';
+
+/**
+ * Run injection test…, after the whole run's rows and before Find breaking commit…: the dashboard's
+ * row, not the engine's, since the terminal has no injection test. With no untrusted read it waits,
+ * its toast's way out Settings → Tools, where a read is marked.
+ */
+function TestRow({ runId, reads, estimate, onTest, onClose }: { runId: string; reads: readonly UntrustedView[]; estimate: Estimate | null | undefined; onTest: TestOpener; onClose: () => void }) {
+  const id = shortId(runId);
+  const none = reads.length ? null : `No untrusted read in ${id}`;
+  return (
+    <ActionButton
+      role="menuitem"
+      why={none}
+      whyAct={{ label: 'Open Tools settings', run: () => navigate(href.settings('tools')) }}
+      whyTip="This run calls no tool marked untrusted: mark one on Settings → Tools, or in the config"
+      tip={confirmWords(ACTIONS.runInjectionTest.label)}
+      sub="Plants payloads in its untrusted reads and shows what the agent did"
+      command={none ? UNTRUSTED_LINE : `$ shadowlap injection ${id}`}
+      est={none ? null : tipEst(estimate, true)}
+      onClick={() => {
+        onClose();
+        onTest(reads, estimate);
+      }}
+    >
+      <b>{ACTIONS.runInjectionTest.label}</b>
+      <small>injection</small>
+    </ActionButton>
   );
 }
 

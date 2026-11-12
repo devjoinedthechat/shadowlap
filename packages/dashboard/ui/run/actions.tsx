@@ -8,6 +8,9 @@ import { useBilledPress } from '../components/JobButton.js';
 import { sentEstimate } from '../spending.js';
 import { rowPriced, type RowPrice } from './estimates.js';
 import { onShow } from '../components/OnShow.js';
+import { TestDialogPart } from '../injection/test-part.js';
+import type { TestOpener } from './ForkMenu.js';
+import type { UntrustedView } from '../types.js';
 
 /** The dialog an action asks in, a part of its own: it loads the first time an action asks something first (OnShow.tsx). */
 const ActionDialog = onShow(() => import('./ActionDialog.js').then((m) => m.ActionDialog));
@@ -49,6 +52,8 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [bisecting, setBisecting] = useState(false);
   const [consent, setConsent] = useState<{ p: PendingAction; value?: string; why: string; confirm: string } | null>(null);
+  const [testing, setTesting] = useState<Parameters<TestOpener> | null>(null);
+  const test: TestOpener = (...t) => app.guard(() => setTesting(t));
   const findCommit = () => {
     if (app.actionsOff) return app.toast(app.actionsOff);
     const blocked = bisectBlocked(runId, offers?.bisect ?? null, app.hasKind(JOB_KINDS.bisect));
@@ -101,6 +106,13 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
       onClose={() => setBisecting(false)}
       onRun={(good, sent) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId, good, ...sent })))}
     />
+  ) : testing ? (
+    <TestDialogPart runId={runId} reads={testing[0]} estimate={testing[1]} onClose={() => setTesting(null)} />
   ) : null;
-  return { run, dialog, findCommit };
+  return { run, dialog, findCommit, test };
+}
+
+/** Run injection test… where the page offers it, the fork menu's row and the palette's: none on an injection test's attempt. */
+export function testOpeners(attempt: unknown, untrusted: ReadonlyMap<number, UntrustedView>, test: TestOpener): { menu?: TestOpener; palette?: { reads: number; open: () => void } } {
+  return attempt ? {} : { menu: test, palette: { reads: untrusted.size, open: () => test([...untrusted.values()], undefined) } };
 }

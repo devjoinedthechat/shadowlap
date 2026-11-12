@@ -17,7 +17,7 @@ import { href, nextView, VIEWS, type View } from '../route.js';
 import { setOpenRunAbout } from '../title.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
-import { useActionRunner } from '../run/actions.js';
+import { testOpeners, useActionRunner } from '../run/actions.js';
 import { CallsTable } from '../run/CallsView.js';
 import { useCallList } from '../run/call-list.js';
 import { onShow } from '../components/OnShow.js';
@@ -297,6 +297,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const { offers, preset, notes, rescued, injection } = useRunExtras(run, chain[0] ?? null, forkAt);
   const results = useResultsBodies(runId);
   const actions = useActionRunner(runId, !!run.source, offers, run.forkAt);
+  const tests = testOpeners(injection.attempt, injection.untrusted, actions.test);
   // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
   const markRun = useMarkRun(useCallback((_id: string, next: string[]) => setLabels(next), [setLabels]));
@@ -351,7 +352,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   // This run, in the palette.
   const check = useCheckEntry({ run, row: selectedRow, detail: detail.data });
-  useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView, addCheck: check.fromPalette });
+  useRunCommands({ run, selected, canFork, canMark, labels, mark, offers, judged, actions, forkMenu, setView, addCheck: check.fromPalette, test: tests.palette });
 
   const stripCalls = useStripCalls(calls, paging?.origins, paging?.kinds);
   const inScopeFn = useMemo(() => {
@@ -365,7 +366,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} injection={injection.attempt} />} judged={judged} />
+      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} onTest={tests.menu} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} injection={injection.attempt} />} judged={judged} />
       <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} injection={injection.finding} attempt={injection.attempt} onPick={pickProof} />
       <StripBar strip={{ calls: stripCalls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: inScopeFn, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}

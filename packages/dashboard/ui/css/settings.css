@@ -336,6 +336,7 @@ table.t.trusttab tbody tr:hover td { background: none; box-shadow: none; }
 .trusttab .trustbtn { opacity: 0; }
 .trusttab tr:hover .trustbtn, .trusttab tr:focus-within .trustbtn { opacity: 1; }
 @media (hover: none) { .trusttab .trustbtn { opacity: 1; } }
+.trusttab .btn.tooltest { margin-left: 8px; }
 .trustcfg { margin-top: 12px; }
 .trustcfg .codebox { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 640px) {
