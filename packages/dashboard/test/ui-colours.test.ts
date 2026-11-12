@@ -414,6 +414,7 @@ describe('amber', () => {
     '.cb-notes li.y': 'a note against the agent’s recordings that needs a look before the check is saved',
     '.cb-row .cm.inc': 'a recording the check being built can’t decide',
     '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
+    '.injdlg .injfile small.err': 'a payload file Run injection test… can’t read, so the test plants none of it: a look before pressing',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
