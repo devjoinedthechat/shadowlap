@@ -3,6 +3,7 @@ import type { SecurityRead, SecurityRow } from '../../src/injection-security.js'
 import { JOB_KINDS } from '../api.js';
 import { Id } from '../components/Id.js';
 import { Section } from '../components/Section.js';
+import { ErrorState, failedRead } from '../components/States.js';
 import { Status, statusTone } from '../components/Status.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -70,18 +71,31 @@ function Row({ row }: { row: SecurityRow }) {
   );
 }
 
+/** What the section says it holds, under its title. */
+const SUB = 'the untrusted reads each golden makes, where an injection test plants';
+
+/**
+ * Security on Tests, read as the page's goldens are in: nothing while it loads, since most projects'
+ * goldens read nothing untrusted and the section shows only where one does; a read that failed says
+ * so where the section goes, in the line every page says (`failedRead`), with Retry.
+ */
 export function SecurityPanel() {
   const { client, jobs, feeds } = useApp();
   const ended = jobs.filter((w) => w.job.done && ENDS.has(w.job.kind ?? '')).length;
-  const read = useLoad(() => client.injectionSecurity(), 'injection-security', `${ended}:${feeds.tests ?? 0}`).data;
-  return read ? <SecurityTable read={read} /> : null;
+  const loaded = useLoad(() => client.injectionSecurity(), 'injection-security', `${ended}:${feeds.tests ?? 0}`);
+  if (loaded.data) return <SecurityTable read={loaded.data} />;
+  return loaded.error ? (
+    <Section title="Security" sub={SUB}>
+      <ErrorState retry={loaded.reload}>{failedRead(loaded.error)}</ErrorState>
+    </Section>
+  ) : null;
 }
 
 /** The section once read: a row a golden whose recording reads something untrusted, one whose recording can't be read too; the rest named under it. */
 export function SecurityTable({ read }: { read: SecurityRead }) {
   if (!read.goldens.length && !read.unread.length) return null;
   return (
-    <Section title="Security" sub="the untrusted reads each golden makes, where an injection test plants" actions={<a className="more" href={href.settings('tools')}>Trust on Settings → Tools</a>}>
+    <Section title="Security" sub={SUB} actions={<a className="more" href={href.settings('tools')}>Trust on Settings → Tools</a>}>
       <div className="tscroll">
         <table className="t sect">
           <thead>

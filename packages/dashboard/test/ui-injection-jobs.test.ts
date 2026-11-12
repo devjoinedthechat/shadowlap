@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 import type { ToolsSettings } from '../src/settings.js';
 import type { SecurityRead, SecurityRow } from '../src/injection-security.js';
-import type { CallDetail, JobView } from '../ui/api.js';
+import { ApiError, type CallDetail, type JobView } from '../ui/api.js';
 import { answerWords } from '../ui/injection/answer-words.js';
 import { CauseFinding } from '../ui/injection/CauseFinding.js';
 import { causeCommand, causeRead, FindCause, readsBefore } from '../ui/injection/FindCause.js';
@@ -696,6 +696,34 @@ describe('Tests → Security', () => {
     got[0].run();
     stop();
     expect([asked, went]).toEqual([true, ['#/tests']]);
+  });
+});
+
+describe('A read Run injection test…, Pack with injection gate… or Security couldn’t make', () => {
+  it('says so in the line every page says, with Retry, which asks again only what failed', async () => {
+    const asked = { templates: 0, run: 0, security: 0 };
+    const fails = (k: keyof typeof asked) => async () => (asked[k]++, Promise.reject(new ApiError(500, 'HTTP 500')));
+    const said = 'The dashboard server answered 500 for this page’s data.';
+    const line = () => [r!.one('.loaderr p span:not(.st)').textContent, r!.all('.loaderr button').map((b) => b.textContent)];
+    r = await render(createElement(AppContext.Provider, { value: app({}, [], { injectionTemplates: fails('templates') }) }, createElement(TestDialog, { runId: RUN, reads: readsOf(1), onClose: () => undefined })));
+    await r.until('its failed read', () => r!.all('.dialog .loaderr').length === 1);
+    expect([line(), ok().getAttribute('aria-disabled'), r.all('.dialog .dwarn')]).toEqual([[said, ['Retry']], 'true', []]);
+    await r.click(r.byText('.loaderr button', 'Retry'));
+    await r.until('asked again', () => asked.templates === 2);
+    await r.unmount();
+    const fine = { injectionTemplates: async () => ({ version: 1, updated: '', templates: TEMPLATES }), checks: { goldens: async () => ({ version: 'v1', read: { keys: { tests: 'k' }, tests: {} } }) } };
+    r = await render(createElement(AppContext.Provider, { value: app({}, [], { ...fine, injectionRun: fails('run') }) }, createElement(PackWithGate, { runId: RUN, folder: 'goldens/01k5cq4n7g', gate: { obeyed: 0, repeat: 3 }, estimate: null, offers: null, onClose: () => undefined })));
+    await r.until('its failed read', () => r!.all('.dialog .loaderr').length === 1);
+    expect(line()).toEqual([said, ['Retry']]);
+    await r.click(r.byText('.loaderr button', 'Retry'));
+    await r.until('asked again', () => asked.run === 2);
+    await r.unmount();
+    r = await render(createElement(AppContext.Provider, { value: app({}, [], { injectionSecurity: fails('security') }) }, createElement(SecurityPanel)));
+    await r.until('its failed read', () => r!.all('.panel.sec .loaderr').length === 1);
+    expect([r.one('.panel.sec h2').textContent, line()]).toEqual(['Security', [said, ['Retry']]]);
+    await r.click(r.byText('.loaderr button', 'Retry'));
+    await r.until('asked again', () => asked.security === 2);
+    expect(asked).toEqual({ templates: 2, run: 2, security: 2 });
   });
 });
 
