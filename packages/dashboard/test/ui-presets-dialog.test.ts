@@ -7,10 +7,12 @@ import { presetsToOpen } from '../ui/presets/job-footer.js';
 import { decidedWords, expectCaption, goldenJudged, presetsCommand, PresetsDialog, sentPicks, whereWords } from '../ui/presets/PresetsDialog.js';
 import { openResults, panelOn, resetPanel } from '../ui/run/panel-state.js';
 import { useActionRunner } from '../ui/run/actions.js';
+import { presetsRow } from '../ui/run/run-commands.js';
+import { shortId } from '../ui/format.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { ToastAction } from '../ui/toast.js';
-import type { PresetsPlan } from '../ui/types.js';
+import type { PresetsPlan, RunDetail } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 import { shownNow } from './ui-served-now.js';
 
@@ -201,6 +203,23 @@ describe('Run error-path presets…’s opener', () => {
     r = await render(page({ ...ROW, disabled: 'A preset’s attempt: run the presets on its recording' }));
     await r.click(r.one('button.go'));
     expect([r.all('.dialog').length, toasts.map(([t]) => t)]).toEqual([0, ['A preset’s attempt: run the presets on its recording']]);
+  });
+});
+
+describe('Run error-path presets… in the palette', () => {
+  it('is This run’s row where the fork menu’s is on, its hint the command, opening the menu’s row; none live, in a copy or where it is off', () => {
+    const target = '01JC8ZK4QF7Y2W0RECORDING';
+    const row = { key: 'c', label: 'Run error-path presets…', command: `shadowlap replay ${target} --chaos` };
+    const run = (a: object) => ({ actions: [{ key: 'e', label: 'Edit…' }, a] }) as unknown as RunDetail;
+    const opened: string[] = [];
+    const o = { live: false, exported: false, open: (a: { key: string }) => opened.push(a.key) };
+    const rows = presetsRow(run(row), o);
+    expect(rows.map((x) => [x.group, x.label, x.hint, x.job])).toEqual([['This run', 'Run error-path presets…', `shadowlap replay ${shortId(target)} --chaos`, true]]);
+    rows[0].run();
+    expect(opened).toEqual(['c']);
+    expect(presetsRow(run(row), { ...o, live: true })).toEqual([]);
+    expect(presetsRow(run(row), { ...o, exported: true })).toEqual([]);
+    expect(presetsRow(run({ ...row, disabled: 'A preset’s attempt: run the presets on its recording' }), o)).toEqual([]);
   });
 });
 
