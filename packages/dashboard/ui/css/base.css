@@ -36,8 +36,8 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 /* what holds hidden text far down a list or a step is positioned itself, so the text sits on its own row, where a screen
    reader that shows its cursor and find in page look for it; a table cell is never the holder */
 :where([data-about], .turn .tools button, .cmdin, .palin) { position: relative; }
-/* and the lines that hold it on pages the mock draws without hidden text: a Compare side and its call, a JSON diff's line, the
-   run's status fact, a verdict's heading and the link that opens a run at its call */
+/* and main's own, each the line its hidden words are read on: a Compare side and its call, a JSON diff's line, the run's
+   status fact, a verdict's heading and the link that opens a run at its call */
 :where(.pside, .pside .pnm, .jl > .jt, .metric.rout .st, .verdict h2, .verdict h3, .cmpdc > .more) { position: relative; }
 /* a space only a screen reader says, between two words drawn apart by a margin (a chip's word and its count): it carries its
    own anchor, an empty inline box, so it sits where it is read, and the space is kept (pre), since a lone space in the hidden
