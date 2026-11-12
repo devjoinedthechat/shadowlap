@@ -4,8 +4,8 @@ import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, t
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import { runDecisions } from '../src/decisions.js';
-import type { Client } from '../ui/api.js';
-import { fieldLine, markedChange, previewCommand, typedValue } from '../ui/changes/NewPreview.js';
+import { ApiError, type Client } from '../ui/api.js';
+import { fieldLine, markedChange, NewPreview, previewCommand, typedValue } from '../ui/changes/NewPreview.js';
 import { PreviewTab } from '../ui/changes/Preview.js';
 import { moreTip } from '../ui/changes/VerifyAsk.js';
 import { targetHead, wayCommand } from '../ui/components/NewPreviewMenu.js';
@@ -230,5 +230,99 @@ describe('a kept preview’s verify', () => {
       ['Preview changed prompt', 'btn sm'],
       ['Preview field change…', 'btn sm'],
     ]);
+  });
+});
+
+describe('a new preview’s dialogs', () => {
+  const RUN = '01M5H2DJ1W0000000000000000';
+  const OTHER = '01M5H2DJR40000000000000000';
+  const priced = { kind: 'preview', usd: 0.42, ceiling: false, parts: ['about 82 requests, half as recorded'] };
+  const read = (q: Record<string, unknown>) => ({
+    preview: q.model || q.set || q.fromCode ? priced : null,
+    asks: { calls: 41, from: ['claude-sonnet-4-5'], control: true, runs: 2, otherFamily: null },
+    recorded: [{ id: 'claude-sonnet-4-5', family: 'anthropic', calls: 41 }],
+    answers: { most: 1840, cut: 3 },
+    refused: null,
+    targets: ['goldens/refund', 'goldens/budget'],
+    ways: null,
+  });
+  const tree = { fromCode: { calls: 12, instructions: { before: 'Be brief.', after: 'Be brief. Never email.' }, tools: { added: [], removed: [], changed: [] } }, runs: [{ runId: RUN, golden: 'goldens/refund', changed: [1, 3], refused: null }, { runId: OTHER, golden: 'goldens/budget', changed: [], refused: null }], notes: [], nothing: null };
+  let page: Rendered | null = null;
+  let started: Array<[string, Record<string, unknown>]> = [];
+  let stopped: string[] = [];
+  beforeAll(() => {
+    vi.stubGlobal('innerWidth', 1440);
+    vi.stubGlobal('innerHeight', 900);
+  });
+  afterAll(() => vi.unstubAllGlobals());
+  afterEach(async () => {
+    await page?.unmount();
+    page = null;
+    started = [];
+    stopped = [];
+  });
+  const open = async (way: 'model' | 'code' | 'field', startJob: (kind: string, fields: Record<string, unknown>) => Promise<unknown>) => {
+    const client = {
+      jobs: () => Promise.resolve([]),
+      estimates: { previewEstimates: (q: Record<string, unknown>) => Promise.resolve(read(q)), modelChoices: () => Promise.resolve({ choices: [], notes: [], priced: [] }) },
+      startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), startJob(kind, fields)),
+      job: () => new Promise(() => undefined),
+      stopJob: (id: string) => (stopped.push(id), Promise.resolve()),
+    };
+    const app = { client, exported: false, actionsOff: null, meta: null, jobs: [], feeds: {}, hasKind: () => true, guard: (fn: () => void) => (fn(), true), toast: () => undefined, watchJob: () => undefined } as unknown as AppState;
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(NewPreview, { way, target: { goldens: 'all' }, onClose: () => undefined })));
+    return page;
+  };
+  const job = (kind: string, more: Record<string, unknown> = {}) => Promise.resolve({ id: `${kind}-1`, kind, title: '', args: [], done: false, code: null, total: 0, ...more });
+  const facts = (p: Rendered) => p.all('.dialog .dfacts div').map(shown);
+
+  it('switches to the model typed, saying which calls it asks, and starts the preview with the estimate it showed', async () => {
+    const p = await open('model', (kind) => job(kind));
+    await p.until('its estimate', () => shown(p.one('.dialog .cmdline')).includes('goldens/refund'));
+    await p.type(p.one('.dialog input[type="text"]'), 'claude-haiku-4-5');
+    await p.until('the model’s calls', () => facts(p).some((f) => f.includes('the 41 calls made with claude-sonnet-4-5')));
+    // A row's term, value and quiet line, as the dialog's facts draw them.
+    expect(facts(p)).toEqual(['Asksthe 41 calls made with claude-sonnet-4-5, 3 samples each and 3 as recordedthe model the runs use most; as recorded is the control', 'Toolsnone runnothing reaches the world']);
+    expect(shown(p.one('.dialog .cmdline'))).toContain('shadowlap decisions goldens/refund goldens/budget --model claude-haiku-4-5');
+    await p.click(p.one('.dialog .dlg-ok'));
+    expect(started).toHaveLength(1);
+    expect(started[0][0]).toBe('decisions');
+    expect(started[0][1]).toMatchObject({ goldens: 'all', model: 'claude-haiku-4-5' });
+  });
+
+  it('reads what the working tree sends as a job of its own, waiting on it, and stops the read when it closes unread', async () => {
+    const p = await open('code', (kind) => job(kind));
+    await p.until('the read to start', () => started.length === 1);
+    expect(started[0]).toEqual(['decisions-read', { goldens: 'all' }]);
+    expect(shown(p.one('.dialog .dlgest'))).toBe('Reading what your working tree sends…');
+    expect(p.one('.dialog .dlg-ok').props.disabled).toBe(true);
+    await p.unmount();
+    page = null;
+    expect(stopped).toEqual(['decisions-read-1']);
+  });
+
+  it('asks a sent golden’s consent before it reads, then shows the prompt’s change marked and the calls it asks', async () => {
+    const why = 'goldens/refund came from a pack: its command runs on your machine';
+    const p = await open('code', (kind, fields) => (kind === 'decisions-read' && fields.yes === undefined ? Promise.reject(new ApiError(409, why, 'c1')) : job(kind, { done: true, code: 0, result: tree })));
+    await p.until('the consent question', () => p.all('.dialog').length === 2);
+    await p.click(p.byText('.dialog button', 'Run command'));
+    await p.until('the read', () => p.all('.dialog .dprompt').length === 1);
+    expect(started.map(([k, f]) => [k, f.yes ?? null])).toEqual([['decisions-read', null], ['decisions-read', 'c1']]);
+    // Only added to: nothing marked removed.
+    expect([p.all('.dialog .dprompt del').length, shown(p.one('.dialog .dprompt ins'))]).toEqual([0, 'Never email.']);
+    expect(facts(p)).toContain('Asks2 model calls, in 1 of 2 goldens');
+  });
+
+  it('says what the recorded answers show of max_tokens, refuses model in its own words, and sends a typed number as a number', async () => {
+    const p = await open('field', (kind) => job(kind));
+    await p.until('the answers', () => p.all('.dialog').some((d) => d.textContent.includes('The recorded answers used up to 1,840 output tokens: 3 answers would be cut off.')));
+    const [field, value] = p.all('.dialog input[type="text"]');
+    await p.type(field, 'model');
+    expect(p.one('.dialog').textContent).toContain('model is not a request field to set: give the model with Preview model switch…');
+    await p.type(field, 'temperature');
+    await p.type(value, '0.2');
+    await p.until('its estimate', () => shown(p.one('.dialog .cmdline')).includes('--set temperature=0.2'));
+    await p.click(p.one('.dialog .dlg-ok'));
+    expect(started[0][1]).toMatchObject({ goldens: 'all', set: { temperature: 0.2 } });
   });
 });
