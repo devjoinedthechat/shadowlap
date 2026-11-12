@@ -1,3 +1,4 @@
+import { ACTIONS } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { coveragePackArgs, coverageView } from '../coverage.js';
 import type { Router } from '../router.js';
@@ -28,7 +29,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/coverage', (r) => r.tagged(coverageView(ctx.store)));
 
   ctx.jobs.registerJobKind(COVERAGE_JOB_KINDS.scan, {
-    title: () => 'Reading coverage',
+    title: () => ACTIONS.rescanCoverage.doing,
     build: () => ({ args: ['coverage'] }),
   });
   ctx.jobs.registerJobKind(COVERAGE_JOB_KINDS.pack, {

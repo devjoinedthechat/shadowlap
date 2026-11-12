@@ -1,4 +1,4 @@
-import { askConsent, commandIsImported, hasRecordedCommand, importedCommandSource, quoteArgv, saidYes } from '@shadowlap/engine';
+import { ACTIONS, askConsent, commandIsImported, hasRecordedCommand, importedCommandSource, quoteArgv, saidYes } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
 import type { RouteContext } from '../context.js';
@@ -31,7 +31,7 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   ctx.jobs.registerJobKind(CHAOS_JOB_KIND, {
-    title: () => 'Running error-path presets',
+    title: () => ACTIONS.runPresets.doing,
     build: (req, { store, projectId }) => {
       const flags = chaosFlags(req);
       if ('error' in flags) return flags;

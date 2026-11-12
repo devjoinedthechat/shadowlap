@@ -164,7 +164,7 @@ describe('production coverage', () => {
     const fork = await startJob({ kind: 'coverage-pack', key: 'aaaa0000', fork: true, expect: { tools: { issue_refund: 0 } } });
     expect(fork.status, await fork.clone().text()).toBe(202);
     expect(spawned.at(-1)).toEqual(['coverage', '--pack', 'aaaa000011112222', '--fork', '--expect', '{"tools":{"issue_refund":0}}']);
-    expect(coveragePackArgs(store, { key: 'aaaa0000', fork: true, expect: '{"tools":{"escalate":1}}' })).toMatchObject({ args: ['coverage', '--pack', 'aaaa000011112222', '--fork', '--expect', '{"tools":{"escalate":1}}'], title: 'Packing a golden that forks of aaaa0000' });
+    expect(coveragePackArgs(store, { key: 'aaaa0000', fork: true, expect: '{"tools":{"escalate":1}}' })).toMatchObject({ args: ['coverage', '--pack', 'aaaa000011112222', '--fork', '--expect', '{"tools":{"escalate":1}}'], title: 'Packing aaaa0000 with checks' });
     for (const [body, error] of [
       [{ key: 'bbbb0000' }, 'behaviour bbbb000011112222 is covered already, by goldens/escalate'],
       [{ key: 'cccc0000' }, 'the last coverage scan has no behaviour cccc0000: scan again'],

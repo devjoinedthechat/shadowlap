@@ -42,6 +42,7 @@ const PAST: Readonly<Record<string, string>> = {
   Repeating: 'Repeated',
   Replaying: 'Replayed',
   Running: 'Ran',
+  Scanning: 'Scanned',
   Scoring: 'Scored',
   Sending: 'Sent',
   Sharing: 'Shared',

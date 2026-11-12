@@ -1,4 +1,4 @@
-import { checkCommandTemplate, describeBehaviour, messageOf, NO_COMMAND, OUTCOME_WORDS, quoteArgv, type Behaviour, type BehaviourOutcome, type CoverageScan, type StoreOf, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
+import { checkCommandTemplate, describeBehaviour, messageOf, NO_COMMAND, OUTCOME_WORDS, packingBehaviour, type Behaviour, type BehaviourOutcome, type CoverageScan, type StoreOf, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
 import { splitCommandLine } from './settings.js';
 import { links } from './links.js';
 
@@ -214,7 +214,8 @@ export function coveragePackArgs(store: StoreOf<'coverage'>, req: Record<string,
     fork.push('--fork', '--expect', text);
   } else if (req.expect !== undefined) return { error: 'expect goes with fork: a golden that replays its capture is judged by the replay itself' };
   const args = ['coverage', '--pack', ...keys, ...fork, ...(command.length ? ['--', ...command] : [])];
-  const title = keys.length ? `Packing ${fork.length ? 'a golden that forks' : 'a golden'} of ${keys[0]!.slice(0, 8)}${command.length ? ` with ${quoteArgv(command)}` : ''}` : 'Packing goldens of what no golden covers';
+  // The command shows on the drawer's own line, so the title names only the behaviour.
+  const title = keys.length ? packingBehaviour(keys[0]!.slice(0, 8), fork.length > 0) : 'Packing goldens of what no golden covers';
   return { args, title, command: command.length ? command : null };
 }
 
