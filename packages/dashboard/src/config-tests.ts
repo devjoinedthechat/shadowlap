@@ -143,6 +143,26 @@ function keyFor(tests: unknown, golden: string, dir: string): string | null {
   return testsEntryFor(entryKeys(tests).map((recording) => ({ recording })), resolve(dir, golden), dir)?.recording ?? null;
 }
 
+/** A golden's key under `tests` and its entry as the file holds it (a pattern's, for a pattern key); a null entry without one. */
+function writtenEntry(tests: unknown, golden: string, dir: string): { key: string | null; entry: unknown } {
+  const key = keyFor(tests, golden, dir);
+  return { key, entry: (key !== null && isObject(tests) ? tests[key] : undefined) ?? null };
+}
+
+/**
+ * Each golden's entry as shadowlap.config.json holds it now, by its path: the builder's `entry`
+ * (GoldenEntry), read for the goldens Tests shows a gate of. None where the file can't be read.
+ */
+export function writtenEntries(dir: string, goldens: readonly string[]): Map<string, unknown> {
+  let tests: unknown;
+  try {
+    tests = readConfigFile(dir).data.tests;
+  } catch {
+    return new Map();
+  }
+  return new Map(goldens.map((g) => [g, writtenEntry(tests, g, dir).entry]));
+}
+
 /**
  * The agent a golden's recording ran: its run's in the store, else its pack's command, read from its
  * run.json without bringing the pack in. Null for a capture's, or a pack that can't be read.
@@ -175,8 +195,7 @@ export function checksConfig(store: StoreOf<'recording'>, dir: string, goldens: 
     relaid: editRelaysConfig(dir),
     agent,
     goldens: goldens.map((g) => {
-      const key = keyFor(tests, g.path, dir);
-      const entry = key !== null && isObject(tests) ? tests[key] : undefined;
+      const { key, entry } = writtenEntry(tests, g.path, dir);
       return {
         path: g.path,
         key,
@@ -184,7 +203,7 @@ export function checksConfig(store: StoreOf<'recording'>, dir: string, goldens: 
         mode: modeOf(g),
         runId: g.runId,
         inStore: g.runId !== null && store.getRun(g.runId) !== null,
-        entry: entry ?? null,
+        entry,
         error: g.error ?? null,
       };
     }),

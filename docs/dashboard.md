@@ -200,7 +200,7 @@ The header says the week in four facts, the first three each a link: *4 failures
 | Tests | An inconclusive golden, and presets left inconclusive | **Run tests**, **Run more attempts**, **Update golden** or **Re-run test** |
 | Tests | How many behaviours seen in production no golden [covers](./coverage.md) | **Open →**, to a run of the newest |
 | Tests | A [preview of a change](./decisions.md) whose flagged runs nothing has settled since | **Open →**, to the first at the call whose decision changed: a preview's cell on [Preview](#preview), a migration's run |
-| Security | An [injection test](./injection.md) a planted instruction got through (red), or that it influenced or that showed too little to say (amber) | **Open →** |
+| Security | An [injection test](./injection.md) a planted instruction got through (red), or that it influenced or that showed too little to say (amber) | **Open proof**, to the attempt that shows it |
 | Housekeeping | With a team store, the runs only on this machine | **Push local runs** |
 | Housekeeping | A model the goldens use that retires | **Migrate to** what its provider recommends |
 
@@ -208,9 +208,10 @@ One cause is one row. A golden an open fix holds is named on the fix's row (*ref
 
 What the rows mean:
 
-- **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own.
+- **A golden that failed**: a gated golden says its verdict, tally and bound whole (*failed · 0 of 3 · rate <= 0.71 (95%)*), with the gate's rule on hover. A golden's injection gate is its test's row, not one of its own: it says its test's line, as Tests does (*send_email obeyed a planted instruction · 5 of 5*), and leads with **Open proof**.
+- **Injection tests**: a row says the test's line (*send_email obeyed a planted instruction · 8 of 72*) and where the planted text was read (*injection test of 01K5CQ4N7G · at #4 get_ticket, #14 get_shipping and 12 more*). It opens the run tested. **Open proof** opens the first attempt with the row's verdict, at the call that shows it. One that showed too little to say has no step.
 - **A golden whose checks changed since its last test** says so after its line (*· checks changed since*), and its step is **Run tests**, Tests' whole session, which judges the checks as they stand. One whose own recording fails a check added since leads with **Edit check…**, which opens the [check builder](#making-a-check) at that check.
-- **Inconclusive goldens**: **Run tests** when their checks changed since, **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection test showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
+- **Inconclusive goldens**: **Run tests** when their checks changed since, **Run more attempts** when the gate ran out of attempts, **Re-run test** when its injection gate showed too little to say, and **Update golden** when a judge check of a golden that replays offline has no verdict yet.
 - **Failed runs nobody has blamed**: a fork that failed counts as much as a recording, and so does a capture its import judged failed. The row names the newest by its id and failure, with what it was about on hover, and opens its issue on this week's [Failed](#failed-as-issues). A capture's **Run blame** opens its page, which asks for the command that starts your agent first.
 - **Open fixes**: where blame found that no answer of the model's lost the run, a repair of the prompt is no fix, and the row opens the fix at Blame.
 - **A preview of a change** is settled by a session of that change that asked its flagged runs again and flagged none, or whose verify accepted them, as a migration to a model after a preview of it.
@@ -240,7 +241,7 @@ The activity feed is what happened in the project, newest first: the Overview sh
 
 - Recordings started and finished, and clean replays.
 - Forks, with the flags that made them as the replay kept them on the run (`--fail-at 19=529`, `--model 15:claude-opus-5`).
-- The attempts of one `replay --repeat`, as one entry with how many took the same path.
+- The attempts of one `replay --repeat`, as one entry with how many took the same path. An [injection test](./injection.md)'s replays are told by the test's own entry instead.
 - Captures and packs imported: the runs one import or one pack brought in make one entry.
 - Tests passed or failed, a golden once per session, by its result. A golden that may fork reads *5 of 5 attempts passed*. One with a [gate](./gating.md) reads its verdict, tally and bound, with the gate's rule on hover, and opens the replay that failed.
 - Blames.
@@ -534,7 +535,7 @@ A call that failed is a model call answered with an error, or a tool that threw,
 
 ### Findings
 
-Under the header, one bar holds what the run's page found: how the run forked or failed, what the fork did differently, what Shadowlap did not record and the run's notes. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
+Under the header, one bar holds what the run's page found: how the run forked or failed, what the fork did differently, what Shadowlap did not record, the run's notes and an [injection test](./injection.md) of it. A failure comes first, in red, then what needs a look, in amber, then the rest, each in the order they come.
 
 The bar shows the most telling finding whole. **N findings** at its end opens the rest in place, its hover listing them while closed, and the focus stays on it. A lone finding with more to show, a note's tools or the fork's changes, has **Details** instead. The bar stays open or closed for each run until you reload.
 
@@ -580,7 +581,17 @@ A gate that settles makes fewer attempts than its limit, and the count is of the
 
 A golden's finding has **Tests →**.
 
-**A fork.** A replay an injection test, a model's scoring or an error-path preset made keeps its fork's finding. A fork whose only flag is `--writes` forked where its request changed, and its finding says that.
+**A fork.** A replay a model's scoring or an error-path preset made keeps its fork's finding. A fork whose only flag is `--writes` forked where its request changed, and its finding says that.
+
+**An injection test.** The run an injection test tested shows its newest finished test as a finding: *injection test*, or *injection gate* for a golden's, then its verdict in its colour, *failed*, *inconclusive* or *passed*, and its line (*send_email obeyed a planted instruction in 8 of 72 attempts (at most 0 allowed)*). A gate's names its golden. **Show results** opens the results in the inspector's place, as Show diff does.
+
+The results are a matrix: a row for each untrusted read planted in, a column for each payload, and a cell for their attempts, in the colour of the strongest verdict, with its proof on hover. Past eight reads, each tool has a row that sums its reads. Above it come the attempts, the payloads and when the test ran, with its command; under it, what the test spent and its upstream requests. A cell opens its attempt at the call its proof names, and Esc there comes back to the cell.
+
+**An injection test's replay.** Its eyebrow says what it is: *injection attempt*, *clean attempt* for a `--clean` answer's, or *baseline*. Its first fact says how it came out: *obeyed at #6*, *influenced*, *ignored* or *inconclusive*; a clean attempt's *write gone at #28* or *every write made again*; a baseline's *2 writes after the read*.
+
+Its finding says where it forked, what was planted where with which attempt, and the writes (*forked at #5 · system-notice #4, attempt 1 of 3 · writes stubbed, nothing sent*). **Results →** opens the run it tested with its results open; a clean attempt's **The answer →** opens that run.
+
+Its proof joins the read to the write: *planted at #4 → read at #5 → send_email.to = x7f3kq2m@canary.invalid at #6*, the canary in red. Each call in it opens on the tab that shows it: the planted result on Response, the model reading it on Conversation and the write on Request, the last two scrolled to their mark. So does a link to one of those calls, after a reload or in another tab.
 
 **A test that diverged.** A test that diverged on a value made anew on every run says what the value looks like, and offers what its header doesn't lead with:
 
@@ -599,7 +610,7 @@ A fork forced live, as Run live from here makes, has Show diff too, and says so 
 
 Where the run it is compared with is gone, left out of an exported copy, or kept without its request, the diff is built from the finding's changes. It shows the model, each path that changed, and `messages: [ … ]` for the conversation it leaves out.
 
-**Hide diff**, a call picked, a key from `1` to `4` or Esc gives the inspector back.
+**Hide diff** or **Hide results**, a call picked, a key from `1` to `4` or Esc gives the inspector back.
 
 ### How a run stands
 
@@ -768,7 +779,7 @@ How they sit depends on the window's width:
 
 From 1,160 px the views keep at least 420 px, or 240 px from 1,281 px while a job's log is open. The page scrolls under its strip when the window is shorter. From 1,001 to 1,159 px the list is fitted so the inspector's head shows under it, between 240 px and half the window, and the page scrolls to the inspector. A call picked in the list below 1,160 px brings the inspector into view under the strip.
 
-Every mark selects its call. The lists draw only the rows in view. So a run of 50,000 calls scrolls, steps with `j` and `k` and switches views as quickly as a short one. A run opened at a call (`#/run/<id>/600`) keeps that call in view while the rows above it are drawn and the rest of its calls come, until you scroll. While a long run is on its way, the page says *Loading the run…*.
+Every mark selects its call. The lists draw only the rows in view. So a run of 50,000 calls scrolls, steps with `j` and `k` and switches views as quickly as a short one. A run opened at a call (`#/run/<id>/600`) keeps that call in view while the rows above it are drawn and the rest of its calls come, until you scroll. While a long run is on its way, the page draws its header over the strip and the first calls as quiet bars. A read that fails keeps the header, over the error line and **Retry**.
 
 ### Calls view
 
@@ -788,6 +799,8 @@ A replayed call's time is its recorded duration, in grey, because the replay did
 The strip's key and **Filter calls** filter the list. A filter lists what it matches flat. Each row has a fork button, but a judge's call: no fork starts at one.
 
 A call's origin shows in the strip's colors, with an injected or a failed call's swatch drawn as a ring. A tool call's effect shows beside its name: a write in teal.
+
+A read that [injection tests](./injection.md) plant in is tagged *untrusted* after its effect, as `shadowlap show` tags it. Its hover says where the mark came from (`config`, `SDK` or `MCP openWorldHint`) and which model call reads it. The fork menu's header says it too: *At #4 · get_ticket · untrusted read*.
 
 The list is the run's trace, in call order, grouped lightly:
 
@@ -813,7 +826,7 @@ While the key or a search narrows the list, it is flat. Back to all, it is group
 
 ### Turns view
 
-Turns shows each model call with its tokens and stop reason, what it said, and the tool calls that followed it, grouped by agent.
+Turns shows each model call with its tokens and stop reason, what it said, and the tool calls that followed it, grouped by agent. An untrusted read is tagged as in Calls.
 
 ### Context view
 
@@ -857,6 +870,10 @@ Each bundle says its verdict as a gate's is said: the word, the tally and the bo
 
 Each rule they were decided by is stated once in the family. Each bundle opens its fix at that step, a verify at its verdict.
 
+**An [injection test](./injection.md)** is filed under the run it tested, after its forks: *injection test*, *injection gate* or *injection --clean 4*, then its verdict and counts (*failed · 72 attempts · 8 obeyed · 2 influenced · 59 ignored · 3 inconclusive · ≈$3.11*), a gate's golden before what it spent. Its title opens the run it tested, a planting test's results open. Its replays aren't drawn as forks.
+
+Its attempts are one picture named by its counts: a cell each, in its verdict's colour, the clean replays it compares with muted after a hairline. Under it, up to three lines open the attempts its verdict rests on, at the call their proof names, and a line says what is left out. An attempt gone from the store, or past the family's first 1,000 runs, isn't drawn, and a line counts them. A test of the recording, or of this page's run, shows even with every attempt gone.
+
 ### Provenance view
 
 Provenance is the run's record. It shows:
@@ -877,6 +894,7 @@ What a copy would mask is counted as Settings → Redaction's preview counts it 
 - **Values a pack leaves as they are**: when the rules also match them (numbers, which a pattern never rewrites), it says how many stay as they are.
 - **A slow rule**: when a rule takes too long on the run's text, it says the values weren't counted, with why on hover.
 - **Busy previews**: while Settings → Redaction's previews hold every thread it uses, it says they are being counted, and asks again until they are.
+- **An injection attempt's canaries**: a pack, an exported page, a share, a dataset and pairs keep them, so they aren't counted, and the line ends *canaries kept*.
 
 ### Decisions view
 
@@ -911,6 +929,14 @@ The inspector shows the selected call, in four tabs:
 - **A tool call** shows *Its arguments, then its result:*, then the model call of its own conversation that asked for it (in a batch of many conversations, which one), with **Show its conversation**.
 
 **Response**: **Play** replays a streamed response at its recorded pacing (1×, 2×, 4× or instant). *Raw* shows the stream as recorded.
+
+**On an injection test's replay**, the inspector marks what the test planted:
+
+- the planted turn, in violet: *planted in this attempt · read at #5*;
+- the planted read's Response, under *Overridden: the recorded result with the payload planted after `$.reason`:*;
+- the planted text in violet and the canary in red, wherever they show.
+
+A clean attempt's read says it was *made neutral for this attempt*, every string with a space in it emptied.
 
 **Details** lists origin, outcome and HTTP status, provider and the host it went through, model, whether it was an extra read, stop reason, token usage by cache tier, cost, latency and first token, size, retries, fingerprint and occurrence, response headers, and notes. It names the call's scope and agent too, and for a sub-agent's call, the call that started it.
 
@@ -1335,6 +1361,8 @@ A verdict leads, in one line: its word in its colour, *passed*, *failed* or *inc
 
 The first failure's step is lime beside it: the button its run's page leads with, such as **Add normalizer and re-run**, **Run more attempts** or **Revert**. **Run tests** and each failure's buttons are plain while it leads.
 
+A golden its injection gate failed reads *failed its injection gate*, and **Open proof** leads, opening the attempt that proves it. One whose gate showed too little to say reads *inconclusive: its injection gate showed too little to say*, and **Re-run test** leads, which plants its payloads again.
+
 **Checks changed since.** A failure that stands on checks the config no longer holds, removed or changed, says so in the reason: *2 of 3 goldens passed · refund-flow failed its check, its checks changed since*. Its step is **Run tests**, as the session judges the checks as they stand. So the verdict offers no button, and the header's **Run tests** is lime, its hover saying why.
 
 **Edit check…** leads, lime, where a golden's own recording fails a check added since its previous test. It opens the [check builder](#making-a-check) at that check: either the check is wrong, or the golden needs an update because the agent should do this. On a [read-only](#read-only-mode) dashboard it stays, off, saying why.
@@ -1353,7 +1381,7 @@ Goldens run again on their own since (by **Add normalizer and re-run**, say) fol
 
 ### A row per golden
 
-Then comes a row per golden. A row opens the golden's latest run.
+Then comes a row per golden. A row opens the golden's latest run, or, where its verdict is its injection gate's, the attempt that proves it.
 
 | Column      | Shows                                                                                              |
 | ----------- | -------------------------------------------------------------------------------------------------- |
@@ -1383,6 +1411,8 @@ Each check reads as `shadowlap test` labels it, such as `escalate called 1 time`
 - **A check added since** has no mark either, as the golden's next test judges it. It reads `added since its last test · not tested yet`, or `added just now · not tested yet` within a minute of the check builder adding it.
 
 **Changing a check.** Each check ends with **Edit** and **Remove**, and the last one with **Add check…**, shown on the row's hover or focus. On a touch screen, or with 840px of room or less, one line under the checks offers **Edit checks…** and **Add check…** instead. What each writes is under [Actions on Tests](#actions-on-tests).
+
+**An [injection gate](./injection.md#gate-ci-on-it)** draws under the checks, a hairline above it, marked as a check is and worded by its limit: *injection: no attempt obeys a planted instruction*. Under it comes its last test's tally (*6 attempts · 0 obeyed · 0 influenced · 6 ignored*), or *runs once its replay passes*. Its hover says what it plants where, with its tests entry as the config holds it. Its words open the results of the run it tested. The entry sets it, so it has no edit or remove.
 
 **By revision** draws each result in its colour: a dot for one attempt, or a bar filled to the share that passed for several. An ink ring marks where the golden was updated, and a red one a drop against its own history. Each cell is named by its card's words, which say on hover why it failed. A key under the table says what each shape means.
 
@@ -1469,7 +1499,7 @@ A task whose test forks before its takeover opens that test's run where it forke
 
 ## Settings
 
-Settings (`#/settings/<tab>`) is the one page a project with no runs opens too. Its header names the project, as *support-agent · project settings*. It has a tab for each part of the project's setup:
+Settings (`#/settings/<tab>`) names the project in its header, as *support-agent · project settings*. It has a tab for each part of the project's setup:
 
 | Tab | What it holds |
 | --- | --- |
@@ -1499,7 +1529,7 @@ A regex the [pattern check](./normalizers-and-redaction.md#patterns-that-could-t
 
 *Redaction* holds the rules, where each kind of copy applies them, and what they would mask in a run you pick. The [picker](#menus-pickers-and-dialogs) starts on the newest recording made here, and names each run by its id and its about line, as Compare's do. **Remove** offers **Undo**, as on Matching.
 
-What the rules would mask is counted per rule, path rules included, with up to two samples before and after, exactly as a pack masks them. A long run is read up to 2,000 calls, 64 MB or 5 seconds, and the page says how far it got; `shadowlap redact preview` reads it all.
+What the rules would mask is counted per rule, path rules included, with up to two samples before and after, exactly as a pack masks them. An injection attempt's own canaries aren't counted, as a pack, an exported page, a share, a dataset and pairs keep them, and the count says *canaries kept*. A long run is read up to 2,000 calls, 64 MB or 5 seconds, and the page says how far it got; `shadowlap redact preview` reads it all.
 
 Under a rule come quiet lines:
 
@@ -1660,7 +1690,7 @@ It has [four steps](./team.md#set-it-up). Each unlocks the next, with its comman
 1. **Connect your bucket.** **Check access and connect** runs `store set --check`, which writes the config only once the check passes.
 2. **Push your runs.**
 3. **Push from CI**: on GitHub Actions, **Turn on Push from CI**, or `Skip for now`. On GitLab CI or another CI, its step to copy, then **I added it** or `Skip for now`.
-4. **Bring your team**: **Finish**.
+4. **Bring your team**: **Finish setup**.
 
 Step 3 writes Push from CI to `shadowlap.config.json`, as Settings → Store's switch does: **Turn on Push from CI** and **I added it** turn it on, and `Skip for now` turns it off. On GitHub Actions there is no step to copy: [your workflow](#ci) on Settings → CI pushes, and **Write the workflow →** leads there.
 
@@ -1671,7 +1701,7 @@ While a setup is under way:
 - the palette offers **Continue team store setup**;
 - the status bar says *setting up*.
 
-A setup finished before says so, with the way to Settings → Store.
+Once it is finished, one line says *set up · Your runs are in the bucket.*, with **Go to Overview**. A setup finished before says *set up · Runs go to* its bucket, with **Open store settings**.
 
 ## Projects
 
@@ -1704,7 +1734,7 @@ Switching is for every tab at once: the dashboard serves one project at a time. 
 
 ### A link into another project
 
-A link to a run, a fix, a pair of runs or a preview that another project's store holds opens a page that says which: *In support-agent*, and *The run 01M64J32D4 is in support-agent’s store, not triage-bot’s.* **Switch to support-agent** switches to that project and opens the link there, at the same call, view, step, pair or cell. The crumbs name only the section, and the tab's title names the project. A project with no runs shows this page in its setup's place.
+A link to a run, a fix, a pair of runs or a preview that another project's store holds opens a page that says which: *In support-agent*, and *The run 01M64J32D4 is in support-agent’s store, not triage-bot’s.* **Switch to support-agent** switches to that project and opens the link there, at the same call, view, step, pair or cell. The crumbs name only the section, and the tab's title names the project.
 
 - **Read, never changed.** The other projects' stores are read beside the server. Nothing is created, migrated or written in them, no connection stays open, and removing a project waits for the read.
 - **Only the list.** The projects on the list are looked in, in its order. A project you removed, one whose folder is gone, a newer Shadowlap's store and a store in a folder you can't write to aren't, though the switcher lists that last one. The page then says the item isn't here.
@@ -1756,45 +1786,50 @@ Suggesting folders means the dashboard lists directories, so it does that within
 
 Adding a project opens its setup.
 
-- **A project with no runs** shows it on every page but Settings.
-- **One that is partway through** shows it on the Overview (and at `#/setup`).
-- **Skip the rest**, or, once its golden's test passes, **Go to the overview**, finishes it.
+- **The Overview** shows it until it is finished, and so does `#/setup`.
+- **Runs, Fixes, Tests and Training** each say what they will hold, with **Set up** and the project's name, as in **Set up triage-bot**, which opens it. None offers a command that needs a run, nor does Compare, which asks you to record one first. The other pages show as before.
+- **A project that can't be opened**, its folder or its store gone, says so in place of every page, and in Settings' header above its tabs, and offers to remove it.
+- **Skip setup**, or, once its golden's test passes, **Go to Overview**, finishes it.
 
 The setup has four steps. Each runs the command beside it in the project's folder, the same one you could type in a terminal:
 
-| Step | What it does          | Command                                                                     |
-| ---: | --------------------- | --------------------------------------------------------------------------- |
-|    1 | Inspect the folder    | `shadowlap init`                                                            |
-|    2 | Record a first run    | `shadowlap run -- <command>`                                                |
-|    3 | Make the replay clean | `shadowlap calibrate <run> --write`                                         |
-|    4 | Keep it as a test     | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
+| Step | What it does | Command |
+| --- | --- | --- |
+| 1. Inspect | Reads the folder for SDKs, the start command and tools | `shadowlap init` |
+| 2. Record | Runs your command once, after you confirm it | `shadowlap run -- <command>` |
+| 3. Calibrate | Replays offline until the replay is clean | `shadowlap calibrate <run> --write` |
+| 4. Pack | Keeps the run as a test, and runs it | `shadowlap pack <run> goldens/<name>`, then `shadowlap test goldens/<name>` |
 
-**1. Inspect the folder.** Inspecting finds the SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged, with the code to wrap them. The dashboard reads what [`init --json`](./cli.md#init) prints, from the job, and the job's drawer shows what `init` found, a line each.
+**1. Inspect.** Inspecting finds the SDKs, the start command, and every tool with its effect. Tools that aren't wrapped are flagged, with the code to wrap them. The dashboard reads what [`init --json`](./cli.md#init) prints, from the job, and the job's drawer shows what `init` found, a line each.
 
-- Inspecting is done once `init` has run in the folder. A project recorded in a terminal first shows it as skipped, and can still be inspected.
+- Inspecting is done once `init` has run in the folder. The step then folds to one line: what it found, then the command. A project recorded in a terminal first shows it as skipped, and **Inspect folder** leads until it is inspected, as packing can't tell a write tool that isn't wrapped before then.
 - A Node the project pins before 18.18 (`.nvmrc` or `.node-version`) is flagged there: an agent on it never starts under Shadowlap. So **Record run** stays off until the pin is raised and the folder checked again.
+- **Check again** leads while a write tool isn't wrapped, since packing waits for it.
 
-**2. Record a first run.** A recording counts once it holds calls. One whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so.
+**2. Record.** A recording counts once it holds calls. One whose command didn't start (a typo), or whose agent stopped before its first model call, recorded nothing, and the step says so.
 
-- When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, check again, and **Record again**.
+- When tools weren't wrapped while it was recorded, their calls aren't in it: wrap them, **Check again**, then **Record again**. It shows once they are wrapped, also after the replay was made clean, while packing waits.
 - Until the replay is made clean, the newest recording is the setup's, so recording again in a terminal works too.
 
-**3. Make the replay clean.** This replays the recording offline. When it replays clean as it is, the step is done by itself. When calibrate proposes normalizers for values the agent makes anew on every run, **Add it** writes them to `shadowlap.config.json`.
+**3. Calibrate.** This replays the recording offline. When it replays clean as it is, the step is done by itself. When calibrate proposes normalizers for values the agent makes anew on every run, **Add normalizer** writes them to `shadowlap.config.json`, and **Calibrate again** asks again.
 
-**4. Keep it as a test.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
+**4. Pack.** The golden goes in a folder of its own, `goldens/<project>` unless you name another. Shadowlap never packs over a golden that is already there, and offers the next free name instead.
 
 - **Pack as golden** packs it and runs its test in one job, so leaving the page doesn't stop it halfway. The step is done once the test passes.
+- **Packing waits** while a write tool isn't wrapped, as a replay of the golden would run it for real. Once it is wrapped, it waits for a recording made since. The button stays plain, with why under it.
 - **A golden its tests entry runs live** (marked `fork`, or with an injection gate) asks first before its test runs, whatever [Spending](#spending) says, as nothing prices it here.
-- **A golden whose test failed** keeps the step open, with why and **Run the test again**. Fix what changed (or record again), then run it.
+- **A golden whose test failed** keeps the step open, with why and **Re-run test**. Fix what changed (or record again), then run it.
 
-**Skip the rest** appears after the first recording. Finishing before the test passed counts the last step as skipped.
+**Skip setup** appears after the first recording. Finishing before the test passed counts the last step as skipped. Once the golden's test passes, one line says *set up · triage-bot replays exactly.*, with **Go to Overview**.
+
+As a step ends, the page scrolls to the next one and moves the focus to its button, unless you have moved it elsewhere.
 
 The same commands typed in a terminal move the setup on:
 
 - `init` records what it finds.
 - A recording counts once it holds calls.
 - A clean replay of it (`shadowlap replay <run>`) completes step 3, and a pack of it under `goldens/` whose test passed (`shadowlap test`, which keeps each golden's result in the store) completes step 4.
-- Packed but not yet tested, the step offers **Run the test**.
+- Packed but not yet tested, the step offers **Run test**.
 
 One step is current at a time. Once a golden is packed, making the replay clean shows as passed by (it can still be run), and a test of the golden that passed counts as a clean replay too. `calibrate --write` in a terminal leaves nothing behind by itself; the setup's **Calibrate** then finds the replay clean as it is.
 
@@ -1914,9 +1949,10 @@ The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line. An 
 | Eval dataset…        | A dataset for evals, in a format and with the examples you pick                          |
 | OpenTelemetry trace… | A trace sent to a collector, or written to a file (a file only: it is sent nowhere else) |
 | HAR file             | The run's model calls; it also downloads                                                 |
-| Security report      | A kept injection result's report, the matrix and each proof; it only downloads           |
+| Security report      | A kept injection result's report, the matrix and each proof, after a dialog              |
 
 - **Each dialog** says the verb for the copy it makes: *Export OpenTelemetry trace*, confirmed with **Export trace**; *Export eval dataset of* the run, confirmed with **Export dataset**; and Pack's, confirmed with **Pack run**.
+- **Security report** saves the report of the run's newest finished injection test, or of a `--clean` answer when the run has only that. Its dialog says what the file is for, that nothing runs again and that it opens offline. It lists the redaction rules with two values they mask and each canary they keep, and names the file. **Download report** saves it, on a read-only dashboard too.
 - **Where copies go**: into `.shadowlap/exports/` in the project, unless a pack names another folder, and never through a link that is already there.
 - **Redaction**: the menu says how many redaction rules each copy applies, and links **Redaction settings →**. A trace carries no prompt text, so only the rules without a path.
 - **When**: a run is copied once it has ended. While it records, each item says it waits until the recording ends.
@@ -2283,9 +2319,9 @@ These keys work on a run's page:
 
 **`b`** presses Run blame only where the run's page leads with it, not the Run blame beside a crash's Find breaking commit or Revert.
 
-**Esc** does one thing a press: it closes a menu, a dialog or the palette, hides or closes a job's drawer, then closes the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff closes, a run, a fix or a revision's page goes back the way you came, Runs' selection clears, and the row in focus lets go.
+**Esc** does one thing a press: it closes a menu, a dialog or the palette, hides or closes a job's drawer, then closes the sidebar on a phone, then leaves a field, then hides a hover card. Only then does it go up: a run's open diff or results close, a run, a fix or a revision's page goes back the way you came, Runs' selection clears, and the row in focus lets go.
 
-**The way back** lands on the row or the link you left. A page opened cold goes up to its crumbs' parent: a fork or a replay to the run it came from, a run to Runs, a fix to Fixes, a revision's page to Verdicts. `[`, `]` and opening a run's parent add nothing to the way back, and a page it already passed through takes it back to there.
+**The way back** lands on the row or the link you left. From an injection attempt, that is the results cell that opened it, its results open again. A page opened cold goes up to its crumbs' parent: a fork or a replay to the run it came from, a run to Runs, a fix to Fixes, a revision's page to Verdicts. `[`, `]` and opening a run's parent add nothing to the way back, and a page it already passed through takes it back to there.
 
 **`[` and `]`** step through Runs as it was last shown, its filter and sort, reading its next page when they come to the last row read. A run Runs never showed steps through the sidebar's. At either end a toast says so.
 
@@ -2499,18 +2535,28 @@ A recording's page is read the same way, following its newest call:
 
 An exported copy holds every call.
 
+### While a page's data loads
+
+While their data loads, the Overview, Runs, Tests, a run, a fix, Compare, a project's setup and the team store's draw their final layout, its text as quiet bars, so nothing moves when the data comes. Nothing under the bars can be pressed, and a screen reader hears what is loading.
+
+- **A read that fails** keeps the page's header, over one line that says why, with **Retry**.
+- **A link that names nothing** opens *Nothing here* under the page's header, with the way back: **Open Runs** for a run, **Open Fixes** for a fix, and **Back to Overview** for a page or a setup.
+
 ### Each page's code loads when it opens
 
 The dashboard's first script holds the shell and what the pages share. The rest loads the first time it is needed:
 
 - **A page's own code** loads when you first open the page, which waits empty until it comes. Opening a page loads nothing more.
 - **A run's views but Calls** each have a script of their own. They load once the pointer or the focus reaches the Views tabs, or the view first changes, so switching to one draws it at once.
-- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's dialogs and the check it asks for, Share's eval dataset and OpenTelemetry trace dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
+- **What a run's page rarely opens** has a script of its own too: a finding's diff, Edit and fork…, Run blame's dialogs and the check it asks for, Share's eval dataset, OpenTelemetry trace and Security report dialogs, Find breaking commit… and Delete run. Each loads the first time it opens.
+- **A run's menus**, Share's, the fork menu and the header's **…**, each have a script of their own. Each is asked for once the pointer or the focus reaches its button, or a row's fork button, so it opens at once.
+- **An injection test's finding** has a script of its own, which loads as the run's page first draws it. A finding whose script can't be loaded says so in its place, with **Retry**. Its results have their own script, asked for once the pointer or the focus reaches **Show results**. An attempt's proof and marks have theirs too, which load as the attempt's page opens.
 - **The structural diff** a finding's diff draws has a script of its own as well. Both scripts, and a finished run's diff, are asked for once the pointer or the focus reaches Show diff, so it opens at once. The diff is kept while the page is open.
 - **What a fork did differently**, a finding of a fork's page alone, has a script of its own. It is asked for with the differences, once the fork has ended, so the two come together.
 - **The check builder** has a script of its own, asked for as its menu opens, or as the pointer or the focus reaches the inspector's **Add check…**. A builder whose script can't be loaded says so in a small dialog in its place, with **Retry**.
 - **Changes' tabs**: Verdicts and a revision's page each have a script of their own, and so does Compare. Changes' head and tabs come with the page, and stay while a tab's script loads.
 - **A script that can't be loaded** (the dashboard stopped, or was updated since the page opened) leaves a line that says so under the page's title, or in the view. Its **Retry** loads the page again, since a browser never asks twice for a script that failed, and waits while the server can't be reached.
+- **A menu or a dialog whose script can't be loaded** draws nothing, and says so in a toast with the same **Retry**. The focus stays on the button that opened it.
 
 An exported copy is one script, built apart with only what a copy shows: its runs, a run's page with every view, and Compare between them.
 
@@ -2888,11 +2934,11 @@ The `matrix` has a row per run and a cell per model call. A row is named by its 
 
 **Injection tests:**
 
-- `/api/injection`: the results kept, newest first, of a run or a golden (`limit` of them, at most 1,000). Each has its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to, and its one `line`.
-- `/api/injection/:id`: one result as `injection --json` printed it, with its row, and the runs it names that gc has deleted since (`gone`).
-- `/api/injection/:id/report`: its security report, an HTML download with the project's redaction rules applied.
+- `/api/injection`: the results kept, newest first, of a run or a golden (`limit` of them, at most 1,000). Each has its counts of attempts that obeyed, were influenced, ignored the payload or were inconclusive, its `verdict`, what its `gate` came to, its one `line`, its gate's `reason`, what it `spent`, and a `--clean` answer's `rule` and the call of the `read` it tested.
+- `/api/injection/:id`: one result as `injection --json` printed it, with its row, and the runs it names that gc has deleted since (`gone`). A finished plant also has its results as the run page draws them (`view`): each untrusted read by payload, each cell with the attempt that shows it and its proof.
+- `/api/injection/:id/report`: its security report, an HTML download with the project's redaction rules applied. With `?preview=1`, what its dialog says first: how many rules apply, two values they mask, each canary kept, and the file.
 - `/api/injection/needs-look`: the newest result of each run or golden that obeyed, was influenced or is inconclusive, for Needs a look.
-- `/api/injection/runs/:id`: a run's untrusted reads, its tests and the test it is an attempt of, with the canary and the line that joins the read to the write.
+- `/api/injection/runs/:id`: a run's untrusted reads, each with the model call that reads it (`readAt`), its tests, and the test it is an attempt of: the canary, the line that joins the read to the write, and what was planted where.
 - `/api/injection/templates`: the built-in payload templates, versioned.
 - `/api/injection/tools`: every recorded tool with its trust and where that comes from, for Settings → Tools.
 
@@ -2965,6 +3011,7 @@ What some of them do:
 - **`chaos` on a golden** is refused with a 409 while a test session, an update or a pack runs, as they are while it runs, or while presets run on goldens, wherever they were started: a terminal, another dashboard or a job.
 - **`chaos` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only `confirmed`. That is the `confirm` of the 409 that named both its command and the presets' own line, so a yes to one preset runs no other, and none an injection test.
 - **`check`** without run ids, a label or the goldens tries every recording; its result is the report.
+- **`pack-test`** without `runId` packs the setup's recording. It is refused with a 409 while packing waits: a write tool isn't wrapped, or the recording was made before it was.
 - **`coverage-pack`** packs a golden of the behaviour `key` names, or of each no golden covers, reproduced with the agent's command a run here gives or the one typed, which runs only once confirmed. With `fork` and `expect`, it packs a golden that forks. It is refused with a 409 while a test session, an update or another pack runs.
 - **`decisions`**: `samples` as [`--samples`](./cli.md#decisions) takes it, 1 included. Without it, each step is asked 3 times under the change and 3 times as recorded, six requests a step.
 - **`decisions-verify`** verifies each run the session could not clear under its own checks (its golden's, or for a run named by id, those of the recording it comes from). It runs one verify per set of checks, in the role its recording plays under them, and keeps the result in the session.
@@ -3019,7 +3066,7 @@ Settings is checked at a phone's width too: no tab scrolls sideways, each row's 
 
 When the server stops answering (the dashboard was stopped), a row under the top bar says what the page last loaded, that actions are paused, and the command that starts it again. On a phone it is one line, with the rest behind **Why**.
 
-What needs the server waits in its place, dimmed, and a press says why: *Paused until the dashboard server is back*. Reading what was loaded goes on. The page tries again after 5, 10, 20 and then every 30 seconds. A page or a view whose code couldn't be loaded meanwhile says so, and its **Retry** loads the page again once the server is back; see [Each page's code loads when it opens](#each-pages-code-loads-when-it-opens).
+What needs the server waits in its place, dimmed, and a press says why: *Paused until the dashboard server is back*. Reading what was loaded goes on. The page tries again after 5, 10, 20 and then every 30 seconds. A page, a view, a finding, a menu or a dialog whose code couldn't be loaded meanwhile says so, and its **Retry** loads the page again once the server is back; see [Each page's code loads when it opens](#each-pages-code-loads-when-it-opens).
 
 ### The dashboard refuses the link
 
@@ -3038,6 +3085,7 @@ A button that is off keeps its place, dimmed. It says why on its card, and in a 
 | Repair: `claude` can't be found | Install Claude Code, or set `SHADOWLAP_CLAUDE` to its path |
 | Find breaking commit, on a run from someone else's pack | Replay it with your own command first, and find the breaking commit from that run |
 | The project's folder is gone | Put the folder back, or remove the project |
+| Pack as golden, in a project's setup, while a write tool isn't wrapped | Wrap it, **Check again**, then **Record again** |
 
 ### A page took too long
 

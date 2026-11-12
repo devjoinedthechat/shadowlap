@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { messageOf } from '../../../engine/src/message-of.js';
-import { EmptyLine } from '../components/States.js';
+import { EmptyLine, ErrorState, failedRead } from '../components/States.js';
 import { useLatest } from '../hooks.js';
 import { ISSUE_ASK } from '../page-ask.js';
 import { usePendingHidden } from '../pending-delete.js';
@@ -8,6 +7,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { Issue, IssuesPage, RunsQuery } from '../types.js';
 import { type AskedRuns, issuesEmpty, issuesShown, type MoreRuns, openAsked, withAsked } from './issues.js';
+import { IssuesLoading } from './IssuesLoading.js';
 import { IssuesTable } from './IssuesTable.js';
 import { useKeptScroll } from './scroll.js';
 
@@ -44,12 +44,14 @@ interface Read {
   error: Error | null;
 }
 
-function useIssues(query: FailedIssuesProps['query'], refresh: string): Read {
+/** The issues as the filter asks, read again on `refresh`, and at once by `reload` (Retry). */
+function useIssues(query: FailedIssuesProps['query'], refresh: string): Read & { reload: () => void } {
   const { client } = useApp();
   const key = JSON.stringify([query.from ?? null, query.to ?? null, query.q ?? '']);
   const [read, setRead] = useState<Read>({ key, page: null, error: null });
   const [nudge, setNudge] = useState(0);
   const queryNow = useLatest(query);
+  const reload = useCallback(() => setNudge((n) => n + 1), []);
   useEffect(() => {
     let alive = true;
     // The issues shown open as it is asked, whose runs it carries: opening one later asks for its own.
@@ -67,7 +69,7 @@ function useIssues(query: FailedIssuesProps['query'], refresh: string): Read {
     const t = setTimeout(() => setNudge((n) => n + 1), ASK_AGAIN_MS);
     return () => clearTimeout(t);
   }, [behind]);
-  return read.key === key ? read : { key, page: null, error: null };
+  return read.key === key ? { ...read, reload } : { key, page: null, error: null, reload };
 }
 
 /** The issue a link elsewhere asked for (open-issue.ts): opened, and its row brought to the middle of the view, once it is drawn. */
@@ -136,7 +138,7 @@ function useAskedRuns(query: FailedIssuesProps['query'], page: IssuesPage | null
       put(x.key, { runs: null, more: null, error: null }, false);
       client.issueRuns(x.key, queryNow.current, null).then(
         (p) => put(x.key, { runs: p.runs, more: p.more, error: null }, true),
-        (err: unknown) => put(x.key, { runs: null, more: null, error: messageOf(err) }, true),
+        (err: unknown) => put(x.key, { runs: null, more: null, error: err instanceof Error ? err : new Error(String(err)) }, true),
       );
     }
   }, [client, page, open, held, queryNow]);
@@ -152,7 +154,7 @@ function useAskedRuns(query: FailedIssuesProps['query'], page: IssuesPage | null
   return [held, retry];
 }
 
-/** Failed's issues, their empty line, or why they couldn't be read. */
+/** Failed's issues, their empty line, their shape while they load, or why they couldn't be read, with Retry. */
 export function FailedIssues({ query, refresh, scrollKey, above }: FailedIssuesProps) {
   const read = useIssues(query, refresh);
   const hidden = usePendingHidden();
@@ -169,8 +171,8 @@ export function FailedIssues({ query, refresh, scrollKey, above }: FailedIssuesP
     setOpen(new Set(opened));
   }, []);
   useAskedIssue(page?.issues ?? NO_ISSUES, useCallback((key: string) => toggle(key, true), [toggle]));
-  if (read.error && !page) return <div className="empty">The runs could not be read: {read.error.message}</div>;
-  if (!page) return <div className="empty">Loading runs…</div>;
+  if (read.error && !page) return <ErrorState retry={read.reload}>{failedRead(read.error)}</ErrorState>;
+  if (!page) return <IssuesLoading />;
   if (!page.issues.length) return <EmptyLine>{issuesEmpty({ q: query.q ?? '', days: query.from != null })}</EmptyLine>;
   return <IssuesTable issues={page.issues} open={open} asked={asked} now={Date.now()} onToggle={toggle} onMore={onMore} onRetry={retry} />;
 }

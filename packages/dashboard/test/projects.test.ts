@@ -36,6 +36,19 @@ function view(project: ProjectEntry, f: StoreFacts, extra: Partial<SetupInput> =
   return setupView({ project, setup: deriveSetup(project.setup, f, { packs }), redactRules: 0, home: HOME, ...extra });
 }
 
+/** The buttons a setup draws lime that can be pressed, as the page draws them: one at a time, the step at hand's. */
+const limes = (v: ReturnType<typeof setupView>): string[] =>
+  [
+    v.inspect.button?.lime && v.inspect.button.label,
+    v.inspect.warning?.recheck.lime && v.inspect.warning.recheck.label,
+    v.inspect.node?.recheck.lime && v.inspect.node.recheck.label,
+    v.record.button?.lime && v.record.button.enabled && v.record.button.label,
+    v.record.again?.lime && v.record.again.command.enabled && v.record.again.label,
+    v.calibrate.button?.lime && v.calibrate.button.enabled && v.calibrate.button.label,
+    v.test.button?.lime && v.test.button.enabled && !v.wait && v.test.button.label,
+    v.done?.button.label,
+  ].filter((label): label is string => typeof label === 'string');
+
 describe('projectSwitcher', () => {
   it('lists each project with its path and runs, the current one, and those still being set up', () => {
     const v = projectSwitcher({
@@ -117,7 +130,7 @@ describe('addProjectPage', () => {
       ['~/Downloads', 'no project files found', false],
     ]);
     expect(v.button).toEqual({ label: 'Add project', disabled: true, path: null, title: null });
-    expect(v.next.steps.map((s) => s.title)).toEqual(['Inspect', 'Record', 'Calibrate', 'Keep it as a test']);
+    expect(v.next.steps.map((s) => s.title)).toEqual(['Inspect', 'Record', 'Calibrate', 'Pack']);
     expect(v.next.note).toBe('The dashboard runs a command in a project’s folder only when you click, and asks first the first time.');
   });
 
@@ -156,16 +169,18 @@ describe('setupView', () => {
   it('starts with the folder to inspect, and the other steps waiting', () => {
     const v = view(entry('research-agent'), facts());
     // What the setup is for: reproducing and testing the agent, not replays that cost nothing (a fork's live part is paid for).
-    expect(v).toMatchObject({ eyebrow: 'research-agent · ~/research-agent', title: 'No runs yet', intro: 'Record the agent once. Then reproduce it exactly, fork it at any call, and keep it as a test.', skip: null, done: null, shows: 'everywhere' });
+    expect(v).toMatchObject({ eyebrow: 'research-agent · ~/research-agent', title: 'Set up research-agent', intro: 'Record the agent once. Then reproduce it exactly, fork it at any call, and keep it as a test.', skip: null, done: null, shows: 'everywhere' });
     expect(v.intro).not.toMatch(/free|lap/);
     expect(v.steps.map((s) => [s.title, s.state, s.cli])).toEqual([
-      ['Inspect the folder', 'current', ['shadowlap init']],
-      ['Record a first run', 'todo', ['shadowlap run -- <the command that starts your agent>']],
-      ['Make the replay clean', 'todo', ['shadowlap calibrate <run> --write']],
-      ['Keep it as a test', 'todo', ['shadowlap pack <run> goldens/research-agent', 'shadowlap test goldens/research-agent']],
+      ['Inspect', 'current', ['shadowlap init']],
+      ['Record', 'todo', ['shadowlap run -- <the command that starts your agent>']],
+      ['Calibrate', 'todo', ['shadowlap calibrate <run> --write']],
+      ['Pack', 'todo', ['shadowlap pack <run> goldens/research-agent', 'shadowlap test goldens/research-agent']],
     ]);
-    expect(v.inspect.button).toEqual({ label: 'Inspect the folder', action: 'init' });
-    expect(v.record.button).toEqual({ label: 'Record run', action: 'record', enabled: false });
+    // One lime at a time: Inspect folder leads, and the later steps' buttons wait, lime still.
+    expect(v.inspect.button).toEqual({ label: 'Inspect folder', action: 'init', lime: true });
+    expect(v.record.button).toEqual({ label: 'Record run', action: 'record', enabled: false, lime: true });
+    expect(v.wait).toBeNull();
     expect(v.record.command).toEqual({ value: '', enabled: false });
   });
 
@@ -173,12 +188,14 @@ describe('setupView', () => {
     const v = view(entry('research-agent', { stage: 'inspected', findings: findings() }), facts());
     expect(v.inspect.state).toBe('done');
     expect(v.inspect.cli).toEqual([]);
+    // Folded to one line as soon as it is done, so the step at hand comes next on the page.
+    expect([v.inspect.folded, v.inspect.summaryFacts, v.inspect.summaryCommand]).toEqual([true, ['Python 3.12 · uv', 'anthropic 0.69.0', '3 tools, 2 not wrapped'], "uv run research-agent 'Summarize Northwind’s Q3 10-Q'"]);
     expect(v.inspect.findings!.rows.map((r) => [r.label, r.value, r.small])).toEqual([
       ['Language', 'Python 3.12 · uv', 'pyproject.toml · uv.lock'],
       ['Model SDK', 'anthropic 0.69.0', null],
       ['Framework', 'Anthropic tool runner', null],
       ['Command', "uv run research-agent 'Summarize Northwind’s Q3 10-Q'", 'from [project.scripts] in pyproject.toml'],
-      ['Config', 'wrote an empty shadowlap.config.json', null],
+      ['Config', 'shadowlap.config.json', 'written, empty'],
     ]);
     expect(v.inspect.findings!.tools.map((t) => [t.name, t.text, t.at])).toEqual([
       ['search_filings', 'wrapped · effect declared', null],
@@ -189,10 +206,12 @@ describe('setupView', () => {
       title: '2 write tools aren’t wrapped.',
       text: 'Their calls won’t be recorded, so a replay runs them for real: save_report and notify_slack would act again. Wrap them, with the effect declared:',
       code: findings().wrap,
-      copy: 'Copy',
-      recheck: { label: 'I wrapped them, check again', action: 'recheck' },
+      recheck: { label: 'Check again', action: 'recheck', lime: true },
     });
-    expect(v.record).toMatchObject({ state: 'current', command: { value: "uv run research-agent 'Summarize Northwind’s Q3 10-Q'", enabled: true }, button: { enabled: true } });
+    // While a write tool isn't wrapped, Check again leads: Record run reads plain and still works, and Pack waits.
+    expect(v.record).toMatchObject({ state: 'current', command: { value: "uv run research-agent 'Summarize Northwind’s Q3 10-Q'", enabled: true }, button: { enabled: true, lime: false } });
+    expect(v.wait).toEqual({ tools: ['save_report', 'notify_slack'], since: false, text: 'Packing waits until save_report and notify_slack are wrapped: a replay of this golden would run them for real.' });
+    expect([v.calibrate.button?.lime, v.test.button?.lime]).toEqual([false, false]);
     expect(v.record.cli).toEqual(["shadowlap run -- uv run research-agent 'Summarize Northwind’s Q3 10-Q'"]);
   });
 
@@ -222,7 +241,8 @@ describe('setupView', () => {
     expect(old.inspect.node).toEqual({
       title: 'Node 18.17 is too old for Shadowlap’s guard.',
       text: '.nvmrc pins it, and an agent on a Node before 18.18 never starts under Shadowlap: that Node refuses the guard Shadowlap loads into it. Pin 18.18 or later to record.',
-      recheck: { label: 'I raised it, check again', action: 'recheck' },
+      // It holds Record, so its Check again leads.
+      recheck: { label: 'Check again', action: 'recheck', lime: true },
     });
     expect(old.record).toMatchObject({ text: 'Waits for a Node pin of 18.18 or later: .nvmrc pins 18.17, where the agent wouldn’t start under Shadowlap.', command: { enabled: false }, button: { label: 'Record run', enabled: false } });
     // Raised, or a major alone (its newest release), or none at all: nothing to flag, and Record is on.
@@ -238,12 +258,12 @@ describe('setupView', () => {
     const p = entry('research-agent', { stage: 'inspected', findings: findings(), runId: RUN, command: ['uv', 'run', 'research-agent'] });
     const v = view(p, facts({ runs: 1, recordings: [run('running')], live: true }), { run: { runId: RUN, status: 'running', calls: 3, spent: 0.01, durationMs: null } });
     expect(v.title).toBe('Set up research-agent');
-    expect(v.record).toMatchObject({ state: 'current', cli: [], command: null, button: null, live: { runId: RUN, calls: 3, text: 'Recording 01K5CQ7A3M · 3 calls so far', watch: { label: 'Watch it live', href: `#/run/${RUN}` } } });
+    expect(v.record).toMatchObject({ state: 'current', cli: [], command: null, button: null, live: { runId: RUN, calls: 3, text: 'Recording 01K5CQ7A3M · 3 calls so far', watch: { label: 'Watch live', href: `#/run/${RUN}` } } });
     expect(v.skip).toBeNull();
-    expect(v.calibrate.button).toEqual({ label: 'Calibrate', action: 'calibrate', enabled: false });
+    expect(v.calibrate.button).toEqual({ label: 'Calibrate', action: 'calibrate', enabled: false, lime: false });
   });
 
-  it('says what was recorded, warns when tools weren’t wrapped, and offers to skip the rest', () => {
+  it('says what was recorded, warns when tools weren’t wrapped, and offers to skip setup', () => {
     const p = entry('research-agent', { stage: 'inspected', findings: findings(), runId: RUN, command: ['uv', 'run', 'research-agent'], unwrappedAtRecord: ['save_report', 'notify_slack'] });
     const v = view(p, facts({ runs: 1, recordings: [run()] }), { run: { runId: RUN, status: 'completed', calls: 12, spent: 0.0412, durationMs: 38_200 } });
     expect(v.record.state).toBe('done');
@@ -251,22 +271,26 @@ describe('setupView', () => {
     // Less than a tenth of a cent, as the CLI says it.
     const cheap = view(p, facts({ runs: 1, recordings: [run()] }), { run: { runId: RUN, status: 'completed', calls: 1, spent: 0.00004, durationMs: 94 } });
     expect(cheap.record.recorded?.text).toBe('Recorded 01K5CQ7A3M · 1 call · ≈<$0.001 · 94 ms');
-    expect(v.record.warning).toBe('2 tools weren’t wrapped, so their calls aren’t in this recording. Wrap them and record again before you keep it as a test.');
-    expect(v.record.again).toEqual({ label: 'Record again', action: 'record', command: { value: 'uv run research-agent', enabled: true }, cli: ['shadowlap run -- uv run research-agent'] });
+    expect(v.record.warning).toBe('2 tools weren’t wrapped, so their calls aren’t in this recording. Wrap them and record again before you pack it as a golden.');
+    // Not until they are wrapped: a recording made before then misses the same calls, so Check again leads.
+    expect(v.record.again).toBeNull();
     expect(v.record.empty).toBeNull();
-    expect(v.calibrate).toMatchObject({ state: 'current', cli: ['shadowlap calibrate 01K5CQ7A3M --write'], button: { enabled: true } });
-    expect(v.skip).toEqual({ label: 'Skip the rest', action: 'finishsetup' });
-    expect(v.inspect.folded).toBe(false);
+    expect(v.calibrate).toMatchObject({ state: 'current', cli: ['shadowlap calibrate 01K5CQ7A3M --write'], button: { enabled: true, lime: false } });
+    expect(v.inspect.warning?.recheck.lime).toBe(true);
+    expect(v.skip).toEqual({ label: 'Skip setup', action: 'finishsetup' });
+    expect(v.inspect.folded).toBe(true);
     expect(v.shows).toBe('overview');
   });
 
-  it('folds the findings into one line once a run is recorded and every tool is wrapped', () => {
+  it('folds the findings into one line of facts, then the command', () => {
     const wrapped = findings({ tools: findings().tools.map((t) => ({ ...t, wrapped: true })), wrap: [] });
     const v = view(entry('research-agent', { stage: 'recorded', findings: wrapped, runId: RUN }), facts({ runs: 1, recordings: [run()] }));
-    expect(v.inspect).toMatchObject({ folded: true, warning: null, summary: "Python 3.12 · uv · anthropic 0.69.0 · 3 tools, all wrapped · uv run research-agent 'Summarize Northwind’s Q3 10-Q'", summaryCommand: "uv run research-agent 'Summarize Northwind’s Q3 10-Q'" });
+    expect(v.inspect).toMatchObject({ folded: true, warning: null, summaryFacts: ['Python 3.12 · uv', 'anthropic 0.69.0', '3 tools, all wrapped'], summaryCommand: "uv run research-agent 'Summarize Northwind’s Q3 10-Q'" });
     // init found no command: the line ends on the one typed and recorded with.
     const typed = view(entry('triage-bot', { stage: 'recorded', findings: { ...wrapped, command: null }, runId: RUN, command: ['node', 'triage.mjs'] }), facts({ runs: 1, recordings: [run()] }));
-    expect(typed.inspect).toMatchObject({ summary: 'Python 3.12 · uv · anthropic 0.69.0 · 3 tools, all wrapped · node triage.mjs', summaryCommand: 'node triage.mjs' });
+    expect(typed.inspect).toMatchObject({ summaryFacts: ['Python 3.12 · uv', 'anthropic 0.69.0', '3 tools, all wrapped'], summaryCommand: 'node triage.mjs' });
+    // Every tool wrapped: nothing holds Pack, and Calibrate leads.
+    expect([v.wait, v.calibrate.button?.lime]).toEqual([null, true]);
   });
 
   it('says what calibrate added, then asks where to keep the golden, with the redaction note', () => {
@@ -292,17 +316,23 @@ describe('setupView', () => {
     expect(one.calibrate).toMatchObject({
       state: 'current',
       text: 'Found a value the agent makes anew on every run, at $.metadata.user_id: this looks like a UUID. A normalizer for it makes the replay clean.',
-      button: { label: 'Add it', action: 'calibratewrite', enabled: true },
+      // Its hover card says what it writes, and its command.
+      button: { label: 'Add normalizer', action: 'calibratewrite', enabled: true, tip: { sub: 'Writes the rule calibrate proposed to shadowlap.config.json', command: 'shadowlap calibrate 01K5CQ7A3M --write' } },
+      // Beside the proposal, plain: the proposal left as it is.
+      again: { label: 'Calibrate again', action: 'calibrate' },
       cli: ['shadowlap calibrate 01K5CQ7A3M --write'],
       proposed: [{ path: '$.metadata.user_id', why: 'this looks like a UUID' }],
       stopped: null,
     });
     const two = view(p, f, { calibration: { done: false, added: [], proposed: [{ path: '$.system', why: null }, { path: '$.metadata.user_id', why: null }], stopped: null } });
     expect(two.calibrate.text).toBe('Found 2 values the agent makes anew on every run, at $.system and $.metadata.user_id. Normalizers for them make the replay clean.');
-    expect(two.calibrate.button).toMatchObject({ label: 'Add them', action: 'calibratewrite' });
+    // The action's name, as everywhere a normalizer is added, however many it adds.
+    expect(two.calibrate.button).toMatchObject({ label: 'Add normalizer', action: 'calibratewrite', tip: { sub: 'Writes the rules calibrate proposed to shadowlap.config.json' } });
+    expect(two.calibrate.again).toEqual({ label: 'Calibrate again', action: 'calibrate' });
 
     const stopped = view(p, f, { calibration: { done: false, added: [], proposed: [], stopped: 'still diverging after 8 rounds' } });
-    expect(stopped.calibrate).toMatchObject({ text: 'Calibrate stopped: still diverging after 8 rounds.', button: { label: 'Calibrate', action: 'calibrate', enabled: true }, stopped: 'still diverging after 8 rounds' });
+    expect(stopped.calibrate).toMatchObject({ text: 'Calibrate stopped: still diverging after 8 rounds.', button: { label: 'Calibrate', action: 'calibrate', enabled: true }, again: null, stopped: 'still diverging after 8 rounds' });
+    expect(stopped.calibrate.button?.tip).toBeUndefined();
     // Once the list says the step is done, an old result changes nothing.
     const done = entry('research-agent', { stage: 'clean', runId: RUN, calibration: { added: [{ path: '$.metadata.user_id', why: null }] } });
     expect(view(done, f, { calibration: { done: false, added: [], proposed: [{ path: '$.x', why: null }], stopped: null } }).calibrate).toMatchObject({ state: 'done', button: null, proposed: [], text: 'Added a normalizer for $.metadata.user_id. The replay is clean now.' });
@@ -312,7 +342,9 @@ describe('setupView', () => {
     const p = entry('research-agent', { stage: 'tested', findings: findings(), runId: RUN, golden: 'goldens/northwind-q3' });
     const v = view(p, facts({ runs: 2, recordings: [run()] }), { run: { runId: RUN, status: 'completed', calls: 12, spent: 0.04, durationMs: 1000 } });
     expect(v.test).toMatchObject({ state: 'done', cli: [], golden: null, button: null, result: { text: 'goldens/northwind-q3 replayed clean offline · 12/12 calls', link: { label: 'Open Tests', href: '#/tests' } } });
-    expect(v.done).toEqual({ title: 'research-agent is set up.', text: 'Replays of this run cost nothing, and CI catches a change to what the agent sends.', button: { label: 'Go to the overview', action: 'finishsetup' } });
+    // "Exactly", the lead's promise: what replays save is the line beside it.
+    expect(v.done).toEqual({ word: 'set up', title: 'research-agent replays exactly.', text: 'Replays of this run cost nothing, and CI catches a change to what the agent sends.', button: { label: 'Go to Overview', action: 'finishsetup' } });
+    expect(v.wait).toBeNull();
     expect(v.skip).toBeNull();
     expect(v.steps.map((s) => s.state)).toEqual(['done', 'done', 'done', 'done']);
   });
@@ -336,7 +368,7 @@ describe('setupView', () => {
     expect(terminal.inspect).toMatchObject({
       state: 'skipped',
       text: 'Recorded before the folder was inspected. Inspect it to see its tools, and whether each one is wrapped.',
-      button: { label: 'Inspect the folder', action: 'init' },
+      button: { label: 'Inspect folder', action: 'init' },
       cli: ['shadowlap init'],
       findings: null,
     });
@@ -344,7 +376,7 @@ describe('setupView', () => {
     // A folder counted as set up when the dashboard started there, its runs since deleted, never inspected:
     // the setup starts from step 1, not from a step 1 marked done with nothing to show for it.
     const restarted = view(entry('agent', { stage: 'done' }), facts());
-    expect(restarted).toMatchObject({ title: 'No runs yet', shows: 'everywhere' });
+    expect(restarted).toMatchObject({ title: 'Set up agent', shows: 'everywhere' });
     expect(restarted.steps.map((x) => x.state)).toEqual(['current', 'todo', 'todo', 'todo']);
     expect(restarted.inspect).toMatchObject({ text: expect.stringMatching(/^Finds the model SDKs/), button: { action: 'init' } });
     // Inspected before its runs were deleted: it starts again from recording.
@@ -358,26 +390,87 @@ describe('setupView', () => {
     expect(v.inspect.warning).toMatchObject({
       title: '1 write tool isn’t wrapped.',
       text: 'Its calls won’t be recorded, so a replay runs it for real: save_report would act again. Wrap it, with the effect declared:',
-      recheck: { label: 'I wrapped it, check again', action: 'recheck' },
+      recheck: { label: 'Check again', action: 'recheck', lime: true },
     });
-    expect(v.record.warning).toBe('1 tool wasn’t wrapped, so its calls aren’t in this recording. Wrap it and record again before you keep it as a test.');
+    expect(v.record.warning).toBe('1 tool wasn’t wrapped, so its calls aren’t in this recording. Wrap it and record again before you pack it as a golden.');
+    expect(v.wait).toEqual({ tools: ['save_report'], since: false, text: 'Packing waits until save_report is wrapped: a replay of this golden would run it for real.' });
+    // Packed in a terminal: its test waits the same way, in its own words.
+    const packs = [{ path: 'goldens/q3', runIds: [RUN] }];
+    expect(view(entry('research-agent', { stage: 'recorded', findings: oneTool, runId: RUN }), facts({ runs: 1, recordings: [run()] }), {}, packs).wait?.text).toBe('Testing waits until save_report is wrapped: a replay of this golden would run it for real.');
   });
 
-  it('says when the tools a recording missed are wrapped now, and offers to record again until the replay is clean', () => {
+  it('never holds Pack for tools that only read: their warning’s Check again is plain, and Record run leads', () => {
+    const reads = findings({ tools: findings().tools.map((t) => ({ ...t, effect: 'read' as const })) });
+    const v = view(entry('research-agent', { stage: 'inspected', findings: reads }), facts());
+    expect([v.wait, v.inspect.warning?.title, v.inspect.warning?.recheck.lime, v.record.button?.lime]).toEqual([null, '2 tools aren’t wrapped.', false, true]);
+  });
+
+  it('says when the tools a recording missed are wrapped now, and offers to record again, leading while Pack waits for it', () => {
     const wrappedNow = findings({ at: 50, tools: findings().tools.map((t) => ({ ...t, wrapped: true })), wrap: [] });
     const p = entry('research-agent', { stage: 'recorded', findings: wrappedNow, inspections: [{ at: 1, unwrapped: ['save_report', 'notify_slack'] }, { at: 50, unwrapped: [] }], runId: RUN, command: ['uv', 'run', 'research-agent'] });
     const v = view(p, facts({ runs: 1, recordings: [run()] }));
-    expect(v.record.warning).toBe('2 tools weren’t wrapped, so their calls aren’t in this recording. They are wrapped now: record again before you keep it as a test.');
-    expect(v.record.again).toMatchObject({ label: 'Record again', action: 'record', command: { value: 'uv run research-agent', enabled: true } });
+    expect(v.record.warning).toBe('2 tools weren’t wrapped, so their calls aren’t in this recording. They are wrapped now: record again before you pack it as a golden.');
+    expect(v.record.again).toMatchObject({ label: 'Record again', action: 'record', lime: true, command: { value: 'uv run research-agent', enabled: true } });
     expect(v.inspect.warning).toBeNull();
+    expect(v.wait).toEqual({ tools: ['save_report', 'notify_slack'], since: true, text: 'Packing waits for a recording made since save_report and notify_slack were wrapped: this one doesn’t hold their calls.' });
+    expect(v.calibrate.button?.lime).toBe(false);
     // Recorded again since: the new recording is the setup's, with nothing missing.
     const r2 = { ...run('completed', { startedAt: 60 }), runId: '01K5CQ9Z0000000000000000R2' };
     const again = view(p, facts({ runs: 2, recordings: [r2, run()] }));
     expect(again.record).toMatchObject({ state: 'done', warning: null, again: null, recorded: { runId: r2.runId } });
     expect(again.calibrate.cli).toEqual(['shadowlap calibrate 01K5CQ9Z00 --write']);
-    // Once the replay is clean, the recording stays: no more Record again.
+    // Clean already, Pack still waits for a recording made since: only one started here replaces a
+    // clean setup's recording, so Record again stays, and leads.
     const clean = entry('research-agent', { stage: 'clean', findings: wrappedNow, inspections: p.setup.inspections, runId: RUN, calibration: { added: [] } });
-    expect(view(clean, facts({ runs: 1, recordings: [run()] })).record).toMatchObject({ warning: expect.stringContaining('They are wrapped now'), again: null });
+    expect(view(clean, facts({ runs: 1, recordings: [run()] })).record).toMatchObject({ warning: expect.stringContaining('They are wrapped now'), again: { label: 'Record again', lime: true } });
+    // Missed tools that only read hold nothing: Record again is plain while Calibrate leads, and gone once the replay is clean.
+    const reads = findings({ at: 50, tools: wrappedNow.tools.map((t) => ({ ...t, effect: 'read' as const })), wrap: [] });
+    const read = view(entry('research-agent', { ...p.setup, stage: 'recorded', findings: reads }), facts({ runs: 1, recordings: [run()] }));
+    expect([read.wait, read.record.again?.lime, read.calibrate.button?.lime]).toEqual([null, false, true]);
+    expect(view(entry('research-agent', { ...clean.setup, findings: reads }), facts({ runs: 1, recordings: [run()] })).record.again).toBeNull();
+    // Packed in a terminal from the recording that missed them: its test waits in its own words.
+    const packs = [{ path: 'goldens/q3', runIds: [RUN] }];
+    expect(view(p, facts({ runs: 1, recordings: [run()] }), {}, packs).wait?.text).toBe('Testing waits for a recording made since save_report and notify_slack were wrapped: this golden doesn’t hold their calls.');
+  });
+
+  it('offers Record again, leading, once the missed writes are wrapped though a missed read isn’t, before the replay is clean and after', () => {
+    // Recorded while search_filings (a read) and save_report (a write) weren't wrapped, then the write
+    // alone wrapped and checked again: Pack waits for a recording made since, and nothing else leads.
+    const tools = [{ ...findings().tools[0], wrapped: false, why: 'no hint in the name' }, { ...findings().tools[1], wrapped: true }];
+    const mixed = findings({ at: 50, tools, wrap: [{ language: 'python', tools: ['search_filings'], code: 'from shadowlap import tool\n…' }] });
+    const inspections = [{ at: 1, unwrapped: ['search_filings', 'save_report'] }, { at: 50, unwrapped: ['search_filings'] }];
+    const p = entry('research-agent', { stage: 'recorded', findings: mixed, inspections, runId: RUN, command: ['uv', 'run', 'research-agent'] });
+    const v = view(p, facts({ runs: 1, recordings: [run()] }));
+    expect(v.wait).toEqual({ tools: ['save_report'], since: true, text: 'Packing waits for a recording made since save_report was wrapped: this one doesn’t hold its calls.' });
+    expect(v.record.warning).toBe('2 tools weren’t wrapped, so their calls aren’t in this recording. save_report is wrapped now: record again before you pack it as a golden.');
+    expect(v.record.again).toMatchObject({ label: 'Record again', action: 'record', lime: true, command: { value: 'uv run research-agent', enabled: true } });
+    expect([v.inspect.warning?.title, v.inspect.warning?.recheck.lime]).toEqual(['1 tool isn’t wrapped.', false]);
+    expect(limes(v)).toEqual(['Record again']);
+    // Clean already: a recording made in a terminal no longer becomes the setup's, so the one started here is the way on.
+    const clean = view(entry('research-agent', { ...p.setup, stage: 'clean', calibration: { added: [] } }), facts({ runs: 1, recordings: [run()] }));
+    expect([clean.calibrate.state, clean.wait?.since, clean.record.again?.lime]).toEqual(['done', true, true]);
+    expect(limes(clean)).toEqual(['Record again']);
+    // Recorded again since: the read it still misses holds nothing, and Calibrate leads.
+    const r2 = { ...run('completed', { startedAt: 60 }), runId: '01K5CQ9Z0000000000000000R2' };
+    const again = view(p, facts({ runs: 2, recordings: [r2, run()] }));
+    expect([again.wait, again.record.again, limes(again)]).toEqual([null, null, ['Calibrate']]);
+  });
+
+  it('leads with Inspect folder when a recording came first, Calibrate and Pack plain until the folder is inspected', () => {
+    // Recorded in a terminal before init: without the findings, Pack's wait can't tell a write that isn't wrapped.
+    const terminal = view(entry('triage-bot', { stage: 'recorded', runId: RUN }), facts({ runs: 1, recordings: [run()] }));
+    expect([terminal.inspect.state, terminal.calibrate.state, terminal.wait]).toEqual(['skipped', 'current', null]);
+    expect(terminal.calibrate.button).toEqual({ label: 'Calibrate', action: 'calibrate', enabled: true, lime: false });
+    expect(limes(terminal)).toEqual(['Inspect folder']);
+    // Clean already: Pack reads plain too.
+    const clean = view(entry('triage-bot', { stage: 'clean', runId: RUN, calibration: { added: [] } }), facts({ runs: 1, recordings: [run()] }));
+    expect([clean.test.state, clean.test.button?.lime, limes(clean)]).toEqual(['current', false, ['Inspect folder']]);
+    // Inspected since: the step at hand leads again.
+    const inspected = view(entry('triage-bot', { stage: 'recorded', runId: RUN, findings: findings({ at: 50, tools: [], wrap: [] }) }), facts({ runs: 1, recordings: [run()] }));
+    expect(limes(inspected)).toEqual(['Calibrate']);
+    // Its golden's test passed: the verdict line leads, and Inspect folder reads plain.
+    const tested = view(entry('triage-bot', { stage: 'tested', runId: RUN, golden: 'goldens/triage-bot' }), facts({ runs: 2, recordings: [run()] }));
+    expect([tested.inspect.button?.lime, limes(tested)]).toEqual([false, ['Go to Overview']]);
   });
 
   it('says when the last recording held nothing, and asks for the command again', () => {
@@ -409,25 +502,25 @@ describe('setupView', () => {
       golden: null,
       redaction: null,
       result: null,
-      button: { label: 'Run the test', action: 'testgolden', enabled: true },
+      button: { label: 'Run test', action: 'testgolden', enabled: true, lime: true },
       packed: { golden: 'goldens/q3', failed: false, text: 'Packed as goldens/q3. Its test replays it offline: run it to finish.', link: null },
     });
     expect(packed.done).toBeNull();
-    expect(packed.skip).toEqual({ label: 'Skip the rest', action: 'finishsetup' });
+    expect(packed.skip).toEqual({ label: 'Skip setup', action: 'finishsetup' });
     // One step current at a time: the setup moved on to the golden, past calibrating, which can still be run.
     expect(packed.steps.map((x) => x.state)).toEqual(['done', 'done', 'skipped', 'current']);
     expect(packed.calibrate.button).toMatchObject({ label: 'Calibrate', enabled: true });
     // Its test failed: why, and where to look.
     const test = (ok: boolean) => ({ golden: 'goldens/q3', ok, at: 30, reason: ok ? null : 'diverged at call 4 (api POST /v1/messages).', goldenRunId: RUN });
     const failed = view(p, facts({ runs: 1, recordings: [run()], tests: [test(false)] }), {}, packs);
-    expect(failed.test).toMatchObject({ state: 'current', button: { label: 'Run the test again', action: 'testgolden' }, packed: { failed: true, text: 'goldens/q3 failed its test: diverged at call 4 (api POST /v1/messages). Fix what changed, or record again, then run it again.', link: { label: 'Open Tests', href: '#/tests' } } });
+    expect(failed.test).toMatchObject({ state: 'current', button: { label: 'Re-run test', action: 'testgolden' }, packed: { failed: true, text: 'goldens/q3 failed its test: diverged at call 4 (api POST /v1/messages). Fix what changed, or record again, then run it again.', link: { label: 'Open Tests', href: '#/tests' } } });
     // Passed: done. Packed without calibrating first, the test that passed replayed it clean: step 3 is done too.
     const passed = view(p, facts({ runs: 1, recordings: [run()], tests: [test(true)] }), {}, packs);
     expect(passed.test).toMatchObject({ state: 'done', cli: [], button: null, packed: null, result: { text: 'goldens/q3 replayed clean offline', link: { label: 'Open Tests', href: '#/tests' } } });
     expect(passed.steps.map((x) => x.state)).toEqual(['done', 'done', 'done', 'done']);
     expect(passed.calibrate.text).toBe('A replay of 01K5CQ7A3M ran clean.');
     expect(passed.skip).toBeNull();
-    expect(passed.done).toMatchObject({ title: 'research-agent is set up.' });
+    expect(passed.done).toMatchObject({ title: 'research-agent replays exactly.' });
   });
 
   it('counts a clean replay as step 3, and never shows another recording’s calibration', () => {

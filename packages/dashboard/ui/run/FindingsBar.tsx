@@ -2,7 +2,7 @@ import { Fragment, useLayoutEffect, useReducer, useRef, useState, type ReactNode
 import type { BlameView, CheckView, RunDetail, RunOffers } from '../api.js';
 import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
-import type { FoundCommit, TestBannerOffer } from '../types.js';
+import type { FoundCommit, RunInjection, TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { LoadFailed } from '../components/bits.js';
 import { onShow } from '../components/OnShow.js';
@@ -30,6 +30,10 @@ import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
+import type { ProofTab } from '../injection/Proof.js';
+import { useServedParts } from '../served-parts.js';
+import { openResults } from './panel-state.js';
+import type { InjectionFinding as InjectionFindingView } from '../injection/model.js';
 import { warmDiff } from './InspectorPanel.js';
 
 /**
@@ -132,6 +136,10 @@ export interface BannerProps {
   preset?: PresetAttempt | null;
   /** The call `n` jumps to where it is the fork or the lost call, and its card. */
   jump?: { n: number; card: string } | null;
+  /** An injection test's replay: what was planted where, and its proof, once the read of it comes (none in a copy). */
+  attempt?: RunInjection['attempt'];
+  /** A call a proof names, picked on the inspector's tab that shows it. */
+  onPick?: (n: number, tab: ProofTab) => void;
 }
 
 /**
@@ -172,6 +180,8 @@ interface Draw {
   /** Show change, for the first bad commit's finding: none where it kept no change to show. */
   changeToggle: ReactNode;
   onAction: (p: PendingAction) => void;
+  attempt: RunInjection['attempt'];
+  pick: (n: number, tab: ProofTab) => void;
 }
 
 /** Where a finding sits in the bar: one a closed bar folds away (`fx`), and the bar's toggle at its end (`more`). */
@@ -218,6 +228,7 @@ function bannerInput(run: RunDetail, p: Pick<BannerProps, 'blame' | 'rescued' | 
     attempt: attemptOf(run),
     codeVersion: r.codeVersion,
     preset: p.preset ?? null,
+    injection: r.meta?.injection ?? null,
   };
 }
 
@@ -310,6 +321,35 @@ function AttemptFinding({ b, x, s }: { b: Of<'attempt'>; x: Draw; s: Slot }) {
           </a>
         ))}
       </span>
+      {s.more}
+    </section>
+  );
+}
+
+/**
+ * An injection test's replay, as the design draws every attempt: what was planted where, with which
+ * attempt, and the writes. Then the way back to the run tested, its results open (a clean attempt's
+ * to the answer it counts in), and an attempt's proof, the line that joins the read to the write.
+ * The way back and the proof wait for the read of what was planted, so a copy, which answers it
+ * empty, draws neither.
+ */
+function InjectionAttemptFinding({ b, x, s }: { b: Of<'injection-attempt'>; x: Draw; s: Slot }) {
+  const tested = x.attempt ? x.run.run.parentRunId : null;
+  // Handed in where the dashboard runs, its script loaded as it first shows: a copy has no attempt's read, so no proof.
+  const { Proof } = useServedParts();
+  return (
+    <section className={cls('fork wrap', s)}>
+      <span className="bk">forked at</span>
+      {b.callNo !== null ? x.call(b.callNo) : null}
+      <span className="why">{said(b.why, null, true)}</span>
+      {tested ? (
+        <span className="end">
+          <a className="more" href={href.run(tested)} onClick={b.role === 'clean' ? undefined : () => openResults(tested, `injection:${b.result}`)}>
+            {b.role === 'clean' ? 'The answer →' : 'Results →'}
+          </a>
+        </span>
+      ) : null}
+      {x.attempt?.parts && Proof ? <Proof parts={x.attempt.parts} why={b.proofWhy} onPick={x.pick} /> : null}
       {s.more}
     </section>
   );
@@ -452,6 +492,8 @@ function BannerFinding({ b, x, s }: { b: BannerView; x: Draw; s: Slot }) {
       return <DivergedFinding b={b} x={x} s={s} />;
     case 'attempt':
       return <AttemptFinding b={b} x={x} s={s} />;
+    case 'injection-attempt':
+      return <InjectionAttemptFinding b={b} x={x} s={s} />;
     case 'fork':
       return <ForkFinding b={b} x={x} s={s} />;
     case 'lost':
@@ -489,7 +531,7 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
       {p.showChange ? 'Hide change' : 'Show change'}
     </button>
   ) : null;
-  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: (next?.key === 'bisect' || next?.key === 'revert') && !!next.blame, gone: next?.key === 'run-tests' ? next.gone : null, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, changeToggle, onAction: p.onAction };
+  return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: (next?.key === 'bisect' || next?.key === 'revert') && !!next.blame, gone: next?.key === 'run-tests' ? next.gone : null, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, changeToggle, onAction: p.onAction, attempt: p.attempt ?? null, pick: p.onPick ?? p.onSelect };
 }
 
 /**
@@ -579,22 +621,25 @@ function CommitFinding({ c, x, s }: { c: FoundCommit; x: Draw; s: Slot }) {
 
 /** A finding, as its kind draws it. */
 function FindingView({ f, x, s, onSelect }: { f: Finding; x: Draw; s: Slot; onSelect: (n: number) => void }) {
+  // A kept injection test's finding is handed in where the dashboard runs: a copy keeps no results to draw one from.
+  const { InjectionFinding } = useServedParts();
   if (f.commit) return <CommitFinding c={f.commit} x={x} s={s} />;
   if (f.banner) return <BannerFinding b={f.banner} x={x} s={s} />;
   if (f.judge) return <JudgeFinding j={f.judge} x={x} s={s} />;
   if (f.note) return <NoteFinding n={f.note} fx={s.fx} more={s.more} onSelect={onSelect} />;
+  if (f.injection) return InjectionFinding ? <InjectionFinding runId={x.run.run.runId} f={f.injection} fx={s.fx} more={s.more} /> : null;
   return f.differences ? <DifferencesPanel d={f.differences} fx={s.fx} more={s.more} /> : null;
 }
 
 /** The bar, from the findings the page has: drawn by FindingsBar, and alone by Banner. */
-function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null }) {
+function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Differences | null; injection?: InjectionFindingView | null }) {
   const runId = p.run.run.runId;
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const next = nextStepOf(p.run);
   const test = p.offers?.test ?? (next?.key === 'normalizer' || next?.key === 'update-golden' ? next.test : null);
   const x = useDraw(p, test);
   const input = bannerInput(p.run, p, test);
-  const findings = runFindings({ own: ownBanner(input), judges: judgeVerdicts(p.checks), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null) });
+  const findings = runFindings({ own: ownBanner(input), judges: judgeVerdicts(p.checks), differences: p.differences, notRecorded: notRecordedBanner(input), notes: p.notes, commit: p.run.fixedBy ? null : (p.offers?.commit ?? null), injection: p.injection });
   if (!findings.length) return null;
   const open = opened.get(runId) ?? false;
   const toggle = () => {
@@ -613,9 +658,9 @@ function Findings(p: BannerProps & { notes: readonly RunNote[]; differences: Dif
 
 /**
  * The run's findings under its header: its own, what its fork did differently from its parent (read
- * once it has ended), what it did not record, and its notes.
+ * once it has ended), what it did not record, its notes, and the injection test kept for it.
  */
-export function FindingsBar(p: BannerProps & { notes: readonly RunNote[] }) {
+export function FindingsBar(p: BannerProps & { notes: readonly RunNote[]; injection?: InjectionFindingView | null }) {
   const r = p.run.run;
   const differences = useForkDifferences(r.runId, !!r.divergence && !!r.parentRunId && r.status !== 'running');
   return <Findings {...p} differences={differences} />;

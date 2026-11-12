@@ -10,6 +10,7 @@ import { credentialFreeArgv } from './argv-credentials.js';
 import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
 import { messageOf } from './message-of.js';
+import { keepingRunCanaries } from './injection.js';
 import { compilePattern, parsePath } from './normalize.js';
 import { redactedRequest, redactedResponse } from './redact.js';
 import { normalizeResponse } from './responses.js';
@@ -154,21 +155,25 @@ export function datasetRows(store: StoreOf<'recording'>, runs: RunRecord[], opts
       throw new Error(`redaction rule #${i + 1}: ${messageOf(err)}`, { cause: err });
     }
   });
-  const rules = redact.filter((r) => r.path === undefined && r.pattern !== undefined).map((r) => ({ re: compilePattern(r.pattern!), replace: r.replace }));
+  const pathless = redact.filter((r) => r.path === undefined && r.pattern !== undefined);
   const rows: unknown[] = [];
   for (const run of runs) {
     // The agent's model calls: a judge check's verdict is none of its turns.
     const models = store.getCalls(run.runId).filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && !isJudgeCall(c));
     const chosen = opts.calls === 'final' ? models.slice(-1) : models;
-    for (const call of chosen) {
-      let e: DatasetExample | null;
-      try {
-        e = example(store, run, call, redact);
-      } catch {
-        e = null; // an unreadable request or response is left out
+    // An injection attempt's rows keep its canaries, as its pack does: its rules are compiled for it (keepingRunCanaries).
+    keepingRunCanaries(run, () => {
+      const rules = pathless.map((r) => ({ re: compilePattern(r.pattern!), replace: r.replace }));
+      for (const call of chosen) {
+        let e: DatasetExample | null;
+        try {
+          e = example(store, run, call, redact);
+        } catch {
+          e = null; // an unreadable request or response is left out
+        }
+        if (e) rows.push(shape(rules.length ? (redactDeep(e, rules) as DatasetExample) : e, opts.format));
       }
-      if (e) rows.push(shape(rules.length ? (redactDeep(e, rules) as DatasetExample) : e, opts.format));
-    }
+    });
   }
   return rows;
 }

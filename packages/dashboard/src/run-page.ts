@@ -12,7 +12,7 @@ import {
   LiveConversations,
   normalizeResponse,
   ownAgent,
-  previewRedaction,
+  previewKeepingCanaries,
   recordedDurations,
   responseInfo,
   RunAgents,
@@ -834,13 +834,13 @@ export interface RunProvenance {
    * not counted, with why when it says, and `busy` when it is yet to be counted (the preview threads
    * were busy): asked again, it is.
    */
-  mask: { rules: number; values: number | null; returned?: number; unmasked?: number; why?: string; busy?: true };
+  mask: { rules: number; values: number | null; returned?: number; unmasked?: number; kept?: number; why?: string; busy?: true };
   labels: string[];
   notes: RunNote[];
 }
 
 /** Counts what a set of redaction rules would mask in one run: the dashboard passes the Redaction tab's preview (run-mask.ts). */
-export type MaskCounter = (store: Store, runId: string) => { rules: number; values: number | null; returned?: number; unmasked?: number; why?: string; busy?: true } | null;
+export type MaskCounter = (store: Store, runId: string) => { rules: number; values: number | null; returned?: number; unmasked?: number; kept?: number; why?: string; busy?: true } | null;
 
 export interface ProvenanceOptions {
   prices?: Record<string, Price>;
@@ -865,15 +865,15 @@ function tally(values: Array<string | null | undefined>): Array<[string, number]
  * dashboard counts apart from its own thread instead (run-mask.ts). Throws for a run still recording.
  */
 export function countMasked(store: Store, runId: string, rules: Normalizer[]): number {
-  return rules.length ? previewRedaction(store, runId, rules).total : 0;
+  return rules.length ? previewKeepingCanaries(store, runId, rules).total : 0;
 }
 
 /** The count here, or null when there is none (a run still recording, a rule that can't be read). */
-function maskHere(store: Store, runId: string, rules: Normalizer[]): { rules: number; values: number | null; returned?: number; unmasked?: number } {
+function maskHere(store: Store, runId: string, rules: Normalizer[]): { rules: number; values: number | null; returned?: number; unmasked?: number; kept?: number } {
   if (!rules.length) return { rules: 0, values: 0 };
   try {
-    const p = previewRedaction(store, runId, rules);
-    return { rules: rules.length, values: p.total, ...(p.returned ? { returned: p.returned } : {}), ...(p.unmasked ? { unmasked: p.unmasked } : {}) };
+    const p = previewKeepingCanaries(store, runId, rules);
+    return { rules: rules.length, values: p.total, ...(p.returned ? { returned: p.returned } : {}), ...(p.unmasked ? { unmasked: p.unmasked } : {}), ...(p.kept ? { kept: p.kept } : {}) };
   } catch {
     return { rules: rules.length, values: null };
   }

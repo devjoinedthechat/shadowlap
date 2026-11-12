@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { GOLDEN_JOB_WORDS } from '../../../engine/src/golden-job-words.js';
 import { JOB_KINDS } from '../api.js';
+import { useOfflineLink } from '../components/ActionButton.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import { MigrateAsk } from '../components/MigrateAsk.js';
@@ -84,15 +85,17 @@ export function stepWords(s: LookStep): { sub: string | null; command: string | 
 }
 
 /**
- * A row's step: a link as itself; a job's button where this dashboard runs jobs, else `Open →`, as a
- * step that opens its page has (a read-only dashboard's rows each open what they are about).
+ * A row's step: a link as itself, one to an attempt waiting while the server is out of reach; a job's
+ * button where this dashboard runs jobs, else `Open →`, as a step that opens its page has (a
+ * read-only dashboard's rows each open what they are about).
  */
 export function LookStepButton({ row, wait, version }: { row: NeedsLookRow; wait: LookWait | null; version: string }) {
   const app = useApp();
+  const offline = useOfflineLink();
   const s = row.step;
   if (s?.of === 'link') {
     return (
-      <a className="btn sm" href={s.href} {...(s.title ? { 'data-tip': tipCard(s.label, [], s.title) } : {})}>
+      <a className="btn sm" href={s.href} {...(s.title ? { 'data-tip': tipCard(s.label, [], s.title) } : {})} {...(s.attempt ? { onClick: offline } : {})}>
         {s.label}
       </a>
     );

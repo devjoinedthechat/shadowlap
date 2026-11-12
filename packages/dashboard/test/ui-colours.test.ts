@@ -196,6 +196,29 @@ describe('what each colour may mean', () => {
     ]);
   });
 
+  it('tags an untrusted read as its effect is tagged, never in a consequence colour, and marks an injection test in the colours of what it found', () => {
+    // Where a read's text came from is a fact of the call, not a finding: dim, one step brighter than its effect's faint.
+    expect(value('.eff.untrusted', 'color')).toBe('var(--dim)');
+    expect(value('.eff', 'color')).toBe('var(--faint)');
+    // The canary, wherever the inspector marks it, is what got out: the one red, on a tint of it.
+    expect(value('mark.cnry', 'color')).toBe('var(--cq-red)');
+    expect(value('mark.cnry', 'background')).toBe('color-mix(in srgb, var(--cq-red) 16%, transparent)');
+    expect(value('.cnry', 'color')).toBe('var(--cq-red)');
+    // The planted text is the planted origin's violet, as the turn it changed is: an override, not a failure.
+    expect(value('mark.ins-plant', 'color')).toBe('var(--o-over)');
+    expect(value('mark.ins-plant', 'background')).toBe('color-mix(in srgb, var(--o-over) 14%, transparent)');
+    expect(value('.msg.changed.ov .chg', 'color')).toBe('var(--o-over)');
+    // An attempt that ignored it, and a plant's clean replays, are muted: they showed nothing to look at.
+    expect(value('.astrip .ac.mu', 'background')).toBe('var(--cq-muted-fill)');
+    // The Security report's example mask reads as a diff does: the value struck through in the removed colour, its mask in the added one.
+    expect(value('.injmask .del', 'color')).toBe('var(--del)');
+    expect(value('.injmask .add', 'color')).toBe('var(--add)');
+    // A golden's injection gate is one of its checks (`.ck.injck`), its mark in a check's colours, a hairline above it.
+    for (const [status, colour] of [['passed', 'var(--ok)'], ['failed', 'var(--err)'], ['inconclusive', 'var(--warn)']] as const) expect(value(`table.gt .chk .ck.${status} .cm`, 'color'), status).toBe(colour);
+    expect(value('table.gt .chk .ck.injck', 'border-top')).toBe('1px solid var(--line)');
+    expect(value('table.gt .chk .ck.injck', 'color')).toBeNull();
+  });
+
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {
     expect(value('.tchip.s em', 'color')).toBe('var(--o-stub)');
     expect(value('.org.stub', 'color')).toBe('var(--o-stub)');
@@ -302,7 +325,6 @@ describe('lime', () => {
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.badge.ok': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
-    '.setupdone': 'port/setup-states: a setup that is done says so as a verdict line, “set up” in the passed colour, never a tinted box',
   };
   /** Where lime marks no meaning: the keyboard's focus, a focused field, the text you select, and the row the keys light in a list whose field keeps the focus (`.kb`: a picker's, the palette's). */
   const FOCUS = /:focus(-visible|-within)?\b|^::selection$|^\.labelbar input$|\.kb \.\w+\.on$/;
@@ -396,6 +418,7 @@ describe('amber', () => {
     '.rntools .eff.unknown': 'a tool whose effect no rule says: a look',
     '.fieldnote.warn': 'a field’s value that needs a look',
     'ol.setup .sb > p.fieldnote.warn': 'a setup field’s value that needs a look',
+    '.warnline > p > b': 'a warning in a step: its first words, the rest of its line in the step’s own colour',
     'ol.setup.storesetup dd .warnt': 'a store setting that needs a look',
     '.agentfiles .warn': 'a coding agent’s file that needs a look',
     '.skrow > div:first-child > span.warn': 'a skill that needs a look',
@@ -433,7 +456,6 @@ describe('amber', () => {
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
-    '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
   };
 
   it('means needs a look or inconclusive, and nothing else: never a fork, stubbed or blame', () => {

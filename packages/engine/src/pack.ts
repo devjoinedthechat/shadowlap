@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { pulledRun } from './classify.js';
 import { sameCommandLine } from './argv-credentials.js';
 import { sha256 } from './ids.js';
+import { keepingRunCanaries } from './injection.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { bringRequest, loadApiRequest, manifestRefs } from './manifest.js';
 import { messageOf } from './message-of.js';
@@ -159,7 +160,8 @@ export function packRun(source: Store, runId: string, dir: string, opts: PackOpt
   };
   if (redacted || runs.some((r) => carriesCredentials(source, r.runId))) {
     store = Store.open(':memory:');
-    runs = runs.map((r) => redactRun(source, r.runId, opts.redact ?? [], store, { signed: heard }));
+    // An injection attempt's copy keeps its canaries, for whoever opens it to see its proof.
+    runs = runs.map((r) => keepingRunCanaries(r, () => redactRun(source, r.runId, opts.redact ?? [], store, { signed: heard })).value);
   }
 
   const lines: string[] = [];
@@ -333,7 +335,7 @@ function sameCalls(store: StoreOf<'recording' | 'readModels'>, held: RunRecord, 
     }
     if (rules.length > mine.length && json(rules.slice(0, mine.length)) === json(mine)) {
       // Packed with more rules than this copy carries: this copy redacted with the rest.
-      redactRun(store, held.runId, rules.slice(mine.length), into);
+      keepingRunCanaries(held, () => redactRun(store, held.runId, rules.slice(mine.length), into));
       return same(agentCallsOf(into.getCalls(held.runId)), theirs);
     }
     if (mine.length > rules.length && json(mine.slice(0, rules.length)) === json(rules)) {
@@ -348,7 +350,7 @@ function sameCalls(store: StoreOf<'recording' | 'readModels'>, held: RunRecord, 
           }
           appendCalls(from, theirs);
         });
-        redactRun(from, packed.runId, mine.slice(rules.length), into);
+        keepingRunCanaries(packed, () => redactRun(from, packed.runId, mine.slice(rules.length), into));
       } catch {
         // A blob the pack's calls need is missing or unreadable: not a recording to compare with.
         return false;

@@ -58,7 +58,7 @@ function app(): AppState {
 
 async function open(fixId: string, step: string): Promise<Rendered> {
   r = await render(createElement(AppContext.Provider, { value: app() }, createElement(FixPage, { id: fixId, step, sub: null })));
-  await r.until('the fix to load', () => r!.all('h1').length === 1);
+  await r.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
   return r;
 }
 
@@ -405,7 +405,7 @@ describe('the drawers’ ways on', () => {
     const opened = { label: 'Open fix', href: `#/fixes/${fixId}/blame` };
     const bar = address(`#/fixes/${fixId}/blame`);
     const drawer = await page(job({ kind: JOB_KINDS.blame, fixId, title: 'Blaming again' }));
-    await r!.until('the fix to load', () => r!.all('h1').length === 1);
+    await r!.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
     const lime = r!.one('#view .ph .actions .btn.lime');
     await drawer.set({ links: [opened] });
     await r!.until('its next step', () => wayOn().length > 0);
@@ -424,7 +424,7 @@ describe('the drawers’ ways on', () => {
     const { fixId, left } = verified();
     const bar = address(`#/fixes/${fixId}/verify`);
     const drawer = await page(job({ kind: JOB_KINDS.verify, fixId, title: 'Verifying' }));
-    await r!.until('the fix to load', () => r!.all('h1').length === 1);
+    await r!.until('the fix to load', () => r!.all('.ph.fxh h1').length === 1);
     const { verdict } = recordVerdict(store, { report: verifyReport([{ runId: left, role: 'target', pass: false }]), expect: SEND_ONCE, command: `shadowlap verify --fixes ${left}`, rerun: { flags: [], command: null }, at: (at += DAY) });
     await drawer.set({ code: 1, result: { verdict: 'rejected', verifyId: verdict.verifyId }, links: [{ label: 'Open fix', href: `#/fixes/${fixId}/verify/${verdict.verifyId}` }] });
     await r!.until('its verdict', () => bar.now().endsWith(verdict.verifyId));

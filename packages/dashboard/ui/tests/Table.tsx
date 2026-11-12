@@ -12,6 +12,8 @@ import { navigate } from '../router.js';
 import { CheckActs, CheckTail } from './check-entries.js';
 import { EvidenceRow, EvidenceToggle, gated, useEvidenceOpen } from './Evidence.js';
 import { HistoryCells, HistoryKey, HistoryStrip, RevisionHeads } from './History.js';
+import { openResults } from '../run/panel-state.js';
+import { gateCheck, rowHref, type GateCheckView } from './gate.js';
 import { goldenKeys, goldenRowScope } from './row-scope.js';
 import type { LeadPress } from './Verdict.js';
 
@@ -28,7 +30,7 @@ import type { LeadPress } from './Verdict.js';
 export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPress }) {
   const history = view.revisions.length > 0;
   const { open, toggle } = useEvidenceOpen(view.rows);
-  // j and k walk the goldens, Enter opens one's run, ⌘K offers what its report offers.
+  // j and k walk the goldens, Enter opens one's run (rowHref), ⌘K offers what its report offers.
   const table = useRef<HTMLTableElement>(null);
   const keyOf = goldenKeys(view.rows);
   const inFocus = useListKeys({
@@ -37,8 +39,9 @@ export function GoldensTable({ view, press }: { view: TestsView; press?: LeadPre
     root: table,
     // A golden with no run leads nowhere of its own: Enter offers its actions, as ⌘K does.
     open: (r) => {
-      if (!r.runId) return false;
-      navigate(href.run(r.runId));
+      const to = rowHref(r);
+      if (!to) return false;
+      navigate(to);
     },
     actions: (r) => goldenRowScope(r, () => table.current?.closest('.page') ?? document, r.path === view.verdict?.first?.golden),
   });
@@ -77,10 +80,11 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { 
   const source = sourceText(row);
   const last = row.last;
   const stale = changedLine(row);
+  const to = rowHref(row);
   return (
-    <tr className={[row.runId ? '' : 'still', focused ? 'krow' : '', open ? 'open' : ''].filter(Boolean).join(' ') || undefined} data-rowkey={rowKey} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
+    <tr className={[row.runId ? '' : 'still', focused ? 'krow' : '', open ? 'open' : ''].filter(Boolean).join(' ') || undefined} data-rowkey={rowKey} {...(to ? rowOpen(() => navigate(to)) : {})}>
       <td className="gg">
-        <code className="gn">{row.runId ? <a className="rowa" href={href.run(row.runId)}>{row.name}</a> : row.name}</code>
+        <code className="gn">{to ? <a className="rowa" href={to}>{row.name}</a> : row.name}</code>
         <span className="gmeta">
           <span className="chip" data-tip={tipCard(row.modeLabel, [], row.modeHint)}>
             {row.modeLabel}
@@ -233,7 +237,52 @@ function LastResult({ row }: { row: GoldenRow }) {
  * failed, in how many attempts, or why, under it and on hover; and what changes them, where the page
  * offers it (check-entries.tsx).
  */
+/** A golden's checks, then its injection gate under them, which its tests entry sets. */
 function Checks({ row }: { row: GoldenRow }) {
+  return (
+    <>
+      <CheckList row={row} />
+      {row.injectionGate ? <GateCheck g={gateCheck(row.injectionGate, row.last)} /> : null}
+    </>
+  );
+}
+
+/** Its injection gate's line: its mark, its words opening the results of its last test, and its tally unless it passed. */
+function GateCheck({ g }: { g: GateCheckView }) {
+  const words = (
+    <>
+      {g.text}
+      {g.sub ? <small>{glued(g.sub)}</small> : null}
+    </>
+  );
+  const open = g.open;
+  return (
+    <span className={`ck injck${g.status ? ` ${g.status}` : ''}`} data-tip={tipCard(g.title, [], g.line)}>
+      {g.mark ? (
+        <b className="cm" role="img" aria-label={g.status ?? undefined}>
+          {g.mark}
+        </b>
+      ) : null}
+      {open ? (
+        <a
+          className="cw"
+          href={href.run(open.runId)}
+          onClick={(e) => {
+            // The row opens the run it names, or the proof: these words open the results instead.
+            e.stopPropagation();
+            openResults(open.runId, open.key);
+          }}
+        >
+          {words}
+        </a>
+      ) : (
+        <span className="cw">{words}</span>
+      )}
+    </span>
+  );
+}
+
+function CheckList({ row }: { row: GoldenRow }) {
   if (!row.checks.length) {
     return (
       <>

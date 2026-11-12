@@ -57,7 +57,7 @@ export interface ProjectSetup {
   calibration: { added: Array<{ path: string; why: string | null }> } | null;
   /** The golden kept as a test (step 4), relative to the folder. */
   golden: string | null;
-  /** Finished with Skip the rest, before the golden's test passed (or before there was a golden). */
+  /** Finished with Skip setup, before the golden's test passed (or before there was a golden). */
   skipped: boolean;
   updatedAt: number;
 }
@@ -642,7 +642,7 @@ export class ProjectRegistry {
     });
   }
 
-  /** Step 1: `shadowlap init` ran in the folder (again, after "I wrapped them, check again"). */
+  /** Step 1: `shadowlap init` ran in the folder (again, after Check again). */
   noteInspected(id: string, findings: SetupFindings): ProjectEntry {
     const kept = boundedFindings(findings);
     const at = this.now();
@@ -679,7 +679,7 @@ export class ProjectRegistry {
   }
 
   /**
-   * Go to the overview, or Skip the rest: the project is set up. Logged as `project.setup` in its
+   * Go to Overview, or Skip setup: the project is set up. Logged as `project.setup` in its
    * store, which is also what brings the finished setup back if the folder is added again. The
    * dashboard offers it only after the first recording (`ProjectHost.finishSetup` checks), and
    * passes what the setup found: its recording, the golden kept from it, and whether the setup is

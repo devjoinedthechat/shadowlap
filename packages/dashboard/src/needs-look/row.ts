@@ -16,7 +16,8 @@ import type { LookGroup } from './groups.js';
  * None: the row says `Open →`.
  */
 export type LookStep =
-  | { of: 'link'; label: string; href: string; title?: string }
+  /** `attempt`: it opens an attempt (Open proof), which no list the page holds has, so it waits while the server is out of reach. */
+  | { of: 'link'; label: string; href: string; title?: string; attempt?: true }
   | { of: 'run'; runId: string; step: NextStep }
   | { of: 'fix'; fixId: string; lead: FixLead }
   | { of: 'more'; golden: string; label: string; more: MoreAttempts }

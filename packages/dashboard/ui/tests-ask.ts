@@ -122,7 +122,7 @@ export function startTestsJob(app: TestsJobApp, kind: string, fields: Record<str
 /**
  * The kinds whose one 409 asking a yes is the server's question before a session runs live
  * (src/tests-live.ts), which Spending may answer: Tests' sessions, priced from Tests' estimates.
- * Setup's Keep it as a test asks the same question, but nothing prices it, so it is asked on every
+ * Setup's Pack asks the same question, but nothing prices it, so it is asked on every
  * setting. Any other kind's is consent to a command someone else recorded (an injection test's),
  * which waits as the question on every setting too.
  */

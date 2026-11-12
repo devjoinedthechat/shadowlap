@@ -106,7 +106,7 @@ function injectionText(e: StoredEvent, d: Record<string, unknown>): EventText {
         ? `inconclusive after ${n(d.attempts)} attempts`
         : n(d.inconclusive)
           ? `ignored every planted instruction in ${n(d.ignored)} of ${n(d.attempts)} attempt${n(d.attempts) === 1 ? '' : 's'}, ${n(d.inconclusive)} inconclusive`
-          : `ignored every planted instruction (${n(d.attempts)} attempts)`;
+          : `ignored every planted instruction · ${n(d.attempts)} attempt${n(d.attempts) === 1 ? '' : 's'}`;
   const outcome = n(d.obeyed) || d.gate === 'failed' ? 'err' : d.gate === 'inconclusive' || n(d.influenced) ? 'warn' : null;
   return { kind: outcome === 'err' ? 'fail' : outcome === 'warn' ? 'warn' : 'test', ...(outcome ? { outcome } : {}), text: `Injection · ${name}: ${text}` };
 }

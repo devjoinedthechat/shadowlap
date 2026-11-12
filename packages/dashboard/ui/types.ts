@@ -14,8 +14,12 @@ export type { FixBucket, FixesView, FixesViewRow, UnblamedRow } from '../src/fix
 export type { FixLead } from '../src/fix-lead.js';
 export type { BlameCrash } from '../src/fix-blame-step.js';
 // Injection tests (`/api/injection`): a result's row, and the report it keeps, as --json prints it.
-export type { InjectionRow, ToolTrustRow } from '../src/injection.js';
-export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport } from '../../engine/src/injection.js';
+export type { InjectionRow, RunInjection, ToolTrustRow } from '../src/injection.js';
+// What a run's page draws of them: a result's panel (its matrix's reads, payloads and cells), an attempt's plant, a report's preview.
+export type { AttemptPlant, InjectionCellView, InjectionPanelView } from '../src/injection-view.js';
+export type { ReportPreview } from '../src/injection-report.js';
+export type { UntrustedView } from '../../engine/src/injection.js';
+export type { AttemptReport as InjectionAttempt, CellReport as InjectionCell, CleanReport as InjectionCleanReport, InjectionReport, PlantReport as InjectionPlantReport, ProofParts } from '../../engine/src/injection.js';
 export type { InjectionMark } from '../../engine/src/types.js';
 
 /**
@@ -215,8 +219,8 @@ export interface ProvenanceView {
   preloads?: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing: string | null; unguarded?: string | null } | null;
   calls?: { model: number; tool: number; other: number; scopes: number };
   upstream?: { requests: number; spent: number };
-  /** What a copy made now would mask: the rules that apply, and the values they hit in a pack (null when not counted, with why when it says; `busy` while it is yet to be counted), what only a copy that is read masks besides (`returned`), and what else they match that a pack leaves as it is (`unmasked`), each when there is any. */
-  mask?: { rules: number; values: number | null; returned?: number; unmasked?: number; why?: string; busy?: true } | null;
+  /** What a copy made now would mask: the rules that apply, and the values they hit in a pack (null when not counted, with why when it says; `busy` while it is yet to be counted), what only a copy that is read masks besides (`returned`), what else they match that a pack leaves as it is (`unmasked`), and the run's own canaries they would have masked, which a copy keeps and the count leaves out (`kept`), each when there is any. */
+  mask?: { rules: number; values: number | null; returned?: number; unmasked?: number; kept?: number; why?: string; busy?: true } | null;
   startedUtc?: string;
   endedUtc?: string | null;
   /** The run and the runs it came from, the recording first, each with its code version. */

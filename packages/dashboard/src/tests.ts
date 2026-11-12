@@ -1,4 +1,4 @@
-import { ACTIONS, attemptsOf, judgedUnder as underChecks, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, judgedUnder as underChecks, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, GATE_TOO_LITTLE, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type DivergenceReport, type Gate, type GateResult, type InjectionEntry, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
@@ -35,6 +35,8 @@ export interface GoldenSource {
   checks: string[];
   /** Its tests entry gives it an injection test, which `shadowlap test` runs live from each planted payload. */
   injection?: boolean;
+  /** That injection gate, as parsed with its defaults (the CLI's goldenMode): Tests shows it among the golden's checks. */
+  injectionGate?: InjectionEntry | null;
   /** The models of its judge checks, which a golden that forks asks live. */
   judges?: string[];
   /** Why the pack can't be read, when it can't. */
@@ -516,12 +518,9 @@ const UNGUARDED = /^The network guard could not watch every process of the agent
 export function shortReason(r: TestResult): string {
   if (r.ok) return 'passed';
   // Its gate ran out of attempts; else a check could not be judged (which stops a gate before it decides), or its injection gate showed too little.
-  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate?.decision === 'inconclusive' ? `inconclusive after ${r.data.gate.attempts} attempts` : r.failure === 'injection' ? 'inconclusive: its injection test showed too little to say' : 'inconclusive: a check could not be judged';
+  if (verdictOfResult(r) === 'inconclusive') return r.data?.gate?.decision === 'inconclusive' ? `inconclusive after ${r.data.gate.attempts} attempts` : r.failure === 'injection' ? `inconclusive: ${GATE_TOO_LITTLE}` : 'inconclusive: a check could not be judged';
   const reason = r.reason ?? 'failed';
-  if (r.failure === 'diverged') {
-    const d = r.data?.divergence;
-    return d ? `diverged at call ${d.callNo}` : reason.replace(/\s*\(.*\)$/, '');
-  }
+  if (r.failure === 'diverged') return r.data?.divergence ? `diverged at call ${r.data.divergence.callNo}` : reason.replace(/\s*\(.*\)$/, '');
   if (r.failure === 'check') return reason.replace(/, but .*$/, '');
   if (r.failure === 'exit') return /exited with code \d+/.exec(reason)?.[0] ?? reason.replace(/^the agent /, '');
   if (r.failure === 'no-calls') return 'made no calls';
@@ -536,7 +535,8 @@ export function shortReason(r: TestResult): string {
 /**
  * The verdict's reason after the name: `shortReason`'s, but for a failed check its gate decided
  * (`failed its gate`, `failed against its own history`), one over several attempts (`failed its
- * check`), and a judge check a replay couldn't judge offline.
+ * check`), a failed injection gate (`failed its injection gate`), and a judge check a replay couldn't
+ * judge offline.
  */
 function leadReason(r: TestResult, checks: readonly string[] | null): string {
   const gate = r.data?.gate;
@@ -544,6 +544,7 @@ function leadReason(r: TestResult, checks: readonly string[] | null): string {
   // A golden whose checks changed since: its base, as the failed check's own words no longer apply.
   if (checks && checksChanged(r, checks)) return changedReason(r, gated);
   if (gated || (r.failure === 'check' && (r.data?.attempts?.total ?? 1) > 1)) return gated ?? 'failed its check';
+  if (r.failure === 'injection' && r.data?.injection?.verdict === 'failed') return 'failed its injection gate';
   return unjudgedOffline(r) ? 'inconclusive: its judge check wasn’t judged offline' : shortReason(r);
 }
 

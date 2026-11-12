@@ -85,6 +85,10 @@ function build(): { store: Store; ids: Record<string, string> } {
     run(`scored${attempt}`, { mode: 'replay', parentRunId: root, startedAt: 7200 + attempt, meta: { task: { golden: 'goldens/refund', model: 'claude-haiku-4-5', takeover: 3, attempt, of: 2, score: 1, session: 's9' }, repeat: { group: 's9-refund', attempt, of: 2 } } }, { at: 7210 + attempt });
   }
   recordEvent(store, { kind: 'model.scored', ref: 'claude-haiku-4-5', data: { model: 'claude-haiku-4-5', tasks: 1, attempts: 2, mean: 1, spent: 0.01, session: 's9' }, at: 7250 });
+  // shadowlap injection: an attempt and a baseline, each marked with its test and a --repeat group of it, told by injection.tested.
+  for (const attempt of [1, 2]) {
+    run(`planted${attempt}`, { mode: 'replay', parentRunId: root, startedAt: 7300 + attempt, meta: { injection: { result: 'inj-01T', role: attempt === 1 ? 'attempt' : 'baseline', read: 2, attempt: 1, of: 1 }, repeat: { group: 'inj-01T', attempt, of: 2 } } }, { at: 7310 + attempt });
+  }
   store.updateRunMeta(rec, { blame: { at: 7100, outcome: 'blamed', callNo: 3, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0.1 } });
 
   // What commands recorded.
@@ -124,6 +128,9 @@ describe('the activity feed', () => {
     // A model's scoring attempts are told by its scoring, not as a replay --repeat of the golden.
     expect(byId(items, 'g:s9-refund')).toBeUndefined();
     expect(items.some((i) => i.runId === ids.scored1 || i.runId === ids.scored2)).toBe(false);
+    // An injection test's replays are told by its test, not as a replay --repeat of the run it tested.
+    expect(byId(items, 'g:inj-01T')).toBeUndefined();
+    expect(items.some((i) => i.runId === ids.planted1 || i.runId === ids.planted2)).toBe(false);
     expect(items.filter((i) => i.kind === 'train').map((i) => i.text)).toEqual(['Scored claude-haiku-4-5 on 1 task · mean 1.00']);
     expect(byId(items, `r:${ids.rec}:blame`)).toMatchObject({ kind: 'blame', at: 7100, text: 'Blamed model call #3 · confidence high', href: '#/fixes' });
   });
@@ -415,7 +422,7 @@ describe('a test session', () => {
     expect(items.filter((i) => i.text.includes('gate:'))).toEqual([]);
     // Never a gate's evidence for a golden whose gate is not what is inconclusive.
     expect(line(stopped)).toEqual(['warn', 'Test inconclusive · stopped · a check could not be judged']);
-    expect(line(planted)).toEqual(['warn', 'Test inconclusive · planted · its injection test showed too little to say']);
+    expect(line(planted)).toEqual(['warn', 'Test inconclusive · planted · its injection gate showed too little to say']);
     // No gate decided either: no rule to give.
     expect([stopped, planted, plain].map((id) => byId(items, `r:${id}:end`)?.rule)).toEqual([undefined, undefined, undefined]);
     expect(JSON.stringify(items)).not.toContain('needed');

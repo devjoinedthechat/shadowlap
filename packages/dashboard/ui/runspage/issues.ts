@@ -101,7 +101,7 @@ export interface MoreRuns {
 export interface AskedRuns {
   runs: readonly IssueRun[] | null;
   more: string | null;
-  error: string | null;
+  error: Error | null;
 }
 
 /** The issues with the newest runs that came for those their read carried the count of alone; an issue whose runs are on their way, or couldn't be read, still has none. */

@@ -2,11 +2,16 @@ import { useMemo } from 'react';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import type { RunDetail } from '../api.js';
+import { injectionFactOf } from '../injection/model.js';
+import type { RunInjection } from '../types.js';
 import { num, shortId } from '../format.js';
 import { countOrigins, parseOrigins } from '../origins.js';
 import { href } from '../route.js';
 import { outcomeOf, runType, TODAY } from '../runs.js';
+import { PageHeader } from '../components/bits.js';
 import { tipCard } from '../components/HoverCard.js';
+import { Page } from '../components/Page.js';
+import { Skeleton } from '../components/States.js';
 import { Status } from '../components/Status.js';
 import { useLoad } from '../hooks.js';
 import { realScopes, scopeCount, scopeDepth, scopeHint, scopeLeaf } from '../scopes.js';
@@ -17,17 +22,44 @@ import { refusedOffline } from './calls.js';
 import { metricItems, outcomeFact, spentWords, toolsToCheck, type MetricInput, type OutcomeFact } from './metrics.js';
 import { attemptOf, checksOf, originOf, pulledSpender, runLikeOf } from './model.js';
 
-/** The run page while its run loads (a run of 50,000 calls takes seconds): it says so, and is busy for a screen reader. */
-export function RunLoading() {
+/** What the run page's first calls are drawn as while they load: a call's name, as long as a name runs. */
+const SKEL_CALLS = ['model call', 'search_orders', 'model call', 'get_customer', 'model call', 'update_ticket', 'model call', 'send_reply'];
+
+/**
+ * The run page while its run loads (a run of 50,000 calls takes seconds): its header, then the strip
+ * at its height and the first calls in their places as quiet bars, busy for a screen reader. The bars
+ * wear classes of their own, never the drawn run's (`.rhead .rnm`, `table.calls tbody tr[data-wi]`),
+ * which the tests read as the run drawn. The project's name comes from the page, which has the app.
+ */
+export function RunLoading({ id, project }: { id: string; project: string | undefined }) {
   return (
-    <div className="rv loading" aria-busy="true">
-      <div className="empty tall">Loading the run…</div>
-    </div>
+    <Page busy>
+      <RunHead id={id} project={project} />
+      <Skeleton what="the run">
+        <div className="rskstrip" />
+        {SKEL_CALLS.map((name, i) => (
+          <p className="rskcall" key={i}>
+            <span>{i + 1}</span>
+            <b>{name}</b>
+            <span>1,204</span>
+            <span>0.8 s</span>
+          </p>
+        ))}
+      </Skeleton>
+    </Page>
   );
 }
 
+/**
+ * The run page's header before its run has come, loading or failed: `<project> · run` over the id,
+ * in the code face. lazy.tsx's PageFailed draws a run page whose code didn't come with the same one.
+ */
+export function RunHead({ id, project }: { id: string; project: string | undefined }) {
+  return <PageHeader eyebrow={project ? `${project} · run` : 'run'} title={shortId(id)} className="rerr" />;
+}
+
 /** The run's numbers, led by its outcome by checks: the payload's, or the one asked for alone (useJudgedAt), pending until it comes. */
-export function RunMetrics(props: { run: RunDetail; judged: RunDetail['judged']; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean }) {
+export function RunMetrics(props: { run: RunDetail; judged: RunDetail['judged']; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean; injection?: RunInjection['attempt'] }) {
   return <Metrics {...props} judged={props.judged ?? null} pending={props.judged === undefined} />;
 }
 
@@ -43,11 +75,14 @@ export function useJudgedAt(run: RunDetail): { judged: RunDetail['judged']; outc
 
 /**
  * How a run came out, its header's first fact (outcomeFact): by the checks that judged it, a fork
- * blame rescued a run with, an error-path preset's verdict or an attempt's. Compare's line a run
+ * blame rescued a run with, an error-path preset's verdict, an injection test's replay's by its own
+ * record (with what the read of the attempt adds, on its page) or an attempt's. Compare's line a run
  * says it the same way.
  */
-export function runFact(run: RunDetail, judged: NonNullable<RunDetail['judged']> | null, o: { pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean }): OutcomeFact {
-  return outcomeFact({ ...runLikeOf(run), judged }, { tools: toolsToCheck(run.calls, run.callsTotal, run.summary.byKind.tool), ...o, attempt: attemptVerdictOf(run, checksOf(run)) });
+export function runFact(run: RunDetail, judged: NonNullable<RunDetail['judged']> | null, o: { pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean; injection?: RunInjection['attempt'] }): OutcomeFact {
+  const { injection = null, ...rest } = o;
+  const checks = checksOf(run);
+  return outcomeFact({ ...runLikeOf(run), judged }, { tools: toolsToCheck(run.calls, run.callsTotal, run.summary.byKind.tool), ...rest, attempt: attemptVerdictOf(run, checks), injection: injectionFactOf(run, checks, injection) });
 }
 
 /** What a run spent, in its header's words (spentWords): Compare's line a run says it again. */
@@ -64,7 +99,7 @@ function attemptVerdictOf(run: RunDetail, checks: ReturnType<typeof checksOf>) {
  * unless given; `pending` while a long run's analysis is yet to judge it); the counts follow; what
  * replaying saved comes last, as a quieter receipt.
  */
-export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false, preset = null, rescued = false, offered = false }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean }) {
+export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false, preset = null, rescued = false, offered = false, injection = null }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean; injection?: RunInjection['attempt'] }) {
   const s = run.summary;
   const items = metricItems({
     // A recording's count as the poll says it, as its list has it: its page is asked for again only
@@ -85,7 +120,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
-  const fact = runFact(run, judged ?? null, { pending, preset, rescued, offered });
+  const fact = runFact(run, judged ?? null, { pending, preset, rescued, offered, injection });
   return (
     <section className="metrics" aria-label="How it went">
       <Outcome fact={fact} runId={run.run.runId} />

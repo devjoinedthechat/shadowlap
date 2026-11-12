@@ -13,6 +13,8 @@ import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
 import { goldenExpect } from '../run-offers.js';
 import { namesTeamStore } from './verdicts.js';
+import { writtenEntries } from '../config-tests.js';
+import { withInjectionGates } from '../injection-gates.js';
 import { revertJob } from '../revert-job.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
 import { withJudgeAsks } from '../tests-checks.js';
@@ -61,7 +63,7 @@ export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bi
 /**
  * Jobs that replay the goldens on disk or rewrite them, by what each is doing: a second one at once
  * would replay a pack the other is rewriting, or report a session the other's results land in. A
- * setup's Keep it as a test packs a new golden and tests it. Find breaking commit on a golden reads its
+ * setup's Pack packs a new golden and tests it. Find breaking commit on a golden reads its
  * pack and answers the failure it started from, so it runs alone too; on a run, it touches none.
  * The error-path presets replay a golden's pack (on a run, they touch none), and packing goldens
  * of production writes new ones into the goldens folder. Revert tests the golden once git has
@@ -266,7 +268,9 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/tests', async (r) => {
     const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
     const { tests } = nextStepWork(ctx);
-    r.tagged(await withSteps(withJudgeAsks(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path), (golden) => goldenExpect(tests, golden))));
+    // A gate's card shows its entry as the config holds it, read as the check builder reads it.
+    const written = (gated: readonly string[]) => (ctx.project ? writtenEntries(ctx.project.path, gated) : new Map<string, unknown>());
+    r.tagged(withInjectionGates(ctx.store, await withSteps(withJudgeAsks(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path), (golden) => goldenExpect(tests, golden))), goldens(), written));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's

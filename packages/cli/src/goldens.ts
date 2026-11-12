@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { PACK_FORMAT, PACK_LIMITS, isObject, messageOf, testLive, type Gate, type Normalizer } from '@shadowlap/engine';
+import { PACK_FORMAT, PACK_LIMITS, isObject, messageOf, testLive, type Gate, type InjectionEntry, type Normalizer } from '@shadowlap/engine';
 import { specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath, loadTests } from './config.js';
 import { oracleLabels } from './oracle.js';
@@ -157,8 +157,10 @@ export function rawExpectFor(entries: readonly TestEntry[], recordingDir: string
 }
 
 /** How a golden is tested, in the words the Tests screen uses. */
-export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[]; injection: boolean; judges: string[] } {
+export function goldenMode(spec: TestSpec | null): { mode: 'replay' | 'fork'; repeat: number; passes: number; gate: Gate | null; checks: string[]; injection: boolean; injectionGate: InjectionEntry | null; judges: string[] } {
   return {
+    // Its injection gate as parsed, with its defaults, for Tests to show among its checks.
+    injectionGate: spec?.injection ?? null,
     repeat: spec?.repeat ?? 1,
     passes: spec?.passes ?? 1,
     // With a gate, it decides how many attempts run: repeat and passes are 1.
@@ -183,6 +185,8 @@ export interface GoldenInfo {
   checks: string[];
   /** Its tests entry gives it an injection test (`"injection"`), which `shadowlap test` runs live. */
   injection: boolean;
+  /** That injection gate, as parsed with its defaults; null when it has none. */
+  injectionGate: InjectionEntry | null;
   /** The models of its judge checks (`claude-haiku-4-5`, `openai:gpt-5.5`). */
   judges: string[];
   error: string | null;
