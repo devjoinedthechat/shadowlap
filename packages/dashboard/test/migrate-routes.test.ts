@@ -7,14 +7,16 @@ import { CLEARED, emptyCounts, NO_TOKENS, Store } from '@shadowlap/engine';
 import { DONE, LOOKUP, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { decisionSession } from '../src/decisions.js';
-import { appliedState, goldensLeftWaiting } from '../src/migrate-applied.js';
+import { appliedState, goldensLeftWaiting, migrationOfPreview } from '../src/migrate-applied.js';
+import { newestPreviewOf } from '../src/migrate-estimate.js';
 import type { MigrateStartView } from '../src/migrate-start.js';
 import type { MigrateView } from '../src/migrate-view.js';
 
 /**
  * A migration over HTTP and in the store, past its report: the `migrate-apply` job and what it
  * refuses, the applied state with each golden it left behind and whether it still waits, the goldens
- * applied migrations left waiting, and Verify's price on a migration that needs a code change first.
+ * applied migrations left waiting, Verify's price on a migration that needs a code change first, and
+ * the one rule a preview and a migration are the same switch by.
  */
 
 const CLEAR = 'mg-01M5000000000000000000000C';
@@ -157,5 +159,35 @@ describe('Verify’s price on a migration', () => {
     const res = await api(dash, `decisions/${BLOCKED}/estimates`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ verify: null, runs: [] });
+  });
+});
+
+describe('the same switch, a preview’s and a migration’s', () => {
+  /** A preview kept at `at` of `change` on `runs`, as `decisions --json` keeps it. */
+  const preview = (id: string, at: number, change: Record<string, unknown>, runs: string[], o: { verified?: boolean } = {}) => {
+    const data = { decisionsId: id, kind: 'decisions', at, change: { model: null, fields: {}, from: null, fromCode: null, text: 'the change', ...change }, verify: o.verified ? { verdict: 'accepted', runs: [] } : null };
+    store.putDecisionSession({ sessionId: id, kind: 'decisions', at, change: 'the change', actor: 'dev', revision: null, data, runs: runs.map((r) => ({ runId: r, golden: null, rank: null, changed: 0, data: { runId: r } })) });
+  };
+  const SWITCH = { model: 'claude-sonnet-5-5', from: ['claude-sonnet-4-5'] };
+
+  it('leads a preview to the newest migration made since that asked every run it asked, and the dialog to the newest preview that asked the migration’s', () => {
+    preview('dc-01M50000000000000000000P01', 900, SWITCH, [runId], { verified: true });
+    // The newest of the three migrations at 1,000, by id, made after the preview.
+    expect(migrationOfPreview(store, 'dc-01M50000000000000000000P01')).toBe(BLOCKED);
+    // A preview made after every migration, one with a field besides the model, one of the working tree's prompt, one switching another model, one asking a run no migration asked.
+    preview('dc-01M50000000000000000000P02', 2_000, SWITCH, [runId]);
+    preview('dc-01M50000000000000000000P03', 900, { ...SWITCH, fields: { temperature: 0 } }, [runId]);
+    preview('dc-01M50000000000000000000P04', 900, { ...SWITCH, fromCode: { files: [] } }, [runId]);
+    preview('dc-01M50000000000000000000P05', 900, { model: 'claude-sonnet-5-5', from: ['gpt-4o'] }, [runId]);
+    preview('dc-01M50000000000000000000P06', 900, SWITCH, [runId, 'run-not-asked']);
+    for (const id of ['P02', 'P03', 'P04', 'P05', 'P06']) expect(migrationOfPreview(store, `dc-01M50000000000000000000${id}`), id).toBeNull();
+    // An alias of the model is the same model; a migration has no migration of its own.
+    preview('dc-01M50000000000000000000P07', 900, { model: 'claude-sonnet-5-5-20260101', from: ['claude-sonnet-4-5'] }, [runId]);
+    expect(migrationOfPreview(store, 'dc-01M50000000000000000000P07')).toBe(BLOCKED);
+    expect(migrationOfPreview(store, CLEAR)).toBeNull();
+    // The other way round: the newest preview of the switch that asked every run the migration asks.
+    expect(newestPreviewOf(store, 'claude-sonnet-5-5', ['claude-sonnet-4-5'], [runId])).toEqual({ sessionId: 'dc-01M50000000000000000000P02', verified: false });
+    expect(newestPreviewOf(store, 'claude-sonnet-5-5', ['claude-sonnet-4-5'], [runId, 'run-not-asked'])).toEqual({ sessionId: 'dc-01M50000000000000000000P06', verified: false });
+    expect(newestPreviewOf(store, 'claude-opus-5', ['claude-sonnet-4-5'], [runId])).toBeNull();
   });
 });

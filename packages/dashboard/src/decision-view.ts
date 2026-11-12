@@ -5,6 +5,7 @@ import { decisionSession, runDecisions, sessionGate, sessionKeptMax, sessionRepo
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsWithin } from './run-about.js';
 import { migrateView, type MigrateView } from './migrate-view.js';
+import { migrationOfPreview } from './migrate-applied.js';
 import { loadRunIndex } from './run-index.js';
 import { ROW_CALLS_BUDGET } from './runs-list.js';
 import { previewVerdictOf, type PreviewVerdict } from './verdicts.js';
@@ -55,6 +56,8 @@ export interface PreviewNext {
   more: PreviewMore | null;
   /** A model switch it can migrate to: the model, the recorded models it switches from, and its goldens and runs. */
   migrate: { to: string; from: string[]; goldens: string[]; runs: string[] } | null;
+  /** A migration made since that made the same switch on every run it asked (`migrationOfPreview`): its report leads in place of Migrate to. Absent for none. */
+  migration?: string;
 }
 
 /** The key's counts: steps by rank, the rest, and the cells a judge waits on or whose samples differ. */
@@ -155,7 +158,7 @@ function verifyView(v: DecisionsVerify, runs: readonly DecisionRun[]): PreviewVe
 }
 
 /** What the next step is picked from. */
-function nextFacts(store: Store, session: NonNullable<ReturnType<typeof decisionSession>>, report: PreviewReport, v: DecisionsVerify | null, o: { asked: boolean; word: PreviewVerdict['word']; keptMax?: number | null | undefined }): PreviewNext {
+function nextFacts(store: Store, session: NonNullable<ReturnType<typeof decisionSession>>, report: PreviewReport, v: DecisionsVerify | null, o: { sessionId: string; asked: boolean; word: PreviewVerdict['word']; keptMax?: number | null | undefined }): PreviewNext {
   const kind = session.kind;
   const toVerify = report.toVerify ?? report.flagged;
   const taken = new Set(v?.runs.map((x) => x.runId) ?? []);
@@ -170,7 +173,8 @@ function nextFacts(store: Store, session: NonNullable<ReturnType<typeof decision
     kind === 'decisions' && change?.model && !change.fromCode && o.asked && !waits && settled
       ? { to: change.model, from: change.from ?? [], goldens: report.runs.flatMap((x) => (x.golden ? [x.golden] : [])), runs: report.runs.flatMap((x) => (x.golden ? [] : [x.runId])) }
       : null;
-  return { verify: left.length ? { runs: left, every: left.length === toVerify.length, gone: left.filter((id) => !store.getRun(id)).length } : null, more, migrate };
+  const migration = kind === 'decisions' && change?.model ? migrationOfPreview(store, o.sessionId) : null;
+  return { verify: left.length ? { runs: left, every: left.length === toVerify.length, gone: left.filter((id) => !store.getRun(id)).length } : null, more, migrate, ...(migration ? { migration } : {}) };
 }
 
 /** A kept note that says what a key's entry stands on, found by its words: the report's notes are sentences. */
@@ -297,7 +301,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     later: headline.asked ? { text: JUDGED_LATER, ...LATER_STEPS } : null,
     within: withinVariationLine({ samples: report.samples, flagged: report.flagged, runs }),
     verify: v ? verifyView(v, runs) : null,
-    next: nextFacts(store, session, report, v, { asked: headline.asked, word: verdict.word, keptMax: o.keptMax }),
+    next: nextFacts(store, session, report, v, { sessionId, asked: headline.asked, word: verdict.word, keptMax: o.keptMax }),
     counts: { writes: c[1], stops: c[2], reads: c[3] + c[4], text: c[5], same: c.same, left: c.untouched, notAsked: c.notAsked, noise: c.noise ?? 0, waits: cells.filter(ringed).length, split: cells.filter(split).length },
     key: previewKey(c, cells, { notes: report.notes ?? [], warnings: report.warnings ?? [], samples: report.samples, refused: runs.some((x) => x.refused), fromCode: !!report.change?.fromCode }),
     warnings: [...new Set([...(report.warnings ?? []), ...runs.flatMap((x) => (Array.isArray(x.warnings) ? x.warnings : []))])],

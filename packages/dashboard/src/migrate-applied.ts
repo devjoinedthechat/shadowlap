@@ -94,6 +94,42 @@ export interface MigrationFrom {
   applied: MigrationApplied | null;
 }
 
+const sameEither = (a: string, b: string): boolean => sameModel(a, b) || sameModel(b, a);
+const asRecord = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+
+/**
+ * Whether a preview and a migration make the same switch: the preview changes only the model (no
+ * field, not the working tree's prompt), the migration switches to that model, and each model the
+ * preview switches from is among the migration's, all by `sameModel`. Which runs each must have
+ * asked is its caller's: Preview's Open migration report wants a migration that asked every run the
+ * preview asked, the Migrate dialog a preview that asked every run the migration asks.
+ */
+export function sameSwitch(preview: Record<string, unknown>, migration: { to: string; from: readonly string[] }): boolean {
+  const change = asRecord(preview.change);
+  const model = typeof change?.model === 'string' ? change.model : '';
+  if (!model || change?.fromCode || Object.keys(asRecord(change?.fields) ?? {}).length) return false;
+  return sameEither(model, migration.to) && strings(change?.from).every((m) => migration.from.some((f) => sameEither(f, m)));
+}
+
+/**
+ * The migration Preview's next step opens in place of Migrate to: the newest made at or after the
+ * preview that makes the same switch and asked every run the preview asked; null for none, and for
+ * a migration's own session.
+ */
+export function migrationOfPreview(store: StoreOf<'decisions'>, previewId: string): string | null {
+  const preview = store.getDecisionSession(previewId);
+  if (preview?.kind !== 'decisions') return null;
+  const asked = store.decisionRunIds(previewId);
+  for (const row of store.listDecisionSessions({ kind: 'migrate', limit: 200 })) {
+    if (row.at < preview.at) break;
+    const kept = store.getDecisionSession(row.sessionId)?.data ?? {};
+    if (!sameSwitch(preview.data, { to: typeof kept.to === 'string' ? kept.to : '', from: strings(kept.from) })) continue;
+    const runs = new Set(store.decisionRunIds(row.sessionId));
+    if (asked.every((id) => runs.has(id))) return row.sessionId;
+  }
+  return null;
+}
+
 /**
  * The newest migration from each of `models` (by `sameModel`, either way round), read newest first
  * from the 200 newest: a retiring model's row and Migrate's start page say whether one checked it.
@@ -105,7 +141,7 @@ export function newestMigrationsFrom(store: StoreOf<'decisions'>, models: readon
     const open = models.filter((m) => !found.has(m));
     const kept = store.getDecisionSession(row.sessionId)?.data ?? {};
     const from = strings(kept.from);
-    for (const m of open) if (from.some((f) => sameModel(f, m) || sameModel(m, f))) found.set(m, { sessionId: row.sessionId, kept, applied: row.applied });
+    for (const m of open) if (from.some((f) => sameEither(f, m))) found.set(m, { sessionId: row.sessionId, kept, applied: row.applied });
   }
   return found;
 }

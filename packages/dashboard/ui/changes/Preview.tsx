@@ -211,7 +211,7 @@ function VerdictFacts({ v, state }: { v: PreviewView; state: ReturnType<typeof v
 const verifyRows = (session: PreviewSession, runs: readonly string[], found: boolean): VerifyRow[] =>
   session.matrix.filter((r) => runs.includes(r.runId)).map((r) => ({ runId: r.runId, golden: r.golden, about: r.about?.text ?? null, verified: found ? r.verified : null }));
 
-/** The one lime next step: Verify the runs left to verify, Run more attempts or Verify again on those verify left open, or Migrate to the model switched to. */
+/** The one lime next step: Verify the runs left to verify, Run more attempts or Verify again on those verify left open, the report of a migration of the same switch, or Migrate to the model switched to. */
 function NextStepButton({ session }: { session: PreviewSession }) {
   const v = session.view;
   const id = session.sessionId;
@@ -234,5 +234,11 @@ function NextStepButton({ session }: { session: PreviewSession }) {
       );
     return <PreviewVerifyButton sessionId={id} change={v.change} rows={verifyRows(session, step.runs, false)} every={step.every} label={step.label} lime tip="Each runs end to end under the change, writes stubbed, until verify’s gate decides" />;
   }
+  if (step.kind === 'report')
+    return (
+      <a className="btn lime" href={href.changeSession('migrate', step.sessionId)}>
+        {step.label}
+      </a>
+    );
   return <MigrateButton s={{ from: step.from, to: step.to, goldens: step.goldens, runs: step.runs }} label={step.label} lime />;
 }

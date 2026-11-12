@@ -1,5 +1,6 @@
 import { type Estimate, migrateEstimate, recordedChecks, recordedRole, type Price, type Store } from '@shadowlap/engine';
 import type { ConfigVerifyRule } from './estimates.js';
+import { sameSwitch } from './migrate-applied.js';
 import { estimateOf, pricingOf } from './pricing.js';
 import { answer, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { parseWork, type OutcomeWork } from './run-outcome.js';
@@ -21,13 +22,18 @@ export interface MigrateEstimateView {
 
 export type MigrateEstimateJob = { kind: 'migrate-estimate'; to: string; from: string[]; goldens: GoldenSource[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
 
-/** The newest preview of the same switch: a decisions session whose model is `to` and whose from-models hold `from`, and whether verify ran on it. */
-export function newestPreviewOf(store: Store, to: string, from: readonly string[]): { sessionId: string; verified: boolean } | null {
+/**
+ * The newest preview of the same switch (`sameSwitch`) that asked every run the migration asks, which
+ * the dialog says asked these already, and whether verify ran on it.
+ */
+export function newestPreviewOf(store: Store, to: string, from: readonly string[], runs: readonly string[]): { sessionId: string; verified: boolean } | null {
   for (const row of store.listDecisionSessions({ kind: 'decisions', limit: 200 })) {
-    const kept = store.getDecisionSession(row.sessionId)?.data as { change?: { model?: unknown; from?: unknown }; verify?: { verdict?: unknown } | null } | undefined;
-    const models = Array.isArray(kept?.change?.from) ? kept.change.from : [];
-    if (kept?.change?.model !== to || !from.every((m) => models.includes(m))) continue;
-    return { sessionId: row.sessionId, verified: !!kept.verify && kept.verify.verdict !== 'not-run' };
+    const kept = store.getDecisionSession(row.sessionId)?.data ?? {};
+    if (!sameSwitch(kept, { to, from })) continue;
+    const asked = new Set(store.decisionRunIds(row.sessionId));
+    if (!runs.every((id) => asked.has(id))) continue;
+    const verify = kept.verify as { verdict?: unknown } | null | undefined;
+    return { sessionId: row.sessionId, verified: !!verify && verify.verdict !== 'not-run' };
   }
   return null;
 }
@@ -46,7 +52,7 @@ async function migrateEstimates(store: Store, job: MigrateEstimateJob): Promise<
       ),
     pricingOf(store, job.prices),
   );
-  const view: MigrateEstimateView = { estimate, preview: newestPreviewOf(store, job.to, job.from) };
+  const view: MigrateEstimateView = { estimate, preview: newestPreviewOf(store, job.to, job.from, live.map(({ run }) => run.runId)) };
   return answer(view, { tagged: true });
 }
 
