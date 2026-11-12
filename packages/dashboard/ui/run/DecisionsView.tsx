@@ -1,16 +1,20 @@
-import { useState } from 'react';
+import { useState, type ReactElement } from 'react';
 import { DecisionCells } from '../changes/DecisionCells.js';
+import { moreTip, PreviewVerifyButton, VERIFY_THIS_RUN_TIP } from '../changes/VerifyAsk.js';
 import { SrSpace } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { tipCard } from '../components/HoverCard.js';
 import { ErrorState } from '../components/States.js';
+import { NewPreviewMenu, PreviewWayButtons } from '../components/NewPreviewMenu.js';
 import { glossed } from '../components/Term.js';
 import { chipWhen, noneLine, outcomeTone } from '../decisions.js';
 import { minuteStamp } from '../format.js';
 import { useLoad } from '../hooks.js';
+import { ACTIONS } from '../labels.js';
 import { glueBound } from '../matrix.js';
 import { useApp } from '../state.js';
 import type { RunDecisionsSession, RunDecisionsView, ViewStep } from '../types.js';
+import { pickedSession, pickSession } from './decisions-pick.js';
 
 /**
  * A run's Decisions view (`#/run/<id>/<call>/decisions`): the previews and migrations that asked its
@@ -21,15 +25,12 @@ import type { RunDecisionsSession, RunDecisionsView, ViewStep } from '../types.j
  * A cell or a step selects its call, so the inspector beside it shows that call's conversation.
  */
 
-/** The session each run shows, picked while the page is open. */
-const picked = new Map<string, string>();
+export { forgetDecisionsPick } from './decisions-pick.js';
 
-/** Forgets the sessions picked, for tests. */
-export function forgetDecisionsPick(): void {
-  picked.clear();
-}
+/** Why New preview waits on a run still recording, as Fork does. */
+const RECORDING = 'Preview once the recording finishes';
 
-export function DecisionsView({ runId, selected, onSelect }: { runId: string; selected: number | null; onSelect: (n: number) => void }) {
+export function DecisionsView({ runId, selected, onSelect, live = false }: { runId: string; selected: number | null; onSelect: (n: number) => void; live?: boolean }) {
   const { client, feeds } = useApp();
   // A preview or a migration that ends while the view is open joins it, as Preview reloads on the same count.
   const answer = useLoad<RunDecisionsView>(() => (client.exported ? null : client.runDecisions(runId)), `run-decisions:${runId}`, feeds.decisions ?? 0);
@@ -39,10 +40,10 @@ export function DecisionsView({ runId, selected, onSelect }: { runId: string; se
   if (answer.error) return <ErrorState retry={answer.reload}>{`This run’s previews could not be read: ${answer.error.message}.`}</ErrorState>;
   if (!answer.data) return <div className="empty">Loading this run’s previews…</div>;
   const { sessions, later } = answer.data;
-  if (!sessions.length) return <Unpreviewed runId={runId} />;
-  const s = sessions.find((x) => x.sessionId === picked.get(runId)) ?? sessions[0]!;
+  if (!sessions.length) return <Unpreviewed runId={runId} live={live} />;
+  const s = sessions.find((x) => x.sessionId === pickedSession(runId)) ?? sessions[0]!;
   const choose = (id: string) => {
-    picked.set(runId, id);
+    pickSession(runId, id);
     repick((n) => n + 1);
   };
   return (
@@ -57,6 +58,7 @@ export function DecisionsView({ runId, selected, onSelect }: { runId: string; se
         <a className="more" href={s.changes}>
           {s.kind === 'migrate' ? 'Migration in Changes →' : 'Preview in Changes →'}
         </a>
+        <NewPreviewMenu target={{ runs: [runId] }} small why={live ? RECORDING : null} />
       </div>
       <DecisionCells className="dvstrip" row={s.row} open={selected} onOpen={onSelect} />
       <Verified s={s} />
@@ -74,6 +76,7 @@ export function DecisionsView({ runId, selected, onSelect }: { runId: string; se
           <span tabIndex={0} data-tip={tipCard(later.title, [], later.card)}>{`${later.title}.`}</span>
         </p>
       ) : null}
+      <SessionVerify s={s} runId={runId} />
     </div>
   );
 }
@@ -163,12 +166,27 @@ function Step({ st, sel, onSelect }: { st: ViewStep; sel: boolean; onSelect: (n:
   );
 }
 
-/** A run nobody previewed: what a preview does, and its command. */
-function Unpreviewed({ runId }: { runId: string }) {
+/**
+ * Under the steps: Verify this run where the preview left it to verify and verify hasn't taken it,
+ * else Run more attempts or Verify again where verify left it open; plain, as the verdict's next
+ * step is Preview's. None for a migration, which Changes never verifies from here.
+ */
+function SessionVerify({ s, runId }: { s: RunDecisionsSession; runId: string }) {
+  if (s.kind !== 'decisions') return null;
+  const rows = [{ runId, golden: s.row.golden, about: null, verified: s.more ? s.verified : null }];
+  let button: ReactElement | null = null;
+  if (s.more) button = <PreviewVerifyButton sessionId={s.sessionId} change={s.change} rows={rows} label={s.more.kind === 'again' ? ACTIONS.verifyAgain.label : ACTIONS.runMoreAttempts.label} more={s.more} tip={moreTip(s.more, { one: true, view: true })} />;
+  else if (s.toVerify && !s.verified) button = <PreviewVerifyButton sessionId={s.sessionId} change={s.change} rows={rows} label={ACTIONS.verifyThisRun.label} one tip={VERIFY_THIS_RUN_TIP} />;
+  return button ? <div className="actions">{button}</div> : null;
+}
+
+/** A run nobody previewed: what a preview does, its command, and the three ways, small and plain. */
+function Unpreviewed({ runId, live }: { runId: string; live: boolean }) {
   return (
     <div className="dview dvempty">
       <p>No change has been previewed on this run. Each of its model calls can be asked again with only the change swapped in, and no tool runs.</p>
       <CodeBox command={`shadowlap decisions ${runId} --model <model>`} />
+      <PreviewWayButtons target={{ runs: [runId] }} small plain why={live ? RECORDING : null} />
     </div>
   );
 }

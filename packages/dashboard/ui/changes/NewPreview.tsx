@@ -11,6 +11,7 @@ import { ModelField, useModelChoices } from '../components/ModelField.js';
 import type { PreviewTarget, PreviewWay } from '../components/NewPreviewMenu.js';
 import { previewQuery, type PreviewEstimates, type PreviewQuery } from '../estimates-api.js';
 import { useConsentStart } from '../fixes/FixJobButton.js';
+import { dropPick } from '../run/decisions-pick.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { useLoad } from '../hooks.js';
 import { draftCommand } from '../job-title.js';
@@ -88,7 +89,12 @@ function usePreviewRead(target: PreviewTarget, change: Omit<PreviewQuery, 'golde
 function usePreviewStart(target: PreviewTarget, change: Record<string, unknown>, shown: PreviewEstimates | null | undefined, onClose: () => void) {
   const app = useApp();
   // The dialog stays open over a consent question, and closes once the job runs.
-  const { start, consent } = useConsentStart('decisions', { ...targetFields(target), ...change }, onClose);
+  const one = 'runs' in target && target.runs.length === 1 ? target.runs[0]! : null;
+  const { start, consent } = useConsentStart('decisions', { ...targetFields(target), ...change }, () => {
+    // A preview of one run shows in its Decisions view once it ends, the newest there.
+    if (one) dropPick(one);
+    onClose();
+  });
   return { ok: () => app.guard(() => void start(sentEstimate(shown?.preview ?? null))), consent };
 }
 
