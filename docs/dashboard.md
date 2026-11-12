@@ -2966,7 +2966,7 @@ A matrix also gives the newest session's `command`, the gate's `rule`, and the `
 
 - the last `shadowlap coverage` scan as it was kept (`scan`, `null` when none ran);
 - the imported runs that came in after it, or every imported run before a first scan (`newRuns`);
-- each behaviour it found, not covered first, with the goldens that cover it, its runs, the nearest golden, and what Pack one runs (`pack`);
+- each behaviour it found, not covered first, with the goldens that cover it, its runs and those still in the store (`kept`), the nearest golden, and what Pack one runs (`pack`);
 - the last pack that couldn't pack a behaviour, naming who tried it only where names show (`lastPack.by`);
 - the count not covered, and the line Needs a look shows;
 - the `commands` that scan again and pack.

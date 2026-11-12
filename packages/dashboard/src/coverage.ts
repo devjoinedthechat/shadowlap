@@ -26,8 +26,9 @@ export interface CoverageGroupView {
   /** How it ended, in words. */
   ended: string;
   runs: number;
-  /** Its runs as the scan listed them, newest first; `runId` is the newest still in the store. */
+  /** Its runs as the scan listed them, newest first; `kept`, those still in the store, which Seen links; `runId`, the newest of them. */
   runIds: string[];
+  kept: string[];
   runId: string | null;
   sources: string[];
   firstSeen: number;
@@ -137,6 +138,7 @@ export function coverageView(store: StoreOf<'recording' | 'readModels' | 'covera
       ended: OUTCOME_WORDS[behaviour.outcome] ?? behaviour.outcome,
       runs: g.runs,
       runIds: g.runIds,
+      kept: present.map((r) => r.runId),
       runId: present[0]?.runId ?? null,
       sources: g.sources,
       firstSeen: g.firstSeen,

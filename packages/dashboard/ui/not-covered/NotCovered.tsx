@@ -170,8 +170,6 @@ const triedBy = (by: string | null): string | null => (by ? personName(by).repla
 
 /** A row's details: its whole path, where and when it was seen, its nearest golden, what the last pack made of it, and its key. */
 function Details({ g, id, packs }: { g: CoverageGroupView; id: string; packs: boolean }) {
-  const { runs } = useApp();
-  const known = new Set((runs ?? []).map((r) => r.runId));
   const last = lastTried(g);
   const by = last ? triedBy(last.by) : null;
   const n = g.nearest;
@@ -201,7 +199,7 @@ function Details({ g, id, packs }: { g: CoverageGroupView; id: string; packs: bo
           {g.runIds.map((rid, i) => (
             <Fragment key={rid}>
               {i ? ' ' : null}
-              <Id id={shortId(rid)} href={known.has(rid) ? href.run(rid) : undefined} />
+              <Id id={shortId(rid)} href={g.kept.includes(rid) ? href.run(rid) : undefined} />
             </Fragment>
           ))}
         </p>

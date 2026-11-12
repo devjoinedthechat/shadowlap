@@ -143,7 +143,9 @@ describe('production coverage', () => {
       covered: false,
       line: 'lookup_order → issue_refund → send_email · writes issue_refund, send_email · answered',
       ended: 'answered',
-      // The scan's newest run was deleted since: the newest still here opens.
+      // The scan's newest run was deleted since: the newest still here opens, and Seen links only the runs still here.
+      runIds: ['NOT_ANY_MORE', 'C1'],
+      kept: ['C1'],
       runId: 'C1',
       pack: { key: 'aaaa000011112222', args: ['coverage', '--pack', 'aaaa000011112222'], command: ['node', 'agent.mjs', 'B-7'], commandFrom: 'REC1', forkable: true },
       // Why the last --pack didn't pack it, so the panel says so before it offers Pack one again.
