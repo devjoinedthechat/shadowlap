@@ -87,7 +87,9 @@ table.gt .chk .ck.injck a.cw:hover { text-decoration: underline; text-decoration
 .gtw .tscroll table.gt td.hist { white-space: nowrap; }
 .gtw table.gt th.gg { width: 210px; }
 .gtw table.gt td.gg { min-width: 150px; }
-.gtw table.gt .gn { display: block; font-size: 13px; color: var(--ink); white-space: nowrap; }
+/* a golden packed from production is named as coverage --pack names it (its first tool, its writes, its key): a long name
+   wraps after a hyphen rather than widen the table past its panel */
+.gtw table.gt .gn { display: block; font-size: 13px; color: var(--ink); white-space: normal; }
 .gtw table.gt .gmeta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; color: var(--faint); font-size: 12px; }
 .gtw table.gt .gmeta .chip { cursor: default; }
 /* where a golden came from stays on one line under its name; its link is quiet, never the loudest text in the row */

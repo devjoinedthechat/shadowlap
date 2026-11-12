@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { ApiError, type TestsView } from '../api.js';
 import { tipCard } from '../components/HoverCard.js';
 import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
@@ -61,13 +62,19 @@ export function TestsFailed({ error, retry }: { error: Error; retry: () => void 
  * the command that packs one. The command names a run, so a project with no run yet is offered
  * none: recording one comes first.
  */
-export function TestsEmpty({ view, runs }: { view: Pick<TestsView, 'commands'>; runs: readonly RunListItem[] | null }) {
+/** `under`: what shows under it, told whether its own step leads (Not covered, whose pack makes the first golden). */
+export function TestsEmpty({ view, runs, under }: { view: Pick<TestsView, 'commands'>; runs: readonly RunListItem[] | null; under?: (leads: boolean) => ReactNode }) {
   const hidden = usePendingHidden();
   const run = runs ? newestToPack(runs, hidden) : null;
   const own = run ? (run.next.command ?? packRunCommand(run.runId, run.next.folder)) : null;
   // The project's runs not yet listed: the command, as it may well have one.
   const command = own ?? (runs?.length !== 0 ? view.commands.pack : undefined);
-  return <EmptyState title="No goldens yet" text="Pack a run you consider correct into the repository, and CI replays it offline on every commit." step={run && own ? <PackRun run={run} command={own} /> : undefined} command={command} />;
+  return (
+    <>
+      <EmptyState title="No goldens yet" text="Pack a run you consider correct into the repository, and CI replays it offline on every commit." step={run && own ? <PackRun run={run} command={own} /> : undefined} command={command} />
+      {under?.(!!(run && own))}
+    </>
+  );
 }
 
 type ToPack = RunListItem & { next: NextStepRow & { folder: string } };

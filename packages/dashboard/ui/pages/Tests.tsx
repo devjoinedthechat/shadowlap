@@ -21,6 +21,8 @@ import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
 import { CiSections } from '../tests/Sections.js';
 import { SecurityPanel } from '../injection/SecurityPanel.js';
+import { NotCovered, useCoverage } from '../not-covered/NotCovered.js';
+import { rescanLeads } from '../not-covered/model.js';
 import { PresetsDialogPart } from '../presets/part.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
 import type { GoodCommitsOf } from '../tests/good-commits.js';
@@ -57,6 +59,8 @@ export function TestsPage() {
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
   const loaded = useLoad(() => client.tests(), 'tests', `${tick}:${feeds.chaos ?? 0}:${running}`);
   const view = loaded.data;
+  // Tests › Not covered's scan: its Rescan coverage takes the lime where no step of the page leads.
+  const coverage = useCoverage();
   const prices = useTestsEstimates(view ? estimatesKey(view) : null, view?.diverged);
   const [open, setOpen] = useState<Open | null>(null);
   // What the server is running, from every tab and terminal dashboard: a test job (Find breaking commit
@@ -105,7 +109,7 @@ export function TestsPage() {
     return (
       <Page busy={!view && !loaded.error}>
         {header()}
-        {view ? <TestsEmpty view={view} runs={app.runs} /> : loaded.error ? <TestsFailed error={loaded.error} retry={loaded.reload} /> : <TestsLoading />}
+        {view ? <TestsEmpty view={view} runs={app.runs} under={(leads) => <NotCovered v={coverage} lime={!leads} />} /> : loaded.error ? <TestsFailed error={loaded.error} retry={loaded.reload} /> : <TestsLoading />}
       </Page>
     );
   }
@@ -127,7 +131,7 @@ export function TestsPage() {
         </JobButton>
       ) : null}
       {hasKind(JOB_KINDS.tests) ? (
-        <JobButton className={lead ? 'btn' : 'btn lime'} why={runWait} {...testsJob(runTestsCard(view), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e))}>
+        <JobButton className={lead || rescanLeads(coverage) ? 'btn' : 'btn lime'} why={runWait} {...testsJob(runTestsCard(view), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e))}>
           {ACTIONS.runTests.label}
         </JobButton>
       ) : null}
@@ -186,6 +190,7 @@ export function TestsPage() {
           onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [v.golden], estimate: e }))}
         />
       ))}
+      <NotCovered v={coverage} lime={!lead} />
       <SecurityPanel />
       <CiSections view={view} />
       {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts); several goldens' normalizer and update is the update this dialog asks about. */}
