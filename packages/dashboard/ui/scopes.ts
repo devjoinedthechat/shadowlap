@@ -26,6 +26,17 @@ export const scopeOnly = (c: ScopedCall): string | null => c.scope ?? null;
 /** Whether Shadowlap's judge made a call, by the agent the server names it (its scope, `shadowlap:judge`): the judge chip's, never the agent's. */
 export const isJudge = (c: ScopedCall): boolean => agentOf(c) === JUDGE_SCOPE;
 
+/**
+ * The numbers of a run's judge's calls: its rows' (isJudge), and while a long run's pages come the
+ * server's (`judgeCalls`), which names those on pages not read yet. What the judge's chip holds, and
+ * what All, its counts, a fork and where a run opens (open-at.ts) leave out.
+ */
+export function judgeNumbers(calls: readonly ScopedCall[], server: readonly number[] | null = null): Set<number> {
+  const out = new Set(server);
+  for (const c of calls) if (isJudge(c)) out.add(c.callNo);
+  return out;
+}
+
 /** Whether a fork can start at a call: the one rule the row's Fork, the head's and ⌘K's read. Never at a judge's call, which is the check's. */
 export const forksAt = (c: ScopedCall): boolean => !isJudge(c);
 

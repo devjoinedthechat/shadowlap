@@ -28,7 +28,6 @@ import { blameOf, checksOf, forkAtOf, forkMarkOf, withModelNames } from '../run/
 import { InspectorPlace, useFindingPanel, usePickInView } from '../run/InspectorPanel.js';
 import { byKind } from '../run/kinds.js';
 import { StripBar } from '../run/StripKey.js';
-import { firstFailedCall } from '../run/open-at.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
 import { RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
@@ -36,7 +35,7 @@ import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages } from '../run/paging.js';
 import { useRunExtras } from '../run/run-extras.js';
-import { useRunSelection } from '../run/run-selection.js';
+import { useFailedAt, useRunSelection } from '../run/run-selection.js';
 import { useRunCommands } from '../run/run-commands.js';
 import { useCheckEntry } from '../run/check-entry.js';
 import { useWholeStep } from '../run/NextStepButton.js';
@@ -262,8 +261,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const blame = useMemo(() => blameOf(run), [run]);
   const lostAt = blame?.callNo ?? null;
   // A failed run opens where it first failed, every call's origin read while a long run's pages come;
-  // clock and random reads are never where a run opens (open-at.ts).
-  const failedAt = useMemo(() => ((run.state?.failed ?? run.run.status === 'failed') ? firstFailedCall(calls, paging?.origins ?? null) : null), [run.state?.failed, run.run.status, calls, paging?.origins]);
+  // clock and random reads, and a judge's calls, are never where a run opens (open-at.ts).
+  const failedAt = useFailedAt(run, calls, paging);
   // Its verdict by checks, which a long run's analysis may give after its first answer: its first fact and findings say it.
   const { judged, outcomeAt } = useJudgedAt(run);
   // The call the page shows, the address and the session's memory kept in step with it (run-selection.ts).
