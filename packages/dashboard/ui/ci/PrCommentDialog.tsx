@@ -1,6 +1,6 @@
 import { Words } from '../components/Copy.js';
 import { Dialog } from '../components/Dialog.js';
-import { EmptyLine, Skeleton } from '../components/States.js';
+import { EmptyLine, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { DotLine } from '../components/Verdict.js';
 import { copyText } from '../dom.js';
 import { useLoad } from '../hooks.js';
@@ -18,7 +18,7 @@ import { DRAWN_MARK, markTone, PREVIEW_WAIT, sessionWhen } from './words.js';
  * the server's (the engine's), and what only the job knows (the base branch's column, the fixes it
  * opened, the job summary's address) is left out. Settings → CI hands in the preview it read; a
  * revision's page and the palette's row leave it to the dialog, which reads it as the tests feed
- * moves.
+ * moves. A read that fails says so as every page's does, in the server's words, with Retry.
  */
 
 type Answer = PrCommentPreview | { session: null };
@@ -30,6 +30,15 @@ export function PrCommentDialog({ preview, onClose }: { preview?: Answer | null 
   const loaded = useLoad<Answer>(() => (preview ? null : client.settings.prComment()), 'pr-comment', feeds.tests ?? 0);
   const answer = preview ?? loaded.data;
   const p = hasSession(answer) ? answer : null;
+  const body = p ? (
+    <DrawnComment preview={p} />
+  ) : answer ? (
+    <EmptyLine>{PREVIEW_WAIT.why}.</EmptyLine>
+  ) : loaded.error ? (
+    <ErrorState retry={loaded.reload}>{failedRead(loaded.error)}</ErrorState>
+  ) : (
+    <Skeleton what="the comment" lines={6} />
+  );
   return (
     <Dialog
       title={ACTIONS.previewPrComment.label}
@@ -53,7 +62,7 @@ export function PrCommentDialog({ preview, onClose }: { preview?: Answer | null 
           : false
       }
     >
-      {p ? <DrawnComment preview={p} /> : answer ? <EmptyLine>{PREVIEW_WAIT.why}.</EmptyLine> : loaded.error ? <p className="fieldnote err">{loaded.error.message}</p> : <Skeleton what="the comment" lines={6} />}
+      {body}
     </Dialog>
   );
 }

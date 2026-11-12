@@ -448,6 +448,25 @@ describe('Settings → CI: the pull request comment', () => {
     expect(PR_COMMENT_ASK.take()).toBe(false);
   });
 
+  it('says a preview it couldn’t read as every page does, never a bare status, and Retry reads it again', async () => {
+    const s = fakeServer(DEFAULTS_FILE);
+    s.prComment.mockImplementation(async () => {
+      throw new ApiError(500, 'HTTP 500');
+    });
+    await open(s);
+    await r!.until('the panel’s read', () => s.prComment.mock.calls.length === 1);
+    // The panel's read failed, so the dialog reads it itself, and says it couldn't, with Retry.
+    await r!.click(preview());
+    await r!.until('the failure', () => r!.all('[role="dialog"] .loaderr').length === 1);
+    const failed = r!.one('[role="dialog"] .loaderr');
+    expect([failed.getAttribute('role'), ...failed.querySelectorAll('p > span').map((x) => x.textContent)]).toEqual(['alert', 'couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    expect(r!.byText('[role="dialog"] footer button', 'Copy Markdown').hasAttribute('disabled')).toBe(true);
+    s.prComment.mockImplementation(async () => PREVIEW);
+    await r!.click(r!.byText('[role="dialog"] .loaderr button', 'Retry'));
+    await r!.until('the comment', () => r!.all('[role="dialog"] .prc').length === 1);
+    expect(r!.all('[role="dialog"] .loaderr')).toHaveLength(0);
+  });
+
   it('switches the decisions the branch changes into the comment, with the model key in what posting needs, only while the comment is on', async () => {
     const s = fakeServer(DEFAULTS_FILE);
     const toast = vi.fn();
