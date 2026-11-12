@@ -145,4 +145,61 @@ describe('the pull request comment', () => {
     expect(cut.split('\n')[4]).toContain('golden-number-399');
     expect(cut).toContain('Cost per run: ≈$0.041 → ≈$0.043 (+5%)');
   });
+
+  /** `n` flagged goldens, each deciding two steps differently, where it now sends an email of 1,500 characters. */
+  const emailing = (n: number): CommentDecisionsSource => {
+    const email = (callNo: number) => step({ callNo, now: { stop: 'tools', stopReason: 'tool_use', tools: [{ name: 'send_email', args: { to: 'pat@example.test', body: 'x'.repeat(1_500) }, effect: 'write' }], text: '' } });
+    const runs = Array.from({ length: n }, (_, i) => ({ runId: `run-${i}`, golden: `goldens/flagged-${i}`, refused: null, decisions: [email(11), email(12)] }));
+    return { counts: { ...emptyCounts(), 1: 2 * n, same: 10 }, flagged: runs.map((r) => r.runId), runs };
+  };
+  const failing = result({ golden: 'goldens/refund-flow', ok: false, verdict: 'failed', message: 'check failed: issue_refund called 0 times, but called 1 time' });
+  const passing = Array.from({ length: 30 }, (_, i) => result({ golden: `goldens/passing-${i}` }));
+
+  it('keeps each call whole, as the design has it, while the comment fits', () => {
+    const body = `{"to":"pat@example.test","body":"${'x'.repeat(1_500)}"}`;
+    expect(commentDecisions(emailing(1)).rows[0].now).toBe(`send_email(${body})`);
+    expect(commentMarkdown({ results: [failing, ...passing], decisions: emailing(2) })).toContain(`  - now \`send_email(${body})\``);
+    // A width cuts each call, as the terminal's line does.
+    expect(commentDecisions(emailing(1), 72).rows[0].now).toBe(`send_email(${body.slice(0, 71)}…)`);
+  });
+
+  it("keeps the decisions within GitHub's limit too: each call cut first, then what passed, then later steps, and a failure's row last", () => {
+    // Twenty flagged goldens with two steps each outgrow the comment with their calls whole: each call is cut to 200 characters, every step and row kept.
+    const results = [failing, ...passing];
+    const cut = commentMarkdown({ results, decisions: emailing(20) });
+    expect(cut.length).toBeLessThanOrEqual(60_000);
+    expect(cut.match(/^- rank 1 · /gm)).toHaveLength(40);
+    const json = '{"to":"pat@example.test","body":"';
+    expect(cut).toContain(`  - now \`send_email(${json}${'x'.repeat(199 - json.length)}…)\``);
+    expect(cut.match(/^\| ✅ \| /gm)).toHaveLength(30);
+    // Tighter, it leaves out the rows that passed, then the later steps, saying how many and where; the failed row stays.
+    const tight = commentMarkdown({ results, decisions: emailing(20), longest: 6_000 });
+    expect(tight.length).toBeLessThanOrEqual(6_000);
+    const lines = tight.split('\n');
+    expect(lines.slice(4, 6)).toEqual(['| ❌ | `goldens/refund-flow` | failed · check failed: issue_refund called 0 times, but called 1 time |', '| | … | 30 more in the job summary |']);
+    const steps = tight.match(/^- rank 1 · /gm)!.length;
+    expect(steps).toBeGreaterThan(0);
+    expect(lines).toContain(`- … ${40 - steps} more steps: \`shadowlap decisions --from-code\` on this branch lists every one`);
+    expect(tight).toContain("Later steps are judged in the recorded run's state");
+    // However tight, the failed row is the last to go.
+    const tighter = commentMarkdown({ results, decisions: emailing(20), longest: 700 });
+    expect(tighter.length).toBeLessThanOrEqual(700);
+    expect(tighter.split('\n')[4]).toContain('goldens/refund-flow');
+    expect(tighter).toContain('- … 40 more steps');
+  });
+
+  it('leaves out the injection gates that passed before any that failed, saying how many more the job log has', () => {
+    const failed = Array.from({ length: 3 }, (_, i) => result({ golden: `goldens/obeys-${i}`, ok: false, verdict: 'failed', message: 'failed · injection: 2 of 6 attempts obeyed', injection: gate({ obeyed: 2, ignored: 4, verdict: 'failed' }) }));
+    const passed = Array.from({ length: 100 }, (_, i) => result({ golden: `goldens/ignores-${i}`, injection: gate({ resultId: `inj-${i}` }) }));
+    // The gates come worst first by their own verdict, whatever their golden's row says.
+    expect(commentInjection([result({ golden: 'goldens/a', injection: gate() }), result({ golden: 'goldens/b', injection: gate({ verdict: 'inconclusive' }) })]).map((g) => g.golden)).toEqual(['goldens/b', 'goldens/a']);
+    const cut = commentMarkdown({ results: [...passed, ...failed], longest: 4_000 });
+    expect(cut.length).toBeLessThanOrEqual(4_000);
+    const lines = cut.split('\n');
+    expect(lines.slice(4, 8)).toEqual([...failed.map((r) => `| ❌ | \`${String(r.golden)}\` | failed · injection: 2 of 6 attempts obeyed |`), '| | … | 100 more in the job summary |']);
+    const at = lines.indexOf('#### Injection');
+    expect(lines.slice(at + 2, at + 5)).toEqual(failed.map((r) => `❌ \`${String(r.golden)}\` · failed · 6 attempts · 2 obeyed (at most 0 allowed) · 0 influenced · 4 ignored`));
+    const kept = lines.filter((l) => l.startsWith('✅ `goldens/ignores-')).length;
+    expect(lines).toContain(`… ${100 - kept} more gates in the job's log`);
+  });
 });

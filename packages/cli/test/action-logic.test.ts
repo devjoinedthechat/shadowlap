@@ -488,6 +488,18 @@ describe('the pull request comment', () => {
       { name: 'z', outcome: 'no-fix' as const, pr: null, why: 'the gate accepted none', spent: 0 },
     ];
     const flagged = decided({ 1: 1, 2: 1, 3: 2, same: 9 }, [{ decisions: [step(), step({ callNo: 12, majority: 2, changes: [judge] }), step({ callNo: 13, majority: null }), step({ callNo: 14, majority: 3 })] }, { decisions: [step({ changes: [judge] })] }, {}], ['run-0', 'run-1']);
+    // Twenty flagged goldens with two steps each, whose calls whole outgrow the comment: each call whole while it fits; past
+    // `longest`, each cut first, then what passed, the later steps and gates, and a failure's row last.
+    const many = decided({ 1: 40, same: 3 }, Array.from({ length: 20 }, () => ({ decisions: [step(), step({ callNo: 12 })] })), Array.from({ length: 20 }, (_, i) => `run-${i}`));
+    const answering = decided({ 1: 2, same: 3 }, [{ decisions: [step({ recorded: { stop: 'answer', stopReason: 'end_turn', tools: [], text: `${'Let me check, with a lead first; '.repeat(20)}thanks` } }), step({ callNo: 12, now: { stop: 'limit', stopReason: 'max_tokens', tools: [], text: 'word '.repeat(80) } })] }], ['run-0']);
+    const passing = Array.from({ length: 60 }, (_, i) => result({ name: `p${i}`, golden: `goldens/passing-${i}`, injection: injectionGate({ resultId: `inj-${i}` }) }));
+    const long = {
+      cut: { results, base, baseRef: 'main', decisions: many, runUrl: 'https://github.test/x' },
+      steps: { results, decisions: many, longest: 8_000 },
+      rows: { results, decisions: many, longest: 2_500 },
+      gates: { results: [...results, ...passing], longest: 3_000 },
+      answer: { results: results.slice(0, 2), decisions: answering, longest: 1_000 },
+    } satisfies Record<string, CommentParts>;
     const cases: CommentParts[] = [
       { marker, results, base, baseRef: 'rel|ease', decisions: flagged, costPerRun: { before: 0.041, after: 0.043 }, fixes, runUrl: 'https://github.test/northwind/agent/actions/runs/7' },
       { results, decisions: decided({ 2: 1, same: 3 }, [{ decisions: [step({ majority: 2, changes: [judge] })] }, {}], ['run-0']), costPerRun: { before: 0, after: 0 } },
@@ -499,8 +511,18 @@ describe('the pull request comment', () => {
       { results, decisions: decided({ 3: 2, 4: 1, same: 5 }, [{}, {}]) },
       { results, decisions: decided({ same: 5 }, [{ refused: 'refused' }, {}]), longest: 2_000 },
       { results: Array.from({ length: 400 }, (_, i) => result({ name: `g${i}`, golden: `goldens/golden-number-${i}`, ...(i % 7 ? {} : { ok: false, verdict: 'failed', message: 'diverged at call 3' }) })), base, baseRef: 'main', costPerRun: { before: 0.041, after: 0.043 }, longest: 5_000, runUrl: 'https://github.test/x' },
+      ...Object.values(long),
     ];
     for (const parts of cases) expect(commentMarkdown(parts)).toBe(engineComment(parts));
+    // The long cases reach each way of fitting: calls cut, later steps, rows and gates left out, a long answer cut at a word.
+    const fitted = Object.fromEntries(Object.entries(long).map(([k, parts]) => [k, commentMarkdown(parts)])) as Record<keyof typeof long, string>;
+    expect(fitted.cut.length).toBeLessThanOrEqual(60_000);
+    expect([fitted.cut.match(/^- rank 1 · /gm)?.length, fitted.cut.includes('…)`'), fitted.cut.includes('more steps')]).toEqual([40, true, false]);
+    expect(fitted.steps).toMatch(/^- … \d+ more steps: `shadowlap decisions --from-code` on this branch lists every one$/m);
+    expect(fitted.rows).toMatch(/^\| \| … \| \d+ more in the job summary \|$/m);
+    expect(fitted.gates).toMatch(/^… \d+ more gates in the job's log$/m);
+    expect(fitted.answer).toContain('answers and stops: "Let me check, with a lead first; ');
+    expect(fitted.answer).toMatch(/first…"`$/m);
     // The words the two share as constants: what the decisions were asked of, the note under them, and the comment's last line.
     expect([PR_DECISIONS_SUFFIX, JUDGED_IN_RECORDED_STATE_SHORT, COMMENT_FOOT]).toEqual([engineSuffix, engineJudgedShort, engineFoot]);
     // The comment on a test report is that Markdown, with the report's own cost per run.

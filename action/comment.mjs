@@ -33,8 +33,8 @@ const DECISION_MARK = { '✗': '❌', '!': '🟡', '✓': '✅' };
 
 /** The longest comment GitHub takes is 65,536 characters; the body stays well under it. */
 const LONGEST = 60_000;
-/** A call in the comment's Markdown: whole as any call is, cut only where one would outgrow the comment. */
-const CALL_WIDTH = 1_000;
+/** A call in the comment's Markdown goes whole; in a comment that would outgrow `longest`, each is cut to this many characters first (fitWithin). */
+const CALL_WIDTH = 200;
 /** After the decisions' sentence in the comment: what it was asked of. */
 export const PR_DECISIONS_SUFFIX = ', under the prompt and tools this pull request sends';
 /** Under the decisions the comment lists: the short form of the line every decisions report carries. */
@@ -149,17 +149,19 @@ function injectionTally(d) {
 }
 
 /**
- * Each golden's injection gate that ran, in the rows' order, its verdict first: a gate with no
- * attempts says its verdict alone (why is the golden's own line); one that didn't run has none.
+ * Each golden's injection gate that ran, worst first by its own verdict, then in the rows' order, its
+ * verdict first: a gate with no attempts says its verdict alone (why is the golden's own line); one
+ * that didn't run has none.
  * @param {readonly CommentResult[]} results
  * @returns {Array<{ verdict: string; golden: string; line: string }>}
  */
 function commentInjection(results) {
-  return results.flatMap((r) => {
+  const gates = results.flatMap((r) => {
     const d = r.injection;
     if (!d || !d.verdict) return [];
     return [{ verdict: String(d.verdict), golden: nameOf(r), line: d.attempts ? `${d.verdict} · ${injectionTally(d)}` : d.verdict }];
   });
+  return gates.sort((a, b) => (WORST_FIRST[a.verdict] ?? 0) - (WORST_FIRST[b.verdict] ?? 0));
 }
 
 /**
@@ -228,8 +230,11 @@ function decisionLine(d, width) {
     return safeLine(`${name}(${shown === '{}' ? '' : shown})`);
   };
   if (d.tools.length) return d.tools.map((t) => call(t.name, t.args, Math.max(24, Math.floor(width / d.tools.length)))).join(' + ');
-  const said = d.text ? `: "${safeLine(d.text.length > width ? `${d.text.slice(0, width - 1)}…` : d.text)}"` : '';
-  return `${STOP_WORDS[d.stop]}${said}`;
+  // A long answer is cut at its last word within `width`, without the stop or dash before the cut.
+  const text = d.text ?? '';
+  const at = text.lastIndexOf(' ', width - 1);
+  const cut = text.length > width ? `${text.slice(0, at > width / 2 ? at : width - 1).replace(/[\s,;:·…–—-]+$/, '')}…` : text;
+  return `${STOP_WORDS[d.stop]}${cut ? `: "${safeLine(cut)}"` : ''}`;
 }
 
 /**
@@ -268,11 +273,12 @@ function decisionsHeadline(r) {
 
 /**
  * The decisions the branch changes: the headline, and each rank 1 and 2 step of the goldens it flags,
- * in the report's order, the most consequential first.
+ * in the report's order, the most consequential first, each call whole unless `width` cuts it.
  * @param {CommentDecisionsSource} r
+ * @param {number} [width]
  * @returns {{ mark: string; sentence: string; rows: CommentDecision[] }}
  */
-function commentDecisions(r) {
+function commentDecisions(r, width = Number.POSITIVE_INFINITY) {
   const flagged = new Set(r.flagged);
   const rows = r.runs
     .filter((run) => flagged.has(run.runId))
@@ -281,40 +287,45 @@ function commentDecisions(r) {
         .filter((s) => s.majority !== null && s.majority <= 2)
         .map((s) => {
           const acted = s.changes.filter((c) => c.rank <= 2);
-          return { rank: Number(s.majority), golden: run.golden ?? run.runId, callNo: s.callNo, detail: (acted.length ? acted : s.changes).map((c) => c.detail).join('; '), recorded: decisionLine(s.recorded, CALL_WIDTH), now: decisionLine(s.now, CALL_WIDTH) };
+          return { rank: Number(s.majority), golden: run.golden ?? run.runId, callNo: s.callNo, detail: (acted.length ? acted : s.changes).map((c) => c.detail).join('; '), recorded: decisionLine(s.recorded, width), now: decisionLine(s.now, width) };
         }),
     );
   return { ...decisionsHeadline(r), rows };
 }
 
+/** A count and its noun, `1 more step` or `3 more steps` (words.ts' plural). */
+const plural = (/** @type {number} */ n, /** @type {string} */ one) => `${n} ${n === 1 ? one : `${one}s`}`;
+
 /**
- * The decisions part as the comment's Markdown: its heading, its sentence, each step with its recorded and new decision, and the note.
- * @param {CommentDecisionsSource | null | undefined} source
+ * The decisions part as the comment's Markdown: its heading, its sentence, the first `shown` steps with their recorded and new decision, how many more and where, and the note.
+ * @param {{ mark: string; sentence: string; rows: CommentDecision[] } | null} d
+ * @param {number} shown
  * @returns {string[]}
  */
-function decisionsMarkdown(source) {
-  if (!source || !Array.isArray(source.runs) || !source.counts) return [];
-  const d = commentDecisions(source);
+function decisionsMarkdown(d, shown) {
+  if (!d) return [];
   const lines = ['', '#### Decisions', '', `${DECISION_MARK[d.mark] ?? ''} ${d.sentence}${PR_DECISIONS_SUFFIX}`];
   if (!d.rows.length) return lines;
   lines.push('');
-  for (const x of d.rows) lines.push(`- rank ${x.rank} · ${code(x.golden)} #${x.callNo} · ${cell(x.detail)}`, `  - recorded ${code(x.recorded)}`, `  - now ${code(x.now)}`);
+  for (const x of d.rows.slice(0, shown)) lines.push(`- rank ${x.rank} · ${code(x.golden)} #${x.callNo} · ${cell(x.detail)}`, `  - recorded ${code(x.recorded)}`, `  - now ${code(x.now)}`);
+  if (shown < d.rows.length) lines.push(`- … ${plural(d.rows.length - shown, 'more step')}: \`shadowlap decisions --from-code\` on this branch lists every one`);
   return [...lines, '', JUDGED_IN_RECORDED_STATE_SHORT];
 }
 
 /**
- * The parts after the table: the cost per run, each injection gate's line, the fixes opened, and where each failure is in full.
+ * The parts after the decisions: the cost per run, the first `shown` injection gates' lines and how many more, the fixes opened, and where each failure is in full.
  * @param {CommentParts} parts
- * @param {readonly CommentResult[]} rows
+ * @param {ReadonlyArray<{ verdict: string; golden: string; line: string }>} gates
+ * @param {number} shown
  * @returns {string[]}
  */
-function tailMarkdown(parts, rows) {
+function tailMarkdown(parts, gates, shown) {
   /** @type {string[]} */
   const lines = [];
   const cost = costPerRunLine(parts.costPerRun);
   if (cost) lines.push('', `Cost per run: ${cost}`);
-  const injection = commentInjection(rows);
-  if (injection.length) lines.push('', '#### Injection', '', ...injection.map((x) => `${markOf(x.verdict)} ${code(x.golden)} · ${cell(x.line)}`));
+  if (gates.length) lines.push('', '#### Injection', '', ...gates.slice(0, shown).map((x) => `${markOf(x.verdict)} ${code(x.golden)} · ${cell(x.line)}`));
+  if (shown < gates.length) lines.push(`… ${plural(gates.length - shown, 'more gate')} in the job's log`);
   const opened = (parts.fixes ?? []).filter((f) => f.outcome === 'opened' && f.pr);
   if (opened.length) lines.push('', ...opened.map((f) => `Fix on failure opened ${String(f.pr)} for ${String(f.golden ?? f.name).split(', ').map((g) => code(g)).join(', ')}: ${cell(f.title ?? 'a fix')}.`));
   if (parts.runUrl) lines.push('', `[${FOOT_LINKED}](${parts.runUrl})${COMMENT_FOOT.slice(FOOT_LINKED.length)}`);
@@ -395,11 +406,32 @@ export function readHistory(path, limit = 100) {
 }
 
 /**
+ * Leaves out what a comment longer than `longest` can spare, in this order, until it fits: each
+ * decision's calls cut to CALL_WIDTH; the rows of the goldens that passed, the last first; the gates
+ * that passed; the decisions' later steps; the gates left; then the rows of the goldens that failed
+ * or are inconclusive, the last first (pr-comment.ts' fitWithin).
+ * @param {{ rows: number; steps: number; gates: number; narrow: boolean }} shown
+ * @param {() => string} body
+ * @param {number} longest
+ * @param {{ rows: number; gates: number }} unsettled
+ */
+function fitWithin(shown, body, longest, unsettled) {
+  const over = () => body().length > longest;
+  if (!over()) return;
+  shown.narrow = true;
+  while (shown.rows > unsettled.rows && over()) shown.rows--;
+  while (shown.gates > unsettled.gates && over()) shown.gates--;
+  while (shown.steps > 0 && over()) shown.steps--;
+  while (shown.gates > 0 && over()) shown.gates--;
+  while (shown.rows > 0 && over()) shown.rows--;
+}
+
+/**
  * The comment's Markdown (pr-comment.ts' commentMarkdown): the marker (when given), the heading, the
  * table with each golden's verdict line, worst first, and how each did on the base branch when there
  * is its last session; then the decisions, the cost per run, the injection gates, the fixes and the
- * job summary's line, each when there is one. Within `longest`: the rows that fit, and how many more
- * the job summary lists.
+ * job summary's line, each when there is one. Within `longest` (fitWithin): what fits, each part
+ * saying how many more there are and where.
  * @param {CommentParts} parts
  * @returns {string}
  */
@@ -416,13 +448,16 @@ export function commentMarkdown(parts) {
     return `${row} ${was ? `${markOf(storedVerdict(was))} ${cell(storedVerdict(was))}` : 'not tested'} |`;
   });
   const compared = base ? ['', `Compared with ${code(parts.baseRef ?? 'the base branch')} as the test history last tested it${base.revision ? `, at ${code(base.revision)}` : ''}.`] : [];
-  const tail = [...compared, ...decisionsMarkdown(parts.decisions), ...tailMarkdown(parts, results)];
+  const source = parts.decisions && Array.isArray(parts.decisions.runs) && parts.decisions.counts ? parts.decisions : null;
+  const decided = source ? { whole: commentDecisions(source), narrow: commentDecisions(source, CALL_WIDTH) } : null;
+  const gates = commentInjection(results);
+  const shown = { rows: rows.length, steps: decided?.whole.rows.length ?? 0, gates: gates.length, narrow: false };
   const more = (/** @type {number} */ n) => (n < rows.length ? [`| | … | ${rows.length - n} more in the job summary |${base ? ' |' : ''}`] : []);
-  const body = (/** @type {number} */ n) => [...top, ...rows.slice(0, n), ...more(n), ...tail].join('\n');
-  const longest = parts.longest ?? LONGEST;
-  let shown = rows.length;
-  while (shown > 0 && body(shown).length > longest) shown--;
-  return `${body(shown)}\n`;
+  const decisions = () => decisionsMarkdown(decided && (shown.narrow ? decided.narrow : decided.whole), shown.steps);
+  const body = () => [...top, ...rows.slice(0, shown.rows), ...more(shown.rows), ...compared, ...decisions(), ...tailMarkdown(parts, gates, shown.gates)].join('\n');
+  const unsettled = { rows: results.filter((r) => commentVerdict(r) !== 'passed').length, gates: gates.filter((g) => g.verdict !== 'passed').length };
+  fitWithin(shown, body, parts.longest ?? LONGEST, unsettled);
+  return `${body()}\n`;
 }
 
 /**

@@ -677,6 +677,8 @@ Cost per run: ≈$0.041 → ≈$0.043 (+5%)
 
 The goldens that failed come first, then those that are inconclusive, then those that passed.
 
+**A long comment.** GitHub takes a comment of up to 65,536 characters, and the comment stays under 60,000. One that would grow past that cuts each call under Decisions to 200 characters, then leaves out what passed, the last rows and injection gates first, then the decisions' later steps, then the rest, a failure's row last. Each part says how many more there are and where: the table's in the job summary, the gates' in the job's log, the steps' in `shadowlap decisions --from-code` on the branch.
+
 **What a run costs.** `Cost per run` compares each golden's recording with this job's replay of it, both priced as they would run live, as the mean over the goldens whose replay ran whole. The before side is the recordings, not the base branch. It shows when there is a price for the goldens' models, Shadowlap's own or one under [`prices`](./cli.md#the-configuration-file) in the config.
 
 **Injection.** Each golden whose [injection gate](#injection-gates) ran gets a line: its verdict, its attempts, what they did and what the gate allows. A gate with no attempts says its verdict alone, and the golden's row says why. One that didn't run, since its golden failed first, gets none.
@@ -696,6 +698,8 @@ With `decisions: true`, the job runs [`shadowlap decisions --from-code`](./decis
 
 Later steps are judged in the recorded run's state: shadowlap verify runs it end to end.
 ```
+
+Each call goes whole, unless the comment would grow past what GitHub takes: then each is cut to 200 characters first.
 
 It asks the goldens' models on every push, so the step needs their providers' [keys](#keys). It runs only for a pull request the action comments on, never a fork's, and the store keeps it with the test session. It never fails the job: what went wrong is a line in the log, and the comment goes up without it.
 
