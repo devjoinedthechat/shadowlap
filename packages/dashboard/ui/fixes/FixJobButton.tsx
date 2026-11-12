@@ -1,7 +1,8 @@
-import { useState, type ReactNode, type ReactElement } from 'react';
+import { useRef, useState, type ReactNode, type ReactElement } from 'react';
 import { consentAsked } from '../actions.js';
 import { ConsentDialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
+import type { JobView } from '../types.js';
 import { refusedPress } from './page-fix.js';
 import { useTreeBusy } from './tree.js';
 import { JobButton } from '../components/JobButton.js';
@@ -77,29 +78,55 @@ export function FixJobButton({
   );
 }
 
+/** What a start does besides start: once it runs, and where it couldn't. */
+export interface ConsentStartOn {
+  /** Once it runs, with its job. */
+  started?: (job: JobView) => void;
+  /** Followed by its caller rather than in the drawer: a dialog's own read. */
+  follow?: boolean;
+  /** Where it couldn't start, refused (the error) or its question closed unanswered (null); without it, a refusal says why in a toast. */
+  failed?: (err: unknown) => void;
+}
+
 /**
  * Starts a job of `kind` with `fields` and what the press adds (its estimate), following it in the
  * drawer; a command it runs that needs a yes (a 409 with the command) asks first in ConsentDialog, and
- * the same start goes again with the yes; `started` once it runs. Fixes' buttons and a new preview's
- * dialogs start this way.
+ * the same start goes again with the yes, which `yes` then holds, so a second job of the same
+ * commands can carry it. Fixes' buttons, a new preview's dialogs and its read of the working tree
+ * start this way.
  */
-export function useConsentStart(kind: string, fields: Record<string, unknown>, started?: () => void): { start: (more: Record<string, unknown>) => Promise<void>; consent: ReactElement | null } {
+export function useConsentStart(kind: string, fields: Record<string, unknown>, on: ConsentStartOn = {}): { start: (more: Record<string, unknown>) => Promise<void>; consent: ReactElement | null; yes: string | null } {
   const app = useApp();
   const [consent, setConsent] = useState<{ why: string; confirm: string; fields: Record<string, unknown> } | null>(null);
+  const [yes, setYes] = useState<string | null>(null);
   const start = (more: Record<string, unknown>) =>
     app.client.startJob(kind, { ...fields, ...more }).then(
       (job) => {
-        app.watchJob(Promise.resolve(job));
-        started?.();
+        if (typeof more.yes === 'string') setYes(more.yes);
+        if (!on.follow) app.watchJob(Promise.resolve(job));
+        on.started?.(job);
       },
       (err: unknown) => {
         const asked = more.yes === undefined ? consentAsked(err) : null;
         if (asked) setConsent({ ...asked, fields: more });
+        else if (on.failed) on.failed(err);
         else refusedPress(app, kind, fields, err);
       },
     );
+  // The question closes after its yes too: only one closed unanswered is a start that failed.
+  const answered = useRef(false);
+  const close = () => {
+    setConsent(null);
+    if (!answered.current) on.failed?.(null);
+    answered.current = false;
+  };
+  const sayYes = (c: NonNullable<typeof consent>) => {
+    answered.current = true;
+    app.guard(() => void start({ ...c.fields, yes: c.confirm }));
+  };
   return {
     start,
-    consent: consent ? <ConsentDialog why={consent.why} ok="Run command" onClose={() => setConsent(null)} onOk={() => app.guard(() => void start({ ...consent.fields, yes: consent.confirm }))} /> : null,
+    consent: consent ? <ConsentDialog why={consent.why} ok="Run command" onClose={close} onOk={() => sayYes(consent)} /> : null,
+    yes,
   };
 }

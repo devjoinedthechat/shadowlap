@@ -18,6 +18,15 @@ export function tooManyToPreview(picked: number): string | null {
   return picked > PREVIEW_MAX ? `At most ${num(PREVIEW_MAX)} runs are previewed at once: ${num(picked)} are picked` : null;
 }
 
+/** The value `--set` reads from text, as a dialog's typed value and the estimate read it: JSON where it parses, else the text. */
+export function typedValue(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
 /** `--set` flags, each value as text already (the engine's `fieldValue`). */
 export const setFlags = (set: ReadonlyArray<readonly [string, string]>): string[] => set.flatMap(([field, text]) => ['--set', `${field}=${text}`]);
 

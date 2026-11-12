@@ -19,8 +19,14 @@ import { Popover, useMenu } from './Popover.js';
  * the served parts (ui/changes/NewPreview.tsx), so an exported copy draws none of them.
  */
 
-/** Who a new preview asks: every golden, the runs picked, or one run. */
-export type PreviewTarget = { goldens: 'all' } | { runs: readonly string[] };
+/** Who a new preview asks: every golden (`count`, the project's goldens where known), the runs picked, or one run. */
+export type PreviewTarget = { goldens: 'all'; count?: number } | { runs: readonly string[] };
+
+/** Said where there is nothing to preview on: no golden yet. */
+export const NO_GOLDENS = 'No goldens yet: pack a run as a golden, or preview a change on one run from its Decisions view.';
+
+/** Whether a target names nothing to ask: no run, or every golden of a project that has none. */
+export const noTargets = (t: PreviewTarget): boolean => ('runs' in t ? !t.runs.length : t.count === 0);
 
 /** A way a preview changes the calls: the model, the working tree's prompt and tools, or a request field. */
 export type PreviewWay = 'model' | 'code' | 'field';
@@ -36,6 +42,17 @@ export const PREVIEW_WAYS: ReadonlyArray<{ way: PreviewWay; label: string; flag:
 export function targetHead(t: PreviewTarget): string {
   if ('goldens' in t) return 'On every golden';
   return t.runs.length === 1 ? `On ${shortId(t.runs[0]!)}` : `On ${t.runs.length} runs`;
+}
+
+/** The menu's head as it draws: one run's id set as code. */
+function TargetHead({ target }: { target: PreviewTarget }) {
+  if ('runs' in target && target.runs.length === 1)
+    return (
+      <>
+        On <code className="rnm">{shortId(target.runs[0]!)}</code>
+      </>
+    );
+  return <>{targetHead(target)}</>;
 }
 
 /** What the targets read as on a command's card: `goldens/*`, or the runs' ids. */
@@ -59,7 +76,8 @@ export function useWayPrices(target: PreviewTarget, on: boolean): PreviewEstimat
   const { client, exported, actionsOff } = useApp();
   const api = client.estimates;
   const key = 'goldens' in target ? 'goldens' : target.runs.join(',');
-  const read = useLoad(() => (on && api && !exported && !actionsOff ? api.previewEstimates(target) : null), `preview-ways:${on ? key : ''}`);
+  const asks = on && !noTargets(target);
+  const read = useLoad(() => (asks && api && !exported && !actionsOff ? api.previewEstimates(target) : null), `preview-ways:${asks ? key : ''}`);
   return read.data ? read.data.ways : read.error ? null : undefined;
 }
 
@@ -120,7 +138,9 @@ export function NewPreviewMenu({ target, lime = false, small = false, why = null
       </ActionButton>
       {menu.anchor ? (
         <Popover anchor={menu.anchor} onClose={menu.close} className="fkm" label={ACTIONS.newPreview.label}>
-          <div className="pk">{targetHead(target)}</div>
+          <div className="pk">
+            <TargetHead target={target} />
+          </div>
           {PREVIEW_WAYS.map((w) => (
             <ActionButton key={w.way} role="menuitem" tip={confirmWords(w.label)} est={tipEst(wayPrice(w.way, ways), true)} onClick={() => pick(w.way)}>
               <b>{w.label}</b>

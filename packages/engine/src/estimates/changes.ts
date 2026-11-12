@@ -31,9 +31,12 @@ export interface PreviewChange {
   from: readonly string[] | null;
   /**
    * `--from-code`: the prompt and tools in the working tree. Which calls they change is known only
-   * once the preview has replayed the working tree offline, so it has no estimate before it runs.
+   * once the working tree has been replayed offline: `changed` names them, and without it there is no
+   * estimate before the preview runs.
    */
   fromCode?: boolean;
+  /** With `fromCode`: each run's calls the working tree changes, by number, in `runs`' order, as its offline replay (`decisions --from-code --dry-run`) named them. */
+  changed?: ReadonlyArray<readonly number[]>;
 }
 
 export interface PreviewOptions {
@@ -71,11 +74,15 @@ export function previewAsks(runs: ReadonlyArray<readonly PricedCall[]>, change: 
   const from = change.from?.length ? change.from : null;
   const asked: PricedCall[] = [];
   let otherFamily = 0;
-  for (const c of runs.flat()) {
-    if (!askable(c, scope) || (from && !from.some((m) => sameModel(c.model, m)))) continue;
-    if (sameFamily(c, change.model ?? null)) asked.push(c);
-    else otherFamily++;
-  }
+  runs.forEach((calls, i) => {
+    // A working tree's change asks only the calls its offline replay found changed.
+    const only = change.fromCode && change.changed ? new Set(change.changed[i] ?? []) : null;
+    for (const c of calls) {
+      if (!askable(c, scope) || (from && !from.some((m) => sameModel(c.model, m))) || (only && !only.has(c.callNo))) continue;
+      if (sameFamily(c, change.model ?? null)) asked.push(c);
+      else otherFamily++;
+    }
+  });
   return { asked, otherFamily };
 }
 
@@ -85,11 +92,11 @@ export const otherFamilyWords = (model: string): string => `${model} is of anoth
 /**
  * A preview's estimate: each call the change touches asked `samples` times at the asked model's price,
  * and the control arm as often at the recorded one's (`≈$0.18 · about 1,224 requests, half as
- * recorded`). Free when no call of the runs is made with a model it switches from; none for a change
- * of the working tree's prompt, until its offline replay has named the calls it changes.
+ * recorded`). Free when no call of the runs is made with a model it switches from; for a change of
+ * the working tree's prompt, the calls its offline replay named (`changed`), and none until it has.
  */
 export function previewEstimate(runs: ReadonlyArray<readonly PricedCall[]>, change: PreviewChange, o: PreviewOptions = {}): Estimate {
-  if (change.fromCode) return noEstimate('preview', 'which calls the working tree changes is known once the preview has replayed it offline');
+  if (change.fromCode && !change.changed) return noEstimate('preview', 'which calls the working tree changes is known once the preview has replayed it offline');
   const samples = o.samples ?? PREVIEW_SAMPLES;
   const control = o.control ?? samples >= CONTROL_MIN_SAMPLES;
   const { asked: calls, otherFamily } = previewAsks(runs, change, o.scope);

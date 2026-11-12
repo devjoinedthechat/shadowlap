@@ -6,7 +6,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { Link } from '../components/Link.js';
 import { MigrateAsk } from '../components/MigrateAsk.js';
-import { NewPreviewMenu, PreviewWayButtons, usePreviewDialog } from '../components/NewPreviewMenu.js';
+import { NewPreviewMenu, NO_GOLDENS, PreviewWayButtons, usePreviewDialog } from '../components/NewPreviewMenu.js';
 import { Picker } from '../components/Picker.js';
 import { useMenu } from '../components/Popover.js';
 import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
@@ -109,7 +109,7 @@ function PreviewBody({ id, run, call, onMissing }: PreviewTabProps) {
       <div className="chbar">
         <SessionPicker sessions={sessions} shown={session} />
         <span className="sp" />
-        <NewPreviewMenu target={EVERY_GOLDEN} lime={anotherChange(session.view)} />
+        <NewPreviewMenu target={{ goldens: 'all', count: list.data!.goldens }} lime={anotherChange(session.view)} why={list.data!.goldens ? null : NO_GOLDENS} />
       </div>
       <Verdict session={session} />
       <DecisionMatrix session={session} open={opened ? { run: opened.row.runId, call: opened.callNo } : null} onOpen={(r, c, current) => openCell(session.sessionId, r, c, current)} />
@@ -146,7 +146,7 @@ function NoPreview({ goldens }: { goldens: number }) {
     return (
       <EmptyState title="Preview a change on your goldens" text={text}>
         <p className="emptyline">
-          No goldens yet: pack a run as a golden, or preview a change on one run from its Decisions view. <Link href={href.runs()}>Open Runs</Link>
+          {NO_GOLDENS} <Link href={href.runs()}>Open Runs</Link>
         </p>
       </EmptyState>
     );

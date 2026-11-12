@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { DecisionCells } from '../changes/DecisionCells.js';
 import { moreTip, PreviewVerifyButton, VERIFY_THIS_RUN_TIP } from '../changes/VerifyAsk.js';
 import { SrSpace } from '../components/bits.js';
@@ -14,7 +14,7 @@ import { ACTIONS } from '../labels.js';
 import { glueBound } from '../matrix.js';
 import { useApp } from '../state.js';
 import type { RunDecisionsSession, RunDecisionsView, ViewStep } from '../types.js';
-import { pickedSession, pickSession } from './decisions-pick.js';
+import { onPick, pickedSession, pickSession } from './decisions-pick.js';
 
 /**
  * A run's Decisions view (`#/run/<id>/<call>/decisions`): the previews and migrations that asked its
@@ -35,6 +35,8 @@ export function DecisionsView({ runId, selected, onSelect, live = false }: { run
   // A preview or a migration that ends while the view is open joins it, as Preview reloads on the same count.
   const answer = useLoad<RunDecisionsView>(() => (client.exported ? null : client.runDecisions(runId)), `run-decisions:${runId}`, feeds.decisions ?? 0);
   const [, repick] = useState(0);
+  // A preview of this run that ends picks itself here.
+  useEffect(() => onPick(() => repick((n) => n + 1)), []);
   // A copy keeps no previews, so it says so rather than that nobody previewed the run.
   if (client.exported) return <p className="dview dvnone">An exported copy holds no previews.</p>;
   if (answer.error) return <ErrorState retry={answer.reload}>{`This run’s previews could not be read: ${answer.error.message}.`}</ErrorState>;
@@ -42,10 +44,8 @@ export function DecisionsView({ runId, selected, onSelect, live = false }: { run
   const { sessions, later } = answer.data;
   if (!sessions.length) return <Unpreviewed runId={runId} live={live} />;
   const s = sessions.find((x) => x.sessionId === pickedSession(runId)) ?? sessions[0]!;
-  const choose = (id: string) => {
-    pickSession(runId, id);
-    repick((n) => n + 1);
-  };
+  // A pick redraws the view through onPick.
+  const choose = (id: string) => pickSession(runId, id);
   return (
     <div className="dview">
       {sessions.length > 1 ? <Pick sessions={sessions} shown={s.sessionId} onPick={choose} /> : null}

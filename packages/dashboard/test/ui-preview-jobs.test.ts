@@ -5,12 +5,13 @@ import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/train
 import { previewSession, type PreviewSession } from '../src/decision-view.js';
 import { runDecisions } from '../src/decisions.js';
 import { ApiError, type Client } from '../ui/api.js';
-import { fieldLine, markedChange, NewPreview, previewCommand, typedValue } from '../ui/changes/NewPreview.js';
+import { typedValue } from '../src/decisions-argv.js';
+import { fieldLine, markedChange, NewPreview, previewCommand } from '../ui/changes/NewPreview.js';
 import { PreviewTab } from '../ui/changes/Preview.js';
 import { moreTip } from '../ui/changes/VerifyAsk.js';
 import { targetHead, wayCommand } from '../ui/components/NewPreviewMenu.js';
 import { DecisionsView } from '../ui/run/DecisionsView.js';
-import { dropPick, forgetDecisionsPick, pickedSession, pickSession } from '../ui/run/decisions-pick.js';
+import { forgetDecisionsPick, onPick, pickedSession, pickSession } from '../ui/run/decisions-pick.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { DecisionSessionView } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
@@ -83,10 +84,14 @@ describe('a new preview, worked out', () => {
       'Verifies it again from the start, up to 160 attempts',
       'Verifies them again from the start, up to 160 attempts a run',
     ]);
+    // A pick tells the views that watch it, so a preview of one run that ends shows in its view.
+    let told = 0;
+    const off = onPick(() => told++);
     pickSession('R', 'dc-1');
     expect(pickedSession('R')).toBe('dc-1');
-    dropPick('R');
-    expect(pickedSession('R')).toBeUndefined();
+    off();
+    pickSession('R', 'dc-2');
+    expect([pickedSession('R'), told]).toEqual(['dc-2', 1]);
   });
 });
 
@@ -295,7 +300,8 @@ describe('a new preview’s dialogs', () => {
     await p.until('the read to start', () => started.length === 1);
     expect(started[0]).toEqual(['decisions-read', { goldens: 'all' }]);
     expect(shown(p.one('.dialog .dlgest'))).toBe('Reading what your working tree sends…');
-    expect(p.one('.dialog .dlg-ok').props.disabled).toBe(true);
+    // The confirm waits, saying why, until the read ends.
+    expect(p.one('.dialog .dlg-ok').props['data-why']).toBe('Reading what your working tree sends');
     await p.unmount();
     page = null;
     expect(stopped).toEqual(['decisions-read-1']);

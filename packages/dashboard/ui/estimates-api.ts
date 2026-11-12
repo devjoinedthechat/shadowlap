@@ -3,6 +3,7 @@ import type { Spending } from '../../engine/src/estimates/spending.js';
 import type { DecisionEstimates, FixEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
 import type { ModelChoicesView } from '../src/model-listing.js';
 import type { PreviewEstimates } from '../src/preview-estimate.js';
+import { typedValue } from '../src/decisions-argv.js';
 import type { Request } from './settings-api.js';
 
 export type { DecisionEstimates, FixEstimates, GoldenEstimates, RunEstimates, TestsEstimates } from '../src/estimates.js';
@@ -20,6 +21,8 @@ export interface PreviewQuery {
   scope?: string | null;
   samples?: number | null;
   fromCode?: boolean;
+  /** With `fromCode`: each run's calls the working tree changes, by its id, as the dialog's read of it named them; priced once named. */
+  changed?: Readonly<Record<string, readonly number[]>>;
 }
 
 /** Run more attempts' raised limits: a failing run's attempts (the gate's max) and a good run's pairs. */
@@ -60,7 +63,7 @@ export interface EstimatesApi {
   testsEstimates(update?: readonly string[]): Promise<TestsEstimates>;
   /** What a kept preview's Verify bills: on every run it could not clear, or on those `runIds` name (the runs no verify took yet); at Run more attempts' limits where given. */
   decisionEstimates(sessionId: string, runIds?: readonly string[], limits?: MoreLimits): Promise<DecisionEstimates>;
-  /** What a new preview asks and bills (`GET /api/decisions/estimates`); each way's card while it names no change. */
+  /** What a new preview asks and bills (`POST /api/decisions/estimates`, which changes nothing); each way's card while it names no change. */
   previewEstimates(p: PreviewQuery): Promise<PreviewEstimates>;
   /** The models a preview's field offers beside the runs' own (`GET /api/model-choices`). It asks providers, so it can take a second. */
   modelChoices(): Promise<ModelChoicesView>;
@@ -83,25 +86,29 @@ export function estimatesApi(request: Request): EstimatesApi {
       const parts = [...(runIds ?? []).map((id) => `runId=${q(id)}`), ...(limits?.max ? [`max=${limits.max}`] : []), ...(limits?.keptMax ? [`keptMax=${limits.keptMax}`] : [])];
       return request(`decisions/${q(sessionId)}/estimates${parts.length ? `?${parts.join('&')}` : ''}`);
     },
-    previewEstimates: (p) => request(`decisions/estimates?${previewQuery(p)}`),
+    previewEstimates: (p) => request('decisions/estimates', { method: 'POST', body: JSON.stringify(previewBody(p)) }),
     modelChoices: () => request('model-choices'),
     bisectEstimate: (b) => request<{ estimate: Estimate }>(`estimates/bisect${query({ runId: b.runId, golden: b.golden, good: b.good, bad: b.bad })}`).then((r) => r.estimate),
   };
 }
 
-/** A new preview's query string, as `GET /api/decisions/estimates` reads it. */
-export function previewQuery(p: PreviewQuery): string {
-  const q = encodeURIComponent;
-  return [
-    ...(p.goldens === 'all' ? ['goldens=all'] : []),
-    ...(p.runs ?? []).map((id) => `runId=${q(id)}`),
-    ...(p.model ? [`model=${q(p.model)}`] : []),
-    ...(p.set ?? []).map(([field, value]) => `set=${q(`${field}=${value}`)}`),
-    ...(p.from ?? []).map((m) => `from=${q(m)}`),
-    ...(p.scope ? [`scope=${q(p.scope)}`] : []),
-    ...(typeof p.samples === 'number' ? [`samples=${p.samples}`] : []),
-    ...(p.fromCode ? ['fromCode=1'] : []),
-  ].join('&');
+/**
+ * A new preview's request, as `POST /api/decisions/estimates` reads it: the job's own fields, each
+ * typed value as JSON where it parses (decisions-argv.ts), and in a body, so the 500 runs one
+ * preview takes fit where a query's header would not.
+ */
+export function previewBody(p: PreviewQuery): Record<string, unknown> {
+  return {
+    ...(p.goldens === 'all' ? { goldens: 'all' } : {}),
+    ...(p.runs ? { runs: [...p.runs] } : {}),
+    ...(p.model ? { model: p.model } : {}),
+    ...(p.set?.length ? { set: Object.fromEntries(p.set.map(([field, value]) => [field, typedValue(value)])) } : {}),
+    ...(p.from?.length ? { from: [...p.from] } : {}),
+    ...(p.scope ? { scope: p.scope } : {}),
+    ...(typeof p.samples === 'number' ? { samples: p.samples } : {}),
+    ...(p.fromCode ? { fromCode: true } : {}),
+    ...(p.fromCode && p.changed ? { changed: p.changed } : {}),
+  };
 }
 
 /** An exported copy runs no job, so it prices none and keeps no Spending: every call says so. */
