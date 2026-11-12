@@ -1367,7 +1367,7 @@ Its rows are a list: **j** and **k** walk them, **Enter** opens a row's details,
 
 **Pack with checks…** also asks for the checks a golden that forks is judged by, and adds `--fork --expect`. A check `--expect` would refuse is refused in its words.
 
-Both wait while a test session, an update or another pack runs. The drawer ends *packed · exit 0*, *not packed · exit 1*, or *2 of 3 packed* for several. A pack that made its golden offers **Run test**, which asks first for a golden that forks.
+Both wait while a test session, an update or another pack runs. The drawer ends *Packed 3f9a2c1d as golden · exit 0*, *not packed · exit 1*, or *2 of 3 packed* for several. A pack that made its golden offers **Run test**, which asks first for a golden that forks.
 
 ### Security
 
