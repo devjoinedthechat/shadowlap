@@ -649,7 +649,8 @@ test.describe('on a touch screen', () => {
       ],
       [
         '/',
-        'overview',
+        // Its facts, drawn with its summary: its header comes first, while the summary is still being read.
+        'main#view a.metric',
         [
           { name: 'a fact that is a link', sel: 'main#view a.metric', reach: [4, 0, 4, 0] },
           { name: 'a link-style button', sel: 'main#view .ovuse > header button.linkbtn', reach: [4, 0, 4, 0] },
