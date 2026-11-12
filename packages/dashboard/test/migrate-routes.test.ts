@@ -165,7 +165,7 @@ describe('a migration’s applied state', () => {
     const why = 'claude-sonnet-5-5 refuses temperature=1 with thinking on, and temperatures above 1';
     const k = { from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', decisions: { verify: { verdict: 'not-run', reasons: ['the agent asks for a key', 'no goldens'] } }, passes: { verdict: 'not-run', runs: [] }, set: { fields: [{ field: 'temperature', value: null, leftOut: true, renamedTo: null, why, source: null, steps: 1 }], given: {}, flags: [] }, warnings: ['Not verified: the agent asks for a key', '1 step got no answer'] };
     const m = migrateView(k, CLEAR, { word: 'inconclusive', tone: null });
-    expect([m.set.sub, m.set.fields[0]!.why]).toEqual(['each field claude-sonnet-5-5 refuses, and what it takes instead', 'claude-sonnet-5-5 refuses `temperature=1` with thinking on, and temperatures above 1']);
+    expect([m.set.sub, m.set.fields[0].why]).toEqual(['each field claude-sonnet-5-5 refuses, and what it takes instead', 'claude-sonnet-5-5 refuses `temperature=1` with thinking on, and temperatures above 1']);
     expect([m.passes.notVerified, m.warnings]).toEqual(['Not verified yet: the agent asks for a key; no goldens.', ['1 step got no answer']]);
     const given = migrateView({ ...k, set: { fields: [], given: { temperature: 1 }, flags: ['--set', 'temperature=1'] } }, CLEAR, { word: 'accepted', tone: 'ok' });
     expect([given.set.sub, given.set.given, given.set.only, given.set.flags]).toEqual([null, ['`temperature=1` as given'], null, 'verify takes them as: `--set temperature=1`']);
@@ -175,7 +175,7 @@ describe('a migration’s applied state', () => {
     const run = { runId, golden: 'goldens/refund', verdict: 'passed', outcome: 'unchanged', verified: false, tally: null, diverges: { callNo: 1 } };
     const k = { from: ['claude-sonnet-4-5'], to: 'claude-sonnet-5-5', passes: { verdict: 'accepted', runs: [run] }, applied: { at: 1, by: null, outdated: [{ golden: 'goldens/refund', callNo: 3, path: '$.frequency_penalty', waits: true }] } };
     const m = migrateView(k, CLEAR, { word: 'accepted', tone: 'ok' });
-    expect([m.word.text, m.appliedLine, m.passes.runs[0]!.leftBehind, m.next]).toEqual(['applied', '1 golden to update under claude-sonnet-5-5: refund', 'diverges at #3 on `$.frequency_penalty` until updated', 'update']);
+    expect([m.word.text, m.appliedLine, m.passes.runs[0].leftBehind, m.next]).toEqual(['applied', '1 golden to update under claude-sonnet-5-5: refund', 'diverges at #3 on `$.frequency_penalty` until updated', 'update']);
   });
 
   it('lists migrations without their applied state, which names who applied it', async () => {
