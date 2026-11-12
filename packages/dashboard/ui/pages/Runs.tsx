@@ -439,7 +439,11 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const onMark = useCallback((r: TableRun, m: RunMark, from?: HTMLElement) => markRun(r.runId, rowsNow.current.get(r.runId)?.labels ?? r.labels, m, from), [markRun, rowsNow]);
   useRunsKeyNotes({ client, query: tableQuery, rows, next: table.next, picked: picked.size, clear: () => setPicked(new Map()) });
   const counts: ChipCounts | null = table.loaded ? table.chipCounts : null;
-  const warming = tableNote({ ...table, warming: shownWarming(table.warming, { chip, q }) }, { filtered: !!q.trim(), bySpent: sort === 'spent' });
+  const waits = { ...table, warming: shownWarming(table.warming, { chip, q }) };
+  const how = { filtered: !!q.trim(), bySpent: sort === 'spent' };
+  const warming = tableNote(waits, how);
+  // What the note's live region says: the same, its count left out, as that moves every second and a half while the table fills in.
+  const warmingSaid = tableNote(waits, { ...how, said: true });
 
   // What the bar knows of a run picked follows the table: a recording that ends can then be deleted,
   // and a delete names the attempts a blame added meanwhile.
@@ -523,9 +527,9 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
       <TwelveWeeks load={cal} chip={chip} range={range} onPick={pickDays} byPerson={!!store} onFindCommit={hasKind(JOB_KINDS.bisect) ? findCommit : null} />
       <div className="tbar">
         <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
-        <RunsFilterField value={query} onChange={setQuery} onCommit={() => commitRuns({ ...f, q: query })} settled={q} total={table.total} loaded={table.loaded} />
+        <RunsFilterField value={query} onChange={setQuery} onCommit={() => commitRuns({ ...f, q: query })} settled={q} total={table.total} loaded={table.loaded} moving={!!warming} />
       </div>
-      <Said words={warming} />
+      <Said words={warmingSaid} />
       {warming ? (
         <p className="muted" aria-hidden="true">
           {warming}

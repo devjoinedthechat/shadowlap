@@ -24,10 +24,12 @@ export function withFirstPage<R extends { runId: string }>(had: readonly R[], fi
 /**
  * What the table says while the server is still working out what its filter or its sort reads: the
  * verdicts `status:` reads (`what`), the about lines the filter's words match, or what runs spent.
+ * `said`: the words its live region says, with "only some" for the count, which moves as the server
+ * works: they are said once, and again only when what the table waits on changes.
  */
-export function warmingLine(w: { done: number; total: number; what?: 'verdicts' } | null | undefined, o: { filtered: boolean; bySpent: boolean }): string | null {
+export function warmingLine(w: { done: number; total: number; what?: 'verdicts' } | null | undefined, o: { filtered: boolean; bySpent: boolean; said?: boolean }): string | null {
   if (!w || w.done >= w.total) return null;
-  const of = `${w.done.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')}`;
+  const of = o.said ? 'only some' : `${w.done.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')}`;
   if (w.what === 'verdicts') return `The verdicts of ${of} runs are known so far: runs among the rest may match too. The table fills in as they are worked out.`;
   if (o.filtered) return `The about lines of ${of} runs are known so far: runs among the rest may match too. The table fills in as they are worked out.`;
   if (o.bySpent) return `What ${of} runs spent is added up so far: the rest may sort higher. The table reorders as they are.`;
@@ -43,9 +45,9 @@ export function shownWarming<W extends { done: number; total: number; what?: 've
   return w?.what === 'verdicts' && o.chip !== 'failed' && !filterTerms(o.q).statuses.length ? null : w;
 }
 
-/** The line under the table's head while what it shows is still coming: what is worked out (`warmingLine`), else what the search index has yet to read for the filter's words. */
-export function tableNote(t: { warming: Parameters<typeof warmingLine>[0]; indexing?: { runs: number; of: number } | null }, o: { filtered: boolean; bySpent: boolean }): string | null {
-  return warmingLine(t.warming, o) ?? indexingNote(t.indexing);
+/** The line under the table's head while what it shows is still coming: what is worked out (`warmingLine`), else what the search index has yet to read for the filter's words; `said`, its live region's words, the count left out. */
+export function tableNote(t: { warming: Parameters<typeof warmingLine>[0]; indexing?: { runs: number; of: number } | null }, o: { filtered: boolean; bySpent: boolean; said?: boolean }): string | null {
+  return warmingLine(t.warming, o) ?? indexingNote(t.indexing, o);
 }
 
 /** A page's chip counts less the runs a delete waits to take (or took, until the page is read again): each from All, and from each chip it counts under. */
