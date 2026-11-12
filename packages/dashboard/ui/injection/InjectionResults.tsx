@@ -2,7 +2,7 @@ import { TRUST_FROM } from '../../../engine/src/trust-words.js';
 import { FindingPanel, ResultsMatrixPart } from '../components/FindingPanel.js';
 import { tipCard } from '../components/HoverCard.js';
 import type { ReceiptLine } from '../components/Receipt.js';
-import { ErrorState, Skeleton } from '../components/States.js';
+import { ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { approx, minuteStamp, plural } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { cellTone, groupRows, resultsKey, TONE_COLOUR, type Matrix, type MatrixCell, type MatrixCol, type MatrixRow, type ReadRow } from '../matrix.js';
@@ -69,11 +69,11 @@ export function panelReceipt(view: InjectionPanelView): ReceiptLine[] {
   ];
 }
 
-/** The panel's body, as the result's read comes: a skeleton, then the panel, or why it could not be read. */
+/** The panel's body, as the result's read comes: a skeleton, then the panel, or its failed read in the line every page says (`failedRead`). */
 export function InjectionResults({ runId, resultId }: { runId: string; resultId: string }) {
   const { client } = useApp();
   const got = useLoad(() => client.injectionResult(resultId), `injection:${resultId}`);
-  if (got.error && !got.data) return <ErrorState retry={got.reload}>The results could not be read: {got.error.message}</ErrorState>;
+  if (got.error && !got.data) return <ErrorState retry={got.reload}>{failedRead(got.error)}</ErrorState>;
   const view = got.data?.view;
   if (!view) return got.data ? null : <Skeleton what="the results" lines={4} />;
   const t = view.totals;

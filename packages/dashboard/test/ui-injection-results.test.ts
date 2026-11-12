@@ -6,10 +6,10 @@ import { LookStepButton } from '../ui/overview/steps.js';
 import { AppContext } from '../ui/state.js';
 import { render, shownText, type Rendered } from './ui-render.js';
 import { forkMenuTitle } from '../ui/actions.js';
-import { createExportedClient } from '../ui/api.js';
+import { ApiError, createExportedClient } from '../ui/api.js';
 import { InjectionFinding } from '../ui/injection/InjectionFinding.js';
 import { Proof } from '../ui/injection/Proof.js';
-import { injectionMatrix, panelMeta, panelReceipt } from '../ui/injection/InjectionResults.js';
+import { InjectionResults, injectionMatrix, panelMeta, panelReceipt } from '../ui/injection/InjectionResults.js';
 import { injectionCountsLine } from '../../engine/src/trust-words.js';
 import { injectionFactOf, injectionFinding, NO_INJECTION, runInjectionView, shownResult } from '../ui/injection/model.js';
 import { outcomeFact } from '../ui/run/metrics.js';
@@ -39,6 +39,12 @@ import type { LineageNode } from '../ui/types.js';
  */
 
 const RUN = '01K5CQ4N7G';
+
+/** A read that failed, and the line it is said in (failedRead): a status alone in the shared sentence, the server's own words as it sent them. */
+const FAILED_READS = [
+  [new ApiError(500, 'HTTP 500'), 'The dashboard server answered 500 for this page’s data.'],
+  [new ApiError(404, 'no injection result inj-01PLANT'), 'no injection result inj-01PLANT'],
+] as const;
 
 const row = (o: Partial<InjectionRow> = {}): InjectionRow => ({
   resultId: 'inj-01PLANT',
@@ -280,6 +286,21 @@ describe('the results panel', () => {
     expect(panelReceipt(view())).toEqual([{ parts: ['this test spent ≈$3.11', 'every call before a read replayed free'] }, { parts: ['819 upstream requests', '6 clean replays to compare with'] }]);
     expect(panelReceipt(view({ receipt: { spent: 25, upstreamRequests: 1, baselines: 1, stopReason: 'the budget of $25.00 is spent' } }))).toEqual([{ parts: ['this test spent ≈$25.00', 'stopped: the budget of $25.00 is spent'] }, { parts: ['1 upstream request', '1 clean replay to compare with'] }]);
   });
+
+  it('says a failed read in the line every page says, the server’s own sentence where it sent one, else its status, with Retry', async () => {
+    for (const [fail, line] of FAILED_READS) {
+      const asked: string[] = [];
+      const client = { injectionResult: (id: string) => (asked.push(id), Promise.reject(fail)) };
+      const app = { client, exported: false, conn: 'ok', guard: (fn: () => void) => (fn(), true), toast: () => undefined } as never;
+      const page = await render(createElement(AppContext.Provider, { value: app }, createElement(InjectionResults, { runId: RUN, resultId: 'inj-01PLANT' })));
+      await page.until('the failed read', () => page.all('.loaderr').length === 1);
+      expect([page.one('.loaderr p > span:not(.st)').textContent, page.one('.loaderr button').textContent]).toEqual([line, 'Retry']);
+      // Retry asks for the result again.
+      await page.click(page.one('.loaderr button'));
+      await page.until('the second read', () => asked.length === 2);
+      await page.unmount();
+    }
+  });
 });
 
 describe('an attempt’s proof', () => {
@@ -431,6 +452,17 @@ describe('Share’s Security report', () => {
     expect(reportSaved('f.html', false, 0)).toBe('Saved f.html · no redaction rules to apply');
     expect(reportSaved('f.html', true, 1)).toBe('Saved f.html · 1 redaction rule applied; canaries kept');
     expect(reportSaved('f.html', true, null)).toBe('Saved f.html · redaction rules applied; canaries kept');
+  });
+
+  it('says a preview that failed in the line every page says, the server’s own sentence where it sent one, else its status', async () => {
+    for (const [fail, line] of FAILED_READS) {
+      const client = { injectionPreview: () => Promise.reject(fail), injectionReport: async () => ({ filename: preview.file, redacted: true }) };
+      const app = { client, exported: false, actionsOff: null, conn: 'ok', guard: (fn: () => void) => (fn(), true), toast: () => undefined, jobs: [] } as never;
+      const page = await render(withStepDialogs(createElement(AppContext.Provider, { value: app }, createElement(SecurityReportDialog, { resultId: 'inj-01PLANT', mode: 'plant', runId: RUN, onClose: () => undefined }))));
+      await page.until('the failed preview', () => page.all('.ibar.err').length === 1);
+      expect([page.one('.ibar.err').textContent, page.all('.injmask').length]).toEqual([line, 0]);
+      await page.unmount();
+    }
   });
 });
 
