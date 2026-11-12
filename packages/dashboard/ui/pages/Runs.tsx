@@ -26,7 +26,8 @@ import { useMarkRun } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
 import { RunsTable, RunsTableEmpty, type TableRun } from '../runspage/RunsTable.js';
 import { noteShownRuns } from '../runspage/shown-runs.js';
-import { goneFromCounts, lessChips, tableNote, withFirstPage } from '../runspage/rows.js';
+import { goneFromCounts, lessChips, shownWarming, tableNote, withFirstPage } from '../runspage/rows.js';
+import { useServedParts, type FailedIssuesProps } from '../served-parts.js';
 import { lessPending, usePendingHidden, useStillCounted, withoutPending } from '../pending-delete.js';
 import { bundlesAttempts, isAttempt, matchesChip, matchesText, RUN_CHIPS, sortRuns, type RunChip, type RunSort } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
@@ -352,13 +353,20 @@ function runsEyebrow(p: { name: string } | null, store: TeamStoreView | null, kn
   return known ? `${p.name} · ${store ? 'team store' : 'local store'}` : p.name;
 }
 
+/** Failed's issues, which only the served dashboard hands in (served-parts.ts): nothing where none was handed in. */
+function FailedIssuesPart(props: FailedIssuesProps) {
+  const { FailedIssues } = useServedParts();
+  return FailedIssues ? <FailedIssues {...props} /> : null;
+}
+
 function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const { client, meta, tick, feeds, actionsOff, hasKind, guard, toast, refresh, runs: appRuns } = useApp();
   const { store, known: storeKnown } = useTeamStoreState();
   const tz = useMemo(viewerTimeZone, []);
   const f = useRunsFilter(filter);
   const chip = f.types;
-  const sort = f.sort;
+  // Under Failed the issues go by their newest run, and the list behind them by when: the sort waits in the address.
+  const sort: RunSort = chip === 'failed' ? 'when' : f.sort;
   const days = f.days;
   const [query, setQuery, q] = useFilterField(f, 250);
   // What the table shows (a chip, the words, the sort, the days, or Back to another view).
@@ -385,7 +393,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const table = useShownTable(useRunsTable(client, tableQuery, key, `${tick}:${feeds.team ?? 0}`, limit), { chip, q, times });
   // Given back once the twelve weeks above the rows are in too: their sentence can take a second line,
   // and a place given back before it would leave the list that much higher than it was.
-  useKeptScroll(shownKey, table.loaded && table.key === key && !cal.loading);
+  useKeptScroll(shownKey, chip !== 'failed' && table.loaded && table.key === key && !cal.loading);
   // The good/bad key: a row shows the labels a press gave it until the table's own say otherwise.
   const [marks, setMarks] = useState<ReadonlyMap<string, { base: string; labels: string[] }>>(() => new Map());
   const byId = useLatest(new Map(table.rows.map((r) => [r.runId, r])));
@@ -404,7 +412,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const onMark = useCallback((r: TableRun, m: RunMark, from?: HTMLElement) => markRun(r.runId, rowsNow.current.get(r.runId)?.labels ?? r.labels, m, from), [markRun, rowsNow]);
   useRunsKeyNotes({ client, query: tableQuery, rows, next: table.next, picked: picked.size, clear: () => setPicked(new Map()) });
   const counts: ChipCounts | null = table.loaded ? table.chipCounts : null;
-  const warming = tableNote(table, { filtered: !!q.trim(), bySpent: sort === 'spent' });
+  const warming = tableNote({ ...table, warming: shownWarming(table.warming, { chip, q }) }, { filtered: !!q.trim(), bySpent: sort === 'spent' });
 
   // What the bar knows of a run picked follows the table: a recording that ends can then be deleted,
   // and a delete names the attempts a blame added meanwhile.
@@ -496,9 +504,15 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         </p>
       ) : null}
       <section className="panel sec tscroll runsec">
-        <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} rowActions={(r) => runRowScope(r, { runs: appRuns ?? [], toast, pick: () => onPick(r, !picked.has(r.runId)), picked: picked.has(r.runId), pickKey: keyColumn('rowPick') })} />
-        <RunsTableEmpty error={table.error} loaded={table.loaded} shown={rows.length} counts={counts} days={days} />
-        <ShowMore shown={rows.length} total={table.total} onMore={() => setLimit(limit + PAGE)} />
+        {chip === 'failed' ? (
+          <FailedIssuesPart query={{ q, from: times?.from ?? null, to: times?.to ?? null }} refresh={`${tick}:${feeds.team ?? 0}`} scrollKey={shownKey} above={table.loaded && !cal.loading} />
+        ) : (
+          <>
+            <RunsTable rows={rows} picked={picked} selectable byColumn={!!store} you={store?.you ?? null} sort={sort} onSort={setSort} onPick={onPick} onPickAll={onPickAll} now={now} onMark={onMark} markOff={actionsOff ?? null} rowActions={(r) => runRowScope(r, { runs: appRuns ?? [], toast, pick: () => onPick(r, !picked.has(r.runId)), picked: picked.has(r.runId), pickKey: keyColumn('rowPick') })} />
+            <RunsTableEmpty error={table.error} loaded={table.loaded} shown={rows.length} counts={counts} days={days} />
+            <ShowMore shown={rows.length} total={table.total} onMore={() => setLimit(limit + PAGE)} />
+          </>
+        )}
       </section>
       {runs.length ? (
         <>

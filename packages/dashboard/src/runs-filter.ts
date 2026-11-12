@@ -103,6 +103,8 @@ export interface TermsWarming {
 export interface TermReads {
   /** A run's verdict as its Status says it (run-verdict.ts); undefined while it isn't worked out. */
   verdict?: (r: IndexedRun) => RunVerdict | null | undefined;
+  /** Whether a run fails its family's checks by today's (`verdict`'s judging, within its budget): what Failed counts besides a run's own failure. */
+  failedByFamily?: (r: IndexedRun) => boolean;
   /** The tools a run called, lowercased (`toolsCalled`). */
   tools?: (r: IndexedRun) => readonly string[];
   /** Whether what a run recorded holds the word (search-hits.ts `recordedRuns`). */
@@ -131,8 +133,8 @@ export const STATUS_JUDGED_RUNS = 2_000;
  * again, and each read judges more of them, kept on its thread. One with more calls than `budget` is
  * judged beside the server once the read is answered (`judgeAfter`), the newest first.
  */
-function verdictsAsked(fixed: ReadonlyMap<string, string>, judge: JudgeRun | null, budget: number): Pick<TermReads, 'verdict' | 'warming' | 'judgeAfter'> {
-  const known = new Map<string, RunVerdict | null | undefined>();
+function verdictsAsked(fixed: ReadonlyMap<string, string>, judge: JudgeRun | null, budget: number): Pick<TermReads, 'verdict' | 'failedByFamily' | 'warming' | 'judgeAfter'> {
+  const known = new Map<string, VerdictJudged | null | undefined>();
   const capped = Number.isFinite(budget);
   let left = budget;
   let pending = 0;
@@ -147,16 +149,26 @@ function verdictsAsked(fixed: ReadonlyMap<string, string>, judge: JudgeRun | nul
     if (judged === undefined && r.calls > budget) after ??= r.runId;
     return judged;
   };
-  const verdict = (r: IndexedRun): RunVerdict | null | undefined => {
+  const runOf = (r: IndexedRun) => ({ status: r.status, outcome: r.outcome, fixedBy: fixed.get(r.runId) ?? null });
+  // Each run judged once, as the filter first reaches it, so newest first.
+  const judgedFor = (r: IndexedRun): VerdictJudged | null | undefined => {
     if (known.has(r.runId)) return known.get(r.runId);
-    const run = { status: r.status, outcome: r.outcome, fixedBy: fixed.get(r.runId) ?? null };
-    const judged = judge && judgedCanChange(run) && (!capped || ++reached <= STATUS_JUDGED_RUNS) ? judgedOf(r) : null;
-    const v = judged === undefined ? undefined : verdictOf({ ...run, judged });
-    if (v === undefined) pending++;
-    known.set(r.runId, v);
-    return v;
+    const judged = judge && judgedCanChange(runOf(r)) && (!capped || ++reached <= STATUS_JUDGED_RUNS) ? judgedOf(r) : null;
+    if (judged === undefined) pending++;
+    known.set(r.runId, judged);
+    return judged;
   };
-  return { verdict, warming: () => (pending ? { done: known.size - pending, total: known.size, what: 'verdicts' } : null), judgeAfter: () => after };
+  const verdict = (r: IndexedRun): RunVerdict | null | undefined => {
+    const judged = judgedFor(r);
+    return judged === undefined ? undefined : verdictOf({ ...runOf(r), judged });
+  };
+  // A capture keeps the verdict its import gave it, which the lists read (runs-filter.ts `listFailed`).
+  const failedByFamily = (r: IndexedRun): boolean => {
+    if (r.kind === 'capture') return false;
+    const judged = judgedFor(r);
+    return judged?.by === 'family' && judged.verdict === 'failed';
+  };
+  return { verdict, failedByFamily, warming: () => (pending ? { done: known.size - pending, total: known.size, what: 'verdicts' } : null), judgeAfter: () => after };
 }
 
 const toolsKept = new WeakMap<object, { key: string; tools: ReadonlyMap<string, readonly string[]> }>();
@@ -189,12 +201,14 @@ export function toolsCalled(store: StoreOf<'readModels' | 'activity'>): Readonly
  */
 export function termReads(store: Store, index: RunIndex, filter: { q?: string; judge?: JudgeRun | null }, budget: number): TermReads {
   const terms = filterTerms(filter.q);
-  const asked = terms.statuses.length ? verdictsAsked(fixedByOf(store, index), filter.judge ?? null, budget) : null;
+  // `status:`, and Failed, which counts a run its family's checks fail today: the judge a read passes.
+  const asked = terms.statuses.length || filter.judge ? verdictsAsked(fixedByOf(store, index), filter.judge ?? null, budget) : null;
   const tools = terms.tools.length ? toolsCalled(store) : null;
   const behind = terms.words.some((w) => w.length >= RECORDED_MIN_CHARS) ? searchBehind(store, index) : null;
   const at = behind === null ? '' : `${behind}|${searchAt(store)}`;
   return {
-    ...asked,
+    ...(asked && terms.statuses.length ? { verdict: asked.verdict } : {}),
+    ...(asked ? { failedByFamily: asked.failedByFamily } : {}),
     ...(tools ? { tools: (r: IndexedRun) => tools.get(r.runId) ?? [] } : {}),
     ...(behind === null ? {} : { recorded: (w: string, r: IndexedRun) => recordedRuns(store, w, index, at).has(r.runId) }),
     warming: asked?.warming ?? (() => null),

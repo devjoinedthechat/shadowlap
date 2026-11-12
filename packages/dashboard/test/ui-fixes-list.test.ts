@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { markFixApplied, recordBlame, recordRepair, recordVerdict, Store } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail } from '../src/fixes.js';
@@ -9,10 +9,14 @@ import { CHIP_EMPTY, ciCard, failingCard, fixFacts, leadCard, leadReadsFix, lead
 import { unblamedBlameCard, unblamedTitle } from '../src/unblamed-words.js';
 import { fixRowScope, unblamedScope } from '../ui/fixes/row-scope.js';
 import { forgetRunEstimates } from '../ui/run/estimates.js';
+import { dropRowScope, rowScopeNow, takeRowScope } from '../ui/list-keys.js';
+import { ISSUE_ASK } from '../ui/page-ask.js';
+import { Keyboard } from '../ui/shell/Keyboard.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
 import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { FixesView, FixLead, FixRow } from '../ui/types.js';
+import { addressBar } from './ui-route-helpers.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 import type { Estimate } from '../../engine/src/estimates/estimate.js';
 
@@ -113,15 +117,16 @@ describe('a row’s words', () => {
       ['Verify', 'held'],
     ]);
     const pressed: string[] = [];
-    const un = unblamedScope({ name: unblamedTitle(2), command: 'shadowlap blame r1', wait: 'A repair is running: blame once it is done.', press: () => pressed.push('blame') });
+    const un = unblamedScope({ name: unblamedTitle(2), issue: 'fail:the agent exited with an error', command: 'shadowlap blame r1', wait: 'A repair is running: blame once it is done.', press: () => pressed.push('blame') });
     expect(un.name).toBe('2 failing runs nobody has blamed');
     expect(un.items()).toEqual([expect.objectContaining({ label: 'Open', hint: '#/runs?types=failed' }), expect.objectContaining({ label: 'Run blame', hint: 'shadowlap blame r1', job: true, wait: 'A repair is running: blame once it is done.' })]);
     un.items()[1]?.run();
     expect(pressed).toEqual(['blame']);
     // No Run blame where the row has none.
-    expect(unblamedScope({ name: 'x', command: null, wait: null, press: () => undefined }).items().map((i) => i.label)).toEqual(['Open']);
+    expect(unblamedScope({ name: 'x', issue: null, command: null, wait: null, press: () => undefined }).items().map((i) => i.label)).toEqual(['Open']);
     // A capture's Run blame opens its page: no job, and nothing to wait for.
-    expect(unblamedScope({ name: 'x', command: 'shadowlap blame r1 -- <your command>', job: false, wait: null, press: () => undefined }).items()[1]).not.toHaveProperty('job');
+    expect(unblamedScope({ name: 'x', issue: null, command: 'shadowlap blame r1 -- <your command>', job: false, wait: null, press: () => undefined }).items()[1]).not.toHaveProperty('job');
+    // Run blame's card is the sentence Needs a look and Runs' issues say (src/unblamed-words.ts).
     expect(unblamedBlameCard(1, 'run-012345')).toBe('Blames run-012345: finds the model call that lost it, then joins the fix its failure belongs to');
     expect(unblamedBlameCard(3, 'run-012345')).toBe('Blames the newest, run-012345: finds the model call that lost it, then joins the fix its failure belongs to');
   });
@@ -244,7 +249,7 @@ describe('the Fixes list', () => {
     expect(text(un.querySelector('a.rt')!)).toBe('2 failing runs nobody has blamed');
     expect(un.querySelector('a.rt')!.getAttribute('href')).toBe('#/runs?types=failed');
     expect(un.querySelector('.rs')!.children.map(text)).toEqual(['failed', `newest ${newest.slice(0, 10)}`]);
-    expect(text(un.querySelector('.fm')!)).toBe('Failed: The agent exited with an error');
+    expect(text(un.querySelector('.fm')!)).toBe('Failed: the agent exited with an error');
     expect(cellsOf('unblamed')).toEqual(['todo Blame not blamed', 'todo Repair —', 'todo Verify —']);
     const blame = un.querySelector('.psn button')!;
     expect(text(blame)).toBe('Run blame');
@@ -265,6 +270,45 @@ describe('the Fixes list', () => {
     await r!.until('the estimate', () => !!tipOf(blame()).est);
     const u = fixesView(store).unblamed!;
     expect(tipOf(blame())).toEqual({ t: 'Run blame', s: `Blames ${run.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to`, rows: [], cmd: `$ ${u.next!.command!}`, est: { usd: 0.42, ceiling: true } });
+  });
+
+  it('opens its newest run’s issue on Runs › Failed from the unblamed row’s title, from Enter and from ⌘K’s Open', async () => {
+    vi.stubGlobal('CSS', { escape: (x: string) => x });
+    const location = addressBar('#/fixes');
+    try {
+      newRun({ calls: ['api', 'tool', 'api'] });
+      const issue = fixesView(store).unblamed!.issue!;
+      expect(issue).toBe('fail:the agent exited with an error');
+      const a = app();
+      const shell = { conn: 'ok', runCommands: [], palette: false, setPalette: () => undefined, help: false, setHelp: () => undefined, sideOpen: false, setSideOpen: () => undefined, runKeys: { current: null } };
+      r = await render(createElement(AppContext.Provider, { value: { ...a.state, ...shell } as AppState }, createElement('main', { id: 'view', tabIndex: -1 }, createElement(FixesPage, { id: null, step: null, sub: null })), createElement(Keyboard)));
+      await r.until('the list to load', () => r!.all('.skel').length === 0 && r!.all('.pslist .psrow').length > 0);
+      // Its title asks for the issue as its link goes to Failed, which opens it as it shows.
+      const title = row('unblamed').querySelector('a.rt')!;
+      expect(title.getAttribute('href')).toBe('#/runs?types=failed');
+      await r.click(title);
+      expect(ISSUE_ASK.take(issue)).toBe(true);
+      await r.press('j');
+      expect(r.focused().getAttribute('data-rowkey')).toBe('unblamed');
+      await r.press('Enter');
+      expect(location.hash).toBe('#/runs?types=failed');
+      expect(ISSUE_ASK.take(issue)).toBe(true);
+      location.hash = '#/fixes';
+      await r.focus(row('unblamed'));
+      takeRowScope();
+      try {
+        rowScopeNow()!
+          .items()
+          .find((i) => i.label === 'Open')!
+          .run();
+      } finally {
+        dropRowScope();
+      }
+      expect(location.hash).toBe('#/runs?types=failed');
+      expect(ISSUE_ASK.take(issue)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('opens a capture’s page from the unblamed row’s Run blame, where blame asks for your command first, saying what its import judged it failed', async () => {

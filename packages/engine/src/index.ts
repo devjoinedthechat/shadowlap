@@ -27,7 +27,7 @@ export type { SqlValue } from './store.js';
 export type { QueuedWrites } from './store.js';
 export { ulidNow } from './store/core.js';
 export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, PullRequestState, StepRerun, StoredBlame, StoredFix, StoredFixCheck, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
-export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
+export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyGoldens, applyLeft, checkKey, cleanTitle, coversCheck, fixAmong, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
 // A run by its full id or the unique prefix the CLI prints, for the dashboard's routes and the fix jobs.
 export { lookupRun } from './run-lookup.js';

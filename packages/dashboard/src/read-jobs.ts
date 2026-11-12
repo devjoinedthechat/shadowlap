@@ -24,7 +24,8 @@ import { CROSS_PROJECT_READS } from './cross-project.js';
 import { GATE_READS } from './tests-gate.js';
 import { withExitCodes } from './exit-codes.js';
 import { NEXT_STEP_READS, nextStepRows, pageSteps, type NextStepWork } from './next-step.js';
-import { judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
+import { failedChecks, ISSUES_READS } from './issues.js';
+import { judgeAfter, judgedRows, judgeFor, OUTCOME_READS, runJudged, type OutcomeWork } from './run-outcome.js';
 import { RUNS_FAILURES_READS } from './runs-failures.js';
 import { REQUEST_DIFF_READS } from './request-diff.js';
 import { analyseRun } from './run-page.js';
@@ -152,8 +153,6 @@ function eitherMissing(store: Store, a: string, b: string): ReadAnswer | null {
 /** For a long run answered from a part of its calls: its whole analysis (and its outcome by checks), beside the server once this is answered, for the page to ask again. */
 const analyseAfter = (runId: string, outcome?: OutcomeWork | null): Pick<ReadAnswer, 'then'> => ({ then: { kind: 'analyse', runId, ...(outcome ? { outcome } : {}) } });
 
-/** For a run whose verdict a list's `status:` waits for and whose calls are more than a read judges: judged beside the server once this is answered, kept on this thread for the page's next ask. */
-const judgeAfter = (runId: string | undefined, outcome: OutcomeWork | null): Pick<ReadAnswer, 'then'> => (runId ? { then: { kind: 'outcome', runId, work: outcome } } : {});
 
 /** What git said about the code between two revisions, kept for a minute per pair: one per thread. */
 const code = codeChangeCache();
@@ -207,13 +206,14 @@ function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns' | 'ju
 /**
  * A fix's page, with what the server's thread found in the working tree: patches in it already, and
  * pulled ones `fix apply` refuses there. The names the project's goldens folder holds, which the
- * goldens Apply fix copies can't take, are read here, beside the server.
+ * goldens Apply fix copies can't take, are read here, beside the server, and so are the runs that
+ * failed its check, which its header's link opens under Runs › Failed (issues.ts `failedChecks`).
  */
 function fixPage(store: Store, job: Extract<CoreJob, { kind: 'fix' }>): ReadAnswer {
   const inTree = job.inTree ? new Map(job.inTree) : null;
   const here = job.refusedHere ? new Map(job.refusedHere) : null;
   const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}), ...(here ? { rewriteHere: (repairId: string) => here.get(repairId) ?? null } : {}), ...(job.project ? { goldensFolder: goldensFolderIn(job.project) } : {}) });
-  return d ? answer(withAbouts(store, d), { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+  return d ? answer({ ...withAbouts(store, d), failedCheck: failedChecks(store, loadRunIndex(store))(d.fixId) }, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
 }
 
 /**
@@ -348,7 +348,7 @@ const CORE_READS: ReadTable<CoreJob> = {
  * says how one is written). A feature's table is one line here, and a kind two of them register stops
  * the dashboard as it loads.
  */
-const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS, GATE_READS, REQUEST_DIFF_READS, CHECK_READS, DECISION_READS] as const;
+const READ_TABLES = [CORE_READS, OUTCOME_READS, NEXT_STEP_READS, RUNS_FAILURES_READS, ISSUES_READS, ESTIMATE_READS, FIXES_READS, CROSS_PROJECT_READS, TESTS_EVIDENCE_READS, GATE_READS, REQUEST_DIFF_READS, CHECK_READS, DECISION_READS] as const;
 
 /** A job a read-model thread answers: of a kind a table registers, as that table's handler takes it. */
 export type ReadJob = JobOf<(typeof READ_TABLES)[number]>;

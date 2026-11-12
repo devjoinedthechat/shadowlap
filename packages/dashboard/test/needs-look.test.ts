@@ -70,7 +70,8 @@ describe('Needs a look: the failing runs nobody has blamed', () => {
         kind: 'unblamed',
         title: '1 failing run nobody has blamed',
         about: { text: "Write this week's refund digest and post it to #refunds", from: 'user' },
-        detail: `${failed.slice(0, 10)} · failed`,
+        // What it failed on, in the words Runs' issues and Fixes' row say it: its agent's exit.
+        detail: `${failed.slice(0, 10)} · the agent exited with an error`,
         href: '#/runs?types=failed&from=2026-10-13&to=2026-10-19',
         // Its card names the run it blames, the one run the row stands for.
         step: { of: 'run', runId: failed, step: { label: 'Run blame', sub: `Blames ${failed.slice(0, 10)}: finds the model call that lost it, then joins the fix its failure belongs to` } },
