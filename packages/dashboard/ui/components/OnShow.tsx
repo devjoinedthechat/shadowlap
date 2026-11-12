@@ -19,9 +19,10 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * (pages/Run.tsx), the dialog a run's action asks in (run/actions.tsx), and what a run's page
  * rarely opens, which keeps it within its budget: a diverged test's dialogs (run/diverged.tsx),
  * Share's menu (pages/served.tsx) and its Export dataset… and Export OpenTelemetry trace…
- * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), Edit and fork's dialog
- * (run/EditDialog.tsx), Run blame's check (fixes/RunBlame.tsx), and Find breaking commit's and
- * Delete run's (run/RunDialogs.tsx). So must the structural diff
+ * (run/ShareMenu.tsx), a finding's diff (run/InspectorPanel.tsx), the words of a run's notes
+ * (run/RunNotes.tsx, with run/note-lines.ts: the page decides which notes a run has, run/notes.ts),
+ * Edit and fork's dialog (run/EditDialog.tsx), Run blame's check (fixes/RunBlame.tsx), and Find
+ * breaking commit's and Delete run's (run/RunDialogs.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
  * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
