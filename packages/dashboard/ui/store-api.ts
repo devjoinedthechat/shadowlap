@@ -18,7 +18,8 @@ export interface StoreSetupApi {
   /** A URL typed in Connect your bucket, checked against the provider picked (`GET /api/store/setup/url`). */
   check(provider: string, url: string): Promise<SetupUrlCheck>;
   /** Records Push from CI as added or skipped, for which CI, or the setup finished (`POST /api/store/setup`). */
-  save(step: { ci?: 'added' | 'skipped'; ciProvider?: CiName; finished?: true }): Promise<{ setup: SetupRecord }>;
+  /** Step 3 on GitHub turns Push from CI on or off with it (`ciPush`), written to the config as Settings → Store's switch writes it. */
+  save(step: { ci?: 'added' | 'skipped'; ciProvider?: CiName; ciPush?: boolean; finished?: true }): Promise<{ setup: SetupRecord }>;
 }
 
 export function storeSetupApi(request: Request): StoreSetupApi {

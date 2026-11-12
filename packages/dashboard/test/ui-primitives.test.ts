@@ -141,6 +141,8 @@ describe('a status and a verdict line', () => {
     expect(['inconclusive', 'unsettled', 'stopped', 'not rescued', 'incomplete'].map(statusTone)).toEqual(['warn', 'warn', 'warn', 'warn', 'warn']);
     expect(['failed', 'lost', 'not fixed', 'broken', 'rejected'].map(statusTone)).toEqual(['err', 'err', 'err', 'err', 'err']);
     expect(['stubbed', 'blocked', 'not applicable'].map(statusTone)).toEqual(['stub', 'block', 'mu']);
+    // an injection test's: obeyed and a payload that caused it red, influenced amber, what showed nothing muted
+    expect(['obeyed', 'caused', 'influenced', 'ignored', 'not caused'].map(statusTone)).toEqual(['err', 'err', 'warn', 'mu', 'mu']);
     // a word that is no verdict reads muted, never red for what did not fail
     expect(['open', 'set up', 'needs a look', 'not run'].map(statusTone)).toEqual(['mu', 'mu', 'mu', 'mu']);
   });

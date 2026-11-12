@@ -119,3 +119,6 @@ export const BULK = {
   waits: (runs: number): string => `Still recording: try when ${runs === 1 ? 'it ends' : 'they end'}`,
   waitsTip: (runs: number): string => `Waits until ${runs === 1 ? 'the recording ends' : 'the recordings end'}: a copy now would be cut off`,
 } as const;
+
+/** Push local runs' card, on Runs' header and Needs a look's row: what pushing does, and the command its job runs. */
+export const PUSH_LOCAL = { label: 'Push local runs', sub: 'Copies them to the store with your credentials; nothing passes through Shadowlap', command: 'shadowlap push --all' } as const;

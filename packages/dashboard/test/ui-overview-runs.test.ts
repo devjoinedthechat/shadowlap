@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, dotLine, kindGlyph, needsLookAction, needsLookShown, originCounts, originRows, outcomeWords, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
+import { factTip } from '../ui/components/Facts.js';
+import { activityGlyph, activityLine, callsSaid, chartScale, dayText, keepParts, keepPieces, kindGlyph, originCounts, originRows, overviewFacts, personName, recentKind, reproducedNote, share, tickText, usageLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, deleteFacts, deleteLead, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
 import { datasetCommand, datasetFile } from '../ui/run/share.js';
@@ -12,7 +13,7 @@ import { calSummary, counted, dayTip, dragEnd, dragOver, dragStart, failedOf, ke
 import { fileHead, FILE_FORMATS, HEAD_BYTES, IMPORT_FILE_FORMATS, keyList, OTEL_SAMPLE_NAME, pickedFormat, redateTrace, sampleTrace, tooLargeNote } from '../ui/runspage/imports.js';
 import { OTEL_SAMPLE, type OtlpTrace } from '../ui/runspage/sample-otel.js';
 import { runOutcome, runSpent, type RunLike } from '../ui/runs.js';
-import type { DayCount, NeedsLookRow } from '../ui/types.js';
+import type { DayCount } from '../ui/types.js';
 
 // The Overview's and the Runs page's logic: what each panel says from the server's numbers, how the
 // calendar picks days, and how an import guesses a file's format.
@@ -32,42 +33,54 @@ describe('the Overview’s words', () => {
     expect(verifiedNote({ value: 1, lastWeek: 0, rejected: 1 })).toBe('1 rejected before it shipped');
     expect(verifiedNote({ value: 1, lastWeek: 0, rejected: 3 })).toBe('3 rejected before they shipped');
     expect(verifiedNote({ value: 1, lastWeek: 0, rejected: 0 })).toBe('none rejected');
-    // Today's blame line, in the words Needs a look uses for the same fix.
-    expect(blameWords({ outcome: 'blamed', lostAt: 7 })).toBe('lost at #7');
-    // No one call lost it: the two it was lost gradually around, as Runs and Fixes say it.
-    expect(blameWords({ outcome: 'blamed', lostAt: 7, range: { from: 7, to: 9, gradual: true } })).toBe('lost gradually around #7 and #9');
-    expect(outcomeWords({ kind: 'lost', callNo: 7 })).toBe('lost at #7');
-    expect(outcomeWords({ kind: 'lost', callNo: 7, range: { from: 7, to: 9, gradual: true } })).toBe('lost gradually around #7 and #9');
-    expect(outcomeWords({ kind: 'diverged', callNo: 1 })).toBe('diverged at #1');
-    expect(blameWords({ outcome: 'unrescuable', lostAt: null })).toBe('not rescued from any model call');
-    // One whose first probe couldn't tell is inconclusive at the first model call, never a finding that no call rescues the run.
-    expect(blameWords({ outcome: 'unrescuable', unsettled: true, lostAt: null })).toBe('inconclusive at the first model call');
-    expect(blameWords({ outcome: 'stopped', lostAt: null })).toBe('blame stopped part way');
-    expect(blameWords({ outcome: null, lostAt: null })).toBe('not placed yet');
-    expect(testsKpi(null, 0)).toEqual({ value: '—', note: 'no goldens yet', tone: '' });
     const now = new Date(2026, 9, 1, 12, 0).getTime();
     const at1002 = new Date(2026, 9, 1, 10, 2).getTime();
-    // Each part is kept whole, so a line that wraps breaks after a dot only.
-    expect(dotLine(['1 failed', 'last run 10:02'])).toBe('1\u00a0failed\u00a0· last\u00a0run\u00a010:02');
-    const words = <T extends { note?: string; text?: string }>(o: T) => ({ ...o, ...(o.note ? { note: o.note.replace(/\u00a0/g, ' ') } : {}), ...(o.text ? { text: o.text.replace(/\u00a0/g, ' ') } : {}) });
-    // Every golden is accounted for, in Tests' words: 5 of 7 pass, 1 failed, 1 has not run yet.
-    expect(words(testsKpi({ goldens: 7, passing: 5, inconclusive: 0, untested: 1, lastWeek: 4, regressions: 1, lastRunAt: at1002 }, now))).toEqual({ value: '5 / 7', note: '1 failed · 1 not run yet · last run 10:02', tone: 'err' });
-    expect(words(testsKpi({ goldens: 2, passing: 2, inconclusive: 0, untested: 0, lastWeek: null, regressions: 0, lastRunAt: at1002 }, now)).note).toBe('all passed · last run 10:02');
-    expect(words(testsKpi({ goldens: 2, passing: 0, inconclusive: 0, untested: 2, lastWeek: null, regressions: 0, lastRunAt: null }, now)).note).toBe('2 not run yet');
-    // Inconclusive goldens count apart, neither passing nor failed: amber when they are the only problem.
-    expect(words(testsKpi({ goldens: 4, passing: 3, inconclusive: 1, untested: 0, lastWeek: null, regressions: 0, lastRunAt: at1002 }, now))).toEqual({ value: '3 / 4', note: '1 inconclusive · last run 10:02', tone: 'warn' });
-    // Today's Tests line counts the goldens as the tile does, and the replays that ran today on hover.
-    const seven = { goldens: 7, passing: 5, inconclusive: 0, untested: 1, lastWeek: null, regressions: 1, lastRunAt: at1002 };
-    expect(words(todayTestsLine(seven, { count: 8, failed: 2, inconclusive: 0 }, 'diverged at #3'))).toEqual({ text: '1 failed · 1 not run yet', icon: 'fail', count: '7 goldens', title: '8 test replays today · 2 failed, the newest diverged at #3' });
-    expect(words(todayTestsLine({ ...seven, regressions: 0, inconclusive: 1, untested: 0, passing: 6 }, { count: 3, failed: 0, inconclusive: 1 }, null))).toEqual({ text: '1 inconclusive', icon: 'warn', count: '7 goldens', title: '3 test replays today · 1 inconclusive' });
-    expect(todayTestsLine({ ...seven, regressions: 0, untested: 0, passing: 7 }, { count: 0, failed: 0 }, null)).toEqual({ text: 'all passed', icon: 'test', count: '7 goldens', title: 'No test replays today' });
-    expect(todayTestsLine(null, { count: 0, failed: 0 }, null)).toMatchObject({ text: 'no goldens yet', count: '0 goldens' });
-    // Blame counts blames, as Replays and Forks count runs, with the model calls they probed and their attempts on hover.
-    expect(todayBlameCount({ blames: 3, probes: 12, attempts: 48 })).toEqual({ count: '3 today', title: '12 probes · 48 attempts' });
-    // Where nothing runs, every line of Needs a look opens what it names.
-    expect(needsLookAction({ action: 'Run blame' }, null)).toBe('Run blame');
-    expect(needsLookAction({ action: 'Run blame' }, 'This dashboard is read-only: it was started with --read-only.')).toBe('Open');
-    expect(spentNote({ value: 1.29, lastWeek: 1.69, notRespent: 2.81, notWaitedMs: 28 * 60_000 })).toBe('$2.81 not re-spent · 28m not waited');
+    const outcomes = {
+      reproduced: { value: 4, lastWeek: 1, open: 3 },
+      fixesVerified: { value: 1, lastWeek: 1, rejected: 0 },
+      testsPassing: { goldens: 7, passing: 2, inconclusive: 2, untested: 0, lastWeek: 5, regressions: 3, lastRunAt: at1002 },
+      spent: { value: 16.24, lastWeek: 0.44, notRespent: 1.73, notWaitedMs: 29 * 60_000 },
+    };
+    // The header's four facts, money last and quieter; each says what it is made of and last week on hover.
+    const facts = overviewFacts(outcomes, { attempts: 232, spent: 3.46 }, now);
+    expect(facts.map((x) => [x.value, x.words])).toEqual([['4', 'failures reproduced'], ['1', 'fix verified'], ['2 of 7', 'goldens passing'], ['$16.24', 'spent live']]);
+    expect(facts.map((x) => JSON.parse(factTip(x) ?? '{}') as unknown)).toEqual([
+      { t: 'Failures reproduced', s: 'replayed exactly · 3 still open · 1 last week' },
+      { t: 'Fixes verified', s: 'none rejected · 232 attempts behind them, $3.46 spent live · 1 last week' },
+      { t: 'Goldens passing', s: '3 regressions caught · 2 inconclusive · last run 10:02 · 5 of 7 last week' },
+      { t: 'Spent live, the last 7 days', s: '$1.73 not re-spent · 29m not waited · $0.44 last week' },
+    ]);
+    expect(facts.map((x) => [x.tone ?? null, x.money ?? false, x.href ?? null])).toEqual([[null, false, '#/fixes'], ['ok', false, '#/fixes'], [null, false, '#/tests'], [null, true, null]]);
+    // No fix verified is ink; one golden passes as one; without goldens, none yet, still a link to Tests.
+    const quiet = overviewFacts({ ...outcomes, fixesVerified: { value: 0, lastWeek: 0, rejected: 0 }, testsPassing: { ...outcomes.testsPassing, goldens: 1, passing: 1, regressions: 0, inconclusive: 0, lastWeek: null } }, { attempts: 0, spent: 0 }, now);
+    expect(quiet[1]).toMatchObject({ value: '0', words: 'fixes verified' });
+    expect(quiet[1]?.tone).toBeUndefined();
+    expect(quiet[2]).toMatchObject({ value: '1 of 1', words: 'golden passing', tip: { parts: ['no regressions', 'last run 10:02'] }, was: null });
+    expect(overviewFacts({ ...outcomes, testsPassing: null }, { attempts: 0, spent: 0 }, now)[2]).toEqual({ value: '0', words: 'goldens yet', href: '#/tests' });
+    // Needs a look keeps a tally, a model with what uses it, a date with its verb, a dot with the word before it and a
+    // hyphenated name whole where its line wraps, and names a run by its short id, a piece of its own for its about line.
+    const nb = '\u00a0';
+    expect(keepParts('gpt-4o, used by 2 goldens, retires on Nov 30, 2026')).toEqual([
+      { text: 'gpt-4o,', kind: 'nw' },
+      { text: ` used${nb}by 2 goldens, retires${nb}on${nb}Nov${nb}30,${nb}2026`, kind: 'text' },
+    ]);
+    expect(keepParts('newest 01K5CQ5D2W · search called 3 times')).toEqual([
+      { text: 'newest ', kind: 'text' },
+      { text: '01K5CQ5D2W', kind: 'id' },
+      { text: `${nb}· search${nb}called${nb}3${nb}times`, kind: 'text' },
+    ]);
+    expect(keepParts('8 of 72 · refund-over-limit')).toEqual([
+      { text: `8${nb}of${nb}72${nb}· `, kind: 'text' },
+      { text: 'refund-over-limit', kind: 'nw' },
+    ]);
+    // A whole run id is no short id: it stays in its words.
+    expect(keepParts('run 01K5CQ5D2WABCDEFGHJKMNPQRS')).toEqual([{ text: 'run 01K5CQ5D2WABCDEFGHJKMNPQRS', kind: 'text' }]);
+    // A hyphenated word longer than a name, a project's path, stays in its words too, to break where it must.
+    expect(keepPieces('Project added · /home/dana/code/acme-support-agent/support-agent')).toEqual([{ text: 'Project added · /home/dana/code/acme-support-agent/support-agent', kind: 'text' }]);
+    expect(keepPieces('Packed · list-inbox-label-thread-d2a5a7')).toEqual([
+      { text: 'Packed · ', kind: 'text' },
+      { text: 'list-inbox-label-thread-d2a5a7', kind: 'nw' },
+    ]);
   });
 
   it('lists the origins present in the design’s order, with their shares', () => {
@@ -90,8 +103,23 @@ describe('the Overview’s words', () => {
     expect(chartScale([0.54, 0.21]).max).toBeGreaterThanOrEqual(0.54);
     expect(chartScale([0, 0]).max).toBeGreaterThan(0);
     expect(chartScale([12.4]).max).toBe(20);
-    expect(tickText(0.2)).toBe('$0.20');
-    expect(tickText(20)).toBe('$20');
+    // The axis as the mock writes it: $0, then cents where a step has them, else whole dollars.
+    expect(tickText(0, 0.2)).toBe('$0');
+    expect(tickText(0.2, 0.2)).toBe('$0.20');
+    expect(tickText(20, 5)).toBe('$20');
+    expect(tickText(10, 2.5)).toBe('$10.00');
+  });
+
+  it('says Usage in figures, a run’s calls to a screen reader and its kind on hover', () => {
+    const week = { calls: 2785, runs: 28, origins: { r: 1030, l: 1755 } };
+    expect(usageLine(week, 0.87, 16.24)).toEqual(['2,785 calls in 28 runs', '37% replayed', '87% of input from the cache', '$16.24 spent live this week']);
+    expect(usageLine({ calls: 0, runs: 0, origins: {} }, null, 0)).toEqual(['0 calls in 0 runs', '$0.00 spent live this week']);
+    expect(usageLine({ calls: 1, runs: 1, origins: { l: 1 } }, 0.004, 0.01)).toEqual(['1 call in 1 run', '0% replayed', '<1% of input from the cache', '$0.01 spent live this week']);
+    expect(callsSaid(['rep', 'live', 'rep', 'block'])).toBe('4 calls: 2 replayed, 1 live, 1 blocked');
+    expect(callsSaid(['live'])).toBe('1 call: 1 live');
+    expect(recentKind('test')).toBe('test replay');
+    expect(recentKind('fork @17')).toBe('fork @17');
+    expect(recentKind('fork @17', '01K5CQ2E8MABCDEFGHJKMNPQRS')).toBe('rescued fork');
   });
 
   it('names days, run kinds, activity icons and people the way the panels show them', () => {
@@ -107,16 +135,6 @@ describe('the Overview’s words', () => {
     expect(personName('dana@northwind.example')).toBe('dana');
     expect(personName('ci')).toBe('ci');
     expect(personName(null)).toBe('unknown');
-  });
-
-  it('shows three lines of Needs a look, then the rest on asking', () => {
-    const row = (i: number): NeedsLookRow => ({ kind: 'unblamed', icon: 'fail', title: `t${i}`, detail: '', action: 'Run blame', href: '#/', runId: String(i), fixId: null, at: i });
-    const items = [1, 2, 3, 4, 5].map(row);
-    expect(needsLookShown(items, false)).toEqual({ rows: items.slice(0, 3), more: 'Show 2 more' });
-    expect(needsLookShown(items, true)).toEqual({ rows: items, more: 'Show fewer' });
-    expect(needsLookShown(items.slice(0, 3), false)).toEqual({ rows: items.slice(0, 3), more: null });
-    // A line that stands for the rest of its kind is one line to show: the button counts lines it opens.
-    expect(needsLookShown([...items, { ...row(6), title: '40 more failed runs not blamed yet', more: 40 }], false).more).toBe('Show 3 more');
   });
 
   it('says an activity entry’s id once, shortened as the CLI prints it', () => {

@@ -198,8 +198,10 @@ export function runChanges(store: StoreOf<'recording'>, a: RunRecord, aCalls: Ca
  * (`secretNames`, RunMeta.secretNames), has its arguments read under that run's rule, on both sides,
  * as a replay of it matches.
  * A Gemini conversation's made-up call ids are numbered as matching numbers them (maskGeminiCallIds).
+ * Two runs' requests are read under one rule, `requestReadRule(a, b)`; the dashboard's request diff
+ * reads a fork's and its parent's this way too.
  */
-function request(store: StoreOf<'recording'>, c: CallRecord, rounded: boolean, secretNames: SecretNamesRule): unknown {
+export function comparedRequest(store: StoreOf<'recording'>, c: CallRecord, rounded: boolean, secretNames: SecretNamesRule): unknown {
   if (!c.requestRef) return null;
   if (c.kind === 'api') return maskGeminiCallIds(reportable(loadApiRequest(store, c.requestRef, { exact: !rounded })));
   const bytes = store.getBlob(c.requestRef);
@@ -276,10 +278,15 @@ function responseDifference(store: StoreOf<'recording'>, x: CallRecord, y: CallR
  */
 function labelled(diff: DiffEntry[], call: CallRecord, a: unknown, b: unknown): Array<DiffEntry & { what?: string }> {
   return diff.map((e) => {
-    const field = e.path.replace(/^\$\.?/, '');
-    const what = call.kind === 'api' ? requestPathLabel(e.op === 'removed' ? a : b, e.path) : call.kind === 'tool' ? (field ? `${call.name} · ${field}` : call.name) : null;
+    const what = changedPathLabel(e, call, a, b);
     return what ? { ...e, what } : e;
   });
+}
+
+/** What one change's path points at, as labelled says it: null where it names nothing (a model request's `$`, a read). */
+export function changedPathLabel(e: DiffEntry, call: Pick<CallRecord, 'kind' | 'name'>, a: unknown, b: unknown): string | null {
+  const field = e.path.replace(/^\$\.?/, '');
+  return call.kind === 'api' ? requestPathLabel(e.op === 'removed' ? a : b, e.path) : call.kind === 'tool' ? (field ? `${call.name} · ${field}` : call.name) : null;
 }
 
 function courseOf(store: StoreOf<'recording'>, calls: CallRecord[], from: number): RunCourse {
@@ -446,17 +453,24 @@ export function compareRuns(store: StoreOf<'recording'>, a: RunRecord, allA: Cal
 function requestDifference(store: StoreOf<'recording'>, a: RunRecord, x: CallRecord, b: RunRecord, y: CallRecord): Array<DiffEntry & { what?: string }> | null {
   if (x.kind !== y.kind || x.name !== y.name) return [{ path: '$', op: 'changed', before: `${x.kind} ${x.name}`, after: `${y.kind} ${y.name}`, what: 'call' }];
   if (x.fingerprint === y.fingerprint || servedFrom(b, y, a, x) || servedFrom(a, x, b, y)) return null;
-  const rounded = a.meta?.exactNumbers !== true || b.meta?.exactNumbers !== true;
-  // The rule of the run that kept fewer names: the other's are masked as that one's are.
-  const secretNames = Math.min(secretNamesOf(a.meta), secretNamesOf(b.meta)) as SecretNamesRule;
-  const qx = request(store, x, rounded, secretNames);
-  const qy = request(store, y, rounded, secretNames);
+  const { rounded, secretNames } = requestReadRule(a, b);
+  const qx = comparedRequest(store, x, rounded, secretNames);
+  const qy = comparedRequest(store, y, rounded, secretNames);
   const diff = [
     ...(x.kind === 'api' ? headerDiff(identityHeaders(x), identityHeaders(y)) : []),
     ...(x.kind === 'api' ? queryDiff(queryPairs(storedQuery(x)), queryPairs(storedQuery(y))) : []),
     ...labelled(structuralDiff(qx, qy), y, qx, qy),
   ];
   return diff.length ? diff : null;
+}
+
+/**
+ * How two runs' requests are read side by side (comparedRequest): every number as a double when
+ * either run was made before requests kept their numbers, and a captured call's arguments under the
+ * rule of the run that kept fewer of a secret's names, the other's masked as that one's are.
+ */
+export function requestReadRule(a: Pick<RunRecord, 'meta'>, b: Pick<RunRecord, 'meta'>): { rounded: boolean; secretNames: SecretNamesRule } {
+  return { rounded: a.meta?.exactNumbers !== true || b.meta?.exactNumbers !== true, secretNames: Math.min(secretNamesOf(a.meta), secretNamesOf(b.meta)) as SecretNamesRule };
 }
 
 /** Whether `c`, a call of `child`, was served from `p`, the call of `parent` it replays. */

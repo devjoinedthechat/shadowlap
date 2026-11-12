@@ -114,6 +114,13 @@ export interface NextStepWork {
   prices?: Record<string, Price>;
 }
 
+/**
+ * What a list's steps read of the project, as one key its kept rows are tagged by: the goldens (each
+ * one's mode, gate, checks, injection test and judges), the config's tests and normalize, and its
+ * folder. Not the prices or the tools: only a step's estimate reads them, asked for on its own.
+ */
+export const listedWorkKey = (work: NextStepWork | null): string => (work ? JSON.stringify([work.goldens, work.tests ?? null, work.normalize ?? null, work.dir]) : '');
+
 export type NextStepKey = 'replay' | 'passing' | 'normalizer' | 'rule' | 'rerun-test' | 'update-golden' | 'gate-again' | 'more-attempts' | 'bisect' | 'revert' | 'pack-gate' | 'pack' | 'compare' | 'injection-proof' | 'injection-test' | 'injection-again' | 'preset-proof' | 'fix' | 'blame';
 
 /** A step as a list's row carries it: which one, its words, where it opens when it is a link, why it can't start when it can't, and what it says it does: none of which reads a call. */
@@ -599,6 +606,9 @@ function againCommand(runId: string, again: InjectionAgain): string {
 /** Why a test stopped short and what to do about it: its budget's the advice to spend it better, any other stop in its own words. */
 const stopWords = (reason: string): string => (/\bbudget\b/.test(reason) ? 'It stopped at its budget: test with fewer templates, or a higher budget' : `It stopped early (${reason}): test it again`);
 
+/** Re-run test's card, where a golden's injection gate showed too little to say: on its run's page and on Needs a look's row. */
+export const gateAgainSub = (why: string | null | undefined): string => `Its injection gate showed too little to say: ${why ?? 'no attempt decided'}`;
+
 /** What a recording's newest finished plant leads with: its proof when it failed, running again when it showed too little; null when it says nothing to do. */
 function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const { row, store } = f;
@@ -613,7 +623,7 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const ownFile = report.payloads?.some((x) => x.source === 'file');
   const stopped = report.stopReason ? stopWords(report.stopReason) : null;
   if ((report.stopReason || ownFile) && !newest.golden) return { key: 'injection-test', label: ACTIONS.runInjectionTest.label, runId: row.runId, command: commandLine(['injection', short(row.runId)]), sub: stopped ?? `It showed too little to say: ${why}`, reads: [row.runId], price: (p) => injectionEstimate(p.calls(row.runId), untrustedReads(p.raw(row.runId), f.work?.tools).reads, { payloads: allTemplates() }) };
-  if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: `Its injection gate showed too little to say: ${why}`, price: again };
+  if (newest.golden) return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden: newest.golden, command: commandLine(['test', newest.golden]), sub: gateAgainSub(why), price: again };
   const job = testedAs(report);
   return { key: 'injection-again', label: ACTIONS.rerunInjectionTest.label, runId: row.runId, job, command: againCommand(row.runId, job), sub: `It showed too little to say: ${why}`, price: again };
 }
@@ -935,6 +945,36 @@ export function listedStep(store: Store, runId: string, work: NextStepWork | nul
   } catch {
     return undefined;
   }
+}
+
+/** A crash's own step: Find breaking commit, then Revert once that named the commit. */
+export type CrashStep = Extract<NextStep, { key: 'bisect' | 'revert' }>;
+
+/**
+ * A test replay's listed step where its agent exited with an error and the step is a crash's
+ * (`crashStep`): what a fix whose blame found no call that rescues the run leads with
+ * (fix-crash.ts). Null for a diverged test's Find breaking commit, a run whose step is another (a
+ * later replay passed it), and a record that can't be read.
+ */
+export function crashStepOf(store: Store, runId: string, work: NextStepWork | null, reads: StepReads): CrashStep | null {
+  const step = listedStep(store, runId, work, { reads });
+  const found = reads.index.byId.get(runId);
+  if ((step?.key !== 'bisect' && step?.key !== 'revert') || !found) return null;
+  const row = asListed(found, reads.state(runId));
+  const tested = testedGolden({ store, row, work });
+  return tested && crashed(row, tested.result) ? step : null;
+}
+
+/**
+ * The newest run's step on the row of failed runs nobody has blamed (Fixes, Needs a look): its listed
+ * step, a capture's by the verdict its import kept, as the lists count it failed (fix-shared.ts
+ * `capturedFailure`): the fix that holds the same failure, else Run blame, which asks for your
+ * command on the capture's page. No call is read for it.
+ */
+export function unblamedListedStep(store: Store, runId: string, work: NextStepWork | null, o: { reads: StepReads }): NextStep | null | undefined {
+  const capture = o.reads.index.byId.get(runId)?.kind === 'capture';
+  const judged = capture ? runJudged(store, o.reads.index, runId, null, { quick: true }) : undefined;
+  return listedStep(store, runId, work, judged === undefined ? o : { ...o, judged });
 }
 
 /** A run's Replay for a list, as its page keeps it beside its next step: undefined for a record it can't be read from. */

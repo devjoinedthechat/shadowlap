@@ -13,6 +13,7 @@ import {
   compareDecisions,
   controlOpen,
   decisionOfResponse,
+  decisionStepState,
   decisionView,
   defaultFrom,
   effectsOf,
@@ -41,6 +42,7 @@ import {
   requestShape,
   GATEWAY_UNCHANGED,
   isGatewayRequest,
+  minorityNotes,
   resolveAuthor,
   retiredFields,
   retirementsOf,
@@ -84,6 +86,7 @@ import {
 import { STOP_SIGNALS } from './agent-signals.js';
 import { specFor, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, loadTests, upstreamOverrides, type ShadowlapConfig } from './config.js';
+import { sessionEventData, type KeptReport } from './decisions-event.js';
 import { captureFromCode, type FromCodeCapture } from './decisions-capture.js';
 import { TextJudge } from './decisions-judge.js';
 import { azureApiVersion, azureDeploymentCall, ModelSender, providerById, type ModelAnswer } from './decisions-send.js';
@@ -916,14 +919,11 @@ function runOf(target: DecisionTarget, planned: Planned[], steps: DecisionStep[]
   let costBefore: number | null = 0;
   let costAfter: number | null = 0;
   for (const s of steps) {
-    if (s.rank !== null) counts[String(s.rank) as '1']++;
-    // Changed in some sample, with no answer as recorded to tell it from the model's own variation: not settled.
-    else if (controlOpen(s)) counts.notAsked++;
-    // Changed in some sample, but no more often than as recorded: the model's own variation.
-    else if (s.control && s.sampled) counts.noise = (counts.noise ?? 0) + 1;
-    else if (s.samples.answered) counts.same++;
-    else if (s.error) counts.notAsked++;
-    else counts.untouched++;
+    // A step that waits on its control (changed in some sample, with no answer as recorded to tell it from the model's own variation) counts as not asked.
+    const state = decisionStepState(s);
+    if (state === 'ranked') counts[String(s.rank) as '1']++;
+    else if (state === 'noise') counts.noise = (counts.noise ?? 0) + 1;
+    else counts[state === 'same' ? 'same' : state === 'left' ? 'untouched' : 'notAsked']++;
     if (!s.samples.answered) continue;
     before = addTokens(before, s.tokens.before);
     after = addTokens(after, s.tokens.after);
@@ -1199,8 +1199,7 @@ function stepNotes(said: Said, o: { allSteps: readonly DecisionStep[]; planned: 
     notes.push(`The ${left.length} model call${left.length === 1 ? '' : 's'} made with ${others.join(', ')} stay${left.length === 1 ? 's' : ''} as recorded: the change is at the calls made with ${from.join(', ')}${whose}.`);
   }
   for (const m of s.from ?? []) if (!use.some((u) => sameModel(u.model, m))) warnings.push(`--from ${m}: no model call of the runs was made with it (they use ${use.map((u) => u.model).join(', ') || 'no named model'})`);
-  const minority = allSteps.filter((x) => x.rank !== null && x.rank <= 2 && !(x.majority !== null && x.majority <= 2)).length;
-  if (minority) notes.push(`${minority} step${minority === 1 ? '' : 's'} had a write, stop or judged change in fewer than half ${minority === 1 ? 'its' : 'their'} samples: listed, not flagged, as a model's own variation.`);
+  notes.push(...minorityNotes(allSteps));
 }
 
 /**
@@ -1304,12 +1303,7 @@ export function keepDecisions(store: StoreOf<'activity' | 'decisions'>, report: 
       data,
       runs: runs.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.majority ?? null, changed: r.decisions.filter((x) => x.rank !== null).length, data: r as unknown as Record<string, unknown> })),
     });
-    if (event) {
-      // What asking (and judging, and for migrate, verifying) cost.
-      const r = report as Partial<DecisionsReport> & { costs?: { checking?: { decisions: number; verify: number; judge?: number } } };
-      const spent = r.costs?.checking ? r.costs.checking.decisions + r.costs.checking.verify + (r.costs.checking.judge ?? 0) : (r.cost?.spent ?? 0) + (r.verify?.spent ?? 0) + (r.judge?.spent ?? 0);
-      recordEvent(store, { kind: `${kind}.done`, actor, ref: sessionId, data: { change: report.change.text, runs: runs.length, flagged: report.flagged.length, spent } });
-    }
+    if (event) recordEvent(store, { kind: `${kind}.done`, actor, ref: sessionId, data: sessionEventData(report as KeptReport, kind) });
     return sessionId;
   } catch (err) {
     (report as DecisionsReport).warnings?.push(`the result could not be kept in the store: ${messageOf(err)}`);

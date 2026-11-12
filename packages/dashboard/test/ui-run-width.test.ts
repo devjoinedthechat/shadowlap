@@ -5,7 +5,7 @@ import type { CallRow } from '../ui/types.js';
 import { glued } from '../ui/format.js';
 import { bannerFor } from '../ui/run/banner.js';
 import { Inspector } from '../ui/run/Inspector.js';
-import { DiffPanel } from '../ui/run/DiffPanel.js';
+import { JsonDiff } from '../ui/components/JsonDiff.js';
 import { sheet, styleRules } from './css-sheet.js';
 
 /**
@@ -111,19 +111,20 @@ describe('a header line that wraps on a phone', () => {
   });
 });
 
-describe("a fork's diff panel", () => {
-  // Each value is a block of its own (.val, .add), so it starts a line by itself: a line break before
-  // it as well would put an empty line between a path and its value when the pane is copied.
-  it('puts each value right after its path, the block starting its line', () => {
-    const run = { run: { divergence: { type: 'request_changed', callNo: 17, kind: 'api', name: 'POST /v1/messages', replayedBefore: 16, counterpart: { callNo: 17 }, diff: [{ path: '$.messages[2].content[0].content', op: 'changed', before: 'EU limit: $150', after: 'EU limit: $50' }] } }, parent: null } as never;
-    const html = renderToStaticMarkup(createElement(DiffPanel, { run }));
-    expect(html).toContain('<span>$.messages[2].content[0].content<span class="val">');
-    expect(html).toContain('<span>$.messages[2].content[0].content<span class="add">');
-    expect(html).not.toMatch(/content\n<span/);
-    expect(topRule('.diffpanel .val')).toMatch(/display: block/);
-    expect(topRule('.diffpanel .add')).toMatch(/display: block/);
+describe('Show diff’s structural diff', () => {
+  // Each line is a block of its own holding its key and its value, so a copied diff reads a line a
+  // key; a long one wraps under its own key (the hanging indent), never off the pane's edge.
+  it('puts each value after its key on one line of its own, wrapping under the key', () => {
+    const html = renderToStaticMarkup(createElement(JsonDiff, { was: { messages: [{ content: 'EU limit: $150' }] }, now: { messages: [{ content: 'EU limit: $50' }] } }));
+    expect(html).toMatch(/<div class="jl del"[^>]*><span class="js" aria-hidden="true">−<\/span><span class="jt"><span class="sr">removed: <\/span><span class="jk">content:<\/span> &quot;EU limit: \$<mark class="jdw">150<\/mark>&quot;<\/span><\/div>/);
+    expect(html).toMatch(/<div class="jl add"[^>]*><span class="js" aria-hidden="true">\+<\/span><span class="jt"><span class="sr">added: <\/span><span class="jk">content:<\/span> &quot;EU limit: \$<mark class="jdw">50<\/mark>&quot;<\/span><\/div>/);
+    expect(html).not.toMatch(/content:<\/span>\n/);
+    expect(topRule('.jl')).toMatch(/display: flex/);
+    expect(topRule('.jl > .jt')).toMatch(/text-indent: -2ch/);
+    expect(topRule('.jl > .jt')).toMatch(/overflow-wrap: anywhere/);
   });
 });
+
 
 describe('the status bar', () => {
   it('is drawn over the views pane, so a switch scrolled under it (Format JSON at 1180) never paints over it', () => {

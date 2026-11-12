@@ -210,6 +210,13 @@ describe('the GitHub Action and inconclusive goldens', () => {
     expect(node.out).toContain('input guard-accept must be claude-code, not "node": a Node or Python process whose guard is off still fails guard block');
   });
 
+  it('pushes the session to the team store with push: true, as Push from CI’s step asks, and not by default', () => {
+    run({ PUSH: 'true' });
+    expect(given()).toContain('--push');
+    run({});
+    expect(given()).not.toContain('--push');
+  });
+
   it('says what is wrong with those inputs', () => {
     expect(run({ INCONCLUSIVE: 'maybe' }).out).toContain('input inconclusive must be fail or warn, or empty, not "maybe"');
     expect(run({ MAX_ATTEMPTS: 'lots' }).out).toContain('input max-attempts must be a whole number of attempts');

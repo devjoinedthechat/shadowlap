@@ -55,6 +55,25 @@ function severalAdvice(paths: readonly string[], ds: readonly DivergenceView[], 
   };
 }
 
+/** The goldens among `paths` whose last replay diverged, as Tests shows them, in the order named. */
+const divergedAmong = (view: Pick<TestsView, 'divergences'>, paths: readonly string[]): DivergenceView[] => paths.map((p) => view.divergences.find((d) => d.golden === p)).filter((d): d is DivergenceView => !!d);
+
+/** A value that changes every run, with no rule for it yet: updating alone diverges again next run. */
+const changesEveryRun = (d: DivergenceView): boolean => !!d.volatile?.certain && !d.rulesAdded;
+
+/**
+ * The advice beside an update the goldens need whatever their last replays diverged on, as a fix's
+ * apply leaves them, its patch having changed what their requests hold: where the last replay of any
+ * diverged on a value made anew every run whose rule isn't in the config, Add normalizer and update
+ * masks them first, as several goldens' update does on Tests, for one golden too, since it is updated
+ * either way. No re-run passes them, so there is no note of one.
+ */
+export function maskFirst(view: Pick<TestsView, 'divergences'>, paths: readonly string[], has: (kind: string) => boolean): Pick<UpdatePlan, 'advise' | 'instead'> {
+  const ds = divergedAmong(view, paths);
+  const { advise, instead } = severalAdvice(paths, ds, ds.filter(changesEveryRun), [], has);
+  return { advise, instead };
+}
+
 /**
  * Update golden: the golden as a row (or the diverged goldens as a list), What happens as numbered
  * rows, the advice when what diverged is a value that changes every run, and the command. `paths` are
@@ -66,15 +85,14 @@ export function updatePlan(view: TestsView, paths: readonly string[], has: (kind
   // A golden whose replay is clean and only lacks a judge's verdict: the update asks the judge once and re-records nothing.
   const judged = paths.length === 1 ? judgePlan(view, paths[0]!) : null;
   if (judged) return judged;
-  const ds = paths.map((p) => view.divergences.find((d) => d.golden === p)).filter((d): d is DivergenceView => !!d);
+  const ds = divergedAmong(view, paths);
   const rows = paths.map((p) => view.rows.find((r) => r.path === p));
   const goldens = paths.map((p, i) => {
     const d = ds.find((x) => x.golden === p);
     return { path: p, name: rows[i]?.name ?? p, where: d ? divergedWhere(d) : (rows[i]?.last.line ?? '') };
   });
   const one = goldens.length === 1;
-  // A value that changes every run, with no rule for it yet: updating alone diverges again next run.
-  const perRun = ds.filter((d) => d.volatile?.certain && !d.rulesAdded);
+  const perRun = ds.filter(changesEveryRun);
   // Its rules are in the config now: alone they make the replay match.
   const rerun = ds.filter((d) => d.rulesAdded && !!d.normalizeAndTest && !updatesAfterRules(d));
   const d0 = one ? (ds[0] ?? null) : null;

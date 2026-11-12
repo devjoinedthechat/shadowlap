@@ -9,10 +9,12 @@ import { RevertButton } from '../ui/revert/RevertButton.js';
 import { RevertDialog } from '../ui/revert/RevertDialog.js';
 import { Banner, forgetOpenFindings } from '../ui/run/FindingsBar.js';
 import { InspectorPlace, panelToggle, useFindingPanel } from '../ui/run/InspectorPanel.js';
+import { panelOn, resetPanel } from '../ui/run/panel-state.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
 import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
 import { resetSpending } from '../ui/spending.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { answerTestsQuestion, askQuestion, testsQuestion } from '../ui/tests-ask.js';
 import type { FoundCommit, NextStep, RunDetail, RunOffers } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -44,7 +46,9 @@ afterEach(async () => {
   await page?.unmount();
   page = null;
   forgetOpenFindings();
+  resetPanel();
   resetSpending();
+  askQuestion(null);
 });
 
 /** An app that records the jobs it is asked to start, as `start` answers them. */
@@ -69,7 +73,7 @@ function app(o: Partial<AppState> = {}, client: Partial<Client> = {}) {
     runs: [],
     actionsOff: null,
     hasKind: () => true,
-    guard: (fn: () => void) => fn(),
+    guard: (fn: () => void) => (fn(), true),
     watchJob: () => undefined,
     toast: () => undefined,
     ...o,
@@ -106,7 +110,7 @@ const header = (run: RunDetail, offers: RunOffers | null) => ({ run, judged: nul
 function Place({ run, offers }: { run: RunDetail; offers: RunOffers }) {
   const p = useFindingPanel(run.run.runId);
   const inspector = createElement('section', { className: 'insp', id: 'insp' }, createElement('div', { className: 'ibody', id: 'ibody', role: 'tabpanel' }));
-  return createElement('div', null, createElement(Banner, { ...bannerProps(run, offers), showChange: p.showChange, onToggleChange: p.onToggleChange }), createElement(InspectorPlace, { kind: p.kind, run, test: null, offers, onClose: p.close, children: inspector }));
+  return createElement('div', null, createElement(Banner, { ...bannerProps(run, offers), showChange: p.showChange, onToggleChange: p.onToggleChange }), createElement(InspectorPlace, { panel: p.panel, run, offers, onClose: p.close, onPick: () => undefined, children: inspector }));
 }
 
 const lead = (a: AppState, o: { parts?: ServedParts; lead?: boolean } = {}) => within(a, createElement(RevertButton, { step: STEP, found: FOUND, estimate: FREE, runId: REC, lead: o.lead ?? true }), o.parts);
@@ -159,8 +163,8 @@ describe('Revert', () => {
     expect(facts[1].value).toContain(UNTESTED_WORDS.row);
     expect(facts[2].value).toBe('refund is tested');
     // The change undone, in a code box: what the commit added taken out, what it removed put back.
-    expect(page.all('pre.codebox.fxpatch span.add').map((s) => s.textContent.trim())).toEqual(['+    log(total)']);
-    expect(page.all('pre.codebox.fxpatch span.del').map((s) => s.textContent.trim())).toEqual(['-    log(order["total"])']);
+    expect(page.all('pre.codebox.fxpatch span.add').map((s) => s.textContent.trim())).toEqual(['+     log(total)']);
+    expect(page.all('pre.codebox.fxpatch span.del').map((s) => s.textContent.trim())).toEqual(['−     log(order["total"])']);
     // Read, not pasted: the change has no Copy of its own.
     expect(page.all('.dialog .boxwrap .fxpatch')).toHaveLength(0);
     expect(page.one('.db').textContent).toContain(`git revert --no-commit ccccccc && shadowlap test ${GOLDEN}`);
@@ -175,7 +179,7 @@ describe('Revert', () => {
     const started: Array<[string, Record<string, unknown>]> = [];
     const startJob = (kind: string, fields: Record<string, unknown>) => {
       started.push([kind, fields]);
-      return started.length === 1 ? Promise.reject(new ApiError(409, 'goldens/refund is marked fork, so it runs live from where it forks, writes blocked', 'yes-1')) : Promise.resolve({ id: 'j2' });
+      return started.length === 1 ? Promise.reject(new ApiError(409, 'goldens/refund is marked fork, so it runs live from where it forks, writes blocked', 'yes-1', [{ path: GOLDEN, why: live }])) : Promise.resolve({ id: 'j2' });
     };
     const live = [{ kind: 'fork' }, { kind: 'judges', models: ['claude-haiku-4-5'] }, { kind: 'injection' }];
     page = await render(dialog(app({}, { startJob: startJob as never }).a, { ...STEP, live } as typeof STEP, { kind: 'tests', usd: null, ceiling: false, parts: ['live from there, writes blocked'] }));
@@ -191,6 +195,43 @@ describe('Revert', () => {
     await page.click(page.byText('.dialog button', 'Revert'));
     await page.until('the yes', () => started.length === 2);
     expect(started[1]).toEqual(['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, yes: 'yes-1' }]);
+  });
+
+  it('gives way to the dialog that opens on Cancel for a command someone else recorded, whose Run alone sends that yes', async () => {
+    const why = `${REC.slice(0, 10)} came from an imported pack: its test runs the command it was recorded with (python agent.py), under shadowlap test ${GOLDEN}. Confirm it to run it`;
+    for (const press of ['Run command', 'Cancel']) {
+      const started: Array<[string, Record<string, unknown>]> = [];
+      const startJob = (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), started.length === 1 ? Promise.reject(new ApiError(409, why, 'c-1')) : Promise.resolve({ id: 'j2' }));
+      let closed = 0;
+      const a = app({}, { startJob: startJob as never }).a;
+      page = await render(within(a, createElement(RevertDialog, { step: STEP, found: FOUND, estimate: FREE, runId: REC, onClose: () => void (closed += 1) })));
+      await page.click(page.byText('.dialog button', 'Revert'));
+      await page.until('the question', () => page!.one('.dialog h3').textContent === 'Run command from imported pack');
+      expect(page.one('.dwarn').textContent).toBe(why);
+      expect(page.focused()).toBe(page.one('.dlg-cancel'));
+      expect([started.length, closed]).toEqual([1, 0]);
+      await page.click(page.byText('.dialog button', press));
+      if (press === 'Run command') await page.until('the yes', () => started.length === 2);
+      expect(started.slice(1)).toEqual(press === 'Run command' ? [['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, estimate: { usd: 0, ceiling: false }, yes: 'c-1' }]] : []);
+      await page.until('the dialog closed', () => closed === 1);
+      await page.unmount();
+      page = null;
+    }
+  });
+
+  it('asks as Tests does where the server says the test runs live for a reason the dialog didn’t give, sending nothing until it is answered', async () => {
+    const started: Array<[string, Record<string, unknown>]> = [];
+    const live = [{ path: GOLDEN, why: [{ kind: 'fork' }] }];
+    const startJob = (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), started.length === 1 ? Promise.reject(new ApiError(409, 'goldens/refund is marked fork, so it runs live from where it forks, writes blocked', 'yes-2', live)) : Promise.resolve({ id: 'j2' }));
+    const { a } = app({}, { startJob: startJob as never });
+    page = await render(dialog(a));
+    await page.click(page.byText('.dialog button', 'Revert'));
+    await page.until('the question', () => testsQuestion() !== null);
+    expect(testsQuestion()).toMatchObject({ title: 'Revert ccccccc?', name: 'ccccccc', ok: 'Revert', kind: 'revert', confirm: 'yes-2', live });
+    expect(started).toHaveLength(1);
+    answerTestsQuestion(a, true);
+    await page.until('the yes', () => started.length === 2);
+    expect(started[1]).toEqual(['revert', { golden: GOLDEN, rev: 'ccccccc', runId: REC, estimate: { usd: 0, ceiling: false }, yes: 'yes-2' }]);
   });
 });
 
@@ -215,7 +256,7 @@ describe('a named crash on its run’s page', () => {
     expect(page.one('#ibody .bisectdiff').textContent).toContain('agent/refund.py');
     expect(page.all('#ibody .bisectdiff .cdacts button').map((b) => b.textContent)).toEqual(['Open in editor', 'Copy git revert']);
     // Esc hands the focus to the toggle that opened it, as Hide does.
-    expect(panelToggle()).toBe(page.one('[data-act="change"]'));
+    expect(panelToggle(panelOn(REC))).toBe(page.one('[data-act="change"]'));
     await page.click(page.one('.fhead .nav button'));
     expect(page.all('.fpanel')).toHaveLength(0);
     expect(page.focused()).toBe(page.one('[data-act="change"]'));

@@ -1,8 +1,8 @@
-import { BLAME_DEFAULTS, fieldValue, outcomeOf, repairPatchProblem, repairToApply, shownBlame, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type NoFixToTry, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, fieldValue, keptCaptureVerdict, outcomeOf, repairPatchProblem, repairToApply, shownBlame, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type NoFixToTry, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredCheck, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { isCount } from './rerun.js';
-import { loadRunIndex, type RunIndex } from './run-index.js';
+import { type IndexedRun, loadRunIndex, type RunIndex } from './run-index.js';
 import { splitCommandLine } from './settings.js';
 
 /** What the Fixes pages' read models share: a fix's links and its steps' words, its blame, repair and verdicts as the pages pick them, a patch as it is checked, and the change a verdict was made under. */
@@ -21,6 +21,22 @@ export function sprtGate(g: unknown): SprtGate | null {
 }
 
 export type StepKey = 'blame' | 'repair' | 'verify';
+
+/**
+ * A step's verdict line, as the step opens on it (StepLead): its word in its tone (`done` ink,
+ * `ok` lime, `warn` amber, `err` red), its head in parts, each kept whole where the head wraps
+ * (a probe's tally, `3 of 4 rescued from #5`), and the finding sentence under it, in the engine's
+ * words; null where the step has none.
+ */
+export interface StepLine {
+  word: string;
+  tone: 'done' | 'ok' | 'warn' | 'err';
+  head: string[];
+  finding: string | null;
+}
+
+/** A gate's two marks on a 0 to 1 scale, `[bad, good]`, for the bars of the intervals it decided (IntervalBar); null without a gate. */
+export const gateMarks = (g: SprtGate | null): [number, number] | null => (g ? [g.bad, g.good] : null);
 
 export interface VerifyRow {
   role: 'target' | 'held-out' | 'good';
@@ -41,6 +57,22 @@ export interface VerifyRow {
   rate: { decision: string; lo: number; hi: number; confidence: number; sentence: string; bound: string | null } | null;
   /** Where it went: where it forked, or why it failed. */
   note: string;
+  /**
+   * Its tally in the words `shadowlap verify` prints, in the parts its cell draws apart (engine
+   * `verifyTally`, through src/verdict.ts `verifiedParts`). `tally` is what it counted and why an
+   * attempt stopped it: `12 of 12 passed`, `38 of 38 passed, baseline 38 of 38`, `clean replay`, `2 of
+   * 3 passed, attempt 4 not judged`, `the provider unavailable`. `cutShort` is the attempts the
+   * provider cut short, `1 cut short by the provider, counted against either verdict`, and `bound`
+   * the bound, `rate >= 0.73 (95%)` or `drop <= 0.10 (95%)`; each is null where there is none. Joined as
+   * verify joins them, `<tally> (<cutShort>) · <bound>`, they are its line.
+   */
+  tally: string;
+  cutShort: string | null;
+  bound: string | null;
+  /** The interval its gate decided it on, for its bar against the step's `marks`: null for a fixed count, a clean replay, and a run kept against its baseline, whose drop bound says it. */
+  interval: { lo: number; hi: number } | null;
+  /** Each attempt, in the order it ran: how it came out, and where it went or why it failed. `attempts` is how many. */
+  tries: Array<{ runId: string; href: string; outcome: AttemptVerdict; note: string | null }>;
   /** Input tokens and cost per run, as recorded and under the change (the mean of its attempts). */
   tokens: { recorded: number; now: number } | null;
   cost: { recorded: number | null; now: number | null } | null;
@@ -54,15 +86,18 @@ export interface FixActions {
    * caller adds (`repairJobArgv`); `command` is the whole command line, repairer included. `noFix`:
    * why the repair would end "No fix to try" without running the agent, in a sentence (`noFixToTry`),
    * or null when it would run it; `noFixWhy`, which of the estimate's two cases that is; `candidates`,
-   * how many it asks the repairer for.
+   * how many it asks the repairer for. `spent`: its last repair tried candidates and accepted none,
+   * under the fix's check as it is, with no blame since (fix-lead.ts `repairSpent`), so running it
+   * again would try the same: Run repair waits, and the fix leads with what that repair's verdict left.
    */
-  repair: { argv: string[]; command: string; noFix: string | null; noFixWhy: NoFixToTry | null; candidates: number } | null;
+  repair: { argv: string[]; command: string; noFix: string | null; noFixWhy: NoFixToTry | null; candidates: number; spent: boolean } | null;
   /**
    * A verified or applied fix: apply its repair's patch (`patch`), or mark a change verified in the
-   * working tree applied (`mark`). Once `applied`, the button is "Patch applied" ("Marked applied"
-   * for a fix with no patch) and disabled, unless `pending` says what applying left undone, which
-   * running it again finishes. `pulled`: the repair came from the team store, so its recordings are
-   * on the machine that ran it, and applying here puts in the patch alone and runs nothing from it.
+   * working tree applied (`mark`), by `argv` (`command`, its line). Once `applied`, a patch offers
+   * Show patch, and a fix with no patch a disabled "Marked applied", unless `pending` says what
+   * applying left undone, which Finish applying runs again to finish. `pulled`: the repair came from
+   * the team store, so its recordings are on the machine that ran it, and applying here puts in the
+   * patch alone and runs nothing from it.
    * `files`: every file the patch changes, and `diff` the patch itself, for the confirm dialog to
    * show what goes in. `refused`: why `fix apply` won't put it in (it is more than the one rewrite
    * its repair verified); then there is no git apply command to copy either (`gitApply`, as
@@ -77,7 +112,7 @@ export interface FixActions {
    * (`--set`, `--model`) with no patch, what it set (`fieldChange`): marking it applied leaves making
    * it in the agent to you.
    */
-  apply: { kind: 'patch' | 'mark'; argv: string[]; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; names: Array<{ run: string; name: string }>; held: string[] | null; change: string | null } | null;
+  apply: { kind: 'patch' | 'mark'; argv: string[]; command: string; gitApply: string | null; pending: string | null; pulled: boolean; files: string[]; diff: string | null; patchFile: string | null; refused: string | null; inTree: boolean; goldens: number; names: Array<{ run: string; name: string }>; held: string[] | null; change: string | null } | null;
   applied: boolean;
   /**
    * An open fix whose blame couldn't settle where its run was lost (`unsettled`: its first probe
@@ -97,6 +132,15 @@ export interface FixActions {
    * user says yes to its command, without what runs on no other machine (`left`).
    */
   blameStronger: { argv: string[]; command: string; attempts: number; spent: number; pulled: PulledFrom | null; left: string[] } | null;
+  /**
+   * A verified or applied fix whose change is in the working tree, with failing runs in the store
+   * that no accepted verdict that counts checked (`notVerified`): Verify this run, a verify of those
+   * runs (`runs`) on the code as it is now, under the fix's check and what the accepted verdict
+   * decided by (fix-verify-step.ts `verifyLeftArgs`). Built from the verdict's checked fields, never
+   * its command line; one a pull brought runs only once the user says yes to its command, without
+   * what runs on no other machine (`left`). Null otherwise.
+   */
+  verifyLeft: { runs: string[]; argv: string[]; command: string; pulled: PulledFrom | null; left: string[] } | null;
 }
 
 // Links come from the one builder (links.ts), which the page's route parser reads back.
@@ -127,6 +171,12 @@ export const counting = (rec: FixRecords) => rec.verdicts.filter((v) => verdictC
 
 export function acceptedVerdict(rec: FixRecords): StoredVerdict | null {
   return [...counting(rec)].reverse().find((v) => v.verdict === 'accepted') ?? null;
+}
+
+/** The fix's failing runs that no accepted verdict that counts has checked as failing runs. */
+export function notVerified(rec: FixRecords): string[] {
+  const checked = new Set(counting(rec).flatMap((v) => (v.verdict === 'accepted' ? v.report.runs.filter((x) => x.role !== 'good').map((x) => x.runId) : [])));
+  return rec.failing.filter((id) => !checked.has(id));
 }
 
 export const acceptedCandidate = (r: StoredRepair): RepairCandidate | null => (r.accepted ? (r.report.candidates.find((c) => c.id === r.report.accepted) ?? null) : null);
@@ -306,15 +356,34 @@ export function patchToCheck(rec: FixRecords): string | null {
 
 /**
  * A failed run that is not a fix yet, with no blame kept and in no fix: a recording whose agent
- * exited with an error, or a fork that failed as the run list judges it (its own check, or its
- * agent's exit), which Run blame takes as it takes a recording. Attempts are not: a blame probe's,
- * a verify's, a `--repeat`'s or a preset's failure counts towards what made them, a test's is
- * Tests', and an injection test's replay is judged by that test. A blame from before Fixes kept
- * blames (only `meta.blame` on the run) does not count: blaming it again opens its fix.
+ * exited with an error, a capture its import judged failed (`capturedFailure`), or a fork that
+ * failed as the run list judges it (its own check, or its agent's exit), which Run blame takes as it
+ * takes a recording. Attempts are not: a blame probe's, a verify's, a `--repeat`'s or a preset's
+ * failure counts towards what made them, a test's is Tests', and an injection test's replay is
+ * judged by that test. A blame from before Fixes kept blames (only `meta.blame` on the run) does not
+ * count: blaming it again opens its fix.
  */
 export function isUnblamedFailure(store: StoreOf<'readModels' | 'fixes'>, run: RunRecord, index: RunIndex = loadRunIndex(store)): boolean {
-  if (run.mode === 'record' ? run.status !== 'failed' : !failedFork(index, run.runId, !!run.meta?.injection)) return false;
+  if (!failedAlone(index, run, !!run.meta?.injection)) return false;
   return store.blamesOfRun(run.runId).length === 0 && store.linksTo(run.runId, 'failing').length === 0;
+}
+
+/**
+ * A capture its import judged failed, by the verdict it kept (the index's `meta.judged`), as Runs
+ * counts it failed (runs-filter.ts `listFailed`) and its page leads with Run blame. The lists read
+ * the kept verdict; the page judges by the rules on calls as they are now.
+ */
+export const capturedFailure = (row: Pick<IndexedRun, 'kind' | 'meta'> | undefined): boolean => row?.kind === 'capture' && row.meta.judged === 'failed';
+
+/** The first half of isUnblamedFailure, from what the run index says of a run: a recording that failed, a capture its import judged failed, or a fork that failed on its own. */
+function failedAlone(index: RunIndex, run: Pick<RunRecord, 'runId' | 'mode' | 'status'>, injected: boolean): boolean {
+  if (capturedFailure(index.byId.get(run.runId))) return true;
+  return run.mode === 'record' ? run.status === 'failed' : failedFork(index, run.runId, injected);
+}
+
+/** The checks a failed run says it failed on: those it recorded, or a capture's that its import judged it by (the verdict it kept). */
+export function checksOf(run: RunRecord, row: Pick<IndexedRun, 'kind' | 'meta'> | undefined): readonly StoredCheck[] {
+  return capturedFailure(row) ? (keptCaptureVerdict(run)?.checks ?? []) : (run.meta?.checks ?? []);
 }
 
 /** A fork the run list counts as failed that stands on its own: no attempt of anything, no test's, and not the fork blame rescued a run with. */
@@ -335,7 +404,7 @@ export function unblamedRuns(store: StoreOf<'readModels' | 'fixes' | 'recording'
   const out: RunRecord[] = [];
   for (const row of index.runs) {
     // The first half of isUnblamedFailure, on the row: the rest only for a run that passes it.
-    if (row.mode === 'record' ? row.status !== 'failed' : !failedFork(index, row.runId, !!row.meta.injection)) continue;
+    if (!failedAlone(index, row, !!row.meta.injection)) continue;
     const run = store.getRun(row.runId);
     if (run && isUnblamedFailure(store, run, index)) out.push(run);
   }

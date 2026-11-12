@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { consentAsked } from '../actions.js';
-import { JOB_KINDS, ApiError, type JobView } from '../api.js';
-import { Badge } from '../components/bits.js';
-import { ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
-import { DialogSteps, DialogTip } from '../components/DialogFacts.js';
-import { UpdateGoldenDialog } from '../components/UpdateGolden.js';
+import { JOB_KINDS, ApiError } from '../api.js';
+import { tipCard } from '../components/HoverCard.js';
+import { Link } from '../components/Link.js';
+import { Status } from '../components/Status.js';
+import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { headingRef } from '../focus-manager.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
@@ -12,33 +12,35 @@ import { Elsewhere } from '../pages/held-elsewhere.js';
 import { APPLY_ASK } from '../page-ask.js';
 import { Unshown } from '../shell/unshown.js';
 import { copyText } from '../dom.js';
-import { GLUED_SEPARATOR } from '../format.js';
-import { useLoad } from '../hooks.js';
-import { addJobFooter } from '../job-actions.js';
+import { GLUED_SEPARATOR, shortId } from '../format.js';
 import { href } from '../route.js';
 import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import type { FixDetail } from '../types.js';
-import { copiedTo, GoldenNameFields, nameFields, nameFlags, useGoldenNames } from './ApplyNames.js';
+import type { FixDetail, VerifyStep } from '../types.js';
+import type { FixEstimates } from '../estimates-api.js';
 import { BlameStepView } from './BlameStep.js';
 import { rememberFix } from './data.js';
-import { applySteps, keepsOf, markLead, PULLED_LINE, repairCost, updateOutdatedAsk } from './dialog-words.js';
 import { blameNextAsk } from './BlameAgain.js';
-import { blameNextPrice, repairCard, useFixEstimates } from './estimates.js';
+import { blameNextPrice, repairCard, useFixEstimates, verifyPrice } from './estimates.js';
 import { FixJobButton } from './FixJobButton.js';
-import { appliedButton, blameNextStep, fixAction, fixName, fixStamp, laterStamp, outdatedOf, patchLines, repairAsk, repairAside, shortFixId, statusBadge, stepFor, stepLeads } from './model.js';
-import { FailedMust, Flagged } from './parts.js';
+import { appliedButton, failingLine, fixAction, fixName, fixStamp, headBlameNext, laterStamp, leadingVerdict, repairAside, shortFixId, stepFor } from './model.js';
+import { FixStepper, REPAIR_SPENT, showPatchCard, useFitFixHead } from './head.js';
+import { failingCard, leadCard, rungStatus } from './list.js';
+import { useFixRead, useFollowJobs } from './page-fix.js';
+import { FailedMust } from './parts.js';
 import { RepairStepView } from './RepairStep.js';
-import { useTreeBusy } from './tree.js';
-import { VerifyStepView } from './VerifyStep.js';
+import { useServerJobs, useTreeBusy } from './tree.js';
+import { leadWait, verifyTip } from './lead.js';
+import { CrashStepButton } from '../revert/CrashStep.js';
+import { EditorButton } from '../revert/EditorButton.js';
+import { VerifyAsk } from './verify-asks.js';
+import { VerifyLeftButton, VerifyStepView } from './VerifyStep.js';
 
 export { StrongerDialog } from './BlameAgain.js';
-import { ACTIONS, confirmWords } from '../labels.js';
+import { ApplyDialog, PatchDialog, RepairDialog } from './FixDialogs.js';
+export { ApplyDialog, PatchDialog, RepairDialog } from './FixDialogs.js';
+import { ACTIONS } from '../labels.js';
 import { ActionButton } from '../components/ActionButton.js';
-import { sentEstimate } from '../spending.js';
-import { JobButton } from '../components/JobButton.js';
-import { testsJob } from '../pages/tests-cards.js';
-import { updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 
 /**
  * A fix (#/fixes/<id>[/<step>[/<sub>]]): its title, check and runs; the stepper (Blame, Repair,
@@ -46,13 +48,17 @@ import { updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.
  * Run repair on an open fix, Apply fix on a verified one.
  */
 export function FixPage({ id, step, sub }: { id: string; step: string | null; sub: string | null }) {
-  const { client, tick, feeds } = useApp();
-  // Again when runs change, or fixes do (a title set in a terminal, a repair's report).
-  const loaded = useLoad(() => client.fix(id), `fix:${id}`, `${tick}:${feeds.fixes ?? 0}`);
+  const { client, tick, feeds, jobs } = useApp();
+  // A search or a revert of this tab's running: once it ends, the crash's step it leads with moves on.
+  const crashJob = jobs.some((w) => !w.job.done && !w.lost && (w.job.kind === JOB_KINDS.bisect || w.job.kind === JOB_KINDS.revert));
+  // Again when runs change, or fixes do (a title set in a terminal, a repair's report), or such a job
+  // ends, each answer shared with what a job of the fix ends on in the drawer.
+  const loaded = useFixRead(client, id, `${tick}:${feeds.fixes ?? 0}:${crashJob}`);
   const fix = loaded.data;
   useEffect(() => {
     if (fix) rememberFix(fix, id);
   }, [fix, id]);
+  useFollowJobs(id, fix);
   if (!fix) {
     const loading = (
       <Page>
@@ -90,42 +96,46 @@ export function FixPage({ id, step, sub }: { id: string; step: string | null; su
   const current = stepFor(fix, step);
   return (
     <Page>
-      <FixHeader fix={fix} reload={loaded.reload} leads={stepLeads(fix, step, sub)} />
-      <nav className="stepper" aria-label="Steps">
-        {fix.steps.map((x) => (
-          <a key={x.key} className={x.state} href={href.fixes(fix.fixId, x.key)} aria-current={x.key === current ? 'step' : undefined}>
-            <span className="k">
-              <i />
-              {x.n} · {x.key}
-            </span>
-            <b>{x.title}</b>
-            <span className="m">
-              <Flagged text={x.meta} />
-            </span>
-          </a>
-        ))}
-      </nav>
+      <FixHeader fix={fix} reload={loaded.reload} shown={leadingVerdict(fix, step, sub)} />
+      <FixStepper fix={fix} current={current} />
       {current === 'repair' ? <RepairStepView fix={fix} /> : current === 'verify' ? <VerifyStepView fix={fix} sub={sub} /> : <BlameStepView fix={fix} />}
     </Page>
   );
 }
 
-function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void; leads: boolean }) {
+/** Runs › Failed, where a fix's failing runs link, as its Fixes row's do. */
+const FAILED = href.runs({ types: 'failed' });
+
+/**
+ * The fix's header: its name over its title, in the UI face, a fix being named by a sentence; where it
+ * stands as a dot and a word, as its Fixes row says it, then its failing runs (a link to Failed),
+ * good runs and stamps; what failed and what it must do; and its buttons, beside the title or
+ * stacked under it, lime first, where they would crowd it (`useFitFixHead`). The source shows only
+ * where the status names no pull request (`merged · PR #138` says it already).
+ */
+function FixHeader({ fix, reload, shown }: { fix: FixDetail; reload: () => void; shown: VerifyStep | null }) {
   const app = useApp();
   const [renaming, setRenaming] = useState(false);
-  const badge = statusBadge(fix);
-  const s = (n: number) => (n === 1 ? '' : 's');
+  const head = useFitFixHead();
+  const status = rungStatus(fix);
+  const card = failingCard({ failing: fix.failing, failingIds: fix.failingRuns.slice(0, 5).map((r) => shortId(r.runId)) });
+  const prNamed = fix.rung === 'merged' && fix.pr?.number != null;
   return (
-    <div className="ph">
+    <div className="ph fxh" ref={head}>
       <div>
-        <div className={`eyebrow${fix.status === 'open' ? ' fork' : ''}`}>
-          <i />
+        <div className="eyebrow">
           fix · <code>{fixName(fix)}</code>
         </div>
         <h1 ref={headingRef}>{fix.title}</h1>
         <p className="pmeta">
           {/* Each separator is held to the item before it, so a wrapped line never starts with one. */}
-          <Badge tone={badge.tone}>{badge.text}</Badge> <span>{`${fix.failing} failing run${s(fix.failing)}`}</span>
+          <Status tone={status.tone}>{status.text}</Status>
+          {GLUED_SEPARATOR}
+          <span>
+            <Link href={FAILED} quiet tip={tipCard(card.title, [], card.text)}>
+              {failingLine(fix)}
+            </Link>
+          </span>
           {GLUED_SEPARATOR}
           <span>{`${fix.good} good`}</span>
           {GLUED_SEPARATOR}
@@ -142,7 +152,7 @@ function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void;
               <span>applied {laterStamp(fix.appliedAt, fix.verifiedAt ?? fix.openedAt)}</span>
             </>
           ) : null}
-          {fix.source ? (
+          {fix.source && !prNamed ? (
             <>
               {GLUED_SEPARATOR}
               <span className="fxsource">{fix.source}</span>
@@ -161,7 +171,7 @@ function FixHeader({ fix, reload, leads }: { fix: FixDetail; reload: () => void;
         {fix.broken ? <p className="fxbad">This fix doesn’t hold: {fix.broken}.</p> : null}
       </div>
       <div className="actions">
-        <FixActions fix={fix} leads={leads} />
+        <FixActions fix={fix} shown={shown} />
       </div>
       {renaming ? (
         <RenameFixDialog fix={fix} onClose={() => setRenaming(false)} onDone={reload} />
@@ -204,89 +214,69 @@ export function RenameFixDialog({ fix, onClose, onDone }: { fix: FixDetail; onCl
   );
 }
 
+/** What a button of the header opens: Run repair's dialog, Apply fix's (Mark applied, Finish applying), or the patch to read. */
+type Ask = 'repair' | 'apply' | 'patch';
+
+/** What each status's buttons are given: the fix, its prices, the lead that takes the lime (none while its Verify step leads), why its write waits, and what a press opens. */
+interface ButtonsProps {
+  fix: FixDetail;
+  prices: FixEstimates | null | undefined;
+  lime: FixDetail['lead'];
+  why: string | null;
+  ask: (what: Ask) => void;
+}
+
+/** Why the fix's write can't start (Run repair on an open fix, its apply otherwise): nothing runs here, the server doesn't run it, or a job holds the working tree. */
+function useWriteWhy(fix: FixDetail): string | null {
+  const app = useApp();
+  const open = fix.status === 'open';
+  // A repair or an apply changes the working tree: it waits for every job running the agent from it.
+  const busy = useTreeBusy('writes', open ? 'repair' : 'apply the patch');
+  const missing = app.hasKind(open ? JOB_KINDS.repair : JOB_KINDS.applyFix) ? null : `This dashboard doesn’t run ${open ? 'repair' : 'fix apply'}: run it in a terminal.`;
+  return app.actionsOff ?? missing ?? busy;
+}
+
 /**
- * Run repair, or Copy git apply and Apply fix, each asking first. Disabled, with the
- * reason, where nothing runs, while another job uses the working tree, or when there is nothing to
- * do. A repair whose runs came from someone else's pack asks once more before it runs their command.
- * Run repair is the lead action unless it would end "No fix to try", the blame of every
- * failing run having rescued it from no call: then it stays, as a plain button that says why on
- * hover (`repairAside`), and the blame's own next step leads when there is one (`blameNextStep`):
- * Run blame again, for a blame that couldn't settle or stopped part way, or Run blame with stronger
- * model, which asks for the model. A patch in the working tree already, merged or applied by hand,
- * is only to be marked applied, and an applied fix offers its patch to read: git apply would fail
- * on either. While the open step leads with its own next step (`leads`: a verdict left incomplete,
- * with Run more attempts), every button here reads plain.
+ * Asked from the palette's Apply fix, on this page already or arriving on it: its dialog opens as a
+ * press of the button would, or a toast says why it can't. Mounted for every status, so a fix with
+ * nothing to apply still says why.
  */
-export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boolean }) {
+function usePaletteApply(fix: FixDetail, why: string | null, open: () => void): void {
+  const app = useApp();
+  const asked = useRef(() => {});
+  asked.current = () => {
+    const action = fixAction(fix);
+    const cant = action.kind === 'apply' ? why : action.kind === 'none' ? (app.actionsOff ?? action.why) : null;
+    if (cant) app.toast(cant);
+    else if (action.kind === 'apply') open();
+  };
+  useEffect(() => {
+    const go = () => asked.current();
+    if (APPLY_ASK.take(fix.fixId)) go();
+    return APPLY_ASK.on(go, fix.fixId);
+  }, [fix.fixId]);
+}
+
+/**
+ * The header's buttons, by where the fix stands, the server's `lead` (fix-lead.ts, which its Fixes
+ * row leads with too) the one lime: an open fix's (`OpenButtons`), an applied one's
+ * (`AppliedButtons`), a merged one's (`MergedButtons`), a verified one's (`VerifiedButtons`). While
+ * the Verify step shows a verdict that leads with its own next step (`shown`: Run more attempts,
+ * Verify again), that step is the lime one, rightmost, the rest plain before it. Each asks first as
+ * its dialog says; a job whose runs came from someone else's pack asks once more before it runs their
+ * command.
+ */
+export function FixActions({ fix, shown = null }: { fix: FixDetail; shown?: VerifyStep | null }) {
   const app = useApp();
   // What its billed jobs would cost, asked as the page opens and whenever the fix moves.
   const prices = useFixEstimates(fix);
-  const action = fixAction(fix);
-  // A repair or an apply changes the working tree: it waits for every job running the agent from it.
-  const busy = useTreeBusy('writes', fix.status === 'open' ? 'repair' : 'apply the patch');
-  const [asking, setAsking] = useState<'repair' | 'apply' | 'patch' | null>(null);
+  const why = useWriteWhy(fix);
+  const [asking, setAsking] = useState<Ask | null>(null);
   const [consent, setConsent] = useState<{ why: string; confirm: string; kind: string; fields: Record<string, unknown> } | null>(null);
-  const off = app.actionsOff;
-  const kind = action.kind === 'repair' ? JOB_KINDS.repair : JOB_KINDS.applyFix;
-  const missing = app.hasKind(kind) ? null : `This dashboard doesn’t run ${action.kind === 'repair' ? 'repair' : 'fix apply'}: run it in a terminal.`;
-  const why = off ?? missing ?? busy;
-  // Asked from the palette's Apply fix, on this page already or arriving on it: its dialog opens as
-  // a press of the button would, or a toast says why it can't.
-  const asked = useRef(() => {});
-  asked.current = () => {
-    const cant = action.kind === 'apply' ? why : action.kind === 'none' ? (off ?? action.why) : null;
-    if (cant) app.toast(cant);
-    else if (action.kind === 'apply') setAsking('apply');
-  };
-  useEffect(() => {
-    const open = () => asked.current();
-    if (APPLY_ASK.take(fix.fixId)) open();
-    return APPLY_ASK.on(open, fix.fixId);
-  }, [fix.fixId]);
+  usePaletteApply(fix, why, () => setAsking('apply'));
   if (app.exported) return null;
-  const gitApply = fix.actions.apply?.gitApply ?? null;
-  const diff = fix.actions.applied ? (fix.actions.apply?.diff ?? null) : null;
-  const copy = gitApply ? (
-    <button
-      className="btn"
-      type="button"
-      onClick={() => {
-        void copyText(gitApply).then((ok) => app.toast(ok ? 'Copied git apply' : 'Copying was refused by the browser'));
-      }}
-    >
-      Copy git apply
-    </button>
-  ) : diff ? (
-    <>
-      <button className="btn" type="button" onClick={() => setAsking('patch')}>
-        Show patch
-      </button>
-      {asking === 'patch' ? <PatchDialog fix={fix} diff={diff} onClose={() => setAsking(null)} /> : null}
-    </>
-  ) : null;
-  if (action.kind === 'none')
-    return (
-      <>
-        {copy}
-        <ActionButton className="btn lime" why={off ?? action.why}>
-          {action.label}
-        </ActionButton>
-      </>
-    );
-  if (action.kind === 'applied') {
-    // A fix with no patch was only marked applied: its button says so, and never speaks of a patch.
-    const done = appliedButton(fix.actions.apply);
-    return (
-      <>
-        {copy}
-        <button className="btn" type="button" disabled title={done.title}>
-          {done.label}
-        </button>
-      </>
-    );
-  }
-  const aside = action.kind === 'repair' ? repairAside(fix) : null;
-  const blameNext = action.kind === 'repair' ? blameNextStep(fix) : null;
+  const action = fixAction(fix);
+  const diff = fix.actions.apply?.diff ?? null;
   const start = (jobKind: string, fields: Record<string, unknown>) =>
     app.client.startJob(jobKind, fields).then(
       (job) => app.watchJob(Promise.resolve(job)),
@@ -296,28 +286,17 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
         else app.watchJob(Promise.reject(err));
       },
     );
+  // The patch is only read; the rest asks before it starts anything.
+  const ask = (what: Ask) => (what === 'patch' ? setAsking(what) : app.guard(() => setAsking(what)));
+  const props: ButtonsProps = { fix, prices, lime: shown ? null : fix.lead, why, ask };
+  const close = () => setAsking(null);
   return (
     <>
-      {copy}
-      <ActionButton className={aside || blameNext || leads ? 'btn' : 'btn lime'} why={why} {...repairCard(fix, action.kind, aside, prices)} onClick={() => app.guard(() => setAsking(action.kind === 'repair' ? 'repair' : 'apply'))}>
-        {action.kind === 'repair' ? ACTIONS.runRepair.label : action.label}
-      </ActionButton>
-      {blameNext ? (
-        <FixJobButton
-          kind={JOB_KINDS.blame}
-          fields={blameNext.kind === 'again' ? { fixId: fix.fixId, again: true } : { fixId: fix.fixId }}
-          label={blameNext.label}
-          verb={blameNext.kind === 'again' ? 'blame again' : 'blame it'}
-          lead={!leads}
-          tip={blameNext.tip}
-          command={blameNext.command}
-          estimate={blameNextPrice(blameNext.kind, prices)}
-          form={blameNext.kind === 'stronger'}
-          ask={blameNextAsk(fix, blameNext.kind, blameNextPrice(blameNext.kind, prices))}
-        />
-      ) : null}
-      {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={(repairer, sent) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer, ...sent }))} /> : null}
-      {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={(names) => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId, ...(names ? { names } : {}) }))} /> : null}
+      {fix.status === 'open' ? <OpenButtons {...props} shown={!!shown} /> : fix.actions.applied ? <AppliedButtons {...props} /> : fix.rung === 'merged' ? <MergedButtons {...props} /> : <VerifiedButtons {...props} />}
+      {shown ? <VerdictNext fix={fix} v={shown} prices={prices} /> : null}
+      {asking === 'repair' ? <RepairDialog fix={fix} onClose={close} onRun={(repairer, sent) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer, ...sent }))} /> : null}
+      {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={close} onRun={(names) => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId, ...(names ? { names } : {}) }))} /> : null}
+      {asking === 'patch' && diff ? <PatchDialog fix={fix} diff={diff} onClose={close} /> : null}
       {consent ? (
         <ConsentDialog
           why={consent.why}
@@ -331,167 +310,170 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
 }
 
 /**
- * Asks before a repair, naming who is asked for candidates: the repairer shadowlap.config.json names,
- * read again as the dialog opens (the config can change while the page stays open), and sent with
- * the job, which the server refuses if the config names another by then. One that can't be asked
- * from here (claude isn't on the PATH) is said instead, with what to do, and nothing can start.
+ * An open fix's buttons: Run repair, then blame's next step (Run blame again while its blame couldn't
+ * settle or stopped part way, Run blame with stronger model while asking the recorded model again
+ * rescued the run from no call). Run repair stays plain, saying why on hover, where it would end "No
+ * fix to try" (`repairAside`), and waits, saying why, after a repair whose gate rejected every
+ * candidate (`repair.spent`): then the fix leads with what that repair's verdict left (Run more
+ * attempts, Verify again), and nothing else, unless the Verify step shows its own (`shown`).
  */
-export function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => void; onRun: (repairer: string, sent: Record<string, unknown>) => boolean }) {
-  const { client } = useApp();
-  const [fresh, setFresh] = useState<{ fix: FixDetail | null } | null>(null);
-  useEffect(() => {
-    let live = true;
-    client.fix(fix.fixId).then(
-      (d) => {
-        if (live) setFresh({ fix: d });
-      },
-      () => {
-        if (live) setFresh({ fix: null });
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [client, fix.fixId]);
-  const ask = repairAsk(fix, fresh);
-  const now = fresh?.fix ?? fix;
-  // Priced again for the fix as it re-read it, so the repairer priced is the one it names.
-  const estimate = useFixEstimates(now)?.repair;
-  const aside = repairAside(now);
-  const repair = now.actions.repair;
-  const stopped = now.actions.blameAgain?.kind === 'stopped';
-  const keeps = repair ? keepsOf(repair.argv) : [];
-  // A line is one sentence with no stop; the engine's own sentence keeps it where the terminal UI shows it.
-  const line = ask.why?.replace(/\.$/, '') ?? aside ?? (stopped ? 'Blame stopped part way: repair blames the run again first' : null);
-  // While it reads, what it is doing; then who it asks, or "the repairer" where it can't ask one from here.
-  const lead = fresh ? `Asks ${ask.who ?? 'the repairer'} for prompt and tool rewrites and picks the smallest that fixes the failing runs.` : 'Reading which repairer shadowlap.config.json names…';
-  return (
-    <Dialog
-      title={ACTIONS.runRepair.label}
-      lead={lead}
-      {...(fresh ? { doc: 'repair' as const } : {})}
-      warn={line ? { text: line } : null}
-      // A repair that ends "No fix to try" runs nothing, so none of what a repair does is said.
-      facts={
-        ask.why || aside
-          ? []
-          : [
-              { label: 'Changes', value: 'nothing in your working tree', quiet: 'each candidate is tried in a worktree of its own' },
-              { label: 'Hands over', value: 'the accepted one, as a patch for you to apply' },
-              keeps.length ? { label: <DialogTip title="Keeps" tip="A candidate that breaks a good run is rejected">Keeps</DialogTip>, value: `${keeps.map((k) => `\`${k}\``).join(', ')} passing` } : null,
-              { label: 'While it runs', value: 'leave the prompt and tools alone' },
-            ]
-      }
-      command={ask.command}
-      cost={repair && (!ask.why || repair.noFixWhy) ? { ...repairCost(repair, stopped), estimate } : null}
-      ok={ACTIONS.runRepair.label}
-      okDisabled={!ask.ready}
-      onClose={onClose}
-      onOk={() => (ask.ready && ask.repairer ? onRun(ask.repairer, sentEstimate(estimate)) : false)}
-    />
-  );
-}
-
-/** An applied fix's patch, to read: what went into the working tree, and where it is kept. */
-export function PatchDialog({ fix, diff, onClose }: { fix: FixDetail; diff: string; onClose: () => void }) {
-  const file = fix.actions.apply?.patchFile;
-  return (
-    <Dialog title="Show patch" lead={fix.rung === 'merged' ? `The fix as repair handed it over, on main since ${fix.pr?.number == null ? 'its pull request' : `PR #${fix.pr.number}`} merged.` : 'The fix as repair handed it over, in your working tree since you applied it.'} doc="repairHandover" facts={file ? [{ label: 'Path', value: <code>{file}</code>, wide: true }] : []} onClose={onClose}>
-      <pre className="fxcode fxpatch">
-        {patchLines(diff).map((l, i) => (
-          <span key={i} className={l.tone ?? undefined}>
-            {l.text}
-            {'\n'}
-          </span>
-        ))}
-      </pre>
-    </Dialog>
-  );
-}
-
-/**
- * Asks before applying: Apply fix with the patch and every file it changes, Mark fix applied for a
- * patch in the working tree already (or none to apply), Finish applying fix for what an apply left
- * undone. Each that copies goldens asks each its name under the rest (ApplyNames.tsx), and sends
- * them with the job; it waits until each will do.
- */
-export function ApplyDialog({ fix, label, onClose, onRun }: { fix: FixDetail; label: string; onClose: () => void; onRun: (names: Record<string, string> | null) => boolean }) {
-  const apply = fix.actions.apply!;
-  const names = useGoldenNames(apply);
-  const asks = { command: `shadowlap fix apply ${shortFixId(fix.fixId)}${nameFlags(names)}`, ok: label, okDisabled: !!names.problem, onOk: () => onRun(nameFields(names)), onClose, doc: 'repairHandover' as const };
-  const fields = <GoldenNameFields names={names} />;
-  // No patch to apply: verified on the working tree as it is, or its patch is there already.
-  if (apply.kind === 'mark' || (apply.inTree && !fix.actions.applied))
-    return (
-      <Dialog {...asks} title={apply.inTree && apply.goldens ? 'Mark fix applied?' : 'Mark fix applied'} lead={markLead(apply)} facts={apply.pulled ? [{ label: 'Recordings', value: 'stay on the machine that ran the repair' }] : []}>
-        {/* Merged in its pull request and in the tree already: the patch is left as it is, and the rest runs as applying would. */}
-        {fix.rung === 'merged' && apply.inTree ? <DialogSteps steps={applySteps(apply, { count: apply.held ? names.offered.length : apply.goldens, to: copiedTo(names) }, { pr: fix.pr?.number ?? null })} /> : null}
-        {fields}
-      </Dialog>
-    );
-  if (fix.actions.applied)
-    return (
-      <Dialog {...asks} title="Finish applying fix?" lead="Finishes what applying the fix left undone." facts={[{ label: 'Left', value: apply.pending ?? 'nothing' }]}>
-        {fields}
-      </Dialog>
-    );
-  // What goes in is what is shown: the patch itself, with every file it changes named.
-  return (
-    <Dialog {...asks} title={`${confirmWords(ACTIONS.applyFix.label)}?`} lead="Applies the fix to your working tree, for you to review before you commit." warn={apply.pulled ? { text: PULLED_LINE } : null}>
-      {/* What the fields name, once the goldens folder was read; else every recording, as far as the page knows. */}
-      <DialogSteps steps={applySteps(apply, { count: apply.held ? names.offered.length : apply.goldens, to: copiedTo(names) })} />
-      {apply.diff ? (
-        <pre className="fxcode fxpatch">
-          {patchLines(apply.diff).map((l, i) => (
-            <span key={i} className={l.tone ?? undefined}>
-              {l.text}
-              {'\n'}
-            </span>
-          ))}
-        </pre>
-      ) : null}
-      {fields}
-    </Dialog>
-  );
-}
-
-/**
- * The apply drawer's last word when the patch made other goldens diverge: Update goldens re-records
- * them (`shadowlap test <goldens> --update`), asking first, as the Tests screen's Update goldens does.
- * Its card and its dialog's Cost line say what re-recording them together would bill (`GET
- * /api/tests/estimates`, read once the apply has ended), and the job keeps the estimate shown.
- */
-function ApplyFooter({ job, plain }: { job: JobView; plain?: boolean }) {
+function OpenButtons({ fix, prices, lime, why, ask, shown }: ButtonsProps & { shown: boolean }) {
   const app = useApp();
-  const [asking, setAsking] = useState<Price | false>(false);
-  const [started, setStarted] = useState(false);
-  const outdated = outdatedOf(job.result);
-  const names = outdated.map((g) => g.golden).join('\n');
-  const paths = useMemo(() => (names ? names.split('\n') : []), [names]);
-  const shows = job.done && paths.length > 0 && app.hasKind(JOB_KINDS.testUpdate);
-  const prices = useTestsEstimates(shows ? job.id : null, paths);
-  if (!shows) return null;
-  const ask = updateOutdatedAsk(outdated);
-  const card = { tip: ACTIONS.updateGoldens.label, command: ask.command };
+  const repair = fix.actions.repair;
+  const spent = !!repair?.spent;
+  const aside = repairAside(fix);
+  const blameNext = headBlameNext(fix);
+  const left = spent && !shown && (lime?.key === 'more' || lime?.key === 'again') ? fix.verify.find((v) => v.verifyId === lime.verifyId) : undefined;
+  const none = fixAction(fix);
   return (
     <>
-      <JobButton className={plain ? 'btn' : 'btn lime'} disabled={started} {...testsJob(card, updatesPrice(prices, paths), (e) => app.guard(() => setAsking(e)))}>
-        {ACTIONS.updateGoldens.label}
-      </JobButton>
-      {asking !== false ? (
-        <UpdateGoldenDialog
-          plan={ask}
-          estimate={asking}
-          onClose={() => setAsking(false)}
-          onUpdate={() => {
-            const went = app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.testUpdate, { ...ask.fields, ...sentEstimate(asking) })));
-            if (went) setStarted(true);
-            return went;
-          }}
+      {repair ? (
+        <ActionButton className={lime?.key === 'repair' ? 'btn lime' : 'btn'} why={spent ? REPAIR_SPENT.why : why} whyTip={spent ? REPAIR_SPENT.tip : undefined} {...repairCard(fix, 'repair', aside, prices)} onClick={() => ask('repair')}>
+          {ACTIONS.runRepair.label}
+        </ActionButton>
+      ) : (
+        <ActionButton className="btn" why={app.actionsOff ?? (none.kind === 'none' ? none.why : null)}>
+          {ACTIONS.runRepair.label}
+        </ActionButton>
+      )}
+      {blameNext ? (
+        <FixJobButton
+          kind={JOB_KINDS.blame}
+          fields={blameNext.kind === 'again' ? { fixId: fix.fixId, again: true } : { fixId: fix.fixId }}
+          label={blameNext.label}
+          verb={blameNext.kind === 'again' ? 'blame again' : 'blame it'}
+          lead={lime?.key === (blameNext.kind === 'again' ? 'blame-again' : 'blame-stronger')}
+          tip={blameNext.tip}
+          command={blameNext.command}
+          estimate={blameNextPrice(blameNext.kind, prices)}
+          form={blameNext.kind === 'stronger'}
+          ask={blameNextAsk(fix, blameNext.kind, blameNextPrice(blameNext.kind, prices))}
         />
+      ) : null}
+      <CrashButtons fix={fix} lime={lime} />
+      {left ? <VerdictNext fix={fix} v={left} prices={prices} /> : null}
+    </>
+  );
+}
+
+/**
+ * A crash's own step at the head's end, where the fix leads with it (fix-lead.ts): Find breaking
+ * commit, then, once that named the commit, Open in editor at the line the commit added and Revert,
+ * the page's lead, with the commit the Blame step shows. Find breaking commit is gone once the commit
+ * is named: the run's page keeps it, to search again. Each waits as its row on Fixes does.
+ */
+function CrashButtons({ fix, lime }: Pick<ButtonsProps, 'fix' | 'lime'>) {
+  const app = useApp();
+  const lead = fix.lead?.key === 'bisect' || fix.lead?.key === 'revert' ? fix.lead : null;
+  const jobs = useServerJobs(!!lead);
+  if (!lead) return null;
+  const leads = lime?.key === lead.key;
+  const why = app.actionsOff ?? leadWait(lead, { jobs, folder: app.meta?.project?.path ?? null, projectId: app.meta?.project?.id ?? null, hasKind: app.hasKind });
+  const found = fix.blame?.crash?.commit ?? null;
+  return (
+    <>
+      {lead.key === 'revert' ? <EditorButton change={found?.change} /> : null}
+      <CrashStepButton runId={lead.runId} step={lead.step} why={why} className={leads ? 'btn lime' : 'btn'} lead={leads} found={found} />
+    </>
+  );
+}
+
+/** A verified fix's buttons: Copy git apply, Apply fix (Mark applied for a change in the working tree already, or with no patch), then Verify this run while a failing run no accepted verdict checked is left. */
+function VerifiedButtons({ fix, prices, lime, why, ask }: ButtonsProps) {
+  const app = useApp();
+  const gitApply = fix.actions.apply?.gitApply ?? null;
+  return (
+    <>
+      {gitApply ? (
+        <button
+          className="btn"
+          type="button"
+          data-tip={tipCard('Copy git apply', [], 'git applies the patch as it was verified, whatever core.autocrlf says', `$ ${gitApply}`)}
+          onClick={() => {
+            void copyText(gitApply).then((ok) => app.toast(ok ? 'Copied git apply' : 'Copying was refused by the browser'));
+          }}
+        >
+          Copy git apply
+        </button>
+      ) : null}
+      <ApplyButton fix={fix} lime={lime} why={why} ask={ask} />
+      <VerifyLeftButton fix={fix} prices={prices} lead={lime?.key === 'verify-left'} />
+    </>
+  );
+}
+
+/** An applied fix's buttons: its patch to read, then Finish applying while applying left something undone; Marked applied, plain, for one with no patch, its hover naming the change. */
+function AppliedButtons({ fix, lime, why, ask }: ButtonsProps) {
+  const marked = appliedButton(fix.actions.apply);
+  return (
+    <>
+      <ShowPatch fix={fix} ask={ask} />
+      {fixAction(fix).kind !== 'applied' ? (
+        <ApplyButton fix={fix} lime={lime} why={why} ask={ask} />
+      ) : marked ? (
+        <button className="btn" type="button" disabled title={marked.title}>
+          {marked.label}
+        </button>
       ) : null}
     </>
   );
 }
 
-addJobFooter(JOB_KINDS.applyFix, ApplyFooter);
+/** A fix merged with its pull request: nothing waits to apply. Its patch to read, then Verify this run while a failing run no accepted verdict checked is left. */
+function MergedButtons({ fix, prices, lime, ask }: ButtonsProps) {
+  return (
+    <>
+      <ShowPatch fix={fix} ask={ask} />
+      <VerifyLeftButton fix={fix} prices={prices} lead={lime?.key === 'verify-left'} />
+    </>
+  );
+}
+
+/** Apply fix, Mark applied or Finish applying, lime when the fix leads with it; waiting, with why, for a patch fix apply refuses. Its card is the one its Fixes row gives the same step. */
+function ApplyButton({ fix, lime, why, ask }: Pick<ButtonsProps, 'fix' | 'lime' | 'why' | 'ask'>) {
+  const action = fixAction(fix);
+  if (action.kind === 'none')
+    return (
+      <ActionButton className="btn" why={action.why}>
+        {action.label}
+      </ActionButton>
+    );
+  if (action.kind !== 'apply') return null;
+  const apply = fix.actions.apply;
+  const sub = leadCard({ key: 'apply', label: action.label, command: apply?.command ?? '', use: 'writes', pending: fix.actions.applied ? (apply?.pending ?? null) : null });
+  return (
+    <ActionButton className={lime?.key === 'apply' ? 'btn lime' : 'btn'} why={why} tip={action.label} sub={sub} command={apply ? `$ ${apply.command}` : undefined} onClick={() => ask('apply')}>
+      {action.label}
+    </ActionButton>
+  );
+}
+
+/** Show patch, on an applied or merged fix with a patch: what went in, to read, never a git apply that would fail. */
+function ShowPatch({ fix, ask }: Pick<ButtonsProps, 'fix' | 'ask'>) {
+  if (!fix.actions.apply?.diff) return null;
+  return (
+    <button className="btn" type="button" data-tip={tipCard('Show patch', [], showPatchCard(fix))} onClick={() => ask('patch')}>
+      Show patch
+    </button>
+  );
+}
+
+/** A verdict's own next step, Run more attempts or Verify again, as the header's lime button: priced on the fix's estimates, asking by Spending's rule. */
+function VerdictNext({ fix, v, prices }: { fix: FixDetail; v: VerifyStep; prices: FixEstimates | null | undefined }) {
+  const more = v.more;
+  if (!more) return null;
+  const estimate = verifyPrice(prices, v.verifyId);
+  return (
+    <FixJobButton
+      kind={JOB_KINDS.verify}
+      fields={{ fixId: fix.fixId, verifyId: v.verifyId }}
+      label={more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label}
+      verb={more.kind === 'more' ? 'run more attempts' : 'verify again'}
+      lead
+      tip={verifyTip(more)}
+      command={more.command}
+      estimate={estimate}
+      ask={(begin, close) => <VerifyAsk more={more} attempts={v.attempts} estimate={estimate} onRun={() => begin({})} onClose={close} />}
+    />
+  );
+}

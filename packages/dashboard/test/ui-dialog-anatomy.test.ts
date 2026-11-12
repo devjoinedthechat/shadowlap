@@ -22,7 +22,7 @@ import { ActionDialog } from '../ui/run/ActionDialog.js';
 import { NextStepButton } from '../ui/run/NextStepButton.js';
 import { EditDialog } from '../ui/run/EditDialog.js';
 import { BisectDialog, DeleteRunDialog } from '../ui/run/RunDialogs.js';
-import { OtelDialog } from '../ui/run/ShareMenu.js';
+import { OtelDialog } from '../ui/run/OtelDialog.js';
 import { BulkBar, PackDialog } from '../ui/runspage/BulkBar.js';
 import { FindCommitDialog as RunsFindCommit } from '../ui/runspage/FindCommit.js';
 import { ImportDialog } from '../ui/runspage/ImportDialog.js';
@@ -35,6 +35,7 @@ import { importWords } from '../ui/runspage/imports.js';
 import { ApiError, type BisectOffer, type TestsView } from '../ui/api.js';
 import { render, type Rendered } from './ui-render.js';
 import { resetSpending } from '../ui/spending.js';
+import { maskFirst } from '../ui/update-plan.js';
 
 /**
  * One dialog anatomy: every dialog and every ask before a job, drawn as the page draws it, read for
@@ -453,8 +454,12 @@ describe('a golden’s dialogs', () => {
     holds(await open(createElement(UpdateGoldensDialog, { view: quiet, paths: ['goldens/a'], has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update a?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
   });
   it('Update goldens from the apply drawer', async () => {
-    const ask = updateOutdatedAsk([{ golden: 'goldens/a', callNo: 3, path: '$.x' }, { golden: 'goldens/b', callNo: 1, path: '$.y' }]);
+    const outdated = [{ golden: 'goldens/a', callNo: 3, path: '$.x' }, { golden: 'goldens/b', callNo: 1, path: '$.y' }];
+    const ask = updateOutdatedAsk(outdated);
     holds(await open(createElement(UpdateGoldenDialog, { plan: ask, onUpdate: () => undefined, ...closes })), { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: OK, ok: 'Update 2 goldens' });
+    // One last diverged on a value made anew every run: its normalizer and the update lead, Update anyway plain.
+    const masked = updateOutdatedAsk(outdated, maskFirst({ divergences: [{ ...div, newRules: [['normalize', 'add']] }] } as unknown as TestsView, ['goldens/a', 'goldens/b'], () => true));
+    holds(await open(createElement(UpdateGoldenDialog, { plan: masked, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: '.dlg-alt', ok: 'Update anyway', tone: 'plain' });
   });
   it('Add normalizer and update', async () => {
     holds(await open(createElement(NormalizeUpdateDialog, { name: 'a', steps: [['normalize', 'add'], ['test', 'goldens/a', '--update']], onRun: () => undefined, ...closes })), { title: 'Add normalizer and update a?', doc: 'goldenUpdates', first: OK, ok: 'Add normalizer and update' });
@@ -548,14 +553,14 @@ describe('a `$` row', () => {
 });
 
 describe('a fix’s dialogs', () => {
-  const APPLY = { kind: 'patch', argv: [], gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
+  const APPLY = { kind: 'patch', argv: [], command: 'shadowlap fix apply', gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
   const fix = (over: Record<string, unknown> = {}, actions: Record<string, unknown> = {}) =>
     ({
       fixId: 'fx-1',
       title: 'A fix',
       status: 'open',
       repairer: { name: 'claude-code', configured: false, problem: null },
-      actions: { repair: { argv: ['repair', '--fixes', 'a', '--keeps', 'b', 'c'], command: 'shadowlap repair --fixes a --keeps b c', noFix: null, noFixWhy: null, candidates: 3 }, apply: null, applied: false, blameAgain: null, ...actions },
+      actions: { repair: { argv: ['repair', '--fixes', 'a', '--keeps', 'b', 'c'], command: 'shadowlap repair --fixes a --keeps b c', noFix: null, noFixWhy: null, candidates: 3, spent: false }, apply: null, applied: false, blameAgain: null, ...actions },
       ...over,
     }) as unknown as FixDetail;
 
@@ -588,7 +593,7 @@ describe('a fix’s dialogs', () => {
     expect(page.focused(), 'the rows go, the focus stays').toBe(page.one('[role="dialog"] .dlg-cancel'));
   });
   it('Run repair that would end No fix to try', async () => {
-    const noFix = fix({}, { repair: { argv: [], command: 'c', noFix: 'Blame couldn’t settle', noFixWhy: 'unsettled', candidates: 3 } });
+    const noFix = fix({}, { repair: { argv: [], command: 'c', noFix: 'Blame couldn’t settle', noFixWhy: 'unsettled', candidates: 3, spent: false } });
     const page = await open(createElement(RepairDialog, { fix: noFix, onRun: () => true, ...closes }), appWith({ client: { fix: () => Promise.resolve(noFix) } }));
     await page.until('the fix to be read', () => !page.one('.dlg-ok').disabled);
     holds(page, { title: 'Run repair', doc: 'repair', first: OK, ok: 'Run repair', warn: 'Blame couldn’t settle' });
@@ -614,6 +619,17 @@ describe('a fix’s dialogs', () => {
     await page.unmount();
     const again = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, pending: 'goldens' }, applied: true }), label: 'Finish applying', onRun: () => true, ...closes }));
     holds(again, { title: 'Finish applying fix?', doc: 'repairHandover', first: OK, ok: 'Finish applying' });
+  });
+  it('Mark fix applied asks of a merged fix whose patch is in the tree what it asks of one applied by hand, with no steps of its own', async () => {
+    // Merged sits above applied on the ladder, so a merged fix's header offers no Mark applied: its dialog has no merged words.
+    const inTree = { ...APPLY, inTree: true };
+    const byHand = await open(createElement(ApplyDialog, { fix: fix({ status: 'verified', rung: 'verified', pr: null }, { apply: inTree }), label: 'Mark applied', onRun: () => true, ...closes }));
+    const asked = byHand.one('[role="dialog"]').textContent;
+    await byHand.unmount();
+    const merged = await open(createElement(ApplyDialog, { fix: fix({ status: 'verified', rung: 'merged', pr: { url: 'https://github.com/acme/agent/pull/138', number: 138, state: 'merged' } }, { apply: inTree }), label: 'Mark applied', onRun: () => true, ...closes }));
+    holds(merged, { title: 'Mark fix applied?', doc: 'repairHandover', first: OK, ok: 'Mark applied' });
+    expect(merged.all('.ondisk.steps li')).toEqual([]);
+    expect(merged.one('[role="dialog"]').textContent).toBe(asked);
   });
   it('Show patch', async () => {
     holds(await open(createElement(PatchDialog, { fix: fix({}, { apply: APPLY }), diff: '--- a\n', ...closes })), { title: 'Show patch', doc: 'repairHandover', first: CANCEL, ok: null });

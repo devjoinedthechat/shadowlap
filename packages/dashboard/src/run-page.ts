@@ -1,16 +1,21 @@
 import {
+  blameSteps,
   CHECK_STATUSES,
   cacheMisses,
   canonicalModel,
+  firstSentence,
   isObject,
+  isReservedScope,
   Lru,
   hasRecordedCommand,
-  isJudgeCall,
   LiveConversations,
   normalizeResponse,
+  ownAgent,
   previewRedaction,
   recordedDurations,
   responseInfo,
+  RunAgents,
+  runAgents,
   runConversations,
   runInterventions,
   runStamp,
@@ -19,6 +24,7 @@ import {
   summarizeRun,
   toolResultLine,
   type CacheMiss,
+  type CallAgent,
   type CallRecord,
   type CheckStatus,
   type ConversationSpan,
@@ -69,9 +75,25 @@ export interface CallFacts {
    * not they ran here (a capture records none of them); null for other calls.
    */
   asks: string[] | null;
+  /**
+   * The agent that made the call (the engine's RunAgents): its path, such as `claude-code/Explore`,
+   * and in a scoped run its scope. Null for a call nothing names an agent for. Around a page deep in
+   * a long run (not `numbered`), only what the call carries itself: its scope, a trace's agent.
+   */
+  agent: string | null;
+  /** A call of a sub-agent's conversation: the model call whose tool started it. */
+  spawnedBy: number | null;
+  /**
+   * The model call that starts a conversation of a top agent (not a sub-agent's, nor one of
+   * Shadowlap's own scopes): the first sentence of what it was asked, its first user message, for a
+   * batch's item to show. Every such start carries it, batch or not, since a recording's page reads
+   * each call once and its first ticket starts before the second says it is a batch. Null on every
+   * other call, and on one whose request holds no user text.
+   */
+  conversationInput: string | null;
 }
 
-export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null });
+export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null, agent: null, spawnedBy: null, conversationInput: null });
 
 export interface RunAnalysis {
   /**
@@ -81,6 +103,8 @@ export interface RunAnalysis {
    */
   numbered: boolean;
   conversations: RunConversations;
+  /** Which agent made each call, and each conversation's first user message; null when not `numbered`. */
+  agents: RunAgents | null;
   cache: RunCache;
   recorded: Map<number, number>;
   facts(callNo: number): CallFacts;
@@ -103,7 +127,7 @@ const analyses = new WeakMap<object, Map<string, RunAnalysis>>();
  * were read from. A recording's page asks for its newest calls every two seconds; working out where
  * every call of a long run belongs each time held up the dashboard for seconds at 50,000 calls.
  */
-const following = new WeakMap<object, Map<string, { live: LiveConversations; asks: Map<number, { rec: CallRecord; names: string[] }> }>>();
+const following = new WeakMap<object, Map<string, { live: LiveConversations; agents: RunAgents; asks: Map<number, { rec: CallRecord; names: string[] }> }>>();
 
 /** The runs followed at once per store. */
 const FOLLOW = 4;
@@ -116,13 +140,13 @@ const asked = (store: StoreOf<'recording'>, c: CallRecord) => responseInfo(store
  * calls arrive, from where it was last asked for (`following`): each call is worked out once, and its
  * answer once it arrives. A finished run is placed whole, every call with everything known.
  */
-function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecord[]): { conversations: RunConversations; asks: Map<number, string[]> } {
+function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecord[]): { conversations: RunConversations; asks: Map<number, string[]>; agents: RunAgents | null } {
   let byRun = following.get(store);
   if (run.status !== 'running') {
     byRun?.delete(run.runId);
     const asks = new Map<number, string[]>();
     for (const c of calls) if (c.kind === 'api') asks.set(c.callNo, asked(store, c));
-    return { conversations: runConversations(store, calls, { attribute: true }), asks };
+    return { conversations: runConversations(store, calls, { attribute: true }), asks, agents: null };
   }
   if (!byRun) {
     byRun = new Map();
@@ -131,9 +155,10 @@ function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecor
   let entry = byRun.get(run.runId);
   let conversations = entry?.live.update(calls) ?? null;
   if (!entry || !conversations) {
-    entry = { live: new LiveConversations(store, { attribute: true }), asks: new Map() };
+    entry = { live: new LiveConversations(store, { attribute: true }), agents: new RunAgents(store), asks: new Map() };
     conversations = entry.live.update(calls)!;
   }
+  entry.agents.update(calls, conversations);
   byRun.delete(run.runId);
   byRun.set(run.runId, entry);
   for (const key of byRun.keys()) if (byRun.size > FOLLOW) byRun.delete(key);
@@ -144,7 +169,7 @@ function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecor
     if (had?.rec !== c) entry.asks.set(c.callNo, (had = { rec: c, names: asked(store, c) }));
     asks.set(c.callNo, had.names);
   }
-  return { conversations, asks };
+  return { conversations, asks, agents: entry.agents };
 }
 
 /** Its status too: a recording is placed as its calls arrive, the finished run whole. */
@@ -296,11 +321,20 @@ export function partAnalysis(store: Store, run: RunRecord, part: readonly CallRe
 function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[], o: { numbered?: boolean } = {}): RunAnalysis {
   const numbered = o.numbered !== false;
   // Read already, while tool calls were matched to the model calls that asked for them: cached by blob.
-  const { conversations, asks } = conversationsOf(store, run, calls);
+  const { conversations, asks, agents: kept } = conversationsOf(store, run, calls);
+  // A recording's are kept as its calls arrive; a finished run's read once, here, with its conversations.
+  const agents = numbered ? (kept ?? runAgents(store, calls, conversations)) : null;
   const cache = cacheMisses(calls, conversations);
   const recorded = run.mode !== 'replay' ? new Map<number, number>() : numbered ? recordedDurations(store, run, calls) : recordedOf(store, run, calls);
   const misses = new Map<number, CacheMiss>(cache.misses.map((m) => [m.callNo, m]));
   const byNo = new Map(calls.map((c) => [c.callNo, c]));
+  // Each conversation's input, worked out once: the first sentence of its first user message.
+  const inputs = new Map<number, string | null>();
+  const inputOf = (n: number): string | null => {
+    let line = inputs.get(n);
+    if (line === undefined) inputs.set(n, (line = agents ? firstSentence(agents.input(n) ?? '') || null : null));
+    return line;
+  };
   // Each conversation's requests in call order, for requestFor.
   const requests = new Map<number, CallRecord[]>();
   for (const c of calls) {
@@ -313,6 +347,7 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
   const analysis: RunAnalysis = {
     numbered,
     conversations,
+    agents,
     cache,
     recorded,
     byNo,
@@ -336,6 +371,8 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
     facts(callNo) {
       const c = conversations.byCall.get(callNo);
       const miss = misses.get(callNo);
+      const who = agents ? agents.of(callNo) : ownOf(byNo.get(callNo));
+      const n = numbered && c?.starts ? c.conversation : null;
       return {
         conversation: numbered ? (c?.conversation ?? null) : null,
         conversationStart: numbered ? (c?.starts ?? false) : false,
@@ -344,10 +381,20 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
         cacheMiss: miss ? { sentAgain: miss.sentAgain, previousCallNo: miss.previousCallNo } : null,
         recordedMs: recorded.get(callNo) ?? null,
         asks: asks.get(callNo) ?? null,
+        ...who,
+        conversationInput: n !== null && topAgent(byNo.get(callNo), who) ? inputOf(n) : null,
       };
     },
   };
   return analysis;
+}
+
+const ownOf = (c: CallRecord | undefined) => (c ? ownAgent(c) : { agent: null, spawnedBy: null });
+
+/** A call of a top agent: none a sub-agent's (nested by name or started by a tool), none of Shadowlap's own scopes. */
+function topAgent(c: CallRecord | undefined, who: CallAgent): boolean {
+  if (!c || who.spawnedBy !== null || isReservedScope(c.meta.scope)) return false;
+  return !(who.agent ?? (typeof c.meta.scope === 'string' ? c.meta.scope : '')).includes('/');
 }
 
 /**
@@ -435,11 +482,19 @@ function valueLineOf(store: StoreOf<'recording'>, c: CallRecord): string | null 
 
 /**
  * What a call row shows that is the call's own: its blobs, its fingerprint, a tool's result in a
- * line, and whether it is a person's answer the agent read (`userInput()`, or stdin through the
- * preload), which Calls tags "input" and the fork menu answers differently.
+ * line, whether it is a person's answer the agent read (`userInput()`, or stdin through the
+ * preload), which Calls tags "input" and the fork menu answers differently, and whether it was made
+ * in one of Shadowlap's own scopes (its judge's), whose questions are never a batch's items.
  */
-export function ownFacts(store: StoreOf<'recording'>, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true } {
-  return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort: resultShortOf(store, c), ...(c.kind === 'tool' && c.meta.input === true ? { input: true as const } : {}) };
+export function ownFacts(store: StoreOf<'recording'>, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true; reserved?: true } {
+  return {
+    fingerprint: c.fingerprint,
+    requestRef: c.requestRef,
+    responseRef: c.end?.responseRef ?? null,
+    resultShort: resultShortOf(store, c),
+    ...(c.kind === 'tool' && c.meta.input === true ? { input: true as const } : {}),
+    ...(isReservedScope(c.meta.scope) ? { reserved: true as const } : {}),
+  };
 }
 
 /** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */
@@ -516,8 +571,6 @@ export interface RunPageFacts {
   websockets: WebSocketView[] | null;
 }
 
-const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
-
 // A run can come from someone else's pack: what its metadata says is checked before it is shown.
 const int = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);
@@ -535,9 +588,8 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[], step?: { k: numbe
   const scope = str(b.scope);
   let modelCall = step;
   if (modelCall === undefined) {
-    // The model calls blame probed: those with an answer, in its scope (the agent's, not a simulated user's).
-    // The agent's model calls: a judge check's are none of blame's steps.
-    const steps = calls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, scope) && !isJudgeCall(c)).map((c) => c.callNo);
+    // The model calls blame probed, as the CLI's blame counts them: those with an answer, in its scope.
+    const steps = blameSteps(calls, scope).map((c) => c.callNo);
     const k = callNo === null ? 0 : steps.indexOf(callNo) + 1;
     modelCall = k > 0 ? { k, m: steps.length } : null;
   }

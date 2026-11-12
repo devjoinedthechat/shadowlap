@@ -39,7 +39,7 @@ describe('shadowlap fix show', () => {
       recordVerdict(store, { report: verify, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: 2 });
       const text = formatFixDetail(fixDetail(store, fix.fixId)!, plain);
       expect(text).toMatch(/#1 +1 of 4 +1 of 1 passed, an attempt not judged +inconclusive/);
-      expect(text).toMatch(new RegExp(`good +${good.slice(0, 10)} +inconclusive +2 of 2, an attempt not judged +an attempt could not be judged`));
+      expect(text).toMatch(new RegExp(`good +${good.slice(0, 10)} +inconclusive +2 of 2 passed, attempt 3 not judged +an attempt could not be judged`));
       // Neither counts the attempt among the failures, and a gate it stopped gives no bound.
       expect(text).not.toMatch(/1 of 2 passed|2 of 3|rate 0/);
     } finally {

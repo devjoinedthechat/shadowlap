@@ -1,6 +1,8 @@
 import { ACTIONS, checkKey, type FixRecords, type SprtGate } from '@shadowlap/engine';
-import { commandLine, counting, type FixActions, rungOf } from './fix-shared.js';
+import { counting, type FixActions, rungOf } from './fix-shared.js';
+import { FINISH_APPLYING, MARK_APPLIED } from './fix-lead-words.js';
 import { verifyMore } from './fix-verify-step.js';
+import type { CrashStep } from './next-step.js';
 
 /**
  * The step a fix leads with, worked out on the server for a list to carry in the words its page
@@ -19,14 +21,27 @@ export type FixLead =
   /** The verdict it settles, how many attempts a run it goes up to, and the attempts so far, which start over. */
   | { key: 'more' | 'again'; label: string; command: string; use: 'reads'; verifyId: string; max: number; attempts: number }
   /** `pending`: what applying left undone, which Finish applying does; null otherwise. */
-  | { key: 'apply'; label: string; command: string; use: 'writes'; pending: string | null };
+  | { key: 'apply'; label: string; command: string; use: 'writes'; pending: string | null }
+  /** Verify this run: the failing runs (`runs`, by id) no accepted verdict checked, on the code as it is now (`actions.verifyLeft`). */
+  | { key: 'verify-left'; label: string; command: string; use: 'reads'; runs: string[] }
+  /**
+   * The blamed run's own step, where it crashed and no model rescued it (fix-crash.ts): Find breaking
+   * commit, which holds no working tree, or Revert once that named the commit, which changes it. A row
+   * presses it as Needs a look presses a run's step, from `step` and the run.
+   */
+  | { key: 'bisect'; label: string; command: string; use: 'reads'; runId: string; step: Extract<CrashStep, { key: 'bisect' }> }
+  | { key: 'revert'; label: string; command: string; use: 'writes'; runId: string; step: Extract<CrashStep, { key: 'revert' }> };
+
+/** A crash's step as the fix leads with it. */
+const crashLead = (runId: string, step: CrashStep): FixLead =>
+  step.key === 'bisect' ? { key: 'bisect', label: step.label, command: step.command ?? '', use: 'reads', runId, step } : { key: 'revert', label: step.label, command: step.command ?? '', use: 'writes', runId, step };
 
 /**
  * A repair that tried candidates and accepted none, under the fix's check as it is, with no blame
  * since: running it again would try the same, so the fix waits for what its last verdict left, if
  * anything, or for someone to change the check or blame it again.
  */
-function repairSpent(rec: FixRecords): boolean {
+export function repairSpent(rec: FixRecords): boolean {
   const last = rec.repairs.at(-1);
   if (!last || last.accepted || !last.report.candidates.some((c) => c.state !== 'invalid' && c.state !== 'untried')) return false;
   return checkKey(last.expect) === rec.fix.check.key && !rec.blames.some((b) => b.at > last.at);
@@ -40,28 +55,42 @@ function verifyLead(rec: FixRecords): FixLead | null {
   return { key: more.kind, label: more.kind === 'more' ? ACTIONS.runMoreAttempts.label : ACTIONS.verifyAgain.label, command: more.command, use: 'reads', verifyId: v.verifyId, max: more.max, attempts: v.report.attempts };
 }
 
-/** An open fix's lead: what its spent repair's last verdict left, blame again or with a stronger model, or Run repair when it can run the agent. */
-function openLead(rec: FixRecords, actions: FixActions, repairer: string | null): FixLead | null {
+/**
+ * An open fix's lead: what its spent repair's last verdict left, blame again, a crash's own step once
+ * no model rescued it (`crash`: Find breaking commit, then Revert), blame with a stronger model, or
+ * Run repair when it can run the agent.
+ */
+function openLead(rec: FixRecords, actions: FixActions, o: FixLeadOptions): FixLead | null {
   if (repairSpent(rec)) return verifyLead(rec);
   const again = actions.blameAgain;
   if (again) return { key: 'blame-again', label: ACTIONS.runBlameAgain.label, command: again.command, use: 'reads', stopped: again.kind === 'stopped', gate: again.gate, soFar: again.soFar, lastGood: again.lastGood };
+  if (o.crash) return crashLead(o.crash.runId, o.crash.step);
   const stronger = actions.blameStronger;
   if (stronger) return { key: 'blame-stronger', label: ACTIONS.runBlameStronger.label, command: stronger.command, use: 'reads' };
   // A repair that would end "No fix to try" runs nothing: the row opens the fix, which says why.
   const repair = actions.repair;
-  return repair && !repair.noFix ? { key: 'repair', label: ACTIONS.runRepair.label, command: repair.command, use: 'writes', repairer: repairer?.trim() || null } : null;
+  return repair && !repair.noFix ? { key: 'repair', label: ACTIONS.runRepair.label, command: repair.command, use: 'writes', repairer: o.repairer?.trim() || null } : null;
+}
+
+/** What a fix's lead reads besides its records: the repairer the config names, and its blamed run's crash step, which its caller works out (fix-crash.ts). */
+export interface FixLeadOptions {
+  repairer: string | null;
+  crash?: { runId: string; step: CrashStep } | null;
 }
 
 /**
- * The fix's lead: an open fix's (`openLead`); a verified or applied fix's Apply fix, Mark applied
- * once its change is in the working tree or has no patch, or Finish applying what applying left
- * undone. None for a fix merged with its pull request, a patch `fix apply` refuses, or a fix applied
- * with nothing left to do.
+ * The fix's lead: an open fix's (`openLead`); a verified fix's Verify this run, while a failing run
+ * no accepted verdict checked is left and its change is in the working tree, then its Apply fix, or
+ * Mark applied once its change is in the working tree or has no patch; an applied fix's Finish
+ * applying what applying left undone. None for a fix merged with its pull request, a patch `fix
+ * apply` refuses, or a fix applied with nothing left to do.
  */
-export function fixLead(rec: FixRecords, actions: FixActions, o: { repairer: string | null }): FixLead | null {
-  if (rec.fix.status === 'open') return openLead(rec, actions, o.repairer);
+export function fixLead(rec: FixRecords, actions: FixActions, o: FixLeadOptions): FixLead | null {
+  if (rec.fix.status === 'open') return openLead(rec, actions, o);
+  const left = actions.applied ? null : actions.verifyLeft;
+  if (left) return { key: 'verify-left', label: (left.runs.length === 1 ? ACTIONS.verifyThisRun : ACTIONS.verifyTheseRuns).label, command: left.command, use: 'reads', runs: left.runs };
   const apply = actions.apply;
   if (rungOf(rec) === 'merged' || !apply || apply.refused || (actions.applied && !apply.pending)) return null;
-  const label = actions.applied ? 'Finish applying' : apply.kind === 'mark' || apply.inTree ? 'Mark applied' : ACTIONS.applyFix.label;
-  return { key: 'apply', label, command: commandLine(apply.argv), use: 'writes', pending: actions.applied ? apply.pending : null };
+  const label = actions.applied ? FINISH_APPLYING : apply.kind === 'mark' || apply.inTree ? MARK_APPLIED : ACTIONS.applyFix.label;
+  return { key: 'apply', label, command: apply.command, use: 'writes', pending: actions.applied ? apply.pending : null };
 }

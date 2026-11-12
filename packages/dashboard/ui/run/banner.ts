@@ -560,11 +560,27 @@ function presetBanner(i: BannerInput, p: PresetAttempt): Banner {
   return { kind: 'preset', callNo: i.divergence?.callNo ?? p.callNo, verdict: p.verdict, why, golden: p.golden };
 }
 
+/**
+ * The path a diverged test's finding names: the value made anew on every run the test found, else
+ * what it found diverged, else the divergence's first change; none without one. Show diff's answer
+ * names the same (src/request-diff.ts, test/request-diff.test.ts holds them equal).
+ */
+export function findingPath(b: { path: string | null }, test: { volatile?: { path: string } | null; cause?: string | null } | null): string | null {
+  return b.path ? (test?.volatile?.path ?? test?.cause ?? b.path) : null;
+}
+
 /** A test that left its recording: what the value that changed looks like, or why it came, then what came before it. */
 function divergedBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']>): Banner {
   const lead = i.volatile?.looks ? `this looks like ${i.volatile.looks}` : (d.hints?.[0]?.message ?? DIVERGED[d.type] ?? d.type);
   return { kind: 'diverged', callNo: d.callNo, name: d.name, lead, why: beforeFork(d, i.calls), path: d.diff?.[0]?.path ?? null, normalizer: true, diff: !!d.diff?.length, ...(i.fixedBy ? { fixedBy: i.fixedBy } : {}) };
 }
+
+/**
+ * Whether a fork's finding has Show diff: where its request changed, and on a fork forced live (Run
+ * live from here, a tool forced live or failed), whose answer says what changed or that nothing did.
+ * Never on a model call --fail-at failed, which sent no request to show.
+ */
+const forkShowsDiff = (d: NonNullable<BannerInput['divergence']>, failedModelCall: boolean): boolean => !failedModelCall && (!!d.diff?.length || d.type === 'forced');
 
 /**
  * A fork: the flag that made it and how the writes after it went, or what changed (a policy for the
@@ -581,7 +597,7 @@ function forkBanner(i: BannerInput, d: NonNullable<BannerInput['divergence']>): 
   // An override's or a planted result's flag names its call: what came before the fork doesn't again.
   const named = iv && (iv.flag === '--override' || iv.flag === '--inject-result') ? (iv.callNo ?? null) : null;
   const failed = i.failed ?? failureText(i) !== null;
-  return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path: d.diff?.[0]?.path ?? null, normalizer: !!d.hints?.some((h) => h.normalizer), diff: !!d.diff?.length, failed };
+  return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path: d.diff?.[0]?.path ?? null, normalizer: !!d.hints?.some((h) => h.normalizer), diff: forkShowsDiff(d, failedModelCall), failed };
 }
 
 /** Where blame found the run lost, when it placed the failure on a call. */

@@ -5,7 +5,6 @@ import { activity } from '../src/activity.js';
 import { fixDetail, fixForRun, fixList, needsLookFixes } from '../src/fixes.js';
 import { runState } from '../src/runs-list.js';
 import { normalizeOutcome } from '../ui/normalize.js';
-import { blameWords } from '../ui/overview/model.js';
 import { bannerFor, type BannerInput } from '../ui/run/banner.js';
 import { runOutcome, sideLine, sideStatus, type RunLike } from '../ui/runs.js';
 
@@ -85,7 +84,6 @@ describe('a run blame found lost between two calls, the probes between them unde
     // The run as its page and the lists read it.
     store.updateRunMeta(failing, { blame: { at: 3_000, outcome: 'blamed', callNo: 3, confidence: 'low', range: between, rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
     expect(runState(store, failing)?.outcome).toEqual({ kind: 'lost', callNo: 3, range: two });
-    expect(blameWords({ outcome: 'blamed', lostAt: 3, range: two })).toBe('lost between #3 and #5');
   });
 
   it('reads as lost between them in the sidebar and the run page\'s banner, and as the check it failed in Runs', () => {

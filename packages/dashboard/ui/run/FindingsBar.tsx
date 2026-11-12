@@ -4,6 +4,8 @@ import type { NextStepKey } from '../../src/next-step.js';
 import type { ForkDifferences as Differences } from '../../src/fork-differences.js';
 import type { FoundCommit, TestBannerOffer } from '../types.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { LoadFailed } from '../components/bits.js';
+import { onShow } from '../components/OnShow.js';
 import { Icon } from '../components/Icon.js';
 import { glossed } from '../components/Term.js';
 import { firstWords } from '../outcome-tip.js';
@@ -12,23 +14,23 @@ import { RunBlameButton } from '../fixes/RunBlame.js';
 import { TestsJobButton } from '../fixes/TestsJobButton.js';
 import { glued, GLUED_SEPARATOR, wholeTallies } from '../format.js';
 import { foundLine } from '../goldens.js';
+import { useLoad } from '../hooks.js';
 import { ACTIONS } from '../labels.js';
 import { href } from '../route.js';
 import { fixedByWords, runType } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { useApp } from '../state.js';
 import type { PendingAction } from './actions.js';
-import { notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
+import { findingPath, notRecordedBanner, ownBanner, type Banner as BannerView, type BannerInput } from './banner.js';
 import { bannerCards, bannerJobsShown, useDivergedJobs } from './diverged.js';
 import { goldenPrice, useTestsEstimates } from '../tests-estimates.js';
-import { DifferencesPanel, useForkDifferences } from './ForkDifferences.js';
 import { bannerSeverity, runFindings, SEVERITY_COLOURS, type Finding } from './findings.js';
 import { attemptLinks, attemptOf, runLikeOf } from './model.js';
 import { fixStatusWords, nextStepOf } from './next-step.js';
 import type { RunNote } from './notes.js';
 import { blameTitle, goldenName } from './offers.js';
 import type { PresetAttempt } from './preset.js';
-import { NoteFinding } from './RunNotes.js';
+import { warmDiff } from './InspectorPanel.js';
 
 /**
  * What a run's page found, as one bar under its header (findings.ts): the most telling finding whole,
@@ -441,8 +443,10 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
       #{n}
     </button>
   );
+  // The pointer or the focus on Show diff asks for its scripts and its answer, so it opens at once.
+  const warm = () => warmDiff(app.client, p.run.run.runId, p.run.run.status === 'running');
   const diffToggle = (
-    <button className="linkbtn" type="button" data-act="diff" onClick={p.onToggleDiff}>
+    <button className="linkbtn" type="button" data-act="diff" onClick={p.onToggleDiff} onPointerEnter={warm} onFocus={warm}>
       {p.showDiff ? 'Hide diff' : 'Show diff'}
     </button>
   );
@@ -452,6 +456,49 @@ function useDraw(p: BannerProps, test: TestBannerOffer | null): Draw {
     </button>
   ) : null;
   return { run: p.run, test, offers: p.offers, leads: (key) => next?.key === key, blameBeside: (next?.key === 'bisect' || next?.key === 'revert') && !!next.blame, checks: p.checks.length, off: !!app.actionsOff, call, diffToggle, changeToggle, onAction: p.onAction };
+}
+
+/**
+ * What a fork did differently from its parent, a finding of a fork's page alone: a part of its own
+ * (OnShow.tsx), asked for as the differences are, so the two come together.
+ */
+const DifferencesPanel = onShow(() => import('./ForkDifferences.js').then((m) => m.DifferencesPanel), { failed: <LoadFailed what="finding" /> });
+
+/** A note's words and what is under them, with the notes' words: a part loaded the first time the bar draws a note (RunNotes.tsx). */
+const NoteWords = onShow(() => import('./RunNotes.js').then((m) => m.NoteWords), { failed: <LoadFailed what="finding" /> });
+
+/**
+ * A thing the run did that Shadowlap did not record, or answered as it went (notes.ts), as one of the
+ * run's findings: its label, then its words and what is under them (`NoteWords`), and `more` (the
+ * bar's toggle) at its end. `fx`: a finding the closed bar folds away.
+ */
+function NoteFinding({ n, fx, more, onSelect }: { n: RunNote; fx: boolean; more: ReactNode; onSelect: (callNo: number) => void }) {
+  return (
+    <section className={`rnote ${n.tone}${fx ? ' fx' : ''}`}>
+      <span className="bk">{n.label}</span>
+      <div className="rnw">
+        <NoteWords n={n} onSelect={onSelect} />
+      </div>
+      {more}
+    </section>
+  );
+}
+
+/** What the fork did differently, read once `want` says the run is a fork that has ended; null until it comes, or with none to say. */
+function useForkDifferences(runId: string, want: boolean): Differences | null {
+  const { client } = useApp();
+  const load = () => {
+    if (!want) return null;
+    DifferencesPanel.preload();
+    return client.forkDifferences(runId);
+  };
+  return useLoad(load, `differences:${runId}:${want ? 'fork' : 'none'}`).data;
+}
+
+/** What a fork did differently alone, read from the server as the bar reads it: for tests. */
+export function ForkDifferences({ runId }: { runId: string }) {
+  const d = useForkDifferences(runId, true);
+  return d ? <DifferencesPanel d={d} /> : null;
 }
 
 /** Which runs' bars are open, by run, for the session: a module's memory, as the inspector's last tab is. */
@@ -591,7 +638,7 @@ function DivergedFinding({ b, x, s }: { b: Of<'diverged'>; x: Draw; s: Slot }) {
   return (
     <section className={cls(b.fixedBy ? 'n' : 'blame', s)}>
       <Why lead={b.lead} code={b.name}>{[...(b.fixedBy ? [fixedByWords(b.fixedBy)] : []), b.name, b.why].join(' · ')}</Why>
-      {b.path ? <span className="path">~ {test?.volatile?.path ?? test?.cause ?? b.path}</span> : null}
+      {b.path ? <span className="path">~ {findingPath(b, test)}</span> : null}
       <span className="end">
         {add?.kind === 'added' ? (
           <NormalizerAdded passingRun={add.passingRun} leads={leads} />

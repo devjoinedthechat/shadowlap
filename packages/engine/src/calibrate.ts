@@ -133,20 +133,27 @@ export function proposeNormalizers(d: DivergenceReport, existing: Normalizer[] =
 }
 
 /**
+ * Whether `shadowlap calibrate` can take a run: a finished recording made here (completed or failed),
+ * whose command it runs again. One imported from a pack or a capture runs someone else's command, or
+ * none; a replay is calibrated through the recording it came from.
+ */
+export function calibratable(r: RunRecord): boolean {
+  return r.mode === 'record' && (r.status === 'completed' || r.status === 'failed') && hasRecordedCommand(r) && !commandIsImported(r);
+}
+
+/**
  * The recording `shadowlap calibrate` works on when none is named: the project's setup run when it
- * has one, else the newest finished recording made here (completed or failed; one imported from a
- * pack or a capture runs someone else's command, or none). Null when there is none to calibrate,
+ * has one, else the newest one it can take (`calibratable`). Null when there is none to calibrate,
  * which the dashboard shows as "Record a run first".
  */
 export function calibrationTarget(store: StoreOf<'recording'>, options: { setupRunId?: string | null } = {}): { run: RunRecord; source: 'setup' | 'newest' } | null {
-  const usable = (r: RunRecord) => r.mode === 'record' && (r.status === 'completed' || r.status === 'failed') && hasRecordedCommand(r) && !commandIsImported(r);
   if (options.setupRunId) {
     const run = store.getRun(options.setupRunId);
-    if (run && usable(run)) return { run, source: 'setup' };
+    if (run && calibratable(run)) return { run, source: 'setup' };
   }
   for (let limit = 50; ; limit *= 4) {
     const runs = store.finishedRecordings(limit);
-    const run = runs.find(usable);
+    const run = runs.find(calibratable);
     if (run) return { run, source: 'newest' };
     if (runs.length < limit) return null;
   }

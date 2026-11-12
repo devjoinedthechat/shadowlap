@@ -24,7 +24,11 @@ const built: string[] = [
   ...VIEWS.flatMap((v) => [links.run(RUN, null, v), links.run(RUN, 9, v)]),
   links.changes(),
   ...['d2e8a1f', 'd2e8a1f+dirty', 'no-revision'].map((rev) => links.changes(rev)),
-  ...(['decisions', 'migrate'] as const).flatMap((kind) => [links.changeSession(kind), links.changeSession(kind, kind === 'migrate' ? 'mg-01M5000000000000000000000B' : 'dc-01M5000000000000000000000A')]),
+  ...(['decisions', 'migrate'] as const).flatMap((kind) => {
+    const id = kind === 'migrate' ? 'mg-01M5000000000000000000000B' : 'dc-01M5000000000000000000000A';
+    // A session, a run's row (its most telling step), and a cell.
+    return [links.changeSession(kind), links.changeSession(kind, id), links.changeSession(kind, id, RUN), links.changeSession(kind, id, RUN, 17)];
+  }),
   links.compare(),
   links.compare(RUN),
   links.compare(RUN, OTHER),
@@ -38,7 +42,7 @@ const built: string[] = [
   links.training('pairs'),
   links.training('tasks'),
   links.settings(),
-  ...['matching', 'redaction', 'alerts', 'agents', 'tools', 'project', 'store'].map((tab) => links.settings(tab)),
+  ...['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store'].map((tab) => links.settings(tab)),
   links.newProject(),
   links.setup(),
   links.storeSetup(),
@@ -100,6 +104,10 @@ describe('the link builder', () => {
   });
 
   it('keeps a value that would break the route inside its own segment', () => {
+    // Gates' kind rides on the CI tab's address, which the route reads as the tab alone.
+    expect(links.settings('ci', { gate: 'baseline' })).toBe('#/settings/ci?gate=baseline');
+    expect(parseRoute(links.settings('ci', { gate: 'sprt' }))).toEqual({ page: 'settings', tab: 'ci' });
+    expect(links.settings('store', { gate: 'sprt' })).toBe('#/settings/store');
     const odd = links.settings('a/b');
     expect(parseRoute(odd)).toEqual({ page: 'settings', tab: null });
     expect(parseRoute(links.fixes('fx-1', 'verify', 'vf 2'))).toMatchObject({ page: 'fixes', id: 'fx-1', step: 'verify' });

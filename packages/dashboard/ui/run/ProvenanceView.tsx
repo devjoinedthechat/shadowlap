@@ -12,12 +12,12 @@ import { countOrigins, ORIGIN_NAME, presentOrigins } from '../origins.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { kindWord } from '../runs.js';
-import { scopesOf } from '../scopes.js';
 import { useApp } from '../state.js';
 import { flagText } from './banner.js';
 import { lineageRunLike, modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
-import { copyRules, endpointSamples, exportedLine, lineageWords, tallyProviders, upstreamParts } from './provenance.js';
-import { preloadsOf, preloadWords, viaWords } from './notes.js';
+import { copyRules, endpointSamples, exportedLine, lineageWords, recordedScopes, tallyProviders, upstreamParts } from './provenance.js';
+import { viaWords } from './notes.js';
+import { preloadsOf, preloadWords } from './preloads.js';
 import { useWindow } from './window-hook.js';
 
 /**
@@ -121,7 +121,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
   for (const m of prov?.models ?? []) count(m.model, m.calls, m.model);
   const revOf = new Map((prov?.lineage ?? []).map((n) => [n.runId, n.codeVersion]));
   const origins = countOrigins(run.calls.map(originOf));
-  const scopes = scopesOf(run.calls);
+  const scopes = recordedScopes(run.calls);
   const like = runLikeOf(run);
   const flag = flagText(run.intervention ?? null);
   const what = r.divergence ? `fork at #${r.divergence.callNo}${run.parent ? ` of ${shortId(run.parent.runId)}` : ''}${flag ? ` · ${flag}` : ''}` : run.parent ? `${kindWord(like)} of ${shortId(run.parent.runId)}${r.meta?.test?.golden ? ` · ${r.meta.test.golden}` : ''}` : run.source ? `imported from ${run.source}` : 'recording';

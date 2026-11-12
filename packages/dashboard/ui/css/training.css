@@ -1,34 +1,62 @@
 /* Training (#/training): preference pairs and their sources, tasks and the scores of a model. */
-.pgroup { padding: 18px 18px 20px; border-top: 1px solid var(--line); }
-.pgroup:first-child { border-top: 0; }
+.pgroup { padding: 18px 0 20px; border-top: 1px solid var(--line); }
+.pgroup:first-child { border-top: 0; padding-top: 4px; }
 .pg1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pg1 .more code { font-size: 12.5px; color: inherit; }
 .pg1 a.chip { text-decoration: none; }
 .pg1 a.chip:hover { color: var(--ink); border-color: var(--line2); }
 .pg1 .pgsrc { color: var(--faint); font-size: 12.5px; }
-.pg1 .pgn { margin-left: auto; font: 500 11.5px var(--mono); color: var(--faint); white-space: nowrap; }
-.pgroup .pctx { margin: 8px 0 14px; color: var(--faint); font-size: 12.5px; }
-.ans .alts { margin: 0; padding: 0; list-style: none; }
-.ans .alts li { padding: 6px 0 0; }
-.ans .alts li + li { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
-.ans .alts code { margin-top: 0; }
-.ans .alts small { display: block; margin-top: 3px; font: 11px var(--mono); color: var(--faint); }
+.pg1 .pgn { margin-left: auto; font-size: 12.5px; color: var(--faint); white-space: nowrap; }
+.pg1 .prun { display: inline-flex; align-items: baseline; gap: 6px; }
+.pg1 .prun > span { color: var(--faint); }
+.pgroup .pctx { margin: 6px 0 14px; color: var(--faint); font-size: 12.5px; }
+/* a pair as a pair: the rejected answer, then the chosen ones, a row each on one grid so the answers line up; a label in
+   the UI face, the answer as the model gave it, what it was and its attempt at the end. No colour; the rejected a step dimmer */
+.pans { display: grid; grid-template-columns: 88px minmax(0, 1fr) auto; column-gap: 20px; }
+.pans .pa { display: contents; }
+.pans .pa > * { padding: 7px 0; }
+.pans .pa.rej + .pa > * { padding-top: 15px; }
+.pans .pak { font-size: 12.5px; font-weight: 500; color: var(--dim); }
+.pans .pat { font-size: 12.5px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; text-wrap: pretty; }
+.pans .pa.rej .pat { color: var(--dim); }
+.pans .paw { font-size: 12px; color: var(--faint); white-space: nowrap; text-align: right; }
+.pans .paw a.rlink { color: inherit; text-decoration: none; }
+.pans .paw a.rlink:hover { text-decoration: underline; text-underline-offset: 3px; }
+.pans .paw a.rlink code { font-size: 12.5px; color: var(--ink); }
+@media (max-width: 760px) {
+  /* one column: the label, the answer at full width, what it was under it */
+  .pans { grid-template-columns: minmax(0, 1fr); }
+  .pans .pak { padding-bottom: 0 !important; }
+  .pans .pa.cho .pak:empty { display: none; }
+  .pans .pa > .pat { padding-top: 4px; padding-bottom: 0; }
+  .pans .pa > .paw { text-align: left; padding-top: 2px; white-space: normal; }
+  .pans .pa.rej + .pa .pat, .pans .pa.rej + .pa .paw { padding-top: 4px; }
+  .pans .pa.cho .pak:empty + .pat { padding-top: 10px; }
+}
+/* Pairs: the confidence filter, plain chips as on Fixes, with what a pair is beside it; no heading to repeat the tab */
+.pairsec .pbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 6px; }
+.pairsec .pbar .sub { color: var(--faint); font-size: 12.5px; }
+.pairsec .pgroups { border-top: 1px solid var(--line); }
+.pairsec .pgroups > .pgroup:first-child { padding-top: 18px; }
 .pairnote { margin: 14px 0 0; color: var(--faint); font-size: 12.5px; }
-.srcs a { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 12px 18px; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
+.srcs a { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
 .srcs a:first-child { border-top: 0; }
-.srcs a:hover { background: var(--hover); }
-.srcs .sn { font: 600 16px var(--disp); font-variant-numeric: tabular-nums; }
+.srcs a:hover { background: var(--hover); box-shadow: -12px 0 0 var(--hover), 12px 0 0 var(--hover); }
+.srcs .conf { font-size: 12.5px; color: var(--faint); white-space: nowrap; }
+.srcs .sn { font: 700 17px var(--disp); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 .srcs .sn.zero { color: var(--faint); }
 .srcs b { font-weight: 500; }
 .lrows > div { display: flex; align-items: baseline; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.panel.sec .lrows > div { padding-left: 0; padding-right: 0; }
+.lrows .ct { flex: none; width: 72px; font-weight: 500; color: var(--dim); }
 .lrows > div:first-child { border-top: 0; }
-.lrows > div > .badge { flex: none; width: 72px; justify-content: center; }
 .lrows b { font-weight: 500; }
 .lrows code { font-size: 11.5px; }
 
 .mcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); border-bottom: 1px solid var(--line); }
 .mcard { padding: 16px 18px; min-width: 0; border-left: 1px solid var(--line); }
 .mcard:first-child { border-left: 0; }
+.panel.sec .mcard:first-child { padding-left: 0; }
 .mcard .mn { display: block; font: 500 13px var(--mono); }
 .mcard .ovbig { margin-top: 12px; }
 .sbar { display: block; height: 6px; margin: 10px 0 8px; border-radius: 3px; background: var(--bg2); overflow: hidden; }
@@ -42,18 +70,26 @@ table.score th.mh small { display: block; margin-top: 2px; font: 11px var(--mono
 
 @media (max-width: 640px) {
   .srcs a { grid-template-columns: 22px minmax(0, 1fr); }
-  .srcs a .badge { grid-column: 2; justify-self: start; }
+  .srcs a .conf { grid-column: 2; justify-self: start; }
   .lrows > div { flex-direction: column; gap: 6px; }
   .mcard { border-left: 0; border-top: 1px solid var(--line); }
   .mcard:first-child { border-top: 0; }
 }
 .pfootnote { margin: 0; padding: 12px 18px 14px; border-top: 1px solid var(--line); color: var(--faint); font-size: 12.5px; }
-.panel.fcol { display: flex; flex-direction: column; }
-.panel.fcol > .pfootnote { margin-top: auto; }
+.panel.sec > .pfootnote { padding: 12px 0 0; border-top: 0; }
+/* what runs after the takeover, a line an origin, its word first: reads live, writes stubbed (teal, as a write is everywhere) */
+td.tko { white-space: normal !important; color: var(--faint); font-size: 12.5px; min-width: 220px; }
+td.tko code { font-size: 12.5px; color: var(--dim); }
+td.tko .org { font-family: var(--body); font-size: 12.5px; }
+td.tko .tkol { display: flex; align-items: baseline; gap: 10px; }
+td.tko .tkol + .tkol { margin-top: 4px; }
+td.tko .tkk { flex: none; width: 68px; }
+td.tko .tkn { min-width: 0; }
+td.tko .tkn code.wr { color: var(--k-write); }
+td.tko .tkm { color: var(--faint); cursor: default; white-space: nowrap; }
 .lrows code { white-space: nowrap; }
 
 /* training: what the mock drew inline, and what the real page links that it didn't (an attempt's run from its pip) */
-.trgap { margin-top: 16px; }
 pre.report.trserve { margin-top: 10px; }
 p.muted.flat { margin: 0; }
 p.muted.trafter { margin: 10px 0 0; }
@@ -65,10 +101,6 @@ table.tasks .trupd .btn { white-space: nowrap; }
 
 table.t tbody tr.static { cursor: default; }
 
-.ans .alts small a, .ans small.rj a { color: inherit; text-decoration: none; }
-.ans .alts small a:hover, .ans small.rj a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-/* a verify or --repeat group's rejected answer names its attempt, as the chosen ones do */
-.ans small.rj { display: block; margin-top: 3px; font: 11px var(--mono); color: var(--faint); }
 .pg1 a.chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 /* a group headed by an attempt names the run it replayed, which never made that call */
 .pg1 .pgof { color: var(--faint); font-size: 12.5px; white-space: nowrap; }

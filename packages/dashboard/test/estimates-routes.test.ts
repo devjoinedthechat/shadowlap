@@ -325,7 +325,7 @@ describe('a fix’s estimates', () => {
     const fixId = blame(failing, blameReport(failing));
     const plan = (reused: { outcome: 'blamed' } | null) => repairEstimate({ failing: [{ runId: failing, startedAt: store.getRun(failing)!.startedAt, calls: priced(failing), blame: reused }], good: [{ calls: priced(good) }], scope: null, rule: RULE, repairer: DEFAULT_REPAIRER, noFix: null, last: null });
     const fresh = await get<FixEstimates>(`fixes/${fixId}/estimates`);
-    expect(fresh).toEqual({ repair: plain(plan(null)), blameAgain: null, blameStronger: null, verify: {} });
+    expect(fresh).toEqual({ repair: plain(plan(null)), blameAgain: null, blameStronger: null, verify: {}, verifyLeft: null });
     expect(fresh.repair).toMatchObject({ kind: 'repair', ceiling: true, parts: ['a new blame, then up to 3 candidates', 'each verified up to twice', 'live from each run’s first model call, writes stubbed'] });
     // The blame stored on the run, under the fix's check, with the fork that rescued it: reused, not priced again.
     const rescue = addRun(store, { parent: failing, startedAt: T0 + 72, calls: 'rl' });
@@ -451,6 +451,9 @@ describe('a kept preview’s Verify', () => {
       // One run, named by a prefix; one the preview cleared has nothing to verify.
       expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing.slice(0, 22)}`)).verify).toEqual(expected([[rows[1], false]]));
       expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${cleared}`)).verify).toBeNull();
+      // Several, as Preview names the runs no verify took yet: each priced in its role; one the preview cleared among them, nothing to verify there.
+      expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing}&runId=${broken}`)).verify).toEqual(expected([[rows[1], false], [rows[2], true]]));
+      expect((await get<DecisionEstimates>(`decisions/dc-01M5000000000000000000000V/estimates?runId=${passing}&runId=${cleared}`)).verify).toBeNull();
     } finally {
       rmSync(configFile, { force: true });
     }

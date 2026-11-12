@@ -1,6 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { parseTraceback } from '@shadowlap/engine';
-import type { FailureView, FoundCommit, GoldenReport, NextStep, TestsAnswer } from '../ui/types.js';
+import type { FailureView, FixDetail, FoundCommit, GoldenReport, NextStep, TestsAnswer } from '../ui/types.js';
 import { demoId, openPage, seriousViolations } from './dashboard.js';
 import { openReport } from './tests-fixture.js';
 
@@ -9,7 +9,9 @@ import { openReport } from './tests-fixture.js';
  * demo's answers (the demo store has no crashed golden): on a crash's run page the commit's finding
  * leads, Show change opens the change in the inspector's place, and Revert leads the header with Open
  * in editor and Run blame plain; on Tests the change sits under the commit in the crash's report and
- * Revert leads the verdict. Each has no serious axe violation at 1440 and 390 with the change open, nor has Revert's
+ * Revert leads the verdict; on the crash's fix its Blame step shows the commit, its change and where to
+ * look, and Revert leads its head with Open in editor beside it and no Find breaking commit. Each has
+ * no serious axe violation at 1440 and 390 with the change open, nor has Revert's
  * dialog, whose code box of the change undone keeps to its width. A revert's drawer reads Reverting,
  * then Reverted where git reverted, its status not saying reverted again, or Tried reverting where
  * git refused.
@@ -68,6 +70,27 @@ async function routeCrash(page: Page): Promise<string> {
   await page.route(new RegExp(`/api/runs/${run}/offers(\\?.*)?$`), (route) => patched<object>(route, (offers) => ({ ...offers, commit: FOUND })));
   await page.route(new RegExp(`/api/runs/${run}(\\?.*)?$`), (route) => patched<object>(route, (detail) => ({ ...detail, next: step(run) })));
   return run;
+}
+
+/**
+ * The demo's fix as a crash no model rescued, whose run's search named the commit: Revert leads it,
+ * and its Blame step shows the commit. Its blame offers a stronger model, as one kept with its flags
+ * does on a machine that names one, so its head has the most buttons a named crash's fix draws.
+ */
+async function routeCrashFix(page: Page): Promise<string> {
+  const fix = demoId('refundFix');
+  const run = await routeCrash(page);
+  await page.route(new RegExp(`/api/runs/${run}/next(\\?.*)?$`), (route) => route.fulfill({ json: { next: step(run) } }));
+  await page.route(new RegExp(`/api/fixes/${fix}(\\?.*)?$`), (route) =>
+    patched<FixDetail>(route, (d) => ({
+      ...d,
+      status: 'open',
+      lead: { key: 'revert', label: 'Revert', command: `git revert --no-commit ${REV} && shadowlap test ${GOLDEN}`, use: 'writes', runId: run, step: step(run) },
+      actions: { ...d.actions, blameAgain: null, blameStronger: { argv: ['blame', run], command: `shadowlap blame ${run} --model <model>`, attempts: 8, spent: 0, pulled: null, left: [] } },
+      blame: d.blame && { ...d.blame, outcome: 'unrescuable', answers: null, crash: { commit: FOUND, offline: true, stronger: false } },
+    })),
+  );
+  return fix;
 }
 
 /** Tests with the demo's first golden crashed at the commit, its failure leading the verdict. */
@@ -156,6 +179,31 @@ for (const [width, height] of [
     await expect(toggle).toBeFocused();
   });
 
+  test(`at ${width}×${height} a named crash's fix shows the commit and its change on its Blame step and leads with Revert, passing axe`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    const fix = await routeCrashFix(page);
+    await openPage(page, `/fixes/${fix}/blame`, 'fix');
+    const line = page.locator('#view .bisect.fxbis');
+    await expect(line.locator('code')).toHaveText(REV);
+    await expect(line.locator('b')).toHaveText(FOUND.subject);
+    await expect(page.locator('#view .bisect.fxbis + .codewrap.bisectdiff')).toContainText('agent/refund.py');
+    await expect(page.locator('#view .fxnote')).toHaveText(`The agent stopped part way from ${REV} on, so the code broke the run, not an answer of the model’s. Revert the commit or fix the code, then run the tests.`);
+    const lead = page.locator('.ph .actions .btn.lime[data-next="revert"]');
+    await expect(lead).toHaveText('Revert');
+    await expect(lead).toHaveAttribute('data-at', String(FOUND.at));
+    expect(await seriousViolations(page)).toEqual([]);
+    if (width === 1440) {
+      // Four, Revert lime and last with Open in editor before it; Find breaking commit stays on the run's page.
+      const names = (await page.locator('.ph .actions button:visible').allTextContents()).map((n) => n.trim());
+      console.log(`a named crash's fix head at 1440: ${names.join(' | ')}`);
+      expect(names).toEqual(['Run repair', 'Run blame with stronger model…', 'Open in editor', 'Revert']);
+      // They leave the title its 520px, so the head doesn't stack: the title and its buttons share a line.
+      await expect(page.locator('.ph.fxh')).not.toHaveClass(/\bstack\b/);
+      const title = await page.locator('.ph.fxh > :first-child').evaluate((h) => h.getBoundingClientRect().width);
+      expect(title).toBeGreaterThanOrEqual(520);
+    }
+  });
+
   test(`at ${width}×${height} Revert's dialog shows the change it undoes in a code box that keeps to its width, passing axe`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     const run = await routeCrash(page);
@@ -164,8 +212,8 @@ for (const [width, height] of [
     const dialog = page.locator(DIALOG);
     await expect(dialog).toContainText(`Revert ${REV}?`);
     const box = dialog.locator('pre.codebox.fxpatch');
-    await expect(box.locator('.add')).toHaveText('+    limit = policy.limit(order)');
-    await expect(box.locator('.del')).toHaveText('-    limit = policy.limit()');
+    await expect(box.locator('.add')).toHaveText('+     limit = policy.limit(order)');
+    await expect(box.locator('.del')).toHaveText('−     limit = policy.limit()');
     // An added line's ground reaches the box's edges without widening it: nothing to scroll sideways.
     expect(await box.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
     expect(await seriousViolations(page)).toEqual([]);

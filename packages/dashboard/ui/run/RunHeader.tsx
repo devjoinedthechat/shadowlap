@@ -24,16 +24,27 @@ import { nextStepOf } from './next-step.js';
 import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton, RevertEditorButton } from './NextStepButton.js';
 import { TraceLink } from './TraceLink.js';
 import { exitWords, type PresetAttempt } from './preset.js';
-import { checksOf, forkKindWords, recordingWords, runDuration, runLikeOf } from './model.js';
+import { checksOf, runDuration, runKindWords, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share.js';
-import { ShareMenu } from './ShareMenu.js';
+// The share job's drawer offers the link it made, as the run's page loads, whether Share has opened or not.
+import './share-link.js';
 import { ActionButton, useWhenFree } from '../components/ActionButton.js';
 import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
 import { fitWork } from './fit-work.js';
 import { onShow } from '../components/OnShow.js';
+import { useServedParts, type ShareMenuProps } from '../served-parts.js';
 
 /** Delete run's dialog, which a run's page rarely opens: a part of its own, with Find breaking commit's (OnShow.tsx). */
 const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.DeleteRunDialog));
+/**
+ * Share's menu, a part of its own for the same reason, which only the served dashboard hands in
+ * (served-parts.ts): an exported copy draws no Share, so its script holds no menu. Nothing where none
+ * was handed in.
+ */
+function ShareMenuPart(props: ShareMenuProps) {
+  const { ShareMenu } = useServedParts();
+  return ShareMenu ? <ShareMenu {...props} /> : null;
+}
 
 /**
  * The run's header, as every page's: what kind of run it is, muted, over its id (decision 10: the id
@@ -77,6 +88,9 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   const type = runType(like);
   const live = r.status === 'running';
   const share = useMenu();
+  // Its script loads as the pointer or the focus reaches Share, so the menu opens at once.
+  const served = useServedParts();
+  const preloadShare = () => served.ShareMenu?.preload();
   const next = nextStepOf(run);
   const lead = next ? <NextStepButton key={next.key} run={run} step={next} offers={offers} onAction={onAction} onFindCommit={onFindCommit} /> : null;
   // The lineage is in the crumbs; a phone, which has none, reads the parent here, after the kind.
@@ -103,8 +117,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
   // What kind of run it is, said once and only that, muted, on one line: its golden and what it
   // changed are its about line, under the id; how it stands is the first fact, and why it failed the
   // id's card. An attempt says it is one (its finding says which); a fork, where it forked.
-  const forkWords = forkKindWords(run, type, rescued);
-  const kind = forkWords ? forkWords : type === 'clean' ? 'clean replay' : type === 'replay' ? 'replay' : type === 'test' ? 'test replay' : type === 'capture' ? 'capture' : recordingWords(r);
+  const kind = runKindWords(run, type, rescued);
   const eyebrow = (
     <Eyebrow className="ek">
       <span className="ebk">{kind}</span>
@@ -172,7 +185,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
         {next?.key === 'compare' ? null : <CompareButton run={run} />}<TraceLink trace={run.trace} />
         {exported ? lead : (
           <>
-            <ActionButton className="btn" id="shareBtn" reads aria-haspopup="menu" aria-expanded={share.open} onClick={(e) => share.toggle(e.currentTarget)}>
+            <ActionButton className="btn" id="shareBtn" reads aria-haspopup="menu" aria-expanded={share.open} onPointerEnter={preloadShare} onFocus={preloadShare} onClick={(e) => share.toggle(e.currentTarget)}>
               <Icon name="share" />
               Share
               <Icon name="caret" className="caret" />
@@ -196,7 +209,7 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, onAc
           </>
         )}
       </div>
-      {share.open && share.anchor ? <ShareMenu anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
+      {share.open && share.anchor ? <ShareMenuPart anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
       {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
     </section>
   );

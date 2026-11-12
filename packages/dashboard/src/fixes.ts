@@ -15,13 +15,17 @@
  * buttons run, and exports the rest.
  */
 
-import { commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, lostRange, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
+import { commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, lostRange, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
 import { acceptedCandidate, commandLine, counting, type FixActions, type FixPr, type FixRung, type PatchCheck, patchToCheck, prOf, type RewriteCheck, rungOf, runHref, short, shownRepair, type StepKey } from './fix-shared.js';
 import { blameStep, type BlameStep } from './fix-blame-step.js';
 import { fixActions, type GoldensFolder } from './fix-actions.js';
+import type { FixCrash } from './fix-crash.js';
+import { fixLead, type FixLead } from './fix-lead.js';
 import { repairStep, type RepairStep } from './fix-repair-step.js';
 import { verifyStep, type VerifyStep } from './fix-verify-step.js';
+import { aboutsUpTo, SUMMARY_CALLS_BUDGET } from './run-about.js';
+import { loadRunIndex } from './run-index.js';
 export { type StepState, type FixStep, type FixRow, type FixList, fixList } from './fix-list.js';
 export { type BlameStep } from './fix-blame-step.js';
 export { type CandidateVerdict, type RepairStep } from './fix-repair-step.js';
@@ -29,8 +33,9 @@ export { type VerifyStep, type VerifyMore } from './fix-verify-step.js';
 export { type FixesSummary, type WeekWindows, fixesSummary, type NeedsLookItem, needsLookFixes } from './fix-summary.js';
 export { type FixRef, type RunBlame, type FixForRun, fixForRun } from './fix-for-run.js';
 export { type FixBundleAttempt, type FixBundle, fixBundles } from './fix-bundles.js';
-export { type StepKey, type VerifyRow, type FixActions, fixHref, shortFailure, type PatchCheck, type RewriteCheck, type FixRung, type FixPr } from './fix-shared.js';
+export { type StepKey, type StepLine, type VerifyRow, type FixActions, fixHref, shortFailure, type PatchCheck, type RewriteCheck, type FixRung, type FixPr } from './fix-shared.js';
 export { APPLY_GOLDENS, fieldChange, type GoldensFolder, goldensFolderIn } from './fix-actions.js';
+export { type FixLead } from './fix-lead.js';
 
 export interface FixRunRef {
   runId: string;
@@ -54,6 +59,8 @@ export interface FixDetail extends FixRow {
   /** The step a fix opens on without one in its URL: its last finished step. */
   defaultStep: StepKey;
   actions: FixActions;
+  /** The step its header leads with, in the words its Fixes row uses (fix-lead.ts `fixLead`), or null when it has none. */
+  lead: FixLead | null;
   /** Where it stands on the one ladder its header and its Fixes row say (`rungOf`): open, blamed, verified, applied or merged. */
   rung: FixRung;
   /** Its pull request, as the store keeps it, or null. */
@@ -126,6 +133,28 @@ export function pulledPatchOf(store: StoreOf<'team'>, rec: FixRecords): StoredRe
 }
 
 /**
+ * A fix's page with the about line of each run its verdicts left out (`VerifyStep['left']`) and of
+ * each run its repair's candidates name (`RepairStep['named']`), read as the Fixes list reads its
+ * unblamed run's (`aboutsUpTo`, within the Overview's budget of calls): in the pooled `fix` read
+ * alone, so a job built from `fixDetail` on the server's thread reads none.
+ */
+export function withAbouts(store: Store, d: FixDetail): FixDetail {
+  const ids = new Set([...d.verify.flatMap((v) => v.left.map((x) => x.runId)), ...(d.repair?.named.map((x) => x.runId) ?? [])]);
+  if (!ids.size) return d;
+  const index = loadRunIndex(store);
+  const abouts = aboutsUpTo(store, index, [...ids].flatMap((id) => index.byId.get(id) ?? []), SUMMARY_CALLS_BUDGET);
+  const about = <T extends { runId: string }>(x: T): T => ({ ...x, about: abouts.get(x.runId)?.text || null });
+  return {
+    ...d,
+    verify: d.verify.map((v) => (v.left.length ? { ...v, left: v.left.map(about) } : v)),
+    repair: d.repair?.named.length ? { ...d.repair, named: d.repair.named.map(about) } : d.repair,
+  };
+}
+
+/** An open fix's crash path: a crashed test replay no model rescued leads with its own step, Find breaking commit then Revert, where the caller can work it out (fix-crash.ts). */
+const openCrash = (fix: StoredFix, b: StoredBlame | null, crash: ((b: StoredBlame) => FixCrash | null) | undefined): FixCrash | null => (b && fix.status === 'open' && crash ? crash(b) : null);
+
+/**
  * One fix, every step as its page shows it. Null for an id that matches no fix, or several.
  * `repairer` is the one shadowlap.config.json names, if any: the repair commands use it.
  * `checkRepairer` says why the repairer a repair would ask can't be asked from here, for an open fix
@@ -134,7 +163,7 @@ export function pulledPatchOf(store: StoreOf<'team'>, rec: FixRecords): StoredRe
  * repair's patch there, and `goldensFolder` what the project's goldens folder holds of the goldens
  * apply copies and what else: this stays a read of the store without them.
  */
-export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder } = {}): FixDetail | null {
+export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck; rewriteHere?: RewriteCheck; goldensFolder?: GoldensFolder; crash?: (b: StoredBlame) => FixCrash | null } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -165,6 +194,8 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     verify: commandLine(verifyArgs.length ? shortIds(verifyArgs) : ['verify', '--fixes', '<runs>']),
   };
   const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v, commands.verify));
+  const actions = fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs });
+  const crash = openCrash(fix, b, options.crash);
   return {
     ...row,
     expect,
@@ -174,10 +205,11 @@ export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity'
     openedBy: fix.data.openedBy ?? null,
     upstreamRequests: cost.upstreamRequests,
     defaultStep: done.at(-1)?.key ?? 'blame',
-    actions: fixActions(store, rec, { label: row.label, repairer: configured, patchInTree: options.patchInTree, rewriteHere: options.rewriteHere, goldensFolder: options.goldensFolder ?? null, repairArgs }),
+    actions,
+    lead: fixLead(rec, actions, { repairer: configured, crash }),
     rung: rungOf(rec),
     pr: prOf(rec),
-    blame: b ? blameStep(store, b, commands.blame) : null,
+    blame: b ? blameStep(store, b, commands.blame, crash) : null,
     blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, range: lostRange(x.report.range), confidence: x.report.confidence })),
     repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p), commands.repair) : null,
     repairs: [...rec.repairs].reverse().map((x) => {

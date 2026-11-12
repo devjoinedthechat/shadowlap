@@ -7,7 +7,7 @@ import type { FoundChange } from '../types.js';
  * working tree (src/revert-job.ts). No DOM here: the tests import it.
  */
 
-/** A change's lines, each marked as added or removed. */
+/** A change's lines, each kept, added or removed, as a box of marked lines takes them (CodeBox's `lines`). */
 export type ChangeLines = ReturnType<typeof patchLines>;
 
 /** What Copy git revert copies: the commit undone in a commit of its own, a merge against its first parent. */
@@ -21,7 +21,7 @@ export const changeLines = (change: Pick<FoundChange, 'hunk'>): ChangeLines | nu
 
 /** The change undone, as Revert's dialog shows what it does: each line the commit added taken out, each it removed put back. */
 export function revertedLines(hunk: string): ChangeLines {
-  return patchLines(hunk).map((l) => (l.tone === 'add' ? { text: `-${l.text.slice(1)}`, tone: 'del' as const } : l.tone === 'del' ? { text: `+${l.text.slice(1)}`, tone: 'add' as const } : l));
+  return patchLines(hunk).map((l) => (l.op === '+' ? { ...l, op: '-' as const } : l.op === '-' ? { ...l, op: '+' as const } : l));
 }
 
 /** Revert's warning where the commit changed files outside the project folder: git reverts the whole commit, those too. */

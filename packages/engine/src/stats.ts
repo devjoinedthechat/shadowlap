@@ -1028,15 +1028,36 @@ function risks(g: SprtFigures): string {
  */
 export function describeGate(gate: Gate): string {
   if (gate.kind === 'sprt') return `tells ${atLeast(gate.good)} from ${atMost(gate.bad)} at <= ${risks(gate)}, up to ${plural(gate.max, 'attempt')}`;
-  // A share of a suite's risk can be finer than a tenth of a point: 99.95% likely, never more than it is.
-  const doubt = gate.risk * 100;
-  const places = doubt < 1 ? Math.min(6, 2 - Math.floor(Math.log10(doubt))) : 1;
-  const likely = `${+rounded(100 - doubt, places, 'down').toFixed(places)}%`;
+  const likely = likelyAt(gate.risk);
   const w = gate.widened;
   const sessions = (n: number) => (n === 1 ? 'session' : `${n} sessions`);
   const record = !w?.record.sessions ? 'its record' : w.before ? `every attempt of the ${sessions(w.record.sessions)} before its last ${w.before}` : w.record.sessions === 1 ? 'every attempt of its last session' : `every attempt of its last ${w.record.sessions} sessions`;
   const past = w && gate.max > w.from ? `, and past ${w.from} passes only once that drop from ${record} (${w.record.passes} of ${w.record.attempts}) is ${riskPercent(w.risk)} likely or less` : '';
   return `fails a drop of ${points(gate.drop)}+ points from its last ${plural(gate.window, 'session')} once ${likely} likely, from ${plural(gate.min, 'attempt')} up to ${gate.max}${past}`;
+}
+
+/** How likely a drop must be before a history gate fails, 1 − risk: 95%; a share of a suite's risk can be finer than a tenth of a point, 99.95%, never more than it is. */
+function likelyAt(risk: number): string {
+  const doubt = risk * 100;
+  const places = doubt < 1 ? Math.min(6, 2 - Math.floor(Math.log10(doubt))) : 1;
+  return `${+rounded(100 - doubt, places, 'down').toFixed(places)}%`;
+}
+
+/**
+ * What a gate's verdicts state, in one sentence, as Settings → CI's Gates says it: the test, never a
+ * rate it found. `Tells an agent that passes 90% of the time or more from one that passes 70% or
+ * less, each verdict wrong at most 5% of the time at those two rates, and gives up after 80
+ * attempts.`; against history, `Asks whether this golden’s pass rate dropped 15 points or more from
+ * its last 10 sessions: it fails once that is 95% likely and passes once it is no likelier than not,
+ * deciding from attempt 5 up to 40.` `describeGate` says the same rule in a verdict line's few words.
+ */
+export function explainGate(gate: Gate): string {
+  if (gate.kind === 'sprt') {
+    const fail = gate.failRisk ?? gate.risk;
+    const wrong = fail === gate.risk ? `each verdict wrong at most ${riskPercent(gate.risk)} of the time` : `a pass wrong at most ${riskPercent(gate.risk)} of the time and a failure at most ${riskPercent(fail)}`;
+    return `Tells an agent that passes ${percent(gate.good)} of the time or more from one that passes ${percent(gate.bad)} or less, ${wrong} at those two rates, and gives up after ${plural(gate.max, 'attempt')}.`;
+  }
+  return `Asks whether this golden’s pass rate dropped ${points(gate.drop)} points or more from its last ${plural(gate.window, 'session')}: it fails once that is ${likelyAt(gate.risk)} likely and passes once it is no likelier than not, deciding from attempt ${gate.min} up to ${gate.max}.`;
 }
 
 /**

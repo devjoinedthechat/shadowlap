@@ -17,11 +17,25 @@ export const foundHere = (found: FoundCommit, project: string | null | undefined
 /** How one request serves its found commits, as foundHere serves one: whether names are shown is read once for all of them, as it reads the config. */
 export function servesFound(project: string | null | undefined): (found: FoundCommit) => Promise<FoundCommit> {
   const names = namesTeamStore(project);
-  return async (found) => {
-    const shown = names ? found : { ...found, author: '' };
-    if (!found.change || !project) return shown;
-    return { ...shown, change: changeHere(found.change, project, await rootOf(project)) };
-  };
+  return async (found) => servedFound(found, { project: project ?? null, names, top: found.change && project ? await rootOf(project) : null });
+}
+
+/** What serving a found commit reads of the project, asked by the route and handed to a read beside the server as data: whether names show, and the repository's top level. */
+export interface FoundServing {
+  project: string | null;
+  names: boolean;
+  top: string | null;
+}
+
+/** What a read beside the server is handed to serve its found commits with (servedFound): asked of the config and of git here. */
+export async function foundServing(project: string | null | undefined): Promise<FoundServing> {
+  return { project: project ?? null, names: namesTeamStore(project), top: project ? await rootOf(project) : null };
+}
+
+/** A found commit as servesFound serves it, from what the route read (`FoundServing`): for a read beside the server, which asks git nothing. */
+export function servedFound(found: FoundCommit, o: FoundServing): FoundCommit {
+  const shown = o.names ? found : { ...found, author: '' };
+  return found.change && o.project ? { ...shown, change: changeHere(found.change, o.project, o.top) } : shown;
 }
 
 /** Each found commit of a list, as `serve` serves one (servesFound, once a request); null stays null. */

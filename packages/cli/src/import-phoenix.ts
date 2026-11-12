@@ -120,5 +120,5 @@ function storedSpan(raw: Record<string, unknown>): StoredSpan | null {
 export function readPhoenix(spans: Array<Record<string, unknown>>, traceId: string): Trace {
   const stored = spans.map(storedSpan).filter((s): s is StoredSpan => s !== null);
   const trace = readStoredSpans(stored).traces.find((t) => t.id === traceId);
-  return { id: traceId, calls: trace?.calls ?? [], spans: stored.length, skipped: trace?.skipped ?? [], ...(trace?.parents ? { parents: trace.parents } : {}) };
+  return { id: traceId, calls: trace?.calls ?? [], spans: stored.length, skipped: trace?.skipped ?? [], ...(trace?.parents ? { parents: trace.parents } : {}), ...(trace?.agents ? { agents: trace.agents } : {}) };
 }
