@@ -248,10 +248,10 @@ function ToSet({ m }: { m: MigrateView }) {
   );
 }
 
-/** A patch drawn as Apply fix draws one: each line in its colour. */
+/** A patch drawn as Apply fix draws one: each line in its colour; a stop for the keys, since a dialog scrolls it. */
 function Patch({ text }: { text: string }) {
   return (
-    <pre className="fxcode fxpatch">
+    <pre className="fxcode fxpatch" tabIndex={0}>
       {patchLines(text).map((l, i) => (
         <span key={i} className={l.tone ?? undefined}>
           {l.text}
