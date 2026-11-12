@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import type { RunDetail } from '../api.js';
-import { Copy } from '../components/Copy.js';
-import { DiffAnswer } from '../components/DiffNotes.js';
+import { DiffAnswer, NoDiffAnswer } from '../components/DiffNotes.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { ErrorState, Skeleton } from '../components/States.js';
 import { useLoad } from '../hooks.js';
@@ -39,7 +38,7 @@ export function RequestDiff({ run, onAt }: { run: RunDetail; onAt: (at: number) 
       ) : answer.loading ? (
         <Skeleton what="diff" lines={6} />
       ) : (
-        <Copy as="div" className="hint">{`This run kept no call #${r.divergence?.callNo ?? ''} to compare.`}</Copy>
+        <NoDiffAnswer who="This run" at={r.divergence?.callNo} />
       )}
     </section>
   );

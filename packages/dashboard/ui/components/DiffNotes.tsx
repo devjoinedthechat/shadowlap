@@ -12,9 +12,10 @@ import { JsonDiffPart } from './JsonDiffPart.js';
  * What Show diff says around the structural diff (JsonDiff.tsx), from the server's answer
  * (src/request-diff.ts): the heads that name both sides, and under the diff the sentence, a line for
  * each changed path with what fixes it, what matching masks and what no line of the body shows, then
- * every normalizer's command in one box; and the whole answer drawn with the diff between (`DiffAnswer`).
- * No run page's state, so a test's report and Compare can draw them beside their own diffs. The words are UI copy (`Copy`), each path in `Code`; the server decides
- * every fix, never the browser.
+ * every normalizer's command in one box; the whole answer drawn with the diff between (`DiffAnswer`),
+ * and the line where there is no answer (`NoDiffAnswer`). No run page's state, so a test's report and
+ * Compare can draw them beside their own diffs. The words are UI copy (`Copy`), each path in `Code`;
+ * the server decides every fix, never the browser.
  */
 
 type Normalizing = Extract<PathFix, { kind: 'normalizer' }>;
@@ -266,4 +267,9 @@ export function DiffAnswer({ diff, as }: { diff: RequestDiff; as?: 'h2' | 'h3' |
       </JsonDiffPart>
     </>
   );
+}
+
+/** Show diff's line where the server has no answer, the run keeping no call `at` to compare: `This run` on its page, `The replay` in a golden's report. */
+export function NoDiffAnswer({ who, at }: { who: 'This run' | 'The replay'; at: number | undefined }) {
+  return <Copy as="div" className="hint">{`${who} kept no call #${at ?? ''} to compare.`}</Copy>;
 }

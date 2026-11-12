@@ -1,4 +1,4 @@
-import { DiffAnswer, DiffHead } from '../components/DiffNotes.js';
+import { DiffAnswer, DiffHead, NoDiffAnswer } from '../components/DiffNotes.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { ErrorState, Skeleton } from '../components/States.js';
 import { useLoad } from '../hooks.js';
@@ -33,7 +33,7 @@ function Asked({ runId, callNo }: { runId: string; callNo: number }) {
   if (answer.data) return <DiffAnswer diff={answer.data} as="h4" />;
   if (answer.error) return <ErrorState retry={answer.reload}>{errorText(answer.error)}</ErrorState>;
   if (answer.loading) return <Skeleton what="diff" lines={6} />;
-  return <p className="muted">{`The replay kept no call #${callNo} to compare.`}</p>;
+  return <NoDiffAnswer who="The replay" at={callNo} />;
 }
 
 /** The changes the result kept, the replay gone: both sides hold only what changed. */
