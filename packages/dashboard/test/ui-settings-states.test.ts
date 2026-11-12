@@ -322,7 +322,7 @@ describe('Coding agents, as the design has it', () => {
 });
 
 describe('the rest of Settings while its file or folder can’t be read', () => {
-  const tools = { live: [], fenced: [], http: [], mcp: { files: [], servers: [], recorded: [], effects: [], clientConfigs: [], otherForms: [] } } as unknown as ToolsSettings;
+  const tools = { config: { version: 'v1', error: null }, entry: [], live: [], fenced: [], http: [], mcp: { files: [], servers: [], recorded: [], effects: [], clientConfigs: [], otherForms: [] } } as unknown as ToolsSettings;
 
   it('says on Tools that the recorded calls and the MCP configs can’t be read while the folder is gone', async () => {
     r = await page(app({ missing: true, client: { tools: async () => tools } }), 'tools');
