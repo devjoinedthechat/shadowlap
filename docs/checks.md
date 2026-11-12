@@ -249,6 +249,20 @@ A check that fails a run labelled `good`, or passes one labelled `bug`, says so 
 
 See [the reference](./cli.md#check).
 
+## Make a check in the dashboard
+
+On a run's page, **Add check…** starts from a tool call: first in its row's menu, on the inspector's summary line, or in ⌘K as **Add check at #n…**. Its menu starts a rule from the call: **Never call**, **Never with these arguments**, **Must call with…**, **Only after…**, a number argument **at most…**, **When… then…**, or **Ask a judge…** about the whole run.
+
+The check builder shows the golden's checks as reports label them, the rule being built marked, and the rule as a sentence of picked values:
+
+- **What it checks**: Never, Must call, Every call, When… then, Ask a judge, or JSON, for a budget or anything with no form.
+- **References**: a value an earlier call returned is a chip, written as `@lookup_order.result.total`.
+- **Refusals** are `shadowlap check`'s own words, on the rule they name. Save stays off until each is fixed.
+- **Against your recordings**: the agent's newest recordings, up to 200, judged as `shadowlap check` judges them, nothing replayed. Under the counts is the command that gives the same numbers.
+- **Ask a judge…** bills nothing as it is built. The judge is asked when the golden is packed or updated, or live in a fork golden's attempts.
+
+**Save check** writes the golden's entry under `tests` in `shadowlap.config.json`, only if the file is as the page read it. A change made since, in an editor or a terminal, is never overwritten: the page reads the file again and shows the change against it. A golden whose checks come from a pattern entry gets an exact entry of its own, with the pattern's other keys.
+
 ## Checking the checks
 
 `shadowlap doctor` holds the rules under `tests` against every recording there is: the packs they apply to and the store's 200 newest runs. A tool a rule names that no recording called or offered to its model is most likely misspelt, or renamed since, and a rule on it checks nothing:

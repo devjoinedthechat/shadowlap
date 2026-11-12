@@ -82,16 +82,18 @@ describe('when a tab reads again', () => {
 });
 
 describe('the Settings tabs', () => {
-  it('opens Matching without a tab, keeps CI at its old address, and knows no other tab', () => {
+  it('opens Matching without a tab, CI at ci and its older name alerts, Project at plan, and knows no other tab', () => {
     expect(SETTINGS_TABS.map((t) => t.label)).toEqual(['Matching', 'Redaction', 'CI', 'Coding agents', 'Tools', 'Project', 'Store']);
+    expect(SETTINGS_TABS.map((t) => t.key)).toEqual(['matching', 'redaction', 'ci', 'agents', 'tools', 'project', 'store']);
     expect(settingsTab(null)).toBe('matching');
-    expect(settingsTab('alerts')).toBe('alerts');
-    expect(settingsTab('ci')).toBe('alerts');
+    expect(settingsTab('ci')).toBe('ci');
+    expect(settingsTab('alerts')).toBe('ci');
+    expect(settingsTab('plan')).toBe('project');
     expect(settingsTab('store')).toBe('store');
-    expect(settingsTab('plan')).toBeNull();
     expect(settingsTab('members')).toBeNull();
+    expect(settingsTab('toString')).toBeNull();
     // The breadcrumb names the tab shown, whatever the address said.
-    expect(['alerts', 'ci', null, 'tools', 'plan'].map(settingsTabLabel)).toEqual(['CI', 'CI', 'Matching', 'Tools', 'Matching']);
+    expect(['alerts', 'ci', null, 'tools', 'plan', 'members'].map(settingsTabLabel)).toEqual(['CI', 'CI', 'Matching', 'Tools', 'Project', 'Matching']);
   });
 });
 
@@ -408,9 +410,12 @@ describe('the CI tab', () => {
     // What an inconclusive golden does shows too: fail, the server's default, until it is changed here.
     expect(ciShown({}, view)).toEqual({ ...CI_DEFAULTS, inconclusive: 'fail' });
     expect(ciShown({ fix: true, secret: 'ALERTS_HOOK', inconclusive: 'warn' }, view)).toEqual({ ...CI_DEFAULTS, fix: true, secret: 'ALERTS_HOOK', inconclusive: 'warn' });
+    // The pull request comment is on until it is turned off here; the server's answer says it.
+    expect(ciShown({ comment: false }, view).comment).toBe(false);
+    expect(ciShown({}, ciWorkflows({ ...CI_DEFAULTS, comment: false }, { preview: null, failing: 0, at: null, repository: null, branch: null })).comment).toBe(false);
     // The branch "only for the main branch" means is the repository's default, in the switch's words and the YAML.
     expect(view.alerts.branch).toBe('master');
-    expect(view.alerts.yaml).toContain("github.ref == 'refs/heads/master'");
+    expect(view.workflow.text).toContain("github.ref == 'refs/heads/master'");
     expect(view.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on master.');
     expect(view.fixOnFailure.preview).toMatchObject({ example: true, base: 'master' });
   });

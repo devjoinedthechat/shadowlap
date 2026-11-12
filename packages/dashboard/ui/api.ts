@@ -12,10 +12,11 @@ import { estimatesApi, noEstimates, type EstimatesApi } from './estimates-api.js
 import { changesApi, type ChangesApi } from './changes-api.js';
 import { testsApi, type TestsApi } from './tests-api.js';
 import { noSettings, settingsApi, type Request, type SettingsApi } from './settings-api.js';
+import { checksApi, noChecks, type ChecksApi } from './checks-api.js';
 import { noStoreSetup, storeSetupApi, type StoreSetupApi } from './store-api.js';
 import type { CallDetail, CallsPage, Changes, CiWorkflowsView, FixBundle, FixDetail, FixesView, JobFile, JobListItem, JobView, LineageNode, Meta, ModelsView, ProvenanceView, RunDetail, RunListItem, RunOffers, StaticPayload, TestsView, TrainingView } from './types.js';
 import type { ActivityPage, DaysBisect, DeleteResult, ImportSources, IssueRunsPage, IssuesPage, LabelRunsResult, OverviewSummary, OverviewWarming, RunsByDay, SearchAnswer, RunsPage, RunsPageRow, RunsQuery, TeamStoreStatus, TeamStoreView, UploadView } from './types.js';
-import type { NextStep } from './types.js';
+import type { CompareView, NextStep } from './types.js';
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
@@ -62,6 +63,8 @@ export const JOB_KINDS = {
   share: 'share',
   // The team store's setup (Settings → Store): check access to a bucket and connect it (store set --check).
   storeSet: 'store-set',
+  // Settings → Store's Check again: check the store's access again (store check), writing nothing.
+  storeCheck: 'store-check',
   // Tests: update goldens, find the commit (on Tests, the Runs calendar and a run's page), add a
   // normalizer and re-run (and `tests` above runs them).
   testUpdate: 'test-update',
@@ -77,7 +80,8 @@ export const JOB_KINDS = {
   pairs: 'pairs',
   score: 'score',
   taskUpdate: 'task-update',
-  // Checks: a check tried on the recordings, nothing replayed (the check builder's preview); its result is a CheckReportView.
+  // Checks: `shadowlap check`, a check tried on the recordings, nothing replayed; its result is a CheckReportView.
+  // The check builder judges its draft with a pooled read instead (POST /api/checks/preview).
   check: 'check',
   // The decision diff (Changes): ask the recorded model calls again under a change, migrate to a
   // model, and verify the runs a session flagged.
@@ -165,7 +169,7 @@ export interface Client extends ChangesApi, TestsApi {
   offers(id: string): Promise<RunOffers | null>;
   /** `shadowlap show <run> --json` as the CLI prints it, or null when the server does not serve it. */
   showJson(id: string): Promise<unknown>;
-  compare(a: string, b: string): Promise<RunComparison>;
+  compare(a: string, b: string): Promise<CompareView>;
   /** What Compare shows while the whole comparison is worked out: the identical prefix and the first request that differs; null where there is none to ask for (an exported copy), or none the server can tell before the whole comparison. */
   compareHead(a: string, b: string): Promise<CompareHead | null>;
   /**
@@ -240,6 +244,8 @@ export interface Client extends ChangesApi, TestsApi {
   // ---- Settings
   /** Settings: each tab's read and the edits to shadowlap.config.json (`settings-api.ts`). */
   settings: SettingsApi;
+  /** The check builder: a golden's checks read, a draft judged on the recordings, and its tests entry written (`checks-api.ts`). */
+  checks: ChecksApi;
   /** What billed jobs would cost, and Spending, the threshold above which one asks first. */
   estimates: EstimatesApi;
   /** The team store's setup page (`#/setup/store`, `store-api.ts`). */
@@ -438,7 +444,7 @@ export function createClient(token: string): Client {
       }
     },
     showJson: (runId) => request<unknown>(`runs/${id(runId)}/show`),
-    compare: (a, b) => request<RunComparison>(`compare?a=${id(a)}&b=${id(b)}`),
+    compare: (a, b) => request<CompareView>(`compare?a=${id(a)}&b=${id(b)}`),
     compareHead: (a, b) => request<CompareHead | null>(`compare?a=${id(a)}&b=${id(b)}&part=head`),
     search: (q) => request<SearchAnswer>(`search?q=${id(q)}&limit=40`).then((r) => ({ hits: r.hits ?? [], ...(r.indexing ? { indexing: r.indexing } : {}) })),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
@@ -515,8 +521,8 @@ export function createClient(token: string): Client {
 }
 
 /** The parts of the client that are APIs of their own, each written beside its routes. */
-function ownApis(request: Request): Pick<Client, 'settings' | 'storeSetup' | 'projects' | 'estimates'> {
-  return { settings: settingsApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
+function ownApis(request: Request): Pick<Client, 'settings' | 'checks' | 'storeSetup' | 'projects' | 'estimates'> {
+  return { settings: settingsApi(request), checks: checksApi(request), storeSetup: storeSetupApi(request), projects: projectsApi(request), estimates: estimatesApi(request) };
 }
 
 /** An address with `name` set to each of `keys`, after what it asks already. */
@@ -588,7 +594,7 @@ export function createExportedClient(data: StaticPayload): Client {
     provenance: (runId) => Promise.resolve((data.responses[`runs/${full(runId)}/provenance`] as ProvenanceView | undefined) ?? null),
     offers: () => Promise.resolve(null),
     showJson: (runId) => get<unknown>(`runs/${full(runId)}/show`),
-    compare: (a, b) => get<RunComparison>(`compare?a=${full(a)}&b=${full(b)}`),
+    compare: (a, b) => get<CompareView>(`compare?a=${full(a)}&b=${full(b)}`),
     // A copy holds each comparison whole.
     compareHead: () => Promise.resolve(null),
     search: () => Promise.resolve({ hits: [] }),
@@ -628,6 +634,7 @@ export function createExportedClient(data: StaticPayload): Client {
     ciWorkflows: () => get<CiWorkflowsView>('ci/workflows'),
     testEvidence: () => Promise.reject(new ApiError(404, 'this is an exported copy, and a golden’s attempts are not part of it')),
     settings: noSettings(readOnly),
+    checks: noChecks(readOnly),
     estimates: noEstimates(readOnly),
     storeSetup: noStoreSetup(readOnly),
     projects: noProjects(readOnly),
@@ -638,7 +645,7 @@ export function createExportedClient(data: StaticPayload): Client {
     decisionSession: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     verdicts: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
     verdictRevision: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Changes are not part of it')),
-    runDecisions: () => Promise.resolve({ runId: '', sessions: [] }),
+    runDecisions: () => Promise.resolve({ runId: '', sessions: [], later: null }),
     retirements: () => Promise.resolve({ version: '', notices: [] }),
     coverage: () => Promise.resolve(null),
     chaos: () => Promise.resolve(null),

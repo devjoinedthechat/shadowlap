@@ -28,7 +28,7 @@ export interface ExportWork {
   dbPath: string;
   runIds: string[];
   redact: Normalizer[];
-  /** The rules matching applies, for Show diff's answer in the file. */
+  /** The rules matching applies, which the file compares after: Compare's pairs, a fork's differences and Show diff's answer. */
   normalize?: Normalizer[];
   prices?: Record<string, Price>;
   version: string | null;

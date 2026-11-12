@@ -1,25 +1,28 @@
 /**
  * Settings' tabs and their addresses (`#/settings/<key>`), shared by the page and the breadcrumb.
- * CI keeps the address Alerts had; `#/settings/ci` opens it too, and is replaced by that address.
+ * Two older names still open a tab, the address keeping what was typed: `#/settings/alerts` opens
+ * CI and `#/settings/plan` opens Project. Every link goes to the tab's own key.
  */
 
-export type SettingsTab = 'matching' | 'redaction' | 'alerts' | 'agents' | 'tools' | 'project' | 'store';
+export type SettingsTab = 'matching' | 'redaction' | 'ci' | 'agents' | 'tools' | 'project' | 'store';
 
 /** In order, as the page lists them. */
 export const SETTINGS_TABS: ReadonlyArray<{ key: SettingsTab; label: string }> = [
   { key: 'matching', label: 'Matching' },
   { key: 'redaction', label: 'Redaction' },
-  { key: 'alerts', label: 'CI' },
+  { key: 'ci', label: 'CI' },
   { key: 'agents', label: 'Coding agents' },
   { key: 'tools', label: 'Tools' },
   { key: 'project', label: 'Project' },
   { key: 'store', label: 'Store' },
 ];
 
-/** The tab an address opens: Matching without one, CI for `ci`, null for one that isn't a tab. */
+const OLDER_NAMES: Readonly<Record<string, SettingsTab>> = { alerts: 'ci', plan: 'project' };
+
+/** The tab an address opens: Matching without one, CI for `alerts`, Project for `plan`, null for one that isn't a tab. */
 export function settingsTab(tab: string | null | undefined): SettingsTab | null {
   if (!tab) return 'matching';
-  if (tab === 'ci') return 'alerts';
+  if (Object.hasOwn(OLDER_NAMES, tab)) return OLDER_NAMES[tab]!;
   return SETTINGS_TABS.some((t) => t.key === tab) ? (tab as SettingsTab) : null;
 }
 

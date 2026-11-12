@@ -7,7 +7,7 @@ import type { PaletteEntry } from '../palette.js';
 import { keyColumn, type ShortcutId } from '../shortcuts.js';
 import type { ActionItem, BlameBeside, GateEntry, NextStep, NextStepRow, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
-import { PACK_VERB } from './share.js';
+import { PACK_VERB } from './share-steps.js';
 
 /**
  * The step the run page leads with, as the server works it out (src/next-step.ts): the header's one

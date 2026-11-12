@@ -188,6 +188,38 @@ describe('the HTML download', () => {
     expect(html).not.toContain('jane@example.com');
   });
 
+  it('compares its runs after the project’s matching rules, as the dashboard does: Compare’s pairs and a fork’s differences alike', async () => {
+    // A recording and its fork that each opened a ticket, its id the one thing between them.
+    const ticket = (id: string, parent: string | null) => {
+      const r = store.createRun({ mode: parent ? 'replay' : 'record', ...(parent ? { parentRunId: parent } : {}), command: { argv: ['node', 'agent.mjs'], cwd: project } });
+      const identity = { kind: 'tool' as const, name: 'create_ticket', fingerprint: `ticket ${id}`, occurrence: 1 };
+      store.appendCallStart({ runId: r.runId, callNo: 1, ...identity, origin: 'live', effect: 'write', requestRef: store.putJson({ args: { id } }), meta: {}, at: 1 });
+      store.appendCallEnd(identity, { runId: r.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ result: { ok: true } }), outcome: 'ok', meta: {}, at: 2 });
+      if (parent) store.setDivergence(r.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'create_ticket', replayedBefore: 0 });
+      store.endRun(r.runId, 'completed');
+      return r.runId;
+    };
+    const parent = ticket('T-1', null);
+    const fork = ticket('T-2', parent);
+    // The copy of the fork, with its parent, from a dashboard whose project names `normalize`.
+    const copied = async (normalize: Normalizer[]) => {
+      const d = await startDashboard({ store, dbPath, project: { path: project }, loadConfig: () => ({ normalize, redact: [] }) });
+      try {
+        const res = await api(d, `runs/${fork}/export`);
+        expect(res.status).toBe(200);
+        const html = await res.text();
+        const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)![1].split('<\\/').join('</')) as { responses: Record<string, unknown> };
+        const pair = data.responses[`compare?a=${parent}&b=${fork}`] as { pair: { verdict: { words: string } } };
+        const differences = data.responses[`runs/${fork}/differences`] as { differences: { rank: number | null } };
+        return [pair.pair.verdict.words, differences.differences.rank];
+      } finally {
+        await d.close();
+      }
+    };
+    expect(await copied([])).toEqual(['Different writes', 1]);
+    expect(await copied([{ kind: 'tool', path: '$.args.id', replace: '<id>' }])).toEqual(['The same decisions', null]);
+  });
+
   it('is stopped when a rule takes too long, naming the rule, and the server answers meanwhile', async () => {
     const run = recording();
     modelCall(run.runId, 1, SLOW_TEXT);

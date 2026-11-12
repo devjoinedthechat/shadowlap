@@ -1,5 +1,5 @@
 import { lookupRun } from '../api.js';
-import type { RouteContext } from '../context.js';
+import { projectNormalizers, type RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
@@ -9,7 +9,9 @@ import { loadRunIndex } from '../run-index.js';
  * Compare two runs: what changed between them, then call by call (`GET /api/compare?a=&b=`), worked
  * out beside the server (read-pool.ts): two long runs take seconds, which hold up no other request.
  * `part=head` answers at once with what the page shows first meanwhile: the identical prefix and the
- * first request that differs (compare.ts `compareHead`). The code card's commits and subject come
+ * first request that differs (compare.ts `compareHead`). The whole comparison carries `pair` too:
+ * what B decided differently from A after the calls they share, compared after the project's
+ * matching rules (fork-differences.ts `pairDifferences`). The code card's commits and subject come
  * from the project folder's git, asked at most once a minute per pair of revisions.
  */
 export function register(router: Router, ctx: RouteContext): void {
@@ -23,6 +25,6 @@ export function register(router: Router, ctx: RouteContext): void {
     const index = loadRunIndex(ctx.store);
     const calls = [a, b].reduce((n, id) => n + (index.byId.get(lookupRun(ctx.store, id)?.runId ?? '')?.calls ?? 0), 0);
     // A side that names no single run (several runs, a prefix too short; or none) is said by the read model.
-    sendAnswer(r, await ctx.reads.run(part === 'head' ? { kind: 'compare-head', a, b } : { kind: 'compare', a, b, cwd: ctx.project?.path ?? null }, { calls }));
+    sendAnswer(r, await ctx.reads.run(part === 'head' ? { kind: 'compare-head', a, b } : { kind: 'compare', a, b, cwd: ctx.project?.path ?? null, normalizers: projectNormalizers(ctx) }, { calls }));
   });
 }

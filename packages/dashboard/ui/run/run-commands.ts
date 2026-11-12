@@ -11,7 +11,7 @@ import { keyColumn } from '../shortcuts.js';
 import { useApp, type PaletteCommand } from '../state.js';
 import { nextStepOf, replayAction, stepEntry } from './next-step.js';
 import { plainPackFolder, useStepWait } from './NextStepButton.js';
-import { PACK_VERB, packRunCommand } from './share.js';
+import { PACK_VERB, packRunCommand } from './share-steps.js';
 import { bisectLabel } from './offers.js';
 
 /** Presses the header's lime button, or another by its selector, or says why not, where a job started since the palette opened. */
@@ -52,6 +52,8 @@ export function useRunCommands(o: {
   actions: { run: (p: { action: RunDetail['actions'][number]; callNo: number | null; runId?: string }) => void; findCommit: () => void };
   forkMenu: { openAt: (el: HTMLElement) => void };
   setView: (v: View) => void;
+  /** Add check at #n…, where the selected call takes it: the check menu at its row's button, else at the inspector's link. */
+  addCheck?: (() => void) | undefined;
 }): void {
   const app = useApp();
   const { exported, actionsOff, setRunCommands, hasKind, toast } = app;
@@ -66,6 +68,7 @@ export function useRunCommands(o: {
   const now = useLatest(o);
   useEffect(() => {
     const items = leadCommands(run, { exported, actionsOff, wait, toast, run: (p) => now.current.actions.run(p) });
+    if (o.addCheck && selected !== null) items.push({ group: 'This run', label: `Add check at #${selected}…`, hint: 'never, must, only after, at most, when, a judge', job: true, run: () => now.current.addCheck?.() });
     if (canFork && selected !== null)
       items.push({
         group: 'This run',
@@ -99,9 +102,10 @@ export function useRunCommands(o: {
         items.push({ group: 'This run', label: on ? `Take off ${m}` : `Label it ${m}`, hint: m === 'good' ? 'repair --keeps label:good' : 'repair --fixes label:bad', key: keyColumn(m === 'good' ? 'markGood' : 'markBad'), run: () => now.current.mark(m) });
       }
     items.push({ group: 'This run', label: 'Provenance', hint: 'the run’s record, call by call', run: () => now.current.setView('provenance') });
+    items.push({ group: 'This run', label: 'Decisions', hint: 'what a change decides differently at each model call', run: () => now.current.setView('decisions') });
     if (run.parent && next?.key !== 'compare') items.push({ group: 'This run', label: ACTIONS.compareWithParent.label, hint: `shadowlap diff ${shortId(run.parent.runId)} ${shortId(runId)}`, short: `against ${shortId(run.parent.runId)}`, key: keyColumn('compare'), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the commands change with what they show; the functions they call are read when they run, and taking them in would register the commands again on every render
-  }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n'), next?.key, next?.label, next?.href, next?.command, run.replay?.label, wait, packFolder, packWait]);
+  }, [runId, selected, live, exported, actionsOff, canFork, !!o.addCheck, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n'), next?.key, next?.label, next?.href, next?.command, run.replay?.label, wait, packFolder, packWait]);
   useEffect(() => () => setRunCommands([]), [setRunCommands]);
 }

@@ -96,8 +96,9 @@ afterAll(async () => {
 
 describe('Settings from shadowlap dashboard', () => {
   it('calibrates the newest recording and adds exactly the normalizers it proposed', async () => {
-    const matching = (await (await api('settings/matching')).json()) as { calibrate: { runId: string; label: string } };
-    expect(matching.calibrate).toMatchObject({ runId, label: `Calibrate ${runId.slice(0, 10)}` });
+    const matching = (await (await api('settings/matching')).json()) as { calibrate: { runId: string; command: string; argv: string[]; recordings: Array<{ runId: string }> } };
+    expect(matching.calibrate).toMatchObject({ runId, command: `shadowlap calibrate ${runId.slice(0, 10)}`, argv: ['calibrate', runId] });
+    expect(matching.calibrate.recordings[0]).toEqual({ runId });
     const job = await finished((await (await post('jobs', { kind: 'calibrate' })).json()) as Job);
     expect(job.args).toEqual(['calibrate', runId]);
     expect(job.code, job.lines.join('\n')).toBe(0);

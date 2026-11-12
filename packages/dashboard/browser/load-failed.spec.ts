@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test';
 import { demoId, expectAccessible, openPage } from './dashboard.js';
 
 /**
- * A page, or a run's view, whose code didn't come from the dashboard server, in a real browser. The
- * browser keeps a script's failure for as long as the page is open and never asks for it again, so
- * the page says so under its title, or in the view, with Retry, which loads the page again: once
- * the server sends the script, the page draws. The script is refused here as a dashboard that
- * stopped refuses it.
+ * A page, a run's view, a Changes tab or the check builder whose code didn't come from the dashboard
+ * server, in a real browser. The browser keeps a script's failure for as long as the page is open and
+ * never asks for it again, so the page says so under its title, in the view, or in a small dialog in
+ * the builder's place, with Retry, which loads the page again: once the server sends the script, the
+ * page draws. The script is refused here as a dashboard that stopped refuses it.
  */
 
 test('a page whose code didn’t come says so under its title, asks for it no more, and draws once Retry loads it again', async ({ page }) => {
@@ -75,4 +75,27 @@ test('a Changes tab whose code didn’t come says so under Changes’ head, with
   await expect(page.locator('main#view .pickers')).toHaveCount(1);
   await expect(tabs.getByRole('link', { name: 'Compare' })).toHaveAttribute('aria-current', 'page');
   await page.unroute(verdicts);
+});
+
+test('a check builder whose code didn’t come says so in a small dialog in its place, which closes back to Add check…', async ({ page }) => {
+  const builder = /\/assets\/chunks\/Builder-\w+\.js$/;
+  await page.route(builder, (route) => route.abort());
+  await openPage(page, `/run/${demoId('refundBug')}`, 'run');
+  await page.locator('main#view tr[data-wi]:has(td.name[title="issue_refund"])').first().click();
+  const link = page.locator('[data-act="ckmenu"]');
+  await link.click();
+  await page.locator('.pop.ckm[role="menu"] [role="menuitem"]', { hasText: 'Never call issue_refund' }).click();
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  await expect(dialog).toHaveAccessibleName('Add check');
+  const line = dialog.locator('.loaderr');
+  await expect(line.locator('.st.err')).toHaveText('couldn’t load');
+  await expect(line).toContainText('This check builder’s code didn’t come from the dashboard server.');
+  await expect(line.getByRole('button', { name: 'Retry' })).toBeVisible();
+  await expectAccessible(page);
+  // Close takes it away, the focus back on what opened it, and the run's page is whole.
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(link).toBeFocused();
+  await expect(page.locator('main#view .rhead .rnm')).toBeVisible();
+  await page.unroute(builder);
 });

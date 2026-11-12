@@ -1672,6 +1672,20 @@ More on some of them:
 The command after `--` replaces each run's recorded one, for `--from-code`, `--then-verify` and
 `--verify`.
 
+**What it prints.** The report opens with how many runs decide a write or when to stop differently,
+and the steps it asked. Each run then has a line, and under it a line for each step that changed or
+wasn't asked ([reading the report](./decisions.md#reading-the-report)). A step's line gives its call
+and its step, then one of these:
+
+| It says | When |
+| --- | --- |
+| `rank 1` to `rank 5` | Its change ranks, by consequence, with what it decided as recorded and under the change |
+| `within the model's own variation` | Its samples decided otherwise no more often than as recorded, with both counts |
+| `inconclusive` | Its samples changed, but too few answers came, under the change or as recorded, to tell that from the model's own variation |
+| `not asked` | It got no answer, with why |
+
+An inconclusive step counts as not asked, and its run settles nothing unless something else flags it.
+
 `decisions` exits with:
 
 | Status    | Meaning                                                                                                |
@@ -1791,7 +1805,7 @@ Each of its `decisions`, a step, has these fields:
 More on a step's fields:
 
 - **`rank`** is `null` when there is none, and when either side got fewer than 3 answers, which leaves
-  the step not settled.
+  the step inconclusive.
 - **`changes`**: each has its `rank`, its `kind`, the `tool` and its `effect`, `before`, `after` and a
   `detail` sentence. `kind` is one of `write-added`, `write-removed`, `write-arguments`,
   `write-order`, `stops`, `handover`, `judge`, `read-added`, `read-removed`, `read-arguments` and
@@ -2807,6 +2821,10 @@ did not pass. Under the totals, the report says when the checks fail a recording
 pass one labelled `bug`. It also names a value the checks read that none of the calls judged has (a
 misspelt `result.totl`), with the key it most likely meant.
 
+The totals count a recording that passed only because none of its checks applied, a `when` whose
+condition never held, as not applicable: `2 passed, 1 not applicable`. It never counts as passed
+there, and it leaves the exit status `0`.
+
 `check` exits with:
 
 | Status | Meaning                               |
@@ -2823,7 +2841,7 @@ A dashboard job that runs `check` gets the same report as its result. `--json` p
 | --- | --- |
 | `expect` | The `expect` given, or null |
 | `recordings` | Each recording judged (below) |
-| `counts` | The recordings by outcome: `passed`, `failed`, `inconclusive` |
+| `counts` | The recordings by outcome: `passed`, `failed`, `inconclusive`, and `notApplicable` apart from `passed` |
 | `unchecked` | The recordings counted apart for want of checks |
 | `notes` | Recordings labelled good that fail, or bug that pass, and values the checks read that no call judged has |
 

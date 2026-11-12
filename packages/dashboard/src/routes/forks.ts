@@ -3,7 +3,7 @@ import { isAbsolute, relative, sep } from 'node:path';
 import { buildActions, actionContext, messageOf } from '@shadowlap/engine';
 import type { Normalizer } from '@shadowlap/engine';
 import { importedConsent, lookupRun, noSuchRun } from '../api.js';
-import type { RouteContext } from '../context.js';
+import { projectNormalizers, type RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
 import { recordingNow } from '../run-exports.js';
@@ -33,14 +33,7 @@ export const OVERRIDE_LIMIT = 2 * 1024 * 1024;
 export const OVERRIDE_INLINE = 64 * 1024;
 
 export function register(router: Router, ctx: RouteContext): void {
-  const normalizers = (): readonly Normalizer[] => {
-    if (!ctx.options.loadConfig) return [];
-    try {
-      return ctx.config().normalize;
-    } catch {
-      return [];
-    }
-  };
+  const normalizers = (): readonly Normalizer[] => projectNormalizers(ctx);
 
   // It reads every call of the fork and of its parent: worked out beside the server (read-pool.ts).
   router.get('/runs/:id/differences', async (r) => {

@@ -7,14 +7,15 @@ import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { loadRunIndex } from '../run-index.js';
 import { checkSetupUrl, isProvider, recordSetup, storeSetupView } from '../store-setup.js';
+import { editFolder, failed, writeCiPush, type CiPushWrite } from './settings-edits.js';
 import { readTeamStoreInput, teamStoreStatus, type TeamStoreStatus } from '../team-store.js';
 
 /**
  * The team store, free: a bucket of your own that `push` copies runs to and `pull` brings the
  * team's from. `GET /api/store` says what this machine knows of it (nothing is asked of the
- * bucket) and who it records as; the `push`, `pull` and `share` job kinds run the CLI, which talks
- * to the bucket with this machine's own credentials. The Runs page (the `local` tag, Pull, Push in
- * the bulk bar), a run's page (Push, Share link) and Settings → Store use them.
+ * bucket) and who it records as; the `push`, `pull`, `store-check` and `share` job kinds run the
+ * CLI, which talks to the bucket with this machine's own credentials. The Runs page (the `local`
+ * tag, Pull, Push in the bulk bar), a run's page (Push, Share link) and Settings → Store use them.
  */
 
 /** The store the project's config names, as `teamStoreStatus` reports it, or null without one. Read fresh: Settings and `store set` change it. */
@@ -95,7 +96,9 @@ export function register(router: Router, ctx: RouteContext): void {
   });
 
   // The steps the CLI leaves no trace of: Push from CI added or skipped (and for which CI), and the
-  // setup finished. Kept with what this machine knows of the store the config names.
+  // setup finished. Kept with what this machine knows of the store the config names. Step 3 on
+  // GitHub turns Push from CI on or off with it (`ciPush`), written to the config as Settings →
+  // Store's switch writes it.
   router.post('/store/setup', async (r) => {
     const body = await r.body();
     const team = teamStoreFor(ctx);
@@ -113,8 +116,18 @@ export function register(router: Router, ctx: RouteContext): void {
       if (body.finished !== true) throw new HttpError(400, 'finished is true');
       patch.finishedAt = Date.now();
     }
-    if (!Object.keys(patch).length) throw new HttpError(400, 'say what was done: ci, ciProvider or finished');
-    r.json({ setup: recordSetup(ctx.store, team.key, patch) });
+    if (body.ciPush !== undefined && typeof body.ciPush !== 'boolean') throw new HttpError(400, 'ciPush is true or false');
+    if (!Object.keys(patch).length && body.ciPush === undefined) throw new HttpError(400, 'say what was done: ci, ciProvider, ciPush or finished');
+    let ciPush: CiPushWrite | null = null;
+    if (typeof body.ciPush === 'boolean') {
+      const cwd = editFolder(ctx);
+      try {
+        ciPush = await writeCiPush(ctx, cwd, body.ciPush);
+      } catch (err) {
+        failed(ctx, err, cwd);
+      }
+    }
+    r.json({ setup: recordSetup(ctx.store, team.key, patch), ...(ciPush ? { ciPush } : {}) });
   });
 
   // Check access and connect: `store set <url> --provider <p> --check`, which checks the bucket with
@@ -178,6 +191,19 @@ export function register(router: Router, ctx: RouteContext): void {
       if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
       if (!teamStoreFor(ctx)) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };
       return { args: ['pull'] };
+    },
+  });
+
+  // Check again (Settings → Store): `store check` lists, writes, reads and deletes a test object with
+  // this machine's credentials and records the result as the store's last check, which Last check and
+  // Activity read. It writes nothing to shadowlap.config.json, and a finished setup stays finished:
+  // never `store set --check`, which writes the store again.
+  ctx.jobs.registerJobKind('store-check', {
+    title: () => 'Checking store',
+    build: () => {
+      if (!ctx.project) return { error: 'the team store needs a project folder: start the dashboard in your project with shadowlap dashboard', status: 501 };
+      if (!teamStoreFor(ctx)) return { error: 'no team store yet: set one with shadowlap store set s3://<bucket>/<folder>', status: 409 };
+      return { args: ['store', 'check'] };
     },
   });
 

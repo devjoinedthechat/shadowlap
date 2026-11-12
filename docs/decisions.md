@@ -181,7 +181,7 @@ AGENT_SYSTEM_SUFFIX="Keep the final answer short." shadowlap decisions goldens/r
 
 goldens/research 01M58W8A0Z  11 of 11 model calls asked · 1 changed, most: rank 2 (it stops, hands over or is judged differently)
   #30   step 11  rank 2  judge "fences" fails what it says now, which passed as recorded · in 3 of 3 samples, 0 of 3 as recorded
-         recorded answers and stops: "Done. Summary: recorded runs replay deterministically; forks fence writ…"
+         recorded answers and stops: "Done. Summary: recorded runs replay deterministically; forks fence…"
          now      answers and stops: "Done. Recorded runs replay deterministically."  −8 tokens · −<$0.001
          judge "fences" passed → failed · It no longer says that forks fence writes. (judged live, <$0.001)
 ```
@@ -278,8 +278,8 @@ Some steps aren't ranked, or aren't ranked against the control:
 | Its samples decided otherwise no more often than its control's | Lists it with both counts, *within the model's own variation*, and counts such steps |
 | A sample a judge could not judge, and its samples don't flag it | Waits on the judge, and says how many of its samples were *not judged* |
 | The request as recorded can't be asked any more | Ranks it by its changed samples alone, and warns |
-| The request as recorded got no answer, for a passing reason | Marks a step its samples changed *not settled* |
-| Fewer than 3 answers on either side | Marks it *not settled* too, and counts it as not asked |
+| The request as recorded got no answer, for a passing reason | Marks a step its samples changed *inconclusive* |
+| Fewer than 3 answers on either side | Marks it *inconclusive* too, and counts it as not asked |
 
 - **Ranked by chance.** Each step is tested on its own, so across a run of many steps one may be ranked by chance: `verify`, which runs the change end to end, settles it.
 - **Which sample a step shows.** A judge reads each sample's words, on both sides alike. The step shows the sample with the most consequential change, or among text-only ones, one whose words could not be judged.
@@ -288,7 +288,7 @@ Some steps aren't ranked, or aren't ranked against the control:
 - **No answer, for a passing reason**: the request as recorded got none because of an overload, a rate limit, a 5xx or a dropped connection. Nothing told the step's change from the model's own variation.
 - **Fewer than 3 answers** on either side, whatever kept the third from coming: no split of 3 against 2 comes out rarer than 1 in 10, so it could never rank.
 
-A step that is not settled, as with a step that waits on a judge, leaves its run settling nothing unless something else flags it: `decisions` exits 3, and `migrate` reads the run as inconclusive.
+An inconclusive step, as with a step that waits on a judge, leaves its run settling nothing unless something else flags it: `decisions` exits 3, and `migrate` reads the run as inconclusive.
 
 ### What the report masks
 
@@ -315,7 +315,7 @@ AGENT_SYSTEM_SUFFIX="Do not email the summary." shadowlap decisions 01M58VT1J5 -
 01M58VT1J5  11 of 11 model calls asked · 1 changed, most: rank 1 (a write changed)
   #28   step 10  rank 1  send_email is no longer called · in 3 of 3 samples, 0 of 3 as recorded
          recorded send_email({"to":"team@example.com","subject":"Research summary","body":"Replay wo…)
-         now      answers and stops: "Summary: recorded runs replay deterministically, and forks fence writes…"  −8 tokens · −<$0.001
+         now      answers and stops: "Summary: recorded runs replay deterministically, and forks fence…"  −8 tokens · −<$0.001
   the steps asked, as recorded and now: 12,260 → 12,260 input tokens · ≈$0.043 → ≈$0.043 (about the same)
 ```
 

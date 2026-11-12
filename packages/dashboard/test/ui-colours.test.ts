@@ -149,8 +149,8 @@ describe('what each colour may mean', () => {
   });
 
   it('dims what Compare shows the same in the faint ink, which keeps AA’s contrast, never by fading it', () => {
-    expect(value('.pcall.same', 'color')).toBe('var(--faint)');
-    expect(value('.pcall.same', 'opacity')).toBeNull();
+    expect(value('.pside.same', 'color')).toBe('var(--faint)');
+    expect(value('.pside.same', 'opacity')).toBeNull();
   });
 
   it('dims what doesn’t apply in the faint ink, never by fading it, and keeps the bar’s words above AA on its amber', () => {
@@ -213,6 +213,10 @@ describe('what each colour may mean', () => {
     expect(value('.navlist a[aria-current="page"] svg', 'color')).toBe('var(--ink)');
     for (const s of ['.run[aria-current="true"]::before', '.tabs [aria-selected="true"]::after', '.stabs a[aria-current="page"]::after', '.stepper a[aria-current="step"]::after']) expect(value(s, 'background'), s).toBe('var(--ink)');
     expect(value('table.calls tr[aria-selected="true"] td:first-child', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
+    // Under the pointer too, as a held row: the hover's ground is no more specific than the selection's, which comes after it.
+    const at = (s: string) => rules().findIndex((r) => r.selectors.includes(s));
+    expect(value('table.calls tr:hover td', 'background')).toBe('var(--hover)');
+    expect(at('table.calls tr:hover td')).toBeLessThan(at('table.calls tr[aria-selected="true"] td'));
     expect(value('.turn.sel', 'box-shadow')).toBe('inset 3px 0 0 var(--ink)');
     expect(value('ol.setup .cur .sn', 'box-shadow')).toBe('inset 0 0 0 2px var(--ink)');
     expect(value('table.runst tr.picked td', 'background')).toBe('var(--sel)');
@@ -260,12 +264,16 @@ describe('lime', () => {
     '.status .jobchip.ok i': 'a hidden job that ended well',
     '.drawer pre .ok': 'a job that ended well',
     '.prl i.ok': 'the pull request comment’s line that passed',
+    '.cilist li i.ok': 'a gate preview’s attempts that pass it',
     '.recline .ic': 'a setup step’s run that came back',
     '.glyph.fixok': 'a fix that was accepted',
     '.psk.done.s-verify': 'a fix’s Verify step that passed, on its Fixes row',
     '.psk.done.s-verify i': 'a fix’s Verify step that passed, on its Fixes row',
     '.stepper .done.s-verify .k i': 'a fix’s Verify step that passed, its dot in the stepper of the fix’s page',
     '.plist.checks li.met::before': 'a requirement met',
+    '.dsv.ok b': 'a preview’s run that verify kept passing or fixed: its word',
+    '.dlead .dlv.ok b': 'an opened cell’s run that verify kept passing or fixed: its word',
+    '.djudge b.ok': 'a judge check that passed',
   };
   /** Lime the design rules out that only a later slice's markup can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
@@ -319,6 +327,7 @@ describe('amber', () => {
     '.st.warn': 'a status that needs a look',
     '.st.warn i': 'a status that needs a look',
     '.vw.warn': 'a verdict line’s word: inconclusive',
+    '.dstop.diff': 'a decision’s stop that differs from the other side’s, which needs a look',
     '.alist > .al > i.inc': 'an attempt that couldn’t be judged',
     '.astrip .ac.inc': 'an attempt that couldn’t be judged',
     '.tag.inc': 'an inconclusive status chip',
@@ -367,6 +376,7 @@ describe('amber', () => {
     '.agentfiles .warn': 'a coding agent’s file that needs a look',
     '.skrow > div:first-child > span.warn': 'a skill that needs a look',
     '.cip .offnote': 'a CI feature that is off: a look',
+    '.wfpanel .wfstate b': 'the lines Your workflow changes in the repository’s file: a look before Write file',
     '.set > .kvs dd small.warn': 'a setting that needs a look',
     '.egrp.mcp td small.mnote.warn': 'an MCP server that needs a look',
     '.trow.warn > span:last-child': 'a row that needs a look',
@@ -378,12 +388,28 @@ describe('amber', () => {
     '.rmx-c.warn i': 'a results matrix’s cell that was inconclusive or influenced: its bar',
     '.rmx-c.warn b': 'a results matrix’s cell that was inconclusive or influenced: its word',
     '.mxsw.warn': 'a matrix’s key: what was inconclusive or influenced',
+    '.cb-units li.bad .cb-ul code': 'a rule the check builder refuses, in the engine’s words: Save waits until it is fixed',
+    '.cb-notes li.y': 'a note against the agent’s recordings that needs a look before the check is saved',
+    '.cb-row .cm.inc': 'a recording the check being built can’t decide',
+    '.cb-warn': 'shadowlap.config.json changed since the check builder read it: the change is shown against it again',
+    'i.dg.s': 'a preview key’s swatch for a change of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
+    'i.dg.jw': 'a preview key’s swatch for a step that waits on a judge: its ring',
+    '.dc.s': 'a decision cell of rank 2, a stop, hand-over or judged change: a look, as the design ranks them',
+    '.dc.jw': 'a decision cell that waits on a judge: its ring',
+    '.dc.split i.s': 'a split decision cell’s samples of rank 2: a look',
+    '.dsd.q2': 'a preview row’s most telling change, of rank 2: a look',
+    '.dsy': 'what a preview couldn’t ask or judge: a run it refused, a step that waits on a judge, a warning',
+    '.dsv.y b': 'a preview’s run that verify found inconclusive: its word',
+    '.dnotes': 'the warnings under a preview’s matrix: what couldn’t be asked or judged',
+    '.dlead .dlv.y b': 'an opened cell’s run that verify found inconclusive: its word',
+    '.drk.q2': 'a change of rank 2’s label: a look',
+    '.dside.q2': 'an opened cell’s decision now, of rank 2: its edge, a look',
+    '.djudge b.y': 'a judge check that couldn’t decide',
   };
   /** Amber the design rules out that only a later slice can take away, each with the slice that does. */
   const UNTIL: Record<string, string> = {
     '.badge.y': 'port/primitives, then each page’s slice: Status draws a status as a dot and a word, never a tinted badge',
     '.warnbox': 'port/setup-states: a warning in a step is a plain line, its first words in amber, never a tinted box',
-    '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
   };
 
   it('means needs a look or inconclusive, and nothing else: never a fork, stubbed or blame', () => {
@@ -436,9 +462,7 @@ describe('grounds, tints and lines', () => {
     '.banner.n': 'a banner that says nothing is wrong, a shade off the page',
   };
   /** Tints the design drops with the part they draw, each with the slice that does. */
-  const UNTIL: Record<string, string> = {
-    '.changes div.diff': 'port/compare: what changed is one quiet line, in place of Compare’s tiles',
-  };
+  const UNTIL: Record<string, string> = {};
 
   it('draws every ground, tint and line from the tokens, the tints that remain each with its reason', () => {
     const off: string[] = [];
@@ -472,6 +496,8 @@ describe('forced colours', () => {
     expect(forced.get('.navlist a[aria-current="page"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('.run[aria-current="true"]::before')?.get('background')).toBe('Highlight');
     expect(forced.get('table.calls tr[aria-selected="true"]')?.get('outline')).toBe('2px solid Highlight');
+    // A folded row in Calls that holds the open call is outlined as the open call's row is.
+    expect(forced.get('table.calls tr.held')?.get('outline')).toBe('2px solid Highlight');
     for (const s of ['.seg button[aria-pressed="true"]', '.chips button[aria-pressed="true"]', '.legend.lfilter button[aria-pressed="true"]', '.runkey .rk[aria-pressed="true"]']) expect(forced.get(s)?.get('text-decoration'), s).toBe('underline 2px');
     expect(forced.get(':is(input, select, textarea, .drop):focus-visible')?.get('outline')).toBe('2px solid Highlight !important');
     // The structural diff's marked words, which say what changed by their ground alone.
