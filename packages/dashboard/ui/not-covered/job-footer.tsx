@@ -1,7 +1,8 @@
-import { goldenTestEstimate } from '../../../engine/src/estimates/tests.js';
+import { goldenTestEstimate } from '../../../engine/src/estimates/golden-test.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { JOB_KINDS } from '../api.js';
-import { TestsJobButton } from '../fixes/TestsJobButton.js';
+import { JobButton } from '../components/JobButton.js';
+import { useTestsWait } from '../fixes/tree.js';
 import { goldenName } from '../format.js';
 import { commandText } from '../goldens.js';
 import { addJobFooter, type JobFooter } from '../job-actions.js';
@@ -41,20 +42,25 @@ export function packedTestAsk(golden: string, fork: boolean): TestsAsk {
 
 const PackFooter: JobFooter = ({ job, plain }) => {
   const app = useApp();
+  // It waits as Tests' buttons do: the server refuses a test while a session, an update or a pack runs.
+  const wait = useTestsWait('run its test');
   const made = job.done ? packedGolden(job.result) : null;
   if (!made) return null;
   const ask = packedTestAsk(made.golden, made.fork);
+  const run = () => void startTestsJob(app, JOB_KINDS.tests, { golden: made.golden }, ask);
   return (
-    <TestsJobButton
-      verb="run its test"
-      off={null}
+    <JobButton
       className={plain ? 'btn' : 'btn lime'}
-      card={{ tip: ask.title, sub: ask.lead, command: ask.commands![0] }}
+      why={wait}
+      tip={ask.title}
+      sub={ask.lead}
+      command={`$ ${ask.commands![0]!}`}
       estimate={ask.estimate ?? null}
-      onClick={() => void startTestsJob(app, JOB_KINDS.tests, { golden: made.golden }, ask)}
+      start={run}
+      ask={run}
     >
       {ACTIONS.runTest.label}
-    </TestsJobButton>
+    </JobButton>
   );
 };
 
