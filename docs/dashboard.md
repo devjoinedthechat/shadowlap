@@ -1327,7 +1327,7 @@ Then comes a row per golden. A row opens the golden's latest run.
 | –       | Not applicable                   |
 | No mark | Not tested yet                   |
 
-- **✓** on a judge check says where its verdict came from: the recording, free, or the judge asked live, with what that cost. Where several attempts asked it, it says in how many: *judged live in 4 attempts · ≈$0.0018*.
+- **✓** on a judge check says where its verdict came from: the recording, free, or the judge asked live, with what that cost. Where several attempts asked a golden's only judge check, and its model has a price, it says in how many: *judged live in 4 attempts · ≈$0.0018*.
 - **✗** on a golden run more than once also says how many attempts passed it, unless some were carried over from an earlier session.
 - **–** on a judge check no attempt asked says why under it: *not asked: no attempt passed its other checks*, with no cost and no Update golden.
 - **No mark** shows before the golden's first result, when its last test couldn't run it, or when the check was added to the config since.
