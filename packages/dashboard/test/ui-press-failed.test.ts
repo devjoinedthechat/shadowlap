@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useMenu } from '../ui/components/Popover.js';
 import { ToastHost } from '../ui/components/Toast.js';
 import { RunBlameButton } from '../ui/fixes/RunBlame.js';
+import { RevertButton } from '../ui/revert/RevertButton.js';
 import type { InjectionFinding } from '../ui/injection/model.js';
 import { SERVED_PARTS } from '../ui/pages/served.js';
 import { BuilderFailed } from '../ui/run/check-part.js';
@@ -17,7 +18,7 @@ import { render, type Rendered } from './ui-render.js';
 
 /**
  * A part that opens on a press, whose code didn't come from the dashboard server: Share's menu, the
- * fork menu, the header's …, Run blame's dialogs, the steps' dialogs and the Security report. The
+ * fork menu, the header's …, Revert's dialog, Run blame's dialogs, the steps' dialogs and the Security report. The
  * browser keeps a script's failure for as long as the page is open, so a press says so in the error
  * toast, in LoadFailed's words, with Retry, which loads the page again once the server is back. Nothing
  * is drawn in the part's place, so the focus stays on the button pressed, which no longer says it is
@@ -36,6 +37,7 @@ vi.mock('../ui/run/ShareMenu.js', refused);
 vi.mock('../ui/run/ForkMenu.js', refused);
 vi.mock('../ui/run/MoreMenu.js', refused);
 vi.mock('../ui/fixes/RunBlameAsks.js', refused);
+vi.mock('../ui/revert/RevertDialog.js', refused);
 vi.mock('../ui/run/StepDialogs.js', refused);
 vi.mock('../ui/injection/SecurityReportDialog.js', refused);
 vi.mock('../ui/injection/InjectionResults.js', refused);
@@ -181,8 +183,9 @@ describe('a part that opens on a press, whose code didn’t come', () => {
     }
   });
 
-  it('says so of Run blame’s dialogs, a step’s and the Security report in the dialog’s words, the focus kept on the button, and again on the next press', async () => {
+  it('says so of Run blame’s dialogs, a step’s, Revert’s and the Security report in the dialog’s words, the focus kept on the button, and again on the next press', async () => {
     const step: NextStep = { key: 'update-golden', label: 'Update golden', golden: 'goldens/refund-in-limit', test: null, sub: 'Asks the judge once, live, and keeps its verdict in the pack', command: 'shadowlap test goldens/refund-in-limit --update' };
+    const revert = { key: 'revert', label: 'Revert', golden: 'goldens/refund-in-limit', rev: 'ccccccc', merge: false, live: [], blame: null, title: 'Revert ccccccc', sub: 'Log the total: undone in your working tree, then refund-in-limit replayed offline', command: 'git revert --no-commit ccccccc && shadowlap test goldens/refund-in-limit' } as unknown as Extract<NextStep, { key: 'revert' }>;
     const stepRun = { run: { runId: RUN, parentRunId: null, status: 'completed', meta: {} }, actions: [], children: [], calls: [] } as unknown as RunDetail;
     const { said } = await served(
       createElement(
@@ -190,12 +193,14 @@ describe('a part that opens on a press, whose code didn’t come', () => {
         null,
         createElement(RunBlameButton, { runId: RUN, offer: { failed: [], from: 'exit' }, capture: true, line: `shadowlap blame ${RUN.slice(0, 10)} --expect '{"calls":[]}' -- <your command>` }),
         createElement(NextStepButton, { run: stepRun, step, offers: null, onAction: () => undefined, onFindCommit: () => undefined }),
+        createElement(RevertButton, { step: revert, found: null, estimate: null, runId: RUN }),
         createElement(SecurityRow),
       ),
     );
     const buttons: Array<[string, () => ReturnType<Rendered['one']>]> = [
       ['Run blame', () => r!.byText('button', 'Run blame')],
       ['Update golden', () => r!.byText('button', 'Update golden')],
+      ['Revert', () => r!.byText('button', 'Revert')],
       ['Security report', () => r!.one('button.secrow')],
     ];
     for (const [name, button] of buttons) {
