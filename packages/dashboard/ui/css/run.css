@@ -261,7 +261,7 @@ table.calls .rowact button:hover { color: var(--ink); border-color: var(--dim); 
 .turn.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--ink); }
 .turn .t1 { display: flex; align-items: center; gap: 10px; }
 .turn .tn { font: 600 11px var(--mono); color: var(--faint); width: 40px; }
-.turn .tm { font-weight: 500; }
+.turn .tm { font-weight: 500; white-space: nowrap; }
 .turn .ts { margin-left: auto; font: 12px var(--mono); color: var(--faint); }
 .turn .say { margin: 6px 0 0 50px; color: var(--dim); }
 .turn .tools { margin: 6px 0 0 50px; display: flex; flex-direction: column; gap: 3px; }
