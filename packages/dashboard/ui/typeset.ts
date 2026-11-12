@@ -141,13 +141,13 @@ export const isShortCopy = (text: string): boolean => text.length <= 640 && sent
 // ---------------------------------------------------------------------------------------------- glue
 
 /** The small words a line shouldn't end on (rule 3): an article, a preposition, a conjunction, an auxiliary. */
-const SMALL = new Set(
+export const SMALL = new Set(
   'a an the of to in on at by for and or nor but with from as is its it your my our no not than into onto per via vs vs. if so be until unless while because whether once since that which whose when where before after over under through across against within without between are was were been has have had can could will would should may might must'.split(
     ' ',
   ),
 );
 /** An article or a possessive, which holds its word more than the other small words do. */
-const ARTICLES = new Set(['a', 'an', 'the', 'its', 'your', 'my', 'our', 'no']);
+export const ARTICLES = new Set(['a', 'an', 'the', 'its', 'your', 'my', 'our', 'no']);
 /** What a number never holds after it: a small word, or a preposition (`#19 with`, `0.94 over`). */
 const NOT_A_UNIT = new Set([...SMALL, 'over', 'above', 'below', 'under', 'against', 'after', 'before', 'until', 'since', 'across', 'between', 'within', 'without']);
 /** A figure ending a word: a count, a price, a rate, a share, a call's number, a number in words. */
