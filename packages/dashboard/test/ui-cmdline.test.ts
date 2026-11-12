@@ -30,4 +30,14 @@ describe('a command as the page sets it', () => {
     for (const cmd of [`shadowlap fix title fx-01 'it'\\''s done'`, `shadowlap verify --fixes label:refund-bug --keeps 01M3RZ4XKN --expect '{"tools":{"send_email":1}}' --set temperature=1`, 'cd <folder> && shadowlap dashboard']) expect(text(cmd)).toBe(cmd);
     expect(cmdWords(`shadowlap fix title fx-01 'it'\\''s done'`)).toEqual(['shadowlap', 'fix', 'title', 'fx-01', `'it'\\''s done'`]);
   });
+
+  it('splits where a shell splits, never inside a quoted value or a flag', () => {
+    expect(cmdWords("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'")).toEqual(['shadowlap', 'normalize', 'add', '--kind', 'api', '--path', "'$.metadata.user_id'", '--pattern', 'uuid', '--replace', "'<UUID>'"]);
+    expect(cmdWords("shadowlap mcp --url 'https://mcp.stripe.com/?key=•••' --header 'Authorization: •••'")).toEqual(['shadowlap', 'mcp', '--url', "'https://mcp.stripe.com/?key=•••'", '--header', "'Authorization: •••'"]);
+    expect(cmdWords(`shadowlap redact add --name "o'brien  tool"  x`)).toEqual(['shadowlap', 'redact', 'add', '--name', `"o'brien  tool"`, 'x']);
+    // A quote escaped between two quoted parts stays in its word; joined again, the words are the command.
+    const line = "shadowlap normalize add --kind tool --name 'o'\\''brien tool' --path '$.args.path'";
+    expect(cmdWords(line)).toEqual(['shadowlap', 'normalize', 'add', '--kind', 'tool', '--name', "'o'\\''brien tool'", '--path', "'$.args.path'"]);
+    expect(cmdWords(line).join(' ')).toBe(line);
+  });
 });

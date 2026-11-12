@@ -40,7 +40,6 @@ import {
   serverNameFor,
   settingsTab,
   shareLinksLine,
-  shellWords,
   sizeNote,
   suggestedReplace,
   syncText,
@@ -152,19 +151,6 @@ describe('the Add dialog', () => {
       expect(validateRule(list, ruleFromCommand(command))).toEqual(validateRule(list, ruleInput(f)));
     }
     expect(ruleCommand('normalize', form({ kind: 'api', path: '$.metadata.user_id' }))).toBe("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'");
-  });
-});
-
-describe('a command line on the page', () => {
-  it('wraps between the words a shell splits, never inside a quoted value or a flag', () => {
-    expect(shellWords("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'")).toEqual(['shadowlap', 'normalize', 'add', '--kind', 'api', '--path', "'$.metadata.user_id'", '--pattern', 'uuid', '--replace', "'<UUID>'"]);
-    expect(shellWords("shadowlap mcp --url 'https://mcp.stripe.com/?key=•••' --header 'Authorization: •••'")).toEqual(['shadowlap', 'mcp', '--url', "'https://mcp.stripe.com/?key=•••'", '--header', "'Authorization: •••'"]);
-    expect(shellWords(`shadowlap redact add --name "o'brien  tool"  x`)).toEqual(['shadowlap', 'redact', 'add', '--name', `"o'brien  tool"`, 'x']);
-    expect(shellWords('shadowlap gc --before 1757000000000 --expect 3-0123456789abcdef')).toEqual(['shadowlap', 'gc', '--before', '1757000000000', '--expect', '3-0123456789abcdef']);
-    // A quote escaped between two quoted parts stays in its word; joined again, the words are the command.
-    const line = "shadowlap normalize add --kind tool --name 'o'\\''brien tool' --path '$.args.path'";
-    expect(shellWords(line)).toEqual(['shadowlap', 'normalize', 'add', '--kind', 'tool', '--name', "'o'\\''brien tool'", '--path', "'$.args.path'"]);
-    expect(shellWords(line).join(' ')).toBe(line);
   });
 });
 

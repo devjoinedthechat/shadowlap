@@ -190,38 +190,6 @@ export const wholeTallies = (text: string): string => text.replace(/(\d+) of (\d
 /** A count kept with its unit where a line wraps, as a tally is: "1 time", "2 times (2 blocked)", "3 calls" never part. */
 export const wholeCounts = (text: string): string => text.replace(/(\d) (?=(?:times?|calls?|attempts?|blocked|stubbed)\b)/g, '$1\u00a0');
 
-/**
- * A command line's words, split at the spaces a shell splits at (outside '…' and "…"), each kept
- * with its quotes: what a command line on the page wraps between, so a flag and its value or a
- * quoted header never break inside.
- */
-export function shellWords(line: string): string[] {
-  const words: string[] = [];
-  let word = '';
-  let quote: string | null = null;
-  let escaped = false;
-  for (const c of line) {
-    if (escaped) {
-      word += c;
-      escaped = false;
-    } else if (quote) {
-      word += c;
-      if (c === quote) quote = null;
-    } else if (c === '\\') {
-      word += c;
-      escaped = true;
-    } else if (c === ' ') {
-      if (word) words.push(word);
-      word = '';
-    } else {
-      word += c;
-      if (c === "'" || c === '"') quote = c;
-    }
-  }
-  if (word) words.push(word);
-  return words;
-}
-
 /** A line kept to `max` characters: its first sentence where that fits, else cut after a whole word, with nothing dangling before the `…`. */
 export function cutClean(line: string, max: number): string {
   const first = /^(.+?[.!?])(\s|$)/.exec(line)?.[1];
