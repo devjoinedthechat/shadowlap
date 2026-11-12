@@ -94,6 +94,9 @@ function hiddenText(page: Page): Promise<string[]> {
 
 test('every route on a 390px phone has no serious or critical axe violation, scrolls nothing sideways, draws no label under 11px, and keeps its hidden text where it is read', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  // The demo's longest run first, its 278 calls: the page keeps its height with its hidden text and without.
+  await openPage(page, `/run/${demoId('batchFork')}`, 'run');
+  expect(await hiddenText(page)).toEqual([]);
   expect(await over(page, async () => [...(await seriousViolations(page)), ...(await reach(page)), ...(await underFloor(page)), ...(await hiddenText(page))])).toEqual([]);
 });
 
