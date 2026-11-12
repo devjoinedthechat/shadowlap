@@ -331,8 +331,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     [listFor, selected, select],
   );
   const canFork = !exported && !live && !actionsOff;
-  // No fork starts at a judge's call: the head's Fork says why, and ⌘K offers none (scopes.ts forksAt).
-  const forkWait = judgeForkWait(selectedRow);
+  // No fork starts at a judge's call, read yet or not: the head's Fork says why, and ⌘K offers none (scopes.ts forksAt).
+  const forkWait = judgeForkWait(selected, judge);
   // Stable, so a row does not redraw when the selection moves elsewhere.
   const selectedNow = useLatest(selected);
   const openAt = forkMenu.openAt;

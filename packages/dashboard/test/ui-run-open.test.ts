@@ -316,11 +316,14 @@ describe('a judged run’s page', () => {
     return route.page === 'run' ? createElement(RunPage, { id: route.id, call: route.call, view: route.view }) : null;
   }
 
+  /** ⌘K's commands for this run, as the page last gave them. */
+  let commands: Array<{ label: string }> = [];
   async function open() {
     const bar = addressBar(`#/run/${RUN}`);
     const { client, details } = server(12, 12, { failed: false, failAt: null });
     const judged = { ...client, run: () => Promise.resolve(judgedRun()) } as unknown as Client;
-    r = await render(createElement(AppContext.Provider, { value: app(judged) }, createElement(Routed)));
+    const state = { ...app(judged), setRunCommands: (items: typeof commands) => void (items.length && (commands = items)) } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(Routed)));
     await r.until('the call’s details', () => details.length > 0);
     return bar;
   }
@@ -340,6 +343,7 @@ describe('a judged run’s page', () => {
     ]);
     expect(listed()).not.toContain(13);
   });
+
   it('picks the judge’s chip at each press of its verdict’s call, though the call is selected already and All was picked since', async () => {
     const bar = await open();
     await r!.click(verdictCall());
@@ -354,5 +358,14 @@ describe('a judged run’s page', () => {
     await r!.click(verdictCall());
     await r!.until('the judge’s chip again', () => pressed()[1]?.[1] === 'true');
     expect([bar.hash, listed()]).toEqual([`#/run/${RUN}/13`, [13]]);
+  });
+
+  it('offers no Fork at #n… in ⌘K at a judge’s call, as it does at the agent’s', async () => {
+    await open();
+    await r!.until('the run’s commands', () => commands.some((c) => c.label === 'Fork at #12…'));
+    await r!.click(verdictCall());
+    await r!.until('the judge’s call’s commands', () => pressed()[1]?.[1] === 'true' && !commands.some((c) => c.label === 'Fork at #12…'));
+    expect(commands.length).toBeGreaterThan(0);
+    expect(commands.map((c) => c.label).filter((l) => l.startsWith('Fork'))).toEqual([]);
   });
 });

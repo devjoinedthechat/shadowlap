@@ -3,7 +3,7 @@ import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import type { CallRow } from '../types.js';
 import { displayOrigin } from '../origins.js';
 import { useLatest } from '../hooks.js';
-import { inScope, isJudge, ownAgents, scopeChips } from '../scopes.js';
+import { agentsShown, inScope, judgeNumbers, scopeChips } from '../scopes.js';
 import { askedTools } from './calls.js';
 import { keepFilter, keyCounts, matchesFilter, pendingMatches, pickedFilter, shownFilter, type CallFilter } from './call-filter.js';
 import { openIn, setFolds, useFolds } from './folds.js';
@@ -25,19 +25,19 @@ const loudBy =
   };
 
 /**
- * The run's scopes as its page narrows its calls by them (scopes.ts): the scope picked, its chips and
- * whether the views name the run's agents (`scoped`). A judge's calls (`judge`, by number: the
- * server's `judgeCalls` too while a long run's pages come) are none of the agent's: All leaves them
- * out, and so do the strip, the key and the tabs' counts, until the judge's chip is picked; then the
- * views are the judge's, the strip adds its calls and dims the rest, and Context and Timeline stay
- * the agent's (`ownCalls`), saying so (`judgeOn`). A judge's call picked picks the judge's chip: as
- * the selection moves to it (a link to it), and at every pick of one, though it is selected already
- * (`pickScope`, which the page's select calls: its finding's #n again, after All). The page never
- * opens on one by itself (open-at.ts).
+ * The run's scopes as its page narrows its calls by them (scopes.ts): the scope picked, its chips,
+ * whether the views name the run's agents (`scoped`) and whether the bar shows (`bar`, agentsShown).
+ * A judge's calls (`judge`, judgeNumbers: the server's `judgeCalls` too while a long run's pages
+ * come) are none of the agent's: All leaves them out, and so do the strip, the key and the tabs'
+ * counts, until the judge's chip is picked; then the views are the judge's, the strip adds its calls
+ * and dims the rest, and Context and Timeline stay the agent's (`ownCalls`), saying so (`judgeOn`).
+ * A judge's call picked picks the judge's chip: as the selection moves to it (a link to it), and at
+ * every pick of one, though it is selected already (`pickScope`, which the page's select calls: its
+ * finding's #n again, after All). The page never opens on one by itself (open-at.ts).
  */
 function useScopes(calls: CallRow[], paging: Paging | null, selected: number | null) {
   const [scope, setScope] = useState('all');
-  const judge = useMemo(() => new Set([...(paging?.judge ?? []), ...calls.filter(isJudge).map((c) => c.callNo)]), [paging?.judge, calls]);
+  const judge = useMemo(() => judgeNumbers(calls, paging?.judge ?? null), [paging?.judge, calls]);
   const [seen, setSeen] = useState<number | null>(null);
   if (seen !== selected) {
     setSeen(selected);
@@ -46,12 +46,12 @@ function useScopes(calls: CallRow[], paging: Paging | null, selected: number | n
   const judgeNow = useLatest(judge);
   const pickScope = useCallback((n: number) => (judgeNow.current.has(n) ? setScope(JUDGE_SCOPE) : undefined), [judgeNow]);
   const judgeOn = scope === JUDGE_SCOPE;
-  const scoped = useMemo(() => ownAgents(calls), [calls]);
+  const { scoped, bar } = useMemo(() => agentsShown(calls, judge), [calls, judge]);
   const scopeTree = useMemo(() => (scoped ? scopeChips(calls) : []), [scoped, calls]);
   const scopedCalls = useMemo(() => (scope === 'all' && !judge.size ? calls : calls.filter((c) => inScope(c, scope))), [calls, scope, judge]);
   // Context and Timeline under the judge's chip: the agent's calls.
   const ownCalls = useMemo(() => (judgeOn ? calls.filter((c) => inScope(c, 'all')) : scopedCalls), [judgeOn, calls, scopedCalls]);
-  return { scope, setScope, pickScope, judge, judgeOn, scoped, bar: scoped || judge.size > 0, scopeTree, scopedCalls, ownCalls };
+  return { scope, setScope, pickScope, judge, judgeOn, scoped, bar, scopeTree, scopedCalls, ownCalls };
 }
 
 /** A long run's strings as All reads them: without the judge's calls. */

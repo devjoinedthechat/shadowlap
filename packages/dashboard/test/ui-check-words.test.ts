@@ -6,6 +6,7 @@ import { keyItems } from '../ui/run/call-filter.js';
 import { CallsTable } from '../ui/run/CallsView.js';
 import { StripKey } from '../ui/run/StripKey.js';
 import { ContextView } from '../ui/run/ContextView.js';
+import { TimelineView } from '../ui/run/TimelineView.js';
 import { Inspector } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CallDetail, CallRow, RunDetail } from '../ui/types.js';
@@ -151,11 +152,17 @@ describe('a judge’s call in Calls and Context', () => {
     expect(callsMarkup([{ ...judged, judge: { check: 'polite', verdict: null } }])).toContain('<span class="det">judge &quot;polite&quot;</span>');
   });
 
-  it('leaves Context the agent’s under the judge’s chip, which says so first', () => {
+  it('leaves Context and the Timeline the agent’s under the judge’s chip, each saying so first', () => {
     const run = { run: { divergence: null }, cache: { misses: [] } } as unknown as RunDetail;
     const view = (agentOnly: boolean) => renderToStaticMarkup(createElement(ContextView, { run, calls: [agent], agentOnly, selected: 1, onSelect: () => undefined }));
     expect(view(true)).toMatch(/^<p class="jvnote">The agent’s calls: a judge’s call is none of them\.<\/p>/);
     expect(view(false)).not.toContain('jvnote');
+    const timed = { ...agent, startedAt: 1_000, endedAt: 1_900 } as CallRow;
+    const timeline = (agentOnly: boolean) => renderToStaticMarkup(createElement(TimelineView, { calls: [timed], agentOnly, selected: 1, scoped: false, onSelect: () => undefined }));
+    expect(timeline(true)).toMatch(/^<p class="jvnote">The agent’s calls: a judge’s call is none of them\.<\/p>/);
+    expect(timeline(false)).not.toContain('jvnote');
+    // The agent's call is the Timeline's, under the note.
+    expect(timeline(true)).toContain('tl-row sel');
   });
 });
 

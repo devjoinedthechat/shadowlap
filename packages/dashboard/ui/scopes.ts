@@ -37,8 +37,12 @@ export function judgeNumbers(calls: readonly ScopedCall[], server: readonly numb
   return out;
 }
 
-/** Whether a fork can start at a call: the one rule the row's Fork, the head's and ⌘K's read. Never at a judge's call, which is the check's. */
-export const forksAt = (c: ScopedCall): boolean => !isJudge(c);
+/**
+ * Whether a fork can start at a call: the one rule the row's Fork, the head's and ⌘K's read. Never at
+ * a judge's call, which is the check's: told by its row, or by the page's numbers of them (`judge`,
+ * judgeNumbers) where its page has not come yet.
+ */
+export const forksAt = (c: ScopedCall, judge?: ReadonlySet<number>): boolean => !isJudge(c) && !judge?.has(c.callNo);
 
 /** Why the head's Fork waits at a call no fork starts at (forksAt), and its card's line. */
 export interface ForkWait {
@@ -48,8 +52,8 @@ export interface ForkWait {
 
 const JUDGE_FORK: ForkWait = { why: 'A judge’s call can’t be forked', card: 'A judge’s call is the check’s, not the agent’s: no fork starts at it' };
 
-/** Why no fork starts at the selected call: a judge's; null for any other call, or none. */
-export const judgeForkWait = (c: ScopedCall | null): ForkWait | null => (c && !forksAt(c) ? JUDGE_FORK : null);
+/** Why no fork starts at the selected call (`n`): a judge's, by the page's numbers of them (judgeNumbers); null for any other call, or none. */
+export const judgeForkWait = (n: number | null, judge: ReadonlySet<number>): ForkWait | null => (n !== null && !forksAt({ callNo: n }, judge) ? JUDGE_FORK : null);
 
 /** Whether a scope is the agent's, not one Shadowlap makes calls in itself (isReservedScope). */
 const theirs = (s: string | null): s is string => !!s && !isReservedScope(s);
@@ -67,11 +71,17 @@ export function scopesOf(calls: readonly ScopedCall[], by = agentOf): string[] {
 /** The chips of the scopes the run's author gave, alone: what blame can be scoped by. */
 export const realScopes = (calls: readonly ScopedCall[]): string[] => scopeChips(calls, scopeOnly);
 
-/** Whether the views name a run's agents: a scope its author gave, or two agents or more, Shadowlap's own scopes aside. */
-export const ownAgents = (calls: readonly ScopedCall[]): boolean => calls.some((c) => theirs(scopeOnly(c))) || scopesOf(calls).filter(theirs).length > 1;
-
-/** Whether the run shows the agents' bar: for its own agents (`ownAgents`), or for a judge's calls, which the bar keeps apart. */
-export const agentsShown = (calls: readonly ScopedCall[]): boolean => ownAgents(calls) || calls.some(isJudge);
+/**
+ * What the views show of a run's agents: whether they name its own (`scoped`: a scope its author
+ * gave, or two agents or more, Shadowlap's own scopes aside), with the Agent column and their chips,
+ * and whether the agents' bar shows (`bar`): for its own agents, or for a judge's calls, which the
+ * bar keeps apart under a chip of their own. `judge` is their numbers (judgeNumbers), the server's
+ * too while a long run's pages come.
+ */
+export function agentsShown(calls: readonly ScopedCall[], judge: ReadonlySet<number> = judgeNumbers(calls)): { scoped: boolean; bar: boolean } {
+  const scoped = calls.some((c) => theirs(scopeOnly(c))) || scopesOf(calls).filter(theirs).length > 1;
+  return { scoped, bar: scoped || judge.size > 0 };
+}
 
 /**
  * The scope chips, as a tree: every scope but Shadowlap's own, each nested one right after the scope

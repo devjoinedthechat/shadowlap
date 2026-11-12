@@ -8,7 +8,7 @@ import type { Paging } from '../ui/run/paged-run.js';
 import { isPending } from '../ui/run/paging.js';
 import { ScopeBar } from '../ui/run/parts.js';
 import { RunHeader } from '../ui/run/RunHeader.js';
-import { judgeForkWait } from '../ui/scopes.js';
+import { judgeForkWait, judgeNumbers } from '../ui/scopes.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CallRow, RunDetail } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
@@ -132,7 +132,7 @@ describe('the head’s Fork at a judge’s call', () => {
     const client = { jobs: () => Promise.resolve([]) } as unknown as Client;
     const app = { client, exported: false, meta: null, tick: 0, runsTick: 0, feeds: {}, jobs: [], live: [], runs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, refresh: () => undefined, toast: (text: string) => void said.push(text) } as unknown as AppState;
     const head = (selected: number) =>
-      createElement(AppContext.Provider, { value: app }, createElement(RunHeader, { run: run(CALLS), call: null, selected, forkWait: judgeForkWait(CALLS[selected - 1]), rescued: false, offers: null, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: () => undefined, onFindCommit: () => undefined, labels: [], setLabels: () => undefined }));
+      createElement(AppContext.Provider, { value: app }, createElement(RunHeader, { run: run(CALLS), call: null, selected, forkWait: judgeForkWait(selected, judgeNumbers(CALLS)), rescued: false, offers: null, forkMenu: { open: false, anchor: null, toggle: () => undefined, close: () => undefined } as never, onAction: () => undefined, onFindCommit: () => undefined, labels: [], setLabels: () => undefined }));
     page = await render(head(3));
     const fork = page.one('#forkBtn');
     expect([fork.textContent, fork.getAttribute('aria-disabled'), fork.getAttribute('data-why')]).toEqual(['Fork', 'true', 'A judge’s call can’t be forked']);
