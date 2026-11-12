@@ -1,6 +1,8 @@
 import { Fragment, useCallback, useEffect, type MouseEvent } from 'react';
 import { Conversation, useChange } from '../components/Conversation.js';
+import { Copy } from '../components/Copy.js';
 import { Decision } from '../components/Decision.js';
+import { DotParts } from '../components/DotParts.js';
 import { Icon } from '../components/Icon.js';
 import { Id } from '../components/Id.js';
 import { Link } from '../components/Link.js';
@@ -106,7 +108,7 @@ export function DecisionCellPanel({ session, row, callNo }: { session: PreviewSe
         </span>
       </header>
       <div className="pbody">
-        {cell ? <CellBody session={session} row={row} cell={cell} step={step} /> : <p className="dlead">This run has no model call #{callNo} in this preview.</p>}
+        {cell ? <CellBody session={session} row={row} cell={cell} step={step} /> : <Copy className="dlead">This run has no model call #{callNo} in this preview.</Copy>}
       </div>
       {cell && row.inStore ? <CellConversation row={row} callNo={callNo} /> : null}
     </section>
@@ -118,22 +120,25 @@ function CellBody({ session, row, cell, step }: { session: PreviewSession; row: 
   const lead = cellLead(cell);
   const open: CellOpen | null = cell.open ?? null;
   const several = v.samples > 1;
+  // a step not asked says why in the engine's words, an error drawn as written; the rest is set as copy
+  const words =
+    'sentence' in lead ? (
+      lead.sentence
+    ) : (
+      <>
+        {lead.rank ? (
+          <>
+            <b className={`drk q${lead.rank}`}>rank {lead.rank}</b>{' '}
+          </>
+        ) : null}
+        {lead.text}
+        {lead.quiet ? <span className="dlm">{`\u00a0${lead.quiet}`}</span> : null}
+      </>
+    );
   return (
     <>
       <p className="dlead">
-        {'sentence' in lead ? (
-          lead.sentence
-        ) : (
-          <>
-            {lead.rank ? (
-              <>
-                <b className={`drk q${lead.rank}`}>rank {lead.rank}</b>{' '}
-              </>
-            ) : null}
-            {lead.text}
-            {lead.quiet ? <span className="dlm">{`\u00a0${lead.quiet}`}</span> : null}
-          </>
-        )}
+        {cell.state === 'not-asked' ? words : <Copy as="span">{words}</Copy>}
         {row.verified ? (
           <span className={`dlv ${outcomeTone(row.verified.outcome)}`}>
             verified: <b>{glossed(row.verified.outcome)}</b>
@@ -181,7 +186,9 @@ function CellBody({ session, row, cell, step }: { session: PreviewSession; row: 
               ))}
             </ul>
           ) : null}
-          <p className="dspend">{cellCost(open.delta, v)}</p>
+          <p className="dspend">
+            <DotParts parts={cellCost(open.delta, v).split(' · ')} />
+          </p>
         </>
       ) : null}
     </>
@@ -204,7 +211,7 @@ function RangeLine({ session, row, callNo }: { session: PreviewSession; row: Row
   const part = row.cells.slice(row.cells.indexOf(range.first), row.cells.indexOf(range.last) + 1);
   const others = part.filter((x) => x.rank && x.callNo !== callNo);
   return (
-    <p className="dbin">
+    <Copy className="dbin">
       This cell stands for model calls #{range.first.callNo}–#{range.last.callNo}
       {others.length ? '; the others that changed: ' : ', and none of the others changed'}
       {others.map((x, i) => (
@@ -217,7 +224,7 @@ function RangeLine({ session, row, callNo }: { session: PreviewSession; row: Row
         </Fragment>
       ))}
       .
-    </p>
+    </Copy>
   );
 }
 

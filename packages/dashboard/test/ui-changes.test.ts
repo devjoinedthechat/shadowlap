@@ -478,7 +478,7 @@ describe('Verdicts', () => {
     }
     expect(asked.map(([, limit]) => limit)).toEqual([50, 100, 150, 200]);
     expect(page!.all('button.attn-more')).toHaveLength(0);
-    expect(page!.byText('p.vdlocal', 'Older changes than these aren’t listed.')).toBeTruthy();
+    expect(page!.all('p.vdlocal').find((p) => p.textContent.replace(/\u00a0/g, ' ') === 'Older changes than these aren’t listed.')).toBeTruthy();
     // Back from a row, the list reads as far as it was left; another chip reads from the top.
     await page!.unmount();
     const back = await open((kind, limit) => Promise.resolve(view(many.slice(0, limit), { counts: all, more: true })));

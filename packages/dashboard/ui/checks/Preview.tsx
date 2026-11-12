@@ -4,6 +4,7 @@ import { plural } from '../../../engine/src/words.js';
 import type { CheckPreview } from '../checks-api.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { Code, Copy } from '../components/Copy.js';
+import { DotParts } from '../components/DotParts.js';
 import { Id } from '../components/Id.js';
 import { ErrorState } from '../components/States.js';
 import { checkCommand, headWords, rowsWords, type Fragment, type PreviewNote } from './model.js';
@@ -79,8 +80,8 @@ function Judged({ answer, notes, judged, open, onOpen }: { answer: CheckPreview;
   return (
     <>
       <p className="cb-count">
-        {headWords(answer)}
-        {na ? <span className="cb-na"> · not applicable to {na}: the condition never held</span> : null}
+        <DotParts parts={headWords(answer).split(' · ')} />
+        {na ? <span className="cb-na">{'\u00a0· '}not applicable to {na}: the condition never held</span> : null}
       </p>
       {notes.length ? (
         <ul className="cb-notes">

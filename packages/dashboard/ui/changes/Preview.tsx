@@ -3,7 +3,7 @@ import { ApiError } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { AskNote } from '../components/AskNote.js';
 import { CodeBox } from '../components/CodeBox.js';
-import { asWords, Words } from '../components/Copy.js';
+import { asWords, Copy, Words } from '../components/Copy.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
@@ -108,9 +108,9 @@ function NoPreview({ goldens }: { goldens: number }) {
   if (!goldens)
     return (
       <EmptyState title="Preview a change on your goldens" text={text}>
-        <p className="emptyline">
+        <Copy className="emptyline">
           No goldens yet: pack a run as a golden, or preview a change on one run from its Decisions view. <Link href={href.runs()}>Open Runs</Link>
-        </p>
+        </Copy>
       </EmptyState>
     );
   return <EmptyState title="Preview a change on your goldens" text={text} command="shadowlap decisions goldens/* --model <model>" />;

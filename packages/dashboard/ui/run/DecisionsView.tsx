@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { DecisionCells } from '../changes/DecisionCells.js';
 import { SrSpace } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { CodeText, Copy } from '../components/Copy.js';
+import { DotNodes } from '../components/DotParts.js';
 import { tipCard } from '../components/HoverCard.js';
 import { ErrorState } from '../components/States.js';
 import { glossed } from '../components/Term.js';
@@ -30,6 +31,13 @@ export function forgetDecisionsPick(): void {
   picked.clear();
 }
 
+/** A session's head as its dot parts: its name, when, and how many samples a step where more than one, each dot kept with the part before it. */
+function headParts(s: RunDecisionsSession): Array<{ text: string; node: ReactNode }> {
+  const when = minuteStamp(s.at);
+  const samples = s.samples && s.samples > 1 ? [`${s.samples} samples a step`] : [];
+  return [{ text: s.name, node: <b>{s.name}</b> }, ...[when, ...samples].map((t) => ({ text: t, node: t }))];
+}
+
 export function DecisionsView({ runId, selected, onSelect }: { runId: string; selected: number | null; onSelect: (n: number) => void }) {
   const { client, feeds } = useApp();
   // A preview or a migration that ends while the view is open joins it, as Preview reloads on the same count.
@@ -51,9 +59,7 @@ export function DecisionsView({ runId, selected, onSelect }: { runId: string; se
       {sessions.length > 1 ? <Pick sessions={sessions} shown={s.sessionId} onPick={choose} /> : null}
       <div className="dvhead">
         <p>
-          <b>{s.name}</b>
-          {` · ${minuteStamp(s.at)}`}
-          {s.samples && s.samples > 1 ? ` · ${s.samples} samples a step` : ''}
+          <DotNodes parts={headParts(s)} />
         </p>
         <a className="more" href={s.changes}>
           {s.kind === 'migrate' ? 'Migration in Changes →' : 'Preview in Changes →'}

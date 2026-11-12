@@ -1,6 +1,6 @@
 import { Fragment, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Chips } from '../components/bits.js';
-import { Words } from '../components/Copy.js';
+import { Copy, Words } from '../components/Copy.js';
 import { Link } from '../components/Link.js';
 import { EmptyLine, EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { Status } from '../components/Status.js';
@@ -129,14 +129,14 @@ function Rows({ view, chip, limit, moreFailed, onMore }: { view: VerdictsView; c
           </tbody>
         </table>
       </section>
-      {moreFailed ?? (next !== null ? <ShowMore shown={view.rows.length} total={view.counts[chip]} onMore={() => onMore(next)} /> : view.more ? <p className="muted vdlocal">Older changes than these aren’t listed.</p> : null)}
+      {moreFailed ?? (next !== null ? <ShowMore shown={view.rows.length} total={view.counts[chip]} onMore={() => onMore(next)} /> : view.more ? <Copy className="muted vdlocal">Older changes than these aren’t listed.</Copy> : null)}
       {view.shared ? null : (
-        <p className="muted vdlocal">
+        <Copy className="muted vdlocal">
           This machine’s test sessions only: CI’s show here once it pushes them to a team store.{' '}
           <Link href={href.settings('store')} to>
             Team store
           </Link>
-        </p>
+        </Copy>
       )}
     </>
   );
