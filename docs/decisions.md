@@ -304,6 +304,8 @@ What a judge check reads goes to its model, so it is masked the same way before 
 2. Each model request your agent sends is captured, with its changed prompt, and answered from the recording. Every tool call is served as recorded, nothing reaches a provider, and the replay is not kept.
 3. Each recorded request is asked again with the prompt your code sends at that step.
 
+`--dry-run` stops after step 2. It prints what your working tree sends each run, asks nothing and keeps no session, as the dashboard's Preview changed prompt reads it first.
+
 ```sh
 AGENT_SYSTEM_SUFFIX="Do not email the summary." shadowlap decisions 01M58VT1J5 --from-code
 ```
@@ -601,6 +603,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#decisions) li
 | `--model <model>` | The change is this model ([the change](#the-change)) | — |
 | `--set <key=value>` | The change sets this request field | — |
 | `--from-code` | The change is the prompt and tools your working tree sends ([the prompt your code sends](#the-prompt-your-code-sends)) | — |
+| `--dry-run` | With `--from-code` alone: print what the working tree sends each run and stop, asking nothing | — |
 | `--from <model>` | Change only the calls made with these models ([a switch is the agent's](#a-switch-is-the-agents)) | The model the runs use most; with `--set` alone, every call |
 | `--scope <name>` | Ask only the calls made in this scope; `none` for those made in no scope | — |
 | `--samples <n>` | Ask each step *n* times under the change, and *n* times as recorded ([samples](#samples-and-the-control)) | 3 |
@@ -608,6 +611,7 @@ These are the flags this page covers. [The CLI reference](./cli.md#decisions) li
 | `--budget <usd>` | Stop once this much is spent, judging included | — |
 | `--then-verify` | Verify the runs a preview can't clear ([then verify](#then-verify)) | — |
 | `--verify <session>` | Verify the runs a kept session could not clear, asking nothing again | — |
+| `--kept-max <n>` | With `--verify`: the most pairs a good run takes, as for [`verify`](./verify.md) | Verify's |
 | `--expect`, `--gate`, `--attempts`, `--passes` | With `--then-verify` or `--verify`: as for [`verify`](./verify.md) | — |
 | `--strict` | Exit 1 when a run has a rank 1 or 2 change, for CI | — |
 | `--inconclusive fail\|warn` | What a result that settles nothing does: `warn` lets it pass with a warning | `fail` |

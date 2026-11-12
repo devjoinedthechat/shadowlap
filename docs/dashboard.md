@@ -131,6 +131,7 @@ The about line quotes what the run recorded. So a copy that leaves the store (an
 
 - **Every page**, and **This run's actions**, its next step first.
 - **The actions** of every page, from the first time it opens, whichever pages you have visited: Run tests, Import capture…, Calibrate, Export pairs… and Score model… while there is something to export or score, the team store's setup, and Keyboard shortcuts.
+- **Preview model switch…** and **Preview changed prompt**, while the project has goldens. Each opens [Preview](#start-a-preview) with its dialog on every golden. The changed prompt waits while a job holds your working tree.
 - **The runs**: the newest 500, each by its id with its about line as the hint. Any other run is found by its id, typed in full or its first characters.
 - **The fixes**, each by its title, with its label and status. Its steps find it too: `blame`, `repair`, `verify`, `apply`.
 - **The goldens**, each with its last verdict: *passed*, *failed* or *inconclusive*, a gate's with its tally and bound. When any diverged, **Update goldens** opens its dialog on Tests.
@@ -244,6 +245,7 @@ The rest is what commands record as they change the project or write something:
 - Goldens packed (a pack in a goldens folder or named in the config's `tests`), and other packs.
 - A golden's checks changed in the [check builder](#making-a-check): *Check added*, *Check removed* or *Checks changed*, with the golden and the checks' labels. It opens Tests.
 - The project set up by `init`, when the project has a store already, as it has when the dashboard runs `init`: `init` never creates one.
+- A preview's verify, by the preview's name and what it found (*Verified · Model switch to claude-haiku-4-5: 2 kept*), or why it rejected the change or settled nothing. It opens the preview.
 
 An entry no page shows, such as a migration's, is a plain line that opens nothing. A [preview of a change](./decisions.md) opens on [Preview](#preview). A replay that parted from its recording only over a value that changes on every run, such as a UUID or a timestamp, reads as diverged rather than forked. Nobody changed anything, and a normalizer would mask it.
 
@@ -337,6 +339,7 @@ Tick runs to label, pack, export, compare or delete them together. A run ticked 
 - **While a delete waits**, its runs are off Runs' table and its counts, the nav, the status bar, the sidebar and **Search or jump to**. The days above the table and the other pages keep them until the delete lands, then catch up.
 - **Add label…** suggests the labels runs carry as you type, most used first. It reads the newest 500 runs, so an older label is typed.
 - **Pack** and **Export dataset…** wait while every run ticked is still recording, as a copy made then would be cut off.
+- **Preview change** opens [`New preview`](#start-a-preview)'s menu on the runs ticked that ended (*On 2 runs*). It waits while every run ticked is still recording, as a preview asks the calls a run recorded, and past the 500 runs one preview takes.
 - **Pack** asks for a folder first. One run goes into `.shadowlap/exports/<id>` unless you name another folder inside the project. Several go into a folder each, named by its id, inside `.shadowlap/exports` or the folder you name, in one job whose drawer lists every folder (at most 100 runs at once).
 - **Export dataset…** says how many redaction rules its copy applies, and shows the `shadowlap export dataset` command it runs, with the file it writes. One dataset takes at most 500 runs.
 
@@ -821,17 +824,19 @@ What a copy would mask is counted as Settings → Redaction's preview counts it 
 
 ### Decisions view
 
-Decisions shows what a [previewed change](./decisions.md) decides differently at each of the run's model calls. Each was asked again with only the change swapped in, and no tool ran. Where several previews or migrations asked the run, a chip each picks the one shown, newest first. The page keeps the pick for each run while it stays open.
+Decisions shows what a [previewed change](./decisions.md) decides differently at each of the run's model calls. Each was asked again with only the change swapped in, and no tool ran. Where several previews or migrations asked the run, a chip each picks the one shown, newest first. The page keeps the pick for each run while it stays open. A preview of the run alone, started from the dashboard, lets go of the pick, so the view shows that preview once it ends.
 
 It shows:
 
 - **The preview**: its name, when it ran and its samples a step, with **Preview in Changes →** to its cell on [Preview](#preview), or **Migration in Changes →**.
+- `New preview`, after it, previews another change on this run alone. It waits while the run records: *Preview once the recording finishes*.
 - **The run's cells**, a cell per model call in the colours of [Preview's matrix](#the-matrix). A cell selects its call, so the inspector shows that call's conversation.
 - **What verify found** of the run, with the rule that decided it.
 - **Its steps**: the ranked ones, most consequential first, then those within the model's own variation. Each gives its rank and change, how often its samples changed, both decisions a line each, its cost either way and its arguments field by field. A step selects its call.
 - **Later steps are judged in the recorded run's state.** Its card says what that means.
+- **Verify this run**, where the preview left the run to verify, or **Run more attempts** or **Verify again** where verify left it open. Each asks as [Preview's](#the-verdict-and-the-next-step) does.
 
-A quoted answer longer than its line is cut where a sentence ends, else after a whole word. A run whose steps all decided as recorded says so (*The same decision at every step asked.*), and a run the preview couldn't ask says why. A run nobody previewed says what a preview does, with `shadowlap decisions <run> --model <model>` to copy. An exported copy holds no previews, and says so.
+A quoted answer longer than its line is cut where a sentence ends, else after a whole word. A run whose steps all decided as recorded says so (*The same decision at every step asked.*), and a run the preview couldn't ask says why. A run nobody previewed says what a preview does, with the three ways and `shadowlap decisions <run> --model <model>` to copy. An exported copy holds no previews, and says so.
 
 ### The inspector
 
@@ -1072,6 +1077,24 @@ Preview shows what a change of model, prompt or tools decides differently at eac
 
 It opens the newest preview (`#/changes/decisions/<id>`). The picker names the one shown by its change (*Model switch to claude-haiku-4-5*), then its goldens or runs, its samples a step and when. It lists up to 200, newest first, with a filter.
 
+#### Start a preview
+
+`New preview`, on Preview's bar, opens a menu of the three ways a change can be previewed, headed by what they take (*On every golden*). Each row's card gives the flag it runs, and the price at the runs' recorded calls for a switch or a field:
+
+| Way | Flag | What it asks again |
+| --- | --- | --- |
+| **Preview model switch…** | `--model` | The calls made with the model the runs use most, under the model you pick |
+| **Preview changed prompt** | `--from-code` | Each call whose prompt changed, under your working tree's prompt and tools |
+| **Preview field change…** | `--set` | Every call, with one request field set, such as `max_tokens` |
+
+A way opens its dialog. It says what the preview asks and that no tool runs, prices it as its form changes, and shows the command it runs. Its confirm starts the preview as a [job](#jobs), whose drawer ends on **Open preview**.
+
+- **Preview model switch** asks for the model and the samples a call (1, 3 or 5), and lists the models the providers offer beside the ones the runs use. A model of another family takes another request format, so it waits: *Switch to it in your code, then verify the change*.
+- **Preview changed prompt** first reads what your working tree sends each run, offline, with nothing sent (`decisions --from-code --dry-run`). It shows the agent's system prompt, its change marked, and the tool definitions. Where nothing changed, it says so: *Their prompts and tools are as recorded, so there is nothing to ask.*
+- **Preview field change** asks for a request field and its value: a number, a word or JSON. For `max_tokens` it says how long the recorded answers ran, and how many it would cut off. It refuses `model`, and a field the provider's own page says the model refuses.
+
+The same menu is on a run's [Decisions view](#decisions-view), on that run alone, and **Preview change** on Runs' [bulk bar](#act-on-several-runs). An exported copy offers none of them.
+
 #### The verdict and the next step
 
 The verdict is in Verdicts' words, with the lines that explain it:
@@ -1081,7 +1104,14 @@ The verdict is in Verdicts' words, with the lines that explain it:
 - **Runs a change shows in that doesn't flag them**, on a line of their own, such as a change within the model's own variation.
 - **Verify's verdict**, once verify ran, with its warnings and how many runs it verified end to end (*2 of 7 runs verified end to end*).
 
-One lime button gives the next step. **Verify 2 runs** verifies the runs left to verify, priced first, and asks before it starts above your threshold. It waits, saying why, while a run it would verify is gone from the store. **Migrate to claude-haiku-4-5** comes where Verdicts calls the preview accepted, or finds nothing to verify, and asks first, as a retiring model's row on Needs a look does.
+One lime button gives the next step:
+
+- **Verify 2 runs** verifies the runs left to verify. Its dialog lists each run in its role: one that fails its checks as recorded `must now pass`, any other `must keep passing`. It is priced first, and asks before it starts above your threshold. It waits, saying why, while a run it would verify is gone from the store.
+- **Run more attempts** comes where verify left a run open: its gate ran out of attempts, or the verify stopped first. It verifies those runs again from the first attempt, the attempts of a failing run and the pairs of a good one doubled only where a run of that role ran out. Its dialog lists what verify found of each.
+- **Verify again** comes instead where an attempt couldn't be judged. Neither comes once verify rejected the change: more attempts can't turn it.
+- **Migrate to claude-haiku-4-5** comes where Verdicts calls the preview accepted, or finds nothing to verify, and asks first, as a retiring model's row on Needs a look does.
+
+Once verify rejected the change and nothing is left to verify or attempt, `New preview` is the lime step.
 
 #### The matrix
 
@@ -1114,11 +1144,13 @@ A cell opens under the matrix (`#/changes/decisions/<id>/<run>/<call>`), named *
 - its cost either way, compared after the project's normalizers;
 - the conversation up to the call, as the inspector draws it: the first two and the last six messages, the rest folded. In a fork, the message the fork changed is marked, with **Jump to change**.
 
+**Verify this run**, before **Open run**, verifies that run alone under the change, its dialog titled *Verify change on* the run, as Fixes titles it. It waits on a run the preview cleared (*Nothing to verify in this run*) and on one gone from the store. Once verify took the run, or on a migration, it isn't offered.
+
 **Close**, Esc or its cell pressed again closes it, the focus back on its cell. A cell opens and closes in place of the address, so Back leaves Preview rather than going back through each cell opened.
 
 #### No preview
 
-With none kept, Preview says what a preview does, with `shadowlap decisions goldens/* --model <model>` to copy. With no goldens it waits for one: *No goldens yet: pack a run as a golden, or preview a change on one run from its Decisions view.*, with **Open Runs**. A preview the store doesn't hold says *No preview* and its id, with **Open Preview**.
+With none kept, Preview says what a preview does and offers the three ways, the first lime, with `shadowlap decisions goldens/* --model <model>` to copy. With no goldens it waits for one: *No goldens yet: pack a run as a golden, or preview a change on one run from its Decisions view.*, with **Open Runs**. A preview the store doesn't hold says *No preview* and its id, with **Open Preview**.
 
 ## Fixes
 
@@ -1223,7 +1255,7 @@ One that doesn't count for the fix is drawn plain and headed with why (*Doesn't 
 - **Run more attempts**, for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled.
 - **Verify again**, for one stopped by an attempt that couldn't be judged.
 
-Run more attempts verifies its runs again from the start, named in their roles, since verify has no `--continue`. It doubles the limit where a gate ran out of attempts, and runs without the budget that stopped it.
+Run more attempts verifies its runs again from the start, named in their roles, since verify has no `--continue`. It doubles a failing run's attempts where its gate ran out of them. A good run keeps the pairs it ran under (`--kept-max`), doubled only where one ran out. It runs without the budget that stopped it.
 
 Both are built from the verdict's report and the flags kept beside it, never from its command line:
 
@@ -2028,6 +2060,12 @@ How a replay or a fork ended:
 - **A fork from the menu** says *forked*: diverging where its flag changed the run is what it was asked for.
 - **A fork that left the recording before the call its flag acts on** says that instead, *diverged at #3, before the inject at #17 · went live · exit 0*, in the same colours and with **Calibrate**. The calls before it did not replay, so what the flag changed is not the only difference.
 
+How a preview and its verify ended:
+
+- **A preview** is titled by its way (*Previewing model switch*). It ends *finished · exit 0*, or *inconclusive · exit 3* in amber where it settled nothing, with **Open preview**.
+- **Its verify** is titled by its runs (*Verifying 2 runs*, *Running more attempts*). It ends on the verdict the session answers: *accepted*, *rejected* in red or *inconclusive* in amber, with its exit code.
+- **A read of what your working tree sends**, for Preview changed prompt, ends *read · exit 0*.
+
 Closing and stopping:
 
 - **The fold.** Two seconds after its end, the drawer folds to its header line, unless the keyboard is in it. **Show log** opens it again.
@@ -2056,9 +2094,9 @@ The server asks that question itself: a 409 naming the exact command lines, with
 
 An apply changes your working tree, and a repair makes its candidates from it, so each runs alone in its project:
 
-- **It can't start** while a job runs your agent from that tree: a recording, a blame, a replay or fork, a test, a calibration.
+- **It can't start** while a job runs your agent from that tree: a recording, a blame, a replay or fork, a test, a calibration, a preview's read of what the tree sends.
 - **Until it is done**, any of those is refused, with what holds the tree. Their buttons wait, with the reason on hover, as Calibrate and Apply fix do in Search or jump to.
-- **Run blame**, **Run repair**, **Apply fix** and the Tests actions that run your agent (**Run tests**, **Update golden**, **Add normalizer and re-run**) are off meanwhile, and say so on hover.
+- **Run blame**, **Run repair**, **Apply fix**, the confirm of **Preview changed prompt** and the Tests actions that run your agent (**Run tests**, **Update golden**, **Add normalizer and re-run**) are off meanwhile, and say so on hover.
 - **Any other action that runs your agent** is refused, with the reason.
 - **A job in another project's folder** doesn't wait.
 
@@ -2716,7 +2754,8 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 | --- | --- |
 | `GET /api/training?filter=all\|high\|medium` | Training: the header's facts (`strip`), the pairs grouped per call with their sources and fixes, the goldens as tasks, and each model's scores |
 | `GET /api/models` | The models to score, each with its price per attempt and last score, and the picker made from them |
-| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a run's decisions, and the retirement notices |
+| `GET /api/decisions?kind=decisions\|migrate`, `/api/decisions/:id`, `/api/decisions/:id/estimates?runId=&max=&keptMax=`, `GET /api/decisions/estimates`, `GET /api/runs/:id/decisions`, `GET /api/retirements` | The [decision diff](./decisions.md): its sessions, one session, what its Verify bills, a preview's price before it runs, a run's decisions, the retirement notices |
+| `GET /api/model-choices` | The models a preview's switch can take, beside the ones its runs use |
 | `GET /api/verdicts?kind=all\|sessions\|previews\|verifies&limit=`, `/api/verdicts/:rev` | Every change checked and its verdict, newest first; a revision's page |
 | `GET /api/injection?run=&golden=&limit=`, `/api/injection/:id`, `/api/injection/:id/report`, `/api/injection/needs-look`, `/api/injection/runs/:id`, `/api/injection/templates`, `/api/injection/tools` | [Injection tests](./injection.md): results, one result, its report, Needs a look, a run's untrusted reads, the templates and the tools |
 | `GET /api/chaos`, `/api/chaos/runs/:id` | [Error-path presets](./error-paths.md): the presets and their matrices; one run's matrix |
@@ -2724,11 +2763,16 @@ A removal answers `undo`: whether its toast's Undo can put the project back, whi
 
 **Training.** A task blocked by an early fork comes with what Update golden runs. For `/api/models`, a provider that couldn't be listed is a note, and a read-only dashboard asks none.
 
+**Model choices.** `/api/model-choices` and `/api/models` share one listing: each configured provider is asked with the keys on this machine, and the answer is kept for 15 seconds. Where a provider couldn't be listed, the switch offers the models the config prices, with the provider's note. A read-only dashboard asks no provider.
+
 **The decision diff:**
 
 - `/api/decisions`: the sessions kept, newest first, `limit` of them (50 unless given, at most 200), the project's `goldens` count, and the models the goldens use that retire. Each session gives its `name`, its `runs` and how many were `goldens` (its `unit`, `golden` or `run`), its `samples` a step and how many runs it `flagged`. Its `href` opens Changes: a preview on Preview (`#/changes/decisions/<id>`), a migration on Verdicts (`#/changes/migrate/<id>`).
 - `/api/decisions/:id`: one session as `decisions --json` or `migrate --json` printed it, with its `matrix` and its `view`, read on a thread of its own. The `view` holds Preview's words, worked out on the server: the verdict as Verdicts gives it, what was asked, verify's verdict and what it verified end to end, the next step's facts, the key, the warnings and the receipt.
 - `/api/decisions/:id/estimates`: what its Verify bills, worked out beside the server. Each run it couldn't clear, or those the `runId` parameters name (up to 500), is priced in the role its checks give it as recorded, at what it costs under the change. Preview names the runs no verify took yet. `verify` is `null` when there is nothing to verify, as for a named run the session cleared.
+- Its `runs` give each run priced and its `role`: `target` for one that fails its checks as recorded, else `good`. `max` and `keptMax` price Run more attempts at the limits its job raises, refused in the job's words.
+- `/api/decisions/estimates`: what a preview would ask and cost, from the targets and the change its job takes (`runId`, `golden` or `goldens=all`, `model`, `set=field=value`, `from`, `scope`, `samples`, `fromCode=1`), read beside the server.
+- Its answer: the price (`preview`), the calls it `asks` and of which models, the models the runs use (`recorded`), what their answers show of `max_tokens` (`answers`), and a field the model refuses (`refused`). With no change named, `ways` prices each way's card.
 - `/api/runs/:id/decisions`: a run's decisions under each session that asked it again, newest first, read on a thread of its own. Each gives its name and samples, its row, what verify found of the run, and the `steps` its Decisions view lists, worded. Its `href` opens the view at the run's most consequential call, and `changes` its cell on Preview. `later` is the line about later steps, and its card.
 - `/api/retirements`: the retirement notices on their own, for the agent's models, Shadowlap's own judge calls left out.
 
@@ -2796,7 +2840,9 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `coverage {}` | Scan again |
 | `coverage-pack { key?, command?, confirmed?, fork?, expect? }` | `coverage --pack` |
 | `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify? }` | A decision diff |
+| `decisions-read { runs?, goldens?, scope?, yes? }` | `decisions --from-code --dry-run`: what your working tree sends each run, read offline with nothing sent |
 | `decisions-verify { sessionId, runId?, runIds?, yes? }` | `decisions --verify` |
+| `decisions-verify { sessionId, runId?, runIds?, max?, keptMax?, yes? }` | Run more attempts: the same, a failing run's attempts raised to `max` and a good run's pairs to `keptMax` |
 | `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or `{ format: "langfuse", traceId, host? }`, with `project?` too for `phoenix` |
@@ -2834,6 +2880,8 @@ What some of them do:
 - **`decisions`**: `samples` as [`--samples`](./cli.md#decisions) takes it, 1 included. Without it, each step is asked 3 times under the change and 3 times as recorded, six requests a step.
 - **`decisions-verify`** verifies each run the session could not clear under its own checks (its golden's, or for a run named by id, those of the recording it comes from). It runs one verify per set of checks, in the role its recording plays under them, and keeps the result in the session.
 - **`decisions-verify` with `runIds`** (at most 500, an empty list naming none) verifies only those runs, as Preview's Verify does once verify took some. A run the session cleared is refused with a 409, and one it never asked with a 404, each named.
+- **`decisions-verify` with `max` or `keptMax`** is Run more attempts: `max` raises a failing run's attempts, as `--gate` with the figures the session's verify was decided by, and `keptMax` a good run's pairs, as `--kept-max`. Each is a whole number up to 1000.
+- **`decisions-read`** holds your working tree as a run of your agent does, and asks the consent a golden's command from elsewhere needs. Its result is what Preview changed prompt shows.
 - **`injection`** plants the templates (`all`, `none` or their ids) or an uploaded payload file at every untrusted read. With `clean`, a call number (a run only), it tests whether that read caused the run's writes; `writes` picks them by call number.
 - **`injection` on a run** whose command came from a pack, the team store or a program that sent the sidecar its command runs only with `yes`. That is the `confirm` of the 409 that named both its command and the test's own line, so a yes to one test runs no other.
 
