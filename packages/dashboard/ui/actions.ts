@@ -135,6 +135,7 @@ const ROW_LINE: Readonly<Record<string, string>> = {
   a: 'This call and everything after it run live, with writes fenced',
   e: 'The attempts show whether the path after a fork holds or was luck',
   s: 'Write tools after the fork return their stub instead of being blocked',
+  c: 'Each preset fails the call it hits, and its attempts show how the agent copes',
 };
 
 /** A fork menu's row on its hover card: what it is for in a short line, the server's hint for an action this page has none for. */
