@@ -62,7 +62,7 @@ function stub(o: { cfg?: ChecksConfig; answer?: FixCheckPreview; start?: () => P
     context: vi.fn(async () => context),
     preview: vi.fn(async () => preview),
     save: vi.fn(async () => ({ key: 'goldens/refund-flow', version: 'b'.repeat(64), added: [], removed: [], changed: true })),
-    fixPreview: vi.fn(async () => o.answer ?? runs),
+    fixPreview: vi.fn(async (_fixId: string, _expect: unknown, _o?: { context?: boolean }) => o.answer ?? runs),
   };
   const startJob = vi.fn(o.start ?? (async () => ({ id: 'job-1', kind: 'fix-check' })));
   return { checks, startJob, watchJob: vi.fn(), toast: vi.fn(), onClose: vi.fn() };
