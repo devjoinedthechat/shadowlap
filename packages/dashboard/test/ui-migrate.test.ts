@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { emptyCounts, NO_TOKENS, retirementOf, Store, type DecisionChange, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
 import { DONE, LOOKUP, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
@@ -18,7 +18,7 @@ import { render, shownText, type FakeElement, type Rendered } from './ui-render.
  * Changes › Migrate: the bare tab on a retiring model, on Switch from and To, with no golden and on
  * the newest migration; Migrate to's one dialog and a sent golden's consent; a migration's report
  * as the server words it, its one next step by state, Apply config change's ask, an id that is no
- * migration's, a cell opened from a run's Decisions view, Migrate to…'s menu, the palette's row, and
+ * migration's, a cell opened from a run's Decisions view, Migrate to's menu, the palette's row, and
  * the pull request body drawn with its quote and link.
  */
 
@@ -30,7 +30,7 @@ const MG = 'mg-01M5000000000000000000000A';
 const WAITS = 'mg-01M5000000000000000000000B';
 const UPDATED = 'mg-01M5000000000000000000000C';
 const PATCH = '--- a/agent.py\n+++ b/agent.py\n@@ -3 +3 @@\n-MODEL = "claude-sonnet-4-5"\n+MODEL = "claude-sonnet-5-5"\n';
-const REMEDY = { field: 'temperature', value: 1, leftOut: true, renamedTo: null, why: `${TO} refuses \`temperature\` with thinking on`, source: null, steps: 1 };
+const REMEDY = { field: 'temperature', value: 1, leftOut: true, renamedTo: null, why: `${TO} refuses temperature with thinking on`, source: null, steps: 1 };
 const shown = (el: { textContent: string } | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 /** What a line shows, a defined term's hidden definition left out. */
 const seen = (el: FakeElement) => shownText(el).replace(/\s+/g, ' ').trim();
@@ -69,9 +69,10 @@ describe('Changes › Migrate', () => {
   const body = `## Switch ${FROM} to ${TO}\n\nChecked with \`shadowlap migrate --to ${TO}\`.\n\n> ${notice.text} ([source](${notice.source}))\n\n### What changes\n\n- refund #2: issue_refund is no longer called`;
 
   /** A migration from FROM to TO as `migrate --json` keeps it: one run flagged and verified, one the preview cleared, `temperature` taken out, a golden left behind. */
-  const migration = (id: string, runs: DecisionRun[]) => {
+  const migration = (id: string, runs: DecisionRun[], o: { verify?: Record<string, unknown>; warnings?: string[] } = {}) => {
     const [x, y] = runs;
     const decisions = { decisionsId: null, kind: 'decisions', at: AT, change: { model: TO, fields: {}, from: [FROM], fromCode: null, text: `the model ${TO}` }, command: `shadowlap migrate --to ${TO}`, samples: 2, counts: { ...emptyCounts(), 1: 1, same: 3 }, flagged: [x.runId], toVerify: [x.runId], remedies: [REMEDY], runs, cost: { before: 0.04, after: 0.03, spent: 0.01, upstreamRequests: 4, unknownModels: [] }, stopReason: null, judge: null, notes: [], warnings: [], verify: { verdict: 'accepted', rule: 'rate >= 0.6 (95%)', reasons: [], warnings: [], runs: [{ runId: x.runId, golden: 'goldens/refund', role: 'target', outcome: 'kept', verdict: 'passed', passes: 4, attempts: 4, bound: 'rate >= 0.6 (95%)', rule: 'rate >= 0.6 (95%)' }] } };
+    if (o.verify) Object.assign(decisions, { verify: o.verify });
     const data = {
       migrateId: id,
       kind: 'migrate',
@@ -96,7 +97,7 @@ describe('Changes › Migrate', () => {
       retirements: [notice],
       stopReason: null,
       notes: [],
-      warnings: ['1 step got no answer: rate limited'],
+      warnings: o.warnings ?? ['1 step got no answer: rate limited'],
     };
     store.putDecisionSession({ sessionId: id, kind: 'migrate', at: AT, change: `the model ${TO}`, actor: 'dev', revision: null, data, runs: runs.map((r) => ({ runId: r.runId, golden: r.golden, rank: r.rank, changed: r.rank === null ? 0 : 1, data: r as unknown as Record<string, unknown> })) });
   };
@@ -288,10 +289,17 @@ describe('Changes › Migrate', () => {
       expect(p.all('.mgpass li .mgw').map(seen)).toEqual(['kept, verified · 4 of 4 passed · rate >= 0.6 (95%)', m.passes.runs[1].words]);
       expect(p.all('.mgpass .mgleft').map(shown)).toEqual(['diverges at #1 on $.model once applied']);
       expect(p.all('.mgpass .mgrule').map(seen)).toEqual(['rate >= 0.6 (95%)', '1 of 2 runs verified end to end']);
-      expect(p.all('.mgcost p').map(seen)).toEqual(['≈$0.040 → ≈$0.030 (−25%) · 1,200 → 900 tokens', '≈$0.010 asking, ≈$0.020 verifying']);
-      // What to set: the field, why, and the flags verify took.
-      expect(p.all('.mgset .mgfield').map((f) => [shown(f.querySelector('b')), f.querySelector('b')!.querySelectorAll('code').map(shown), shown(f.querySelector('p'))])).toEqual([['leave temperature out (the requests were sent temperature=1, its default, meanwhile)', ['temperature', 'temperature=1'], `${TO} refuses temperature with thinking on`]]);
+      // What it costs, beside What still passes: each line under its label.
+      expect([p.one('.mgpass').parentNode!.className, p.one('.mgcost').parentNode === p.one('.mgpass').parentNode]).toEqual(['grid2 secs', true]);
+      expect(p.all('.mgcost p').map((x) => [shown(x.querySelector('.k')), seen(x.querySelectorAll('span')[1])])).toEqual([
+        ['per run', '≈$0.040 → ≈$0.030 (−25%) · 1,200 → 900 tokens'],
+        ['checking it', '≈$0.010 asking, ≈$0.020 verifying'],
+      ]);
+      // What to set: the field, why with the field it names as code, and the flags verify took, as code.
+      expect(shown(p.one('.mgset header .sub'))).toBe(`each field ${TO} refuses, and what it takes instead`);
+      expect(p.all('.mgset .mgfield').map((f) => [shown(f.querySelector('b')), f.querySelector('b')!.querySelectorAll('code').map(shown), shown(f.querySelector('p')), f.querySelector('p')!.querySelectorAll('code').map(shown)])).toEqual([['leave temperature out (the requests were sent temperature=1, its default, meanwhile)', ['temperature', 'temperature=1'], `${TO} refuses temperature with thinking on`, ['temperature']]]);
       expect(shown(p.one('.mgset > p.muted'))).toBe('verify takes them as: --set temperature=null');
+      expect(shown(p.one('.mgset > p.muted code'))).toBe('--set temperature=null');
       // The config change: files and places, the patch in its colours, what it takes out, the review, git apply and Copy config change.
       expect(shown(p.one('.mgcfg header .sub'))).toBe('agent.py · 2 places');
       expect(p.all('.mgcfg .fxpatch span').map((l) => l.className)).toContain('del');
@@ -317,17 +325,50 @@ describe('Changes › Migrate', () => {
       expect([link.getAttribute('href'), link.getAttribute('target'), link.getAttribute('rel')]).toEqual([notice.source, '_blank', 'noopener noreferrer']);
     });
 
+    it('reads the migration again as a test result lands, so a golden re-recorded since moves the next step on from Update goldens', async () => {
+      const FOLLOWS = 'mg-01M50000000000000000000009';
+      migration(FOLLOWS, [runOf(a, 'goldens/refund', [step(1, null), step(2, 1)]), runOf(b, 'goldens/lookup', [step(1, null), step(2, null)])]);
+      store.setMigrationApplied(FOLLOWS, { at: AT + 1_000, by: null, outdated: [{ golden: 'goldens/lookup', callNo: 2, path: '$.model' }] });
+      const client = { migrateStart: () => Promise.resolve(start), decisionSessions: () => Promise.resolve({ sessions: [listed(FOLLOWS)], goldens: 2 }), decisionSession: (id: string) => Promise.resolve(previewSession(store, id)!) };
+      let bump: (n: number) => void = () => undefined;
+      function Host() {
+        const [tests, setTests] = useState(1);
+        bump = setTests;
+        return createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>, { feeds: { decisions: 1, tests } }) }, createElement(MigrateTab, { id: FOLLOWS, run: null, call: null }));
+      }
+      page = await render(createElement(Host));
+      const p = page;
+      const next = () => p.all('.mgverdict .actions button').map(shown);
+      await p.until('Update goldens', () => next().includes('Update goldens'));
+      const ts = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/lookup', '--update'], revision: null, actor: null, startedAt: AT + 2_000 });
+      store.addTestResult({ sessionId: ts.sessionId, golden: 'goldens/lookup', ok: true, at: AT + 2_000 });
+      await act(async () => bump(2));
+      await p.until('Copy pull request body', () => next().includes('Copy pull request body'));
+      expect(p.all('.mgverdict .pline').map(shown).filter((l) => l.includes(' to update under '))).toEqual([]);
+    });
+
+    it('says once that verify didn’t run, under What still passes, and not again at the foot', async () => {
+      const NOT_RUN = 'mg-01M50000000000000000000008';
+      const reasons = ['the agent asks for a key'];
+      migration(NOT_RUN, [runOf(a, 'goldens/refund', [step(1, null), step(2, 1)]), runOf(b, 'goldens/lookup', [step(1, null), step(2, null)])], { verify: { verdict: 'not-run', rule: null, reasons, warnings: [], runs: [] }, warnings: ['Not verified: the agent asks for a key', '1 step got no answer: rate limited'] });
+      sessions.set(NOT_RUN, previewSession(store, NOT_RUN)!);
+      const p = await open(start, [NOT_RUN], { id: NOT_RUN });
+      await p.until('the report', () => p.all('.mgend .dnotes li').length > 0);
+      expect(p.all('.mgpass .mgrule').map(shown)).toContain('Not verified yet: the agent asks for a key.');
+      expect(p.all('.mgend .dnotes li').map(shown)).toEqual(['1 step got no answer: rate limited']);
+    });
+
     it('offers one next step: Apply config change, then Update goldens while a golden waits, then Copy pull request body', async () => {
       const step = async (id: string) => {
         const p = await report(id);
         const out = p.all('.mgverdict .actions button').map((x) => [shown(x), x.className.split(' ').includes('lime')]);
-        const lines = p.all('.mgverdict .pline.mgl').map(shown);
+        const lines = p.all('.mgverdict .pline').map(shown).filter((l) => l.includes(' to update under '));
         await p.unmount();
         page = null;
         return [out, lines];
       };
       expect(await step(MG)).toEqual([[['Apply config change', true]], []]);
-      expect(await step(WAITS)).toEqual([[['Update goldens', true]], [`1 golden to update under ${TO}: goldens/refund`]]);
+      expect(await step(WAITS)).toEqual([[['Update goldens', true]], [`1 golden to update under ${TO}: refund`]]);
       expect(await step(UPDATED)).toEqual([[['Copy pull request body', true]], []]);
     });
 
@@ -348,7 +389,8 @@ describe('Changes › Migrate', () => {
       // The golden left behind is listed under the patch, so no Diverges row names it.
       expect(facts(p)).toEqual(['Leaves outtemperatureas What to set says']);
       expect(p.all('.dialog .fxpatch')).toHaveLength(1);
-      expect(p.all('.dialog .mgbehind li').map(shown)).toEqual(['refund #1 · $.model']);
+      expect(shown(p.one('.dialog .ondisk:not(.steps) .k'))).toBe('Left behind');
+      expect(p.all('.dialog .ondisk:not(.steps) ul.plain li').map((li) => [shown(li.querySelector('span')), shown(li.querySelector('code'))])).toEqual([['refund', '#1 · $.model']]);
       expect(shown(p.one('.dialog .cmdline'))).toContain('shadowlap migrate apply mg-01M5000000');
       await p.click(p.one('.dialog .dlg-ok'));
       expect(started).toEqual([['migrate-apply', { migrationId: MG }]]);
@@ -365,7 +407,7 @@ describe('Changes › Migrate', () => {
       await p.until('the dialog', () => p.all('.dialog').length === 1);
       expect(facts(p)).toEqual(['Leaves outtemperatureas What to set says', `Divergesno golden${stays}`]);
       expect(p.all('.dialog .steps li').map(shown)).toEqual(['1Patch appliedagent.py, with git apply', '2Goldens replayedoffline, any that diverge are named']);
-      expect(p.all('.dialog .mgbehind')).toHaveLength(0);
+      expect(p.all('.dialog .ondisk:not(.steps)')).toHaveLength(0);
     });
 
     it('opens a call’s cell under What changes from a run’s Decisions view, its links back to the run and to the migration, with no Verify', async () => {
@@ -376,13 +418,15 @@ describe('Changes › Migrate', () => {
       expect(p.all('.dcell .dacts button')).toHaveLength(0);
     });
 
-    it('lists Migrate to… with the replacement first, recommended and checked, then the listing, each priced on its card and asking in the dialog', async () => {
+    it('lists Migrate to with the replacement first, recommended and checked, then the listing, each priced on its card once asked for and asking in the dialog', async () => {
       // The menu places itself in the window.
       vi.stubGlobal('innerWidth', 1440);
       vi.stubGlobal('innerHeight', 900);
       const asked: string[] = [];
       const p = await report(MG, { client: { estimates: { ...estimates, migrateEstimate: (to: string) => (asked.push(to), Promise.resolve({ estimate: null, preview: null })) } } as unknown as Partial<Client> });
-      await p.click(p.byText('.chbar button', 'Migrate to…'));
+      const menu = p.byText('.chbar button', 'Migrate to');
+      expect(shown(menu)).toBe('Migrate to');
+      await p.click(menu);
       await p.until('the menu', () => p.all('.fkm [role="menuitemradio"]').length === 3);
       expect(shown(p.one('.fkm .pk'))).toBe(`Migrate ${FROM} to…`);
       expect(p.all('.fkm [role="menuitemradio"]').map((x) => [shown(x.querySelector('b')), x.getAttribute('aria-checked'), !!x.querySelector('small')])).toEqual([
@@ -390,14 +434,21 @@ describe('Changes › Migrate', () => {
         ['claude-opus-5', 'false', false],
         ['gpt-5', 'false', false],
       ]);
-      await p.until('each price', () => asked.length === 3);
+      // No price is read as the menu opens: only the one whose card the pointer or the focus asks for.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(asked).toEqual([]);
+      await p.hover(p.all('.fkm [role="menuitemradio"]')[1]);
+      await p.until('its price', () => asked.length === 1);
+      await p.focus(p.all('.fkm [role="menuitemradio"]')[2]);
+      await p.until('the next price', () => asked.length === 2);
+      expect(asked).toEqual(['claude-opus-5', 'gpt-5']);
       expect(JSON.parse(p.all('.fkm [role="menuitemradio"]')[1].getAttribute('data-tip')!)).toMatchObject({ t: 'Migrate to claude-opus-5' });
       await p.click(p.all('.fkm [role="menuitemradio"]')[1]);
       await p.until('the dialog', () => p.all('.dialog').length === 1);
       expect(shown(p.one('.dialog h3'))).toBe(`Migrate ${FROM} to claude-opus-5`);
     });
 
-    it('offers neither Migrate to… nor Apply config change in an exported copy', async () => {
+    it('offers neither Migrate to nor Apply config change in an exported copy', async () => {
       const p = await report(MG, { app: { exported: true } });
       expect([p.all('.chbar button').filter((x) => shown(x).startsWith('Migrate to')).length, p.all('.mgverdict .actions button').length]).toEqual([0, 0]);
     });

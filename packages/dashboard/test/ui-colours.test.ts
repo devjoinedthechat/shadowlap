@@ -399,7 +399,6 @@ describe('amber', () => {
     '.dc.split i.s': 'a split decision cell’s samples of rank 2: a look',
     '.dsd.q2': 'a preview row’s most telling change, of rank 2: a look',
     '.dsy': 'what a preview couldn’t ask or judge: a run it refused, a step that waits on a judge, a warning',
-    '.verdict.mgverdict .mgl': 'a migration applied with goldens left to update: Update goldens is the next step',
     '.mgrows .mgleft': 'a golden the switch leaves behind: it diverges on `$.model` until updated',
     '.mgalso': 'a field What to set says to leave out that the patch can’t: left for the hand',
     '.dsv.y b': 'a preview’s run that verify found inconclusive: its word',

@@ -55,10 +55,17 @@ export function MigrateReport({ session, sessions, retiring, use, run, call }: {
         <ChangeSteps m={m} sessionId={session.sessionId} />
       </Section>
       {opened ? <DecisionCellPanel key={`${opened.row.runId}:${opened.callNo}`} session={session} row={opened.row} callNo={opened.callNo} /> : null}
-      <Passes m={m} />
-      <Section title="What it costs" className="mgcost">
-        {[m.costs.perRun, m.costs.endToEnd, m.costs.checking].map((line) => (line ? <p key={line}>{glossed(line)}</p> : null))}
-      </Section>
+      <div className="grid2 secs">
+        <Passes m={m} />
+        <Section title="What it costs" className="mgcost">
+          {m.costs.map((c) => (
+            <p key={c.label}>
+              <span className="k">{c.label}</span>
+              <span>{glossed(c.text)}</span>
+            </p>
+          ))}
+        </Section>
+      </div>
       <ToSet m={m} />
       <ConfigChange m={m} />
       <PullRequest m={m} />
@@ -80,7 +87,7 @@ function MigrateVerdict({ session, m }: { session: PreviewSession; m: MigrateVie
           {r.text}
         </span>
       ))}
-      {m.appliedLine ? <span className="pline mgl">{inCode(m.appliedLine)}</span> : null}
+      {m.appliedLine ? <span className="pline">{inCode(m.appliedLine)}</span> : null}
     </>
   );
   return (
@@ -101,13 +108,13 @@ function NextStep({ session, m }: { session: PreviewSession; m: MigrateView }) {
 /** Copy pull request body: its card says what it copies. */
 function CopyBody({ m, body, lime = false }: { m: MigrateView; body: string; lime?: boolean }) {
   return (
-    <CopyButton text={body} label="the pull request body" name="Copy pull request body" sub="Markdown, the four blocks" {...(m.pullRequest?.gh ? { cmd: m.pullRequest.gh } : {})} className={lime ? 'btn lime' : 'btn'}>
+    <CopyButton text={body} label="the pull request body" name="Copy pull request body" sub="Markdown, the four blocks" {...(m.pullRequest?.gh ? { cmd: `$ ${m.pullRequest.gh}` } : {})} className={lime ? 'btn lime' : 'btn'}>
       Copy pull request body
     </CopyButton>
   );
 }
 
-/** Migrate to…: the migration's from-models to another model, a menu of them, the recommendation marked, each priced on its card and opening Migrate's dialog. */
+/** Migrate to: the migration's from-models to another model, a menu of them headed `Migrate <from> to…`, the recommendation marked, each priced on its card once asked for, opening Migrate's dialog. */
 function MigrateToMenu({ m, retiring, use, goldens }: { m: MigrateView; retiring: readonly MigrateRetiring[]; use: readonly MigrateUse[]; goldens: string[] }) {
   const app = useApp();
   const menu = useMenu();
@@ -124,7 +131,7 @@ function MigrateToMenu({ m, retiring, use, goldens }: { m: MigrateView; retiring
   return (
     <>
       <ActionButton className="btn" aria-haspopup="menu" aria-expanded={menu.open} tip={`Migrate ${was} to another model`} command={`$ shadowlap migrate --to <model> …`} onClick={(e) => menu.toggle(e.currentTarget)}>
-        Migrate to…
+        Migrate to
         <Icon name="caret" className="caret" />
       </ActionButton>
       {menu.anchor ? (
@@ -140,11 +147,17 @@ function MigrateToMenu({ m, retiring, use, goldens }: { m: MigrateView; retiring
   );
 }
 
-/** A model in Migrate to…'s menu: its card the switch's command and what it bills, read as the menu opens. */
+/**
+ * A model in Migrate to's menu: its card the switch's command and what it bills. The price is read
+ * once the pointer or the focus reaches it, as a Needs a look step's is, never for the whole menu as
+ * it opens: each read reads every golden's calls on the pool.
+ */
 function MigrateToItem({ s, checked, recommended, onPick }: { s: MigrateSwitch; checked: boolean; recommended: boolean; onPick: () => void }) {
-  const { estimate } = useMigrateEstimate(s);
+  const [asked, setAsked] = useState(false);
+  const { estimate } = useMigrateEstimate(s, asked);
+  const ask = () => setAsked(true);
   return (
-    <button type="button" role="menuitemradio" aria-checked={checked} data-tip={tipCard(`Migrate to ${s.to}`, [], MIGRATE_CARD, `$ ${migrateCommand(s)}`, tipEst(estimate, true))} onClick={onPick}>
+    <button type="button" role="menuitemradio" aria-checked={checked} data-tip={tipCard(`Migrate to ${s.to}`, [], MIGRATE_CARD, `$ ${migrateCommand(s)}`, tipEst(asked ? estimate : undefined, true))} onPointerEnter={ask} onFocus={ask} onClick={onPick}>
       <b>{s.to}</b>
       {recommended ? <small>recommended</small> : null}
     </button>
@@ -229,8 +242,8 @@ function ToSet({ m }: { m: MigrateView }) {
       {s.given.map((g) => (
         <p key={g}>{inCode(g)}</p>
       ))}
-      {s.only ? <p>{s.only}</p> : null}
-      {s.flags ? <p className="muted">{s.flags}</p> : null}
+      {s.only ? <p>{inCode(s.only)}</p> : null}
+      {s.flags ? <p className="muted">{inCode(s.flags)}</p> : null}
     </Section>
   );
 }
@@ -266,7 +279,7 @@ function ConfigChange({ m }: { m: MigrateView }) {
       {c.apply ? <CodeBox command={c.apply} className="mgcmd" /> : null}
       {c.patch ? (
         <div className="actions">
-          <CopyButton text={c.patch} label="the config change" name="Copy config change" sub="the patch, as git apply takes it" {...(c.apply ? { cmd: c.apply } : {})} className="btn">
+          <CopyButton text={c.patch} label="the config change" name="Copy config change" sub="the patch, as git apply takes it" {...(c.apply ? { cmd: `$ ${c.apply}` } : {})} className="btn">
             Copy config change
           </CopyButton>
         </div>
@@ -345,7 +358,7 @@ function ApplyDialog({ m, offer, onOk, onClose }: { m: MigrateView; offer: Migra
       lead="Applies the migration’s config change to your working tree, for you to review before you commit."
       doc="migrate"
       facts={[
-        offer.leftOut.length ? { label: 'Leaves out', value: inCode(offer.leftOut.map((f) => `\`${f}\``).join(', ')), quiet: 'as What to set says' } : null,
+        offer.leftOut ? { label: 'Leaves out', value: inCode(offer.leftOut), quiet: 'as What to set says' } : null,
         // The goldens left behind are listed under the patch; with none, why each stays as recorded.
         behind.length ? null : { label: 'Diverges', value: 'no golden', quiet: offer.stays ?? undefined },
       ]}
@@ -357,12 +370,14 @@ function ApplyDialog({ m, offer, onOk, onClose }: { m: MigrateView; offer: Migra
       <DialogSteps steps={steps} />
       {m.config.patch ? <Patch text={m.config.patch} /> : null}
       {behind.length ? (
-        <div className="mgbehind">
-          <h4>Left behind</h4>
-          <ul>
+        <div className="ondisk">
+          <span className="k">Left behind</span>
+          <ul className="plain">
             {behind.map((g) => (
               <li key={g.golden}>
-                <code>{goldenName(g.golden)}</code> <span className="muted">{`#${g.callNo} · $.model`}</span>
+                <i aria-hidden="true" />
+                <span>{goldenName(g.golden)}</span>
+                <code>{`#${g.callNo} · $.model`}</code>
               </li>
             ))}
           </ul>

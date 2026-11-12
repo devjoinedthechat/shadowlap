@@ -40,9 +40,15 @@ interface MigrateTabProps {
   onMissing?: (error: Error) => void;
 }
 
+/**
+ * What the page reads again as the store moves: a migration (`decisions`), and a test result, since a
+ * golden a migration left behind waits until a result of it passed (Update goldens re-records it).
+ */
+const followed = (feeds: Readonly<Record<string, number>>): string => `${feeds.decisions ?? 0}:${feeds.tests ?? 0}`;
+
 export function MigrateTab(props: MigrateTabProps) {
   const { client, feeds } = useApp();
-  const start = useLoad(() => client.migrateStart(), 'migrate-start', `${feeds.decisions ?? 0}`);
+  const start = useLoad(() => client.migrateStart(), 'migrate-start', followed(feeds));
   return (
     <>
       <PaletteAsks retiring={start.data?.retiring ?? null} />
@@ -73,7 +79,7 @@ function MigrateBody({ id, run, call, onMissing, start }: MigrateTabProps & { st
   // Q21: the soonest-retiring model no migration has checked leads; once each is checked, the newest migration.
   const unchecked = start.data?.retiring.find((n) => !n.checked) ?? null;
   const shownId = id ?? (start.data && !unchecked ? (sessions?.[0]?.sessionId ?? null) : null);
-  const detail = useLoad(() => (shownId ? client.decisionSession(shownId) : null), `decision-session:${shownId ?? ''}`, `${feeds.decisions ?? 0}`);
+  const detail = useLoad(() => (shownId ? client.decisionSession(shownId) : null), `decision-session:${shownId ?? ''}`, followed(feeds));
   const gone = detail.error instanceof ApiError && detail.error.status === 404;
   const session = detail.data;
   useEffect(() => {
@@ -104,7 +110,8 @@ function bareTab(start: Loaded<MigrateStartView>, list: Loaded<DecisionsListView
   if (error && (!start.data || !list.data)) return <ErrorState retry={start.data ? list.reload : start.reload}>{failedWords(error)}</ErrorState>;
   if (!start.data || !list.data) return <Skeleton what="Migrate" lines={8} />;
   if (!start.data.goldens) return <NoGoldens />;
-  if (unchecked) return <RetiringStart n={unchecked} start={start.data} />;
+  // Keyed by the model, so the next one to lead starts on its own replacement.
+  if (unchecked) return <RetiringStart key={unchecked.model} n={unchecked} start={start.data} />;
   return shownId ? null : <SwitchStart use={start.data.use} />;
 }
 
@@ -113,7 +120,7 @@ const failedWords = (e: Error) => (e instanceof ApiError ? `The dashboard server
 /** No golden to migrate: what to pack first, as Preview says it. */
 function NoGoldens() {
   return (
-    <EmptyState title="Switch models with the evidence" text={INTRO}>
+    <EmptyState title="Switch models with the evidence" text={INTRO} copy>
       <p className="emptyline">
         {NO_GOLDENS} <Link href={href.runs()}>Open Runs</Link>
       </p>
@@ -169,8 +176,11 @@ function SwitchStart({ use }: { use: readonly MigrateUse[] }) {
   const [from, setFrom] = useState(use[0]?.model ?? '');
   const [typed, setTo] = useState<string | null>(null);
   const listing = useModelChoices();
-  // A From that equals To clears To, which falls back to the first other model.
-  const to = typed !== null && typed !== from ? typed : (use.find((u) => u.model !== from)?.model ?? '');
+  // A From that equals To clears To, which falls back to the first other model the goldens call, else
+  // the first other the providers list, of From's family where one is.
+  const family = use.find((u) => u.model === from)?.family ?? null;
+  const listed = (listing?.choices ?? []).filter((c) => c.id !== from);
+  const to = typed !== null && typed !== from ? typed : (use.find((u) => u.model !== from)?.model ?? (listed.find((c) => c.family === family) ?? listed[0])?.id ?? '');
   const s: MigrateSwitch = { from: from ? [from] : [], to, goldens: [] };
   return (
     <section className="panel stepempty mgstart">
