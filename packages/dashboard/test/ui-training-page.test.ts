@@ -127,7 +127,7 @@ describe('the Training page', () => {
     expect(sample).not.toContain('"from"');
     expect(sample).toContain('{ "score": 0.67,');
     // A golden that is no task has no call to take over.
-    const rows = r.all('table.tasks tbody tr').map((tr) => tr.textContent);
+    const rows = r.all('table.tasks tbody tr').map((tr) => tr.textContent.replace(/\u00a0/g, ' '));
     expect(rows.find((t) => t.includes('refund-flow-budget'))).toContain('no call to take over');
   });
 

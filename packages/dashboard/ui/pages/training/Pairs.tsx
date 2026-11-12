@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { PairGroupView, TrainingView } from '../../api.js';
 import { Chips } from '../../components/bits.js';
+import { CodeText, Words } from '../../components/Copy.js';
 import { Section } from '../../components/Section.js';
 import { plural, shortId } from '../../format.js';
 import { useListKeys } from '../../list-keys.js';
@@ -117,11 +118,16 @@ function PairGroup({ g, focused }: { g: PairGroupView; focused: boolean }) {
         <span className="sp" />
         <span className="pgn">{plural(g.count, 'pair')}</span>
       </div>
-      {g.context ? <p className="pctx">{g.context}</p> : null}
+      {/* the run's own words, as written, a dot kept with the part before it */}
+      {g.context ? (
+        <p className="pctx">
+          <Words glued={false}>{g.context.replace(/ · /g, '\u00a0· ')}</Words>
+        </p>
+      ) : null}
       <div className="pans">
         <div className="pa rej">
           <span className="pak">Rejected</span>
-          <code className="pat">{g.rejected.text}</code>
+          <CodeText className="pat">{g.rejected.text}</CodeText>
           <span className="paw">
             {g.rejected.what}
             {ownAttempt ? <AttemptLink id={g.rejected.runId} href={g.rejected.href} /> : null}
@@ -130,7 +136,7 @@ function PairGroup({ g, focused }: { g: PairGroupView; focused: boolean }) {
         {g.chosen.map((c, i) => (
           <div key={`${c.runId}:${c.callNo}`} className="pa cho">
             <span className="pak">{i ? '' : 'Chosen'}</span>
-            <code className="pat">{c.text}</code>
+            <CodeText className="pat">{c.text}</CodeText>
             <span className="paw">
               {c.what}
               <AttemptLink id={c.runId} href={c.href} />

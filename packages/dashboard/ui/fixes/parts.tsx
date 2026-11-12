@@ -1,4 +1,5 @@
 import { Fragment, useId, useMemo, useState } from 'react';
+import { Words } from '../components/Copy.js';
 import { Icon } from '../components/Icon.js';
 import type { FixRow } from '../types.js';
 import { breakPoints, cellKeepsWhole, failedMust, flagParts, inlineParts, parseMarkdown, plainCell, wholeParts, type MdBlock } from './model.js';
@@ -54,19 +55,25 @@ export function Flagged({ text }: { text: string }) {
             {p.text}
           </code>
         ) : (
-          <Fragment key={i}>{p.text}</Fragment>
+          <Words key={i}>{p.text}</Words>
         ),
       )}
     </>
   );
 }
 
-/** Text with its `code` set in code. `breaks` lets a narrow table cell wrap JSON after its commas and colons (`breakPoints`). */
+/** An operator, a dot or an arrow kept with the word before it, so no line starts with one (`<= 0.10`). */
+const heldBefore = (t: string) => t.replace(/ (?=(?:[<>]=?|!=|[·→]) )/g, '\u00a0');
+
+/**
+ * Text with its `code` set in code, its words joined and kept whole as a report keeps them, never set
+ * apart by sentence. `breaks` lets a narrow table cell wrap JSON after its commas and colons (`breakPoints`).
+ */
 export function Inline({ text, breaks = false }: { text: string; breaks?: boolean }) {
-  const words = (t: string) => (breaks ? breakPoints(t).map((w, i) => (i ? <Fragment key={i}><wbr />{w}</Fragment> : <Fragment key={i}>{w}</Fragment>)) : t);
+  const words = (t: string) => breakPoints(heldBefore(t)).map((w, i) => (i ? <Fragment key={i}><wbr />{w}</Fragment> : <Fragment key={i}>{w}</Fragment>));
   return (
     <>
-      {inlineParts(text).map((p, i) => (p.code ? <code key={i}>{words(p.text)}</code> : <span key={i}>{words(p.text)}</span>))}
+      {inlineParts(text).map((p, i) => (p.code ? <code key={i}>{breaks ? words(p.text) : p.text}</code> : <span key={i}>{breaks ? words(p.text) : <Words>{p.text}</Words>}</span>))}
     </>
   );
 }

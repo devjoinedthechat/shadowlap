@@ -8,6 +8,7 @@ import { Status } from '../../components/Status.js';
 import { rowOpen } from '../../components/Table.js';
 import { Term } from '../../components/Term.js';
 import { VerdictLine } from '../../components/VerdictLine.js';
+import { asWords } from '../../components/Copy.js';
 import { plural } from '../../format.js';
 import { useListKeys } from '../../list-keys.js';
 import { ORIGIN_NAME } from '../../origins.js';
@@ -121,7 +122,7 @@ export function TaskTable({ rows, update }: { rows: Tasks['rows']; update: Updat
                   ) : (
                     <code>{r.name}</code>
                   )}
-                  <span className="rsub">{r.sub}</span>
+                  <span className="rsub">{asWords(r.sub)}</span>
                 </td>
                 <td className="chk hide-sm">
                   {r.checks.map((c) => (

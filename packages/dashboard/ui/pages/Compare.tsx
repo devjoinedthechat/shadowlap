@@ -5,6 +5,7 @@ import { ChangesHead } from '../changes/Head.js';
 import { forgetComparePair, noteComparePair } from '../changes-tab.js';
 import { PageHeader } from '../components/bits.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { asWords, Code } from '../components/Copy.js';
 import { tipCard } from '../components/HoverCard.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { Page } from '../components/Page.js';
@@ -602,12 +603,12 @@ export function ResponseDifferences({ c }: { c: CompareView }) {
                 <td className="num">{r.callNo}</td>
                 <td>{callName(r.kind, r.name)}</td>
                 <td className="wrapcell">
-                  {r.detail}
-                  {/* The call a replay's flag answered: what it got instead, and the flag. */}
+                  {asWords(r.detail)}
+                  {/* The call a replay's flag answered: what it got instead, and the flag, broken only between its arguments. */}
                   {r.by ? (
                     <>
-                      {' · '}
-                      <code>{r.by}</code>
+                      {'\u00a0· '}
+                      <Code>{r.by}</Code>
                     </>
                   ) : null}
                 </td>

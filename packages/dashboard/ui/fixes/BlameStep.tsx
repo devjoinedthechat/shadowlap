@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import type { FixAttemptGroups } from '../../src/attempt-groups.js';
 import { type Attempt, AttemptList, AttemptsCell } from '../components/AttemptsCell.js';
 import { EmptyState, SrSpace } from '../components/bits.js';
+import { Copy, CodeText } from '../components/Copy.js';
 import { CodeBox } from '../components/CodeBox.js';
 import { DotParts } from '../components/DotParts.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
@@ -272,7 +273,7 @@ function Answers({ b }: { b: BlameStep }) {
         <div className="ans one">
           <div>
             <span className="lbl">The recording</span>
-            <code>{a.recorded || '(no answer)'}</code>
+            <CodeText>{a.recorded || '(no answer)'}</CodeText>
           </div>
           <div className="good">
             <span className="lbl">A rescued fork</span>
@@ -282,7 +283,7 @@ function Answers({ b }: { b: BlameStep }) {
                 <Id id={shortId(b.rescuedRunId)} href={href.run(b.rescuedRunId)} className="rfid" />
               </>
             ) : null}
-            <code>{a.rescued || '(no answer)'}</code>
+            <CodeText>{a.rescued || '(no answer)'}</CodeText>
           </div>
         </div>
         {b.pairs ? (
@@ -413,8 +414,8 @@ function Receipts({ fix, b }: { fix: FixDetail; b: BlameStep }) {
       <p className="fxreceipt">
         <DotParts parts={[plural(c.attempts, 'attempt'), plural(c.upstreamRequests, 'upstream request'), `${approx(c.spent)} spent`, judge, 'every call before a probe replayed from the recording'].filter(Boolean)} />
       </p>
-      {c.unknownModels.length ? <p className="fxreceipt">No price for {c.unknownModels.join(', ')}, so its calls count as $0.</p> : null}
-      {b.pulled ? <p className="fxreceipt">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</p> : null}
+      {c.unknownModels.length ? <Copy className="fxreceipt">No price for {c.unknownModels.join(', ')}, so its calls count as $0.</Copy> : null}
+      {b.pulled ? <Copy className="fxreceipt">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</Copy> : null}
       {others.map((o) => (
         <p key={o.blameId} className="fxreceipt">
           {o.runId !== b.runId ? (

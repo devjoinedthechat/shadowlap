@@ -3,6 +3,7 @@ import { ApiError } from '../api.js';
 import { ActionButton } from '../components/ActionButton.js';
 import { AskNote } from '../components/AskNote.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { asWords, Words } from '../components/Copy.js';
 import { ConfirmDialog } from '../components/Dialog.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
@@ -200,8 +201,10 @@ function VerdictFacts({ v, state }: { v: PreviewView; state: ReturnType<typeof v
     const f = v.verify;
     return (
       <>
-        <span className="pline">{`${h.lead}${h.rest}${h.detail}`}</span>
-        {v.within ? <span className="pline">{v.within}</span> : null}
+        <span className="pline">
+          <Words>{`${h.lead}${h.rest}${h.detail}`}</Words>
+        </span>
+        {v.within ? <span className="pline">{asWords(v.within)}</span> : null}
         {f.rules.map((r) => (
           <span key={r.rule ?? ''} className="pline">
             {glossed(r.rule ?? '')}
@@ -213,8 +216,8 @@ function VerdictFacts({ v, state }: { v: PreviewView; state: ReturnType<typeof v
             {w}
           </span>
         ))}
-        <span className="pline">{f.count}</span>
-        {later ? <span className="pline">{later}</span> : null}
+        <span className="pline">{asWords(f.count)}</span>
+        {later ? <span className="pline">{asWords(later)}</span> : null}
       </>
     );
   }
@@ -222,17 +225,17 @@ function VerdictFacts({ v, state }: { v: PreviewView; state: ReturnType<typeof v
   return (
     <>
       {h.unasked && state !== 'unsettled' ? <span className="pline dsy">{h.unasked}</span> : null}
-      {v.within ? <span className="pline">{v.within}</span> : null}
+      {v.within ? <span className="pline">{asWords(v.within)}</span> : null}
       <span className="pline">
         <span tabIndex={v.steps.notes.length ? 0 : undefined} data-tip={v.steps.notes.length ? tipCard(v.steps.text, v.steps.notes.map((n, i) => ({ label: `${i + 1}`, value: n }))) : undefined}>
           {steps.map((s, i) => (
             <Fragment key={s}>
-              {i ? ' · ' : null}
-              {s}
+              {i ? '\u00a0· ' : null}
+              {asWords(s)}
             </Fragment>
           ))}
         </span>
-        {later ? <> · {later}</> : null}
+        {later ? <>{`\u00a0· `}{asWords(later)}</> : null}
       </span>
     </>
   );

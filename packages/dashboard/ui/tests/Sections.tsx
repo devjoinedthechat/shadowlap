@@ -1,5 +1,6 @@
 import type { TestsView } from '../api.js';
 import { CodeBox } from '../components/CodeBox.js';
+import { Copy } from '../components/Copy.js';
 import { Link } from '../components/Link.js';
 import { Section } from '../components/Section.js';
 import { href } from '../route.js';
@@ -26,9 +27,9 @@ export function CiSections({ view }: { view: TestsView }) {
     <>
       <div className="grid2 secs">
         <Section title="In CI">
-          <p className="muted">
+          <Copy className="muted">
             {liveWords(view)} A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.
-          </p>
+          </Copy>
           <CodeBox command={view.commands.ci} what="the CI command" />
           {historyGate ? (
             <p className="muted after">

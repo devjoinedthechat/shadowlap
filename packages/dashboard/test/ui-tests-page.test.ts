@@ -139,7 +139,7 @@ describe('the Tests page', () => {
     expect(all(page.one('.ph p'), '.term').map((t) => t.textContent.slice(0, 6))).toEqual(['golden']);
     expect(page.all('button').map((b) => b.textContent.trim())).not.toContain('Copy CI command');
     const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent.replace(/\u00a0/g, ' ') === 'In CI'))!;
-    expect(ci.textContent).toContain('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
+    expect(ci.textContent.replace(/\u00a0/g, ' ')).toContain('Replay goldens run offline and need no key; a golden marked fork runs live from where it forks and needs the providers’ keys. A divergence, a non-zero exit, no calls, or a check, gate or injection test that fails or can’t decide fails a golden. A gate against history with fewer than 30 sessions only warns when it runs out of attempts, until the plan reads a decline or a drop.');
     expect(ci.textContent).not.toContain('throwaway store');
     expect(one(ci, '.cmdline').textContent).toBe(`$shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
     // In its box alone, with the box's one Copy, named by what it copies.
@@ -209,10 +209,10 @@ describe('the Tests page', () => {
   it('says older than your working tree, in amber, after the facts of a session that ended, and not while one runs', async () => {
     const ended = await open([], GOLDENS, (v) => ({ ...v, older: true }));
     expect(all(ended.one('.verdict.tv'), '.tstale').map((s) => s.textContent)).toEqual(['older than your working tree']);
-    expect(ended.one('.verdict.tv').textContent).toMatch(/ · \d+ upstream requests? · older than your working tree$/);
+    expect(ended.one('.verdict.tv').textContent.replace(/\u00a0/g, ' ')).toMatch(/ · \d+ upstream requests? · older than your working tree$/);
     await r!.unmount();
     const running = await open([], GOLDENS, (v) => ({ ...v, older: true, verdict: { ...v.verdict!, session: { ...v.verdict!.session, endedAt: null, live: true } } }));
-    expect(running.one('.verdict.tv').textContent).toContain('so far');
+    expect(running.one('.verdict.tv').textContent.replace(/\u00a0/g, ' ')).toContain('so far');
     expect(all(running.one('.verdict.tv'), '.tstale')).toEqual([]);
   });
 
@@ -370,7 +370,7 @@ describe('Tests\' states, parts and keys', () => {
     const page = await open([], GOLDENS, (v) => ({ ...v, steps: { 'goldens/refunds': fix }, running: { ...v.verdict!.session, endedAt: null, live: true }, following }));
     const verdict = page.one('.verdict.tv');
     expect([one(verdict, '.vw').textContent, one(verdict, 'h2').textContent.replace(/\u00a0/g, ' '), all(verdict, '.actions').length]).toEqual(['running', 'running 3 of 4 goldens', 0]);
-    expect(one(verdict, 'p').textContent).toMatch(/ · rev d2e8a1f · just now · 1 passed, 1 failed, 1 inconclusive so far$/);
+    expect(one(verdict, 'p').textContent.replace(/\u00a0/g, ' ')).toMatch(/ · rev d2e8a1f · just now · 1 passed, 1 failed, 1 inconclusive so far$/);
     const rows = page.all('table.gt tbody tr').map((tr) => [one(tr, 'code.gn').textContent, all(tr, 'td.glast > .st').map((x) => `${x.className}: ${x.textContent}`)[0], all(tr, 'td.glast > .rsub')[0]?.textContent, one(tr, '.glastw').hasAttribute('hidden')]);
     expect(rows).toEqual([
       ['passes', 'st ok: passed', 'this session, just now', true],

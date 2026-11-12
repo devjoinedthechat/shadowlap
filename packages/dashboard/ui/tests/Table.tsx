@@ -1,4 +1,5 @@
 import { Fragment, useRef } from 'react';
+import { Words } from '../components/Copy.js';
 import type { FollowedGolden, GoldenRow, TestsView } from '../api.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { rowOpen } from '../components/Table.js';
@@ -78,7 +79,7 @@ function GoldenTr({ row, rowKey, focused, showHistory, open, onToggle, now }: { 
   return (
     <tr className={[row.runId ? '' : 'still', focused ? 'krow' : '', open ? 'open' : ''].filter(Boolean).join(' ') || undefined} data-rowkey={rowKey} {...(row.runId ? rowOpen(() => navigate(href.run(row.runId!))) : {})}>
       <td className="gg">
-        <code className="gn">{row.runId ? <a className="rowa" href={href.run(row.runId)}>{row.name}</a> : row.name}</code>
+        <code className="gn">{row.runId ? <a className="rowa" href={href.run(row.runId)}><Words glued={false}>{row.name}</Words></a> : <Words glued={false}>{row.name}</Words>}</code>
         <span className="gmeta">
           <span className="chip" data-tip={tipCard(row.modeLabel, [], row.modeHint)}>
             {row.modeLabel}
