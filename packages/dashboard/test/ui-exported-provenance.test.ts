@@ -61,10 +61,10 @@ function leaving(data: StaticPayload): { text: string; html: string } {
 describe('an exported copy’s Provenance', () => {
   it('says when the copy was made and how many redaction rules it applied, and links nowhere', () => {
     const one = leaving(exported([{ pattern: 'email', replace: '<EMAIL>' }]));
-    expect(one.text).toBe('Exported Oct 22 with 1 redaction rule applied.');
+    expect(one.text.replace(/\u00a0/g, ' ')).toBe('Exported Oct 22 with 1 redaction rule applied.');
     expect(one.html).not.toContain('href');
     const none = leaving(exported([]));
-    expect(none.text).toBe('Exported Oct 22 with no redaction rules: it holds what was recorded.');
+    expect(none.text.replace(/\u00a0/g, ' ')).toBe('Exported Oct 22 with no redaction rules: it holds what was recorded.');
     expect(none.html).not.toContain('#/settings');
   });
 });
