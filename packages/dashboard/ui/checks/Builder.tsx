@@ -307,6 +307,8 @@ function Body(props: BuilderProps & BodyProps) {
   };
   const setRule = (r: Rule) => change((x) => ({ units: x.units.map((u, j) => (j === x.active ? withRule(u, r) : u)), active: x.active }));
   const setKind = (k: RuleKind) => setRule(k === 'json' ? jsonFrom(d.rule, rctx) : ruleFrom(k, { ...rctx, call: firstCall(rctx, ruleTool(d.rule) ?? '') ?? rctx.call }));
+  // Suggested's, golden mode's or fix mode's: a rule taken into the builder, never saved by itself.
+  const suggest = { verb: suggestVerb(s), onUse: (f: Fragment) => change((x) => withSuggestion(x, f)) };
   const head = headOf(props, s.golden);
   const runId = fromCall ? props.run.run.runId : null;
   const editor = editorRun(props);
@@ -331,7 +333,7 @@ function Body(props: BuilderProps & BodyProps) {
         {d.unit && !d.unit.gone ? <Sentence rule={d.rule} ctx={rctx} run={editor ? shortId(editor) : null} models={cfg.models} onRule={setRule} onKind={setKind} /> : null}
       </section>
       {own ? null : <Preview answer={judging.answer} error={judging.error} retry={judging.retry} notes={notes} judged={d.judged} judgesOnly={d.judgesOnly} agent={cfg.agent} />}
-      {fix ? <FixSections fix={fix} own={own} settled={d.settled} judging={fixRuns} guarded={!!d.golden} /> : <Suggested ask={suggestAsk(props, haveOf(d.settled))} verb={suggestVerb(s)} onUse={(f) => change((x) => withSuggestion(x, f))} />}
+      {fix ? <FixSections fix={fix} own={own} settled={d.settled} judging={fixRuns} guarded={!!d.golden} {...suggest} /> : <Suggested ask={suggestAsk(props, haveOf(d.settled))} {...suggest} />}
       {own || (fix && !d.golden) ? null : <Change cfg={cfg} error={props.cfgError} retry={props.reread} golden={d.golden} merged={d.settled.merged} changed={d.settled.changed} conflict={conflict} judgeAdded={judgeAdded(s.units)} runId={runId} />}
     </Dialog>
   );

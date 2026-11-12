@@ -11,8 +11,9 @@ import type { Request } from './settings-api.js';
  * back. The write sends the version of shadowlap.config.json the builder read and the prints of its
  * keys and entries (`read`), so the server refuses it with a 409 naming what changed on disk since.
  * In fix mode, a draft judged on an open fix's runs (`fixPreview`), which Save check gives the fix
- * through its job. Types only from the server's modules (src/config-tests.ts, src/check-preview.ts,
- * src/suggested-checks.ts, src/fix-check.ts): nothing here needs Node.
+ * through its job, and the rules suggested from the fix's first failing run. Types only from the
+ * server's modules (src/config-tests.ts, src/check-preview.ts, src/suggested-checks.ts,
+ * src/fix-check.ts): nothing here needs Node.
  */
 
 export type { CheckContext, CheckPreview, CheckSuggestion, CheckSuggestions, ChecksConfig, ConfigPrints, ContextCall, FixCheckPreview, FixCheckRow, GoldenEntry, PreviewGolden, PreviewRow, ResultField, SuggestedRule, SuggestionShape };

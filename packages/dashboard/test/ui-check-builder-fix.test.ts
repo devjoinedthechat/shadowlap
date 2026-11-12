@@ -1,7 +1,9 @@
 import { createElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { checkLabels } from '../../engine/src/checks/labels.js';
+import { parseExpect } from '../../engine/src/checks/parse.js';
 import { ApiError } from '../ui/api.js';
-import type { CheckContext, CheckPreview, ChecksConfig, FixCheckPreview, FixCheckRow, GoldenEntry } from '../ui/checks-api.js';
+import type { CheckContext, CheckPreview, CheckSuggestions, ChecksConfig, FixCheckPreview, FixCheckRow, GoldenEntry, SuggestionsAsk } from '../ui/checks-api.js';
 import { Builder } from '../ui/checks/Builder.js';
 import type { BuilderFix, BuilderProps } from '../ui/run/check-part.js';
 import { noMedia, shell } from './ui-overlays-page.js';
@@ -9,9 +11,9 @@ import { render, type FakeElement, type Rendered } from './ui-render.js';
 
 /**
  * The check builder on a fix (ui/checks/FixMode.tsx): Edit check… on an open fix, its check as
- * units, its runs judged by the check as built, what a change does and Save check through the
- * fix-check job; and Add check to <golden>… beside a verified fix, the fix's runs folded for context,
- * or with no golden guarding it, how to pack one.
+ * units, its runs judged by the check as built, the rules suggested from its first failing run, what
+ * a change does and Save check through the fix-check job; and Add check to <golden>… beside a
+ * verified fix, the fix's runs folded for context, or with no golden guarding it, how to pack one.
  */
 
 let r: Rendered | null = null;
@@ -55,12 +57,16 @@ const preview: CheckPreview = { total: 0, judged: [], counts: { passed: 0, faile
 const failed = { status: 'failed' as const, ok: false, label: 'issue_refund called 0 times', detail: 'called 1 time' };
 const row = (runId: string, role: FixCheckRow['role'], outcome: FixCheckRow['outcome'], o: Partial<FixCheckRow> = {}): FixCheckRow => ({ runId, role, outcome, na: false, why: outcome === 'failed' ? ['issue_refund called 0 times, but called 1 time'] : [], checks: outcome === 'failed' ? [failed] : [], ...o });
 const runs: FixCheckPreview = { rows: [row(RUN, 'failing', 'failed'), row(LEFT, 'failing', 'passed'), row(GOOD, 'good', 'passed'), row(DROPPED, 'good', 'failed')], refused: null, left: { failing: [LEFT], good: [DROPPED] }, uncounted: [] };
+/** A rule suggested from the fix's failing run, labelled as the engine labels it. */
+const suggestion = (expect: Record<string, unknown>) => ({ shape: 'value' as const, expect, label: checkLabels(parseExpect(expect, 'expect'))[0] });
+const VALUE = { calls: [{ tool: 'issue_refund', args: { amount: { '<=': '@get_policy.result.limit' } } }] };
 
-function stub(o: { cfg?: ChecksConfig; answer?: FixCheckPreview; start?: () => Promise<unknown> } = {}) {
+function stub(o: { cfg?: ChecksConfig; answer?: FixCheckPreview; start?: () => Promise<unknown>; suggested?: CheckSuggestions } = {}) {
   const checks = {
     goldens: vi.fn(async () => o.cfg ?? config()),
     context: vi.fn(async () => context),
     preview: vi.fn(async () => preview),
+    suggestions: vi.fn(async (_ask: SuggestionsAsk) => o.suggested ?? { runId: RUN, goods: [], suggestions: [] }),
     save: vi.fn(async () => ({ key: 'goldens/refund-flow', version: 'b'.repeat(64), added: [], removed: [], changed: true })),
     fixPreview: vi.fn(async (_fixId: string, _expect: unknown, _o?: { context?: boolean }) => o.answer ?? runs),
   };
@@ -204,6 +210,26 @@ describe('the check builder in fix mode', () => {
     expect(s.onClose).not.toHaveBeenCalled();
   });
 
+  it('suggests rules from the fix’s first failing run before What changes, leaving out one its check holds', async () => {
+    const value = suggestion(VALUE);
+    const s = stub({ suggested: { runId: RUN, goods: [GOOD], suggestions: [suggestion(EXPECT), value] } });
+    await open(s);
+    await r!.until('the suggestions', () => r!.all('.cb-sug').length > 0);
+    // Asked on the fix's first failing run, no call, the fix named: its good runs are the fix's.
+    expect(s.checks.suggestions).toHaveBeenLastCalledWith({ run: RUN, at: null, have: ['issue_refund called 0 times'], fix: FIX });
+    expect(r!.all('.cb-k .k').map(said)).toEqual(['The check of this fix', 'Its runs under this check', 'Suggested', 'What changes']);
+    expect(said(r!.one('.cb-sugs').closest('section')!.querySelector('.cb-sub')!)).toBe(`each fails ${RUN.slice(0, 10)} and not its good run, ${GOOD.slice(0, 10)}`);
+    // The fix's check is a rule the builder holds: only the other is offered, beside the check in the editor.
+    expect(r!.all('.cb-sug').map(said)).toEqual([`${value.label}Add rule`]);
+    await r!.click(r!.one('.cb-sug button'));
+    expect(r!.all('.cb-units li').map(said).at(-1)).toBe(`${value.label}newRemove`);
+    expect(r!.all('.cb-sug')).toEqual([]);
+    await r!.until('the labels it holds sent', () => s.checks.suggestions.mock.lastCall?.[0].have.includes(value.label) ?? false);
+    expect(s.checks.suggestions.mock.lastCall?.[0]).toMatchObject({ run: RUN, at: null, fix: FIX });
+    // Nothing is saved until Save check: the rule is judged on the fix's runs as built.
+    expect(s.startJob).not.toHaveBeenCalled();
+  });
+
   it('opens a fix whose check is the exit code alone on one blank rule, judging its runs by the exit code', async () => {
     const s = stub();
     await open(s, { fix: fix({ expect: null, blamesAgain: false }) });
@@ -254,6 +280,19 @@ describe('the check builder beside a verified fix', () => {
     ]);
     expect(r!.all('.cb-k .k').map(said)).toContain('The fix’s runs');
     expect(text('.cb-fixr')).not.toContain('shadowlap check');
+  });
+
+  it('suggests rules from the fix’s first failing run there too, after its runs and before The change', async () => {
+    const s = stub({ suggested: { runId: RUN, goods: [GOOD, DROPPED], suggestions: [suggestion({ tools: { send_email: 0 } }), suggestion(VALUE)] } });
+    await open(s, { golden: 'goldens/refund-flow', edit: null, fix: fix() });
+    await r!.click(r!.all('.cb-kinds button')[0]);
+    await r!.until('the suggestion', () => r!.all('.cb-sug').length === 1 && r!.all('.cb-more[aria-expanded]').length > 0);
+    // The golden's check is held, so it is left out; the fix is named, its first failing run asked on.
+    expect(s.checks.suggestions.mock.lastCall?.[0]).toMatchObject({ run: RUN, at: null, fix: FIX });
+    expect(s.checks.suggestions.mock.lastCall?.[0].have).toContain('send_email called 0 times');
+    expect(r!.all('.cb-sug').map(said)).toEqual([`${suggestion(VALUE).label}Use rule`]);
+    const heads = r!.all('.cb-k .k').map(said);
+    expect(heads.slice(heads.indexOf('The fix’s runs'))).toEqual(['The fix’s runs', 'Suggested', 'The change']);
   });
 
   it('with no golden guarding it, says how to pack one from a recording of it working, Save off', async () => {

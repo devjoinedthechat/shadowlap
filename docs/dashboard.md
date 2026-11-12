@@ -2008,11 +2008,12 @@ A press outside the dialog never closes it. Esc closes it while nothing changed,
 
 - **The check of this fix**: its rules, listed as a golden's are. A fix whose check is the exit code alone opens on one blank rule.
 - **Its runs under this check**: each failing and good run of the fix, judged by the whole check as built, judges in, from what it recorded. A failing run it passes would leave the fix, and a good run it fails would no longer be kept as good: those, and a run it can't settle, read in amber. Then the `shadowlap check` command.
+- **Suggested**, as on a failed recording: rules that fail the fix's first failing run and none of its good runs, the fix's own and the agent's recordings labelled `good`.
 - **What changes**: blame runs again first under the check, repair and verify use it, the verdicts that would stop counting, each named by the change it verified, and the config, unchanged. Then the [`shadowlap fix check`](./cli.md#fix-check) command.
 
 **Save check** runs that command as a job, and the drawer ends on the fix's next step. It stays off until the fix's runs are judged by the check as it stands, and while no failing run fails it, since the fix would no longer be this failure. It reads plain while a run needs a look. A refusal keeps the builder open, with the server's words in its amber line.
 
-**Add check to *golden*…**, on a verified or applied fix, opens the builder on the golden that guards it, the fix's runs under the draft folded below Against your recordings, for context. With no golden guarding it, the builder gives the `shadowlap pack` command for a recording of the fix working, into the golden `fix apply` would name, and Save check stays off.
+**Add check to *golden*…**, on a verified or applied fix, opens the builder on the golden that guards it, the fix's runs under the draft folded below Against your recordings, for context. Suggested reads the fix's first failing run there too. With no golden guarding it, the builder gives the `shadowlap pack` command for a recording of the fix working, into the golden `fix apply` would name, and Save check stays off.
 
 ### Actions on a fix
 
