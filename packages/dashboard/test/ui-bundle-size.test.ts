@@ -167,6 +167,13 @@ describe('the dashboard’s scripts', () => {
     expect(runPage.upFront.has('ui/run/share-steps.ts')).toBe(true);
     expect(firstInputs.has('ui/run/share.ts') || runPage.upFront.has('ui/run/share.ts')).toBe(false);
     expect(inputsOf(loads(chunkOf('ui/run/ShareMenu.tsx'))).has('ui/run/share.ts')).toBe(true);
+    // Find breaking commit's dialog words and Update golden's plan (ui/run/dialog-copy.ts, with the
+    // find-commit.ts and update-words.ts they read) load with the parts that show them: its dialog,
+    // the fork menu's card and Update golden's dialog. The run page keeps what decides its buttons
+    // (ui/run/offers.ts).
+    expect(runPage.upFront.has('ui/run/offers.ts')).toBe(true);
+    for (const words of ['ui/run/dialog-copy.ts', 'ui/runspage/find-commit.ts', 'ui/update-words.ts']) expect(runPage.upFront.has(words), `${words} loads with the run page`).toBe(false);
+    for (const part of ['ui/run/RunDialogs.tsx', 'ui/run/ForkMenu.tsx', 'ui/run/DivergedDialogs.tsx']) expect(inputsOf(loads(chunkOf(part))).has('ui/run/dialog-copy.ts'), `${part} loads its words`).toBe(true);
     // Nothing of an exported copy's own entry is served.
     const all = inputsOf(Object.keys(outs));
     expect(all.has('ui/main-copy.tsx')).toBe(false);

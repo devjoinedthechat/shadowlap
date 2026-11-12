@@ -16,7 +16,8 @@ import type { UntrustedView } from '../types.js';
 import type { PendingAction } from './actions.js';
 import type { CheckEntry } from './check-entry.js';
 import { isFork, rowPriced, useRunEstimates, type RowPrice } from './estimates.js';
-import { bisectBlocked, bisectCardCommand, bisectLabel, unknownBisect } from './offers.js';
+import { bisectBlocked, bisectLabel, unknownBisect } from './offers.js';
+import { bisectCardCommand } from './dialog-copy.js';
 
 /*
  * The fork menu, a part of its own that only the served dashboard hands in (served-parts.ts): an

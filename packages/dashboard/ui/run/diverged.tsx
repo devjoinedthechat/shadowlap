@@ -13,7 +13,7 @@ import { useApp, type AppState } from '../state.js';
 import { bannerNormalizerAsk, startTestsJob } from '../tests-ask.js';
 import type { TestBannerOffer } from '../types.js';
 import type { DivergedAsk } from './DivergedDialogs.js';
-import { divergedActions, updateGoldenCopy, type NormalizerChoice } from './offers.js';
+import { divergedActions, type NormalizerChoice } from './offers.js';
 
 /** What a diverged test's jobs bill, where the page knows: none, or undefined while it is worked out, and each asks. */
 export interface DivergedPrices {
@@ -54,7 +54,7 @@ export function useDivergedJobs(run: RunDetail, test: TestBannerOffer | null, re
   const ask: DivergedAsk | null = !test
     ? null
     : dialog === 'update'
-      ? { kind: 'update', plan: updateGoldenCopy(test, r.divergence?.callNo ?? 1, add?.kind === 'job', replayChecks), estimate: prices.update }
+      ? { kind: 'update', test, callNo: r.divergence?.callNo ?? 1, canNormalize: add?.kind === 'job', replayChecks, estimate: prices.update }
       : dialog === 'normalize' && add?.kind === 'job' && add.asks
         ? { kind: 'normalize', name: goldenName(test.golden), steps: add.asks, estimate: prices.normalize }
         : null;
