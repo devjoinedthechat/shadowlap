@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { ACTIONS, byRule, commandIsImported, decisionsUnsettled, fieldValue, GATE_MAX_ATTEMPTS, formatDecisions, hasRecordedCommand, migrateBreaks, migrateUnsettled, SPRT_DEFAULTS, unsettledReason, unsettledRun, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
+import { ACTIONS, byRule, commandIsImported, decisionsUnsettled, fieldValue, GATE_MAX_ATTEMPTS, formatDecisions, hasRecordedCommand, migrateBreaks, migrateUnsettled, SPRT_DEFAULTS, tallyParts, unsettledReason, unsettledRun, verifyTallyLine, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { formatDecisionsRead, readDecisions } from '../decisions-read.js';
 import { verifySession } from '../decisions-verify.js';
@@ -11,6 +11,7 @@ import { gateFlags } from '../fixes.js';
 import { EXIT, inconclusiveStatus, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { formatMigrate, runMigrate, type MigrateReport } from '../migrate.js';
+import { registerMigrateApply } from './migrate-apply.js';
 import { type GuardMode } from '../run-agent.js';
 import { collect, confirmImportedCommand, openStore, parseChoice, parseIntArg, parseUsd, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, shortId } from '../ui.js';
@@ -268,12 +269,37 @@ export function register(program: Command): void {
   program.commandsGroup('Preview a change:');
 
   registerDecisions(program);
+  registerMigrateApply(registerMigrate(program), program);
+}
 
-  program
+/** The flags of `shadowlap migrate`, as commander gives them. */
+interface MigrateFlags {
+  to?: string;
+  from?: string[];
+  scope?: string;
+  set?: string[];
+  samples: number;
+  concurrency: number;
+  expect?: string;
+  gate?: string;
+  attempts?: number;
+  passes?: number;
+  writes: 'stub' | 'block';
+  budget?: number;
+  timeout?: number;
+  inconclusive: 'fail' | 'warn';
+  guard: GuardMode;
+  yes?: boolean;
+  json?: boolean;
+}
+
+/** `shadowlap migrate`: its options, and what it does with them (migrateAction). `--to` is refused in the action, so `migrate apply` under it takes none. */
+function registerMigrate(program: Command): Command {
+  return program
     .command('migrate')
     .description("Switch models with the evidence: ask your goldens' model calls again under the new model (with the fields it refuses changed to what it takes), run end to end every run that can't clear, and compare what a run costs. Ends in one report, what changes, what still passes, what it costs and what to set, with the change to your files and a pull request body.")
-    .argument('[goldens...]', 'goldens (pack folders) or runs to migrate (default: goldens/*); after "--", the command to verify with')
-    .requiredOption('--to <model>', 'the model to switch to')
+    .argument('[goldens...]', 'goldens (pack folders) or runs to migrate (default: goldens/*); after "--", the command to verify with. Apply a migration\'s config change with shadowlap migrate apply <id>')
+    .option('--to <model>', 'the model to switch to (required)')
     .option('--from <model>', 'the recorded model to switch from (repeatable; default: the models the runs use that retire, else the one they use most)', collect)
     .option('--scope <name>', "only the model calls made in this scope, such as the agent's; none for those made in no scope")
     .option('--set <key=value>', 'a request field the switch sets as well (repeatable)', collect)
@@ -290,73 +316,86 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of runs imported from someone's pack, and of goldens from packs this repository doesn't track, without asking")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
-    .action(async (given: string[], { from = [], ...flags }: { to: string; from?: string[]; scope?: string; set?: string[]; samples: number; concurrency: number; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
-      const opts = program.opts<GlobalOpts>();
-      const split = splitCommand(program, given);
-      const specs = split.specs.length ? split.specs : ['goldens/*'];
-      const fields = parseFields(flags.set, undefined);
-      if ('model' in fields) throw new InvalidArgumentError('--to is the model to switch to; --set model=… would set it twice');
-      if (flags.samples > 20) throw new InvalidArgumentError('--samples is at most 20');
-      const rule = attemptRule(flags, { defaults: SPRT_DEFAULTS, passes: (n) => Math.ceil(0.8 * n) });
-      const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
-      const log = (line: string) => process.stderr.write(`${line}\n`);
-      const store = openStore(opts);
-      let targets: DecisionTarget[];
-      try {
-        targets = resolveTargets(store, specs, process.cwd());
-        if (!targets.length) throw new DecisionsError('no goldens to migrate: pack a run into goldens/ first (shadowlap pack <run> goldens/<name>), or name the runs');
-      } catch (err) {
-        store.close();
-        return failed(err, flags.json, 'migrate');
-      }
-      store.close();
-      try {
-        if (!(await consent(targets, split.argv, flags.yes, true, 'migrate'))) {
-          process.exitCode = EXIT.usage;
-          return;
-        }
-        const timeoutMs = flags.timeout === undefined ? null : flags.timeout * 1000;
-        const command = quoteArgv([
-          'shadowlap',
-          'migrate',
-          '--to',
-          flags.to,
-          ...specs,
-          ...from.flatMap((m) => ['--from', m]),
-          ...(flags.scope ? ['--scope', flags.scope] : []),
-          ...Object.entries(fields).flatMap(([k, v]) => ['--set', `${k}=${fieldValue(v)}`]),
-          ...(flags.samples !== 1 ? ['--samples', String(flags.samples)] : []),
-          ...(flags.concurrency !== 4 ? ['--concurrency', String(flags.concurrency)] : []),
-          ...(expect ? ['--expect', JSON.stringify(expect.json)] : []),
-          ...gateFlags(rule.gate, SPRT_DEFAULTS, { attempts: rule.attempts, passes: flags.passes }),
-          ...(flags.writes === 'block' ? ['--writes', 'block'] : []),
-          ...(flags.budget !== undefined ? ['--budget', String(flags.budget)] : []),
-          ...(flags.timeout !== undefined ? ['--timeout', String(flags.timeout)] : []),
-          ...(flags.inconclusive === 'warn' ? ['--inconclusive', 'warn'] : []),
-          ...(flags.guard !== 'warn' ? ['--guard', flags.guard] : []),
-          ...(split.argv ? ['--', ...split.argv] : []),
-        ]);
-        log(`${p.yellow('⑂')} Migrating ${targets.length} run${targets.length === 1 ? '' : 's'} to ${flags.to}: the agent's model calls asked again, then the runs that can't clear verified end to end`);
-        const report = await runMigrate({
-          opts,
-          targets,
-          settings: { to: flags.to, from: from.length ? from : null, scope: flags.scope ?? null, fields, samples: flags.samples, concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs, attempts: rule.attempts, needed: rule.needed, gate: rule.gate, writes: flags.writes, expect, guard: flags.guard, argv: split.argv },
-          command,
-          log,
-        });
-        if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
-        else process.stdout.write('\n' + formatMigrate(report) + '\n');
-        emitDecisions(report.decisions);
-        if (report.files) {
-          emitJobEvent({ type: 'file', path: report.files.pullRequest, label: 'Pull request body' });
-          if (report.files.patch) emitJobEvent({ type: 'file', path: report.files.patch, label: 'The config change' });
-        }
-        emitJobEvent({ type: 'result', data: report as unknown as Record<string, unknown> });
-        process.exitCode = migrateExit(report, flags.inconclusive);
-      } catch (err) {
-        failed(err, flags.json, 'migrate');
-      }
+    .action((given: string[], flags: MigrateFlags, cmd: Command) => migrateAction(program, given, flags, cmd));
+}
+
+/** `shadowlap migrate --to <model> [goldens…]`: the switch checked, its report printed and kept. */
+async function migrateAction(program: Command, given: string[], { from = [], ...flags }: MigrateFlags, cmd: Command): Promise<void> {
+  // Not commander's requiredOption: commander would ask it of `migrate apply` too, as a subcommand's parent's.
+  if (flags.to === undefined) return cmd.error("error: required option '--to <model>' not specified");
+  const to = flags.to;
+  const opts = program.opts<GlobalOpts>();
+  const split = splitCommand(program, given);
+  const specs = split.specs.length ? split.specs : ['goldens/*'];
+  const fields = parseFields(flags.set, undefined);
+  if ('model' in fields) throw new InvalidArgumentError('--to is the model to switch to; --set model=… would set it twice');
+  if (flags.samples > 20) throw new InvalidArgumentError('--samples is at most 20');
+  const rule = attemptRule(flags, { defaults: SPRT_DEFAULTS, passes: (n) => Math.ceil(0.8 * n) });
+  const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
+  const log = (line: string) => process.stderr.write(`${line}\n`);
+  const store = openStore(opts);
+  let targets: DecisionTarget[];
+  try {
+    targets = resolveTargets(store, specs, process.cwd());
+    if (!targets.length) throw new DecisionsError('no goldens to migrate: pack a run into goldens/ first (shadowlap pack <run> goldens/<name>), or name the runs');
+  } catch (err) {
+    store.close();
+    return failed(err, flags.json, 'migrate');
+  }
+  store.close();
+  try {
+    if (!(await consent(targets, split.argv, flags.yes, true, 'migrate'))) {
+      process.exitCode = EXIT.usage;
+      return;
+    }
+    const timeoutMs = flags.timeout === undefined ? null : flags.timeout * 1000;
+    const command = quoteArgv([
+      'shadowlap',
+      'migrate',
+      '--to',
+      to,
+      ...specs,
+      ...from.flatMap((m) => ['--from', m]),
+      ...(flags.scope ? ['--scope', flags.scope] : []),
+      ...Object.entries(fields).flatMap(([k, v]) => ['--set', `${k}=${fieldValue(v)}`]),
+      ...(flags.samples !== 1 ? ['--samples', String(flags.samples)] : []),
+      ...(flags.concurrency !== 4 ? ['--concurrency', String(flags.concurrency)] : []),
+      ...(expect ? ['--expect', JSON.stringify(expect.json)] : []),
+      ...gateFlags(rule.gate, SPRT_DEFAULTS, { attempts: rule.attempts, passes: flags.passes }),
+      ...(flags.writes === 'block' ? ['--writes', 'block'] : []),
+      ...(flags.budget !== undefined ? ['--budget', String(flags.budget)] : []),
+      ...(flags.timeout !== undefined ? ['--timeout', String(flags.timeout)] : []),
+      ...(flags.inconclusive === 'warn' ? ['--inconclusive', 'warn'] : []),
+      ...(flags.guard !== 'warn' ? ['--guard', flags.guard] : []),
+      ...(split.argv ? ['--', ...split.argv] : []),
+    ]);
+    log(`${p.yellow('⑂')} Migrating ${targets.length} run${targets.length === 1 ? '' : 's'} to ${to}: the agent's model calls asked again, then the runs that can't clear verified end to end`);
+    const report = await runMigrate({
+      opts,
+      targets,
+      settings: { to, from: from.length ? from : null, scope: flags.scope ?? null, fields, samples: flags.samples, concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs, attempts: rule.attempts, needed: rule.needed, gate: rule.gate, writes: flags.writes, expect, guard: flags.guard, argv: split.argv },
+      command,
+      log,
     });
+    if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+    else process.stdout.write('\n' + formatMigrate(report) + '\n');
+    emitMigrate(report);
+    if (report.files) {
+      emitJobEvent({ type: 'file', path: report.files.pullRequest, label: 'Pull request body' });
+      if (report.files.patch) emitJobEvent({ type: 'file', path: report.files.patch, label: 'The config change' });
+    }
+    emitJobEvent({ type: 'result', data: report as unknown as Record<string, unknown> });
+    process.exitCode = migrateExit(report, flags.inconclusive);
+  } catch (err) {
+    failed(err, flags.json, 'migrate');
+  }
+}
+
+/** Where a migration's drawer goes next: the migration's report on Changes, then the runs with a write, stop or judged change. */
+function emitMigrate(report: MigrateReport): void {
+  if (!report.migrateId) return emitDecisions(report.decisions);
+  emitJobEvent({ type: 'link', label: ACTIONS.openMigrationReport.label, href: links.changeSession('migrate', report.migrateId) });
+  for (const runId of report.decisions.flagged.slice(0, 3)) emitJobEvent({ type: 'link', label: `Open ${runId.slice(0, 10)}`, href: links.run(runId), secondary: true });
 }
 
 /**
@@ -370,16 +409,15 @@ export function migrateExit(r: MigrateReport, inconclusive: 'fail' | 'warn' = 'f
   return inconclusiveExit(inconclusive, migrateUnsettled(r));
 }
 
-function verifyLines(v: DecisionsVerify, what: string | null): string {
+/** What verify found for a preview's or a migration's runs, as `decisions` prints it: each rule once, then each run's outcome and its tally in verify's words. */
+export function verifyLines(v: DecisionsVerify, what: string | null): string {
   if (v.verdict === 'not-run') return v.reasons.length ? `${p.yellow('!')} Not verified: ${v.reasons.join('; ')}\n${v.commands.map((c) => p.dim(`  ${c}`)).join('\n')}\n` : '';
   const head = v.verdict === 'accepted' ? `${p.green('✓')} Verified` : v.verdict === 'rejected' ? `${p.red('✗')} Verify rejected the change` : `${p.yellow('!')} Verify did not finish`;
   const lines = [``, `${head}: ${v.runs.length} run${v.runs.length === 1 ? '' : 's'} end to end${what ? ` (${what})` : ''}`];
-  // The last attempt of a run it could not judge stopped it: neither passed nor failed, so said apart.
-  const tally = (x: DecisionsVerify['runs'][number]) => (x.undecided ? `${x.attempts > 1 ? `${x.passes} of ${x.attempts - 1} passed, ` : ''}attempt ${x.attempts} not judged` : `${x.passes} of ${x.attempts} passed${x.baseline ? `, baseline ${x.baseline.passes} of ${x.baseline.attempts}` : ''}`);
-  // Each rule once, then the outcome of each run it decided, its tally and under a gate the Wilson bound.
+  // Each rule once, then the outcome of each run it decided and its tally in verify's words, an attempt it could not judge said apart.
   for (const g of byRule(v.runs, (x) => x.rule, v.rule ?? null)) {
     if (g.rule) lines.push(p.dim(`  ${g.rule}`));
-    for (const x of g.runs) lines.push(`  ${x.runId.slice(0, 10)}  ${x.outcome}  ${p.dim(`${tally(x)}${x.bound ? ` · ${x.bound}` : ''}`)}`);
+    for (const x of g.runs) lines.push(`  ${x.runId.slice(0, 10)}  ${x.outcome}  ${p.dim(verifyTallyLine(tallyParts(x)))}`);
   }
   // What the change failed in red; a run verify could not settle, inconclusive or not settled, in amber.
   for (const reason of v.reasons) lines.push(`  ${unsettledReason(reason) ? p.yellow('·') : p.red('·')} ${reason}`);

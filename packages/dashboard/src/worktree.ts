@@ -46,6 +46,8 @@ const TREE_READS: Readonly<Record<string, { noun: string; verb: string }>> = {
 export function commandTreeUse(args: readonly string[]): TreeUse | null {
   const [command, sub] = args;
   // The decision diff runs the agent only to read the prompt it sends (--from-code) and to verify; migrate always verifies.
+  // `migrate apply` puts a migration's config change in the tree, then replays the goldens with it.
+  if (command === 'migrate' && sub === 'apply') return { use: 'writes', doing: "a migration's config change is being applied to your working tree", verb: 'apply the config change' };
   if (command === 'migrate') return { use: 'reads', doing: 'a migration is verifying runs with your agent from your working tree', verb: 'migrate' };
   if (command === 'decisions' && args.includes('--verify')) return { use: 'reads', doing: 'the changed runs are being verified with your agent from your working tree', verb: 'verify the changed runs' };
   if (command === 'decisions' && (args.includes('--from-code') || args.includes('--then-verify'))) return { use: 'reads', doing: 'a decision diff is running your agent from your working tree', verb: 'preview the change' };

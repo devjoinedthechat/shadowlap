@@ -131,8 +131,8 @@ signal stopped. `SHADOWLAP_DEBUG=1` prints the stack of any error, for a bug rep
 Most commands can print what they did as JSON, for scripts, CI and coding agents:
 
 - **`--json`** prints the result as JSON on stdout. The commands that report progress as they work
-  (`blame`, `verify`, `repair`, `fix apply`, `decisions`, `migrate`, `bisect`, `injection` and
-  `tasks score`) still print it on stderr.
+  (`blame`, `verify`, `repair`, `fix apply`, `decisions`, `migrate`, `migrate apply`, `bisect`,
+  `injection` and `tasks score`) still print it on stderr.
 - **`--summary-json <file>`** (`run`, `replay`) and **`test --json <file>`** write the JSON to a file.
 
 Each command's section lists its fields. This table says where:
@@ -146,6 +146,7 @@ Each command's section lists its fields. This table says where:
 | `blame`, `verify`, `repair` | Their reports ([blame](./blame.md#json), [verify](./verify.md#json), [repair](./repair.md#json)) |
 | `fix ls`, `fix show`, `fix pr`, `fix apply` | The dashboard's read model of Fixes ([fields](#fix)) |
 | `decisions`, `migrate` | The report the dashboard reads ([decisions](#decisions-report-as-json), [migrate](#migrate-report-as-json)) |
+| `migrate apply` | What it applied, and the goldens it left behind ([fields](#migrate-apply)) |
 | `test --json <file>` | The session's report ([fields](#test-report-as-json)) |
 | `bisect`, `check`, `injection`, `coverage` | Their results ([bisect](#bisect), [check](#check), [injection](#injection-report-as-json), [coverage](#coverage-scan-as-json)) |
 | `calibrate`, `init`, `doctor`, `skill install` | What each found or did ([calibrate](#calibrate), [init](#init-findings-as-json), [doctor](#doctor), [skill](#skill)) |
@@ -1573,7 +1574,7 @@ re-recorded what another fix changed, say), which says the fix holds again.
 | `patch` | What became of the patch: `applied`, `already` in the tree, or `none` to apply |
 | `goldens` | Each golden's `run` (the fixed run it holds, by its short id), `from`, `to`, and whether it was `copied` |
 | `tests` | `passed`, `failed` or `skipped` |
-| `outdated` | The project's other goldens that diverge on what the patch changed, each with its `golden`, `callNo` and request field `path` |
+| `outdated` | The project's other goldens that diverge on what the patch changed, each with its `golden`, `callNo`, the call's `kind` and `name`, and request field `path` |
 | `update` | The command that re-records them, or `null` |
 
 ## decisions
@@ -1886,7 +1887,11 @@ Each run verified has:
   `null` for a clean replay or a fixed count;
 - `undecided`: why its last attempt could not be judged, which stopped it `inconclusive`. That attempt
   neither passed nor failed, and there is no bound; `null` otherwise;
-- the `rule` it was decided by.
+- the `rule` it was decided by;
+- `parts`, its tally in verify's own words: what it counted (`tally`, `12 of 12 passed`), why an
+  attempt stopped it (`undecided`, `the provider unavailable`), the attempts the provider cut short
+  (`cutShort`) and the `bound`. A session kept before they were has none, and reads in the same words
+  from its figures.
 
 A good run kept against its own baseline has the `baseline`'s `passes` and `attempts`, and its `bound`
 is the drop's (`drop <= 0.10 (95%)`).
@@ -2009,6 +2014,11 @@ string literal, a JSON value, a YAML, TOML or `.env` value. Every other mention 
 listed for review: in prose and changelogs, in tests, as an object key such as a price table's, inside
 a longer string, or in `shadowlap.config.json`.
 
+In code, the patch also takes out each field What to set leaves out that is set to a literal on a line
+of its own, with a comma after it, in the call whose model it switches (`temperature=0,`). Every other
+field stays for you, and the report says which: one in JSON, YAML, TOML or `.env` config, one set to
+something other than a literal, and one set elsewhere.
+
 ### Migrate report as JSON
 
 `--json` prints the report:
@@ -2024,7 +2034,7 @@ a longer string, or in `shadowlap.config.json`.
 | `changes` | `runs`, `flagged`, and each rank 1 or 2 change in `steps` (below) |
 | `passes` | What still passes: verify's `verdict`, and the `runs` (below) |
 | `costs` | `perRun` and `total`, `before` and `after` in USD, `tokensPerRun`, `endToEnd` (below), and what `checking` cost (below) |
-| `set` | The `--set` `flags` verify took, the `fields` changed, and those `given` with `--set` |
+| `set` | The `--set` `flags` verify took, the `fields` changed, those `given` with `--set`, and `byHand`, the names of those the config change leaves for you (below) |
 | `configChange` | The change to the project's files (below); `null` when no file names the model |
 | `pullRequest` | `title` and `body` |
 | `files` | Where the `dir`, the `pullRequest` body and the `patch` were written |
@@ -2054,9 +2064,10 @@ to your code. Each of its `runs` has these fields:
 | `runId`, `golden` | The run, and its golden |
 | `verdict` | `passed`, `failed` or `inconclusive` |
 | `outcome` | How it came out (below) |
-| `tally` | For a run verify took: its `passes`, `attempts`, `bound` (exact under the gate's stopping), the `rule` that decided it and `undecided` (below); else `null` |
+| `tally` | For a run verify took: its `passes`, `attempts`, `bound` (exact under the gate's stopping), the `rule` that decided it, `undecided` and `parts` (below); else `null` |
+| `diverges` | For a golden that replays exactly, with a call made with a model it switches from: its first such `callNo`, and `path`, `$.model`, where it diverges once the config change is in; else `null` |
 
-A tally's `bound`, `rule` and `undecided` are as in the decisions report's
+A tally's `bound`, `rule`, `undecided` and `parts` are as in the decisions report's
 [`verify`](#decisions-report-as-json).
 
 `outcome` is in verify's own words when it was `verified` (`kept`, `fixed`, `broken`, `not-fixed`,
@@ -2075,10 +2086,63 @@ reads) and `verify`.
 `outputTokens` and `cost`, by what their attempts did. `perRun` counts only the recorded steps, so it
 can't see a run that takes more of them. It is `null` when no attempt showed it.
 
-`configChange` holds the `files` patched, with the `places` in each, the `patch`, and each mention left
-for `review`: its `path`, `line` and `text`.
+`configChange` holds the `files` patched, with the `places` in each, the `patch`, each mention left
+for `review` (its `path`, `line` and `text`), and each field the patch takes out with the model in
+`leftOut` (its `field`, `path` and `line`). `set.byHand` names each field What to set holds that the
+patch doesn't take out, and each given with `--set`: while it holds one, `migrate apply` refuses.
 
 A refusal before anything is asked prints `kind`, `outcome` (`error`) and `error`, as `decisions` does.
+
+### migrate apply
+
+```sh
+shadowlap migrate apply <id> [--goldens <dir>] [--build <command>] [--json]
+```
+
+Puts a migration's config change in your working tree, then names each golden it leaves behind.
+[Decisions](./decisions.md#apply-the-config-change) explains when to run it.
+
+```sh
+shadowlap migrate apply mg-01K5CQ2E8M
+```
+
+It takes the migration's `mg-…` id, or a unique prefix of 4 characters or more after `mg-`. It applies
+only a migration that is all clear, and whose patch is the whole switch:
+
+- It refuses one that breaks runs or settles nothing, one with no config change, and one whose
+  `set.byHand` names a field: applied alone, the patch would break runs.
+- It checks the patch as [`fix apply`](#fix) checks a repair's. The file must be the migration's own,
+  unchanged since. Each file it names must be one the migration switched: a plain file that git sees,
+  reached through no link.
+- It applies the patch with `git apply`. A patch already in the tree is only marked applied. A tree
+  whose changes conflict with it is left alone, with what to do.
+- It replays the project's goldens offline, in a store that nothing keeps. It names each that now
+  diverges on `$.model`, with its call and the command that re-records it, `shadowlap test <goldens>
+  --update`.
+
+The migration keeps its applied state, and Activity gets a `migrate.applied` event.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--goldens <dir>` | The project's goldens folder, replayed offline | `goldens` |
+| `--build <command>` | Rebuild the agent after the patch is applied, before the replay. A compiled agent needs it: without it, the old build replays and no golden diverges | — |
+| `--json` | Print what was done as JSON on stdout (below) | — |
+
+`migrate apply` exits with `2` when it refuses the migration or the folder it runs in, `1` when the
+patch doesn't apply, and `0` otherwise.
+
+`--json` prints `{ migrateId, status, patch, files, leftOut, outdated, update }`:
+
+| Field | Meaning |
+| --- | --- |
+| `migrateId` | The migration |
+| `status` | `applied`, or `already-applied` when it was applied before and its patch is in the tree |
+| `patch` | `applied`, or `already` in the tree |
+| `files`, `leftOut` | The files the patch changes, and the fields it takes out with the model |
+| `outdated` | The goldens that diverge on `$.model`, each with its `golden`, `callNo`, the call's `kind` and `name`, and `path` |
+| `update` | The command that re-records them, or `null` |
+
+A refusal prints `{ migrateId, status: "error", error: { message } }`, as `fix apply` does.
 
 ## test
 
