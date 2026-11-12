@@ -366,6 +366,11 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
   const onPage = (name: string, path: string, text: string) => opened(name, at(page, path), button('main#view button', text));
   const bulk = (name: string, text: string) => opened(name, at(page, '/runs', 'main#view table.runst tbody tr'), tick, button('.bulkbar button', text));
   const onFix = (name: string, of: string, text: string) => opened(name, at(page, `/fixes/${id(of)}`, 'fix'), button('.ph .actions button', text));
+  // A preview's menu and the dialogs it opens, and its Verify: Preview changed prompt is left out, as it starts a read of the working tree.
+  const p = await previewed(page);
+  const onPreview = (name: string, ...open: Array<() => Promise<void>>) => opened(name, at(page, p.preview, PREVIEW), ...open);
+  const newPreview = (where: string) => click(page, where, 'New preview', { shows: MENU });
+  const way = (row: string) => button(`${MENU} [role="menuitem"]`, row);
   const check = (name: string, rule: string) => opened(name, run(page, id('refundBug')), click(page, 'main#view tr[data-wi]:has(td.name[title="issue_refund"])'), click(page, '[data-act="ckmenu"]', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, rule));
   const states = (): Array<[string, () => Promise<void>]> => [
     ...opened('Delete run', run(page, id('ticket')), click(page, '#moreBtn', undefined, { shows: MENU }), button(`${MENU} [role="menuitem"]`, 'Delete run')),
@@ -394,6 +399,11 @@ test('every dialog has no serious or critical axe violation, wide and as a phone
     ...bulk('Delete runs', 'Delete'),
     ...bulk('Pack runs', 'Pack'),
     ...bulk('Export the dataset of runs', 'Dataset'),
+    ...opened('Preview change on runs', at(page, '/runs', 'main#view table.runst tbody tr'), tick, click(page, '.bulkbar button', 'Preview change', { shows: MENU }), way('Preview model switch')),
+    ...onPreview('Preview model switch', newPreview('main#view button'), way('Preview model switch')),
+    ...onPreview('Preview field change', newPreview('main#view button'), way('Preview field change')),
+    ...onPreview('Verify a preview’s runs', button('main#view .dverdict .actions button', 'Verify')),
+    ...opened('New preview on a run', at(page, p.view, DVIEW), newPreview('main#view .dview .dvhead button')),
     ...opened('Update goldens', at(page, '/tests'), updateGoldens(page)),
     ...onPage('Update golden', '/tests', 'Update golden'),
     ...onPage('Add normalizer and update', '/tests', 'Add normalizer and update'),
