@@ -8,6 +8,8 @@ import {
   hasRecordedCommand,
   messageOf,
   NO_COMMAND,
+  NOT_PACKED,
+  nearestThen,
   OUTCOME_WORDS,
   plural,
   runBehaviour,
@@ -22,7 +24,6 @@ import {
   type CoverageGolden,
   type CoverageGroup,
   type CoverageMember,
-  type CoverageNotPacked,
   type CoverageScan,
   type Effect,
   type InferredCommand,
@@ -255,15 +256,6 @@ export function shortPath(path: readonly string[], arrow = ' → '): string {
   return steps.map((s) => safe(s)).join(arrow);
 }
 
-/** Why the last `--pack` couldn't pack a behaviour, as the report's line says it (`--json` has the sentence). */
-const NOT_PACKED: Readonly<Record<CoverageNotPacked, string>> = {
-  'no-command': 'nothing says what starts the agent (give its command after --, with {message} where its input goes)',
-  'other-message': 'the command given starts the agent with another first message than production',
-  'not-reproduced': 'the agent no longer does this (--fork with --expect keeps it as a golden that forks)',
-  'agent-error': 'the agent failed on what production got back',
-  gone: 'its runs are no longer in the store',
-};
-
 /**
  * The report `coverage` prints: a line per behaviour, not covered first, with where each was seen and
  * the nearest golden, and, unless this run just packed, why the last `--pack` couldn't pack one.
@@ -291,7 +283,7 @@ export function formatCoverage(result: CoverageScanResult, p: Palette, o: { now?
     else if (g.nearest) {
       // Where the two part goes on a line of its own, so the report stays within a terminal's width.
       const n = g.nearest;
-      const then = n.differs ? (n.differs.seen === null ? `then it stops where the golden calls ${safe(n.differs.golden ?? '')}` : n.differs.golden === null ? `then it calls ${safe(n.differs.seen)} where the golden has stopped` : `then it calls ${safe(n.differs.seen)} where the golden calls ${safe(n.differs.golden)}`) : null;
+      const then = nearestThen(n.differs, safe);
       lines.push(p.dim(`             nearest golden: ${safe(n.golden)}, the same for ${plural(n.shared, 'step')}${then ? ';' : ', but it ends another way'}`));
       if (then) lines.push(p.dim(`             ${then}`));
     }

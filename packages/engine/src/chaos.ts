@@ -100,6 +100,23 @@ export function chaosTargets(calls: readonly CallRecord[], o: { tool?: string | 
   return { tool, model };
 }
 
+/**
+ * The tools the tool presets can hit on a recording, each at its first call whose answer the agent
+ * reads (chaosTargets' rule: it answered when it was recorded, nobody typed it, it is not the judge's
+ * scope), in call order; a pure tool, the agent's own code, is left out. The tool chaosTargets picks
+ * by default is among them: Run error-path presets… offers the rest in its place.
+ */
+export function chaosToolChoices(calls: readonly CallRecord[]): Array<{ name: string; callNo: number; effect: CallRecord['effect'] }> {
+  const seen = new Set<string>();
+  const out: Array<{ name: string; callNo: number; effect: CallRecord['effect'] }> = [];
+  for (const c of [...calls].sort((a, b) => a.callNo - b.callNo)) {
+    if (c.kind !== 'tool' || c.end?.outcome !== 'ok' || c.meta.input === true || !agentCall(c) || c.effect === 'pure' || seen.has(c.name)) continue;
+    seen.add(c.name);
+    out.push({ name: c.name, callNo: c.callNo, effect: c.effect });
+  }
+  return out;
+}
+
 // ---- what a preset answers ----
 
 /** How a tool's recorded result is shaped: a value an SDK tool returned, an HTTP response, or an MCP tool's result. */

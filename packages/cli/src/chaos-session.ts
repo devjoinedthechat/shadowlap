@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { links } from '@shadowlap/dashboard';
-import { formatDuration, hasRecordedCommand, messageOf, parsePresets, recordEvent, resolveAuthor, sessionInARow, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
+import { ACTIONS, formatDuration, hasRecordedCommand, messageOf, parsePresets, presetProof, recordEvent, replayChaosSpec, resolveAuthor, sessionInARow, Store, withoutCommand, type ChaosPreset, type RunRecord, type StoreOf, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, judgedOnExit, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
@@ -205,7 +205,8 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
     }
   } finally {
     const only = results.length === 1 ? results[0]! : null;
-    await endSession(session, results, flags, [...(only?.runId ? [{ label: 'Open recording', href: links.run(only.runId) }] : []), { label: 'Open Tests', href: links.tests(), ...(only?.runId ? { secondary: true } : {}) }]);
+    const proof = only ? proofLink(session.store, only.outcomes) : [];
+    await endSession(session, results, flags, [...proof, ...(only?.runId ? [{ label: 'Open recording', href: links.run(only.runId), ...(proof.length ? { secondary: true } : {}) }] : []), { label: 'Open Tests', href: links.tests(), ...(only?.runId ? { secondary: true } : {}) }]);
   }
 }
 
@@ -217,16 +218,15 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
 export async function replayChaos(opts: GlobalOpts, parent: RunRecord, checks: { spec: TestSpec; source: string } | null, flags: ChaosFlags, command: string[], argv?: string[]): Promise<void> {
   const projectDir = process.cwd();
   const config = loadConfig(projectDir);
-  // The run's own presets when it is a golden's recording, the defaults otherwise; --expect judges them when given.
-  const chaos: ChaosSpec | false = checks && checks.source !== '--expect' ? chaosFor(projectDir, testsKeyFor(loadTests(projectDir), resolve(checks.source), projectDir), parseExpect) : DEFAULT_CHAOS;
-  const own = chaos === false ? DEFAULT_CHAOS : chaos;
-  const spec = withFlags(checks?.source === '--expect' ? { ...own, expect: checks.spec, expectFrom: '--expect' as const } : own, flags);
+  // The run's own presets when it is a golden's recording, the defaults otherwise; --expect judges them when given (the engine's choice, which the dashboard's dialog reads too).
+  const { chaos: own, golden } = replayChaosSpec(checks, (folder) => chaosFor(projectDir, testsKeyFor(loadTests(projectDir), resolve(folder), projectDir), parseExpect));
+  const spec = withFlags(own, flags);
   const store = opts.db ? Store.open(opts.db) : Store.open(defaultDbPath(projectDir));
   const session = startSession(store, command, spec.presets, projectDir);
   const results: ChaosRecordingResult[] = [];
   const streak = new ProviderStreak(sessionInARow(spec.presets.length));
   try {
-    const { outcomes, judge } = await runPresets(parent, checks?.source === '--expect' ? null : (checks?.spec ?? null), spec, {
+    const { outcomes, judge } = await runPresets(parent, golden, spec, {
       store,
       config,
       cwd: projectDir,
@@ -244,8 +244,18 @@ export async function replayChaos(opts: GlobalOpts, parent: RunRecord, checks: {
     if (judge.source === 'exit' && outcomes.some((o) => o.attempts > 0)) process.stdout.write(p.dim(`${judgedOnExit('--expect')}\n`));
     results.push({ golden: null, runId: parent.runId, outcomes, judge, error: null, skipped: null });
   } finally {
-    await endSession(session, results, flags, [{ label: 'Open run', href: links.run(parent.runId) }]);
+    const proof = proofLink(store, results[0]?.outcomes ?? []);
+    await endSession(session, results, flags, [...proof, { label: 'Open run', href: links.run(parent.runId), ...(proof.length ? { secondary: true } : {}) }]);
   }
+}
+
+/**
+ * The job's primary link when a preset failed: Open proof, at the attempt that proves it (the engine's
+ * presetProof, the rule a run's page leads with too), so the run or recording beside it is secondary.
+ */
+function proofLink(store: StoreOf<'recording'>, outcomes: readonly PresetOutcome[]): Array<{ label: string; href: string }> {
+  const proof = presetProof(outcomes, (runId) => store.getRun(runId) !== null);
+  return proof ? [{ label: ACTIONS.openProof.label, href: links.run(proof.attempt.runId, proof.cell.callNo ?? 1) }] : [];
 }
 
 export type { PresetOutcome };

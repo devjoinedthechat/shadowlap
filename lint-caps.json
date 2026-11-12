@@ -27,7 +27,7 @@
       "runBlame": 54
     },
     "packages/cli/src/chaos.ts": {
-      "runPresets": 92
+      "runPresets": 87
     },
     "packages/cli/src/commands/changes.ts": {
       "register > action(\"decisions\")": 44
@@ -55,9 +55,6 @@
     },
     "packages/cli/src/config.ts": {
       "loadConfig": 43
-    },
-    "packages/cli/src/coverage.ts": {
-      "formatCoverage": 34
     },
     "packages/cli/src/decisions-capture.ts": {
       "captureFromCode": 52
@@ -368,7 +365,7 @@
       "runBlame": 250
     },
     "packages/cli/src/chaos.ts": {
-      "runPresets": 156
+      "runPresets": 154
     },
     "packages/cli/src/commands/changes.ts": {
       "register": 186
