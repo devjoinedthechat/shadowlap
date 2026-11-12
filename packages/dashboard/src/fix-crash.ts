@@ -12,9 +12,9 @@ import type { FoundCommit } from './tests-bisect.js';
  * page leads with it (next-step.ts `crashStepOf`, whose rule is never copied here): Find breaking
  * commit, then Revert once that named the commit. The fix leads with it before a stronger model
  * (fix-lead.ts), and its Blame step shows the commit named and the exception the agent died of, as
- * Tests' report names it (crash-error.ts). A blame inconclusive at its first model
- * call (the engine's `unsettledFirst`) found no such thing: the run may still be an answer the model
- * gets right only sometimes, so Run blame again leads it, as the design leads an unsettled blame.
+ * Tests' report names it (crash-error.ts). A blame inconclusive at its first model call (the
+ * engine's `unsettledFirst`) found no such thing: the run may still be an answer the model gets
+ * right only sometimes, so Run blame again leads it, as the design leads an unsettled blame.
  */
 export interface FixCrash {
   runId: string;
