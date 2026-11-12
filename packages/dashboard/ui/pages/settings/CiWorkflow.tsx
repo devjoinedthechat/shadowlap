@@ -88,7 +88,6 @@ export function YourWorkflow({ view, changed, onWritten, reload }: { view: CiWor
             <Icon name="caret" />
           </button>
           <CopyButton text={w.text} label="the workflow">
-            <Icon name="copy" />
             Copy workflow
           </CopyButton>
         </p>
