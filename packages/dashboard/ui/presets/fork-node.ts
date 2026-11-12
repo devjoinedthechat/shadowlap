@@ -60,9 +60,22 @@ const TONE: Readonly<Record<string, PresetsCell['tone']>> = { failed: 'no', inco
 /** How many of each, `4 passed`, leaving out a zero. */
 const each = (counts: ReadonlyArray<readonly [string, number]>): string[] => counts.filter(([, n]) => n).map(([w, n]) => `${num(n)} ${w}`);
 
+type Totals = Marked['preset']['counts'];
+
+/** How the session's presets came out on the recording, and what they spent: once for each golden they ran for, as two goldens can hold one recording. */
+function sessionTotals(attempts: readonly Marked[]): { counts: Totals; spent: number } {
+  const counts: Totals = { passed: 0, failed: 0, inconclusive: 0, notApplicable: 0 };
+  let spent = 0;
+  for (const p of new Map(attempts.map((n) => [n.preset.golden, n.preset])).values()) {
+    for (const k of Object.keys(counts) as Array<keyof Totals>) counts[k] += p.counts[k];
+    spent += p.spent;
+  }
+  return { counts, spent };
+}
+
 /** A session's node: its verdict and line from how the session's presets came out, its strip and lines from its attempts. */
 export function presetsNode(attempts: readonly Marked[]): PresetsNodeView {
-  const { counts, spent } = attempts[0]!.preset;
+  const { counts, spent } = sessionTotals(attempts);
   const verdict = counts.failed ? 'failed' : counts.inconclusive ? 'inconclusive' : 'passed';
   const seen = new Map<string, number>();
   const cells = attempts.map((n): PresetsCell => {

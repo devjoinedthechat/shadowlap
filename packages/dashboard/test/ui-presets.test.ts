@@ -13,6 +13,7 @@ import { runFindings } from '../ui/run/findings.js';
 import { presetsLine } from '../ui/presets/PresetsFinding.js';
 import { presetsMatrix, presetsMeta, presetsReceipt, PresetsResults } from '../ui/presets/PresetsResults.js';
 import { PresetsNode } from '../ui/presets/PresetsNode.js';
+import { presetsNode } from '../ui/presets/fork-node.js';
 import { panelOn, resetPanel } from '../ui/run/panel-state.js';
 import { ServedPartsContext } from '../ui/served-parts.js';
 import { ForksView } from '../ui/run/ForksView.js';
@@ -211,6 +212,14 @@ describe('a preset’s attempts in the Forks view', () => {
     expect(made.parentNode).toBe(first.parentNode);
     expect(made.querySelector('a.fnode')!.getAttribute('href')).toBe(`#/run/${ATTEMPT}/2`);
     expect(made.querySelector('a.fnode')!.className).toContain('here');
+  });
+
+  it('counts a session’s presets once for each golden they ran for, as two goldens can hold one recording', () => {
+    type Attempt = Parameters<typeof presetsNode>[0][number];
+    const attempt = (runId: string, golden: string, [passed, failed, notApplicable]: number[], spent: number) =>
+      ({ runId, parentRunId: REC, startedAt: 2, preset: { label: 'tool timeout', verdict: 'passed', session: 'S1', callNo: 2, golden, counts: { passed, failed, inconclusive: 0, notApplicable }, spent } }) as unknown as Attempt;
+    const v = presetsNode([attempt(ATTEMPT, 'goldens/a', [1, 0, 1], 0.1), attempt(PASSED, 'goldens/a', [1, 0, 1], 0.1), attempt(SECOND, 'goldens/b', [0, 1, 0], 0.2)]);
+    expect(v.parts).toEqual(['failed', '1 passed, 1 failed, 1 not applicable', '3 attempts', '≈$0.300']);
   });
 });
 
