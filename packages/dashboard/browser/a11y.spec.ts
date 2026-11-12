@@ -550,13 +550,15 @@ test('the Request tab’s fold marks are 24 px tall at least, as WCAG 2.5.8 asks
 });
 
 test('a golden’s report on Tests folds under its row until found, and opens to its row’s width, its lines as printed scrolling in their box on a phone', async ({ page }) => {
-  const { crash, gate } = await routeTestsFixture(page);
+  const { crash, gate, diverged } = await routeTestsFixture(page);
   for (const [width, height] of [[1440, 900], [390, 844]] as const) {
     await page.setViewportSize({ width, height });
     await openPage(page, '/tests', 'main#view table.gt');
     // Folded, find in page still reaches it: the browser opens what it matches.
-    for (const name of [crash, gate]) if ((await page.locator(`main#view button.grptog[aria-controls="grp-${name}"]`).getAttribute('aria-expanded')) === 'false') expect(await page.locator(`main#view div.grpw[id="grp-${name}"]`).getAttribute('hidden')).toBe('until-found');
-    for (const name of [crash, gate]) await openReport(page, name);
+    for (const name of [crash, gate, diverged]) if ((await page.locator(`main#view button.grptog[aria-controls="grp-${name}"]`).getAttribute('aria-expanded')) === 'false') expect(await page.locator(`main#view div.grpw[id="grp-${name}"]`).getAttribute('hidden')).toBe('until-found');
+    for (const name of [crash, gate, diverged]) await openReport(page, name);
+    // The divergence's request, asked for once its report opened, diffed within the report.
+    await expect(page.locator(`main#view section[id="report-${diverged}"] .rpdiff .jl`).first()).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
     const [table, report] = await Promise.all([page.locator('main#view table.gt'), page.locator(`main#view section[id="report-${crash}"]`)].map((l) => l.evaluate((el) => el.getBoundingClientRect())));
     expect(report!.width).toBeGreaterThan(table!.width - 40);
@@ -571,12 +573,14 @@ test('on a phone no label is under 11px, an avatar’s initials aside, and the f
   await page.setViewportSize({ width: 390, height: 844 });
   const small: string[] = [];
   // Tests with a gated golden (tests-fixture.ts), its evidence opened under its row: its line's values and
-  // axis; and a crash's and a failed gate's reports open, with their tracebacks and lines as printed, at 11px.
-  const { crash, gate } = await routeTestsFixture(page);
+  // axis; and a crash's, a failed gate's and a divergence's reports open, with their tracebacks, request diff and
+  // lines as printed, at 11px.
+  const { crash, gate, diverged } = await routeTestsFixture(page);
   const evidence = async () => {
     await page.locator('main#view button.gev:not(.grptog)').first().click();
     await page.waitForSelector('main#view tr.gevrow .alist', { state: 'visible' });
-    for (const name of [crash, gate]) await openReport(page, name);
+    for (const name of [crash, gate, diverged]) await openReport(page, name);
+    await page.locator(`main#view section[id="report-${diverged}"] .rpdiff .jl`).first().waitFor();
   };
   const pages: Array<[string, string, (() => Promise<void>)?]> = [
     ['/', 'main#view .ovg'],

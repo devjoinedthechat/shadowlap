@@ -282,18 +282,23 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
 
 /**
  * Tests as the demo can't draw it (tests-fixture.ts): a gated golden's evidence open under its row,
- * a crash's and a failed gate's reports open with their tracebacks and lines as printed, then Update
- * goldens for two goldens, with Add normalizer and update, wide and on a phone.
+ * a crash's and a failed gate's reports open with their tracebacks and lines as printed, the demo's
+ * divergence's with its request diffed, then Update goldens for two goldens, with Add normalizer and
+ * update, wide and on a phone.
  */
 test('Tests with a gated golden’s evidence open, reports open, and Update goldens for two goldens, have no serious or critical axe violation, wide and on a phone', async ({ page }) => {
   // Every billed press asks, so Update goldens opens its dialog and starts nothing.
   await page.route('**/api/user/spending', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { askAbove: 0, set: true, problems: [] } }) : route.continue()));
-  const { crash, gate } = await routeTestsFixture(page);
+  const { crash, gate, diverged } = await routeTestsFixture(page);
   const states = (on: string): Array<[string, () => Promise<void>]> => [
     [`Tests${on}`, at(page, '/tests', 'main#view table.gt')],
     [`a gated golden’s evidence${on}`, click(page, 'main#view button.gev:not(.grptog)', undefined, { shows: 'main#view tr.gevrow .alist' })],
     [`a crash’s report, its traceback and its lines as printed${on}`, () => openReport(page, crash)],
     [`a failed gate’s report${on}`, () => openReport(page, gate)],
+    [`a divergence’s report, its request diffed${on}`, async () => {
+      await openReport(page, diverged);
+      await page.locator(`main#view section[id="report-${diverged}"] .rpdiff .jl`).first().waitFor();
+    }],
     [`Update goldens for two${on}`, async () => {
       await click(page, 'main#view button', 'Update goldens', { shows: DIALOG })();
       await expect(page.locator(DIALOG).getByRole('button', { name: 'Add normalizer and update' })).toBeVisible();

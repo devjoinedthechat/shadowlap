@@ -9,8 +9,8 @@ import { openReport } from './tests-fixture.js';
  * demo's answers (the demo store has no crashed golden): on a crash's run page the commit's finding
  * leads, Show change opens the change in the inspector's place, and Revert leads the header with Open
  * in editor and Run blame plain; on Tests the change sits under the commit in the crash's report and
- * Revert leads the verdict; on the crash's fix its Blame step shows the commit, its change and where to
- * look, and Revert leads its head with Open in editor beside it and no Find breaking commit. Each has
+ * Revert leads the verdict; on the crash's fix its Blame step shows the commit, its change, the
+ * exception the agent died of and where to look, and Revert leads its head with Open in editor beside it and no Find breaking commit. Each has
  * no serious axe violation at 1440 and 390 with the change open, nor has Revert's
  * dialog, whose code box of the change undone keeps to its width. A revert's drawer reads Reverting,
  * then Reverted where git reverted, its status not saying reverted again, or Tried reverting where
@@ -22,6 +22,8 @@ const REV = '9a3c5e0';
 const GOLDEN = 'goldens/refund-flow';
 const NAME = 'refund-flow';
 const HUNK = '@@ -10,4 +10,4 @@ def refund(order):\n     total = order["amount"]\n-    limit = policy.limit(order)\n+    limit = policy.limit()\n     return min(total, limit)\n';
+/** What the crashed agent printed last, as its result keeps it: its report and its fix's Blame step read the exception from it. */
+const OUTPUT = 'Traceback (most recent call last):\n  File "agent/refund.py", line 12, in refund\nTypeError: limit() missing 1 required positional argument: \'order\'';
 const FOUND: FoundCommit = {
   rev: REV,
   subject: 'Read the refund limit once per session',
@@ -87,7 +89,7 @@ async function routeCrashFix(page: Page): Promise<string> {
       status: 'open',
       lead: { key: 'revert', label: 'Revert', command: `git revert --no-commit ${REV} && shadowlap test ${GOLDEN}`, use: 'writes', runId: run, step: step(run) },
       actions: { ...d.actions, blameAgain: null, blameStronger: { argv: ['blame', run], command: `shadowlap blame ${run} --model <model>`, attempts: 8, spent: 0, pulled: null, left: [] } },
-      blame: d.blame && { ...d.blame, outcome: 'unrescuable', answers: null, crash: { commit: FOUND, offline: true, stronger: false } },
+      blame: d.blame && { ...d.blame, outcome: 'unrescuable', answers: null, crash: { commit: FOUND, offline: true, stronger: false, error: { error: parseTraceback(OUTPUT)!, file: 'agent/refund.py', lines: OUTPUT.split('\n') } } },
     })),
   );
   return fix;
@@ -101,8 +103,6 @@ async function routeTests(page: Page): Promise<void> {
     (url) => url.pathname === '/api/tests',
     (route) => (route.request().method() !== 'GET' ? route.continue() : patched<TestsAnswer>(route, (real) => {
       const row = real.rows.find((r) => r.path !== real.divergences[0]?.golden) ?? real.rows[0]!;
-      // What the agent printed last, as its result keeps it: the report reads it, never the failure.
-      const output = 'Traceback (most recent call last):\n  File "agent/refund.py", line 12, in refund\nTypeError: limit() missing 1 required positional argument: \'order\'';
       const crash: FailureView = {
         golden: GOLDEN,
         name: NAME,
@@ -124,11 +124,11 @@ async function routeTests(page: Page): Promise<void> {
         verdict: 'failed',
         head: ['The agent exited with code 1 after its last call'],
         sub: [],
-        parts: [{ kind: 'error', error: parseTraceback(output)!, file: 'agent/refund.py', lines: output.split('\n') }, { kind: 'commit', found: FOUND }],
+        parts: [{ kind: 'error', error: parseTraceback(OUTPUT)!, file: 'agent/refund.py', lines: OUTPUT.split('\n') }, { kind: 'commit', found: FOUND }],
         open: { label: 'Open run', href: `#/run/${run}` },
         failedRuns: null,
         hint: { key: 'crash' },
-        printed: [{ text: `✗ ${NAME}: ${crash.reason}`, tone: 'no' }, ...output.split('\n').map((text) => ({ text: `    │ ${text}`, tone: 'dim' as const }))],
+        printed: [{ text: `✗ ${NAME}: ${crash.reason}`, tone: 'no' }, ...OUTPUT.split('\n').map((text) => ({ text: `    │ ${text}`, tone: 'dim' as const }))],
       };
       const view = {
         ...real,
@@ -188,6 +188,10 @@ for (const [width, height] of [
     await expect(line.locator('b')).toHaveText(FOUND.subject);
     await expect(page.locator('#view .bisect.fxbis + .codewrap.bisectdiff')).toContainText('agent/refund.py');
     await expect(page.locator('#view .fxnote')).toHaveText(`The agent stopped part way from ${REV} on, so the code broke the run, not an answer of the model’s. Revert the commit or fix the code, then run the tests.`);
+    // Under As recorded, the exception the agent died of where its code raised it, its traceback folded until found.
+    const error = page.locator('#view .rperrw');
+    await expect(error.locator('p.rperr')).toContainText("TypeError: limit() missing 1 required positional argument: 'order' in agent/refund.py, line 12, in refund");
+    await expect(error.locator('pre.report.tail')).toHaveAttribute('hidden', 'until-found');
     const lead = page.locator('.ph .actions .btn.lime[data-next="revert"]');
     await expect(lead).toHaveText('Revert');
     await expect(lead).toHaveAttribute('data-at', String(FOUND.at));

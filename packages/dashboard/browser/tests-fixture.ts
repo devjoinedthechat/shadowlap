@@ -50,9 +50,10 @@ function reported(): Pick<TestsAnswer, 'rows' | 'failures' | 'reports'> & { atte
  * passed decided by a gate (12 attempts, all passed), its evidence answered when its row opens; a
  * second golden diverged as the demo's one did, so the header offers Update goldens and its dialog
  * Add normalizer and update; and a crash and a failed gate with their reports (`reported`). The demo
- * has no gated golden, no crash and one divergence (scripts/demo-store.mjs).
+ * has no gated golden, no crash and one divergence (scripts/demo-store.mjs), `diverged`, whose
+ * report's Request part asks its replay's diff once the report opens.
  */
-export async function routeTestsFixture(page: Page): Promise<{ gated: string; crash: string; gate: string }> {
+export async function routeTestsFixture(page: Page): Promise<{ gated: string; crash: string; gate: string; diverged: string }> {
   const { origin, token } = dash();
   const real = (await (await page.request.get(`${origin}/api/tests`, { headers: { 'x-shadowlap-token': token } })).json()) as TestsAnswer;
   const d = real.divergences[0];
@@ -75,7 +76,7 @@ export async function routeTestsFixture(page: Page): Promise<{ gated: string; cr
   const evidence: TestEvidence = { attempts: Array.from({ length: 12 }, () => ({ runId, href: `#/run/${runId}`, outcome: 'passed', note: null })), carried: 0, gone: 0 };
   await page.route((url) => url.pathname === '/api/tests', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: view }) : route.continue()));
   await page.route((url) => url.pathname === '/api/tests/evidence', (route) => route.fulfill({ json: new URL(route.request().url()).searchParams.get('golden') === 'goldens/email-gate' ? { ...evidence, attempts: more.attempts } : evidence }));
-  return { gated: gated.name, crash: 'refund-crash', gate: 'email-gate' };
+  return { gated: gated.name, crash: 'refund-crash', gate: 'email-gate', diverged: d.name };
 }
 
 /**
