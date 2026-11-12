@@ -253,6 +253,28 @@ describe('Changes › Migrate', () => {
       expect(p.all('.mgstart')).toHaveLength(0);
     });
 
+    it('says why a read failed as every page does, the status where the server sent no sentence of its own, else its sentence, with Retry', async () => {
+      const lines = (p: Rendered) => p.all('.loaderr p > span').map(shown);
+      const status = 'The dashboard server answered 500 for this page’s data.';
+      const late = 'a decision-session job took more than 30 s, so it was stopped';
+      let tries = 0;
+      let p = await open(unchecked, [], { client: { migrateStart: () => (++tries === 1 ? Promise.reject(new ApiError(500, 'HTTP 500')) : Promise.resolve(unchecked)) } as unknown as Partial<Client> });
+      await p.until('the start read’s failure', () => p.all('.loaderr').length === 1);
+      expect([lines(p), p.all('.loaderr button').map(shown)]).toEqual([['couldn’t load', status], ['Retry']]);
+      await p.click(p.byText('.loaderr button', 'Retry'));
+      await p.until('the start page', () => !!p.one('.mgstart h2'));
+      await p.unmount();
+      page = null;
+      // A migration's own read, then the list of migrations beside it.
+      p = await open(start, [MG], { id: MG, client: { decisionSession: () => Promise.reject(new ApiError(503, late)) } as unknown as Partial<Client> });
+      await p.until('the migration’s failure', () => lines(p)[1] === late);
+      await p.unmount();
+      page = null;
+      p = await open(start, [MG], { id: MG, client: { decisionSessions: () => Promise.reject(new ApiError(500, 'HTTP 500')) } as unknown as Partial<Client> });
+      await p.until('the list’s failure', () => p.all('.loaderr').length === 1);
+      expect([lines(p), p.all('.loaderr button').map(shown)]).toEqual([['couldn’t load', status], ['Retry']]);
+    });
+
     it('opens the newest migration once a migration checked every retiring model', async () => {
       const asked: string[] = [];
       expect(start.retiring.map((n) => n.checked?.sessionId)).toEqual([UPDATED]);

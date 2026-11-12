@@ -9,7 +9,7 @@ import { MigrateAskNow, MigrateButton } from '../components/MigrateDialog.js';
 import { migrateCommand, type MigrateSwitch } from '../migrate-command.js';
 import { ModelField, useModelChoices } from '../components/ModelField.js';
 import { NO_GOLDENS } from '../components/NewPreviewMenu.js';
-import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
+import { EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { useLoad, type Loaded } from '../hooks.js';
 import { MIGRATE_ASK } from '../page-ask.js';
 import { href } from '../route.js';
@@ -99,7 +99,8 @@ function MigrateBody({ id, run, call, onMissing, start }: MigrateTabProps & { st
         No migration {shownId}. <Link href={href.changeSession('migrate')}>Open Migrate</Link>
       </div>
     );
-  if (detail.error && !session) return <ErrorState retry={detail.reload}>{failedWords(detail.error)}</ErrorState>;
+  if (detail.error && !session) return <ErrorState retry={detail.reload}>{failedRead(detail.error)}</ErrorState>;
+  if (list.error && !sessions) return <ErrorState retry={list.reload}>{failedRead(list.error)}</ErrorState>;
   if (!session || !sessions) return <Skeleton what="this migration" lines={8} />;
   return <MigrateReport session={session} sessions={sessions} retiring={start.data?.retiring ?? []} use={start.data?.use ?? []} run={run} call={call} />;
 }
@@ -107,15 +108,13 @@ function MigrateBody({ id, run, call, onMissing, start }: MigrateTabProps & { st
 /** What the bare tab shows before a migration's page: its reads' wait or failure, no goldens, a retiring model, or Switch from and To; null once it opens a migration. */
 function bareTab(start: Loaded<MigrateStartView>, list: Loaded<DecisionsListView>, unchecked: MigrateRetiring | null, shownId: string | null): ReactNode {
   const error = start.error ?? list.error;
-  if (error && (!start.data || !list.data)) return <ErrorState retry={start.data ? list.reload : start.reload}>{failedWords(error)}</ErrorState>;
+  if (error && (!start.data || !list.data)) return <ErrorState retry={start.data ? list.reload : start.reload}>{failedRead(error)}</ErrorState>;
   if (!start.data || !list.data) return <Skeleton what="Migrate" lines={8} />;
   if (!start.data.goldens) return <NoGoldens />;
   // Keyed by the model, so the next one to lead starts on its own replacement.
   if (unchecked) return <RetiringStart key={unchecked.model} n={unchecked} start={start.data} />;
   return shownId ? null : <SwitchStart use={start.data.use} />;
 }
-
-const failedWords = (e: Error) => (e instanceof ApiError ? `The dashboard server answered ${e.status} for this page’s data.` : e.message);
 
 /** No golden to migrate: what to pack first, as Preview says it. */
 function NoGoldens() {
