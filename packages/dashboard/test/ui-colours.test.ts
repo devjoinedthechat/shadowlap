@@ -196,6 +196,29 @@ describe('what each colour may mean', () => {
     ]);
   });
 
+  it('tags an untrusted read as its effect is tagged, never in a consequence colour, and marks an injection test in the colours of what it found', () => {
+    // Where a read's text came from is a fact of the call, not a finding: dim, one step brighter than its effect's faint.
+    expect(value('.eff.untrusted', 'color')).toBe('var(--dim)');
+    expect(value('.eff', 'color')).toBe('var(--faint)');
+    // The canary, wherever the inspector marks it, is what got out: the one red, on a tint of it.
+    expect(value('mark.cnry', 'color')).toBe('var(--cq-red)');
+    expect(value('mark.cnry', 'background')).toBe('color-mix(in srgb, var(--cq-red) 16%, transparent)');
+    expect(value('.cnry', 'color')).toBe('var(--cq-red)');
+    // The planted text is the planted origin's violet, as the turn it changed is: an override, not a failure.
+    expect(value('mark.ins-plant', 'color')).toBe('var(--o-over)');
+    expect(value('mark.ins-plant', 'background')).toBe('color-mix(in srgb, var(--o-over) 14%, transparent)');
+    expect(value('.msg.changed.ov .chg', 'color')).toBe('var(--o-over)');
+    // An attempt that ignored it, and a plant's clean replays, are muted: they showed nothing to look at.
+    expect(value('.astrip .ac.mu', 'background')).toBe('var(--cq-muted-fill)');
+    // The Security report's example mask reads as a diff does: the value struck through in the removed colour, its mask in the added one.
+    expect(value('.injmask .del', 'color')).toBe('var(--del)');
+    expect(value('.injmask .add', 'color')).toBe('var(--add)');
+    // A golden's injection gate is one of its checks (`.ck.injck`), its mark in a check's colours, a hairline above it.
+    for (const [status, colour] of [['passed', 'var(--ok)'], ['failed', 'var(--err)'], ['inconclusive', 'var(--warn)']] as const) expect(value(`table.gt .chk .ck.${status} .cm`, 'color'), status).toBe(colour);
+    expect(value('table.gt .chk .ck.injck', 'border-top')).toBe('1px solid var(--line)');
+    expect(value('table.gt .chk .ck.injck', 'color')).toBeNull();
+  });
+
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {
     expect(value('.tchip.s em', 'color')).toBe('var(--o-stub)');
     expect(value('.org.stub', 'color')).toBe('var(--o-stub)');

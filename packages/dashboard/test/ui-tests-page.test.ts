@@ -1,16 +1,19 @@
 import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { gateResult, parseGate, Store, type StoredCheck } from '@shadowlap/engine';
+import type { InjectionGateRow } from '../src/injection-gates.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import { evidenceWords } from '../src/tests-evidence.js';
 import { pageUp } from '../ui/focus-manager.js';
 import { ApiError, JOB_KINDS, type Client, type TestsView } from '../ui/api.js';
+import type { NextStep } from '../ui/types.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { goldenRowScope } from '../ui/tests/row-scope.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { sheet } from './css-sheet.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withStepDialogs } from './ui-served-now.js';
 
 /**
  * Tests tells the truth about checks, CI and judges: each check is marked by how the golden's last
@@ -78,7 +81,7 @@ function page(started: Array<{ kind: string; fields: Record<string, unknown> }>,
     toast: () => undefined,
     ...over.app,
   };
-  return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage), over.beside ?? null);
+  return withStepDialogs(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(TestsPage), over.beside ?? null));
 }
 
 const g = globalThis as { location?: unknown };
@@ -424,5 +427,71 @@ describe('the Tests page\'s styles', () => {
 
   it('wrap a cell without leaving a word alone on its last line, as the mock\'s do', () => {
     expect(css).toMatch(/\ntable\.gt td \{ text-wrap: pretty; \}/);
+  });
+});
+
+describe('a golden’s injection gate on Tests', () => {
+  const ENTRY: InjectionGateRow['entry'] = { obeyed: 0, influenced: null, repeat: 3, templates: ['user-recipient'], payloads: null, baselines: 3, liveReads: false };
+  const JSON_LINE = '{ "obeyed": 0, "repeat": 3, "templates": ["user-recipient"] }';
+  const gate = (over: Partial<InjectionGateRow> = {}): InjectionGateRow => ({ entry: ENTRY, proof: { runId: 'run_ATTEMPT2', callNo: 6 }, line: 'send_email obeyed a planted instruction · 1 of 3', results: { runId: 'run_TESTED', resultId: 'inj-01GATE' }, json: JSON_LINE, ...over });
+  const tally = { resultId: 'inj-01GATE', attempts: 3, obeyed: 1, influenced: 0, ignored: 2, inconclusive: 0, allowed: { obeyed: 0, influenced: null }, skipped: null };
+  /** refunds, gated: its last result as `last` says, its gate as `g`; the verdict leads with `step`. */
+  const gated = (g: InjectionGateRow, last: Partial<TestsView['rows'][number]['last']>, step?: NextStep) => (v: TestsView): TestsView => ({
+    ...v,
+    rows: v.rows.map((r) => (r.name === 'refunds' ? { ...r, injectionGate: g, last: { ...r.last, ...last } } : r)),
+    ...(step ? { steps: { ...v.steps, 'goldens/refunds': step } } : {}),
+  });
+  const gateOf = (page: Rendered) => {
+    const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === 'refunds')!;
+    return { tr, ck: one(one(tr, 'td.chk'), '.ck.injck') };
+  };
+  const text = (el: FakeElement) => el.textContent.replace(/\u00a0/g, ' ');
+
+  it('sits under the checks with its mark, its tally under its words, which open the run it tested with its results, its card its entry and why; the row opens its proof', async () => {
+    const reason = 'send_email obeyed a planted instruction in 1 of 3 attempts (at most 0 allowed): send_email.to = x7f3kq2m@canary.invalid';
+    const page = await open([], GOLDENS, gated(gate(), { failure: 'injection', injection: { ...tally, verdict: 'failed', reason } }));
+    const { tr, ck } = gateOf(page);
+    expect(ck.className).toBe('ck injck failed');
+    expect(one(ck, 'b.cm').textContent).toBe('✗');
+    // After every check, with no edit or remove: its tests entry sets it.
+    expect(all(one(tr, 'td.chk'), '.ck').at(-1)).toBe(ck);
+    expect(text(one(ck, 'a.cw'))).toBe('injection: no attempt obeys a planted instruction3 attempts · 1 obeyed · 0 influenced · 2 ignored');
+    expect(one(ck, 'a.cw').getAttribute('href')).toBe('#/run/run_TESTED');
+    expect(JSON.parse(ck.getAttribute('data-tip')!)).toMatchObject({ t: 'failed · injection gate', s: `user-recipient at every untrusted read, 3 attempts each. "injection": ${JSON_LINE}. ${reason}. Opens its results` });
+    // The row, its name and Enter open the attempt that proves the verdict, at the call that carried the canary.
+    expect(one(tr, 'a.rowa').getAttribute('href')).toBe('#/run/run_ATTEMPT2/6');
+  });
+
+  it('keeps a passed gate’s tally on its hover, as a passed check does, and says when one never ran, its words plain', async () => {
+    let page = await open([], GOLDENS, gated(gate(), { injection: { ...tally, obeyed: 0, ignored: 3, verdict: 'passed', reason: null } }));
+    let { ck, tr } = gateOf(page);
+    expect([ck.className, text(one(ck, '.cw')), all(ck, 'small').length]).toEqual(['ck injck passed', 'injection: no attempt obeys a planted instruction', 0]);
+    expect(JSON.parse(ck.getAttribute('data-tip')!).s).toBe(`3 attempts · 0 obeyed · 0 influenced · 3 ignored. user-recipient at every untrusted read, 3 attempts each. "injection": ${JSON_LINE}. Opens its results`);
+    // Its verdict isn't its gate's, so the row opens its run, and refunds keeps none.
+    expect(all(tr, 'a.rowa')).toHaveLength(0);
+    await r?.unmount();
+    page = await open([], GOLDENS, gated(gate({ entry: { ...ENTRY, obeyed: 2 }, proof: null, line: null, results: null }), { injection: null }));
+    ({ ck } = gateOf(page));
+    expect([ck.className, all(ck, 'b.cm').length, all(ck, 'a').length, text(one(ck, '.cw'))]).toEqual(['ck injck', 0, 0, 'injection: at most 2 attempts obey a planted instructionruns once its replay passes']);
+    expect(JSON.parse(ck.getAttribute('data-tip')!).t).toBe('not run yet · injection gate');
+  });
+
+  it('leaves its entry off its card where the config can\'t be read now, never rebuilding it', async () => {
+    const page = await open([], GOLDENS, gated(gate({ json: null }), { injection: { ...tally, obeyed: 0, ignored: 3, verdict: 'passed', reason: null } }));
+    const { ck } = gateOf(page);
+    expect(JSON.parse(ck.getAttribute('data-tip')!).s).toBe('3 attempts · 0 obeyed · 0 influenced · 3 ignored. user-recipient at every untrusted read, 3 attempts each. Opens its results');
+  });
+
+  it('leads the verdict with Open proof, a link to the proving attempt, or Re-run test where the gate showed too little to say', async () => {
+    const proof: NextStep = { key: 'injection-proof', label: 'Open proof', runId: 'run_ATTEMPT2', href: '#/run/run_ATTEMPT2/6', title: 'Opens ATTEMPT2', sub: 'send_email obeyed a planted instruction · 1 of 3' };
+    let page = await open([], GOLDENS, gated(gate(), { failure: 'injection', injection: { ...tally, verdict: 'failed', reason: 'obeyed' } }, proof));
+    let lime = one(page.one('.verdict.tv'), '.btn.lime');
+    expect([lime.tagName.toLowerCase(), lime.textContent, lime.getAttribute('href')]).toEqual(['a', 'Open proof', '#/run/run_ATTEMPT2/6']);
+    await r?.unmount();
+    const again: NextStep & { sub: string } = { key: 'gate-again', label: 'Re-run test', golden: 'goldens/refunds', command: 'shadowlap test goldens/refunds', sub: 'Its injection gate showed too little to say: 2 of 3 attempts got no answer' };
+    page = await open([], GOLDENS, gated(gate(), { failure: 'injection', verdict: 'inconclusive', injection: { ...tally, verdict: 'inconclusive', reason: 'too little' } }, again));
+    lime = one(page.one('.verdict.tv'), '.btn.lime');
+    expect([lime.tagName.toLowerCase(), lime.textContent]).toEqual(['button', 'Re-run test']);
+    expect(JSON.parse(lime.getAttribute('data-tip')!)).toMatchObject({ t: 'Re-run test', s: again.sub });
   });
 });

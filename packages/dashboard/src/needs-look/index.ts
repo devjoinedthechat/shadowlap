@@ -1,8 +1,9 @@
 import type { Store } from '@shadowlap/engine';
 import { needsLookFixes } from '../fix-summary.js';
 import type { PatchCheck, RewriteCheck } from '../fix-shared.js';
-import { coverage, decisions, injection, presetsFailed, presetsUnsure } from '../looks.js';
-import { listedStep, type NextStep, type NextStepWork, type StepReads, stepReads } from '../next-step.js';
+import { withGateLines } from '../injection-gates.js';
+import { coverage, decisions, presetsFailed, presetsUnsure } from '../looks.js';
+import { goldenStep, listedStep, type NextStep, type NextStepWork, type StepReads, stepReads } from '../next-step.js';
 import type { StoreNote } from '../overview.js';
 import type { RunIndex } from '../run-index.js';
 import { failingTests, type GoldenList } from '../tests.js';
@@ -10,6 +11,7 @@ import { broken, openFixes, ready, unblamed } from './fixes.js';
 import { failedGoldens, inconclusiveGoldens } from './goldens.js';
 import { LOOK_GROUPS } from './groups.js';
 import { retire } from './retire.js';
+import { security } from './security.js';
 import { goldenName, type HeldGolden, type LookSource, type LookWork, type NeedsLook, type NeedsLookRow, plural } from './row.js';
 import { local, setup } from './store.js';
 
@@ -20,7 +22,7 @@ export type { HeldGolden, LookAdvice, LookSource, LookStep, LookWork, NeedsLook,
  * it, and its rows' keys. A source is a line here, never a side effect of a route module: the list
  * is worked out on a read thread, which loads no route. A later slice adds its file and its line.
  */
-export const SOURCES: readonly LookSource[] = [setup, broken, failedGoldens, presetsFailed, unblamed, openFixes, ready, inconclusiveGoldens, presetsUnsure, coverage, decisions, injection, local, retire];
+export const SOURCES: readonly LookSource[] = [setup, broken, failedGoldens, presetsFailed, unblamed, openFixes, ready, inconclusiveGoldens, presetsUnsure, coverage, decisions, security, local, retire];
 
 /** Rows one source lists one by one; past them (and one more), a line stands for the rest. */
 export const LOOK_CAP = 50;
@@ -69,9 +71,10 @@ export function lookWork(store: Store, o: { goldens: GoldenList; teamStore: Stor
   let reads: StepReads | null = null;
   const readsOnce = () => (reads ??= stepReads(store, o.index));
   const fixes = needsLookFixes(store, o.patchInTree ? { patchInTree: o.patchInTree } : {});
-  const failing = o.goldens.length ? failingTests(store, { goldens: o.goldens }) : [];
+  const failing = o.goldens.length ? withGateLines(store, failingTests(store, { goldens: o.goldens })) : [];
   const steps = new Map<string, NextStep | null | undefined>();
-  for (const t of failing) if (t.verdict === 'failed' && t.runId) steps.set(t.golden, listedStep(store, t.runId, o.next, { reads: readsOnce() }));
+  // A golden its injection gate failed leads with the gate's proof, as Tests does; the rest with their replay's step.
+  for (const t of failing) if (t.verdict === 'failed' && t.runId) steps.set(t.golden, t.failure === 'injection' ? goldenStep(store, t.golden, o.next, readsOnce()) : listedStep(store, t.runId, o.next, { reads: readsOnce() }));
   const open = new Set(fixes.filter((f) => f.kind === 'open').map((f) => f.fixId));
   const held = new Map<string, HeldGolden[]>();
   for (const t of failing) {

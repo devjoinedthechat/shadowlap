@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { wholeInput } from '../../../engine/src/tokens.js';
 import type { RunDetail } from '../api.js';
+import { injectionFactOf } from '../injection/model.js';
+import type { RunInjection } from '../types.js';
 import { num, shortId } from '../format.js';
 import { countOrigins, parseOrigins } from '../origins.js';
 import { href } from '../route.js';
@@ -56,7 +58,7 @@ export function RunHead({ id, project }: { id: string; project: string | undefin
 }
 
 /** The run's numbers, led by its outcome by checks: the payload's, or the one asked for alone (useJudgedAt), pending until it comes. */
-export function RunMetrics(props: { run: RunDetail; judged: RunDetail['judged']; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean }) {
+export function RunMetrics(props: { run: RunDetail; judged: RunDetail['judged']; notWaitedMs: number | null; notWaitedUnknown: number; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean; injection?: RunInjection['attempt'] }) {
   return <Metrics {...props} judged={props.judged ?? null} pending={props.judged === undefined} />;
 }
 
@@ -72,11 +74,14 @@ export function useJudgedAt(run: RunDetail): { judged: RunDetail['judged']; outc
 
 /**
  * How a run came out, its header's first fact (outcomeFact): by the checks that judged it, a fork
- * blame rescued a run with, an error-path preset's verdict or an attempt's. Compare's line a run
+ * blame rescued a run with, an error-path preset's verdict, an injection test's replay's by its own
+ * record (with what the read of the attempt adds, on its page) or an attempt's. Compare's line a run
  * says it the same way.
  */
-export function runFact(run: RunDetail, judged: NonNullable<RunDetail['judged']> | null, o: { pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean }): OutcomeFact {
-  return outcomeFact({ ...runLikeOf(run), judged }, { tools: toolsToCheck(run.calls, run.callsTotal, run.summary.byKind.tool), ...o, attempt: attemptVerdictOf(run, checksOf(run)) });
+export function runFact(run: RunDetail, judged: NonNullable<RunDetail['judged']> | null, o: { pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean; injection?: RunInjection['attempt'] }): OutcomeFact {
+  const { injection = null, ...rest } = o;
+  const checks = checksOf(run);
+  return outcomeFact({ ...runLikeOf(run), judged }, { tools: toolsToCheck(run.calls, run.callsTotal, run.summary.byKind.tool), ...rest, attempt: attemptVerdictOf(run, checks), injection: injectionFactOf(run, checks, injection) });
 }
 
 /** What a run spent, in its header's words (spentWords): Compare's line a run says it again. */
@@ -93,7 +98,7 @@ function attemptVerdictOf(run: RunDetail, checks: ReturnType<typeof checksOf>) {
  * unless given; `pending` while a long run's analysis is yet to judge it); the counts follow; what
  * replaying saved comes last, as a quieter receipt.
  */
-export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false, preset = null, rescued = false, offered = false }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean }) {
+export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judged ?? null, pending = false, preset = null, rescued = false, offered = false, injection = null }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number; judged?: RunDetail['judged']; pending?: boolean; preset?: PresetAttempt | null; rescued?: boolean; offered?: boolean; injection?: RunInjection['attempt'] }) {
   const s = run.summary;
   const items = metricItems({
     // A recording's count as the poll says it, as its list has it: its page is asked for again only
@@ -114,7 +119,7 @@ export function Metrics({ run, notWaitedMs, notWaitedUnknown, judged = run.judge
     refused: run.calls.filter((c) => c.outcome === 'error' && refusedOffline(c)).length,
   });
   // How it came out leads: the verdict of the checks that judged it, as Runs' Status says it.
-  const fact = runFact(run, judged ?? null, { pending, preset, rescued, offered });
+  const fact = runFact(run, judged ?? null, { pending, preset, rescued, offered, injection });
   return (
     <section className="metrics" aria-label="How it went">
       <Outcome fact={fact} runId={run.run.runId} />

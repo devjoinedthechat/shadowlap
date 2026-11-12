@@ -27,13 +27,15 @@ import { onShow } from '../components/OnShow.js';
 import { Inspector, TABS, type InspectorTab } from '../run/Inspector.js';
 import { flagText } from '../run/banner.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, withModelNames } from '../run/model.js';
-import { InspectorPlace, useFindingPanel, usePickInView } from '../run/InspectorPanel.js';
+import { InspectorPlace, useFindingPanel, usePickInView, useResultsBodies } from '../run/InspectorPanel.js';
+import { useInjectionArrival } from '../injection/arrival.js';
 import { byKind } from '../run/kinds.js';
 import { useStripCalls } from '../run/RunStrip.js';
 import { StripBar } from '../run/StripKey.js';
 import { firstFailedCall } from '../run/open-at.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import type { RunMark } from '../runkey.js';
+import type { UntrustedView } from '../types.js';
 import { RunHead, RunLoading, RunMetrics, ScopeBar, useJudgedAt } from '../run/parts.js';
 import { FindingsBar } from '../run/FindingsBar.js';
 import { usePagedRun } from '../run/paged-run.js';
@@ -96,13 +98,13 @@ function viewTabs(v: View, calls: number, turns: number | undefined) {
   });
 }
 
-/** The view shown: Calls as the page draws it (`children`), every other one from its part. */
-function ViewSwitch({ v, run, calls, selected, scoped, byKind: kinds, onSelect, children }: { v: View; run: RunDetail; calls: CallRow[]; selected: number | null; scoped: boolean; byKind: boolean; onSelect: (n: number) => void; children: ReactNode }) {
+/** The view shown: Calls as the page draws it (`children`), every other one from its part; Turns tags the untrusted reads as Calls does. */
+function ViewSwitch({ v, run, calls, selected, scoped, byKind: kinds, onSelect, untrusted, children }: { v: View; run: RunDetail; calls: CallRow[]; selected: number | null; scoped: boolean; byKind: boolean; onSelect: (n: number) => void; untrusted: ReadonlyMap<number, UntrustedView>; children: ReactNode }) {
   switch (v) {
     case 'calls':
       return children;
     case 'turns':
-      return <TurnsView calls={calls} selected={selected} scoped={scoped} onSelect={onSelect} />;
+      return <TurnsView calls={calls} selected={selected} scoped={scoped} onSelect={onSelect} untrusted={untrusted} />;
     case 'context':
       return <ContextView run={run} calls={calls} selected={selected} onSelect={onSelect} />;
     case 'timeline':
@@ -302,7 +304,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // What the page reads beside the run once it has ended: its offers, a preset's attempt, its notes and the
   // fork that rescued it (run-extras.ts).
   const chain = useAncestors(run);
-  const { offers, preset, notes, rescued } = useRunExtras(run, chain[0] ?? null, forkAt);
+  const { offers, preset, notes, rescued, injection } = useRunExtras(run, chain[0] ?? null, forkAt);
+  const results = useResultsBodies(runId);
   const actions = useActionRunner(runId, !!run.source, offers, run.forkAt);
   // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
@@ -324,6 +327,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const select = useCallback((n: number) => (closePanel(), navigate(href.run(runId, n, v), true)), [runId, v, closePanel]);
   // A row picked below 1160px brings the inspector, under the calls, into view.
   const pickRow = usePickInView(select, selected, detail);
+  // An attempt opened on a call its proof names shows it on the tab that does, as the proof's picks do (injection/arrival.ts).
+  const pickProof = useInjectionArrival({ runId, attempt: injection.attempt, call, detail: detail.data, select, setTab });
   const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));
   // A pick in the key, or a word typed in Filter calls, shows Calls from another view.
   const toCalls = () => (v === 'calls' ? undefined : setView('calls'));
@@ -370,8 +375,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} />} judged={judged} />
-      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} />
+      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} check={check.check} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} untrusted={injection.untrusted} facts={<RunMetrics run={run} judged={judged} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} preset={preset} rescued={!!rescued} offered={check.offered} injection={injection.attempt} />} judged={judged} />
+      <FindingsBar run={run} judged={judged} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={onToggleDiff} showChange={showChange} onToggleChange={onToggleChange} onSelect={select} onAction={actions.run} preset={preset} jump={jumpOf(forkAt, lostAt)} notes={notes} injection={injection.finding} attempt={injection.attempt} onPick={pickProof} />
       <StripBar strip={{ calls: stripCalls, byKind: kinds, selected, forkAt: forkMark, lostAt, inScope: inScopeFn, live, onSelect: select }} counts={counts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} toCalls={toCalls} />
       {scoped ? <ScopeBar run={run} scopes={scopeTree} scope={scope} onScope={setScope} /> : null}
       <div className="work">
@@ -390,13 +395,13 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
               of a run whose model called no tool and Context may hold nothing that takes the focus, so
               the view takes it itself, to be scrolled by keyboard. */}
           <div className="vbody" id="vbody" key={v} role="tabpanel" aria-labelledby={`vtab-${v}`} tabIndex={PANE_VIEWS.includes(v) ? 0 : -1}>
-            <ViewSwitch v={v} run={run} calls={scopedCalls} selected={selected} scoped={scoped} byKind={kinds} onSelect={select}>
-              <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} rows={rows} held={held} shown={shown} trace={trace} onFold={fold} />
+            <ViewSwitch v={v} run={run} calls={scopedCalls} selected={selected} scoped={scoped} byKind={kinds} onSelect={select} untrusted={injection.untrusted}>
+              <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={pickRow} onFork={openForkAt} onNeed={need} rows={rows} held={held} shown={shown} trace={trace} onFold={fold} untrusted={injection.untrusted} />
             </ViewSwitch>
           </div>
         </section>
-        <InspectorPlace panel={panel} run={run} offers={offers} onClose={closePanel} onPick={select}>
-          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} check={check.check} />
+        <InspectorPlace panel={panel} run={run} offers={offers} onClose={closePanel} onPick={select} results={results}>
+          <Inspector runId={runId} call={selectedRow} calls={calls} models={run.models} detail={detail.data} error={detail.error?.message ?? null} tab={tab} onTab={setTab} onStep={step} change={change} live={live} flag={flagText(run.intervention ?? null)} onSelect={select} injection={injection.attempt} check={check.check} />
         </InspectorPlace>
       </div>
       {actions.dialog}

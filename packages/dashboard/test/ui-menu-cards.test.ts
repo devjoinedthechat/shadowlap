@@ -2,7 +2,7 @@ import { buildActions, type CallRecord, type RunRecord } from '@shadowlap/engine
 import { createElement, useState } from 'react';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { forkRowLine, type ActionLike } from '../ui/actions.js';
-import { ForkMenu } from '../ui/run/actions.js';
+import { ForkMenu } from '../ui/run/ForkMenu.js';
 import { ShareMenu } from '../ui/run/ShareMenu.js';
 import { ProjectBlock } from '../ui/shell/ProjectBlock.js';
 import { RemoveProjectDialog } from '../ui/shell/RemoveProject.js';

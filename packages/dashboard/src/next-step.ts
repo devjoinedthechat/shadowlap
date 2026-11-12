@@ -7,6 +7,7 @@ import {
   checkStatus,
   confirmWords,
   GATE_REPEAT,
+  GATE_TOO_LITTLE,
   goldenLiveParts,
   goldenRerunEstimate,
   goldenWords,
@@ -44,6 +45,7 @@ import { HEX } from './commits-here.js';
 import { commandLine } from './fix-shared.js';
 import { fixForRun, type FixForRun } from './fix-for-run.js';
 import { injectionLine } from './injection.js';
+import { againCommand, proofCall, proofOf, testedAs } from './injection-view.js';
 import { links } from './links.js';
 import { gitAsync } from './patch-in-tree.js';
 import { blameOffer, crashed, goldenFolder, keepable, packableIn, testOffer, type BlameOffer, type TestOffer } from './run-offers.js';
@@ -564,15 +566,6 @@ function revertStep(f: Facts, t: TestedGolden, found: FoundCommit, beside: Pick<
 const asPlant = (r: StoredInjectionResult) => r.data as unknown as Partial<PlantReport>;
 const asClean = (r: StoredInjectionResult) => r.data as unknown as Partial<CleanReport>;
 
-/** The attempt a result's proof is, among those the store still has: the first that obeyed, else the first influenced, else the first that couldn't say why. */
-function proofOf(store: StoreOf<'recording'>, report: Partial<PlantReport>): NonNullable<PlantReport['attempts']>[number] | null {
-  for (const verdict of ['obeyed', 'influenced', 'inconclusive']) {
-    const a = (report.attempts ?? []).find((x) => x.verdict === verdict && store.getRun(x.runId));
-    if (a) return a;
-  }
-  return null;
-}
-
 /** Whether the newest answer for any read and write of a run says the read's content caused the write. */
 function causedAWrite(results: readonly StoredInjectionResult[]): boolean {
   const seen = new Set<string>();
@@ -589,21 +582,11 @@ function causedAWrite(results: readonly StoredInjectionResult[]): boolean {
   return false;
 }
 
-/** What the `injection` job takes to test again as the test did. */
-function testedAs(report: Partial<PlantReport>): InjectionAgain {
-  const baselines = (report.baselines ?? []).reduce((n, b) => Math.max(n, b.runs.length), 0);
-  return { repeat: report.repeat ?? 1, templates: report.templates?.ids ?? [], baselines, liveReads: report.unrecordedReads === 'live' };
-}
-
-function againCommand(runId: string, again: InjectionAgain): string {
-  return commandLine(['injection', short(runId), ...(again.templates.length ? ['--templates', again.templates.join(',')] : []), '--baselines', String(again.baselines), ...(again.repeat !== 1 ? ['--repeat', String(again.repeat)] : []), ...(again.liveReads ? ['--live-reads'] : [])]);
-}
-
 /** Why a test stopped short and what to do about it: its budget's the advice to spend it better, any other stop in its own words. */
 const stopWords = (reason: string): string => (/\bbudget\b/.test(reason) ? 'It stopped at its budget: test with fewer templates, or a higher budget' : `It stopped early (${reason}): test it again`);
 
-/** Re-run test's card, where a golden's injection gate showed too little to say: on its run's page and on Needs a look's row. */
-export const gateAgainSub = (why: string | null | undefined): string => `Its injection gate showed too little to say: ${why ?? 'no attempt decided'}`;
+/** Re-run test's card, where a golden's injection gate showed too little to say, in the engine's words (trust-words.ts): on its run's page and on Needs a look's row. */
+export const gateAgainSub = (why: string | null | undefined): string => `${GATE_TOO_LITTLE.charAt(0).toUpperCase()}${GATE_TOO_LITTLE.slice(1)}: ${why ?? 'no attempt decided'}`;
 
 /** What a recording's newest finished plant leads with: its proof when it failed, running again when it showed too little; null when it says nothing to do. */
 function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
@@ -611,7 +594,7 @@ function plantStep(f: Facts, newest: StoredInjectionResult): Decided | null {
   const report = asPlant(newest);
   const verdict = report.gate?.verdict;
   const proof = verdict === 'failed' ? proofOf(store, report) : null;
-  if (proof) return { key: 'injection-proof', label: ACTIONS.openProof.label, runId: proof.runId, href: links.run(proof.runId, proof.evidence?.[0]?.callNo ?? proof.readAt ?? null), title: `Opens ${short(proof.runId)}`, sub: `${injectionLine(newest)} · ${proof.payload} at #${proof.read}` };
+  if (proof) return { key: 'injection-proof', label: ACTIONS.openProof.label, runId: proof.runId, href: links.run(proof.runId, proofCall(proof)), title: `Opens ${short(proof.runId)}`, sub: `${injectionLine(newest)} · ${proof.payload} at #${proof.read}` };
   if (verdict !== 'inconclusive') return null;
   const again = () => (report.cost ? injectionAgainEstimate(report as PlantReport) : null);
   const why = report.gate?.reason ?? 'no attempt decided';
@@ -897,9 +880,25 @@ export function stepCalls(store: StoreOf<'readModels'>, run: Pick<RunRecord, 'ru
 export function goldenStep(store: Store, golden: string, work: NextStepWork | null, reads: StepReads): NextStep | null {
   const result = reads.results(golden)[0];
   if (!result || verdictOfResult(result) === 'passed') return null;
+  const gate = gateStep(store, golden, result);
+  if (gate !== undefined) return gate;
   const more = verdictOfResult(result) === 'inconclusive' ? gateResultView(result, golden)?.more : null;
   if (more) return { key: 'more-attempts', label: ACTIONS.runMoreAttempts.label, golden, command: commandLine(more.args) };
   return (result.runId ? listedStep(store, result.runId, work, { reads }) : null) ?? null;
+}
+
+/**
+ * A golden whose verdict is its injection gate's (its replay passed): a failed gate leads with its
+ * proof, the first attempt that obeyed (else influenced) that the store still has; one that showed too
+ * little to say runs the golden and its gate again. Undefined for a golden whose verdict is not its gate's.
+ */
+function gateStep(store: Store, golden: string, result: TestResult): NextStep | null | undefined {
+  const gate = result.failure === 'injection' ? result.data?.injection : null;
+  if (!gate) return undefined;
+  if (gate.verdict === 'inconclusive') return { key: 'gate-again', label: ACTIONS.rerunTest.label, golden, command: commandLine(['test', golden]), sub: gateAgainSub(gate.reason) };
+  const kept = gate.resultId ? store.getInjectionResult(gate.resultId) : null;
+  const proof = kept ? proofOf(store, kept.data) : null;
+  return proof ? { key: 'injection-proof', label: ACTIONS.openProof.label, runId: proof.runId, href: links.run(proof.runId, proofCall(proof)), title: `Opens ${short(proof.runId)}`, sub: `${injectionLine(kept!)} · ${proof.payload} at #${proof.read}` } : null;
 }
 
 /** Tests' steps (`GET /api/tests`): of the goldens named, each that leads with one, by its path. */

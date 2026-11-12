@@ -71,6 +71,12 @@ table.gt .chk .ck.passed .cm { color: var(--ok); }
 table.gt .chk .ck.failed .cm { color: var(--err); }
 table.gt .chk .ck.inconclusive .cm { color: var(--warn); }
 table.gt .chk .ck.not-applicable .cm, table.gt .chk .ck.not-applicable .cw { color: var(--faint); }
+/* A golden's injection gate: no check but a line under them, a hairline above it (its tests entry sets it), its words a link to its results. */
+table.gt .chk .ck.injck { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--line); }
+table.gt .chk .nil + .ck.injck { margin-top: 6px; }
+table.gt .chk .ck.injck:not(:has(.cm)) .cw { padding-left: 16px; }
+table.gt .chk .ck.injck a.cw { text-decoration: none; }
+table.gt .chk .ck.injck a.cw:hover { text-decoration: underline; text-decoration-color: var(--line2); text-underline-offset: 3px; }
 /* Tests' table fits its panel at every width, as the mock's .gtw does: the mode and where a golden came from go under
    its name, Last result keeps a width of its own, and the container's width decides what gives way. Below 1000px of
    room the oldest revisions go; below 820px the checks go under the name; below 640px (a phone) the revisions become

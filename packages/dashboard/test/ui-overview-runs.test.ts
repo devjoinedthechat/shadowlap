@@ -73,6 +73,8 @@ describe('the Overview’s words', () => {
       { text: `8${nb}of${nb}72${nb}· `, kind: 'text' },
       { text: 'refund-over-limit', kind: 'nw' },
     ]);
+    // An injection test's Security row, as the mock glues it.
+    expect(keepParts('send_email obeyed a planted instruction · 8 of 72')).toEqual([{ text: `send_email obeyed a planted${nb}instruction${nb}· 8${nb}of${nb}72`, kind: 'text' }]);
     // A whole run id is no short id: it stays in its words.
     expect(keepParts('run 01K5CQ5D2WABCDEFGHJKMNPQRS')).toEqual([{ text: 'run 01K5CQ5D2WABCDEFGHJKMNPQRS', kind: 'text' }]);
     // A hyphenated word longer than a name, a project's path, stays in its words too, to break where it must.
