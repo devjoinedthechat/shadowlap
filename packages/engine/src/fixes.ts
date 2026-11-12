@@ -350,7 +350,7 @@ export function recordVerdict(store: StoreOf<'recording' | 'fixes'>, input: Verd
 }
 
 /** Whether a verdict on a fix's check counts by the runs it replayed: some of the fix's failing runs (`mine`), not every one already passing as recorded. */
-function onRuns(failing: ReadonlyArray<Pick<VerifyReport['runs'][number], 'runId' | 'recorded'>>, mine: ReadonlySet<string>): VerdictStanding {
+function onRuns(failing: ReadonlyArray<Pick<StandingRun, 'runId' | 'recorded'>>, mine: ReadonlySet<string>): VerdictStanding {
   const ofFix = failing.filter((x) => mine.has(x.runId));
   if (!ofFix.length) return { counts: false, why: 'no-runs' };
   return ofFix.every((x) => x.recorded.passed === true) ? { counts: false, why: 'already-passing' } : COUNTS;
@@ -549,6 +549,12 @@ export interface FixRecords {
 /** Whether a verdict counts for a fix as it is: as it was kept (VerdictStanding), or made under a check the fix had before and no longer covering it. */
 export type FixStanding = VerdictStanding | { counts: false; why: 'old-check'; missing: string[] };
 
+/** A verified run, as much as a verdict's standing reads of it: its role and whether it passed as recorded. */
+export type StandingRun = Pick<VerifyReport['runs'][number], 'runId' | 'role'> & { recorded: Pick<VerifyReport['runs'][number]['recorded'], 'passed'> };
+
+/** A verdict, as much as its standing for a fix reads (standingOn): the check it ran under, its oracle and its runs, never its attempts. */
+export type StandingVerdict = Pick<StoredVerdict, 'expect'> & { report: { oracle: readonly string[]; runs: readonly StandingRun[] } };
+
 const COUNTS: VerdictStanding = { counts: true, why: null };
 
 /**
@@ -576,7 +582,7 @@ export function madeUnderOldCheck(rec: { fix: Pick<StoredFix, 'check'>; checks: 
 export function standingOn(
   fix: Pick<StoredFix, 'check'>,
   checks: readonly StoredFixCheck[],
-  v: Pick<StoredVerdict, 'expect'> & { report: Pick<VerifyReport, 'oracle' | 'runs'> },
+  v: StandingVerdict,
   stored: VerdictStanding | null,
   runs?: { failing: ReadonlySet<string>; left: ReadonlySet<string> },
 ): FixStanding {
@@ -591,13 +597,33 @@ export function standingOn(
   return runs && replayed.some((x) => runs.left.has(x.runId)) ? onRuns(replayed, runs.failing) : was;
 }
 
-/** Whether a verdict counts for a fix under the check it has (standingOn), read from the store, for a reader that doesn't read the fix's records; null when it isn't the fix's. */
-export function standingIn(store: StoreOf<'fixes'>, fix: StoredFix, v: Pick<StoredVerdict, 'verifyId' | 'expect' | 'report'>): FixStanding | null {
-  const link = store.fixLinks(fix.fixId, 'verify').find((l) => l.ref === v.verifyId);
-  if (!link) return null;
+/** What standingOn reads of a fix beside a verdict, read once for every verdict of it (standingBasis). */
+export interface StandingBasis {
+  fix: Pick<StoredFix, 'fixId' | 'check'>;
+  checks: StoredFixCheck[];
+  /** Its failing runs but those that left it, and those that left: none read while its check never changed, as standingOn then reads neither. */
+  runs: { failing: Set<string>; left: Set<string> };
+}
+
+/** A fix's StandingBasis, from the store: its checks, and its failing runs only once its check changed. */
+export function standingBasis(store: StoreOf<'fixes'>, fix: Pick<StoredFix, 'fixId' | 'check'>): StandingBasis {
   const checks = store.fixChecks(fix.fixId);
   const left = runsLeft(checks).failing;
-  return standingOn(fix, checks, v, link.data, { failing: new Set(store.fixLinks(fix.fixId, 'failing').flatMap((l) => (left.has(l.ref) ? [] : [l.ref]))), left });
+  const failing = checks.length < 2 ? [] : store.fixLinks(fix.fixId, 'failing').flatMap((l) => (left.has(l.ref) ? [] : [l.ref]));
+  return { fix, checks, runs: { failing: new Set(failing), left } };
+}
+
+/**
+ * Whether a verdict counts for a fix under the check it has (standingOn), read from the store, for a
+ * reader that doesn't read the fix's records; null when it isn't the fix's. Its link is read among
+ * the verdict's own, and a fix whose check never changed reads nothing more. `basis`, the fix's
+ * (standingBasis), for a reader of many of its verdicts.
+ */
+export function standingIn(store: StoreOf<'fixes'>, fix: Pick<StoredFix, 'fixId' | 'check'>, v: Pick<StoredVerdict, 'verifyId'> & StandingVerdict, basis?: StandingBasis): FixStanding | null {
+  const link = store.linksTo(v.verifyId, 'verify').find((l) => l.fixId === fix.fixId);
+  if (!link) return null;
+  const b = basis ?? standingBasis(store, fix);
+  return standingOn(b.fix, b.checks, v, link.data, b.runs);
 }
 
 export function fixRecords(store: StoreOf<'fixes'>, fix: StoredFix): FixRecords {

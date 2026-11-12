@@ -1,4 +1,4 @@
-import { fixLabelInfo, fixLinksOfRun, fixOfRun, keptAttemptVerdict, standingIn, pinWords, type AttemptVerdict, type RunRecord, type StoreOf, type StoredFix, type StoredRepair, type StoredVerdict, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
+import { fixLabelInfo, fixLinksOfRun, fixOfRun, keptAttemptVerdict, standingBasis, standingIn, pinWords, type AttemptVerdict, type StandingBasis, type RunRecord, type StoreOf, type StoredFix, type StoredRepair, type StoredVerdict, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
 import { probeLine, runsRule, verifiedLine, type VerdictTone } from './verdict.js';
 import { askedAgain, attemptNote, changeName, fixHref, ROLE, runHref, sprtGate, type VerifyRow } from './fix-shared.js';
 
@@ -103,6 +103,41 @@ function storedReports(store: StoreOf<'activity' | 'fixes'>): { verdicts: Stored
 }
 
 /**
+ * The fix a blame's, verify's or repair's run leads to (`linkedFix`), and whether a verdict counts
+ * for it under the check it has (`counts`, standingIn): each fix, each run's fixes and each fix's
+ * standing basis read once per family, however many verdicts name them.
+ */
+function fixReads(store: StoreOf<'fixes'>) {
+  const fixes = new Map<string, StoredFix | null>();
+  const runFixes = new Map<string, Set<string>>();
+  const bases = new Map<string, StandingBasis>();
+  const fixOf = (fixId: string) => {
+    if (!fixes.has(fixId)) fixes.set(fixId, store.getFix(fixId));
+    return fixes.get(fixId)!;
+  };
+  /** The fixes a run takes part in, as a failing or a good run, but those it left. */
+  const fixesOfRun = (runId: string) => {
+    let of = runFixes.get(runId);
+    if (!of) runFixes.set(runId, (of = new Set([...fixLinksOfRun(store, runId, 'failing'), ...fixLinksOfRun(store, runId, 'good')].map((l) => l.fixId))));
+    return of;
+  };
+  return {
+    linkedFix: (ref: string, kind: 'blame' | 'repair' | 'verify', runOf: string): StoredFix | null => {
+      const linked = store.linksTo(ref, kind).map((l) => fixOf(l.fixId)).filter((f): f is StoredFix => f !== null);
+      // A verdict shared by several fixes leads to the one the run takes part in.
+      if (linked.length < 2) return linked[0] ?? null;
+      const own = fixesOfRun(runOf);
+      return linked.find((f) => own.has(f.fixId)) ?? linked[0]!;
+    },
+    counts: (fix: StoredFix, v: StoredVerdict): boolean => {
+      let basis = bases.get(fix.fixId);
+      if (!basis) bases.set(fix.fixId, (basis = standingBasis(store, fix)));
+      return standingIn(store, fix, v, basis)?.counts ?? true;
+    },
+  };
+}
+
+/**
  * The attempts blame and verify made in a run's family, bundled per probe and per verified run, for
  * the Forks view: each bundle sits under the run its attempts replayed, says which probe blame named
  * (`blamed`) and how the change a verify checked came out, and links to the step of the fix it
@@ -125,12 +160,8 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
   const bundled = new Set<string>();
   const exists = (id: string) => family.has(id);
   const startedAt = (ids: readonly string[], fallback: number) => Math.min(...ids.map((id) => family.get(id)?.startedAt ?? fallback), fallback);
-  const linkedFix = (ref: string, kind: 'blame' | 'repair' | 'verify', runOf: string): StoredFix | null => {
-    const fixes = store.linksTo(ref, kind).map((l) => store.getFix(l.fixId)).filter((f): f is StoredFix => f !== null);
-    // A verdict shared by several fixes leads to the one the run takes part in.
-    const own = fixes.find((f) => [...fixLinksOfRun(store, runOf, 'failing'), ...fixLinksOfRun(store, runOf, 'good')].some((l) => l.fixId === f.fixId));
-    return own ?? fixes[0] ?? null;
-  };
+  const reads = fixReads(store);
+  const linkedFix = reads.linkedFix;
 
   // Blame: each blame of a run in the family whose probes are here (they fork from the run blamed), a
   // bundle per probed call.
@@ -235,7 +266,7 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
       const fix = linkedFix(v.verifyId, 'verify', x.runId);
       const change = changeName(v);
       // Whether it counts for the fix it leads to, under the check the fix has, as its Verify step says.
-      const counts = fix ? (standingIn(store, fix, v)?.counts ?? true) : null;
+      const counts = fix ? reads.counts(fix, v) : null;
       verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, counts, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at, runsRule({ gate: sprtGate(v.report.gate), needed: v.report.needed, attemptsPerRun: v.report.attemptsPerRun, kept: v.report.kept ?? null }, x));
     }
   }

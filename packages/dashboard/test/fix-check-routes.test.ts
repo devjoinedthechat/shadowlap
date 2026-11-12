@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { changeFixCheck, checkKey, markFixApplied, recordBlame, recordVerdict, shortFixId, Store } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, ORACLE, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixAttemptGroups } from '../src/attempt-groups.js';
@@ -245,6 +245,43 @@ describe("what reads a verdict's standing, after a fix's check changed", () => {
     const [row, inForks] = counted();
     expect(row).toMatchObject({ counts: false, line: "Doesn't count for this fix: it was checked under the fix’s old check" });
     expect(inForks).toBe(false);
+  });
+
+  it('reads a fix verified 200 times once for all its verdicts, and no verdict’s record whole, before its check changed and after', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'] });
+    const fix = opened(failing);
+    const report = verifyReport([{ runId: failing, role: 'target', pass: false }], { oracle: ORACLE });
+    for (let i = 0; i < 200; i++) recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify', at: 10_000 + i });
+    for (const a of report.runs[0].attempts) store.createRun({ runId: a.runId, mode: 'replay', parentRunId: failing, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 2_000, meta: { verify: { role: 'target', passed: a.passed } } });
+    /** What `read` answers, with how often it read the fix's checks and a verdict's record whole. */
+    const reading = <T,>(read: () => T) => {
+      const checks = vi.spyOn(store, 'fixChecks');
+      const verdicts = vi.spyOn(store, 'getVerdict');
+      try {
+        const out = read();
+        return { out, checks: checks.mock.calls.length, verdicts: verdicts.mock.calls.length };
+      } finally {
+        checks.mockRestore();
+        verdicts.mockRestore();
+      }
+    };
+    const view = () => reading(() => verdictsView(store, [], { limit: 200 }).rows.filter((x) => x.kind === 'verify').map((x) => x.counts));
+    const forks = () => reading(() => fixBundles(store, failing)!.filter((b) => b.kind === 'verify').map((b) => b.counts));
+    const counting = (all: Array<boolean | null>, counts: boolean) => [all.length, all.every((c) => c === counts)];
+    // While its check never changed, the Verdicts read takes each standing from its link, and the Forks view reads the fix once.
+    let v = view();
+    let f = forks();
+    expect([counting(v.out, true), v.checks, v.verdicts]).toEqual([[200, true], 0, 0]);
+    // Its 200 verdicts replayed the same attempts, which the Forks view bundles once.
+    expect([counting(f.out, true), f.verdicts]).toEqual([[1, true], 0]);
+    expect(f.checks).toBeLessThanOrEqual(2);
+    // Once it changed, each still reads the fix once, and of each verdict only what its standing needs.
+    change(fix.fixId, failing);
+    v = view();
+    f = forks();
+    expect([counting(v.out, false), v.verdicts]).toEqual([[200, true], 0]);
+    expect([counting(f.out, false), f.verdicts]).toEqual([[1, true], 0]);
+    expect([v.checks, f.checks].every((n) => n <= 2)).toBe(true);
   });
 
   it("groups a fix's attempts under a blame made under its check, the old check's blame until there is one", () => {

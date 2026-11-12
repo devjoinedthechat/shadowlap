@@ -1,4 +1,4 @@
-import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, leftFixLinkSql, migrateBreaks, migrateUnsettled, outcomeOf, plural, runOutcomeWord, standingIn, verdictWord, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type FixStanding, type MigratePasses, type Normalizer, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
+import { controlOpen, decisionsHeadline, decisionsMoved, decisionsName, decisionsUnsettled, emptyCounts, fixVerifyHead, goldensPassed, judgeOpen, leftFixLinkSql, migrateBreaks, migrateUnsettled, outcomeOf, plural, runOutcomeWord, standingBasis, standingOn, verdictWord, verifyHead, type DecisionCounts, type DecisionStep, type DecisionsVerify, type FixStanding, type MigratePasses, type Normalizer, type StandingBasis, type StandingRun, type StandingVerdict, type StepRerun, type StoreOf, type TestResult, type TestSession, type UnsettledRun, type VerdictStanding, type VerifiedRun, type VerifyOutcome, type VerifyReport } from '@shadowlap/engine';
 import { changeName, fieldsOf } from './fix-shared.js';
 import { uncountedHead } from './fix-verify-step.js';
 import { isRevisionKey } from './links.js';
@@ -553,19 +553,57 @@ interface VerifyFix {
   failing: string[];
 }
 
-/** A verify's standing for a fix under the check the fix has (standingIn), else as its link keeps it. */
-function standingFor(store: Store, fixId: string, verifyId: string, kept: VerdictStanding | null): FixStanding {
-  const fix = store.getFix(fixId);
-  const v = store.getVerdict(verifyId);
-  return (fix && v ? standingIn(store, fix, v) : null) ?? (kept?.counts === false ? kept : { counts: true, why: null });
+/** What standingOn reads of each verdict named, out of its kept record in SQL without its attempts (StandingVerdict). */
+function standingVerdicts(store: Store, ids: readonly string[]): Map<string, StandingVerdict> {
+  const out = new Map<string, StandingVerdict>();
+  if (!ids.length) return out;
+  const rows = store.query(
+    `SELECT v.verify_id AS id, v.record -> '$.expect' AS expect, v.record -> '$.report.oracle' AS oracle,
+       (SELECT json_group_array(json_object('runId', json_extract(r.value, '$.runId'), 'role', json_extract(r.value, '$.role'), 'passed', json_extract(r.value, '$.recorded.passed')))
+          FROM json_each(v.record, '$.report.runs') r) AS runs
+     FROM verdicts v WHERE v.verify_id IN (SELECT value FROM json_each(?))`,
+    JSON.stringify(ids),
+  );
+  for (const r of rows) {
+    const runs = parsed<Array<{ runId: string; role: StandingRun['role']; passed: number | null }>>(r.runs, []);
+    const report = { oracle: parsed<string[]>(r.oracle, []), runs: runs.map((x) => ({ runId: x.runId, role: x.role, recorded: { passed: x.passed === null ? null : x.passed === 1 } })) };
+    out.set(String(r.id), { expect: parsed<unknown>(r.expect, null), report });
+  }
+  return out;
+}
+
+/**
+ * Each verify's standing for a fix under the check the fix has (standingOn), else as its link keeps
+ * it (`kept`). Only the fixes whose check changed (`changed`, their verify links) are read again:
+ * each such fix once (standingBasis), and of each of its verdicts only what standingOn reads.
+ */
+function standingsOf(store: Store, changed: ReadonlyArray<{ fixId: string; verifyId: string }>): (fixId: string, verifyId: string, kept: VerdictStanding | null) => FixStanding {
+  const bases = new Map<string, StandingBasis | null>();
+  for (const { fixId } of changed) {
+    if (bases.has(fixId)) continue;
+    const fix = store.getFix(fixId);
+    bases.set(fixId, fix ? standingBasis(store, fix) : null);
+  }
+  const verdicts = standingVerdicts(store, [...new Set(changed.map((c) => c.verifyId))]);
+  return (fixId, verifyId, kept) => {
+    const b = bases.get(fixId);
+    const v = verdicts.get(verifyId);
+    return b && v ? standingOn(b.fix, b.checks, v, kept, b.runs) : (kept ?? { counts: true, why: null });
+  };
 }
 
 /** The fix each verify is a row of: the first it counts for, else the first that keeps it; with that fix's failing runs, but those that left it. */
 function fixesOf(store: Store, ids: readonly string[]): Map<string, VerifyFix> {
-  const rows = store.query(`SELECT l.ref AS id, l.fix_id AS fix, l.data AS standing, f.title AS title FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id WHERE l.kind = 'verify' AND l.ref IN (SELECT value FROM json_each(?)) ORDER BY l.at, l.fix_id`, JSON.stringify(ids));
+  const rows = store.query(
+    `SELECT l.ref AS id, l.fix_id AS fix, l.data AS standing, f.title AS title, (SELECT COUNT(*) FROM fix_checks c WHERE c.fix_id = l.fix_id) AS checks
+     FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id WHERE l.kind = 'verify' AND l.ref IN (SELECT value FROM json_each(?)) ORDER BY l.at, l.fix_id`,
+    JSON.stringify(ids),
+  );
+  // A fix whose check never changed has each verdict as its link keeps it.
+  const standingOf = standingsOf(store, rows.filter((r) => Number(r.checks) > 1).map((r) => ({ fixId: String(r.fix), verifyId: String(r.id) })));
   const out = new Map<string, VerifyFix>();
   for (const r of rows) {
-    const standing = standingFor(store, String(r.fix), String(r.id), parsed<VerdictStanding | null>(r.standing, null));
+    const standing = standingOf(String(r.fix), String(r.id), parsed<VerdictStanding | null>(r.standing, null));
     const was = out.get(String(r.id));
     if (!was || (!was.standing.counts && standing.counts)) out.set(String(r.id), { fixId: String(r.fix), title: String(r.title), standing, failing: [] });
   }
