@@ -1,5 +1,6 @@
 import type { CheckContext, CheckPreview, ContextCall, PreviewGolden, PreviewRow, ResultField } from '../src/check-preview.js';
 import type { ChecksConfig, ConfigPrints, GoldenEntry, TestsWritten } from '../src/config-tests.js';
+import type { FixCheckPreview, FixCheckRow } from '../src/fix-check.js';
 import type { Request } from './settings-api.js';
 
 /**
@@ -7,11 +8,12 @@ import type { Request } from './settings-api.js';
  * their tests entries as written, what a run's calls offer before a call, a draft judged on the
  * agent's recordings, and a golden's tests entry written back. The write sends the version of
  * shadowlap.config.json the builder read and the prints of its keys and entries (`read`), so the
- * server refuses it with a 409 naming what changed on disk since. Types only from the server's
- * modules (src/config-tests.ts, src/check-preview.ts): nothing here needs Node.
+ * server refuses it with a 409 naming what changed on disk since. In fix mode, a draft judged on an
+ * open fix's runs (`fixPreview`), which Save check gives the fix through its job. Types only from the
+ * server's modules (src/config-tests.ts, src/check-preview.ts, src/fix-check.ts): nothing here needs Node.
  */
 
-export type { CheckContext, CheckPreview, ChecksConfig, ConfigPrints, ContextCall, GoldenEntry, PreviewGolden, PreviewRow, ResultField };
+export type { CheckContext, CheckPreview, ChecksConfig, ConfigPrints, ContextCall, FixCheckPreview, FixCheckRow, GoldenEntry, PreviewGolden, PreviewRow, ResultField };
 
 /** Whose checks: the agent of a run, or one golden (a golden's own Edit checks). */
 export type ChecksOf = { run: string } | { golden: string };
@@ -27,6 +29,12 @@ export interface ChecksApi {
   preview(expect: unknown, of: ChecksOf, signal?: AbortSignal): Promise<CheckPreview>;
   /** The golden's entry as it changes: `{ expect }`, or `{ expect: null }` to take its checks out. */
   save(body: { golden: string; version: string; read: ConfigPrints; entry: { expect: unknown } }): Promise<ChecksSaved>;
+  /**
+   * Judged on every run an open fix holds, from what each recorded, as `shadowlap fix check` judges
+   * them; it changes nothing. With `context`, a fix of any status, nothing refused or uncounted: its
+   * runs beside a check added to the golden that guards it.
+   */
+  fixPreview(fixId: string, expect: unknown, o?: { context?: boolean; signal?: AbortSignal }): Promise<FixCheckPreview>;
   /** Puts back what the write that answered `was` changed, unless the file changed since (a 409). */
   undo(was: string): Promise<ChecksSaved>;
 }
@@ -40,11 +48,12 @@ export function checksApi(request: Request): ChecksApi {
     context: (runId, at) => request(`checks/context?run=${q(runId)}&at=${at}`),
     preview: (expect, of, signal) => send('POST', 'checks/preview', { expect, ...of }, signal),
     save: (body) => send('PUT', 'checks/tests', body),
+    fixPreview: (fixId, expect, o = {}) => send('POST', `fixes/${q(fixId)}/check-preview`, { expect, ...(o.context ? { context: true } : {}) }, o.signal),
     undo: (was) => send('POST', 'checks/tests/undo', { was }),
   };
 }
 
 /** An exported copy makes no checks: every call says so. */
 export function noChecks(refuse: () => Promise<never>): ChecksApi {
-  return { goldens: refuse, context: refuse, preview: refuse, save: refuse, undo: refuse };
+  return { goldens: refuse, context: refuse, preview: refuse, save: refuse, fixPreview: refuse, undo: refuse };
 }

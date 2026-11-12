@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { changeFixCheck, checkKey, Store } from '@shadowlap/engine';
 import { blameReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail } from '../src/fixes.js';
 import { fixesView } from '../src/fixes-view.js';
@@ -59,6 +59,26 @@ describe('a fix whose crash no model rescued', () => {
     expect(fixDetail(store, fixId)!.blame!.crash).toBeNull();
     tested(rec, T0 + 4 * MIN, 'passed');
     expect(detail(fixId, work([source(rec)])).lead?.key).not.toMatch(/^(bisect|revert)$/);
+  });
+
+  it('leaves the crash’s step to its run once a check given since passed that run, which left the fix', () => {
+    const { rec, run, fixId } = blamed('crashed', { rerun: true });
+    // Another failing run of the fix, which the check given since still fails.
+    const other = tested(rec, T0 + 4 * MIN, 'diverged');
+    store.addFixLink(fixId, 'failing', other, T0 + 5 * MIN);
+    const w = work([source(rec)]);
+    expect(detail(fixId, w).lead?.key).toBe('bisect');
+    const email = { calls: [{ tool: 'send_email', times: 1 }] };
+    changeFixCheck(store, fixId, { check: { expect: email, key: checkKey(email), oracle: ['send_email called 1 time'], text: 'send_email called 1 time' }, judged: { failing: { [run]: 'passed', [other]: 'failed' }, good: {} }, at: T0 + 6 * MIN });
+    const d = detail(fixId, w);
+    expect(d.failingRuns.map((r) => r.runId)).toEqual([other]);
+    // Its old check's blame runs no more (its run left), so Run repair leads: it blames the runs the fix holds.
+    expect(d.actions.blameAgain).toBeNull();
+    expect(d.lead?.key).toBe('repair');
+    expect(fixesView(store, { next: w }).fixes[0].next?.key).toBe('repair');
+    // Nor does Revert lead once Find breaking commit named the commit: the run's own page keeps both.
+    named(T0 + 2 * MIN);
+    expect(detail(fixId, w).lead?.key).toBe('repair');
   });
 });
 

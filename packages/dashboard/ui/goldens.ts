@@ -4,6 +4,7 @@ import { STATUS_WORDS } from '../../engine/src/check-status.js';
 import { CHECK_MARKS, checkLine, notApplicableParts } from '../../engine/src/checks/labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
+import { judgeRows } from './judge-rows.js';
 import { href } from './route.js';
 import { noteText, UNGUARDED_FIX } from './run/note-words.js';
 import type { BisectMiss, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, InconclusiveView, TestsView } from './types.js';
@@ -149,7 +150,7 @@ function untested(c: GoldenCheck, ran: boolean): CheckMarkView {
   const value = c.added ? 'Added to shadowlap.config.json since its last test: its next test judges it' : ran ? 'its last test couldn’t run the golden, so no check has a result' : 'its golden hasn’t run yet';
   const sub = c.added ? `added ${c.addedAt !== null && justNow(c.addedAt) ? 'just now' : 'since its last test'} · ${word}` : null;
   const tip = { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' };
-  return { mark: null, status: null, word, text: c.label, sub, tip: c.judge?.question ? { ...tip, rows: [{ label: 'Asks', value: c.judge.question }], note: value } : tip };
+  return { mark: null, status: null, word, text: c.label, sub, tip: c.judge?.question ? { ...tip, rows: judgeRows({ question: c.judge.question }), note: value } : tip };
 }
 
 /**
@@ -209,8 +210,7 @@ export function checkMark(c: GoldenCheck, ran: boolean, cell = false): CheckMark
 function judgeCard(m: CheckMarkView, c: GoldenCheck): CheckMarkView {
   const j = c.judge!;
   const verdict = c.status === 'passed' || c.status === 'failed' ? j.verdict : null;
-  const answered = verdict ? [{ label: 'Answered', value: c.reason ? `${verdict}: ${c.reason}` : verdict }, ...(j.model ? [{ label: 'Model', value: j.model }] : [])] : [];
-  const rows = [...(j.question ? [{ label: 'Asks', value: j.question }] : []), ...answered];
+  const rows = judgeRows({ question: j.question, ...(verdict ? { answered: c.reason ? `${verdict}: ${c.reason}` : verdict, model: j.model } : {}) });
   if (!rows.length) return m;
   const line = judgedLine(c);
   const note = verdict ? (m.sub === line ? null : line) : j.held === 'none' ? 'Not judged offline · update the golden to ask it once' : m.tip.value;

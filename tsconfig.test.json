@@ -76,6 +76,7 @@
     "packages/dashboard/test/ui-check-entry.test.ts",
     "packages/dashboard/test/ui-check-builder-dialog.test.ts",
     "packages/dashboard/test/ui-check-builder-view.test.ts",
+    "packages/dashboard/test/ui-check-builder-fix.test.ts",
     "packages/dashboard/test/ui-check-builder.test.ts",
     "packages/dashboard/test/ui-client-cache.test.ts",
     // These render the Runs page's bulk bar, the Overview's panels and the lists of runs.
@@ -88,6 +89,7 @@
     "packages/dashboard/test/ui-fix-page.test.ts",
     "packages/dashboard/test/ui-fix-head.test.ts",
     "packages/dashboard/test/ui-fix-steps.test.ts",
+    "packages/dashboard/test/ui-fix-check.test.ts",
     "packages/dashboard/test/ui-fix-crash.test.ts",
     "packages/dashboard/test/ui-fixes-list.test.ts",
     // This drives the fork menu's actions, with their confirmation of someone else's command.

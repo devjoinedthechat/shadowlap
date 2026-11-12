@@ -10,7 +10,7 @@ import type { Settled, Unit } from './model.js';
  * the rule being built reads `new`, one edited `changed`, one removed crossed out with Keep, and a
  * tool's count another of the same tool replaces `replaced`. Rows end on Edit and Remove; a refused
  * rule reads in amber with the engine's words. The golden it goes to heads the list, a picker while a
- * check from a call is added for an agent with more than one golden.
+ * check from a call is added for an agent with more than one golden; in fix mode, the fix's check.
  */
 export interface RulePickerProps {
   settled: Settled;
@@ -19,6 +19,8 @@ export interface RulePickerProps {
   goldens: readonly GoldenEntry[];
   golden: GoldenEntry | null;
   picker: boolean;
+  /** A heading of its own in the golden's place: fix mode's, whose check is the fix's, in no golden. */
+  heading?: string | undefined;
   onGolden: (path: string) => void;
   onEdit: (i: number) => void;
   onRemove: (i: number) => void;
@@ -26,13 +28,15 @@ export interface RulePickerProps {
   onAdd: () => void;
 }
 
-export function RulePicker({ settled, units, active, goldens, golden, picker, onGolden, onEdit, onRemove, onKeep, onAdd }: RulePickerProps) {
+export function RulePicker({ settled, units, active, goldens, golden, picker, heading, onGolden, onEdit, onRemove, onKeep, onAdd }: RulePickerProps) {
   const blank = units.some((u) => !u.orig && !u.f && !u.rule);
   const gate = golden && isObject(golden.entry) && golden.entry.injection !== undefined ? golden.entry.injection : undefined;
   return (
     <section className="cb-sec">
       <p className="cb-k">
-        {golden ? (
+        {heading ? (
+          <span className="k">{heading}</span>
+        ) : golden ? (
           <>
             <span className="k">Checks of</span>
             {picker ? (

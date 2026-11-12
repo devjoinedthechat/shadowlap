@@ -1232,11 +1232,13 @@ All, Open, Ready to apply and Applied filter them. A merged fix is under Applied
 
 ### A fix's page
 
-A fix's page heads with its name over its title. Its about line says where it stands as its Fixes row does (*blamed*, *verified*, *merged · PR #138*), then its failing runs, a link that opens its issue on Runs › Failed, its good runs, and when it was opened, verified and applied. Under it: what failed and its check, as the list says them.
+A fix's page heads with its name over its title. Its about line says where it stands as its Fixes row does (*blamed*, *verified*, *merged · PR #138*), then its failing runs, a link that opens its issue on Runs › Failed, its good runs, and when it was opened, verified and applied. Under it: what failed and its check, as the list says them. A check with a judge has the judge's card on the check, on the page and its Fixes row alike: what it asks, what it reads and the model, asked live in each attempt that exits 0.
+
+The check ends on the way to change it. On an open fix, **Edit check…** opens the [check builder](#making-a-check) on the fix's own check. A verified or applied fix keeps the check its verdict was given under, so it offers **Add check to *golden*…**, for the golden that guards it, or **Add check…** where none does. A verified fix no golden guards is usually one to apply first.
 
 Its buttons follow where it stands, with its next step the one lime button: the step its Fixes row leads with. Where they would crowd the title, they go under it, the lime one first. What each does is under [Actions on a fix](#actions-on-a-fix).
 
-A crash no model rescued leads with its run's step, **Find breaking commit**, after **Run repair** and, where blame offers it, **Run blame with stronger model**. Once the search named the commit, **Revert** leads, with **Open in editor** beside it at the line the commit added. **Find breaking commit** then leaves the fix's buttons: the run's page keeps it, to search again.
+A crash no model rescued leads with its run's step, **Find breaking commit**, after **Run repair** and, where blame offers it, **Run blame with stronger model**. Once the search named the commit, **Revert** leads, with **Open in editor** beside it at the line the commit added. **Find breaking commit** then leaves the fix's buttons: the run's page keeps it, to search again. A crashed run the fix's check no longer fails has left the fix, so its steps stay on the run's page.
 
 The page opens on its last finished step: Blame, Repair or Verify. While a job of the fix runs a step, the stepper says so, its dot pulsing: *Repairing…*, or *Verifying…* for every verify.
 
@@ -1244,10 +1246,12 @@ The page opens on its last finished step: Blame, Repair or Verify. While a job o
 
 The Blame step opens on its verdict line: *blamed* in ink, or *inconclusive*, *stopped* or *not rescued* in amber. Beside the word are the probes' tallies, as *2 of 4 rescued from #5, 0 of 4 from #7*. Under it are the call, the run and the confidence, with why on hover. **Open run** opens the run at the call blamed, where a stopped search got to, or at the first probe's call, and whole where its agent exited with an error. Then comes what blame found, in one sentence.
 
+A blame found under a check the fix had before its own says so above its verdict line, *Found under the fix’s old check*, naming that check. While its run still fails the fix's check, it gives what runs under that check, with its command: Run blame again, or Run blame with stronger model for a blame no call rescued. The stepper reads *old check*, in amber.
+
 Its sections:
 
 - **Where the run was lost**, on its row of calls. Each probe's tally sits over its call, and every model call says on hover what blame made of it, a tool call its tool's name. The key names only what the row shows.
-- **The recorded answer** at that call next to the rescued fork's, and the training pairs they make. A blame that found no call shows the check instead.
+- **The recorded answer** at that call next to the rescued fork's, and the training pairs they make. A blame that found no call shows the check instead, each judge's line with that judge's card.
 - **The probes**, each row opening the run at its call. One cell holds the tally, its bound and a bar of the interval against the gate's two marks. The verdict is a dot and a word.
 - **Every attempt** of a probe, under its row on request, grouped by what each did. A group shows the tool calls its attempts made from the probed call on and how they came out. A call that didn't plainly run is marked, as *issue_refund (blocked)*.
 
@@ -1282,7 +1286,7 @@ The Repair step opens on its verdict line:
 - **accepted**, in lime, headed as the Verify step heads the same verdict (*Fixes 1 of 1 target run, keeps 1 of 1 good*). Under it: when it was repaired and who proposed the candidates, then the gate's rule and *verified twice, the second time with fresh attempts*.
 - **rejected**, in red, where the gate turned down every candidate it tried, headed by why (*The gate accepted none of the 2 candidates tried*). *not fixed* reads red too; *no fix to try* and *stopped* read amber.
 
-A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the prompt yourself and verify it.
+A repair that accepted nothing says when it ran (*Ran*, never *Repaired*) and leaves the fix open: *Repair again, or verify a fix of your own*. Once repairing again would only try the same, it says to change the check, or change the prompt yourself and verify it.
 
 Its sections:
 
@@ -1312,6 +1316,8 @@ It opens on the newest verdict that counts for the fix. A verdict is headed by t
 - else what it did role by role (*Fixes 1 of 1 target run, keeps 1 of 1 good*).
 
 One that doesn't count for the fix is drawn plain and headed with why (*Doesn't count for this fix: its check leaves out send_email called 1 time*). It is marked so in the switch.
+
+A verdict made under a check the fix had before counts only while its check asks everything the fix's does. One that doesn't is headed *Doesn't count for this fix: it was checked under the fix’s old check*. Under its verdict line it says it is kept and no longer counted, with the verify command under the fix's check.
 
 **A verdict that didn't settle every run** reads *inconclusive*, in amber, as it does on every page; verify's own word for it, *incomplete*, stays in its report. The fix's header leads with what settles it, as its lime button, rightmost, its other buttons plain:
 
@@ -1997,6 +2003,16 @@ The check builder makes a check from a tool call and writes it to the golden's e
 
 A press outside the dialog never closes it. Esc closes it while nothing changed, and asks first once a rule did.
 
+**On a fix.** Edit check… opens the builder on an open fix's check, its first rule in the editor, and saves the check to the fix, never to `shadowlap.config.json`:
+
+- **The check of this fix**: its rules, listed as a golden's are. A fix whose check is the exit code alone opens on one blank rule.
+- **Its runs under this check**: each failing and good run of the fix, judged by the whole check as built, judges in, from what it recorded. A failing run it passes would leave the fix, and a good run it fails would no longer be kept as good: those, and a run it can't settle, read in amber. Then the `shadowlap check` command.
+- **What changes**: blame runs again first under the check, repair and verify use it, the verdicts that would stop counting, each named by the change it verified, and the config, unchanged. Then the [`shadowlap fix check`](./cli.md#fix-check) command.
+
+**Save check** runs that command as a job, and the drawer ends on the fix's next step. It stays off until the fix's runs are judged by the check as it stands, and while no failing run fails it, since the fix would no longer be this failure. It reads plain while a run needs a look. A refusal keeps the builder open, with the server's words in its amber line.
+
+**Add check to *golden*…**, on a verified or applied fix, opens the builder on the golden that guards it, the fix's runs under the draft folded below Against your recordings, for context. With no golden guarding it, the builder gives the `shadowlap pack` command for a recording of the fix working, into the golden `fix apply` would name, and Save check stays off.
+
 ### Actions on a fix
 
 **Run repair**, on an open fix, runs [`shadowlap repair`](./repair.md):
@@ -2020,14 +2036,14 @@ It asks first on every setting of [Spending](#spending), since it runs your agen
 
 The dialog's cost line then reads *Free*, nothing runs, and the blame's own next step leads instead:
 
-- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
+- **Run blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), that stopped part way (to the end, without its budget), or that was found under an earlier check, under the fix's check.
 - **Run blame with stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run. Its Cost line follows the model you type.
 
 Run blame again goes by [Spending](#spending), priced for its lower bar. Its ask shows that bar beside the last blame's, or, for a search that stopped, the furthest call it had rescued the run at.
 
 Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
 
-**After a repair that accepted nothing.** When the last repair's gate rejected every candidate, and nothing has changed since (the check, or a blame after it), Run repair waits: it would try the same. Its hover says *Repair rejected every candidate*. The fix leads with what that repair's verdict left to settle, Run more attempts or Verify again, if anything.
+**After a repair that accepted nothing.** When the last repair's gate rejected every candidate, and nothing has changed since (the check, or a blame after it), Run repair waits: it would try the same. Its hover says *Repair rejected every candidate*, and its notice offers **Edit check…**, since what is left is to change the check or verify a change of your own. The fix leads with what that repair's verdict left to settle, Run more attempts or Verify again, if anything.
 
 **Verify this run**, on a verified fix whose change is in your working tree, merged with its pull request or not, verifies your working tree as it is on the failing runs no accepted verdict checked. It reads *Verify these runs* for several, and runs one verify under the fix's check, by the accepted verdict's gate. It leads until no such run is left, with Mark applied plain before it until the fix is merged, and goes by [Spending](#spending), asking with *Verify change on* the run.
 
@@ -2724,10 +2740,13 @@ The whole answer adds `pair`: what B decided differently from A after the calls 
 | `GET /api/fixes/:id`; `PUT /api/fixes/:id/title` | One fix, by its id or a prefix, with its three steps; its title |
 | `GET /api/fixes/:id/groups` | A fix's attempts grouped by what each did |
 | `GET /api/fixes/:id/estimates?model=` | What Run repair, Run blame again or with a stronger model, Verify this run, and each Verify step's more attempts bill |
+| `POST /api/fixes/:id/check-preview` | A draft check judged on every run an open fix holds, from what each recorded, before Save check gives the fix it |
 | `GET /api/fixes/family/:runId` | The attempts blame and verify made in a run's family, bundled per probe and per verified run |
 
 - **Groups**: for its blame's probes and for each verified run, each group's `path` (the tool calls from where the attempts left the run), `verdict`, `count`, `why` (the first failure), and an `example` attempt to open.
 - **Its estimates**: `repair`, `blameAgain`, `blameStronger`, `verifyLeft` for Verify this run, and `verify` by each verdict's id, worked out beside the server for what the page offers. Run repair prices a blame only of a failing run whose blame it can't reuse, and is Free where it ends "No fix to try". `model` prices the stronger model; without it, `claude-opus-5-5`.
+- **A check's preview**: `rows`, each run's `role`, `outcome`, `na` (no check applied) and `checks`, failing runs first, as [`fix check`](./cli.md#fix-check) judges them. Then `refused`, why Save check would be refused, and `uncounted`, the verdicts that would stop counting. A fix that isn't open is a 409, and a check the command can't take is a 400 in its words.
+- **A check's preview as context**: with `context: true`, the runs of a fix of any status, beside a check added to the golden that guards it. Nothing is refused or uncounted.
 - **A run's family**: each bundle with the fix step it leads to, its verdict as a gate's is said (`verdictLine`: the word, the tally and the bound), its `tone`, and the `rule` it was decided by.
 
 ### Tests and CI
@@ -2967,7 +2986,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `apply { fixId, names? }` | [`fix apply`](./cli.md#fix): a verified fix's patch into the working tree, its goldens named by their runs as `names` says, and tested |
 | `bisect { golden \| runId, good, bad? }` | Find breaking commit |
 | `blame { runId, expect?, command?, yes? }` | Blame with the check given, else the one it was judged by, else a 422 that asks for it. A capture takes your `command` |
-| `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again, under its check, when it couldn't settle or stopped part way, or with another model when nothing rescued its run |
+| `blame { fixId, again: true, yes? }`, `blame { fixId, model, yes? }` | An open fix's blame again under its check (unsettled, stopped, or found under an earlier check), or with another model when nothing rescued its run |
 | `calibrate { runId?, write? }` | The setup's recording, else the newest finished one made here, unless one is named |
 | `chaos { golden, presets?, tool? }` | `test <golden> --chaos` |
 | `chaos { runId, presets?, tool?, confirmed? }` | `replay <run> --chaos` |
@@ -2977,6 +2996,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 | `decisions { runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify? }` | A decision diff |
 | `decisions-verify { sessionId, runId?, runIds?, yes? }` | `decisions --verify` |
 | `export-html`, `export-har`, `pack`, `export-dataset`, `export-otel` | The Share menu's copies, as [Jobs](#jobs) describes them |
+| `fix-check { fixId, expect }` | Save check: [`fix check`](./cli.md#fix-check) on an open fix; a 409 for one not open, a 400 for a check it can't take |
 | `gc { olderThanDays? }` | Always a dry run first; then `gc { confirm }` with that dry run's job id, which deletes exactly the runs it listed |
 | `import { format, uploadId }` | An uploaded capture or trace; or `{ format: "langfuse", traceId, host? }`, with `project?` too for `phoenix` |
 | `init`, `record { command, confirmed? }` | The setup's inspection, and its first recording |
