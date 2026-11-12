@@ -63,8 +63,9 @@ function underFloor(page: Page): Promise<string[]> {
 
 /**
  * Visually hidden text (`.sr`, and the copies of its style) where it is read: none of it makes the
- * page wider or taller than it is without it, and each sits on its own row, within a row's padding of
- * the box that holds it, never sent to the top of a list or the corner of the page.
+ * page wider or taller than it is without it, each sits on its own row, within a row's padding of
+ * the box that holds it, never sent to the top of a list or the corner of the page, and each stays
+ * on one line, as no rule that wraps its row's words reaches it.
  */
 function hiddenText(page: Page): Promise<string[]> {
   return page.evaluate(() => {
@@ -87,6 +88,8 @@ function hiddenText(page: Page): Promise<string[]> {
       if (!up) continue;
       const [a, b] = [el.getBoundingClientRect(), up.getBoundingClientRect()];
       if (a.top < b.top - 24 || a.top > b.bottom + 24) out.push(`${name(el)} “${(el.textContent ?? '').trim().slice(0, 30)}” sits ${Math.round(a.top - b.top)}px from the top of its ${name(up)}`);
+      const ws = getComputedStyle(el).whiteSpace;
+      if (ws !== 'nowrap' && ws !== 'pre' && /\s/.test((el.textContent ?? '').trim())) out.push(`${name(el)} “${(el.textContent ?? '').trim().slice(0, 30)}” wraps (white-space ${ws})`);
     }
     return out;
   });
@@ -244,11 +247,12 @@ function prompts(page: Page): Promise<string[]> {
   });
 }
 
-test('every route at 1440px keeps its heading outline, a command’s $ for the eye only and, in a forced-colours theme, its marks, its selection and axe’s rules', async ({ page }) => {
+test('every route at 1440px keeps its heading outline, a command’s $ for the eye only, its hidden text where it is read and, in a forced-colours theme, its marks, its selection and axe’s rules', async ({ page }) => {
   let marks = 0;
   expect(
     await over(page, async () => {
-      const found = [...outlineBreaks(await headings(page)), ...(await prompts(page))];
+      // Hidden text at a desktop's width too, where Runs' rows draw their keys and their statuses' words.
+      const found = [...outlineBreaks(await headings(page)), ...(await prompts(page)), ...(await hiddenText(page))];
       marks += await noteMarks(page);
       await page.emulateMedia({ forcedColors: 'active' });
       await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));

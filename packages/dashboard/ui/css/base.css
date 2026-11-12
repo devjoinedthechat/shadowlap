@@ -33,12 +33,16 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 /* pinned to its containing block's corner: with no positioned parent that block is the page, and left where it sat (a row far
    down a scrolled list) a hidden text would stretch the page itself, so a phone scrolled into empty space */
 .sr { top: 0; left: 0; }
+/* and kept on one line wherever it sits: a rule that wraps a row's words prettily (text-wrap: pretty or balance, which sets
+   the wrap mode too) names a span more closely than .sr does, as Settings' rows do, so the mode is held past any such rule */
+:is(#root, body) .sr { text-wrap-mode: nowrap; }
 /* what holds hidden text far down a list or a step is positioned itself, so the text sits on its own row, where a screen
    reader that shows its cursor and find in page look for it; a table cell is never the holder */
 :where([data-about], .turn .tools button, .cmdin, .palin) { position: relative; }
-/* and main's own, each the line its hidden words are read on: a Compare side and its call, a JSON diff's line, the run's
-   status fact, a verdict's heading and the link that opens a run at its call */
-:where(.pside, .pside .pnm, .jl > .jt, .metric.rout .st, .verdict h2, .verdict h3, .cmpdc > .more) { position: relative; }
+/* and main's own, each the line its hidden words are read on: a Compare side and its call, a JSON diff's line, a status (a
+   run's on Runs and its status fact), Runs' good and bad keys, a verdict's heading, the link that opens a run at its call, a
+   takeover's tools, an attempt and a decision's tool call */
+:where(.pside, .pside .pnm, .jl > .jt, .st, .runkey .rk, .verdict h2, .verdict h3, .cmpdc > .more, .tkn, .alist > .al, .dtool) { position: relative; }
 /* a space only a screen reader says, between two words drawn apart by a margin (a chip's word and its count): it carries its
    own anchor, an empty inline box, so it sits where it is read, and the space is kept (pre), since a lone space in the hidden
    box collapses away. In a flex row (Turns' tool buttons, a Compare side's call) the anchor would be an item and take a gap,
