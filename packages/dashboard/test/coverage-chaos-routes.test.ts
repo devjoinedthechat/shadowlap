@@ -143,8 +143,8 @@ describe('production coverage', () => {
       lastPack: { at: T0 - 500, golden: null, mode: null, reason: 'not-reproduced', why: expect.stringContaining("doesn't reproduce C1"), command: { argv: ['node', 'agent.mjs', 'B-7'], from: 'REC1' } },
     });
     expect(covered).toMatchObject({ covered: true, coveredBy: ['goldens/escalate'], pack: null, lastPack: null });
-    // Needs a look's line, in its rows' shape: it opens the newest run of the behaviour still here, as no page lists them yet.
-    expect(view.needsLook).toEqual({ kind: 'coverage', icon: 'rec', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund → send_email, in prod.har', action: 'Open', href: '#/run/C1', runId: 'C1', fixId: null, at: T0 });
+    // Needs a look's line, in its rows' shape: it opens Tests at Not covered, which lists them, keeping the newest run of the behaviour still here.
+    expect(view.needsLook).toEqual({ kind: 'coverage', icon: 'cap', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund → send_email, in prod.har', action: 'Open', href: '#/tests?at=notcovered', runId: 'C1', fixId: null, at: T0 });
     expect(coverageLook(store)).toEqual(view.needsLook);
     expect(view.commands).toEqual({ scan: ['coverage'], pack: ['coverage', '--pack'] });
   });

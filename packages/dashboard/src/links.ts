@@ -227,7 +227,8 @@ export const links = {
   compare: (a?: string | null, b?: string | null, call?: number | null): string => (a ? `#/compare/${enc(a)}${b ? `/${enc(b)}${call ? `/${call}` : ''}` : ''}` : '#/compare'),
   /** Fixes, a fix, one of its steps (`blame`, `repair`, `verify`), and a verdict of its Verify step. */
   fixes: (id?: string | null, step?: string | null, sub?: string | null): string => `#/fixes${id ? `/${enc(id)}${step ? `/${enc(step)}${sub ? `/${enc(sub)}` : ''}` : ''}` : ''}`,
-  tests: (): string => '#/tests',
+  /** Tests, and the part it scrolls to once (`?at=notcovered`: Not covered), which it then leaves out of the address. */
+  tests: (o: { at?: 'notcovered' } = {}): string => (o.at ? `#/tests?at=${o.at}` : '#/tests'),
   training: (tab?: 'pairs' | 'tasks'): string => (tab === 'tasks' ? '#/training/tasks' : '#/training'),
   /** Settings, at a tab (`matching`, `redaction`, `alerts` for CI, `agents`, `tools`, `project`, `store`). */
   /** A tab, and for CI the gate kind Gates opens on (a rule under Tests' table links there): the engine's `sprt` or `baseline`. */

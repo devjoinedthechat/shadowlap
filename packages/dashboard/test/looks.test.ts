@@ -189,19 +189,19 @@ describe('the upgrades’ results in Needs a look', () => {
       ['unblamed', 'fail'],
       ['test', 'warn'],
       ['presets', 'warn'],
-      ['coverage', 'rec'],
+      ['coverage', 'cap'],
       ['decisions', 'warn'],
       ['injection', 'fail'],
       ['injection', 'warn'],
     ]);
   });
 
-  it('says how many behaviours seen in production have no golden, opening a run of the newest', () => {
+  it('says how many behaviours seen in production have no golden, opening Tests at Not covered', () => {
     const capture = run({ runId: '01M5CAPTURE000000000000000', meta: { covers: ['api'], imported: { at: NOW - 5_000, from: 'prod.har' } } });
     const group = (o: Partial<StoredCoverageGroup>): StoredCoverageGroup => ({ key: 'aaaa000011112222', scanId: 'S1', behaviour: { path: ['lookup_order', 'issue_refund'], writes: ['issue_refund'], unknown: [], outcome: 'answered' }, runs: 1, runIds: ['GONE', capture], sources: ['prod.har'], firstSeen: NOW - 9_000, lastSeen: NOW - 5_000, coveredBy: [], nearest: null, command: null, packed: null, ...o });
     store.saveCoverageScan({ scanId: 'S1', at: NOW - 1_000, runs: 2, groups: 2, uncovered: 1, goldens: 1, actor: null, data: null }, [group({}), group({ key: 'bbbb000011112222', coveredBy: ['goldens/forecast'] })]);
     const rows = items();
-    expect(rows.at(-1)).toEqual({ kind: 'coverage', icon: 'rec', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund, in prod.har', key: 'attn:coverage:aaaa000011112222', group: 'tests', step: null, href: `#/run/${capture}`, runId: capture, fixId: null, at: NOW - 1_000 });
+    expect(rows.at(-1)).toEqual({ kind: 'coverage', icon: 'cap', title: '1 behaviour seen in production has no golden', detail: 'the newest: lookup_order → issue_refund, in prod.har', key: 'attn:coverage:aaaa000011112222', group: 'tests', step: null, href: '#/tests?at=notcovered', runId: capture, fixId: null, at: NOW - 1_000 });
   });
 
   it('adds nothing for a store where the upgrades found nothing to look at', () => {

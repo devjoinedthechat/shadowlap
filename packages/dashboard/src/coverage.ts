@@ -49,7 +49,7 @@ export interface CoverageGroupView {
 /** The line Needs a look shows while some behaviour has no golden, in its rows' shape. */
 export interface CoverageLook {
   kind: 'coverage';
-  icon: 'rec';
+  icon: 'cap';
   title: string;
   detail: string;
   action: string;
@@ -62,7 +62,7 @@ export interface CoverageLook {
 export interface CoverageView {
   /** The last scan, or null when coverage never ran on this store. */
   scan: CoverageScan | null;
-  /** Imported runs that came in after the scan: a scan now would read them too. */
+  /** Imported runs that came in after the scan (every one, before a first scan): a scan now would read them too. */
   newRuns: number;
   /** Not covered first, as the scan ordered them. */
   groups: CoverageGroupView[];
@@ -125,21 +125,23 @@ export function coverageView(store: StoreOf<'recording' | 'readModels' | 'covera
   const uncovered = views.filter((g) => !g.covered);
   const newest = [...uncovered].sort((a, b) => b.lastSeen - a.lastSeen)[0];
   const needsLook = newest ? lookOf(uncovered.length, newest, newest.runId, scan!.at) : null;
-  return { scan, newRuns: scan ? importedSince(store, scan.at) : 0, groups: views, uncovered: uncovered.length, needsLook, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } };
+  // Before a first scan, every imported run is new: Not covered tells nothing to read apart from runs not read yet.
+  return { scan, newRuns: importedSince(store, scan?.at ?? 0), groups: views, uncovered: uncovered.length, needsLook, commands: { scan: ['coverage'], pack: ['coverage', '--pack'] } };
 }
 
 /**
  * The line Needs a look shows while some behaviour seen in production has no golden: how many, and
- * the newest of them, which it opens (the run that did it, as no page lists the behaviours yet).
+ * the newest of them; it opens Tests at Not covered, which lists them. `runId` is the newest run of
+ * the newest behaviour still in the store.
  */
 function lookOf(count: number, newest: { path: readonly string[]; sources: readonly string[] }, runId: string | null, at: number): CoverageLook {
   return {
     kind: 'coverage',
-    icon: 'rec',
+    icon: 'cap',
     title: `${plural(count, 'behaviour')} seen in production ${count === 1 ? 'has' : 'have'} no golden`,
     detail: `the newest: ${newest.path.length ? newest.path.slice(0, 3).join(' → ') + (newest.path.length > 3 ? ' → …' : '') : 'no tool calls'}${newest.sources[0] ? `, in ${newest.sources[0]}` : ''}`,
     action: 'Open',
-    href: runId ? links.run(runId) : links.tests(),
+    href: links.tests({ at: 'notcovered' }),
     runId,
     fixId: null,
     at,
