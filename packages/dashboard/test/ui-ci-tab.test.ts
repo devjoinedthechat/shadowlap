@@ -160,10 +160,10 @@ describe('Settings → CI', () => {
     // The repository's file is the one the switches build: nothing to write.
     expect(r!.one('#workflow .wfstate').textContent).toBe(`The same as your repository’s ${FILE}.`);
     expect(r!.all('#workflow header .btn')).toHaveLength(0);
-    // The file folds behind Show workflow, with Copy workflow beside it.
+    // The file folds behind Show workflow, with Copy workflow beside it, its one copy icon CopyButton's own.
     const show = r!.one('#workflow .wftog button[aria-controls="wfBox"]');
     expect([show.textContent, show.getAttribute('aria-expanded'), r!.one('#wfBox').hasAttribute('hidden')]).toEqual(['Show workflow', 'false', true]);
-    expect(r!.byText('#workflow .wftog button', 'Copy workflow')).toBeTruthy();
+    expect(r!.byText('#workflow .wftog button', 'Copy workflow').querySelectorAll('svg')).toHaveLength(1);
     await r!.click(show);
     expect([show.textContent, show.getAttribute('aria-expanded'), r!.one('#wfBox').hasAttribute('hidden')]).toEqual(['Hide workflow', 'true', false]);
     expect(r!.all('#wfBox pre.wfcode span.add, #wfBox pre.wfcode span.del')).toHaveLength(0);
