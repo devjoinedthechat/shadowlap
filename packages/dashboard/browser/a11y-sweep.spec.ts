@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { dash, demoId, openPage, patched, seriousViolations, sideways, startJob } from './dashboard.js';
-import { ROUTES, show, type RouteState } from './routes.js';
+import { previewed, ROUTES, show, type RouteState } from './routes.js';
 
 /**
  * Every route of browser/routes.ts, swept: axe's WCAG 2.2 A and AA rules and no sideways scroll on a
@@ -627,9 +627,21 @@ test.describe('on a touch screen', () => {
         [
           { name: 'a run’s checkbox cell', sel: 'main#view table.runst td.selcell .selhit', size: [44, 44] },
           { name: 'a calendar day', sel: 'main#view .calgrid button.cd', size: [24, 24], spaced: true },
+          { name: 'a link-style button', sel: 'main#view button.linkbtn[aria-expanded]', reach: [4, 0, 4, 0] },
         ],
       ],
-      ['/', 'overview', [{ name: 'a fact that is a link', sel: 'main#view a.metric', reach: [4, 0, 4, 0] }]],
+      [
+        '/',
+        'overview',
+        [
+          { name: 'a fact that is a link', sel: 'main#view a.metric', reach: [4, 0, 4, 0] },
+          { name: 'a link-style button', sel: 'main#view .ovuse > header button.linkbtn', reach: [4, 0, 4, 0] },
+          { name: 'Dismiss’s ×', sel: 'main#view .arow .adis', size: [24, 24], reach: [1, 1, 1, 1] },
+        ],
+      ],
+      // A finding's buttons, wrapped under each other below 400px.
+      [`/run/${demoId('override')}`, 'run', [{ name: 'a finding’s button', sel: 'main#view .findings :is(.banner .linkbtn, .fmore)', size: [0, 24], reach: [4, 0, 4, 0] }]],
+      [(await previewed(page)).preview, 'main#view .dmx button.dc', [{ name: 'a decision cell', sel: 'main#view .dmx .dmc:not(.dense) .dc:is(:first-child, :last-child)', size: [24, 24], reach: [4, 3, 4, 3] }]],
       [
         `/run/${good}`,
         'run',
