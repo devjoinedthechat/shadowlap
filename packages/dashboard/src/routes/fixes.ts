@@ -159,8 +159,9 @@ function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[
 
 /**
  * Run blame again, or Run blame with stronger model, for an open fix whose blame placed its failure on no
- * call: the command the fix's page offers (`actions.blameAgain`, `actions.blameStronger` with the
- * model asked for), built by the server from that blame, never from the browser's arguments.
+ * call, or found it under a check the fix had before (Run blame again, under the fix's check): the
+ * command the fix's page offers (`actions.blameAgain`, `actions.blameStronger` with the model asked
+ * for), built by the server from that blame, never from the browser's arguments.
  */
 function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>): JobBuildResult {
   const fix = findFix(store, req.fixId);
@@ -168,7 +169,7 @@ function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' 
   const id = short(fix.fixId);
   let args: string[];
   if (req.again === true) {
-    if (!d.actions.blameAgain) return { error: `${id}'s blame settled where its run was lost, or the fix isn't open: there is nothing to blame again`, status: 409 };
+    if (!d.actions.blameAgain) return { error: `${id}'s blame settled where its run was lost under the fix's check, or the fix isn't open: there is nothing to blame again`, status: 409 };
     args = d.actions.blameAgain.argv;
   } else {
     if (typeof req.model !== 'string' || !MODEL.test(req.model.trim())) return { error: 'name the model to blame with, such as claude-opus-5-5' };
