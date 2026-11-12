@@ -1,6 +1,7 @@
 import { approx, num } from '../format.js';
 import { failedWord, isFailed, isInterrupted, isLive, runType, type RunLike } from '../runs.js';
 import { scopeOnly, scopesOf, type ScopedCall } from '../scopes.js';
+import type { ProvenanceView } from '../types.js';
 
 /**
  * What Provenance works out on the page when the server does not: the providers a run's model calls
@@ -55,27 +56,32 @@ export function tallyProviders(found: ReadonlyArray<{ provider: string | null | 
   return [...tally].map(([provider, calls]) => ({ provider, calls })).sort((a, b) => b.calls - a.calls || a.provider.localeCompare(b.provider));
 }
 
+/** What a copy made now would mask, as the run's Provenance counts it (`ProvenanceView.mask`). */
+type CopyMask = Omit<NonNullable<ProvenanceView['mask']>, 'rules'>;
+
 /**
  * What a copy made now applies, after "A copy made now (…) applies": the rules, and what they would
- * mask when counted (in a pack; `returned` more in a copy that is only read, export html or dataset,
- * where a path rule reaches what calls got back), with what else they match that a pack leaves as it
- * is (`unmasked`: numbers a pattern never rewrites), or that it wasn't counted (`uncounted`: a rule
- * took too long, the run is long; the reason goes on hover), or that it is yet to be (`busy`: the
- * previews were busy, and the page asks again).
+ * mask when counted (`values`, in a pack; `returned` more in a copy that is only read, export html or
+ * dataset, where a path rule reaches what calls got back), with what else they match that a pack
+ * leaves as it is (`unmasked`: numbers a pattern never rewrites) and whether the run's own canaries
+ * were kept (`kept`: an injection attempt's, left out of the count); or that it wasn't counted
+ * (`why`: a rule took too long, the run is long; the reason goes on hover), or that it is yet to be
+ * (`busy`: the previews were busy, and the page asks again).
  */
-export function copyRules(rules: number | null | undefined, masked: number | null | undefined, uncounted = false, busy = false, unmasked = 0, returned = 0): string {
+export function copyRules(rules: number | null | undefined, mask?: CopyMask | null): string {
   if (typeof rules !== 'number') return 'the redaction rules in shadowlap.config.json';
   if (!rules) return 'no redaction rules: it would hold what was recorded';
   const they = rules === 1 ? 'it' : 'they';
   const named = `${rules} redaction ${rules === 1 ? 'rule' : 'rules'}`;
-  if (typeof masked === 'number') {
+  if (typeof mask?.values === 'number') {
+    const { values: masked, unmasked = 0, returned = 0, kept = 0 } = mask;
     const values = masked ? `${num(masked)} ${masked === 1 ? 'value' : 'values'}` : 'no values';
     const read = returned ? ` (${num(masked + returned)} in export html or dataset, which are only read)` : '';
     const left = unmasked ? `; ${num(unmasked)}${masked ? ' more' : ''} ${they} ${rules === 1 ? 'matches' : 'match'} ${unmasked === 1 ? 'stays as it is' : 'stay as they are'}${returned ? ' in a pack' : ''}` : '';
-    return `${named} and would mask ${values} in this run${read}${left}`;
+    return `${named} and would mask ${values} in this run${read}${left}${kept ? '; canaries kept' : ''}`;
   }
-  if (busy) return `${named}; what ${they} would mask in this run is being counted`;
-  return uncounted ? `${named}; what ${they} would mask in this run wasn’t counted` : named;
+  if (mask?.busy) return `${named}; what ${they} would mask in this run is being counted`;
+  return mask?.why ? `${named}; what ${they} would mask in this run wasn’t counted` : named;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

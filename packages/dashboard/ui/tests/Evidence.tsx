@@ -12,7 +12,7 @@ import { useLatest, useLoad } from '../hooks.js';
 import { moreCard, testsJob } from '../pages/tests-cards.js';
 import { useApp } from '../state.js';
 import { goldenPrice } from '../tests-estimates.js';
-import type { EvidenceWords } from '../types.js';
+import type { EvidenceWords, NextStep } from '../types.js';
 import type { LeadPress } from './Verdict.js';
 
 /** A golden's last gate, where it decided the result. */
@@ -203,13 +203,16 @@ function Attempts({ golden, at }: { golden: string; at: number | null }) {
 
 /**
  * The row under a gated golden: why its gate stopped where it did, the line between its bounds, its
- * attempts, what each attempt weighs, and for an inconclusive gate, Run more attempts, plain. A part
- * of the page of its own (a `section` with an id), so a job's end can hand the focus to it.
+ * attempts, what each attempt weighs, and for an inconclusive gate, its step, plain: Run more
+ * attempts, or Run tests where its checks changed since (`step`, the server's), as more attempts
+ * would judge checks the config no longer holds. A part of the page of its own (a `section` with an
+ * id), so a job's end can hand the focus to it.
  */
-export function EvidenceRow({ row, g, span, press, inc }: { row: GoldenRow; g: GateShown; span: number; press: LeadPress | undefined; inc: InconclusiveView | undefined }) {
+export function EvidenceRow({ row, g, span, press, inc, step }: { row: GoldenRow; g: GateShown; span: number; press: LeadPress | undefined; inc: InconclusiveView | undefined; step: NextStep | null }) {
   const w = g.words;
   const plot = linePlot(g);
-  const more = inc?.gate?.more;
+  const stale = inc && step?.key === 'run-tests' ? step : null;
+  const more = stale ? null : inc?.gate?.more;
   return (
     <tr className="sub gevrow still">
       <td colSpan={span}>
@@ -223,6 +226,13 @@ export function EvidenceRow({ row, g, span, press, inc }: { row: GoldenRow; g: G
           {w && plot ? <EvidenceLine p={plot} w={w} tone={toneOf(g.decision)} /> : null}
           <Attempts golden={row.path} at={row.last.at} />
           {w ? <p className="receipt">{glossed([w.step, w.passK ? `pass^5 ${w.passK}` : '', w.forked, w.provider].filter(Boolean).join(' · '))}</p> : null}
+          {stale && press?.runTests ? (
+            <div className="actions gevact">
+              <JobButton className="btn" why={press.wait('run the tests')} {...press.runTests} sub={stale.sub}>
+                {stale.label}
+              </JobButton>
+            </div>
+          ) : null}
           {more && inc && press ? (
             <div className="actions gevact">
               <JobButton className="btn" why={press.wait('run the tests')} {...testsJob(moreCard(more), goldenPrice(press.prices, inc.golden, 'more'), (e) => press.onMore(inc, e))}>

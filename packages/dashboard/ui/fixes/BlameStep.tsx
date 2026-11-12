@@ -14,8 +14,11 @@ import { approx, minuteStamp, plural, shortId } from '../format.js';
 import { useListKeys } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
-import type { BlameStep, FixDetail } from '../types.js';
-import { type CallCell, callRowCells, otherBlameWords, probeTone, probeVerdictWords } from './model.js';
+import { ACTIONS, confirmWords } from '../labels.js';
+import { FoundCommitLine } from '../revert/FoundLine.js';
+import { useServedParts } from '../served-parts.js';
+import type { BlameCrash, BlameStep, FixDetail, FoundCommit } from '../types.js';
+import { type CallCell, callRowCells, headBlameNext, otherBlameWords, probeTone, probeVerdictWords } from './model.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
 import { StepLead } from './StepLead.js';
 
@@ -36,6 +39,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
   return (
     <>
       <StepLead line={b.line} facts={<BlameFacts b={b} />} actions={<BlameLinks b={b} />} />
+      {b.crash?.commit ? <BlameCommit found={b.crash.commit} /> : null}
       <div className="grid2 fxg secs">
         {/* Where the run was lost only once blame named the call: otherwise these are the run's calls, with what each probe found. */}
         <Section title={b.outcome === 'blamed' ? 'Where the run was lost' : 'The run’s calls'} sub={callsSub(b)}>
@@ -43,7 +47,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
             <CallRow b={b} />
           </div>
         </Section>
-        {b.answers ? <Answers b={b} /> : <Checked b={b} />}
+        {b.answers ? <Answers b={b} /> : <Checked b={b} fix={fix} />}
       </div>
       {b.probes.length ? <Probes b={b} groupsOf={probeGroups} /> : <p className="fxnote">No attempt ran: {b.stopReason ?? 'the search stopped before its first probe'}.</p>}
       <Receipts fix={fix} b={b} />
@@ -294,8 +298,69 @@ function Answers({ b }: { b: BlameStep }) {
   );
 }
 
-/** What the check's section says last: how to go on from a stopped search, or where to look when no answer of the model's lost the run. */
-function checkNote(b: BlameStep): ReactNode {
+/**
+ * The first bad commit Find breaking commit named for a crash no model rescued, under the step's
+ * lead, as Tests draws it, then its change in its file's box, with Open in editor and Copy git
+ * revert, where the answer kept one: the served dashboard's box (served-parts.ts), so a copy draws
+ * the line alone.
+ */
+function BlameCommit({ found }: { found: FoundCommit }) {
+  const { ChangeBox } = useServedParts();
+  return (
+    <>
+      <FoundCommitLine found={found} className="bisect fxbis" />
+      {found.change && ChangeBox ? <ChangeBox rev={found.rev} change={found.change} /> : null}
+    </>
+  );
+}
+
+/** Which of a crash's ways on its fix's head draws: Find breaking commit, the fix's lead before the commit is named, and Run blame with stronger model. */
+interface CrashWays {
+  find: boolean;
+  stronger: boolean;
+}
+
+/**
+ * Where to look for a crash no model rescued (fix-crash.ts): the commit Find breaking commit named;
+ * else blame's own finding where it knows no answer of the model's lost the run (`look`, as `shadowlap
+ * blame` says it), neither model where a stronger one was asked too, or the code first. Then Find
+ * breaking commit where the fix leads with it, "offline and free" only where its golden replays so,
+ * and a stronger model only where the head offers one. Each button's name and each phrase is kept whole.
+ */
+function crashNote(c: BlameCrash, b: BlameStep, ways: CrashWays): ReactNode {
+  if (c.commit) return `The agent stopped part way from ${c.commit.rev} on, so the code broke the run, not an answer of the model’s. Revert the commit or fix the code, then run the tests.`;
+  const find = ways.find ? (
+    <>
+      {' '}
+      <b className="nw">{confirmWords(ACTIONS.findBreakingCommit.label)}</b> replays it{' '}
+      {c.offline ? (
+        <>
+          <span className="nw">offline and free</span>, and
+        </>
+      ) : (
+        'and'
+      )}{' '}
+      names <span className="nw">the commit that broke it</span>.
+    </>
+  ) : null;
+  if (b.look) return <>{glossed(b.look)}{find}</>;
+  // Every attempt failed as the recording did only where none passed: a few may pass, below the bar.
+  if (c.stronger) return <>Neither model rescues it, so look at the code and the tools{b.probes.every((p) => p.passes === 0) ? ': every attempt ended as the recording did' : ''}.{find}</>;
+  return (
+    <>
+      The agent stopped part way, so look at the code first.{find}
+      {ways.stronger ? (
+        <>
+          {' '}
+          If none did, <b className="nw">{confirmWords(ACTIONS.runBlameStronger.label)}</b> says whether <span className="nw">the model’s capability</span> is the problem.
+        </>
+      ) : null}
+    </>
+  );
+}
+
+/** What the check's section says last: how to go on from a stopped search, where to look for a crash, or where to look when no answer of the model's lost the run. */
+function checkNote(b: BlameStep, fix: FixDetail): ReactNode {
   if (b.outcome === 'stopped')
     return (
       <>
@@ -303,12 +368,13 @@ function checkNote(b: BlameStep): ReactNode {
       </>
     );
   if (b.outcome === 'blamed') return null;
+  if (b.crash) return crashNote(b.crash, b, { find: fix.lead?.key === 'bisect', stronger: headBlameNext(fix)?.kind === 'stronger' });
   return glossed(b.look ?? 'Asking any model call again did not let the run pass often enough: the cause may be before the first model call, in a tool, or in the check itself.');
 }
 
 /** For a blame that placed the failure on no call: what it checked, and how the recording failed it. */
-function Checked({ b }: { b: BlameStep }) {
-  const note = checkNote(b);
+function Checked({ b, fix }: { b: BlameStep; fix: FixDetail }) {
+  const note = checkNote(b, fix);
   return (
     <Section title="The check" sub="what a passing run must do">
       <div className="pbody">

@@ -2,14 +2,24 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createElement } from 'react';
+import { act, createElement, Fragment, type ReactElement } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store, unpackRun } from '@shadowlap/engine';
 import { exportHtml, type StaticPayload } from '../src/index.js';
-import { createExportedClient } from '../ui/api.js';
+import { createExportedClient, JOB_KINDS, type ActionItem, type CallDetail } from '../ui/api.js';
 import { CopyPages } from '../ui/pages/copy.js';
+import { Elsewhere } from '../ui/pages/held-elsewhere.js';
+import { useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
 import { useRoute } from '../ui/router.js';
-import { AppProvider } from '../ui/state.js';
+import { useActionRunner } from '../ui/run/actions.js';
+import { bannerJobsShown } from '../ui/run/diverged.js';
+import { EditAndFork } from '../ui/run/EditAndFork.js';
+import { JobChip } from '../ui/shell/JobChip.js';
+import { Keyboard } from '../ui/shell/Keyboard.js';
+import { ProjectBlock } from '../ui/shell/ProjectBlock.js';
+import { TopBar } from '../ui/shell/TopBar.js';
+import { AppProvider, useApp, type AppState } from '../ui/state.js';
+import type { RunDetail, TestBannerOffer } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -25,6 +35,7 @@ const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent', 
 let store: Store;
 let runId: string;
 let forkId: string;
+let attemptId: string;
 let uiDir: string;
 
 beforeAll(() => {
@@ -40,6 +51,19 @@ beforeAll(() => {
   }
   store.setDivergence(forkId, { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2 });
   store.endRun(forkId, 'completed');
+  // An injection test's attempt, its mark on its own record: a copy holds the mark, never the test's results.
+  const canary = { token: 'x7f3kq2m', address: 'x7f3kq2m@canary.invalid', id: 'CNRY-x7f3kq2m', amount: '4,812.00' };
+  const injection = { result: 'inj-01PLANT', role: 'attempt' as const, read: 2, payload: 'system-notice', attempt: 2, of: 3, canary, verdict: 'obeyed' as const, readAt: 3, evidence: [{ kind: 'canary' as const, callNo: 4, tool: 'send_email', path: '$.to', value: canary.address }] };
+  attemptId = store.createRun({ mode: 'replay', parentRunId: runId, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { injection } }).runId;
+  // The test it was in, kept for the run it tested, as the served dashboard draws its finding from.
+  store.putInjectionResult({ resultId: 'inj-01PLANT', runId, golden: null, sessionId: null, mode: 'plant', at: 1, endedAt: 2, attempts: 3, obeyed: 1, influenced: 0, ignored: 2, inconclusive: 0, verdict: 'obeyed', actor: null, data: { resultId: 'inj-01PLANT', mode: 'plant', gate: { obeyed: 0, influenced: null, verdict: 'failed', reason: 'send_email obeyed a planted instruction in 1 of 3 attempts (at most 0 allowed)' }, cost: { spent: 0 } } });
+  for (const c of store.getCalls(runId).slice(0, 4)) {
+    const { end, attempts, ...start } = c;
+    void attempts;
+    store.appendCallStart({ ...start, runId: attemptId, origin: c.callNo < 3 ? 'replayed' : 'live' });
+    if (end) store.appendCallEnd(c, { ...end, runId: attemptId });
+  }
+  store.endRun(attemptId, 'completed');
   // A stand-in for the built UI: what is under test is the data the file carries, drawn by the copy's pages.
   uiDir = mkdtempSync(join(tmpdir(), 'sl-export-copy-ui-'));
   mkdirSync(join(uiDir, 'assets'), { recursive: true });
@@ -70,14 +94,22 @@ function Routed() {
   return createElement(CopyPages, { route: useRoute() });
 }
 
-/** A copy of these runs, opened at `hash`; the address bar it reads and rewrites. */
-async function open(runIds: string[], hash: string) {
+/** A copy of these runs, opened at `hash`, with `beside` drawn beside its page as its shell draws them; the address bar it reads and rewrites. */
+async function open(runIds: string[], hash: string, ...beside: ReactElement[]) {
   const bar = { hash, search: '', pathname: '/', host: '' };
   vi.stubGlobal('location', bar);
   vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (bar.hash = url.slice(url.indexOf('#'))) });
-  r = await render(createElement(AppProvider, { client: createExportedClient(exported(runIds)), children: createElement(Routed) }));
+  r = await render(createElement(AppProvider, { client: createExportedClient(exported(runIds)), children: createElement(Fragment, null, createElement(Routed), ...beside) }));
   return bar;
 }
+
+/** The copy's app as it stands, as a part of its shell reads it. */
+const seen: { app: AppState | null } = { app: null };
+function Probe() {
+  seen.app = useApp();
+  return null;
+}
+const COPY_OFF = 'This is an exported copy: nothing runs from here.';
 
 const runOpen = () => r!.all('.rhead .rnm').map((h) => h.getAttribute('data-run'));
 
@@ -127,16 +159,68 @@ describe('an exported copy', () => {
     expect(r!.all('[role="menu"]')).toHaveLength(0);
   });
 
+  it('forks nothing, so nothing there opens the fork menu or the header’s …, which the served dashboard alone hands in', async () => {
+    // The page's code that loads their scripts: the served entry's, which a copy's entry never is.
+    expect(loadersOf(/\bForkMenu\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/\bMoreMenu\.js['"]/)).toEqual(['pages/served.tsx']);
+    await open([forkId, runId], `#/run/${forkId}/4`);
+    await r!.until('the run’s calls', () => r!.all('.rhead .actions').length === 1 && r!.all('tr[data-wi]').length > 0);
+    // No Fork at #n in its header or on a row, so neither f nor ⌘K's Fork at #n has one to press, and no ….
+    expect(r!.all('#forkBtn, #moreBtn')).toHaveLength(0);
+    expect(r!.all('td.rowact button')).toHaveLength(0);
+  });
+
+  it('draws no step that asks, so nothing there opens the dialogs the served dashboard alone hands in', async () => {
+    await open([forkId, runId], `#/run/${runId}`);
+    await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
+    // What reads stays: the id to copy, and the link to compare.
+    expect(r!.all('.rhead button').map((b) => b.textContent)).toEqual(['Copy ID']);
+    expect(r!.all('.rhead button[data-next], .rhead button[data-fold]')).toHaveLength(0);
+    expect(r!.all('.dialog')).toHaveLength(0);
+  });
+
+  it('names an injection attempt by its own record, and draws nothing of what only the test’s read holds: where it planted, its proof, the way to its results', async () => {
+    await open([attemptId, runId], `#/run/${attemptId}`);
+    await r!.until('the attempt’s finding', () => r!.all('.banner').length > 0);
+    expect(r!.one('.rhead').textContent).toContain('injection attempt');
+    const banner = r!.all('.banner').map((b) => b.textContent).join(' ').replace(/\u00a0/g, ' ');
+    expect(banner).toContain('forked at#3system-notice #2, attempt 2 of 3 · writes stubbed');
+    expect(banner).not.toMatch(/Results →|The answer →|planted at/);
+    expect(r!.all('.injline, .pbn, mark.cnry, mark.ins-plant')).toHaveLength(0);
+  });
+
+  it('keeps no injection test, so the run it tested draws no finding of one, which the served dashboard alone hands in', async () => {
+    await open([attemptId, runId], `#/run/${runId}`);
+    await r!.until('the run’s header and what it offers', () => r!.all('.rhead .actions').length === 1);
+    expect(r!.all('[data-finding="injection"]')).toHaveLength(0);
+    expect(r!.all('[data-act="results"]')).toHaveLength(0);
+  });
+
+  it('keeps Failed a filter over its runs, so draws no issues, which the served dashboard alone hands in', async () => {
+    await open([forkId, runId], '#/runs?types=failed');
+    await r!.until('Failed picked', () => r!.all('.tbar .chips button[aria-pressed="true"]').some((b) => b.childNodes[0]?.textContent === 'Failed'));
+    expect(r!.all('table.issues')).toHaveLength(0);
+  });
+
   it('never opens Export OpenTelemetry trace…: Share’s menu alone loads its dialog, and a copy draws no Share', () => {
     // The page's code that loads the dialog's script: Share's menu, and nothing a copy draws, so the
     // copy's script holds none of it (COPY_PARTS in test/ui-bundle-size.test.ts).
     expect(loadersOf(/\bOtelDialog\.js['"]/)).toEqual(['run/ShareMenu.tsx']);
   });
 
-  it('never opens the check builder or Run blame’s dialogs: the served entry alone loads them, and a copy offers no Add check… at a tool call', async () => {
+  it('offers no Add check… at a tool call, in its inspector or its row, as only the served dashboard hands a page the check menu and the builder', async () => {
+    await open([forkId, runId], `#/run/${runId}/4`);
+    await r!.until('the tool call’s inspector, with its summary line', () => r!.all('section.insp[aria-label="Call 4"] .isumrow .isum').length === 1);
+    expect(r!.one('section.insp[aria-label="Call 4"] .ct').textContent).toBe('search_web');
+    expect(r!.all('[data-act="ckmenu"]')).toHaveLength(0);
+    expect(r!.all('[role="menu"]')).toHaveLength(0);
+  });
+
+  it('never opens the check menu, the check builder or Run blame’s dialogs: the served entry alone loads them, and a copy offers no Add check… at a tool call', async () => {
     // The page's code that loads their scripts: the parts the served entry hands in, which a copy's
     // entry never does, so the copy's script holds none of ui/checks/ (HEAVY in test/ui-bundle-size.test.ts)
-    // nor Run blame's dialogs. A copy draws no Run blame: its one next step is Compare (test/next-step.test.ts).
+    // nor the check menu or Run blame's dialogs. A copy draws no Run blame: its one next step is Compare (test/next-step.test.ts).
+    expect(loadersOf(/\bCheckMenu\.js['"]/)).toEqual(['pages/served.tsx']);
     expect(loadersOf(/\bchecks\/Builder\.js['"]/)).toEqual(['pages/served.tsx']);
     expect(loadersOf(/\bRunBlameAsks\.js['"]/)).toEqual(['pages/served.tsx']);
     // At a tool call of a finished recording, where the served dashboard offers it on the inspector.
@@ -162,6 +246,125 @@ describe('an exported copy', () => {
     await r!.until('the runs', () => r!.all('table.runst tbody tr').length === 2);
     expect(r!.all('table.runst input[type="checkbox"]')).toHaveLength(0);
     expect(r!.all('.bulkbar')).toHaveLength(0);
+  });
+
+  it('starts and follows no job, so it draws no job’s drawer and needs none of a job’s words, which the served dashboard alone hands in', async () => {
+    // The page's code that loads them: the served entry's, and modules only the served dashboard holds,
+    // the drawer itself and Fixes' (COPY_PARTS in test/ui-bundle-size.test.ts).
+    expect(loadersOf(/\bcomponents\/Drawer\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/['"]\.\.?\/jobs\.js['"]/).sort()).toEqual(['components/Drawer.tsx', 'fixes/ApplyNames.tsx', 'pages/served.tsx']);
+    await open([forkId, runId], `#/run/${runId}`, createElement('footer', { className: 'status' }, createElement(JobChip)), createElement(Probe));
+    await r!.until('the run’s page', () => runOpen().length === 1);
+    const app = seen.app!;
+    // Each way a job comes to the page, a job's start, a run's action and one another tab follows,
+    // asks the copy's client, which refuses them all: the shell draws the drawer only for a job it follows.
+    await act(async () => app.watchJob(app.client.startJob(JOB_KINDS.bisect, { runId })));
+    await act(async () => app.watchJob(app.client.action(runId, 'r', null)));
+    await act(async () => app.openJob('job-1', true));
+    await r!.wait(20);
+    expect(seen.app!.jobs).toEqual([]);
+    expect(seen.app!.toastText?.text).toBe('This is an exported copy: it cannot be changed from here');
+    await expect(app.client.jobs()).resolves.toEqual([]);
+    // Nor has its chip a job to say, the server's own jobs none: it draws nothing.
+    expect(r!.all('.jobchip')).toHaveLength(0);
+  });
+
+  it('runs no action, so no action and no Find breaking commit asks in a dialog, which the served dashboard alone hands in', async () => {
+    // The page's code that loads their scripts: the served entry's, the header's … (Delete run's dialog)
+    // and a crash's step on Tests and Fixes, none of which a copy holds (test/ui-bundle-size.test.ts).
+    expect(loadersOf(/\bActionDialog\.js['"]/)).toEqual(['pages/served.tsx']);
+    expect(loadersOf(/\bRunDialogs\.js['"]/).sort()).toEqual(['pages/served.tsx', 'revert/CrashStep.tsx', 'run/MoreMenu.tsx']);
+    const ran: { runner: ReturnType<typeof useActionRunner> | null } = { runner: null };
+    function Runner() {
+      ran.runner = useActionRunner(runId);
+      return createElement('div', { className: 'runner' }, ran.runner.dialog);
+    }
+    await open([forkId, runId], `#/run/${runId}`, createElement(Runner), createElement(Probe));
+    await r!.until('the run’s page', () => runOpen().length === 1);
+    expect(seen.app!.actionsOff).toBe(COPY_OFF);
+    // An action that asks its one thing first, and Find breaking commit, which asks for a commit: each says why it waits.
+    const inject: ActionItem = { key: 'i', label: 'Inject instruction…', opensRun: true, prompt: { label: 'Instruction to add at #3:' }, disabled: null, group: 'call' };
+    await act(async () => ran.runner!.run({ action: inject, callNo: 3 }));
+    const said = seen.app!.toastText;
+    expect(said?.text).toBe(COPY_OFF);
+    await act(async () => void ran.runner!.findCommit());
+    expect(seen.app!.toastText).not.toBe(said);
+    expect(seen.app!.toastText?.text).toBe(COPY_OFF);
+    await r!.wait(20);
+    expect(ran.runner!.dialog).toBeNull();
+    expect(r!.all('.dialog')).toHaveLength(0);
+  });
+
+  it('runs no test’s job, so a test that diverged offers none and asks in none of its dialogs, which the served dashboard alone hands in', async () => {
+    expect(loadersOf(/\bDivergedDialogs\.js['"]/)).toEqual(['pages/served.tsx']);
+    await open([forkId, runId], `#/run/${forkId}`, createElement(Probe));
+    await r!.until('the run’s page', () => runOpen().length === 1);
+    const app = seen.app!;
+    // Its meta lists no job kinds, and its actions wait: a test replay that diverged, where the served
+    // dashboard offers Add normalizer and update and Update golden, draws neither. Its next step is
+    // only ever Compare (test/next-step.test.ts), so no step asks in them either.
+    expect(app.hasKind(JOB_KINDS.normalizeAndTest)).toBe(false);
+    expect(app.hasKind(JOB_KINDS.testUpdate)).toBe(false);
+    const test = { golden: 'goldens/refund', normalizeAndTest: [['config', 'normalize'], ['test', 'goldens/refund', '--update']], normalized: false, passingRun: null, volatile: null } as unknown as TestBannerOffer;
+    const run = { run: { runId: forkId }, actions: [{ key: 'n' }] } as unknown as RunDetail;
+    expect(bannerJobsShown(app, run, test, () => false)).toBe(false);
+  });
+
+  it('says what it is in the project switcher’s place, so nothing opens Remove project, which the served dashboard alone hands in', async () => {
+    // Setup, the other page that holds its words, is no page of a copy.
+    expect(loadersOf(/\bRemoveProject\.js['"]/).sort()).toEqual(['pages/Setup.tsx', 'pages/served.tsx']);
+    const held: { removal: ProjectRemoval | null } = { removal: null };
+    function Block() {
+      held.removal = useProjectRemoval();
+      return createElement('div', { className: 'side' }, createElement(ProjectBlock, { meta: useApp().meta }));
+    }
+    await open([forkId, runId], `#/run/${runId}`, createElement(Block));
+    await r!.until('the copy’s block', () => r!.all('.side .expblock').length === 1);
+    expect(r!.all('.side button')).toHaveLength(0);
+    expect(held.removal).toBeNull();
+  });
+
+  it('forks with no edited result, so nothing opens Edit and fork’s dialog, which the served dashboard alone hands in', async () => {
+    expect(loadersOf(/\bEditDialog\.js['"]/)).toEqual(['pages/served.tsx']);
+    // At a tool call, where the served dashboard offers it on the inspector.
+    await open([forkId, runId], `#/run/${forkId}/4`);
+    await r!.until('the call’s inspector', () => r!.all('.insp').length === 1);
+    expect(r!.all('.insp button').map((b) => b.textContent)).not.toContain('Edit and fork…');
+    await r!.unmount();
+    // Even for a call whose fork menu would offer the override, its button draws nothing in a copy.
+    const detail = { call: { callNo: 4 }, actions: [{ key: 'o', label: 'Override result…', opensRun: true, prompt: { label: 'Result to fork with:' }, disabled: null, group: 'call' }] } as unknown as CallDetail;
+    await open([forkId, runId], `#/run/${forkId}`, createElement('div', { className: 'edit' }, createElement(EditAndFork, { runId: forkId, detail, live: false })));
+    await r!.until('the run’s page', () => runOpen().length === 1);
+    expect(r!.one('.edit').childNodes).toHaveLength(0);
+  });
+
+  it('says it holds no such run itself, never asking another project, so nothing opens the In page, which the served dashboard alone hands in', async () => {
+    expect(loadersOf(/\/Elsewhere\.js['"]/)).toEqual(['pages/served.tsx']);
+    // A page's not-found as the copy's run page draws it (above): its own, at once, with no look of asking.
+    const ask = createElement(Elsewhere, { ask: { what: 'run', ids: ['01ZZZZZZZZZZZZZZZZZZZZZZZZ'] }, waiting: createElement('p', { className: 'asking' }, 'Loading the run…'), fallback: createElement('p', { className: 'notfound' }, 'No run here') });
+    await open([forkId, runId], `#/run/${runId}`, createElement('div', { className: 'held' }, ask));
+    await r!.until('the run’s page', () => runOpen().length === 1);
+    expect(r!.all('.held p').map((p) => p.className)).toEqual(['notfound']);
+  });
+
+  it('opens no palette: ⌘K, / and the top bar open nothing, nor Enter on a row, which has no actions, as the served dashboard alone hands it in', async () => {
+    expect(loadersOf(/\/Palette\.js['"]/)).toEqual(['pages/served.tsx']);
+    await open([forkId, runId], `#/compare/${runId}/${forkId}`, createElement(TopBar, { route: { page: 'compare', a: runId, b: forkId, call: null } }), createElement(Keyboard), createElement(Probe));
+    await r!.until('the comparison', () => r!.all('.prefix').length === 1);
+    // No Search or jump to… in the top bar, and no key opens the palette.
+    expect(r!.all('header button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).not.toContainEqual(expect.stringMatching(/^Search/));
+    for (const [key, mods] of [['k', { metaKey: true }], ['k', { ctrlKey: true }], ['/', {}]] as const) {
+      await r!.press(key, mods);
+      expect(seen.app!.palette, `${key} ${JSON.stringify(mods)}`).toBe(false);
+    }
+    await r!.unmount();
+    // On its runs, a row in focus: ⌘K and Enter open nothing on its actions, which a copy's lists don't have.
+    await open([forkId, runId], '#/runs', createElement(Keyboard), createElement(Probe));
+    await r!.until('the runs', () => r!.all('table.runst tbody tr').length === 2);
+    await r!.press('j');
+    await r!.press('k', { metaKey: true });
+    await r!.press('Enter');
+    expect(seen.app!.palette).toBe(false);
   });
 
   it('lists its runs, and only those', async () => {

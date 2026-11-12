@@ -9,7 +9,8 @@ import { render, type Rendered } from './ui-render.js';
  * ahead of its first showing when preloaded, with nothing waiting in its place for a single frame.
  * A script that fails to come leaves what `failed` gives wherever the part shows, never the page
  * blank, and is never asked for again: a browser keeps a script's failure for as long as the page is
- * open, so only loading the page again brings it.
+ * open, so only loading the page again brings it. A `failed` given as a function draws from the part's
+ * props, as a part that opens on a press closes through its own (pages/served.tsx).
  */
 
 type Props = { n: number };
@@ -118,6 +119,19 @@ describe('a part of a page in a script of its own', () => {
     expect(w.drawn).toBe(drawn);
     expect(s.asked).toBe(1);
     expect(Shown.script).toBe('failed');
+  });
+
+  it('draws what failed gives from the props of each place it shows, when given as a function', async () => {
+    const s = script();
+    const Shown = onShow(s.load, { failed: ({ n }: Props) => createElement('p', { className: 'failed' }, `lost ${n}`) });
+    r = await render(createElement('div', null, createElement(Shown, { n: 9 }), createElement(Shown, { n: 10 })));
+    s.refuse();
+    await r.until('what failed draws', () => r!.all('.failed').length === 2);
+    expect(texts('.failed')).toEqual(['lost 9', 'lost 10']);
+    await r.unmount();
+    r = await render(createElement(Shown, { n: 11 }));
+    expect(texts('.failed')).toEqual(['lost 11']);
+    expect(s.asked).toBe(1);
   });
 
   it('leaves nothing in its place, waiting or failed, when given nothing to show', async () => {

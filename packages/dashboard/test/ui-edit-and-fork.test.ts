@@ -6,6 +6,7 @@ import { EDIT_LIMIT, editBody, editStart } from '../ui/run/EditDialog.js';
 import { Inspector } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * Edit and fork, from the inspector: a tool's recorded result, or what a person answered, opens to
@@ -57,7 +58,7 @@ afterEach(async () => {
 });
 
 const open = async (d: CallDetail, sent: Sent, over: Partial<AppState> = {}) => {
-  r = await render(createElement(AppContext.Provider, { value: app(sent, over) }, createElement('main', { id: 'view', tabIndex: -1 }, createElement(EditAndFork, { runId: RUN, detail: d, live: false }))));
+  r = await render(createElement(AppContext.Provider, { value: app(sent, over) }, withServed(createElement('main', { id: 'view', tabIndex: -1 }, createElement(EditAndFork, { runId: RUN, detail: d, live: false })))));
   return r;
 };
 

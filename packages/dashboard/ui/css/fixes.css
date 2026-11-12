@@ -58,7 +58,7 @@ table.probes tr.hot td { background: var(--sel); }
 .prbody ul { margin: 8px 0 0; padding-left: 18px; }
 
 @media (max-width: 1000px) {
-  .stepper, .ans { grid-template-columns: minmax(0, 1fr); }
+  .stepper, .fxsks, .ans { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 640px) {
@@ -122,10 +122,11 @@ table.probes tr.hot td { background: var(--sel); }
 .fm .fmv { white-space: normal; overflow-wrap: anywhere; color: var(--dim); }
 .pslist .fm { margin-top: 4px; }
 
-.stepper { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; border-bottom: 1px solid var(--line); }
-.stepper a { position: relative; display: block; padding: 4px 18px 16px 0; text-decoration: none; }
-.stepper a + a { padding-left: 18px; border-left: 1px solid var(--line); }
-.stepper .k { display: flex; align-items: center; gap: 8px; font: 500 12.5px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
+/* The fix page while its fix loads (FixWaiting) draws the steps in the stepper's look, in a class of its own (`.fxsks`): the tests read `.stepper` as the fix drawn. */
+.stepper, .fxsks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; border-bottom: 1px solid var(--line); }
+.stepper a, .fxsks > div { position: relative; display: block; padding: 4px 18px 16px 0; text-decoration: none; }
+.stepper a + a, .fxsks > div + div { padding-left: 18px; border-left: 1px solid var(--line); }
+.stepper .k, .fxsks .k { display: flex; align-items: center; gap: 8px; font: 500 12.5px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
 .stepper .k i { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
 .stepper .done .k i { background: var(--dim); box-shadow: none; }
 .stepper .done.s-verify .k i { background: var(--cq-lime); }
@@ -133,9 +134,9 @@ table.probes tr.hot td { background: var(--sel); }
 .stepper .warn .k i { background: var(--cq-amber); box-shadow: none; }
 /* a step a job of the fix runs: its dot pulses */
 .stepper .busy .k i { box-shadow: inset 0 0 0 1.5px var(--ink); animation: pulse 1.6s infinite; }
-.stepper b { display: block; margin-top: 6px; font: 600 15px/1.35 var(--body); letter-spacing: -.01em; color: var(--ink); }
+.stepper b, .fxsks b { display: block; margin-top: 6px; font: 600 15px/1.35 var(--body); letter-spacing: -.01em; color: var(--ink); }
 .stepper .todo b { color: var(--faint); }
-.stepper .m { display: block; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
+.stepper .m, .fxsks .m { display: block; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
 .stepper a:hover .k, .stepper a:hover b { color: var(--ink); }
 .stepper a[aria-current="step"]::after { content: ""; position: absolute; left: 0; right: 18px; bottom: -1px; height: 2px; background: var(--ink); }
 .stepper a + a[aria-current="step"]::after { left: 18px; }
@@ -171,9 +172,9 @@ table.probes tr.hot td { background: var(--sel); }
   .psk i { grid-row: 1; grid-column: 1; margin: 0; }
   .psk .psw { position: static; width: auto; height: auto; overflow: visible; clip: auto; display: block; grid-column: 2; font-size: var(--fs-small); color: var(--faint); }
   .psk > span { grid-column: 2; }
-  .stepper { grid-template-columns: minmax(0, 1fr); }
-  .stepper a, .stepper a + a { padding: 12px 0 12px 14px; border-left: 0; border-top: 1px solid var(--line); }
-  .stepper a:first-child { border-top: 0; }
+  .stepper, .fxsks { grid-template-columns: minmax(0, 1fr); }
+  .stepper a, .stepper a + a, .fxsks > div, .fxsks > div + div { padding: 12px 0 12px 14px; border-left: 0; border-top: 1px solid var(--line); }
+  .stepper a:first-child, .fxsks > div:first-child { border-top: 0; }
   .stepper a[aria-current="step"]::after, .stepper a + a[aria-current="step"]::after { left: 0; right: auto; top: 12px; bottom: 12px; width: 2px; height: auto; }
 }
 
@@ -209,6 +210,9 @@ table.probes tr.hot td { background: var(--sel); }
 .fxwhere .fxbase { display: block; margin-top: 2px; font-size: 12px; color: var(--faint); white-space: normal; }
 
 .fxnote { margin: 14px 0 0; color: var(--faint); font-size: 12.5px; }
+/* A crash's first bad commit under the Blame step's lead, then its change, closer to it than on Tests. */
+.bisect.fxbis { margin: 0 0 16px; padding-top: 0; border-top: 0; }
+.bisect.fxbis + .codewrap.bisectdiff { margin: -6px 0 20px; }
 .fxcmd { margin-top: 14px; }
 .fxlost { margin: 6px 0 14px; }
 .fxlost .at { color: var(--faint); }

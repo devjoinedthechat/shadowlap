@@ -6,7 +6,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { Link } from '../components/Link.js';
 import { MigrateButton } from '../components/MigrateDialog.js';
 import { NewPreviewMenu, NO_GOLDENS, PreviewWayButtons, usePreviewDialog } from '../components/NewPreviewMenu.js';
-import { EmptyState, ErrorState, Skeleton } from '../components/States.js';
+import { EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { glossed } from '../components/Term.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { forgetPreviewSession, notePreviewSession } from '../changes-tab.js';
@@ -87,7 +87,7 @@ function PreviewBody({ id, run, call, onMissing }: PreviewTabProps) {
   useLayoutEffect(() => {
     if (gone && id && detail.error) onMissing?.(detail.error);
   }, [gone, id, detail.error, onMissing]);
-  if (list.error && !list.data) return <ErrorState retry={list.reload}>{failedWords(list.error)}</ErrorState>;
+  if (list.error && !list.data) return <ErrorState retry={list.reload}>{failedRead(list.error)}</ErrorState>;
   if (!sessions) return <Skeleton what="the previews" lines={8} />;
   if (!shownId) return <NoPreview goldens={list.data!.goldens} />;
   if (gone || (session && session.kind !== 'decisions'))
@@ -97,7 +97,7 @@ function PreviewBody({ id, run, call, onMissing }: PreviewTabProps) {
         No preview {shownId}. <Link href={href.changeSession('decisions')}>Open Preview</Link>
       </div>
     );
-  if (detail.error && !session) return <ErrorState retry={detail.reload}>{failedWords(detail.error)}</ErrorState>;
+  if (detail.error && !session) return <ErrorState retry={detail.reload}>{failedRead(detail.error)}</ErrorState>;
   if (!session) return <Skeleton what="this preview" lines={8} />;
   const opened = openedCell(session, run, call);
   return (
@@ -114,8 +114,6 @@ function PreviewBody({ id, run, call, onMissing }: PreviewTabProps) {
     </>
   );
 }
-
-const failedWords = (e: Error) => (e instanceof ApiError ? `The dashboard server answered ${e.status} for this page’s data.` : e.message);
 
 /** No preview kept: what one is, and the command that makes one; with no goldens, what to pack first. */
 function NoPreview({ goldens }: { goldens: number }) {

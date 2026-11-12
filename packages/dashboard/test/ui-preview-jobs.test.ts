@@ -372,6 +372,23 @@ describe('a new preview’s dialogs', () => {
     expect(p.one('.dialog .dlg-ok').props['data-why']).toBe('What it asks didn’t load: the store is busy');
   });
 
+  it('says a read that answered a status alone in the line every page says it, what it asks and what your working tree sends', async () => {
+    const p = await open('model', (kind) => job(kind), {
+      estimate: () => {
+        throw new ApiError(500, 'HTTP 500');
+      },
+    });
+    await p.type(p.one('.dialog input[type="text"]'), 'claude-haiku-4-5');
+    await p.until('the failed read', () => p.all('.dialog .dlgest').length === 1);
+    expect(shown(p.one('.dialog .dlgest'))).toBe('What it asks didn’t load: The dashboard server answered 500 for this page’s data.');
+    await p.unmount();
+    page = null;
+    const tree = await open('code', (kind) => (kind === 'decisions-read' ? Promise.reject(new ApiError(502, 'HTTP 502')) : job(kind)));
+    await tree.until('the failed read', () => tree.all('.dialog .dlgest').length === 1);
+    expect(shown(tree.one('.dialog .dlgest'))).toBe('What your working tree sends didn’t load: The dashboard server answered 502 for this page’s data.');
+    expect(tree.one('.dialog .dlg-ok').props['data-why']).toBe('What your working tree sends didn’t load: The dashboard server answered 502 for this page’s data.');
+  });
+
   it('holds each way on no golden at all with the amber line as its why, asking nothing and showing no command', async () => {
     for (const way of ['model', 'code', 'field'] as const) {
       const p = (page = await open(way, (kind) => job(kind), { target: { goldens: 'all', count: 0 } }));

@@ -7,44 +7,50 @@ import { RunKey } from '../components/RunKey.js';
 import { MARKS, type RunMark } from '../runkey.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
-import { Popover, useMenu } from '../components/Popover.js';
+import { useMenu } from '../components/Popover.js';
 import { copyText } from '../dom.js';
 import { headingRef } from '../focus-manager.js';
 import { shortcut } from '../shortcuts.js';
 import { dur, shortId, stamp, wholeCounts } from '../format.js';
 import { href } from '../route.js';
 import { isFailed, runType } from '../runs.js';
+import type { ForkWait } from '../scopes.js';
 import { labelSuggestions } from '../runspage/run-words.js';
-import { pendingRunOf, useDeleteRun } from './delete-run.js';
 import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
-import { ForkMenu, type PendingAction } from './actions.js';
+import type { PendingAction } from './actions.js';
 import type { CheckEntry } from './check-entry.js';
 import { failureText, fixCheckText } from './banner.js';
 import { nextStepOf } from './next-step.js';
-import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton } from './NextStepButton.js';
+import { BlameBesideButton, CompareButton, NextStepButton, PlainPackAsGolden, ReplayButton, RevertEditorButton } from './NextStepButton.js';
 import { TraceLink } from './TraceLink.js';
 import { exitWords, type PresetAttempt } from './preset.js';
 import { checksOf, runDuration, runKindWords, runLikeOf } from './model.js';
 import { canPush, pushTitle } from './share-steps.js';
 // The share job's drawer offers the link it made, as the run's page loads, whether Share has opened or not.
 import './share-link.js';
-import { ActionButton, useWhenFree } from '../components/ActionButton.js';
+import { ActionButton, useWhenFree, type ActionButtonProps } from '../components/ActionButton.js';
 import { fitHead, moreRows, useMetaCard, type MoreRow } from './fit-head.js';
 import { fitWork } from './fit-work.js';
-import { onShow } from '../components/OnShow.js';
-import { useServedParts, type ShareMenuProps } from '../served-parts.js';
+import { useServedParts, type ForkMenuProps, type ShareMenuProps } from '../served-parts.js';
+import type { UntrustedView } from '../types.js';
 
-/** Delete run's dialog, which a run's page rarely opens: a part of its own, with Find breaking commit's (OnShow.tsx). */
-const DeleteRunDialog = onShow(() => import('./RunDialogs.js').then((m) => m.DeleteRunDialog));
 /**
- * Share's menu, a part of its own for the same reason, which only the served dashboard hands in
- * (served-parts.ts): an exported copy draws no Share, so its script holds no menu. Nothing where none
- * was handed in.
+ * Share's menu, a part of its own, which only the served dashboard hands in (served-parts.ts): an
+ * exported copy draws no Share, so its script holds no menu. Nothing where none was handed in.
  */
 function ShareMenuPart(props: ShareMenuProps) {
   const { ShareMenu } = useServedParts();
   return ShareMenu ? <ShareMenu {...props} /> : null;
+}
+
+/**
+ * The fork menu (run/ForkMenu.tsx), a part of its own that only the served dashboard hands in too: an
+ * exported copy forks nothing, so its script holds no menu. Nothing where none was handed in.
+ */
+function ForkMenuPart(props: ForkMenuProps) {
+  const { ForkMenu } = useServedParts();
+  return ForkMenu ? <ForkMenu {...props} /> : null;
 }
 
 /**
@@ -57,10 +63,12 @@ function ShareMenuPart(props: ShareMenuProps) {
  * the eyebrow. The next step is the server's (src/next-step.ts); every other action stays, plain. No
  * chip says how the run stands: its first fact does.
  */
-export function RunHeader({ run, call, selected, rescued, offers, forkMenu, check, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged }: {
+export function RunHeader({ run, call, selected, forkWait, rescued, offers, forkMenu, check, onAction, onFindCommit, preset = null, labels: given, setLabels: setGiven, onMark = null, facts = null, judged, untrusted }: {
   run: RunDetail;
   call: CallDetail | null;
   selected: number | null;
+  /** Why no fork starts at the selected call, the page's (scopes.ts `judgeForkWait`): its Fork then reads Fork, waits and says why. */
+  forkWait?: ForkWait | null;
   /** The fork blame rescued a run with: a fork of its own, as its eyebrow says, though blame made it as a probe. */
   rescued: boolean;
   offers: RunOffers | null;
@@ -79,6 +87,8 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, chec
   facts?: ReactNode;
   /** Its verdict by today's checks, the first fact's (useJudgedAt): undefined while they judge it, when no plain Pack as golden… shows. */
   judged?: RunDetail['judged'];
+  /** The run's untrusted reads a model call reads, by call: the fork menu's header names one where the server didn't. */
+  untrusted?: ReadonlyMap<number, UntrustedView> | undefined;
 }) {
   const app = useApp();
   const { exported, toast, client, guard, hasKind } = app;
@@ -90,10 +100,13 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, chec
   const like = runLikeOf(run);
   const type = runType(like);
   const live = r.status === 'running';
+  const fork = forkHead(selected, live, forkWait);
   const share = useMenu();
-  // Its script loads as the pointer or the focus reaches Share, so the menu opens at once.
+  // Its script loads as the pointer or the focus reaches Share, so the menu opens at once; the fork
+  // menu's as they reach Fork at #n (or a row's fork button, CallsView.tsx).
   const served = useServedParts();
   const preloadShare = () => served.ShareMenu?.preload();
+  const preloadFork = () => served.ForkMenu?.preload();
   const next = nextStepOf(run);
   const lead = next ? <NextStepButton key={next.key} run={run} step={next} offers={offers} onAction={onAction} onFindCommit={onFindCommit} /> : null;
   // The lineage is in the crumbs; a phone, which has none, reads the parent here, after the kind.
@@ -200,43 +213,35 @@ export function RunHeader({ run, call, selected, rescued, offers, forkMenu, chec
             ) : null}
             {next?.key === 'replay' ? null : <ReplayButton run={run} step={run.replay ?? null} lime={false} onAction={onAction} />}
             <PlainPackAsGolden run={run} offers={offers} next={next} judged={judged} />
+            <RevertEditorButton step={next} offers={offers} />
             <BlameBesideButton runId={r.runId} step={next} />
-            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} why={live ? 'Fork once the recording finishes' : null} disabled={!live && selected === null} {...cardUnlessIdle(selected === null, 'Each change in the menu shows the flag it runs')} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
+            <ActionButton className="btn" id="forkBtn" aria-haspopup="menu" aria-expanded={forkMenu.open} {...fork.props} onPointerEnter={preloadFork} onFocus={preloadFork} onClick={(e) => forkMenu.toggle(e.currentTarget)} {...shortcut('fork')}>
               <Icon name="fork" />
-              Fork at #{selected ?? '–'}
+              {fork.label}
               <Icon name="caret" className="caret" />
             </ActionButton>
             {lead}
-            <MoreMenu run={run} offers={offers} live={live} />
+            <More run={run} offers={offers} live={live} />
           </>
         )}
       </div>
       {share.open && share.anchor ? <ShareMenuPart anchor={share.anchor} run={run} offers={offers} onClose={share.close} onAction={onAction} /> : null}
-      {forkMenu.open && forkMenu.anchor ? <ForkMenu anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} check={check} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} /> : null}
+      {forkMenu.open && forkMenu.anchor ? <ForkMenuPart anchor={forkMenu.anchor} run={run} call={call && call.call.callNo === selected ? call : null} offers={offers} check={check} onPick={onAction} onFindCommit={onFindCommit} onClose={forkMenu.close} untrusted={untrusted} /> : null}
     </section>
   );
 }
 
-/** Why a recording can't be deleted yet: the server refuses it. */
-const DELETE_WAITS = 'A run that is still recording can’t be deleted';
-
 /**
- * The header's …: what a run page needs rarely. The buttons the header folded in, where they would
- * have wrapped, each as it was (its card, its wait, a press of the button itself, so its own dialog
- * opens as from the header), then Delete run, which waits while the run records.
+ * The header's …: its button, and its menu (run/MoreMenu.tsx), which only the served dashboard hands
+ * in, its script loaded as the pointer or the focus reaches …, so it opens at once. Once asked for,
+ * the menu stays, so Delete run's dialog outlives it.
  */
-function MoreMenu({ run, offers, live }: { run: RunDetail; offers: RunOffers | null; live: boolean }) {
-  const { guard, toast } = useApp();
+function More({ run, offers, live }: { run: RunDetail; offers: RunOffers | null; live: boolean }) {
   const more = useMenu();
   const [rows, setRows] = useState<MoreRow[]>([]);
-  const [deleting, setDeleting] = useState(false);
-  const deleteRun = useDeleteRun();
-  const id = shortId(run.run.runId);
-  const pick = (row: MoreRow) => {
-    more.close();
-    if (row.off) toast(row.why ?? row.label, 'notice');
-    else row.press();
-  };
+  const [asked, setAsked] = useState(false);
+  const { MoreMenu } = useServedParts();
+  const preload = () => MoreMenu?.preload();
   return (
     <>
       <button
@@ -247,38 +252,17 @@ function MoreMenu({ run, offers, live }: { run: RunDetail; offers: RunOffers | n
         aria-haspopup="menu"
         aria-expanded={more.open}
         data-tip={tipText('More: Delete')}
+        onPointerEnter={preload}
+        onFocus={preload}
         onClick={(e) => {
           setRows(moreRows(e.currentTarget.parentElement));
+          setAsked(true);
           more.toggle(e.currentTarget);
         }}
       >
         <Icon name="more" />
       </button>
-      {more.open && more.anchor ? (
-        <Popover anchor={more.anchor} onClose={more.close} label="More actions" className="fkm more narrow">
-          {rows.map((row) =>
-            row.href && !row.why ? (
-              <a key={row.key} role="menuitem" href={row.href} data-tip={row.tip ?? undefined} onClick={more.close}>
-                <b>{row.label}</b>
-              </a>
-            ) : (
-              <button key={row.key} type="button" role="menuitem" aria-disabled={row.why ? 'true' : undefined} data-why={row.why ?? undefined} data-tip={row.tip ?? undefined} onClick={() => pick(row)}>
-                <b>{row.label}</b>
-              </button>
-            ),
-          )}
-          {rows.length ? <hr /> : null}
-          <ActionButton role="menuitem" className="dz" why={live ? DELETE_WAITS : null} tip={`Delete ${id}`} sub="Removes the run, its attempts and the recorded data nothing else uses; asks first" command={`$ shadowlap rm ${id}`} onClick={() => guard(() => (more.close(), setDeleting(true)))}>
-            <b>Delete run</b>
-            <small>rm</small>
-          </ActionButton>
-        </Popover>
-      ) : null}
-      {deleting ? (
-        // As Runs' Delete and `shadowlap rm` delete it: with the attempts bundled under it, named here
-        // and counted when it is done.
-        <DeleteRunDialog runId={run.run.runId} attempts={run.attempts ?? 0} onClose={() => setDeleting(false)} onOk={() => deleteRun(pendingRunOf(run, offers))} />
-      ) : null}
+      {asked && MoreMenu ? <MoreMenu more={more} rows={rows} run={run} offers={offers} live={live} /> : null}
     </>
   );
 }
@@ -292,6 +276,16 @@ const fitWorkUnder = (head: HTMLElement) => fitWork(head.closest<HTMLElement>('.
  * and a focus, which a disabled button's title never reaches from the keyboard or a touch screen.
  */
 const cardUnlessIdle = (idle: boolean, card: string) => (idle ? {} : { 'data-tip': tipText(card) });
+
+/**
+ * The head's Fork: at the selected call, with a card; none picked, it waits; while the run records,
+ * it says why. At a call no fork starts at (`wait`, a judge's), it reads Fork, waits and says why, as
+ * the design draws it.
+ */
+function forkHead(selected: number | null, live: boolean, wait: ForkWait | null | undefined): { label: string; props: Pick<ActionButtonProps, 'why' | 'whyTip' | 'tip' | 'disabled'> & { 'data-tip'?: string } } {
+  if (wait && !live) return { label: 'Fork', props: { why: wait.why, whyTip: wait.card, tip: 'Fork' } };
+  return { label: `Fork at #${selected ?? '–'}`, props: { why: live ? 'Fork once the recording finishes' : null, disabled: !live && selected === null, ...cardUnlessIdle(selected === null, 'Each change in the menu shows the flag it runs') } };
+}
 
 /**
  * A label's ×: the label goes at once, the focus to Add label where the × had it, and the toast's Undo

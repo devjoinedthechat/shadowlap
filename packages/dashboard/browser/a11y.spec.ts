@@ -15,6 +15,7 @@ import { routeTestsFixture } from './tests-fixture.js';
 const PAGES: Array<{ name: string; path: () => string; drawn: string }> = [
   { name: 'the Overview', path: () => '/', drawn: 'main#view .ovg' },
   { name: 'Runs', path: () => '/runs', drawn: 'main#view table.runst tbody tr' },
+  { name: 'Runs › Failed', path: () => '/runs?types=failed', drawn: 'main#view table.issues tbody tr' },
   { name: 'a run', path: () => `/run/${demoId('refundBug')}`, drawn: 'run' },
   { name: 'a fork', path: () => `/run/${demoId('override')}`, drawn: 'run' },
   { name: 'a fix', path: () => `/fixes/${demoId('refundFix')}`, drawn: 'fix' },

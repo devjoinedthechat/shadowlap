@@ -1,3 +1,4 @@
+import type { JudgeOutcome } from '../../engine/src/types.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixView, Intervention, Meta, NotRecordedView, PromptChoice, RunDetail, RunListItem, RunOutcomeView, RunStateView } from './types.js';
 import { CHECK_STATUSES } from '../../engine/src/check-status.js';
@@ -169,8 +170,28 @@ function normalizeChecks(v: unknown): CheckView[] | null {
       }
       const detail = str(c.detail);
       if (detail) out.detail = detail;
+      const judge = normalizeJudge(c.judge);
+      if (judge) out.judge = judge;
       return out;
     });
+}
+
+/** A check's judge, field by field as the server's `storedJudge` keeps it, its call a call number of the run: none without its name and model. */
+function normalizeJudge(v: unknown): JudgeOutcome | null {
+  if (!isObject(v) || typeof v.name !== 'string' || typeof v.model !== 'string') return null;
+  const callNo = int(v.callNo);
+  return {
+    name: v.name,
+    model: v.model,
+    of: v.of === 'output' || v.of === 'run' ? v.of : 'answer',
+    verdict: v.verdict === 'yes' || v.verdict === 'no' ? v.verdict : null,
+    source: v.source === 'recording' || v.source === 'live' ? v.source : null,
+    cost: num(v.cost),
+    redactions: int(v.redactions) ?? 0,
+    ...(typeof v.normalized === 'boolean' ? { normalized: v.normalized } : {}),
+    cut: int(v.cut) ?? 0,
+    ...(callNo !== null && callNo > 0 ? { callNo } : {}),
+  };
 }
 
 function normalizeIntervention(v: unknown): Intervention | null {

@@ -1,19 +1,18 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import { onShow } from '../components/OnShow.js';
 import type { HeldAsk } from '../held.js';
+import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 
 /**
  * A page that can't find what its address names asks first whether another project on this machine
  * holds it, and if one does says so, *In support-agent*, with **Switch to support-agent**, rather than
  * that it isn't here (pages/Elsewhere.tsx). Its code waits in a script of its own until a page first
- * can't find something (`onShow`): the page's own loading look shows meanwhile, and the page's own
- * not-found should that script fail to come.
+ * can't find something: the page's own loading look shows meanwhile, and the page's own not-found
+ * should that script fail to come.
  *
- * Declared here, apart from the pages that show it, since the page list shows it too: a link into a
- * project with no runs yet asks before the setup takes the page (pages/lazy.tsx). So an exported copy,
- * built from the pages it shows (main-copy.tsx), takes it with them and not the page list, and the
- * bundle size test pins this one part the page list shows.
+ * The page list shows it too: a link into a project that can't be opened asks before the setup takes
+ * the page (pages/lazy.tsx). An exported copy never asks, so the served entry hands its part in
+ * (served-parts.ts, from pages/served.tsx), and a copy's script holds none of it.
  */
 
 export interface ElsewhereProps {
@@ -32,15 +31,15 @@ export interface ElsewhereProps {
 /** The page's own looks, for the part's while its script comes and should it fail to come. */
 const Looks = createContext<{ waiting: ReactNode; fallback: ReactNode }>({ waiting: null, fallback: null });
 
-function Waiting() {
+/** The page's loading look, in the part's place while its script comes (pages/served.tsx). */
+export function ElsewhereWaiting() {
   return <>{useContext(Looks).waiting}</>;
 }
 
-function Fallback() {
+/** The page's own not-found, in the part's place should its script fail to come. */
+export function ElsewhereFallback() {
   return <>{useContext(Looks).fallback}</>;
 }
-
-const ElsewherePart = onShow(() => import('./Elsewhere.js').then((m) => m.ElsewherePage), { waiting: <Waiting />, failed: <Fallback /> });
 
 /**
  * The page's not-found, once no other project holds what it names, or the In page. Only a dashboard
@@ -49,10 +48,11 @@ const ElsewherePart = onShow(() => import('./Elsewhere.js').then((m) => m.Elsewh
  */
 export function Elsewhere(props: ElsewhereProps) {
   const { exported, meta } = useApp();
-  if (exported || !meta?.project?.id) return <>{props.fallback}</>;
+  const Part = useServedParts().Elsewhere;
+  if (exported || !meta?.project?.id || !Part) return <>{props.fallback}</>;
   return (
     <Looks.Provider value={props}>
-      <ElsewherePart {...props} />
+      <Part {...props} />
     </Looks.Provider>
   );
 }

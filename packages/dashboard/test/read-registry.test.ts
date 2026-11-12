@@ -55,6 +55,7 @@ const JOBS: { [K in ReadJob['kind']]: Extract<ReadJob, { kind: K }> } = {
   'tests-steps': { kind: 'tests-steps', goldens: ['goldens/refund'], next: null },
   'tests-evidence': { kind: 'tests-evidence', golden: 'goldens/refund' },
   'runs-failures': { kind: 'runs-failures', options: { from: 0, to: NOW + 1, q: 'refund_agent' }, outcome: null },
+  'runs-issues': { kind: 'runs-issues', options: { from: 0, to: NOW + 1, q: 'refund_agent' }, outcome: null, next: null },
   'run-estimates': { kind: 'run-estimates', runId: FORK, at: 1, model: null },
   'fix-estimates': { kind: 'fix-estimates', fixId: FIX, repairer: null, rule: { keptMax: null, baseline: 'paired' }, model: null },
   'tests-estimates': { kind: 'tests-estimates', goldens: [{ path: 'goldens/refund', runId: REC, packedAt: null, mode: 'fork', repeat: 1, passes: 1, checks: [] }], folder: 'goldens' },

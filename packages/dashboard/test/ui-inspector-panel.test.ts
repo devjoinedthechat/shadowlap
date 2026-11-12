@@ -2,7 +2,8 @@ import { act, createElement, useCallback, useLayoutEffect, useState, type ReactN
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Client, RunDetail } from '../ui/api.js';
 import type { RequestDiff } from '../src/request-diff.js';
-import { FindingPanel, ResultsToggle } from '../ui/components/FindingPanel.js';
+import { FindingPanel } from '../ui/components/FindingPanel.js';
+import { ResultsToggle } from '../ui/components/ResultsToggle.js';
 import { claimCallFocus } from '../ui/focus-manager.js';
 import type { Matrix } from '../ui/matrix.js';
 import { InspectorPlace, useFindingPanel, usePickInView, warmDiff } from '../ui/run/InspectorPanel.js';

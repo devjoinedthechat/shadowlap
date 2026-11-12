@@ -20,6 +20,7 @@ import { unshownKey, useUnshown } from '../ui/shell/unshown.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { FixesViewRow, Meta, PreviewVerdict, RunDetail, RunListItem, SessionVerdict, VerdictRevision, VerdictRow, VerdictsKind, VerdictsView, VerifyVerdict } from '../ui/types.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { withServed } from './ui-served-now.js';
 
 /**
  * Changes: what a change does to your agent, on its own recorded runs. Its addresses, the tab it
@@ -449,7 +450,7 @@ describe('Verdicts', () => {
     expect(page!.all('.skel table.vdt tbody tr')).toHaveLength(5);
     await page!.unmount();
     let tries = 0;
-    await open(() => (++tries === 1 ? Promise.reject(new ApiError(500, 'boom')) : Promise.resolve(view(rows))));
+    await open(() => (++tries === 1 ? Promise.reject(new ApiError(500, 'HTTP 500')) : Promise.resolve(view(rows))));
     await page!.until('the error', () => page!.all('.loaderr').length === 1);
     expect(page!.one('.loaderr p').children.map(shown)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
     await page!.click(page!.byText('.loaderr button', 'Retry'));
@@ -457,7 +458,7 @@ describe('Verdicts', () => {
   });
 
   it('says a chip’s read failed in place of another chip’s rows, under the chips', async () => {
-    await open((kind) => (kind === 'previews' ? Promise.reject(new ApiError(503, 'busy')) : Promise.resolve(view(rows))));
+    await open((kind) => (kind === 'previews' ? Promise.reject(new ApiError(503, 'HTTP 503')) : Promise.resolve(view(rows))));
     await page!.until('the rows', () => table().length === 4);
     await page!.click(chip('Previews'));
     await page!.until('the error', () => page!.all('.loaderr').length === 1);
@@ -497,7 +498,7 @@ describe('Verdicts', () => {
     const many = Array.from({ length: 120 }, (_, i) => preview({ id: `dc-${i}`, sessionId: `dc-${i}`, at: AT - i }));
     const all = { all: 120, sessions: 0, previews: 120, verifies: 0 };
     let tries = 0;
-    const asked = await open((_kind, limit) => (limit > VERDICTS_STEP && ++tries === 1 ? Promise.reject(new ApiError(500, 'boom')) : Promise.resolve(view(many.slice(0, limit), { counts: all }))));
+    const asked = await open((_kind, limit) => (limit > VERDICTS_STEP && ++tries === 1 ? Promise.reject(new ApiError(500, 'HTTP 500')) : Promise.resolve(view(many.slice(0, limit), { counts: all }))));
     await page!.until('the rows', () => table().length === VERDICTS_STEP);
     await page!.click(page!.one('button.attn-more'));
     await page!.until('the error', () => page!.all('.loaderr').length === 1);
@@ -675,7 +676,7 @@ describe('Changes’ page', () => {
     const asked: string[] = [];
     const holding = (what: string, ids: readonly string[]) => (asked.push(`${what} ${ids.join(' ')}`), Promise.resolve({ current: { id: 'support-agent', name: 'support-agent' }, held: null }));
     const client = { decisionSessions: () => Promise.resolve({ sessions: [], goldens: 0 }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')), projects: { holding } };
-    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' })));
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, withServed(createElement(ChangesPage, { tab: 'decisions', id: 'dc-01M5000000000000000000000A' }))));
     await page.until('the Preview tab', () => page!.all('.empty.tall').length === 1);
     expect(page.all('nav.stabs a').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)).toEqual(['Preview']);
     expect(bar.hash).toBe('#/changes/decisions/dc-01M5000000000000000000000A');

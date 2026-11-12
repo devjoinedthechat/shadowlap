@@ -124,15 +124,16 @@ describe('a fix', () => {
     // A teammate's patch runs nothing here: it goes in, and the rest is the amber line's.
     expect(applySteps({ files: ['agent.mjs', 'src/tools.mjs', 'prompt.txt'], pulled: true, goldens: 0 })).toEqual([{ what: 'Patch applied', where: 'agent.mjs, src/tools.mjs and prompt.txt, with git apply' }]);
     expect(patchLines('diff --git a/agent.mjs b/agent.mjs\n--- a/agent.mjs\n+++ b/agent.mjs\n@@ -1,2 +1,2 @@\n-old\n+new\n context\n--- removed dashes\n')).toEqual([
-      { text: 'diff --git a/agent.mjs b/agent.mjs', tone: null },
-      { text: '--- a/agent.mjs', tone: null },
-      { text: '+++ b/agent.mjs', tone: null },
-      { text: '@@ -1,2 +1,2 @@', tone: null },
-      { text: '-old', tone: 'del' },
-      { text: '+new', tone: 'add' },
-      { text: ' context', tone: null },
+      { op: ' ', text: 'diff --git a/agent.mjs b/agent.mjs' },
+      { op: ' ', text: '--- a/agent.mjs' },
+      { op: ' ', text: '+++ b/agent.mjs' },
+      { op: ' ', text: '@@ -1,2 +1,2 @@' },
+      // Each line of a hunk without the sign git leads it with: the box marks it.
+      { op: '-', text: 'old' },
+      { op: '+', text: 'new' },
+      { op: ' ', text: 'context' },
       // A removed line that starts with dashes is still a removed line.
-      { text: '--- removed dashes', tone: 'del' },
+      { op: '-', text: '-- removed dashes' },
     ]);
   });
 

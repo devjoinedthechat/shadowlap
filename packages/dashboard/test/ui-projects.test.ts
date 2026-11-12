@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { dialogFocus } from '../ui/focus.js';
 import { heldAsk } from '../ui/held.js';
 import { elsewhereWords, lineText } from '../ui/held-words.js';
-import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, keepsPageOnSwitch, liveCalls, nameMatches, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, switchToLabel, terminalLine } from '../ui/projects.js';
+import { aroundRunId, aroundWord, asksForSetup, codeParts, confirmedRecording, exportedLine, followKey, type FollowView, keepsPageOnSwitch, liveCalls, nameMatches, noRunsYet, recordingLine, setupPageShows, setupShowsOn, stepClass, storePath, switchedText, switchToLabel, terminalLine } from '../ui/projects.js';
 import { dialogOnSwitch, expectProject, noteDialogDropped, noteRefusal, onProjectSwitched, onShownProject, projectHeader, showProject, shownProject, takeDialogDropped, takeLanding } from '../ui/projects-api.js';
+import { notFoundWords } from '../ui/not-found-words.js';
 import { parseRoute } from '../ui/route.js';
 import type { RunLike } from '../ui/runs.js';
 import type { Meta } from '../ui/types.js';
@@ -36,14 +37,24 @@ describe('where the setup shows', () => {
   const at = (hash: string) => parseRoute(hash);
   const project = (settingUp: boolean) => meta({ project: { id: 'agent', name: 'agent', path: '/home/dana/agent', settingUp } });
 
-  it('takes every page but Settings while the project has no runs, and #/setup always', () => {
+  it('takes the Overview while the project has no runs, and #/setup always', () => {
     const none = { exported: false, meta: project(true), runs: [] };
-    for (const hash of ['#/', '#/runs', '#/compare', '#/changes', '#/fixes', '#/tests', '#/training', '#/run/01M50Y3WTS']) expect(setupShowsOn(at(hash), none), hash).toBe(true);
+    expect(setupShowsOn(at('#/'), none)).toBe(true);
+    // Every other page opens on its own and says in its empty state what it will hold.
+    for (const hash of ['#/runs', '#/compare', '#/changes', '#/fixes', '#/tests', '#/training', '#/run/01M50Y3WTS']) expect(setupShowsOn(at(hash), none), hash).toBe(false);
     expect(setupShowsOn(at('#/settings/matching'), none)).toBe(false);
     expect(setupShowsOn(at('#/new'), none)).toBe(false);
     expect(setupShowsOn(at('#/setup'), { ...none, runs: [run()], meta: project(false) })).toBe(true);
     // Attempts alone are no runs to show.
-    expect(setupShowsOn(at('#/runs'), { ...none, runs: [run({ attemptKind: 'repeat', attemptOf: 'x' } as Partial<RunLike>)] })).toBe(true);
+    const attempts = [run({ attemptKind: 'repeat', attemptOf: 'x' } as Partial<RunLike>)];
+    expect(setupShowsOn(at('#/'), { ...none, meta: project(false), runs: attempts })).toBe(true);
+    expect(noRunsYet({ meta: null, runs: attempts })).toBe(true);
+  });
+
+  it('takes every page but Settings of a project that can’t be opened, which says so there', () => {
+    const gone = { exported: false, meta: meta({ project: { id: 'agent', name: 'agent', path: '/home/dana/agent', problem: 'Its folder is gone.', missing: true } }), runs: [] };
+    for (const hash of ['#/', '#/runs', '#/fixes', '#/tests', '#/training', '#/run/01M50Y3WTS']) expect(setupShowsOn(at(hash), gone), hash).toBe(true);
+    for (const hash of ['#/settings/matching', '#/new', '#/setup/store']) expect(setupShowsOn(at(hash), gone), hash).toBe(false);
   });
 
   it('takes the Overview of a project partway through its setup, and nothing else', () => {
@@ -58,6 +69,10 @@ describe('where the setup shows', () => {
     // The meta's count tells before the run list arrives.
     expect(setupShowsOn(at('#/'), { exported: false, meta: meta({ counts: { runs: 0, attempts: 0 } }), runs: null })).toBe(true);
     expect(setupShowsOn(at('#/run/01M50Y3WTS'), { exported: false, meta: null, runs: null })).toBe(false);
+    // Any other page waits for the meta, which is what says a project can't be opened.
+    expect(setupShowsOn(at('#/runs'), { exported: false, meta: null, runs: [] })).toBeNull();
+    expect(noRunsYet({ meta: null, runs: null })).toBeNull();
+    expect(noRunsYet({ meta: meta({ counts: { runs: 2, attempts: 0 } }), runs: null })).toBe(false);
     expect(setupShowsOn(at('#/'), { exported: true, meta: null, runs: [] })).toBe(false);
     expect(setupShowsOn(at('#/'), { exported: false, meta: meta({ static: true }), runs: [] })).toBe(false);
   });
@@ -81,6 +96,9 @@ describe('the setup on a dashboard that serves one store', () => {
     expect(setupPageShows({ meta: oneStore, view: undefined, runs: [run()] })).toBe('nothing');
     expect(setupPageShows({ meta: oneStore, view: undefined, runs: [] })).toBe('steps');
     expect(setupPageShows({ meta: oneStore, view: undefined, runs: [run({ attemptKind: 'repeat', attemptOf: 'x' } as Partial<RunLike>)] })).toBe('steps');
+    // Before the run list, the meta's count says it, as on every page.
+    expect(setupPageShows({ meta: meta({ counts: { runs: 3, attempts: 0 } }), view: undefined, runs: null })).toBe('nothing');
+    expect(setupPageShows({ meta: meta({ counts: { runs: 0, attempts: 2 } }), view: undefined, runs: null })).toBe('steps');
     // A project's dashboard waits for its setup, then shows it; one whose server answers none falls back the same way.
     expect(setupPageShows({ meta: project, view: undefined, runs: [] })).toBe('wait');
     expect(setupPageShows({ meta: project, view: { shows: 'setup' }, runs: [] })).toBe('project');
@@ -167,6 +185,32 @@ describe('the setup’s words', () => {
   it('links Settings in the golden’s redaction note', () => {
     expect(aroundWord('Add some in Settings before you commit runs with user data.', 'Settings')).toEqual({ before: 'Add some in ', word: 'Settings', after: ' before you commit runs with user data.' });
     expect(aroundWord('Your redaction rules apply to the copy.', 'Settings')).toBeNull();
+  });
+
+  it('follows the step at hand, and what leads in it', () => {
+    const view = (at: string, o: { live?: boolean; wrap?: boolean; node?: boolean; again?: boolean; done?: boolean; inspect?: boolean } = {}): FollowView => ({
+      done: o.done ? {} : null,
+      steps: ['inspect', 'record', 'calibrate', 'test'].map((key) => ({ key, state: key === at ? 'current' : 'todo' })),
+      inspect: { button: o.inspect === undefined ? null : { lime: o.inspect }, warning: o.wrap === undefined ? null : { recheck: { lime: o.wrap } }, node: o.node ? { recheck: { lime: true } } : null },
+      record: { live: o.live ? {} : null, again: o.again === undefined ? null : { lime: o.again } },
+    });
+    expect(followKey(view('inspect'))).toBe('inspect');
+    expect(followKey(view('inspect', { inspect: true }))).toBe('inspect');
+    // Recorded in a terminal before the folder was inspected: Inspect folder leads from a later step,
+    // until the folder is inspected, when the step at hand's own button does.
+    expect(followKey(view('calibrate', { inspect: true }))).toBe('calibrate:inspect');
+    expect(followKey(view('calibrate', { inspect: false }))).toBe('calibrate');
+    expect(followKey(view('record', { wrap: true }))).toBe('record:wrap');
+    // Reads alone not wrapped: the warning shows, and Record run leads.
+    expect(followKey(view('record', { wrap: false }))).toBe('record');
+    expect(followKey(view('record', { node: true }))).toBe('record:node');
+    expect(followKey(view('record', { live: true, wrap: true }))).toBe('record:live');
+    expect(followKey(view('calibrate', { again: true }))).toBe('calibrate:again');
+    expect(followKey(view('calibrate', { again: false }))).toBe('calibrate');
+    expect(followKey(view('test'))).toBe('test');
+    expect(followKey(view('test', { done: true }))).toBe('done');
+    // Recording before the folder was inspected: no step is at hand but the recording's.
+    expect(followKey(view('none', { live: true }))).toBe('record:live');
   });
 
   it('keeps the terminal line in step with the command as typed', () => {
@@ -275,5 +319,16 @@ describe('a link into another project', () => {
     ]);
     for (const what of ['run', 'preview', 'migration'] as const) expect(lineText(elsewhereWords({ what, id: 'x', holder: 'a', current: 'b' }).line)).toBe(`The ${what} x is in a’s store, not b’s.`);
     expect(switchToLabel('support-agent')).toBe('Switch to support-agent');
+  });
+});
+
+describe('a not-found page', () => {
+  it('says what is missing and points back to the list that holds its kind', () => {
+    expect(notFoundWords('run', '01ZZZZZZZZ', '#/runs?q=x')).toEqual({ text: 'No run 01ZZZZZZZZ.', code: null, back: ['#/runs?q=x', 'Open Runs'] });
+    expect(notFoundWords('runs', '01M5', '#/runs')).toEqual({ text: '01M5 matches several runs; use more of the id.', code: null, back: ['#/runs', 'Open Runs'] });
+    expect(notFoundWords('fix', 'fx-nope')).toEqual({ text: 'No fix fx-nope.', code: null, back: ['#/fixes', 'Open Fixes'] });
+    expect(notFoundWords('setup', '')).toEqual({ text: 'Nothing to set up here.', code: null, back: ['#/', 'Back to Overview'] });
+    // A route with nothing at it names the address, as code, and goes back to the Overview.
+    expect(notFoundWords('page', '#/nowhere')).toEqual({ text: 'No page at #/nowhere.', code: '#/nowhere', back: ['#/', 'Back to Overview'] });
   });
 });

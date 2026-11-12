@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type StoreOf, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
+import { asTheyStand, carriesCredentials, keepingRunCanaries, redactRunWithDetails, Store, type StoreOf, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetailFrom, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
 import { comparePairOf } from './compare.js';
 import { withExitCodes } from './exit-codes.js';
@@ -118,6 +118,7 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     live: [],
     jobKinds: [],
     uploadLimit: null,
+    editor: null,
     project: null,
     static: true,
     exportedAt: opts.now,
@@ -206,7 +207,8 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
     scratch = Store.open(':memory:');
     // Ancestors first: a copied run keeps its parent only when the parent is already there.
     const ordered = [...asked].sort((a, b) => depth(opts.store, a) - depth(opts.store, b));
-    for (const runId of ordered) redactRunWithDetails(opts.store, runId, rules, scratch);
+    // An injection attempt's copy keeps its canaries, for whoever opens the file to see its proof.
+    for (const runId of ordered) keepingRunCanaries(opts.store.getRun(runId), () => redactRunWithDetails(opts.store, runId, rules, scratch!));
     // A run its recorder left reads interrupted, as the store it came from shows it: the copy knows no
     // recorder to ask, so it is ended there at its last call, or the file would show it recording for good.
     const records = asked.map((id) => opts.store.getRun(id)).filter((r): r is RunRecord => r !== null);

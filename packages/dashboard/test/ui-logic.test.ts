@@ -165,7 +165,7 @@ describe('palette', () => {
   });
 
   it('orders Actions as the design does, whichever page added them, with Keyboard shortcuts last', () => {
-    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run tests', 'Calibrate', 'Import capture…', 'Something new…', 'Score model…', 'Export pairs…', 'Update goldens'].map((label) => ({ group: 'Actions', label, hint: '' }));
+    const actions: PaletteEntry[] = ['Keyboard shortcuts', 'Run tests', 'Calibrate', 'Preview model switch…', 'Import capture…', 'Something new…', 'Score model…', 'Preview changed prompt', 'Export pairs…', 'Update goldens'].map((label) => ({ group: 'Actions', label, hint: '' }));
     expect(matchPalette(actions, '').map((x) => x.label)).toEqual([...ACTION_ORDER, 'Something new…', 'Keyboard shortcuts']);
     // Typed, a better match still leads.
     expect(matchPalette(actions, 'e').map((x) => x.label).slice(0, 2)).toEqual(['Export pairs…', 'Update goldens']);

@@ -88,8 +88,14 @@ export const ACTIONS = {
   // A repair's way on, by what it left: the change it accepted, or the candidates it tried and why each was dropped.
   openChange: { label: 'Open change' },
   openCandidates: { label: 'Open candidates' },
+  // A golden's check its own recording fails, opened in the check builder (Tests, a run's page, Needs a look).
+  editCheck: { label: 'Edit check…' },
   openProof: { label: 'Open proof' },
   openPassingRun: { label: 'Open passing run' },
+  // Once Find breaking commit named a crash's commit: undone in the working tree, uncommitted, then
+  // its golden tested. Its dialog only confirms, so no ellipsis. Open in editor opens the line it changed.
+  revert: { label: 'Revert', doing: 'Reverting' },
+  openInEditor: { label: 'Open in editor' },
   compareWithParent: { label: 'Compare with parent' },
   compareWithFork: { label: 'Compare with fork' },
   compareWithReplay: { label: 'Compare with replay' },
@@ -107,6 +113,8 @@ export const ACTIONS = {
   // Share, each item the copy it makes, its dialog the verb; a dataset's names the runs it copies.
   exportHtml: { label: 'HTML report', doing: 'Exporting HTML report' },
   pack: { label: 'Pack…', confirm: 'Pack run', doing: 'Packing' },
+  // A kept injection test's report: its dialog asks for nothing, so no ellipsis.
+  securityReport: { label: 'Security report', confirm: 'Download report', doing: 'Downloading security report' },
   exportDataset: { label: 'Eval dataset…', title: 'Export eval dataset', confirm: 'Export dataset', doing: 'Exporting dataset' },
   // To a file or a collector alike.
   exportTrace: { label: 'OpenTelemetry trace…', title: 'Export OpenTelemetry trace', confirm: 'Export trace', doing: 'Exporting trace' },

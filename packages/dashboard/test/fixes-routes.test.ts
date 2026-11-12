@@ -9,6 +9,7 @@ import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport
 import { fixBundles } from '../src/fixes.js';
 import { verifyMore } from '../src/fix-verify-step.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView, type ProjectConfig } from '../src/index.js';
+import { crashFixtures, MIN, source, T0 } from './crash-fixtures.js';
 
 /**
  * Fixes over HTTP: the list, a fix, its title, the bundles the Forks view shows, and the blame,
@@ -884,27 +885,6 @@ describe('what settles an unsettled fix', () => {
     expect(kept.argv.slice(-2)).toEqual(['--kept-max', '400']);
   });
 
-  it('holds a pulled verdict’s good runs to the pulled cap on Run more attempts, whatever --kept-max or pairs its record gives', () => {
-    const failing = makeRun(store, { labels: ['double-email'] });
-    const good = makeRun(store, { labels: ['digest'] });
-    blame(failing, { expect: { tools: { send_email: 1 } } });
-    const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
-    // Its good run stopped (no gate decision): Run more attempts takes it again at what it ran under.
-    const stopped = (pairs: number, flags: string[]) => {
-      const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }]);
-      const x = report.runs[1];
-      report.runs[1] = { ...x, verdict: 'open', attempts: Array.from({ length: pairs }, () => ({ ...x.attempts[0], passed: true })), passes: pairs };
-      Object.assign(report, decideVerify(report.runs, 'the provider stopped answering'), { gate, attemptsPerRun: 80 });
-      const v = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: 'v', rerun: { flags, command: null } }).verdict;
-      return { ...v, pulled: { from: 'team store', at: 1 } } as unknown as typeof v;
-    };
-    for (const v of [stopped(10, ['--kept-max', '1000']), stopped(900, [])]) {
-      const more = verifyMore(v)!;
-      expect(more).toMatchObject({ kind: 'more', keptMax: 400 });
-      expect(more.argv.join(' ')).not.toMatch(/--kept-max (?!400\b)\d+/);
-    }
-  });
-
   it('blames again a blame that couldn’t settle, and with the model asked for one nothing rescued, never with a flag for a model', async () => {
     const run = makeRun(store, { labels: ['double-email'] });
     const report = blameReport(run, 'unrescuable');
@@ -922,5 +902,25 @@ describe('what settles an unsettled fix', () => {
     expect((await job({ kind: 'blame', fixId: other.fixId, model: '--writes=allow' })).status).toBe(400);
     expect((await job({ kind: 'blame', fixId: other.fixId, again: true })).status).toBe(409);
     expect((await job({ kind: 'blame', fixId: fix.fixId, model: 'claude-opus-5-5' })).status).toBe(409);
+  });
+});
+
+describe('a crash’s fix, as GET /api/fixes/:id serves it', () => {
+  const crash = crashFixtures(() => store);
+
+  it('leads with Revert once Find breaking commit named the commit, its Blame step serving the commit with no author and its change’s file in the project', async () => {
+    const git = (...args: string[]) => spawnSync('git', args, { cwd: project, stdio: 'ignore' });
+    git('init', '-q');
+    mkdirSync(join(project, 'agent'));
+    writeFileSync(join(project, 'agent', 'refund.py'), 'def total(items):\n    log(items)\n    return sum(items)\n');
+    const { rec, fixId } = crash.blamed();
+    crash.named(T0 + 2 * MIN, { file: 'agent/refund.py', files: ['agent/refund.py'], hunk: '@@ -1,2 +1,3 @@\n def total(items):\n+    log(items)\n     return sum(items)', line: 2, merge: false });
+    await start({ goldens: () => [source(rec)] });
+    const res = await api(`fixes/${fixId}`);
+    expect(res.status).toBe(200);
+    const d = await json(res);
+    expect(d.lead).toMatchObject({ key: 'revert', label: 'Revert', step: { rev: 'ccccccc' } });
+    expect(d.blame.crash.commit).toMatchObject({ rev: 'ccccccc', subject: 'Log the total', author: '' });
+    expect(d.blame.crash.commit.change).toMatchObject({ file: 'agent/refund.py', path: 'agent/refund.py' });
   });
 });

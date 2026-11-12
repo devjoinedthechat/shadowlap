@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { DivergenceView, FailureView, InconclusiveView, TestsSessionView, TestsView } from '../api.js';
+import { ActionButton, useOfflineLink } from '../components/ActionButton.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import { VerdictLine } from '../components/VerdictLine.js';
@@ -9,6 +10,7 @@ import { commandText, sessionLine } from '../goldens.js';
 import { useNow } from '../hooks.js';
 import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
 import { FindCommitButton } from '../pages/TestsDialogs.js';
+import { RevertButton } from '../revert/RevertButton.js';
 import { goldenPrice, type Price } from '../tests-estimates.js';
 import { keepLead } from './job-footer.js';
 import type { Lead } from './lead.js';
@@ -22,6 +24,11 @@ export interface LeadPress {
   onUpdate: (golden: string, e: Price) => void;
   onFind: (f: DivergenceView | FailureView) => void;
   onMore: (v: InconclusiveView, e: Price) => void;
+  /** Run tests as the page's header runs it, the whole session: null where the server runs no tests. */
+  runTests: ReturnType<typeof testsJob> | null;
+  /** The check builder on a golden at a check, by its label, and its script asked for ahead: null where the page has no builder. */
+  edit: { open: (golden: string, check: string) => void; preload: () => void } | null;
+  onAgain: (lead: Extract<Lead, { kind: 'again' }>, e: Price) => void;
 }
 
 /** The verdict's step, lime: the page's one lime button while it leads (`leadStep`). */
@@ -43,9 +50,19 @@ function LeadButton({ lead, p }: { lead: Lead; p: LeadPress }) {
       );
     case 'bisect':
       return <FindCommitButton f={lead.f} live={p.live(lead.f)} why={p.wait('find the breaking commit')} lime onBisect={() => p.onFind(lead.f)} />;
+    case 'revert':
+      return <RevertButton step={lead.step} found={lead.f.found} estimate={goldenPrice(p.prices, lead.f.golden, 'rerun')} runId={lead.f.runId} lead />;
     case 'more':
       return (
         <JobButton className="btn lime" why={p.wait('run the tests')} {...testsJob(moreCard(lead.more), goldenPrice(p.prices, lead.v.golden, 'more'), (e) => p.onMore(lead.v, e))}>
+          {lead.label}
+        </JobButton>
+      );
+    case 'proof':
+      return <ProofLead lead={lead} />;
+    case 'again':
+      return (
+        <JobButton className="btn lime" why={p.wait('run it again')} {...testsJob({ tip: lead.label, sub: lead.sub, command: commandText(['test', lead.golden]) }, goldenPrice(p.prices, lead.golden, 'rerun'), (e) => p.onAgain(lead, e))}>
           {lead.label}
         </JobButton>
       );
@@ -55,9 +72,27 @@ function LeadButton({ lead, p }: { lead: Lead; p: LeadPress }) {
           {lead.label}
         </a>
       );
+    case 'edit': {
+      const ahead = () => p.edit?.preload();
+      return (
+        <ActionButton className="btn lime" data-step="edit-check" data-g={lead.golden} tip={lead.label} sub={lead.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => p.edit?.open(lead.golden, lead.check)}>
+          {lead.label}
+        </ActionButton>
+      );
+    }
     case 'blame':
       return <RunBlameButton runId={lead.runId} offer={lead.step.offer} className="btn lime" lead {...(lead.step.capture ? { capture: true } : {})} {...(lead.step.command ? { line: lead.step.command } : {})} />;
   }
+}
+
+/** Open proof: the attempt that proves the gate failed, waiting while the server is out of reach, as every link to an attempt does. */
+function ProofLead({ lead }: { lead: Extract<Lead, { kind: 'proof' }> }) {
+  const offline = useOfflineLink();
+  return (
+    <a className="btn lime" href={lead.href} data-tip={tipCard(lead.title ?? lead.label, [], lead.sub)} onClick={offline}>
+      {lead.label}
+    </a>
+  );
 }
 
 /** A word for each verdict, in its colour, as the mock says it: never a count in a tinted badge. */

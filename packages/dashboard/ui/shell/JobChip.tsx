@@ -2,18 +2,18 @@ import { useEffect, useReducer } from 'react';
 import { Spin } from '../components/bits.js';
 import { useServerJobs } from '../fixes/tree.js';
 import { chipJob, endedBehind, type JobChipView } from '../job-store.js';
-import type { endChip } from '../jobs.js';
+import { useServedParts, type JobWords } from '../served-parts.js';
 import { useApp } from '../state.js';
 import { retoast } from '../toast-place.js';
 
 /**
  * How a hidden job that ended is said on its chip: the words of its kind, which come with its drawer,
- * drawn hidden by then, and are asked for as soon as a chip shows. The chip stays the one button as
- * its job ends, so the focus stays on it.
+ * drawn hidden by then, and are asked for as soon as a chip shows, from the served entry (a copy runs
+ * no job). The chip stays the one button as its job ends, so the focus stays on it.
  */
-let endedChip: typeof endChip | null = null;
-const loadEnded = (): Promise<void> =>
-  import('../jobs.js').then((m) => {
+let endedChip: JobWords['endChip'] | null = null;
+const loadEnded = (words: () => Promise<JobWords>): Promise<void> =>
+  words().then((m) => {
     endedChip = m.endChip;
   });
 
@@ -36,13 +36,14 @@ export function ChipButton({ view }: { view: JobChipView }) {
  */
 export function JobChip() {
   const { conn, jobs } = useApp();
+  const words = useServedParts().jobs;
   const running = chipJob(useServerJobs(), jobs);
   const ended = running ? null : endedBehind(jobs);
   const shown = (!!running || !!ended) && conn !== 'expired';
   const [, loaded] = useReducer((n: number) => n + 1, 0);
   useEffect(() => {
-    if (shown && !endedChip) void loadEnded().then(loaded, () => undefined);
-  }, [shown]);
+    if (shown && !endedChip && words) void loadEnded(words).then(loaded, () => undefined);
+  }, [shown, words]);
   const view = running ?? (ended && endedChip ? endedChip(ended) : null);
   useEffect(() => {
     document.body.classList.toggle('jobmin', shown);

@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { Store, messageOf, previewRedaction, setPatternBudget } from '@shadowlap/engine';
+import { Store, messageOf, previewKeepingCanaries, setPatternBudget } from '@shadowlap/engine';
 import { BUSY, type PreviewAnswer, type PreviewWork } from './redaction-preview.js';
 
 /**
@@ -22,7 +22,7 @@ try {
   // Its time starts now: opening waited for any command holding the store.
   post({ type: 'open' });
   const deadline = Date.now() + work.limits.softMs;
-  answer = { type: 'answer', ok: true, preview: previewRedaction(store, work.runId, work.rules, { maxCalls: work.limits.maxCalls, maxBytes: work.limits.maxBytes, deadline }) };
+  answer = { type: 'answer', ok: true, preview: previewKeepingCanaries(store, work.runId, work.rules, { maxCalls: work.limits.maxCalls, maxBytes: work.limits.maxBytes, deadline }) };
 } catch (err) {
   const error = messageOf(err);
   answer = { type: 'answer', ok: false, error, busy: BUSY.test(error) };
