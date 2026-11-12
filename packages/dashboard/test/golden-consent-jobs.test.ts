@@ -3,8 +3,9 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { emptyCounts, NO_TOKENS, packRun, Store, unpackRun, type DecisionRun } from '@shadowlap/engine';
+import { emptyCounts, fieldValue, NO_TOKENS, packRun, Store, unpackRun, type DecisionRun } from '@shadowlap/engine';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
+import { decisionsArgv } from '../src/decisions-argv.js';
 import { decisionsJob, migrateJob, verifyFlaggedJob } from '../src/decisions.js';
 import { injectionJob } from '../src/injection.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
@@ -45,6 +46,14 @@ afterAll(() => {
 });
 
 describe('the jobs that pass --yes', () => {
+  it('builds a preview’s command with the helper its dialog shows it with, and refuses more runs than one preview takes in the bar’s words', () => {
+    const req = { goldens: ['goldens/sent'], model: 'claude-sonnet-5-5', set: { max_tokens: 512, stop: 'END' }, from: ['claude-sonnet-4-5-20250929'], scope: 'billing', samples: 2 };
+    const shown = decisionsArgv({ targets: ['goldens/sent'], model: 'claude-sonnet-5-5', set: [['max_tokens', fieldValue(512)], ['stop', fieldValue('END')]], from: ['claude-sonnet-4-5-20250929'], scope: 'billing', samples: 2 });
+    expect(args(decisionsJob(req, store, goldens, project))).toEqual(shown);
+    expect(shown).toEqual(['decisions', 'goldens/sent', '--model', 'claude-sonnet-5-5', '--set', 'max_tokens=512', '--set', 'stop=END', '--from', 'claude-sonnet-4-5-20250929', '--scope', 'billing', '--samples', '2']);
+    expect(decisionsJob({ runs: Array.from({ length: 501 }, () => 'x'), model: 'claude-sonnet-5-5' }, store, goldens, project)).toEqual({ error: 'At most 500 runs are previewed at once: 501 are picked' });
+  });
+
   it('ask before a decisions job runs a sent golden from the working tree, and pass --yes once the request says yes to it', () => {
     const req = { goldens: ['goldens/sent'], fromCode: true };
     const q = asked(decisionsJob(req, store, goldens, project));

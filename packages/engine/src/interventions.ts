@@ -7,6 +7,8 @@ import { stripKeysDeep } from './normalize.js';
 import type { SerializedError } from './types.js';
 import { isObject } from './is-object.js';
 
+export { fieldValue } from './field-value.js';
+
 /**
  * Interventions in the provider's own wire format. `--inject`, `--set` and `--model` change one
  * model request and the ones after it, and each provider spells a conversation, a sampling setting
@@ -102,21 +104,6 @@ export const refused = (r: unknown): r is Refusal => isObject(r) && typeof r.ref
  */
 export function literalValue(text: string): string {
   return text.startsWith('@') ? `@${text}` : text;
-}
-
-/**
- * A request field's value as `--set field=value` gives it, for a parser that reads it as JSON or else
- * as a bare string: anything but a string as JSON, and a string as it is, unless `--set` would read it
- * back as something else (`1`, `true`, `[1]`), when it goes as JSON too.
- */
-export function fieldValue(v: unknown): string {
-  if (typeof v !== 'string') return JSON.stringify(v);
-  try {
-    JSON.parse(v);
-    return JSON.stringify(v);
-  } catch {
-    return v;
-  }
 }
 
 /** Gemini and Vertex accept a model as `models/<name>` or by its publisher path; the URL carries the name alone. */

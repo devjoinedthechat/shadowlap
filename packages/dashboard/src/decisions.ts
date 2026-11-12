@@ -3,6 +3,7 @@ import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } 
 import { lookupRun } from './api.js';
 import { gateArg, sprtGate } from './fix-shared.js';
 import { moreOf, type PreviewMore } from './decision-more.js';
+import { decisionsArgv, fromFlags, PREVIEW_MAX, scopeFlags, setFlags, tooManyToPreview } from './decisions-argv.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { type RetiringModel, retiringModels } from './retirements.js';
@@ -163,16 +164,16 @@ export function retirementsView(store: StoreOf<'recording'>, goldens: readonly G
 const MODEL = /^[\w.:@/-]{1,200}$/;
 const FIELD = /^[A-Za-z_][\w.]{0,99}$/;
 
-/** `--set` flags from the request's fields, checked: a field name, and a value JSON can carry. */
-function setArgs(raw: unknown): string[] | { error: string } {
+/** The request's fields to set, checked: each a field name and its value as `--set` gives it (`fieldValue`), which JSON can carry. */
+function setArgs(raw: unknown): Array<[string, string]> | { error: string } {
   if (raw === undefined || raw === null) return [];
   if (typeof raw !== 'object' || Array.isArray(raw)) return { error: 'set must map request fields to values, such as {"temperature":0}' };
-  const out: string[] = [];
+  const out: Array<[string, string]> = [];
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!FIELD.test(k) || k === 'model') return { error: `${k.slice(0, 40)} is not a request field to set${k === 'model' ? ': give the model as model' : ''}` };
     const text = fieldValue(v);
     if (text === undefined || text.length > 2000) return { error: `the value for ${k} is too long, or not JSON` };
-    out.push('--set', `${k}=${text}`);
+    out.push([k, text]);
   }
   return out;
 }
@@ -185,7 +186,9 @@ function targetArgs(store: StoreOf<'recording'>, req: JobRequest, goldens: reado
   const byId: string[] = [];
   const packs: string[] = [];
   if (req.runs !== undefined) {
-    if (!Array.isArray(req.runs) || req.runs.length > 500) return { error: 'runs must be a list of run ids' };
+    if (!Array.isArray(req.runs)) return { error: 'runs must be a list of run ids' };
+    const many = tooManyToPreview(req.runs.length);
+    if (many) return { error: many };
     for (const id of req.runs) {
       const run = typeof id === 'string' ? lookupRun(store, id) : null;
       if (!run) return { error: `no run ${String(id).slice(0, 40)}`, status: 404 };
@@ -197,7 +200,7 @@ function targetArgs(store: StoreOf<'recording'>, req: JobRequest, goldens: reado
   if (req.goldens !== undefined) {
     const known = new Map(goldens.map((g) => [g.path, g]));
     const names = req.goldens === 'all' ? [...known.keys()] : req.goldens;
-    if (!Array.isArray(names) || names.length > 500) return { error: 'goldens must be a list of the project\'s goldens, or "all"' };
+    if (!Array.isArray(names) || names.length > PREVIEW_MAX) return { error: 'goldens must be a list of the project\'s goldens, or "all"' };
     for (const name of names) {
       const g = typeof name === 'string' ? known.get(name) : undefined;
       if (!g) return { error: `${String(name).slice(0, 80)} is not one of the project's goldens`, status: 404 };
@@ -212,18 +215,18 @@ function targetArgs(store: StoreOf<'recording'>, req: JobRequest, goldens: reado
   return { args, runIds, byId, packs };
 }
 
-/** `--from` flags from the request's `from`: the recorded models a switch changes. */
+/** The request's `from`, checked: the recorded models a switch changes. */
 function fromArgs(raw: unknown): string[] | { error: string } {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw) || raw.length > 20 || raw.some((m) => typeof m !== 'string' || !MODEL.test(m))) return { error: 'from is a list of the recorded models to switch from, such as ["claude-sonnet-4-5-20250929"]' };
-  return (raw as string[]).flatMap((m) => ['--from', m]);
+  return raw as string[];
 }
 
-/** `--scope` from the request's `scope`: a scope's name, or `none` for the calls made in none. */
-function scopeArgs(raw: unknown): string[] | { error: string } {
-  if (raw === undefined || raw === null) return [];
+/** The request's `scope`, checked: a scope's name, or `none` for the calls made in none. */
+function scopeArgs(raw: unknown): { scope: string | null } | { error: string } {
+  if (raw === undefined || raw === null) return { scope: null };
   if (typeof raw !== 'string' || !/^[\w.:/-]{1,100}$/.test(raw) || isReservedScope(raw)) return { error: 'scope is the name of a scope the agent made calls in, or none' };
-  return ['--scope', raw];
+  return { scope: raw };
 }
 
 /**
@@ -245,11 +248,7 @@ export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, golde
   const fromCode = req.fromCode === true;
   if (!req.model && !set.length && !fromCode) return { error: 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree' };
   if (from.length && !req.model && !set.length) return { error: 'from names the model calls a model or fields change: give one of them' };
-  let samples: string[] = [];
-  if (req.samples !== undefined) {
-    if (typeof req.samples !== 'number' || !Number.isInteger(req.samples) || req.samples < 1 || req.samples > 20) return { error: 'samples is a whole number from 1 to 20' };
-    samples = ['--samples', String(req.samples)];
-  }
+  if (req.samples !== undefined && (typeof req.samples !== 'number' || !Number.isInteger(req.samples) || req.samples < 1 || req.samples > 20)) return { error: 'samples is a whole number from 1 to 20' };
   const runsAgent = fromCode || req.thenVerify === true;
   let yes: string[] = [];
   if (runsAgent) {
@@ -257,7 +256,7 @@ export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, golde
     if ('ask' in consent) return consent.ask;
     yes = consent.yes;
   }
-  const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...from, ...scope, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...yes];
+  const args = [...decisionsArgv({ targets: targets.args, model: typeof req.model === 'string' ? req.model : null, set, from, scope: scope.scope, fromCode, samples: typeof req.samples === 'number' ? req.samples : null, thenVerify: req.thenVerify === true }), ...yes];
   const title = fromCode ? ACTIONS.previewChangedPrompt.doing : typeof req.model === 'string' ? ACTIONS.previewModelSwitch.doing : ACTIONS.previewFieldChange.doing;
   return { args, title, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
 }
@@ -276,7 +275,7 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
   if ('error' in scope) return scope;
   const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
   if ('ask' in consent) return consent.ask;
-  return { args: ['migrate', '--to', req.to, ...targets.args, ...from, ...scope, ...set, ...consent.yes], title: `Migrating to ${req.to}` };
+  return { args: ['migrate', '--to', req.to, ...targets.args, ...fromFlags(from), ...scopeFlags(scope.scope), ...setFlags(set), ...consent.yes], title: `Migrating to ${req.to}` };
 }
 
 /** A session's report: a decisions session's own, a migration's decisions. */
