@@ -20,6 +20,7 @@ export type NotePart = string | { code: string } | { call: number };
 // The guard's fix and a note's words alone, which Tests' failure lines read too: in a module of their
 // own, so the first look holds them without the rest of a run's notes.
 export { noteText, UNGUARDED_FIX } from './note-words.js';
+export { viaWords } from './via-words.js';
 
 export interface UnrecordedToolView {
   name: string;
@@ -199,14 +200,6 @@ export function runNotes(i: NotesInput): RunNote[] {
   const notes = [i.unrecorded ? unrecordedNote(i.unrecorded, i.mode) : null, ...(i.preloads ? preloadNotes(i.preloads) : []), ...(i.websockets ? webSocketNotes(i.websockets, i.mode) : []), i.extraReads ? extraNote(i.extraReads) : null].filter((n): n is RunNote => n !== null);
   const rank = { err: 0, warn: 1, n: 2 } as const;
   return notes.map((n, at) => ({ n, at })).sort((a, b) => rank[a.n.tone] - rank[b.n.tone] || a.at - b.at).map((x) => x.n);
-}
-
-/** The host a model call went to (`meta.via`), in words: a host the config declares, in its format, or one built in by name. */
-export function viaWords(via: string, provider: string | null): string {
-  if (via === 'foundry') return 'Claude on Microsoft Foundry';
-  if (via === 'bedrock-mantle') return 'OpenAI’s API on Amazon Bedrock';
-  const format = provider === 'openai' ? 'OpenAI' : provider === 'anthropic' ? 'Anthropic' : provider === 'gemini' ? 'Gemini' : provider;
-  return format ? `${via}, a host your config declares, in ${format}’s format` : `${via}, a host your config declares`;
 }
 
 /** A runtime as the guard row names it: Node, Python, Claude Code (the CLI the Claude Agent SDK runs), else the name it said. */

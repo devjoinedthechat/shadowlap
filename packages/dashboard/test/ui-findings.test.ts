@@ -6,6 +6,7 @@ import type { Banner as BannerView } from '../ui/run/banner.js';
 import { bannerSeverity, runFindings } from '../ui/run/findings.js';
 import { Banner, FindingsBar, forgetOpenFindings } from '../ui/run/FindingsBar.js';
 import type { RunNote } from '../ui/run/notes.js';
+import { loadNotesPart } from '../ui/run/notes-part.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { RunDetail } from '../ui/types.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
@@ -116,6 +117,8 @@ describe('the findings bar', () => {
   });
 
   it('opens a lone finding’s tools with Details, and draws nothing for a run that found nothing', async () => {
+    // A note draws once its part is in, as a page loads it where the run has one (notes-part.ts).
+    await loadNotesPart();
     page = await render(createElement(AppContext.Provider, { value: app }, createElement(FindingsBar, { ...props(detail()), notes: [NOTE] })));
     const more = page.one('.findings .rnote .fmore');
     expect(more.textContent).toBe('Details');
