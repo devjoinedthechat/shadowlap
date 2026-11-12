@@ -41,6 +41,12 @@ table.runst { width: 100%; }
 .rskrun > code { font: 12.5px var(--mono); }
 .rskrun > span { overflow: hidden; }
 @media (max-width: 640px) { .rskrun { grid-template-columns: 96px minmax(0, 1fr); } .rskrun > span + span { display: none; } }
+/* Failed's issues while they load (IssuesLoading): an issue a row of quiet bars in the issues table's columns, its title over the
+   line under it, as the tests read `table.issues tbody tr` as the issues drawn. On a phone, the issue and its runs alone. */
+.iskrow { display: grid; grid-template-columns: minmax(0, 1fr) 48px 88px 88px 120px; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13px; white-space: nowrap; }
+.iskrow > span { overflow: hidden; }
+.iskrow .iskl { display: block; margin-top: 3px; font-size: 12.5px; }
+@media (max-width: 640px) { .iskrow { grid-template-columns: minmax(0, 1fr) 48px; } .iskrow > span + span + span { display: none; } }
 table.runst .runcell { max-width: 1px; width: 100%; overflow: hidden; }
 table.runst .rid { white-space: nowrap; }
 table.runst .rsub { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
