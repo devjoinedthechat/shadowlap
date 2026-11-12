@@ -35,12 +35,18 @@ const matrix: ChaosMatrix = {
   golden: 'goldens/list-inbox',
   at: 1,
   counts: { passed: 1, failed: 2, inconclusive: 1, notApplicable: 0 },
+  command: 'shadowlap test goldens/list-inbox --chaos',
+  rule: null,
+  judge: null,
+  spent: 0,
+  upstreamRequests: 0,
+  toolCall: { name: 'list_inbox', callNo: 2 },
   cells: [
-    { preset: 'timeout', label: 'tool timeout', verdict: 'failed', callNo: 2, target: { kind: 'tool', name: 'list_inbox' }, passes: 0, attempts: 1, detail: `list_inbox (#2) timed out: ${WHY}`, reason: WHY, runs: [{ runId: ATTEMPT, verdict: 'failed', passed: false, exitCode: 1, reason: WHY }], gate: null, at: 1, sessionId: 'S' },
-    { preset: 'empty', label: 'empty result', verdict: 'passed', callNo: 2, target: { kind: 'tool', name: 'list_inbox' }, passes: 1, attempts: 1, detail: 'list_inbox (#2) answered with nothing: the agent exited 0', reason: null, runs: [{ runId: PASSED, verdict: 'passed', passed: true, exitCode: 0, reason: null }], gate: null, at: 1, sessionId: 'S' },
+    { preset: 'timeout', label: 'tool timeout', verdict: 'failed', callNo: 2, target: { kind: 'tool', name: 'list_inbox' }, passes: 0, attempts: 1, detail: `list_inbox (#2) timed out: ${WHY}`, reason: WHY, runs: [{ runId: ATTEMPT, verdict: 'failed', passed: false, exitCode: 1, reason: WHY }], gate: null, bound: null, spent: 0, upstreamRequests: 0, at: 1, sessionId: 'S' },
+    { preset: 'empty', label: 'empty result', verdict: 'passed', callNo: 2, target: { kind: 'tool', name: 'list_inbox' }, passes: 1, attempts: 1, detail: 'list_inbox (#2) answered with nothing: the agent exited 0', reason: null, runs: [{ runId: PASSED, verdict: 'passed', passed: true, exitCode: 0, reason: null }], gate: null, bound: null, spent: 0, upstreamRequests: 0, at: 1, sessionId: 'S' },
     // Decided by its second attempt, kept before attempts kept why: this attempt's exit says it.
-    { preset: '429', label: 'provider 429', verdict: 'failed', callNo: 3, target: { kind: 'api', name: 'POST /v1/messages' }, passes: 1, attempts: 2, detail: 'model call #3 failed with HTTP 429: 1 of 2 attempts passed; the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: '01M5GRZWNNNNNNNNNNNNNNNNNN', verdict: 'passed', passed: true, exitCode: 0, reason: null }, { runId: SECOND, verdict: 'failed', passed: false, exitCode: 1, reason: null }], gate: null, at: 1, sessionId: 'S' },
-    { preset: '500', label: 'provider 500', verdict: 'inconclusive', callNo: 3, target: { kind: 'api', name: 'POST /v1/messages' }, passes: 0, attempts: 1, detail: 'model call #3 failed with HTTP 500: the replay never reached #3, so the preset was never played in', reason: 'the replay never reached #3, so the preset was never played in', runs: [{ runId: UNSURE, verdict: 'inconclusive', passed: false, exitCode: 0, reason: 'the replay never reached #3, so the preset was never played in' }], gate: null, at: 1, sessionId: 'S' },
+    { preset: '429', label: 'provider 429', verdict: 'failed', callNo: 3, target: { kind: 'api', name: 'POST /v1/messages' }, passes: 1, attempts: 2, detail: 'model call #3 failed with HTTP 429: 1 of 2 attempts passed; the agent exited with code 1', reason: 'the agent exited with code 1', runs: [{ runId: '01M5GRZWNNNNNNNNNNNNNNNNNN', verdict: 'passed', passed: true, exitCode: 0, reason: null }, { runId: SECOND, verdict: 'failed', passed: false, exitCode: 1, reason: null }], gate: null, bound: null, spent: 0, upstreamRequests: 0, at: 1, sessionId: 'S' },
+    { preset: '500', label: 'provider 500', verdict: 'inconclusive', callNo: 3, target: { kind: 'api', name: 'POST /v1/messages' }, passes: 0, attempts: 1, detail: 'model call #3 failed with HTTP 500: the replay never reached #3, so the preset was never played in', reason: 'the replay never reached #3, so the preset was never played in', runs: [{ runId: UNSURE, verdict: 'inconclusive', passed: false, exitCode: 0, reason: 'the replay never reached #3, so the preset was never played in' }], gate: null, bound: null, spent: 0, upstreamRequests: 0, at: 1, sessionId: 'S' },
   ],
 };
 
@@ -160,9 +166,9 @@ describe('a preset’s attempts in the Forks view', () => {
     const nodes = [
       node(REC, null, 'Triage the unread threads', 'completed'),
       // The first session's attempt, failed; the presets ran again since, and the second's passed.
-      node(ATTEMPT, REC, 'tool timeout #2', 'failed', { label: 'tool timeout', verdict: 'failed' }),
-      node(PASSED, REC, 'tool timeout #2', 'completed', { label: 'tool timeout', verdict: 'passed' }),
-      node(UNSURE, REC, 'provider 500 #3', 'completed', { label: 'provider 500', verdict: 'inconclusive' }),
+      node(ATTEMPT, REC, 'tool timeout #2', 'failed', { label: 'tool timeout', verdict: 'failed', session: 'S1', callNo: 2, golden: 'goldens/list-inbox' }),
+      node(PASSED, REC, 'tool timeout #2', 'completed', { label: 'tool timeout', verdict: 'passed', session: 'S1', callNo: 2, golden: 'goldens/list-inbox' }),
+      node(UNSURE, REC, 'provider 500 #3', 'completed', { label: 'provider 500', verdict: 'inconclusive', session: 'S1', callNo: 3, golden: 'goldens/list-inbox' }),
     ];
     // No matrix to read: the family's tree goes by the lineage alone.
     const client = { lineage: () => Promise.resolve(nodes), fixBundles: () => Promise.resolve([]), injectionResults: () => Promise.resolve({ results: [] }), runChaos: () => Promise.reject(new Error('not asked')) } as unknown as Client;
