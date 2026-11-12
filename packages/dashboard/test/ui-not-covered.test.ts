@@ -1,7 +1,8 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JOB_KINDS } from '../ui/api.js';
 import type { Route } from '../ui/route.js';
+import { Keyboard } from '../ui/shell/Keyboard.js';
 import { Palette } from '../ui/shell/Palette.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -299,5 +300,46 @@ describe('Needs a look’s coverage step', () => {
     await r.unmount();
     r = await render(createElement(AppContext.Provider, { value }, createElement(LookStepButton, { row, wait: () => 'A test session is running: pack it once it is done', version: '1' })));
     expect(r.one('.btn').getAttribute('data-why')).toBe('A test session is running: pack it once it is done');
+  });
+});
+
+describe('Not covered’s keys', () => {
+  /** Not covered with the shell's keys and the palette, which ⌘K on a row opens. */
+  function withKeys(v: CoverageView) {
+    function Shell() {
+      const [open, setOpen] = useState(false);
+      return createElement(
+        AppContext.Provider,
+        { value: app({ hasKind: () => true, feeds: {}, palette: open, setPalette: setOpen, runKeys: { current: null } }) },
+        createElement('main', { id: 'view' }, createElement(NotCovered, { v, lime: true })),
+        createElement(Keyboard),
+        createElement(Palette, { route: { page: 'tests' } }),
+      );
+    }
+    return createElement(Shell);
+  }
+  const inFocus = () => r!.focused().getAttribute('data-rowkey');
+  const offered = () => r!.all('.palit .pl').map((x) => x.textContent);
+
+  it('walks its rows with j, opens a row’s details on Enter, and offers the row’s pack on ⌘K, Pack with checks… for one the agent no longer does', async () => {
+    r = await render(withKeys(view()));
+    expect(r.all('.covl li').map((li) => li.getAttribute('data-rowkey'))).toEqual([`cov:${KEY}`, `cov:${GONE}`, `cov:${SAME}`]);
+    await r.press('j');
+    expect(inFocus()).toBe(`cov:${KEY}`);
+    expect(r.all('#cvx-3f9a2c1d')).toEqual([]);
+    await r.press('Enter');
+    expect(r.one(`[data-rowkey="cov:${KEY}"] .cvn`).getAttribute('aria-expanded')).toBe('true');
+    expect(r.all('#cvx-3f9a2c1d')).toHaveLength(1);
+    expect(r.all('.palette')).toEqual([]);
+    await r.press('k', { metaKey: true });
+    await r.until('the palette', () => r!.all('.palette').length === 1);
+    expect(offered()).toEqual(['Pack as golden']);
+    await r.press('Escape');
+    await r.until('it to close', () => r!.all('.palette').length === 0);
+    await r.press('j');
+    expect(inFocus()).toBe(`cov:${GONE}`);
+    await r.press('k', { metaKey: true });
+    await r.until('the palette', () => r!.all('.palette').length === 1);
+    expect(offered()).toEqual(['Pack with checks…']);
   });
 });

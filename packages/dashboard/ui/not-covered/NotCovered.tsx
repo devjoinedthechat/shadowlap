@@ -59,7 +59,7 @@ function rowScope(g: CoverageGroupView, box: RefObject<HTMLElement | null>): Row
     items: () => {
       const b = button();
       if (!b) return [];
-      const why = b.dataset.why ?? null;
+      const why = b.getAttribute('data-why');
       return [{ label: b.textContent?.trim() ?? '', hint: why ?? packCommand(g.key, { fork: !!g.pack?.forkable }), job: true, ...(why ? { wait: why } : {}), run: () => b.click() }];
     },
   };
