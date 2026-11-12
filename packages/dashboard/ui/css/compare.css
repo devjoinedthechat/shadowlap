@@ -104,6 +104,17 @@ button.cprow.open { background: var(--sel); box-shadow: -12px 0 0 var(--sel), 12
 /* A call both made alike, dimmed in the faint ink, which keeps AA's contrast: never by fading it. */
 .pside.same, .pside.same * { color: var(--faint); }
 .cmpmore { margin: 8px 0 0; color: var(--faint); font-size: 12.5px; }
+/* Compare while it is read (a Skeleton in the comparison's place): the verdict and a line a run, the prefix's strip and line,
+   and rows of both runs' calls, each where the comparison draws it, under classes of their own */
+.cmpsk .verdict { margin: 2px 0 20px; }
+.cskends { display: grid; gap: 3px; margin-top: 6px; }
+.cskpre { margin-top: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 12.5px; }
+.cskpre .ms { flex: none; width: min(220px, 100%); height: 10px; }
+.cskrows { margin-top: 22px; }
+.cskrow { display: grid; grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr); column-gap: 20px; padding: 7px 0; border-bottom: 1px solid var(--line); font: 12.5px var(--mono); }
+.cskrow > span { min-width: 0; white-space: nowrap; overflow: hidden; }
+.cskrow > span:first-child { text-align: right; }
+.cskrow > span + span + span { padding-left: 20px; border-left: 1px solid var(--line); }
 /* the row opened: both calls side by side under it, each as its run's inspector would show it, a hairline between them */
 .cmpd { position: relative; padding: 6px 0 16px 64px; background: var(--sel); box-shadow: -12px 0 0 var(--sel), 12px 0 0 var(--sel); border-bottom: 1px solid var(--line); font-size: 13.5px; }
 .cmpd .cmpx { position: absolute; top: 4px; right: 0; width: 28px; height: 28px; }
@@ -138,8 +149,8 @@ button.cprow.open { background: var(--sel); box-shadow: -12px 0 0 var(--sel), 12
 .dstop { margin: 8px 0 0; font: 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
 .dstop.diff { color: var(--cq-amber); }
 @media (max-width: 640px) {
-  .cprow { grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr); column-gap: 10px; }
-  .cprow > .pside + .pside, .cprow > .cph + .cph { padding-left: 10px; }
+  .cprow, .cskrow { grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr); column-gap: 10px; }
+  .cprow > .pside + .pside, .cprow > .cph + .cph, .cskrow > span + span + span { padding-left: 10px; }
   .pside { flex-direction: column; align-items: flex-start; gap: 1px; }
   .pside .eff { margin-left: 0; display: inline-block; }
   /* on a phone a call keeps to its column, cut at its end; one both made alike keeps to its name */

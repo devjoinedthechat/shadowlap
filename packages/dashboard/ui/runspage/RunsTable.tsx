@@ -16,7 +16,7 @@ import { kindWord, outcomeOf, runOrigins, runSource, runSpent, sideStatus, TODAY
 import { tipCard } from '../components/HoverCard.js';
 import { outcomeTip } from '../outcome-tip.js';
 import type { ChipCounts, RunListItem } from '../types.js';
-import { EmptyLine } from '../components/States.js';
+import { EmptyLine, ErrorState, failedRead, Skeleton } from '../components/States.js';
 import { localTitle } from './bulk.js';
 import { ByAvatar } from './people.js';
 import { RunKey } from '../components/RunKey.js';
@@ -231,17 +231,41 @@ export function RowStatus({ r }: { r: RunLike }) {
 }
 
 /**
- * What the table says in place of its rows: why they could not be read, that they are being read, or
- * why none show, as a line from the left (`No runs match.`, `No runs on the days picked.`). A store with
- * no runs keeps its step.
+ * What the table says in place of its rows: why they could not be read, with Retry; that they are
+ * being read, as rows of quiet bars (`RunsLoading`); or why none show, as a line from the left
+ * (`No runs match.`, `No runs on the days picked.`). A project with no runs draws its own page
+ * (pages/Runs.tsx `NoRuns`), so `No runs yet.` shows only for the moment the shell's run list and the
+ * table disagree.
  */
-export function RunsTableEmpty({ error, loaded, shown, counts, days }: { error: Error | null; loaded: boolean; shown: number; counts: ChipCounts | null; days: unknown }) {
-  if (error && !shown) return <div className="empty">The runs could not be read: {error.message}</div>;
-  if (!loaded) return <div className="empty">Loading runs…</div>;
+export function RunsTableEmpty({ error, loaded, shown, counts, days, retry }: { error: Error | null; loaded: boolean; shown: number; counts: ChipCounts | null; days: unknown; retry?: (() => void) | undefined }) {
+  if (error && !shown) return <ErrorState retry={retry}>{failedRead(error)}</ErrorState>;
+  if (!loaded) return <RunsLoading />;
   if (shown) return null;
   if (counts?.all) return <EmptyLine>No runs match.</EmptyLine>;
   if (days) return <EmptyLine>No runs on the days picked.</EmptyLine>;
-  return <div className="empty">{'No runs yet. Record one with shadowlap run -- <command>.'}</div>;
+  return <EmptyLine>No runs yet.</EmptyLine>;
+}
+
+/** What the runs' rows are drawn as while they load: what a run was about, as long as an about line runs. */
+const SKEL_RUNS = ['A refund for an order that never came', 'A change of address, then a new card', 'Why the invoice was charged twice', 'Cancel the plan at the end of the month', 'A refund for an order that never came', 'Book the earlier flight and keep the seat', 'Which orders shipped late last week', 'A change of address, then a new card'];
+
+/**
+ * The runs while they load: rows in the table's columns as quiet bars, under its head. They are no
+ * table rows, which the tests read as the runs drawn (`table.runst tbody tr`).
+ */
+export function RunsLoading() {
+  return (
+    <Skeleton what="the runs">
+      {SKEL_RUNS.map((about, i) => (
+        <div className="rskrun" key={i}>
+          <code>run_8f3a2c</code>
+          <span>{about}</span>
+          <span>model 4 · tool 9</span>
+          <span>failed</span>
+        </div>
+      ))}
+    </Skeleton>
+  );
 }
 
 /** The height of the rows not drawn, above or below those that are. */

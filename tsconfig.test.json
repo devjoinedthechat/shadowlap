@@ -164,6 +164,7 @@
     "packages/dashboard/test/ui-run-paging.test.ts",
     // This renders the Overview while the runs' totals are added up.
     "packages/dashboard/test/ui-overview-warming.test.ts",
+    "packages/dashboard/test/ui-page-states.test.ts",
     "packages/dashboard/test/ui-dismiss.test.ts",
     // These render a run's page and Runs: where a run opens, its key, its notes, its calls grouped, and Runs from its address.
     "packages/dashboard/test/ui-run-open.test.ts",

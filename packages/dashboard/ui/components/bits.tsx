@@ -242,7 +242,7 @@ export function StepList({ steps }: { steps: Step[] }) {
         <li key={s.title} className={s.state ?? 'cur'}>
           <span className="sn">{s.state === 'done' ? '✓' : i + 1}</span>
           <div className="sb">
-            <h3>{s.title}</h3>
+            <h2>{s.title}</h2>
             {s.text ? <p>{s.text}</p> : null}
             {s.children}
             {s.command ? (

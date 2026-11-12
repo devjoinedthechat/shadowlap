@@ -4,6 +4,7 @@ import { onShow, type OnShowOptions } from '../components/OnShow.js';
 import { Skeleton } from '../components/States.js';
 import { useLatest } from '../hooks.js';
 import { BuilderLost } from '../run/check-part.js';
+import { IssuesLoading } from '../runspage/IssuesLoading.js';
 import type { InjectionFindingProps, MoreMenuProps, ServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 
@@ -37,8 +38,8 @@ function PressLost({ what, open, close }: { what: 'menu' | 'dialog'; open: boole
  * The one `failed` of the parts that open on a press: Share's menu and the Security report it opens,
  * the fork menu, the header's …, Revert's dialog, Run blame's dialogs and the steps' dialogs, each a
  * `menu` or a `dialog` in the toast's words. The parts drawn in place keep their own: the first bad
- * commit's change box's LoadFailed, the check builder's BuilderLost, the results panel's LoadFailed
- * and an injection test's finding's (FindingLost).
+ * commit's change box's LoadFailed, the check builder's BuilderLost, Runs › Failed's issues'
+ * LoadFailed, the results panel's LoadFailed and an injection test's finding's (FindingLost).
  */
 const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): OnShowOptions<P> => ({
   failed: (props) => {
@@ -76,7 +77,7 @@ export const SERVED_PARTS: ServedParts = {
   ChangeBox: onShow(() => import('../revert/ChangeBox.js').then((m) => m.ChangeBox), { failed: <LoadFailed what="change" /> }),
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks), failed('dialog', closes)),
-  FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues)),
+  FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues), { waiting: <IssuesLoading />, failed: <LoadFailed what="view" /> }),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog), failed('dialog', closes)),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog), failed('dialog', closes)),
   InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding), { failed: (p) => <FindingLost fx={p.fx} more={p.more} /> }),
