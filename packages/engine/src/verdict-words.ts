@@ -38,6 +38,22 @@ export function goldensPassed(passed: number, goldens: number): string {
   return `${passed} of ${goldens} golden${goldens === 1 ? '' : 's'} passed`;
 }
 
+/** The order a verify's runs are counted in: what it did of the runs that failed, then of those that worked, then those it left open. */
+const COUNTED = ['fixed', 'not fixed', 'broken', 'kept', 'inconclusive'] as const;
+
+/**
+ * How a verify's runs came out, counted by each run's outcome word (`runOutcomeWord`; a kept
+ * session's `not-fixed` reads `not fixed`): `2 kept`, `1 fixed, 1 kept`, `1 broken, 1 kept`. Activity
+ * says a kept preview's verify so.
+ */
+export function outcomeCounts(outcomes: readonly string[]): string {
+  const words: string[] = outcomes.map((o) => runOutcomeWord(o === 'not-fixed' ? 'not fixed' : o));
+  return COUNTED.flatMap((w) => {
+    const n = words.filter((x) => x === w).length;
+    return n ? [`${n} ${w}`] : [];
+  }).join(', ');
+}
+
 /**
  * What a verify's verdict says of the runs it took, read from each run's role and how it came out
  * (`outcome`: verify's word for it, `outcomeOf`, or a kept session's hyphenated `not-fixed`):

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fixVerifyHead, goldensPassed, openRunWhy, runOutcomeWord, verdictWord, verifyHead } from '../src/verdict-words.js';
+import { fixVerifyHead, goldensPassed, openRunWhy, outcomeCounts, runOutcomeWord, verdictWord, verifyHead } from '../src/verdict-words.js';
 import { outcomeOf, type VerifiedRun, type VerifyReport } from '../src/verify.js';
 import { runId, verifyReport } from './fix-fixtures.js';
 
@@ -36,6 +36,16 @@ describe('openRunWhy', () => {
     expect(open('inconclusive', null)).toBe('ran-out');
     expect(open(undefined, null)).toBe('stopped');
     expect(open(undefined, 'attempt 3 timed out')).toBe('unjudged');
+  });
+});
+
+describe('outcomeCounts', () => {
+  it('counts a verify’s runs by how each came out: the failing runs first, then the good ones, then what it left open', () => {
+    expect(outcomeCounts(['kept', 'kept'])).toBe('2 kept');
+    expect(outcomeCounts(['kept', 'fixed'])).toBe('1 fixed, 1 kept');
+    expect(outcomeCounts(['kept', 'broken'])).toBe('1 broken, 1 kept');
+    expect(outcomeCounts(['not-fixed', 'unsettled', 'not fixed'])).toBe('2 not fixed, 1 inconclusive');
+    expect(outcomeCounts([])).toBe('');
   });
 });
 

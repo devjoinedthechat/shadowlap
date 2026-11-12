@@ -44,9 +44,9 @@ import {
   isGatewayRequest,
   minorityNotes,
   resolveAuthor,
+  fieldRetirementWords,
   retiredFields,
   retirementsOf,
-  retirementTable,
   rewriteText,
   sameModel,
   setRequestFields,
@@ -611,7 +611,7 @@ function planRun(store: StoreOf<'recording'>, target: DecisionTarget, s: Decisio
             const set = setRequestFields(requestShape(provider, at, body), body, { [f.field]: allowed });
             if (!refused(set)) body = set.body;
           } else body = withoutFields(provider, at, body, [f.field]);
-          const why = `${model} is among ${f.rule.appliesTo}, where ${f.rule.says} (${retirementTable().platforms[f.rule.platform].owner}); the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
+          const why = `${fieldRetirementWords(model, f)}; the requests send ${f.field}=${JSON.stringify(f.value)}. ${f.rule.instead}`;
           if (note) remedies.note({ field: f.field, value: allowed ?? null, leftOut, renamedTo, why, source: f.rule.source });
           fieldsChanged = true;
         }

@@ -979,6 +979,9 @@ export interface DecisionsHeadline {
   asked: boolean;
 }
 
+/** What a preview says where it has nothing to ask, as its headline says it: the CLI's report, and a read of what `--from-code` sends, say it in these words. */
+export const NOTHING_TO_ASK = { lead: 'Nothing to ask', untouched: ': the change leaves every request as recorded', noCalls: ': the runs hold no model call' } as const;
+
 /**
  * The headline of a report, from its counts, the runs it flags and its runs: their refusals, and the
  * steps of those it flags, which say whether a write, a stop or a judge flagged them. A run refused
@@ -986,9 +989,6 @@ export interface DecisionsHeadline {
  * apart: no headline reads as if it had nothing to ask. Its sentence alone (`lead` and `rest`) is what
  * a list of previews says of one.
  */
-/** What a preview says where it has nothing to ask, as its headline says it: the CLI's report, and a read of what `--from-code` sends, say it in these words. */
-export const NOTHING_TO_ASK = { lead: 'Nothing to ask', untouched: ': the change leaves every request as recorded', noCalls: ': the runs hold no model call' } as const;
-
 export function decisionsHeadline(r: Pick<DecisionsReport, 'counts' | 'flagged'> & { runs: ReadonlyArray<Pick<DecisionRun, 'runId' | 'refused' | 'decisions'>> }): DecisionsHeadline {
   const changed = r.counts[1] + r.counts[2] + r.counts[3] + r.counts[4] + r.counts[5];
   const asked = changed + r.counts.same > 0;

@@ -20,6 +20,8 @@ export interface DecisionsRead {
   notes: string[];
   /** Where no call changed, what the preview would say, in its headline's words (`Nothing to ask: the change leaves every request as recorded`); null where one did. */
   nothing: string | null;
+  /** The scope of the first call the working tree changes, whose system prompt it is (`The agent’s system prompt`); null where that call has none, or none changed. */
+  scope: string | null;
 }
 
 /** The model calls a preview would ask of a run: the agent's, in `scope`, with their request kept. */
@@ -48,7 +50,8 @@ export async function readDecisions(input: { opts: GlobalOpts; targets: Decision
       return { runId: t.run.runId, golden: t.golden, changed, refused: cap?.refused ?? null };
     });
     const nothing = runs.some((r) => r.changed.length) ? null : `${NOTHING_TO_ASK.lead}${asked.length ? NOTHING_TO_ASK.untouched : NOTHING_TO_ASK.noCalls}`;
-    return { kind: 'decisions-read', fromCode, runs, notes: [...new Set([...captures.values()].flatMap((c) => c.notes))], nothing };
+    const first = asked.find((x) => captures.get(x.target.run.runId)?.prompts.get(x.call.callNo)?.changed)?.call.meta.scope;
+    return { kind: 'decisions-read', fromCode, runs, notes: [...new Set([...captures.values()].flatMap((c) => c.notes))], nothing, scope: typeof first === 'string' && first ? first : null };
   } finally {
     store.close();
   }

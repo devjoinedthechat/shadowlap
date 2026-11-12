@@ -238,6 +238,8 @@ function askingLines(runs: number, s: DecisionsSettings): string[] {
 async function verifyAction(opts: GlobalOpts, flags: DecisionsFlags, input: { specs: string[]; settings: Parameters<typeof verifySession>[0]['settings']; log: (line: string) => void }): Promise<void> {
   if (flags.model || flags.fromCode || flags.set?.length || flags.from?.length || flags.thenVerify || flags.dryRun) throw new InvalidArgumentError('--verify verifies the change a kept session asked: give no other change with it');
   if (flags.keptMax !== undefined && (flags.keptMax < 1 || flags.keptMax > GATE_MAX_ATTEMPTS)) throw new InvalidArgumentError(`--kept-max is a whole number from 1 to ${GATE_MAX_ATTEMPTS}`);
+  // As verify refuses it: a fixed count keeps no good run against its baseline.
+  if (flags.keptMax !== undefined && (flags.attempts !== undefined || flags.passes !== undefined)) throw new InvalidArgumentError('a fixed count (--attempts, --passes) judges every run on its own: --kept-max is for the gate, which keeps a good run against its baseline');
   try {
     const out = await verifySession({ opts, sessionId: flags.verify!, runs: input.specs, settings: input.settings, budget: flags.budget ?? null, yes: !!flags.yes, log: input.log });
     if (flags.json) process.stdout.write(JSON.stringify(out, null, 2) + '\n');

@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { BLAME_DEFAULTS, ciProvider, commitTitle, fieldValue, messageOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, ciProvider, commitTitle, fieldValue, messageOf, outcomeOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
 import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, LABEL_INPUT, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
 import { EXIT_LABEL } from './oracle.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -383,7 +383,7 @@ export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: {
       kind: `verify.${report.verdict}`,
       actor: actor(),
       ref: counted[0] ?? recorded.fixes[0]?.fix.fixId ?? recorded.verdict.verifyId,
-      data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3), ...(input.session ? { session: input.session, ...(input.name ? { name: input.name, runs: report.runs.length } : {}) } : {}) },
+      data: { verifyId: recorded.verdict.verifyId, fixes: recorded.fixes.map((x) => x.fix.fixId), counts: counted, code: report.codeVersion, reasons: report.reasons.slice(0, 3), ...(input.session ? { session: input.session, ...(input.name ? { name: input.name, runs: report.runs.length, outcomes: report.runs.map((r) => outcomeOf(r)) } : {}) } : {}) },
     });
     return recorded;
   } catch (err) {
