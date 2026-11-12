@@ -1,12 +1,14 @@
 import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Code, CodeText, Copy, LongWord, Words } from '../ui/components/Copy.js';
+import { Code, CodeText, Command, Copy, LongWord, Words } from '../ui/components/Copy.js';
 import { DialogFacts } from '../ui/components/DialogFacts.js';
 import { DotParts } from '../ui/components/DotParts.js';
 import { EmptyState } from '../ui/components/States.js';
+import { ToastWords } from '../ui/components/Toast.js';
 import { dotParts } from '../ui/components/Verdict.js';
 import { FixTitle } from '../ui/fixes/parts.js';
+import { planCopy } from '../ui/typeset-lines.js';
 import { styleRules } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -158,5 +160,23 @@ describe('copy set by its parts', () => {
     expect(html).toMatch(/,<\/span><wbr\/>/);
     expect(html).not.toMatch(/<wbr\/>\s/);
     expect(html).toMatch(/<span class="nw">&quot;reason&quot;:&quot;above the refund limit&quot;,<\/span>/);
+  });
+
+  it('splits a toast at its dots, each part kept whole with its dot, all in the one words span', async () => {
+    await draw(createElement('span', null, createElement(ToastWords, { text: 'Removed support-agent · nothing on disk changed', glued: true })));
+    expect(r!.all('.tp').map((p) => p.textContent.replace(/\u00a0/g, ' '))).toEqual(['Removed support-agent ·', 'nothing on disk changed']);
+  });
+
+  it('never balances a block whose every word is kept whole: it sets it pretty', () => {
+    const plan = planCopy([{ text: 'refund-in-limit escalate-over-limit send-email-once' }], { width: 30, text: (s) => s.length, atom: () => 0 });
+    expect(plan.wrap).toBe('ts-pretty');
+  });
+
+  it('draws a command’s prompt as a $ the selection leaves out, kept with the program', async () => {
+    await draw(createElement('pre', null, createElement(Command, { cmd: 'shadowlap store check --bucket s3://acme-runs' })));
+    expect(r!.one('.cmdp > b').textContent).toBe('$');
+    expect(r!.one('.cmdp').className).toBe('nw cmdp');
+    expect(values('.cmdp > b', 'user-select')).toEqual(['none']);
+    expect(values('.cmdp > b', '-webkit-user-select')).toEqual(['none']);
   });
 });
