@@ -455,7 +455,7 @@ describe('Compare', () => {
     expect(said.filter((l) => l.startsWith('holding'))).toEqual([`holding run ${B}`]);
     const asked = said.length;
     await page!.click(page!.one('.ph .actions button'));
-    await page!.until('the pair compared there', () => page!.all('.empty').some((e) => e.textContent === 'Could not compare these runs: the comparison failed'));
+    await page!.until('the pair compared there', () => page!.all('.loaderr p > span').map((e) => e.textContent).join(' · ') === 'couldn’t load · the comparison failed');
     expect(said.slice(asked, asked + 2)).toEqual([`select ${THERE}`, 'reload']);
     expect(said.slice(asked + 2).sort()).toEqual([`compare ${A} ${B}`, `head ${A} ${B}`, `run ${A}`, `run ${B}`].sort());
     expect(page!.all('h1').map((h) => h.textContent)).not.toContain(`In ${THERE}`);
@@ -472,7 +472,7 @@ describe('Compare', () => {
     await inPage(A);
     expect(said).toEqual([`holding run ${A} ${B}`]);
     await page!.click(page!.one('.ph .actions button'));
-    await page!.until('the pair compared there', () => page!.all('.empty').some((e) => e.textContent === 'Could not compare these runs: the comparison failed'));
+    await page!.until('the pair compared there', () => page!.all('.loaderr p > span').map((e) => e.textContent).join(' · ') === 'couldn’t load · the comparison failed');
     expect(said.slice(1, 3)).toEqual([`select ${THERE}`, 'reload']);
     expect(said.slice(3).sort()).toEqual([`compare ${A} ${B}`, `head ${A} ${B}`, `run ${A}`, `run ${B}`].sort());
   });

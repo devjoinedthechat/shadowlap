@@ -295,6 +295,54 @@ describe('Compare in a project with fewer than two runs', () => {
   });
 });
 
+describe('Compare while it reads, and when a read fails', () => {
+  const A = '01M5GRVTKSJ12EE2SE9YZ5W4J3';
+  const B = '01M5GRXFM1Y2E2VBPFX0TV2TGA';
+  const listed = (runId: string) => ({ runId, parentRunId: null, mode: 'record', status: 'completed', startedAt: 1, calls: 3 });
+  const detail = (runId: string) => ({ run: { runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'refund_agent.mjs'], cwd: '.' }, codeVersion: null, startedAt: 1, endedAt: 2 }, parent: null, children: [], source: null, calls: [], summary: {} });
+  /** Compare at `#/compare/<a>[/<b>]` in a project of two runs, its server answering as `client` says. */
+  const compare = (client: Record<string, unknown>, a: string, b: string | null = null) => {
+    addressBar(b ? `#/compare/${a}/${b}` : `#/compare/${a}`);
+    const server = { exported: false, jobs: () => Promise.resolve([]), compareHead: () => Promise.resolve(null), run: (id: string) => Promise.resolve(detail(id)), ...client };
+    return createElement(AppContext.Provider, { value: { ...app({}), runs: [listed(A), listed(B)], client: server } as unknown as AppState }, createElement(ComparePage, { a, b }));
+  };
+  const failure = (page: Rendered) => page.all('.loaderr p > span').map(text);
+
+  it('draws the comparison’s shape under the pickers while it reads, in classes of its own, none of the comparison’s parts', async () => {
+    r = await render(compare({ compare: () => new Promise(() => undefined) }, A, B));
+    await r.until('the pickers', () => r!.all('.pickers .rpick').length === 2);
+    waiting(r, 'the comparison');
+    expect(r.all('.skel .cskrow')).toHaveLength(5);
+    expect(r.all('.skel .rpick')).toEqual([]);
+    for (const part of ['.verdict.cmpv', '.prefix', '.cmpfacts', '.paths2', '.cprow', '.empty']) expect(r.all(part), part).toEqual([]);
+  });
+
+  it('says why the comparison couldn’t be read under the pickers, with Retry, which asks again', async () => {
+    let asked = 0;
+    r = await render(compare({ compare: () => (asked++, failed()) }, A, B));
+    await r.until('the failure', () => r!.all('.loaderr').length === 1);
+    expect(failure(r)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    expect(r.all('.pickers .rpick')).toHaveLength(2);
+    expect([r.all('.skel').length, r.one('.page').getAttribute('aria-busy')]).toEqual([0, null]);
+    await r.click(r.byText('.loaderr button', 'Retry'));
+    await r.until('the comparison asked again', () => asked === 2);
+  });
+
+  it('one run named: its shape while the run is read, then why it couldn’t be, with Retry, which reads it again', async () => {
+    r = await render(compare({ run: () => new Promise(() => undefined) }, A));
+    await r.until('the shape', () => r!.all('.skel').length === 1);
+    waiting(r, 'the comparison');
+    await r.unmount();
+    let reads = 0;
+    r = await render(compare({ run: () => (reads++, failed()) }, A));
+    await r.until('the failure', () => r!.all('.loaderr').length === 1);
+    expect(failure(r)).toEqual(['couldn’t load', 'The dashboard server answered 500 for this page’s data.']);
+    expect(r.all('.stepempty')).toEqual([]);
+    await r.click(r.byText('.loaderr button', 'Retry'));
+    await r.until('the run read again', () => reads === 2);
+  });
+});
+
 describe('Runs before the meta says which project it is, and in a project that can’t be opened', () => {
   const GONE = { project: { id: 'support-agent', name: 'support-agent', path: '/work/support-agent', problem: 'Its folder is gone: /work/support-agent.', missing: true } };
   let asked = 0;

@@ -2463,7 +2463,7 @@ An exported copy holds every call.
 
 ### While a page's data loads
 
-While their data loads, the Overview, Runs, Tests, a run, a fix, a project's setup and the team store's draw their final layout, its text as quiet bars, so nothing moves when the data comes. Nothing under the bars can be pressed, and a screen reader hears what is loading.
+While their data loads, the Overview, Runs, Tests, a run, a fix, Compare, a project's setup and the team store's draw their final layout, its text as quiet bars, so nothing moves when the data comes. Nothing under the bars can be pressed, and a screen reader hears what is loading.
 
 - **A read that fails** keeps the page's header, over one line that says why, with **Retry**.
 - **A link that names nothing** opens *Nothing here* under the page's header, with the way back: **Open Runs** for a run, **Open Fixes** for a fix, and **Back to Overview** for a page or a setup.

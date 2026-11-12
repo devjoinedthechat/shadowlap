@@ -8,7 +8,8 @@ import { tipCard } from '../components/HoverCard.js';
 import { JsonDiffPart } from '../components/JsonDiffPart.js';
 import { Page } from '../components/Page.js';
 import { Section } from '../components/Section.js';
-import { EmptyState } from '../components/States.js';
+import { EmptyState, ErrorState, failedRead, Skeleton } from '../components/States.js';
+import { VerdictLine } from '../components/VerdictLine.js';
 import { answersSub, changedAnswers, changeCards, compareFacts, comparingLive, DIFF_SHOWN, madeCard, oneRunPair, pickable, prefixCells, prefixLine, replayCommand, requestLines } from '../compare/model.js';
 import { PairRows } from '../compare/Rows.js';
 import { RunPicker } from '../compare/RunPicker.js';
@@ -82,16 +83,60 @@ function CompareTop({ pickers = null }: { pickers?: ReactNode }) {
   );
 }
 
-/** What Compare shows under its head while it reads: nothing yet, or that it is comparing. */
+/** Calls a row of the comparison's skeleton stands for, as bars the width of a call's name and arguments. */
+const SKEL_CALLS = ['lookup_order {"order_id":"4417"}', 'get_policy {"topic":"refunds"}', 'issue_refund {"amount":42}', 'send_email {"to":"customer"}', 'end_turn'];
+
+/**
+ * The comparison while it is read, under the pickers (never drawing them): the verdict and a line a
+ * run, the identical prefix's strip and line, and both runs' calls from where they part, as quiet
+ * bars in their final places. Its classes are its own, since the comparison's are what says it came.
+ */
+const COMPARISON_LOADING = (
+  <Skeleton what="the comparison">
+    <div className="cmpsk">
+      <VerdictLine
+        word="Different endings"
+        tone="mu"
+        facts={
+          <span className="cskends">
+            <span>01M5GRYHR0 · issue_refund · answered at #21 · ≈$0.05 spent</span>
+            <span>01M5GRVTKS · no write · ended at #20 · ≈$0.05 spent</span>
+          </span>
+        }
+      >
+        after #18
+      </VerdictLine>
+      <div className="cskpre">
+        <span className="ms" style={{ gridTemplateColumns: 'repeat(17, minmax(0, 1fr))' }}>
+          {Array.from({ length: 17 }, (_, i) => (
+            <i key={i} />
+          ))}
+        </span>
+        <span>The first 17 calls are identical; the two part at #18.</span>
+      </div>
+      <div className="cskrows">
+        {SKEL_CALLS.map((call, i) => (
+          <div className="cskrow" key={i}>
+            <span>#{18 + i}</span>
+            <span>{call}</span>
+            <span>{call}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  </Skeleton>
+);
+
+/** What Compare shows under its head while it reads: nothing yet, or the comparison's shape. */
 const HEAD_ONLY = (
   <Page>
     <CompareTop />
   </Page>
 );
 const COMPARING = (
-  <Page>
+  <Page busy>
     <CompareTop />
-    <div className="empty">Comparing…</div>
+    {COMPARISON_LOADING}
   </Page>
 );
 
@@ -152,6 +197,14 @@ function OneRun({ id }: { id: string }) {
   // A run not in this store: another project may hold it.
   if (notHeld(run.error))
     return <Elsewhere ask={{ what: 'run', ids: [id] }} error={run.error} waiting={COMPARING} retry={run.reload} fallback={<OneRunMissing id={id} error={run.error!} where={where} />} />;
+  // A read that failed otherwise: why, and Retry.
+  if (run.error && !ambiguous(run.error))
+    return (
+      <Page>
+        <CompareTop />
+        <ErrorState retry={run.reload}>{failedRead(run.error)}</ErrorState>
+      </Page>
+    );
   if (run.error) return <OneRunMissing id={id} error={run.error} where={where} />;
   if (!run.data || mate) return run.data ? HEAD_ONLY : COMPARING;
   const r = run.data;
@@ -180,24 +233,22 @@ function OneRun({ id }: { id: string }) {
   );
 }
 
-/** `#/compare/<id>` with a run that can't be read here: none in the store, several it could be, or the read failed. */
+/** `#/compare/<id>` with a run this store can't name: none in it, or several it could be. */
 function OneRunMissing({ id, error, where }: { id: string; error: Error; where: string }) {
   return (
     <Page>
       <CompareTop />
       <EmptyState
-        title={ambiguous(error) ? 'More than one run' : notHeld(error) ? `Not in ${where}` : 'Could not load the run'}
+        title={ambiguous(error) ? 'More than one run' : `Not in ${where}`}
         text={
           ambiguous(error) ? (
             <>
               <code>{id}</code> matches several runs; use more of the id. Pick two runs to compare, or open Runs to find the one you meant.
             </>
-          ) : notHeld(error) ? (
+          ) : (
             <>
               No run <code>{id}</code> in {where}. Pick two runs to compare, or open Runs to find the one you meant.
             </>
-          ) : (
-            `${id}: ${error.message}`
           )
         }
       >
@@ -257,40 +308,45 @@ function Comparison({ a, b, runs, call }: { a: string; b: string; runs: RunListI
     // A side not in this store: another project may hold it, though never one that starts several runs' ids here.
     const retry = () => [cmp, head, ra, rb].forEach((l) => l.reload());
     const waiting = (
-      <Page>
+      <Page busy>
         {header}
-        <div className="empty">Comparing…</div>
+        {COMPARISON_LOADING}
       </Page>
     );
     return missing.length ? <Elsewhere ask={{ what: 'run', ids: missing.map((m) => m.id) }} error={ra.error ?? rb.error} waiting={waiting} retry={retry} fallback={page} /> : page;
   }
   const c = cmp.data;
   return (
-    <Page>
+    // Busy while the comparison's shape stands in for it: nothing of it has come, nor has its read failed.
+    <Page busy={!c && !head.data && !cmp.error}>
       {header}
-      <ComparisonBody c={c} failed={cmp.error} head={head.data} hub={hub} ra={ra.data} rb={rb.data} a={a} b={b} runs={runs} call={call} />
+      <ComparisonBody c={c} failed={cmp.error} retry={cmp.reload} head={head.data} hub={hub} ra={ra.data} rb={rb.data} a={a} b={b} runs={runs} call={call} />
     </Page>
   );
 }
 
 /**
  * What the comparison shows under the pickers: the whole of it; while a long pair's rest is worked
- * out, its head first; or why it couldn't be compared, an exported copy naming the run it pairs with.
+ * out, its head first; while nothing has come, its shape; or why it couldn't be compared, with Retry
+ * (`retry`), an exported copy naming the run it pairs with.
  */
-function ComparisonBody({ c, failed, head, hub, ra, rb, a, b, runs, call }: { c: CompareView | null; failed: Error | null; head: CompareHead | null; hub: string | null; ra: RunDetail | null; rb: RunDetail | null; a: string; b: string; runs: RunListItem[]; call: number | null }) {
-  const error = failed ? (hub ? `This copy compares each run with ${shortId(hub)} only: pick it on one side.` : `Could not compare these runs: ${failed.message}`) : null;
+function ComparisonBody({ c, failed, retry, head, hub, ra, rb, a, b, runs, call }: { c: CompareView | null; failed: Error | null; retry: () => void; head: CompareHead | null; hub: string | null; ra: RunDetail | null; rb: RunDetail | null; a: string; b: string; runs: RunListItem[]; call: number | null }) {
   // The rest of a long pair that couldn't be worked out (a 503: it ran past the time a request is
   // given): what came first stays, and the terminal, which has no such limit, works out the rest.
   const stopped = failed && !hub && head ? { why: failed.message, command: `shadowlap diff ${shortId(ra?.run.runId ?? a)} ${shortId(rb?.run.runId ?? b)}` } : null;
   return (
     <>
-      {error && !stopped ? <div className="empty">{error}</div> : null}
+      {failed && hub ? (
+        <div className="empty">{`This copy compares each run with ${shortId(hub)} only: pick it on one side.`}</div>
+      ) : failed && !stopped ? (
+        <ErrorState retry={retry}>{failedRead(failed)}</ErrorState>
+      ) : null}
       {c ? (
         <Compared c={c} a={a} b={b} ra={ra} rb={rb} runs={runs} call={call} />
       ) : head && (!failed || stopped) ? (
         <HeadFirst h={head} stopped={stopped} />
       ) : failed ? null : (
-        <div className="empty">Comparing…</div>
+        COMPARISON_LOADING
       )}
     </>
   );
