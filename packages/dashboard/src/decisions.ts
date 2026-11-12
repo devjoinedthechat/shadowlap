@@ -1,8 +1,8 @@
 import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyWords } from '@shadowlap/engine';
 import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
-import { gateArg, sprtGate } from './fix-shared.js';
-import { moreOf, type PreviewMore } from './decision-more.js';
+import { sprtGate } from './fix-shared.js';
+import { moreFlags, moreOf, type PreviewMore } from './decision-more.js';
 import { decisionsArgv, FIELD_NAME, fromFlags, MODEL_NAME, PREVIEW_MAX, scopeFlags, setFlags, tooManyToPreview } from './decisions-argv.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
@@ -413,9 +413,7 @@ function limitArgs(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<type
   const refused = limitsRefused(req.max, req.keptMax);
   if (refused) return { error: refused };
   // The gate's other figures kept as they were, with a good run's pairs raised alone too.
-  const raised = typeof req.max === 'number' || typeof req.keptMax === 'number';
-  const gate = raised ? gateArg({ ...(sessionGate(store, session) ?? { kind: 'sprt', ...SPRT_DEFAULTS }), ...(typeof req.max === 'number' ? { max: req.max } : {}) }, SPRT_DEFAULTS) : [];
-  return [...gate, ...(typeof req.keptMax === 'number' ? ['--kept-max', String(req.keptMax)] : [])];
+  return moreFlags(sessionGate(store, session), req.max as number | undefined, req.keptMax as number | undefined);
 }
 
 /** The command a job runs, as its dialog shows it. */

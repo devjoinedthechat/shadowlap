@@ -1,4 +1,5 @@
-import { GATE_MAX_ATTEMPTS, keptMaxOf, openRunWhy, type DecisionsVerify, type SprtGate } from '@shadowlap/engine';
+import { GATE_MAX_ATTEMPTS, keptMaxOf, openRunWhy, SPRT_DEFAULTS, verifyParts, type DecisionsVerify, type SprtGate } from '@shadowlap/engine';
+import { gateArg } from './fix-shared.js';
 
 /**
  * Run more attempts on the runs verify left open whose gate ran out or that stopped first (`kind`
@@ -11,6 +12,23 @@ export interface PreviewMore {
   runs: string[];
   max: number | null;
   keptMax: number | null;
+  /** The flags its job adds to `decisions --verify` (`moreFlags`): none for Verify again. */
+  flags: string[];
+  /** The attempts its runs took so far, which don't carry over. */
+  attempts: number;
+  /** Its limits in verify's words (`up to 160 attempts a run`); empty for Verify again. */
+  limit: string;
+}
+
+/**
+ * Run more attempts' flags, as `decisions --verify` takes them: `--gate` with the figures the
+ * session's verify was decided by and only its max raised, and a good run's pairs as `--kept-max`.
+ * Its job and its dialog's command both read them here.
+ */
+export function moreFlags(gate: SprtGate | null, max: number | null | undefined, keptMax: number | null | undefined): string[] {
+  const raised = typeof max === 'number' || typeof keptMax === 'number';
+  const flags = raised ? gateArg({ ...(gate ?? { kind: 'sprt', ...SPRT_DEFAULTS }), ...(typeof max === 'number' ? { max } : {}) }, SPRT_DEFAULTS) : [];
+  return [...flags, ...(typeof keptMax === 'number' ? ['--kept-max', String(keptMax)] : [])];
 }
 
 /**
@@ -28,7 +46,8 @@ export function moreOf(v: DecisionsVerify | null, gate: SprtGate | null, keptMax
     return why ? [{ ...x, why }] : [];
   });
   if (!open.length) return null;
-  if (open.every((x) => x.why === 'unjudged')) return { kind: 'again', runs: open.map((x) => x.runId), max: null, keptMax: null };
+  const so = (runs: ReadonlyArray<{ attempts: number }>) => runs.reduce((n, x) => n + x.attempts, 0);
+  if (open.every((x) => x.why === 'unjudged')) return { kind: 'again', runs: open.map((x) => x.runId), max: null, keptMax: null, flags: [], attempts: so(open), limit: '' };
   if (!gate) return null;
   const taken = open.filter((x) => x.why !== 'unjudged');
   let raised = taken.some((x) => x.why === 'stopped');
@@ -40,6 +59,9 @@ export function moreOf(v: DecisionsVerify | null, gate: SprtGate | null, keptMax
     raised ||= now > ran;
     return now;
   };
-  const more: PreviewMore = { kind: 'more', runs: taken.map((x) => x.runId), max: limit(false), keptMax: limit(true) };
-  return raised ? more : null;
+  const max = limit(false);
+  const kept = limit(true);
+  if (!raised) return null;
+  const words = verifyParts(max === null ? 0 : 1, kept === null ? 0 : 1, { failing: max ?? 0, good: kept ?? 0, unit: 'pairs' });
+  return { kind: 'more', runs: taken.map((x) => x.runId), max, keptMax: kept, flags: moreFlags(gate, max, kept), attempts: so(taken), limit: words };
 }

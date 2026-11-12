@@ -133,16 +133,16 @@ describe('a preview worded for Changes', () => {
     const v = verified('incomplete', [{ runId: a, role: 'target', outcome: 'inconclusive', passes: 50, attempts: 80 }, { runId: b, role: 'good', outcome: 'unsettled', passes: 3, attempts: 3 }]);
     const id = keep('dc-01M5000000000000000000000F', [runOf(a, null, [step(3, 1)]), runOf(b, null, [step(3, 1)])], { flagged: [a, b], toVerify: [a, b], verify: v, counts: counts({ 1: 2 }) });
     // The failing run's gate ran out: 2 x 80. The good run stopped first: its 200 pairs again, as they were.
-    expect(previewSession(store, id)!.view.next.more).toEqual({ kind: 'more', runs: [a, b], max: 160, keptMax: 200 });
+    expect(previewSession(store, id)!.view.next.more).toEqual({ kind: 'more', runs: [a, b], max: 160, keptMax: 200, flags: ['--gate', '{"max":160}', '--kept-max', '200'], attempts: 83, limit: 'up to 160 attempts a failing run, 200 pairs a good one' });
     // The config's verify.max is what a good run ran under.
     expect(previewSession(store, id, { keptMax: 300 })!.view.next.more).toMatchObject({ max: 160, keptMax: 300 });
     // Each run's Decisions view offers it for that run alone, in its role.
     const mine = (runId: string) => runDecisions(store, runId, 50).sessions.find((x) => x.sessionId === id)!.more;
-    expect(mine(a)).toEqual({ kind: 'more', runs: [a], max: 160, keptMax: null });
-    expect(mine(b)).toEqual({ kind: 'more', runs: [b], max: null, keptMax: 200 });
-    expect(moreOf({ ...v, runs: [{ ...v.runs[1], outcome: 'inconclusive' }] }, { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, null)).toEqual({ kind: 'more', runs: [b], max: null, keptMax: 400 });
+    expect(mine(a)).toEqual({ kind: 'more', runs: [a], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' });
+    expect(mine(b)).toEqual({ kind: 'more', runs: [b], max: null, keptMax: 200, flags: ['--kept-max', '200'], attempts: 3, limit: 'up to 200 pairs a run against its baseline' });
+    expect(moreOf({ ...v, runs: [{ ...v.runs[1], outcome: 'inconclusive' }] }, { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, null)).toEqual({ kind: 'more', runs: [b], max: null, keptMax: 400, flags: ['--kept-max', '400'], attempts: 3, limit: 'up to 400 pairs a run against its baseline' });
     expect(moreOf({ ...v, runs: [{ ...v.runs[0], attempts: 1000 }] }, { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 1000 }, null)).toBeNull();
-    expect(moreOf({ ...v, runs: [{ ...v.runs[0], undecided: 'the judge gave no answer' }] }, null, null)).toEqual({ kind: 'again', runs: [a], max: null, keptMax: null });
+    expect(moreOf({ ...v, runs: [{ ...v.runs[0], undecided: 'the judge gave no answer' }] }, null, null)).toEqual({ kind: 'again', runs: [a], max: null, keptMax: null, flags: [], attempts: 80, limit: '' });
     // A fixed count that ran out decides nothing more with more of the same.
     expect(moreOf(v, null, null)).toBeNull();
   });
