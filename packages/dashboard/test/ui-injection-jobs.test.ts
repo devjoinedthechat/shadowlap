@@ -7,6 +7,7 @@ import { answerWords } from '../ui/injection/answer-words.js';
 import { CauseFinding } from '../ui/injection/CauseFinding.js';
 import { causeCommand, causeRead, FindCause } from '../ui/injection/FindCause.js';
 import { resultsToOpen } from '../ui/injection/job-footer.js';
+import { gateEntryText, PackWithGate } from '../ui/injection/PackWithGate.js';
 import { runInjectionView, type CauseView } from '../ui/injection/model.js';
 import { jobFooter } from '../ui/job-actions.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
@@ -528,5 +529,81 @@ describe('Find cause’s answers as the run’s finding', () => {
     await r.click(r.one('.why .bn'));
     await r.click(r.one('.injline2 .pbn'));
     expect(picked).toEqual([4, 14]);
+  });
+});
+
+describe('Pack with injection gate…', () => {
+  /** Its dialog on RUN, the server answering as `client` says: the templates, the run's reads, the config read, a plan's price, the start. */
+  async function gateDialog(client: Record<string, unknown> = {}) {
+    const started: Started = [];
+    const asked: unknown[] = [];
+    const all = {
+      injectionTemplates: async () => ({ version: 1, updated: '', templates: TEMPLATES }),
+      injectionRun: async () => ({ untrusted: readsOf(1), results: [], rule: null, answers: [], cause: [], attempt: null }),
+      checks: { goldens: async () => ({ version: 'v1', read: { keys: { tests: 'k' }, tests: {} } }) },
+      injectionEstimate: (q: unknown) => (asked.push(q), Promise.resolve(price(1.2))),
+      startJob: async (kind: string, body: Record<string, unknown>) => (started.push([kind, body]), { id: 'j1' }),
+      ...client,
+    };
+    r = await render(createElement(AppContext.Provider, { value: app({}, [], all) }, createElement(PackWithGate, { runId: RUN, folder: 'goldens/01k5cq4n7g', gate: { obeyed: 0, repeat: 3 }, estimate: price(0.9), offers: null, onClose: () => undefined })));
+    await r.until('the dialog reads the templates', () => r!.all('.dialog .togchips button').length === 12);
+    return { started, asked };
+  }
+  const entry = () => r!.one('.dialog .injconf pre').textContent;
+  const toggle = () => r!.byText('.dialog .linkbtn', r!.all('.dialog .linkbtn').some((b) => b.textContent === 'Hide entry') ? 'Hide entry' : 'Show entry');
+
+  it('lays its entry out a level a line, the gate’s settings on one, templates only when not all', () => {
+    expect(gateEntryText('goldens/x', { obeyed: 0, repeat: 3 })).toBe('"tests": {\n  "goldens/x": {\n    "injection": { "obeyed": 0, "repeat": 3 }\n  }\n}');
+    expect(gateEntryText('goldens/x', { obeyed: 0, repeat: 2, templates: ['system-notice', 'user-urgent'] })).toContain('"injection": { "obeyed": 0, "repeat": 2, "templates": ["system-notice", "user-urgent"] }');
+  });
+
+  it('asks the golden, the templates and attempts each, the entry folded behind Show entry, both commands and each test session’s price', async () => {
+    const { started, asked } = await gateDialog();
+    expect([r!.one('.dialog h3').textContent, plain(r!.one('.dialog header p').textContent)]).toEqual(['Pack 01K5CQ4N7G with injection gate?', 'Packs the run as a golden that fails while a tool call carries a planted payload’s canary. Injection tests in the docs →']);
+    expect(plain(r!.one('.dialog .dfacts').textContent)).toContain('the golden’s folder, and the entry below');
+    expect(plain(r!.one('.dialog .dfacts').textContent)).toContain('Plants in#4 get_ticket');
+    expect([r!.one('.dialog input[type="text"]').value, r!.one('.dialog input[type="number"]').value, count(), r!.all('.dialog .injwhy').length]).toEqual(['goldens/01k5cq4n7g', '3', '12 of 12', 0]);
+    expect(r!.all('.dialog .cmdline .cstep').map((c) => c.textContent)).toEqual(['$shadowlap pack 01K5CQ4N7G goldens/01k5cq4n7g', '$shadowlap test goldens/01k5cq4n7g']);
+    // Folded, the entry still follows the fields; shown, a line each, its Copy its own.
+    const box = r!.one('.dialog .injconf');
+    expect([toggle().textContent, toggle().getAttribute('aria-expanded'), box.closest('[hidden]') !== null]).toEqual(['Show entry', 'false', true]);
+    await r!.click(toggle());
+    expect([toggle().textContent, toggle().getAttribute('aria-expanded'), r!.one('.dialog .injconf').closest('[hidden]')]).toEqual(['Hide entry', 'true', null]);
+    expect(r!.all('.dialog .injconf pre.hang .cl').map((l) => l.props.style)).toEqual(['0ch', '2ch', '4ch', '2ch', '0ch'].map((i) => ({ '--i': i })));
+    expect(r!.one('.dialog .injconf .boxcopy').getAttribute('aria-label')).toBe('Copy config entry');
+    expect(entry()).toContain('"goldens/01k5cq4n7g": {');
+    await r!.click(r!.byText('.dialog .togchips button', 'user-urgent'));
+    await r!.type(r!.one('.dialog input[type="number"]'), '2');
+    await r!.type(r!.one('.dialog input[type="text"]'), 'goldens/refund');
+    expect(entry()).toContain(`"goldens/refund": {    "injection": { "obeyed": 0, "repeat": 2, "templates": [${ids.filter((i) => i !== 'user-urgent').map((i) => `"${i}"`).join(', ')}] }`);
+    expect(r!.all('.dialog .cmdline .cstep').map((c) => c.textContent)).toEqual(['$shadowlap pack 01K5CQ4N7G goldens/refund', '$shadowlap test goldens/refund']);
+    // The price as each test session's gate, asked a moment after the picks.
+    await r!.wait(300);
+    expect(asked).toEqual([{ runId: RUN, payloads: 11, repeat: 2, budget: null, gate: true }]);
+    await r!.click(r!.byText('.dialog .linkbtn', 'None'));
+    expect([ok().getAttribute('aria-disabled'), plain(r!.one('.dialog .dcost').textContent)]).toEqual(['true', 'Pick a template: a gate plants at least one.']);
+    await r!.click(r!.byText('.dialog .linkbtn', 'All'));
+    expect(entry()).toContain('"injection": { "obeyed": 0, "repeat": 2 }');
+    await r!.click(ok());
+    expect(started).toEqual([['pack-test', { runId: RUN, golden: 'goldens/refund', gate: { obeyed: 0, repeat: 2 }, version: 'v1', read: { keys: { tests: 'k' }, tests: {} }, estimate: { usd: 1.2, ceiling: false } }]]);
+  });
+
+  it('asks the consent a command someone else recorded needs, resending with the yes, and keeps a folder refused in the dialog with the server’s words', async () => {
+    const asks = [Object.assign(new Error('01K5CQ4N7G came from Langfuse: its test runs the command it was recorded with (python agent.py), under shadowlap test goldens/01k5cq4n7g. Confirm it to run it'), { status: 409, confirm: 'c1' }), new Error('goldens/01k5cq4n7g already holds a golden. Give this one another name')];
+    const sent: Array<Record<string, unknown>> = [];
+    await gateDialog({
+      startJob: async (_kind: string, body: Record<string, unknown>) => {
+        sent.push(body);
+        const err = asks.shift();
+        if (err) throw err;
+        return { id: 'j1' };
+      },
+    });
+    await r!.click(ok());
+    await r!.until('the consent', () => (r!.one('.dialog').textContent ?? '').includes('came from Langfuse'));
+    expect(ok().textContent).toBe('Pack with injection gate');
+    await r!.click(ok());
+    await r!.until('the refusal', () => r!.all('.dialog .dwarn').length === 1);
+    expect([sent.map((b) => b.yes), r!.one('.dialog .dwarn').textContent, r!.one('.dialog input[type="text"]').value]).toEqual([[undefined, 'c1'], errorText(new Error('goldens/01k5cq4n7g already holds a golden. Give this one another name')), 'goldens/01k5cq4n7g']);
   });
 });

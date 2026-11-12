@@ -49,7 +49,6 @@
 @media (max-width: 370px) { .dialog .seg.impsrc { display: grid; grid-template-columns: repeat(3, max-content); } }
 /* the commits Find breaking commit offers */
 .checklist.bgood { margin-bottom: 12px; }
-.dialog pre.gateentry { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .dialog footer { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 20px 18px; }
 .dialog footer > [hidden], .help footer > [hidden] { display: none; }
 /* An ask the threshold decided says so at the left of its footer, with the way to change it (AskNote). */

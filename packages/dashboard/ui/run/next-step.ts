@@ -5,7 +5,7 @@ import { ACTIONS, confirmWords } from '../labels.js';
 import { normalizeAction } from '../normalize.js';
 import type { PaletteEntry } from '../palette.js';
 import { keyColumn, type ShortcutId } from '../shortcuts.js';
-import type { ActionItem, BlameBeside, GateEntry, NextStep, NextStepRow, RunDetail } from '../types.js';
+import type { ActionItem, BlameBeside, NextStep, NextStepRow, RunDetail } from '../types.js';
 import { blameTitle } from './offers.js';
 import { PACK_VERB } from './share-steps.js';
 
@@ -39,6 +39,7 @@ const STEP_JOBS: Partial<Record<NextStep['key'], { verb: string; tests: boolean 
   'injection-test': { verb: 'test it', tests: false },
   'injection-again': { verb: 'test it', tests: false },
   pack: { verb: PACK_VERB, tests: true },
+  'pack-gate': { verb: PACK_VERB, tests: true },
 };
 
 /** The job a step runs, for what it waits for and how its button words that; none for a link, or a step that waits for no job. */
@@ -113,9 +114,6 @@ export function stepCostLine(step: NextStep): { price: string; parts: string[]; 
   const [price = '', ...parts] = costLine(step.estimate);
   return { price, parts, estimate: step.estimate };
 }
-
-/** The entry under `tests` that gives a golden its injection gate, for its folder as it stands in the dialog. */
-export const gateEntry = (folder: string, gate: GateEntry): string => `"tests": { ${JSON.stringify(folder)}: { "injection": { "obeyed": ${gate.obeyed}, "repeat": ${gate.repeat} } } }`;
 
 /**
  * A fix's status as the run page's Open fix says it on hover and its banner beside it: open until a

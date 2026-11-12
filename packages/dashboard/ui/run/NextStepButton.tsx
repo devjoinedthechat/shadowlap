@@ -25,7 +25,7 @@ import { blameBesideCard, replayAction, stepCard, stepEstimate, stepJob, type St
 import { keepStep } from './kept-step.js';
 import { blameTitle } from './offers.js';
 import { PackAsGolden, StepDialogPart } from './PackAsGolden.js';
-import { TestDialogPart } from '../injection/test-part.js';
+import { PackWithGatePart, TestDialogPart } from '../injection/test-part.js';
 import { packRunCommand } from './share-steps.js';
 
 /**
@@ -265,17 +265,17 @@ export function PlainPackAsGolden({ run, offers, next, judged }: { run: RunDetai
   return folder ? <PackAsGolden runId={runId} folder={folder} offers={offers} lead={false} tip={packTip(runId, folder)} fold="pack" /> : null;
 }
 
-/** Pack as golden… where it leads, and Pack with injection gate…: the run packed into a folder of the goldens, named for the run; a gate's entry, which this leaves to you, goes under `tests` in the config, for the folder as you name it. */
+/** Pack as golden… where it leads, and Pack with injection gate…: the run packed into a folder of the goldens, named for the run, then tested, the gate written into its tests entry between the two (injection/PackWithGate.tsx). Each waits as Tests' jobs do. */
 function PackStep({ step, offers }: { step: Extract<NextStep, { key: 'pack' | 'pack-gate' }>; offers: RunOffers | null }) {
   const app = useApp();
   const [asking, setAsking] = useState(false);
   if (step.key === 'pack') return <PackAsGolden runId={step.runId} folder={step.folder} offers={offers} lead tip={tipOf(stepCard(step))} />;
   return (
     <>
-      <ActionButton className="btn lime" data-next={step.key} data-tip={tipOf(stepCard(step))} onClick={() => app.guard(() => setAsking(true))}>
+      <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => app.guard(() => setAsking(true))}>
         {step.label}
-      </ActionButton>
-      {asking ? <StepDialogPart ask={{ kind: 'pack-gate', step, offers, onRun: (dir) => app.guard(() => app.watchJob(app.client.startJob(JOB_KINDS.pack, { runId: step.runId, dir }))) }} onClose={() => setAsking(false)} /> : null}
+      </TestsJobButton>
+      {asking ? <PackWithGatePart runId={step.runId} folder={step.folder} gate={step.gate} estimate={stepEstimate(step)} offers={offers} onClose={() => setAsking(false)} /> : null}
     </>
   );
 }

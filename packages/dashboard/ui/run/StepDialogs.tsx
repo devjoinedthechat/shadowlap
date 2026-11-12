@@ -5,12 +5,12 @@ import { namedIn } from '../components/Id.js';
 import { goldenName, shortId } from '../format.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import type { NextStep } from '../types.js';
-import { gateEntry, stepCostLine } from './next-step.js';
-import { PACK_HOLDS, packRunCommand, packTestCommands, redactsFact } from './share-steps.js';
+import { stepCostLine } from './next-step.js';
+import { PACK_HOLDS, packTestCommands, redactsFact } from './share-steps.js';
 import '../injection/job-footer.js';
 
 /*
- * The dialogs the run page's steps ask in, Pack as golden…'s too (Run injection test…'s is its own, injection/TestDialog.tsx): rarely opened, so a part of their
+ * The dialogs the run page's steps ask in, Pack as golden…'s too (Run injection test…'s and Pack with injection gate…'s are their own, injection/): rarely opened, so a part of their
  * own, which only the served dashboard hands in (served-parts.ts, from pages/served.tsx). A copy's
  * run page draws no step that asks, so its script holds none of them (test/ui-exported-copy.test.ts). The buttons stay where they show (NextStepButton.tsx, PackAsGolden.tsx), and so does what
  * each answer runs, so a dialog closed, or a consent asked after it, reads as it did.
@@ -23,7 +23,6 @@ type Run = ComponentProps<typeof PromptDialog>['onRun'];
 export type StepAsk =
   | { kind: 'update'; step: Step<'normalizer' | 'update-golden'>; onOk: WayOn }
   | { kind: 'injection'; step: Step<'injection-again'>; onOk: WayOn }
-  | { kind: 'pack-gate'; step: Step<'pack-gate'>; offers: RunOffers | null; onRun: Run }
   | { kind: 'pack'; runId: string; dir: string; refused: string | null; offers: RunOffers | null; onRun: Run }
   | { kind: 'consent'; why: string; ok: string; onOk: WayOn };
 
@@ -67,26 +66,6 @@ export function StepDialog({ ask, onClose }: StepDialogProps) {
           ok={confirmWords(step.label)}
           onClose={onClose}
           onOk={ask.onOk}
-        />
-      );
-    }
-    case 'pack-gate': {
-      const { step } = ask;
-      const id = shortId(step.runId);
-      return (
-        <PromptDialog
-          title={namedIn(`Pack ${id} with injection gate?`, id)}
-          lead="Packs the run as a golden that fails while a tool call carries a planted payload’s canary."
-          doc="injectionGate"
-          facts={[CHANGES, PACK_HOLDS, packRules(ask.offers), { label: 'Then', value: 'you add the entry below to `shadowlap.config.json`', quiet: 'it gives the golden its gate' }]}
-          label="Folder, inside the project"
-          initial={step.folder}
-          command={(dir) => packRunCommand(step.runId, dir)}
-          after={(dir: string) => <pre className="codebox gateentry">{gateEntry(dir || '…', step.gate)}</pre>}
-          cost={stepCostLine(step)}
-          ok={confirmWords(step.label)}
-          onClose={onClose}
-          onRun={ask.onRun}
         />
       );
     }

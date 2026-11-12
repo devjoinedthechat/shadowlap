@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { amountWords } from '../../../engine/src/estimates/spending.js';
 import type { Spending } from '../../../engine/src/estimates/spending.js';
@@ -11,7 +11,6 @@ import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { namedIn } from '../components/Id.js';
 import { Skeleton } from '../components/States.js';
 import { Term } from '../components/Term.js';
-import { toggled, ToggleChips } from '../components/ToggleChips.js';
 import { useTreeBusy } from '../fixes/tree.js';
 import { plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
@@ -21,6 +20,7 @@ import { guardedWayOn, useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import type { UntrustedView } from '../types.js';
 import { readsWords } from './reads-words.js';
+import { TemplatePicks, usePlanEstimate } from './TemplatePicks.js';
 import './job-footer.js';
 
 /*
@@ -134,10 +134,10 @@ function TestForm(props: TestDialogProps & { id: string; title: ReturnType<typeo
   const [picks, setPicks] = useState<Picks>(() => ({ templates: [...(defaultTemplates(reads.length) ?? ids)], file: null, repeat: '1', budget: '' }));
   const [consent, setConsent] = useState<{ why: string; confirm: string } | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
-  const estimate = usePlanEstimate(runId, picks, props.estimate);
+  const payloads = picks.templates.length + (fileRead(picks.file)?.read.count ?? 0);
+  const estimate = usePlanEstimate(runId, { payloads, repeat: attempts(picks), budget: stopAt(picks) }, props.estimate);
   const askAbove = useSpending();
   const busy = useTreeBusy('reads', 'test it');
-  const payloads = picks.templates.length + (fileRead(picks.file)?.read.count ?? 0);
   const fields = () => {
     const t = templatesField(picks, ids);
     const file = fileRead(picks.file);
@@ -178,7 +178,7 @@ function TestForm(props: TestDialogProps & { id: string; title: ReturnType<typeo
       onOk={() => guardedWayOn(app.guard, () => start())}
       onClose={props.onClose}
     >
-      <TemplatePicks all={all} reads={reads.length} picked={picks.templates} onPick={(templates) => setPicks((p) => ({ ...p, templates }))} />
+      <TemplatePicks all={all} why={defaultTemplates(reads.length) ? `fewer to start: ${reads.length} reads multiply the cost` : null} picked={picks.templates} onPick={(templates) => setPicks((p) => ({ ...p, templates }))} />
       <PayloadFilePick file={picks.file} onFile={(file) => setPicks((p) => ({ ...p, file }))} />
       <div className="injsec injnums">
         <label className="injrep">
@@ -191,74 +191,6 @@ function TestForm(props: TestDialogProps & { id: string; title: ReturnType<typeo
         </label>
       </div>
     </Dialog>
-  );
-}
-
-/**
- * What the picks bill, from the server: the opener's price for the plan nobody picked, then asked
- * again 250 ms after a pick, the last answer kept until the next comes. A golden whose recording
- * only its pack holds is priced by its opener alone.
- */
-function usePlanEstimate(runId: string | null, picks: Picks, first: Estimate | null | undefined): Estimate | null | undefined {
-  const { client } = useApp();
-  const [estimate, setEstimate] = useState(first);
-  const payloads = picks.templates.length + (fileRead(picks.file)?.read.count ?? 0);
-  const repeat = attempts(picks);
-  const budget = stopAt(picks);
-  const plan = `${payloads}:${repeat}:${budget ?? ''}`;
-  const priced = useRef(first === undefined ? null : plan);
-  useEffect(() => {
-    if (!runId || !payloads || priced.current === plan) return;
-    let alive = true;
-    const t = setTimeout(() => {
-      void client.injectionEstimate({ runId, payloads, repeat, budget }).then(
-        (e) => {
-          if (!alive) return;
-          priced.current = plan;
-          setEstimate(e);
-        },
-        () => undefined,
-      );
-    }, 250);
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [client, runId, payloads, repeat, budget, plan]);
-  return estimate;
-}
-
-/** Templates: how many of the set are picked, All and None, and a chip for each; a test of many reads starts from a few, as its head says. */
-function TemplatePicks({ all, reads, picked, onPick }: { all: readonly PayloadTemplate[]; reads: number; picked: readonly string[]; onPick: (ids: string[]) => void }) {
-  const head = useId();
-  const ids = all.map((t) => t.id);
-  return (
-    <>
-      <div className="injsec">
-        <span className="k" id={head}>
-          Templates
-        </span>
-        <span className="injn">
-          {picked.length} of {all.length}
-        </span>
-        {defaultTemplates(reads) ? (
-          <span className="injwhy">
-            <span className="injdot" aria-hidden="true">
-              ·{' '}
-            </span>
-            fewer to start: {reads} reads multiply the cost
-          </span>
-        ) : null}
-        <span className="sp" />
-        <button className="linkbtn" type="button" onClick={() => onPick(ids)}>
-          All
-        </button>
-        <button className="linkbtn" type="button" onClick={() => onPick([])}>
-          None
-        </button>
-      </div>
-      <ToggleChips chips={all} picked={picked} labelledBy={head} onToggle={(id) => onPick(toggled(ids, picked, id))} />
-    </>
   );
 }
 

@@ -338,7 +338,7 @@ describe('a run’s next steps that ask first', () => {
   const GOLDEN = 'goldens/refund-in-limit';
   const run = { run: { runId: RUN, parentRunId: null, status: 'completed', meta: {} }, actions: [], children: [], calls: [] } as unknown as RunDetail;
   // Run injection test's dialog reads the templates and the run's untrusted reads where its step hands it none.
-  const reads = { injectionTemplates: async () => ({ version: 1, updated: '', templates: [{ id: 'system-notice', shape: 'notice', title: 'A notice', text: '{{canary}}' }] }), injectionRun: async () => ({ untrusted: [{ callNo: 4, name: 'get_ticket', from: 'config', readAt: 5 }], results: [], rule: null, answers: [], cause: [], attempt: null }), injectionEstimate: () => new Promise(() => undefined) };
+  const reads = { injectionTemplates: async () => ({ version: 1, updated: '', templates: [{ id: 'system-notice', shape: 'notice', title: 'A notice', text: '{{canary}}' }] }), injectionRun: async () => ({ untrusted: [{ callNo: 4, name: 'get_ticket', from: 'config', readAt: 5 }], results: [], rule: null, answers: [], cause: [], attempt: null }), injectionEstimate: () => new Promise(() => undefined), checks: { goldens: async () => ({ version: 'v1', read: { keys: {}, tests: {} } }) } };
   const served = (client: Record<string, unknown> = {}) => appWith({ client: { jobs: () => Promise.resolve([]), ...reads, ...client }, feeds: {}, live: [], runs: [] });
   /** The step's lime button, pressed: the dialog it asks in, once what it reads has come. */
   async function pressed(step: NextStep, app = served()): Promise<Rendered> {

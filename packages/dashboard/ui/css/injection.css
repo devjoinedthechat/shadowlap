@@ -36,6 +36,9 @@ mark.ins-plant { background: color-mix(in srgb, var(--o-over) 14%, transparent);
 .injdlg .injrep input { width: 92px; height: 32px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; }
 .injdlg .injrep input::placeholder { color: var(--faint); }
 .injdlg .injrep input:focus { border-color: var(--accent-line); }
+/* Pack with injection gate…'s (injection/PackWithGate.tsx): its Golden field, and the entry it adds, folded behind Show entry */
+.injdlg .form.one { margin-bottom: 12px; }
+.injdlg .injconf > pre.codebox { margin: 0 0 10px; }
 @media (max-width: 640px) { .injdlg .injsec { flex-wrap: wrap; row-gap: 2px; } .injdlg .injwhy { order: 9; flex-basis: 100%; } .injdlg .injdot { display: none; } }
 
 /* Toggle chips, one style wherever a dialog picks what runs (an injection test's templates, the error-path presets): on reads in

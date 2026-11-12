@@ -6,6 +6,7 @@ import type { CauseFinding } from './injection/CauseFinding.js';
 import type { FindCause } from './injection/FindCause.js';
 import type { InjectionFinding } from './injection/InjectionFinding.js';
 import type { InjectionResults } from './injection/InjectionResults.js';
+import type { PackWithGate } from './injection/PackWithGate.js';
 import type { Proof } from './injection/Proof.js';
 import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
 import type { TestDialog } from './injection/TestDialog.js';
@@ -30,6 +31,7 @@ export type SecurityReportProps = ComponentProps<typeof SecurityReportDialog>;
 export type ProofProps = ComponentProps<typeof Proof>;
 export type InjectionFindingProps = ComponentProps<typeof InjectionFinding>;
 export type TestDialogProps = ComponentProps<typeof TestDialog>;
+export type PackWithGateProps = ComponentProps<typeof PackWithGate>;
 export type FindCauseProps = ComponentProps<typeof FindCause>;
 export type CauseFindingProps = ComponentProps<typeof CauseFinding>;
 
@@ -42,7 +44,7 @@ export type CauseFindingProps = ComponentProps<typeof CauseFinding>;
  * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the check menu or the builder; a
  * copy's next step is only ever Compare, so it draws no Run blame either, and no step that asks; a
  * copy keeps no injection results, so its run page draws no test's finding to open them from, no
- * Run injection test… (its fork menu and step are the served dashboard's), no Find cause… nor the answers it finds, and no Share to download a report from; a copy keeps no attempt's read, so an attempt's page there
+ * Run injection test… (its fork menu and step are the served dashboard's) nor Pack with injection gate…, no Find cause… nor the answers it finds, and no Share to download a report from; a copy keeps no attempt's read, so an attempt's page there
  * draws no proof and marks nothing, test/ui-injection-results.test.ts).
  */
 export interface ServedParts {
@@ -64,6 +66,8 @@ export interface ServedParts {
   StepDialog?: OnShow<StepDialogProps>;
   /** Run injection test…'s dialog (injection/TestDialog.tsx): the fork menu's whole run, the lime step, a read's row on Settings → Tools, Tests' Security and the palette open it. Loaded as it first shows. */
   TestDialog?: OnShow<TestDialogProps>;
+  /** Pack with injection gate…'s dialog (injection/PackWithGate.tsx), which the run's lime step opens where a read caused a write or an attempt obeyed. Loaded as it first shows. */
+  PackWithGate?: OnShow<PackWithGateProps>;
   /** Find cause… on a write after an untrusted read, the inspector's link and its dialog (injection/FindCause.tsx): loaded as the inspector first shows on a run that has a write to ask about. */
   FindCause?: OnShow<FindCauseProps>;
   /** The run's `--clean` answers as a finding (injection/CauseFinding.tsx): loaded as a run's page first draws one. */
