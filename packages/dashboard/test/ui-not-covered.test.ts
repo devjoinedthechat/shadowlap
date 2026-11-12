@@ -9,7 +9,8 @@ import { minuteStamp } from '../ui/format.js';
 import { packedGolden, packedTestAsk } from '../ui/not-covered/job-footer.js';
 import { coverageSaid, foldSteps, lineSteps, packCommand, rescanLeads, whereOf } from '../ui/not-covered/model.js';
 import { NotCovered } from '../ui/not-covered/NotCovered.js';
-import type { CoverageGroupView, CoverageView } from '../ui/types.js';
+import { LookStepButton } from '../ui/overview/steps.js';
+import type { CoverageGroupView, CoverageView, NeedsLookRow } from '../ui/types.js';
 
 /**
  * Tests › Not covered and what scans and packs from elsewhere: what production did that no golden
@@ -276,5 +277,27 @@ describe('Tests › Not covered', () => {
     expect(whereOf(group({ nearest: null }))).toBeNull();
     expect(coverageSaid(group({ path: [], writes: [], outcome: 'no-model-calls', nearest: null }))).toBe('made no model calls. No writes.');
     expect(packCommand(KEY, { fork: true })).toBe(`shadowlap coverage --pack ${KEY} --fork --expect <checks>`);
+  });
+});
+
+describe('Needs a look’s coverage step', () => {
+  const text = (el: { textContent: string | null }) => el.textContent ?? '';
+  const row: NeedsLookRow = { kind: 'coverage', icon: 'cap', title: '3 behaviours seen in production have no golden', detail: 'the newest', key: `attn:coverage:${KEY}`, group: 'tests', step: { of: 'pack', key: KEY, label: 'Pack as golden', fork: false }, href: '#/tests?at=notcovered', runId: RUN, fixId: null, at: NOW };
+
+  it('packs the newest behaviour from the Overview, in Not covered’s dialog, waiting as every pack does', async () => {
+    const startJob = vi.fn(() => Promise.resolve({ id: 'j1' }));
+    const value = app({ hasKind: () => true, feeds: {}, startJob });
+    (value.client as unknown as Record<string, unknown>).coverage = () => Promise.resolve(view());
+    r = await render(createElement(AppContext.Provider, { value }, createElement(LookStepButton, { row, wait: () => null, version: '1' })));
+    const button = r.one('.btn');
+    expect(JSON.parse(button.getAttribute('data-tip')!)).toMatchObject({ t: 'Pack as golden', s: 'Asks first: replays 01M3S1C7QD offline with the agent’s command, and packs it when it reproduces', cmd: `$ shadowlap coverage --pack ${KEY}` });
+    await r.click(button);
+    await r.until('the dialog opens', () => r!.all('.dialog').length === 1);
+    expect(text(r.one('.dialog h3'))).toBe('Pack 3f9a2c1d as golden?');
+    await r.click(r.one('.dialog .dlg-ok'));
+    expect(startJob).toHaveBeenCalledWith(JOB_KINDS.coveragePack, { key: KEY, command: "python agent.py '{message}'", confirmed: true });
+    await r.unmount();
+    r = await render(createElement(AppContext.Provider, { value }, createElement(LookStepButton, { row, wait: () => 'A test session is running: pack it once it is done', version: '1' })));
+    expect(r.one('.btn').getAttribute('data-why')).toBe('A test session is running: pack it once it is done');
   });
 });
