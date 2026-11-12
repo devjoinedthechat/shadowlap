@@ -145,6 +145,25 @@ describe('an exported copy', () => {
     expect(r!.all('[data-act="ckmenu"]')).toHaveLength(0);
   });
 
+  it('never opens New preview’s dialogs: the served entry alone loads them, and a copy holds no previews and offers no Preview change', async () => {
+    // The page's code that loads their script: the part the served entry hands in, which a copy's
+    // entry never does, so the copy's script holds none of it (COPY_PARTS in test/ui-bundle-size.test.ts).
+    // Changes, where Preview's bar offers New preview, is no page of a copy.
+    expect(loadersOf(/\bNewPreview\.js['"]/)).toEqual(['pages/served.tsx']);
+    // A run's Decisions view, where the served dashboard offers New preview of the run.
+    await open([forkId, runId], `#/run/${forkId}/1/decisions`);
+    await r!.until('the Decisions view', () => r!.all('.dview').length === 1);
+    expect(r!.one('.dview').textContent).toBe('An exported copy holds no previews.');
+    expect(r!.all('.dview button')).toHaveLength(0);
+    // A copy's Runs picks nothing, so it draws no bulk bar, whose Preview change shows only where the
+    // dashboard previews (test/ui-runs-bulk.test.ts).
+    await r!.unmount();
+    await open([forkId, runId], '#/runs');
+    await r!.until('the runs', () => r!.all('table.runst tbody tr').length === 2);
+    expect(r!.all('table.runst input[type="checkbox"]')).toHaveLength(0);
+    expect(r!.all('.bulkbar')).toHaveLength(0);
+  });
+
   it('lists its runs, and only those', async () => {
     await open([forkId, runId], '#/runs');
     await r!.until('the runs', () => r!.all('table.runst tbody tr').length === 2);
