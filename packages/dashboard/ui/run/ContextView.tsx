@@ -181,13 +181,15 @@ export function ContextView({ run, calls, selected, onSelect }: { run: RunDetail
 }
 
 /**
- * Whether the label under bar `i` is drawn: every `every`th bar's, and the open call's bar's whatever
- * the step; when that bar is off the step, its neighbours draw none, so its label never touches theirs.
+ * The label under bar `i`: every `every`th bar's, and the open call's bar's whatever the step. When
+ * that bar is off the step, the labels nearest it draw none, so its label never touches theirs; on a
+ * phone, where a chart past 22 calls shows every other label, the next ones give way too (`near`).
  */
-function labelled(i: number, every: number, open: number): boolean {
-  if (i === open) return true;
-  if (open >= 0 && open % every !== 0 && Math.abs(i - open) === 1) return false;
-  return i % every === 0;
+function barLabel(i: number, every: number, open: number): { drawn: boolean; near: boolean } {
+  const off = open < 0 ? Infinity : Math.abs(i - open);
+  if (off === 0) return { drawn: true, near: false };
+  if (open % every !== 0 && off < every) return { drawn: false, near: false };
+  return { drawn: i % every === 0, near: every > 1 && off < 2 * every };
 }
 
 /**
@@ -258,12 +260,15 @@ function ContextChart({ ms, misses, max, labelMisses, selected, onSelect }: { ms
         ))}
       </div>
       <span />
-      <div className={`clabels${many ? ' many' : ''}`}>
-        {bars.map((b, i) => (
-          <span key={b.first} className={holds(b) ? 'sel' : undefined}>
-            {labelled(i, every, open) ? `#${num(b.first)}` : ''}
-          </span>
-        ))}
+      <div className={`clabels${many ? ' many' : ''}${every > 1 ? ' thin' : ''}`}>
+        {bars.map((b, i) => {
+          const l = barLabel(i, every, open);
+          return (
+            <span key={b.first} className={i === open ? 'sel' : l.near && l.drawn ? 'near' : undefined}>
+              {l.drawn ? `#${num(b.first)}` : ''}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
