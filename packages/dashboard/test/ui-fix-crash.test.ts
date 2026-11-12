@@ -21,9 +21,10 @@ import { render, shownText, type FakeElement, type Rendered } from './ui-render.
 
 /**
  * A crash no model rescued, as its fix and its rows draw it: the Blame step's first bad commit, its
- * change, the exception the agent died of and where to look; the fix's head leading with Find breaking commit, then Revert with Open
- * in editor beside it; the same step on a Fixes row and a Needs a look row, run on the crashed run;
- * and the focus going on from Find breaking commit to the Revert that took its place.
+ * change, the exception the agent died of and where to look; the fix's head leading with Find
+ * breaking commit, then Revert with Open in editor beside it; the same step on a Fixes row and a
+ * Needs a look row, run on the crashed run; and the focus going on from Find breaking commit to the
+ * Revert that took its place.
  */
 
 const CHANGE = { file: 'agent/refund.py', files: ['agent/refund.py'], hunk: '@@ -1,2 +1,3 @@\n def total(items):\n+    log(items)\n     return sum(items)', line: 2, merge: false };

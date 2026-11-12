@@ -10,11 +10,11 @@ import { openReport } from './tests-fixture.js';
  * leads, Show change opens the change in the inspector's place, and Revert leads the header with Open
  * in editor and Run blame plain; on Tests the change sits under the commit in the crash's report and
  * Revert leads the verdict; on the crash's fix its Blame step shows the commit, its change, the
- * exception the agent died of and where to look, and Revert leads its head with Open in editor beside it and no Find breaking commit. Each has
- * no serious axe violation at 1440 and 390 with the change open, nor has Revert's
- * dialog, whose code box of the change undone keeps to its width. A revert's drawer reads Reverting,
- * then Reverted where git reverted, its status not saying reverted again, or Tried reverting where
- * git refused.
+ * exception the agent died of and where to look, and Revert leads its head with Open in editor
+ * beside it and no Find breaking commit. Each has no serious axe violation at 1440 and 390 with the
+ * change open, nor has Revert's dialog, whose code box of the change undone keeps to its width.
+ * A revert's drawer reads Reverting, then Reverted where git reverted, its status not saying
+ * reverted again, or Tried reverting where git refused.
  */
 
 const DIALOG = '[role="dialog"][aria-modal="true"]';
