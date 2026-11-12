@@ -7,7 +7,7 @@ import { finalAnswer } from '../responses.js';
 import type { StoreOf } from '../store.js';
 import type { CallRecord, JudgeOutcome } from '../types.js';
 import { asNumber, hasWildcard, pathAt, type CallCondition, type CallRule, type CheckResult, type CountRange, type ExpectSpec, type JudgeCheck, type Matcher, type NamedPath, type Operand, type Reference, type TestSpec, type TextCheck, type WhenRule } from './grammar.js';
-import { COUNT_NOUNS, NEGATED, PHRASE, TEXT_NOUNS, callRuleLabel, costLabel, countLabel, formatCount, judgeLabel, orList, showValue, textLabel, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './labels.js';
+import { COUNT_NOUNS, JUDGE_SKIP_UNDONE, NEGATED, PHRASE, TEXT_NOUNS, callRuleLabel, costLabel, countLabel, formatCount, judgeLabel, orList, showValue, textLabel, toolCheckLabel, toolCountDetail, whenLabel, type CountKey, type TextKey } from './labels.js';
 
 /**
  * A run judged by its checks: each check's status, what it expected and what happened, from the
@@ -84,6 +84,11 @@ export interface EvaluateOptions {
   judgeVerdicts?: ReadonlyMap<string, JudgeCheckVerdict>;
   /** Why a judge has no verdict, for its inconclusive result. Default: `notJudgedWhy`, no recorded verdict and, when the environment has none, no key for its provider. */
   judgeMissing?: (judge: JudgeCheck) => string;
+  /**
+   * Why a judge with no verdict wasn't asked, or null where it was meant to be: such a judge is not
+   * applicable, with that reason, beside a check that failed. With none failed, it is inconclusive.
+   */
+  judgeNotAsked?: (judge: JudgeCheck) => string | null;
 }
 
 const inRange = (n: number, r: CountRange) => n >= r.min && n <= r.max;
@@ -100,7 +105,21 @@ function textChecks(check: TextCheck, text: string | null, key: TextKey): CheckR
   ].map((r) => verdict(r.ok, r.label, r.ok ? null : r.detail));
 }
 
+/**
+ * A run's results on a spec's checks. A judge that wasn't asked because another check failed
+ * (`judgeNotAsked`) is not applicable only where a check failed in these results too. Where none did
+ * (what the agent printed after the judges were skipped can change a check), it is inconclusive
+ * (`JUDGE_SKIP_UNDONE`), so the run never passes without its judge.
+ */
 export function evaluateChecks(spec: ExpectSpec | TestSpec, input: CheckInput, options: EvaluateOptions = {}): CheckResult[] {
+  const results = checksOf(spec, input, options);
+  const { judgeNotAsked, ...asked } = options;
+  if (!judgeNotAsked || results.some((r) => r.status === 'failed') || !results.some((r) => r.judge && r.status === 'not-applicable')) return results;
+  const missing = (j: JudgeCheck) => options.judgeMissing?.(j) ?? notJudgedWhy(j);
+  return checksOf(spec, input, { ...asked, judgeMissing: (j) => (judgeNotAsked(j) === null ? missing(j) : JUDGE_SKIP_UNDONE) });
+}
+
+function checksOf(spec: ExpectSpec | TestSpec, input: CheckInput, options: EvaluateOptions): CheckResult[] {
   const results: CheckResult[] = [];
   // A judge's own model calls are the oracle's, not the agent's: no check counts them.
   const calls = input.calls.filter((c) => c.meta?.scope !== JUDGE_SCOPE);
@@ -434,7 +453,7 @@ function conditionAt(cond: CallCondition, c: CallRecord, scope: Scope): Match {
  */
 function whenResults(rule: WhenRule, scope: Scope, options: EvaluateOptions): CheckResult[] {
   const cond = rule.if;
-  const inner = evaluateChecks(rule.then, scope.input, options);
+  const inner = checksOf(rule.then, scope.input, options);
   const tried = scope.calls.filter((c) => c.kind === 'tool' && c.name === cond.tool).map((c) => ({ c, m: conditionAt(cond, c, scope) }));
   const met = tried.find((t) => t.m.state === 'held');
   if (met) {
@@ -449,8 +468,9 @@ function whenResults(rule: WhenRule, scope: Scope, options: EvaluateOptions): Ch
 }
 
 /**
- * A judge check: its verdict, or inconclusive with why it has none. It never passes unjudged. Its
- * `judge` keeps how it came out, for the reports: the verdict, where it came from and what it cost.
+ * A judge check: its verdict, or inconclusive with why it has none, or not applicable where it
+ * wasn't asked (`judgeNotAsked`). It never passes unjudged. Its `judge` keeps how it came out, for the
+ * reports: the verdict, where it came from and what it cost.
  */
 function judgeResult(j: JudgeCheck, options: EvaluateOptions): CheckResult {
   const label = judgeLabel(j);
@@ -467,7 +487,12 @@ function judgeResult(j: JudgeCheck, options: EvaluateOptions): CheckResult {
     cut: v?.cut ?? 0,
     ...(v?.callNo !== undefined ? { callNo: v.callNo } : {}),
   };
-  if (!v) return { status: 'inconclusive', ok: false, label, detail: options.judgeMissing?.(j) ?? notJudgedWhy(j), judge };
+  if (!v) {
+    // Not asked, as no verdict could change how the run came out: it says nothing either way.
+    const notAsked = options.judgeNotAsked?.(j) ?? null;
+    if (notAsked !== null) return { status: 'not-applicable', ok: true, label, detail: notAsked, judge };
+    return { status: 'inconclusive', ok: false, label, detail: options.judgeMissing?.(j) ?? notJudgedWhy(j), judge };
+  }
   const ok = v.verdict === j.pass;
   return { status: ok ? 'passed' : 'failed', ok, label, detail: ok ? null : `the judge answered ${v.verdict}`, reason: v.reason || 'no reason given', source: v.source, judge };
 }

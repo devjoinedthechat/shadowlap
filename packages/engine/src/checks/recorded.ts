@@ -27,21 +27,25 @@ export interface Judged {
   verdicts: Map<string, JudgeCheckVerdict>;
   /** Why each other check got none. */
   notJudged: Map<string, string>;
+  /** The checks that weren't asked at all, as no verdict could change how the run came out, and why: each is not applicable. */
+  notAsked?: Map<string, string>;
 }
 
 /**
- * What `evaluateChecks` takes of judged checks: each verdict, and for each check with none, why
- * (`not judged: …`); a check the judging never reached says so as evaluate.ts words it
- * (`notJudgedWhy`).
+ * What `evaluateChecks` takes of judged checks: each verdict, for each check with none, why (`not
+ * judged: …`), and why each check that wasn't asked wasn't; a check the judging never reached says so
+ * as evaluate.ts words it (`notJudgedWhy`).
  */
 export function judgedOptions(judged: Judged | null): EvaluateOptions {
   if (!judged) return {};
+  const { notAsked } = judged;
   return {
     judgeVerdicts: judged.verdicts,
     judgeMissing: (j) => {
       const why = judged.notJudged.get(j.name);
       return why === undefined ? notJudgedWhy(j) : `not judged: ${why}`;
     },
+    ...(notAsked ? { judgeNotAsked: (j: JudgeCheck) => notAsked.get(j.name) ?? null } : {}),
   };
 }
 

@@ -158,6 +158,48 @@ export const textLabel = (key: TextKey, text: string, included: boolean): string
 /** An `output` or `answer` check's labels: the texts it must include, then those it must not. */
 export const textLabels = (key: TextKey, check: TextCheck): string[] => [...check.includes.map((s) => textLabel(key, s, true)), ...check.excludes.map((s) => textLabel(key, s, false))];
 
+/**
+ * Why a judge check of a golden that may fork wasn't asked in an attempt: another of its checks had
+ * failed, so no verdict could pass the attempt, and asking would only have cost. Not applicable.
+ */
+export const JUDGE_NOT_ASKED = 'not asked: another check failed';
+
+/** Why such a judge check wasn't asked at all, as its golden's result says it: every attempt failed another check. */
+export const JUDGE_ASKED_IN_NONE = 'not asked: no attempt passed its other checks';
+
+/**
+ * Why a judge check an attempt didn't ask is inconclusive all the same: the check that had failed
+ * when it was skipped didn't fail once the run ended, and a judge check never passes unjudged.
+ */
+export const JUDGE_SKIP_UNDONE = "not judged: skipped when another check failed, and that check didn't fail in the end";
+
+/**
+ * Which words of a judge check that wasn't asked its detail starts with (`JUDGE_NOT_ASKED`,
+ * `JUDGE_ASKED_IN_NONE`), or null for any other detail. Read from the start: a check under a `when`
+ * rule says after them where its condition held.
+ */
+export function notAskedWords(detail: string | null | undefined): typeof JUDGE_NOT_ASKED | typeof JUDGE_ASKED_IN_NONE | null {
+  if (detail?.startsWith(JUDGE_NOT_ASKED)) return JUDGE_NOT_ASKED;
+  return detail?.startsWith(JUDGE_ASKED_IN_NONE) ? JUDGE_ASKED_IN_NONE : null;
+}
+
+/** A judge check an attempt didn't ask, as its golden says it when no attempt asked it: the golden's words in place of the attempt's, the rest kept. Any other check as it is. */
+export function askedInNone<C extends { detail: string | null }>(c: C): C {
+  return c.detail !== null && notAskedWords(c.detail) === JUDGE_NOT_ASKED ? { ...c, detail: JUDGE_ASKED_IN_NONE + c.detail.slice(JUDGE_NOT_ASKED.length) } : c;
+}
+
+/**
+ * A judge check over a golden's attempts, where the attempt its result shows didn't ask it: of the
+ * attempts' results for it (`checks`) that have a verdict, the first that failed, else the last that
+ * passed, as an attempt's line puts a failure first. With none judged, and for any other check, the
+ * shown check as it is.
+ */
+export function judgeOverAttempts<C extends StoredCheck>(shown: C, checks: readonly C[]): C {
+  if (notAskedWords(shown.detail) !== JUDGE_NOT_ASKED) return shown;
+  const judged = checks.filter((c) => c.judge && c.judge.verdict !== null);
+  return judged.find((c) => checkStatus(c) === 'failed') ?? judged.at(-1) ?? shown;
+}
+
 /** A check under a `when` rule, said under its condition: `when lookup_order has result.total > 200: escalate called at least 1 time`. */
 export const whenLabel = (c: CallCondition, label: string): string => `${conditionLabel(c)}: ${label}`;
 
