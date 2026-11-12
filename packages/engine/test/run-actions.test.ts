@@ -71,6 +71,10 @@ describe('the fork menu at a call', () => {
     expect(plant.prompt!.build(plant.prompt!.initial!)).toEqual(['replay', ID, '--inject-result', `19=${plant.prompt!.choices![0].value}`, '--repeat', '3']);
     expect(actions.find((a) => a.key === 'l')!.label).toBe('Force search_web live');
     expect(forkMenuTitle(search)).toBe('At #19 · search_web · read tool');
+    // A read of a tool marked untrusted says so, where shadowlap injection plants; a write and the other kinds never do.
+    expect(forkMenuTitle(search, { untrusted: true })).toBe('At #19 · search_web · untrusted read');
+    expect(forkMenuTitle({ ...search, effect: 'write' }, { untrusted: true })).toBe('At #19 · search_web · write tool');
+    expect(forkMenuTitle(search, { untrusted: false })).toBe('At #19 · search_web · read tool');
   });
 
   it('takes what is typed as text, never as a file for the CLI to read', () => {

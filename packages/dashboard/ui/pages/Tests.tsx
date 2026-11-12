@@ -18,11 +18,12 @@ import { useApp } from '../state.js';
 import { divergedAsk, gateAgainAsk, moreAttemptsAsk, runTestsAsk, startTestsJob, type TestsAsk } from '../tests-ask.js';
 import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { keepTests } from '../tests-palette.js';
+import { CheckEntriesOf, useCheckEntries } from '../tests/check-entries.js';
 import { CiSections } from '../tests/Sections.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
 import type { GoodCommitsOf } from '../tests/good-commits.js';
 import { GoldensTable } from '../tests/Table.js';
-import { leadStep } from '../tests/lead.js';
+import { leadStep, staleSub } from '../tests/lead.js';
 import { Verdict, type LeadPress } from '../tests/Verdict.js';
 import { bisectLive, runTestsCard, testsJob, updatesCard } from './tests-cards.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
@@ -53,6 +54,8 @@ export function TestsPage() {
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
   const loaded = useLoad(() => client.tests(), 'tests', `${tick}:${feeds.chaos ?? 0}:${running}`);
   const view = loaded.data;
+  // Edit, Remove and Add check… on a golden's checks, and what they open.
+  const checks = useCheckEntries(view, loaded.reload);
   const prices = useTestsEstimates(view ? estimatesKey(view) : null, view?.diverged);
   const [open, setOpen] = useState<Open | null>(null);
   // What the server is running, from every tab and terminal dashboard: a test job (Find breaking commit
@@ -107,8 +110,11 @@ export function TestsPage() {
   }
 
   const [runWait, updateWait] = ['run the tests', 'update them'].map((verb) => wait(verb));
-  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every golden.
-  const lead = leadStep(view, hasKind, !!view.following?.whole);
+  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every
+  // golden. Where that step is Run tests (its checks changed since), the header's own is lime and says so.
+  const whole = !!view.following?.whole;
+  const lead = leadStep(view, hasKind, whole, !!checks.edit);
+  const runTests = hasKind(JOB_KINDS.tests) ? testsJob(runTestsCard(view, staleSub(view, whole)), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e)) : null;
   // Settings → CI by the name the mock links it by, its tab opening; Update goldens only for several,
   // as each has its own in its report.
   const actions = (
@@ -122,8 +128,8 @@ export function TestsPage() {
           {ACTIONS.updateGoldens.label}
         </JobButton>
       ) : null}
-      {hasKind(JOB_KINDS.tests) ? (
-        <JobButton className={lead ? 'btn' : 'btn lime'} why={runWait} {...testsJob(runTestsCard(view), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e))}>
+      {runTests ? (
+        <JobButton className={lead ? 'btn' : 'btn lime'} why={runWait} {...runTests}>
           {ACTIONS.runTests.label}
         </JobButton>
       ) : null}
@@ -155,13 +161,18 @@ export function TestsPage() {
     onFind: findCommit,
     onMore: (v, e) => v.gate?.more && start(JOB_KINDS.tests, v.gate.more.job, moreAttemptsAsk(v.name, v.gate.more), e),
     onRerun: (golden, e) => start(JOB_KINDS.tests, { golden }, gateAgainAsk(view.rows.find((r) => r.path === golden)?.name ?? golden, golden), e),
+    runTests,
+    edit: checks.edit,
   };
 
   return (
     <Page>
       {header(actions)}
       <Verdict view={view} running={running} lead={lead} press={press} />
-      <GoldensTable view={view} press={press} />
+      <CheckEntriesOf.Provider value={checks.entries}>
+        <GoldensTable view={view} press={press} />
+      </CheckEntriesOf.Provider>
+      {checks.node}
       <CiSections view={view} />
       {/* What it offers instead opens no dialog of its own, though a session that runs a golden live still asks first (tests-ask.ts); several goldens' normalizer and update is the update this dialog asks about. */}
       {open?.kind === 'update' ? (

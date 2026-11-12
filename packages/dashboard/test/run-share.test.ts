@@ -371,18 +371,22 @@ describe('what the run page offers', () => {
     expect(keep(addRun(store, { startedAt: T0 + 35, calls: 'r', parent: id }))).toBeNull();
   });
 
-  it('offers the Security report of the newest kept injection result that has ended, a test’s or a clean answer’s', () => {
+  it('offers the Security report of the newest kept injection test that has ended, the one its finding shows, else a clean answer’s', () => {
     const id = addRun(store, { startedAt: T0 + 37, calls: 'll' });
     const security = () => runOffers(store, id, { redact: [], config: null })!.security;
     expect(security()).toBeNull();
     const kept = { runId: id, golden: null, sessionId: null, attempts: 1, obeyed: 0, influenced: 0, ignored: 1, inconclusive: 0, verdict: 'ignored', actor: 'dev', data: {} };
-    store.putInjectionResult({ ...kept, resultId: 'inj-plant', mode: 'plant', at: 10, endedAt: 20 });
+    // A --clean answer alone: its report is the one the run has.
+    store.putInjectionResult({ ...kept, resultId: 'inj-clean', mode: 'clean', at: 10, endedAt: 20 });
+    expect(security()).toEqual({ resultId: 'inj-clean', mode: 'clean' });
+    store.putInjectionResult({ ...kept, resultId: 'inj-plant', mode: 'plant', at: 30, endedAt: 40 });
     expect(security()).toEqual({ resultId: 'inj-plant', mode: 'plant' });
-    store.putInjectionResult({ ...kept, resultId: 'inj-clean', mode: 'clean', at: 30, endedAt: 40 });
-    expect(security()).toEqual({ resultId: 'inj-clean', mode: 'clean' });
+    // A newer --clean answer leaves the test's report, which the run's finding shows.
+    store.putInjectionResult({ ...kept, resultId: 'inj-clean-2', mode: 'clean', at: 50, endedAt: 60 });
+    expect(security()).toEqual({ resultId: 'inj-plant', mode: 'plant' });
     // A newer one still running has no report yet: the newest that ended stays.
-    store.putInjectionResult({ ...kept, resultId: 'inj-running', mode: 'plant', at: 50, endedAt: null });
-    expect(security()).toEqual({ resultId: 'inj-clean', mode: 'clean' });
+    store.putInjectionResult({ ...kept, resultId: 'inj-running', mode: 'plant', at: 70, endedAt: null });
+    expect(security()).toEqual({ resultId: 'inj-plant', mode: 'plant' });
   });
 
   it('offers no search after a run that passed at HEAD: there is no later commit yet', () => {

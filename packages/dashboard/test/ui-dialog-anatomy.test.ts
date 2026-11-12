@@ -36,6 +36,8 @@ import { packRunCommand } from '../ui/run/share-steps.js';
 import { importWords } from '../ui/runspage/imports.js';
 import { ApiError, type BisectOffer, type TestsView } from '../ui/api.js';
 import { render, type Rendered } from './ui-render.js';
+import { STEP_PARTS } from './ui-served-now.js';
+import { SecurityReportDialog } from '../ui/injection/SecurityReportDialog.js';
 import { resetSpending } from '../ui/spending.js';
 import { maskFirst } from '../ui/update-plan.js';
 
@@ -48,7 +50,7 @@ import { maskFirst } from '../ui/update-plan.js';
  */
 
 /** What opens a dialog's title: an action's verb, as every button starts. */
-const VERB = /^(Add|Apply|Delete|Edit and fork|Export|Fail|Find|Finish|Force|Free|Import|Inject|Mark|Override|Pack|Plant|Record|Remove|Rename|Repeat|Replace|Replay|Re-run|Run|Score|Show|Stop|Switch|Update|Use)\b/;
+const VERB = /^(Add|Apply|Delete|Download|Edit and fork|Export|Fail|Find|Finish|Force|Free|Import|Inject|Mark|Override|Pack|Plant|Record|Remove|Rename|Repeat|Replace|Replay|Re-run|Run|Score|Show|Stop|Switch|Update|Use)\b/;
 
 interface Expect {
   title: string | RegExp;
@@ -142,9 +144,9 @@ function holds(page: Rendered, want: Expect): void {
   expect(page.focused(), `${title} starts on ${want.first}`).toBe(page.all(`[role="dialog"] ${want.first}`)[0]);
 }
 
-/** A dialog, or what opens it, on the served dashboard, which hands in what only it draws (Run blame's dialogs among them). */
+/** A dialog, or what opens it, on the served dashboard, which hands in what only it draws (Run blame's dialogs among them), the step dialogs' script already in. */
 async function open(element: ReactElement, app: AppState = appWith()): Promise<Rendered> {
-  r = await render(createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, element)));
+  r = await render(createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: { ...SERVED_PARTS, ...STEP_PARTS } }, element)));
   return r;
 }
 /** Presses Run blame, then waits for the dialog it asks in: a part of its own, which loads the first time one asks. */
@@ -240,6 +242,10 @@ describe('a run’s dialogs', () => {
   });
   it('Export eval dataset', async () => {
     holds(await open(createElement(DatasetDialog, { ids: [RUN], rules: 2, ...closes })), { title: /^Export eval dataset of /, doc: 'datasets', first: FIELD, ok: 'Export dataset' });
+  });
+  it('Download security report', async () => {
+    const client = { injectionPreview: async () => ({ at: 0, attempts: 72, rules: 2, masks: [], canaries: [], file: 'shadowlap-injection-01k5cq4n7g.html' }) };
+    holds(await open(createElement(SecurityReportDialog, { resultId: 'inj-1', mode: 'plant', runId: RUN, ...closes }), appWith({ client })), { title: 'Download security report for 01K5CQ4N7G', doc: 'injectionReport', first: OK, ok: 'Download report' });
   });
   it('Export OpenTelemetry trace', async () => {
     holds(await open(createElement(OtelDialog, { runId: RUN, rules: 2, onRun: () => true, ...closes })), { title: 'Export OpenTelemetry trace', doc: 'traces', first: FIELD, ok: 'Export trace' });

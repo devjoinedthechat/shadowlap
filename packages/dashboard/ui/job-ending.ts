@@ -126,7 +126,23 @@ function checkStatus(job: EndedJob, code: number): JobWords | null {
   return na === n ? { text: `not applicable · ${tally} · ${exit}`, tone: '' } : { text: `passed · ${tally} · ${exit}`, tone: 'ok' };
 }
 
+/**
+ * Save check on a fix (`shadowlap fix check`): changed, with the verdicts that stopped counting for
+ * it; the check it had already (`unchanged`); or one it refused (exit 2). Never the words of a check
+ * tried on recordings, which its lines would read as.
+ */
+function fixCheckStatus(job: EndedJob, code: number): JobWords | null {
+  if (job.kind !== 'fix-check') return null;
+  const exit = `exit ${code}`;
+  if (code === 2) return { text: `refused · ${exit}`, tone: 'warn' };
+  const r = asRecord(job.result);
+  if (code !== 0 || !r) return null;
+  if (r.status === 'unchanged') return { text: `unchanged · ${exit}`, tone: 'warn' };
+  const n = Array.isArray(r.uncounted) ? r.uncounted.length : 0;
+  return { text: `changed${n ? ` · ${n} verdict${n === 1 ? ' no longer counts' : 's no longer count'}` : ''} · ${exit}`, tone: 'ok' };
+}
+
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return revertStatus(job, all, code) ?? verdictStatus(job, code) ?? checkStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return fixCheckStatus(job, code) ?? revertStatus(job, all, code) ?? verdictStatus(job, code) ?? checkStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? sessionStatus(job, all, code);
 }

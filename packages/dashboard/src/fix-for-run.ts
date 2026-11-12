@@ -1,4 +1,4 @@
-import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixOfRun, labelledFixes, lostRange, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixLinksOfRun, fixOfRun, labelledFixes, lostRange, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
 import { fixHref, isUnblamedFailure, runHref, toolsCalled } from './fix-shared.js';
 import type { RunIndex } from './run-index.js';
 
@@ -107,7 +107,7 @@ export function fixForRun(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
     const href = fix ? (verdict ? fixHref(fix.fixId, 'verify', verdict.verifyId) : fixHref(fix.fixId, 'repair')) : runHref(run.parentRunId ?? runId);
     return { role: 'verify', fix: fix ? fixRef(store, fix) : null, blame: null, probe: null, verify: { verifyId: verdict?.verifyId ?? null, repairId: verdict?.repairId ?? repair?.repairId ?? null, verdict: verdict?.verdict ?? null, role: attempt.role, passed: attempt.passed, href } };
   }
-  const good = store.linksTo(runId, 'good')[0];
+  const good = fixLinksOfRun(store, runId, 'good')[0];
   if (good) {
     const fix = store.getFix(good.fixId);
     if (fix) return { role: 'good', fix: fixRef(store, fix), blame: null, probe: null, verify: null };

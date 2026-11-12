@@ -7,7 +7,7 @@ import { Icon } from '../components/Icon.js';
 import { approx, callName, kindShort, num, plural } from '../format.js';
 import { useLatest } from '../hooks.js';
 import { ORIGIN_NAME, type Origin7 } from '../origins.js';
-import { agentOf } from '../scopes.js';
+import { agentOf, forksAt } from '../scopes.js';
 import type { CallIndex } from '../recorded.js';
 import { cssVars } from '../dom.js';
 import { callDetail, originOf, resultLine, timeOf, tokensText } from './model.js';
@@ -16,11 +16,15 @@ import { isKind, kindWords } from './kinds.js';
 import { isPending, type ListedCall, type PendingCall } from './paging.js';
 import { useWindow, type Windowed } from './window-hook.js';
 import { ActionButton } from '../components/ActionButton.js';
+import { useServedParts } from '../served-parts.js';
+import { UntrustedTag } from '../injection/UntrustedTag.js';
+import type { UntrustedView } from '../types.js';
 
 /**
  * Calls: #, call, origin, tokens, time. A tool's result sits on a second line under it. A replayed
  * call's time is its recorded duration, in grey: the replay did not wait for it. Each row has a fork
- * button, shown on hover and on the selected row. Only the rows in view and a screenful either side
+ * button, shown on hover and on the selected row, but a judge's, which no fork starts at (scopes.ts
+ * forksAt) and which reads by its check and verdict. Only the rows in view and a screenful either side
  * are drawn (window-hook.ts), so a run of 50,000 calls opens and moves as one of fifty does. A call
  * whose page isn't read yet (paging.ts) is a row with its number and origin, and coming into view
  * asks for its page (`onNeed`).
@@ -64,6 +68,7 @@ export function CallsTable({
   onFork,
   onNeed,
   onFold = null,
+  untrusted = NO_READS,
 }: {
   /** The calls, drawn flat when there are no `rows`. */
   calls: readonly ListedCall[];
@@ -85,6 +90,8 @@ export function CallsTable({
   onFork: (n: number, el: HTMLElement) => void;
   onNeed?: ((n: number) => void) | null;
   onFold?: ((g: TraceGroup) => void) | null;
+  /** The run's untrusted reads a model call reads, by call: each tagged after its effect. */
+  untrusted?: ReadonlyMap<number, UntrustedView>;
 }) {
   const head = useRef<HTMLTableSectionElement>(null);
   const table = useRef<HTMLTableElement>(null);
@@ -169,6 +176,7 @@ export function CallsTable({
               sub={r.sub}
               held={!!caret && caret === held}
               caret={caret && onFold ? <Caret g={caret} open={shown(caret)} stop={rove.stop === caret.key} onToggle={rove.toggle} onKey={rove.onKey} /> : null}
+              untrusted={untrusted.get(c.callNo)}
             />
           );
         })}
@@ -177,6 +185,8 @@ export function CallsTable({
     </table>
   );
 }
+
+const NO_READS: ReadonlyMap<number, UntrustedView> = new Map();
 
 /** The keys a fold button takes: to the previous, the next, the first and the last fold, and fold and open. */
 const ROVE_KEYS: ReadonlySet<string> = new Set(['ArrowUp', 'ArrowDown', 'Home', 'End', 'ArrowLeft', 'ArrowRight']);
@@ -450,6 +460,7 @@ const Row = memo(function Row({
   sub = false,
   held = false,
   caret = null,
+  untrusted,
 }: {
   at: number;
   c: CallRow;
@@ -470,10 +481,14 @@ const Row = memo(function Row({
   held?: boolean;
   /** A model call's caret, when calls sit under it. */
   caret?: ReactNode;
+  untrusted?: UntrustedView | undefined;
 }) {
   const d = callDetail(c, asked);
   const res = resultLine(c);
   const t = timeOf(c, ancestors, live);
+  // The fork menu's script loads as the pointer or the focus reaches the row's fork button, so it opens at once.
+  const forkPart = useServedParts().ForkMenu;
+  const preloadFork = () => forkPart?.preload();
   return (
     <tr className={held ? 'held' : undefined} data-wi={at} data-call={c.callNo} data-acts="" aria-rowindex={at + 2} aria-selected={selected} onClick={() => onSelect(c.callNo)}>
       <td className="n">
@@ -485,6 +500,7 @@ const Row = memo(function Row({
         <small>{kindShort(c.kind)}</small>
         {callName(c.kind, c.name)}
         {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
+        <UntrustedTag read={untrusted} />
         {c.extraRead ? (
           <span className="eff extra" title="An extra read: answered live, as its recording held no counterpart, while the replay went on replaying">
             extra
@@ -503,12 +519,14 @@ const Row = memo(function Row({
         {t.text}
       </td>
       <td className="rowact">
-        {canFork ? (
+        {canFork && forksAt(c) ? (
           <ActionButton
             aria-haspopup="menu"
             aria-expanded="false"
             aria-label={`Fork at #${c.callNo}`}
             title={`Fork at #${c.callNo}`}
+            onPointerEnter={preloadFork}
+            onFocus={preloadFork}
             onClick={(e) => {
               e.stopPropagation();
               onFork(c.callNo, e.currentTarget);

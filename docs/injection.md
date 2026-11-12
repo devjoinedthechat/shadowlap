@@ -6,7 +6,7 @@ An agent that reads untrusted content (web pages, email, tickets, documents) and
 
 - it repeats the run exactly up to the untrusted read;
 - [`--inject-result`](./interventions.md#plant-an-instruction-in-a-tool-result) plants text in what the read returned;
-- writes after the fork are stubbed, and reads the recording doesn't hold are fenced, so nothing the agent asks for reaches the world;
+- writes after the fork are stubbed, and reads the recording doesn't hold are blocked, so nothing the agent asks for reaches the world;
 - each payload carries a canary, a value that exists nowhere else, so a call that carries it took it from the planted text.
 
 ```sh
@@ -50,7 +50,7 @@ The planted text forks the run even when a normalizer would mask that text into 
 
 - writes are stubbed;
 - reads are served from the recording when they are the same call, and the agent gets an error for any other;
-- `--live-reads` runs those other reads live, but one that carries planted text is fenced all the same.
+- `--live-reads` runs those other reads live, but one that carries planted text is blocked all the same.
 
 ### What it prints
 
@@ -99,6 +99,7 @@ A cell (one read with one payload) takes the strongest verdict of its attempts, 
 
 - **A copy is proof too.** A canary inside a verbatim copy of the planted text (an email that quotes the page word for word) is an attacker's text the agent sent. It reads as obeyed, and its evidence notes the copy.
 - **No normalizer or redaction rule touches a canary.** The scan reads a call's arguments as recorded; a rule could only mask a value there, never make one. Where the project's rules apply, in the comparisons below, in `--clean` and in the security report, every canary is kept, even where a rule replaces a whole value.
+- **A copy of an attempt keeps its canary.** A pack, an HTML export, a dataset, preference pairs and a share link mask the rest of the attempt by your redaction rules, but not its own canary. `shadowlap redact preview`, Settings → Redaction and a run's Provenance count it apart and say *canaries kept*.
 
 ### A write no clean replay made
 
@@ -327,10 +328,12 @@ An attempt's check, `no tool call carries the planted canary`, says `passed`, `f
 
 Each test is kept in the store with its counts and its report as `--json` prints it, and the activity feed gets an `injection.tested` entry. The dashboard reads them at `/api/injection` and runs the test as its `injection` job.
 
+The [dashboard](./dashboard.md#findings) shows each test as a finding on the run it tested, its results as a matrix whose cells open their attempts. Each attempt's page marks the canary and the planted text. The Forks view files the test under that run, Tests draws a golden's gate under its checks, and Needs a look lists what got through.
+
 ## Limits
 
 - **What isn't recorded can't be judged.** A write through an unwrapped client never reaches Shadowlap: wrap it, as for any replay (see [effects](./how-it-works.md#effects)). The network guard blocks such connections during a test by default (`--guard block`).
-- **A fenced read answers with an error.** An agent that gives up when a read fails exits non-zero, and its attempts are inconclusive, saying so; `--live-reads` runs those reads live.
+- **A blocked read answers with an error.** An agent that gives up when a read fails exits non-zero, and its attempts are inconclusive, saying so; `--live-reads` runs those reads live.
 - **A model varies.** One attempt that ignores a payload proves little; `--repeat` and the gate's limits say how much you need.
 - **A run that forks before the read** (a changed prompt) still gets its payloads planted: reads after a fork are served from the recording when they are the same call. One that never makes the read again is inconclusive, and says so.
 

@@ -32,6 +32,7 @@ export type IconName =
   | 'loop'
   | 'target'
   | 'check'
+  | 'edit'
   | 'more';
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {
@@ -176,6 +177,9 @@ export function Sprite() {
       <symbol id="i-target" viewBox="0 0 16 16">
         <circle cx="8" cy="8" r="5.75" fill="none" stroke="currentColor" strokeWidth="1.4" />
         <circle cx="8" cy="8" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </symbol>
+      <symbol id="i-edit" viewBox="0 0 16 16">
+        <path d="M10.5 3.2l2.3 2.3M3.5 12.5l.6-2.9 6.3-6.3a1.2 1.2 0 0 1 1.7 0l.6.6a1.2 1.2 0 0 1 0 1.7l-6.3 6.3z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
       </symbol>
       <symbol id="i-more" viewBox="0 0 16 16">
         <circle cx="3.5" cy="8" r="1.25" fill="currentColor" />

@@ -1,7 +1,10 @@
-import { approx, justNow } from './format.js';
+import { justNow } from './format.js';
 import { ACTIONS, confirmWords } from './labels.js';
+import { STATUS_WORDS } from '../../engine/src/check-status.js';
+import { CHECK_MARKS, notApplicableParts } from '../../engine/src/checks/labels.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { twoDigits as pad } from '../../engine/src/words.js';
+import { judgeRows } from './judge-rows.js';
 import { href } from './route.js';
 import type { BisectMiss, CiWorkflowOptions, DivergenceView, FoundCommit, GoldenCheck, GoldenRow, TestsView } from './types.js';
 
@@ -115,29 +118,6 @@ export function revLabel(rev: string | null): string {
   return `${/^[0-9a-f]{8,}$/.test(base) ? base.slice(0, 7) : base.slice(0, 8)}${dirty ? '+' : ''}`;
 }
 
-/**
- * A check as the table names it, in the screen's words: `issue_refund never called`, `send_email
- * called once`, `input tokens ≤ 6,000`, `cost ≤ $0.02`. Any other label stays as the CLI wrote it,
- * as the reports under the table print them.
- */
-export function checkWords(label: string): string {
-  let m = /^(.+) called 0 times$/.exec(label);
-  if (m) return `${m[1]!} never called`;
-  m = /^(.+) called 1 time$/.exec(label);
-  if (m) return `${m[1]!} called once`;
-  m = /^at (most|least) (\d+) (input|output) tokens?$/.exec(label);
-  if (m) return `${m[3]!} tokens ${m[1] === 'most' ? '≤' : '≥'} ${Number(m[2]).toLocaleString('en-US')}`;
-  m = /^cost at (most|least) (\$[\d.]+)$/.exec(label);
-  if (m) return `cost ${m[1] === 'most' ? '≤' : '≥'} ${m[2]!}`;
-  return label;
-}
-
-/** Each status's mark, as the CLI's reports draw them: passed, failed, inconclusive, not applicable. */
-export const CHECK_MARK: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: '✓', failed: '✗', inconclusive: '?', 'not-applicable': '–' };
-
-/** A status as words: the four verdict words. */
-const STATUS_WORD: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: 'passed', failed: 'failed', inconclusive: 'inconclusive', 'not-applicable': 'not applicable' };
-
 /** The colour of each status's mark, as the history's cells and the verdict use them. */
 const STATUS_COLOR: Readonly<Record<NonNullable<GoldenCheck['status']>, string>> = { passed: 'var(--ok)', failed: 'var(--err)', inconclusive: 'var(--warn)', 'not-applicable': 'var(--faint)' };
 
@@ -147,12 +127,41 @@ export interface CheckMarkView {
   status: GoldenCheck['status'];
   /** The status in words, for a screen reader and the hover: `failed`, `not tested yet`. */
   word: string;
-  /** The check, as the table names it. */
+  /** The check, as the CLI labels it. */
   text: string;
   /** A line under it: what failed and in how many attempts, why it couldn't be decided, where a judge's verdict came from, or that it was added since. */
   sub: string | null;
-  /** The hover: the status and the check, and one row saying why. */
-  tip: { title: string; label: string; value: string; color: string };
+  /**
+   * The hover: the status and the check, and one row saying why. A judge's card has rows of its own
+   * (`rows`: what it asks, then what it answered and the model where it was asked), with why, or where
+   * a verdict in Tests' cell came from, in a line under them (`note`).
+   */
+  tip: { title: string; label: string; value: string; color: string; rows?: { label: string; value: string }[]; note?: string };
+}
+
+/**
+ * A check with no status: added since (`just now` within the minute the builder added it), its
+ * golden's last test couldn't run it, or it hasn't run yet. A judge's card says what it asks, though
+ * nothing asked it yet, with why it has no mark under its title.
+ */
+function untested(c: GoldenCheck, ran: boolean): CheckMarkView {
+  const word = 'not tested yet';
+  const value = c.added ? 'Added to shadowlap.config.json since its last test: its next test judges it' : ran ? 'its last test couldn’t run the golden, so no check has a result' : 'its golden hasn’t run yet';
+  const sub = c.added ? `added ${c.addedAt !== null && justNow(c.addedAt) ? 'just now' : 'since its last test'} · ${word}` : null;
+  const tip = { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' };
+  return { mark: null, status: null, word, text: c.label, sub, tip: c.judge?.question ? { ...tip, rows: judgeRows({ question: c.judge.question }), note: value } : tip };
+}
+
+/**
+ * A failed check's line and the why on its card: for a golden run more than once, how many attempts
+ * passed it and what the others did; else what it found, or for a judge where its verdict came from
+ * (`judgedLine`), as the design's line says it, what it answered being on its card.
+ */
+function failedLines(c: GoldenCheck, detail: string): { sub: string | null; value: string } {
+  const t = c.attempts;
+  const others = detail || 'failed';
+  if (t) return { sub: `${t.passed} of ${t.of} attempts passed · the others: ${others}`, value: `${t.passed} of ${t.of} attempts passed; the others: ${others}` };
+  return { sub: judgedLine(c) ?? (detail || null), value: others };
 }
 
 /**
@@ -161,46 +170,72 @@ export interface CheckMarkView {
  * run more than once, how many attempts passed it and what the others did), ? in amber when it
  * couldn't be decided (and why), – when it didn't apply, and no mark on a check not tested yet: before
  * a result exists, when the last test couldn't run the golden, or when it was added since, as the mock
- * says it. `ran`: the golden has a last result.
+ * says it. `ran`: the golden has a last result. `cell`: Tests' Checks column, where a passed judge's
+ * source moves onto its hover, as a line under every passed check would crowd the column.
  */
-export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
-  const text = checkWords(c.label);
+export function checkMark(c: GoldenCheck, ran: boolean, cell = false): CheckMarkView {
+  const text = c.label;
   const t = c.attempts;
-  if (!c.status) {
-    const word = 'not tested yet';
-    const value = c.added ? 'Added to shadowlap.config.json since its last test: its next test judges it' : ran ? 'its last test couldn’t run the golden, so no check has a result' : 'its golden hasn’t run yet';
-    return { mark: null, status: null, word, text, sub: c.added ? 'added since its last test' : null, tip: { title: `${word} · ${c.label}`, label: word, value, color: 'var(--line2)' } };
-  }
-  const word = STATUS_WORD[c.status];
+  if (!c.status) return untested(c, ran);
+  const word = STATUS_WORDS[c.status];
   const detail = c.detail ?? '';
   let sub: string | null;
   let value: string;
   if (c.status === 'failed') {
-    sub = t ? `${t.passed} of ${t.of} attempts passed · the others: ${detail || 'failed'}` : detail || null;
-    value = t ? `${t.passed} of ${t.of} attempts passed; the others: ${detail || 'failed'}` : detail || 'failed';
+    ({ sub, value } = failedLines(c, detail));
   } else if (c.status === 'inconclusive') {
     sub = detail || null;
     value = detail || 'it could not be decided';
   } else if (c.status === 'not-applicable') {
-    sub = 'not applicable';
-    value = detail || 'its condition never held';
+    // The engine's detail is why, then what the calls had instead: the line says why, the hover the values.
+    const p = notApplicableParts(detail);
+    sub = `not applicable${p.why ? ` · ${p.why}` : ''}`;
+    value = p.values ?? 'its condition never held';
   } else {
     // A check over several attempts says how many passed it; a judge's verdict, where it came from.
-    sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : judgedLine(c);
+    sub = t && t.passed < t.of ? `${t.passed} of ${t.of} attempts passed` : cell ? null : judgedLine(c);
     value = [c.reason ? `“${c.reason}”` : null, t ? (t.passed === t.of ? `passed in every attempt, ${t.of} of ${t.of}` : `passed in ${t.passed} of ${t.of} attempts`) : null].filter(Boolean).join(' · ') || 'passed';
   }
-  return { mark: CHECK_MARK[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
+  const m = { mark: CHECK_MARKS[c.status], status: c.status, word, text, sub, tip: { title: `${word} · ${c.label}`, label: word, value, color: STATUS_COLOR[c.status] } };
+  return c.judge ? judgeCard(m, c) : m;
 }
 
 /**
- * Where a judge check's verdict came from, as the CLI's check line says it: from the recording, free,
- * or live, with what asking it cost when that is known (`judged live in 5 attempts · ≈$0.0021`). Null
- * for any other check.
+ * A judge check's card: what it asks, then, where the judge was asked, what it answered and why, and
+ * its model. Under them, where its verdict came from wherever its line doesn't say it (Tests' cell, a
+ * line that counts attempts); for one a replay couldn't judge offline with no verdict in its pack, how
+ * to judge it once, as the design's card says it; else why it has no verdict.
+ */
+function judgeCard(m: CheckMarkView, c: GoldenCheck): CheckMarkView {
+  const j = c.judge!;
+  const verdict = c.status === 'passed' || c.status === 'failed' ? j.verdict : null;
+  const rows = judgeRows({ question: j.question, ...(verdict ? { answered: c.reason ? `${verdict}: ${c.reason}` : verdict, model: j.model } : {}) });
+  if (!rows.length) return m;
+  const line = judgedLine(c);
+  const note = verdict ? (m.sub === line ? null : line) : j.held === 'none' ? 'Not judged offline · update the golden to ask it once' : m.tip.value;
+  return { ...m, tip: { ...m.tip, rows, ...(note ? { note } : {}) } };
+}
+
+/**
+ * Where a judge check's verdict came from and what it cost, in the engine's words (as the CLI's check
+ * line says them), joined as a page joins them, with how many attempts asked it live: `judged live in
+ * 5 attempts · ≈$0.0021`, `judged from the recording · free`. Null for any other check.
  */
 function judgedLine(c: GoldenCheck): string | null {
-  if (c.source === 'recording') return 'judged from the recording · free';
-  if (c.source !== 'live') return null;
-  return c.live ? `judged live${c.live.asked > 1 ? ` in ${c.live.asked} attempts` : ''} · ${approx(c.live.cost)}` : 'judged live';
+  const s = c.judge?.judged;
+  if (!s) return null;
+  const how = c.live && c.live.asked > 1 ? `${s.how} in ${c.live.asked} attempts` : s.how;
+  return [how, s.cost, ...s.read].filter((x) => x !== null).join(' · ');
+}
+
+/**
+ * A golden whose checks changed since its last test, under that result, which stays its last test's:
+ * the line, and its card's why, the checks it judged that the config no longer holds. Null for one
+ * whose checks didn't change (src/tests-checks.ts' `checksChanged`).
+ */
+export function changedLine(row: Pick<GoldenRow, 'changed'>): { text: string; why: string } | null {
+  if (!row.changed?.length) return null;
+  return { text: 'checks changed since · not tested yet', why: `Its last test judged ${row.changed.map((c) => c.label).join('; ')}, no longer in shadowlap.config.json: Run tests judges its checks as they are now` };
 }
 
 /** Where a golden came from: a run in this store, or a pack made elsewhere. */

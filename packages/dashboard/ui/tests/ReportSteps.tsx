@@ -20,8 +20,8 @@ import { LeadButton, type LeadPress } from './Verdict.js';
  * page's own helpers: a divergence's normalizer, Update golden beside it, and Find breaking commit
  * (never where Update golden leads); a crash's Run blame beside its step, from the step's own offer; Find breaking
  * commit where it is offered; Run more attempts and Update golden for an inconclusive golden; an
- * injection gate's Security report. A press opens the report, so a job's end has a part to hand
- * the focus to (⌘K presses these while it is folded).
+ * injection gate's Security report. Open proof is the header's link, never a step. A press opens
+ * the report, so a job's end has a part to hand the focus to (⌘K presses these while it is folded).
  */
 export function ReportSteps({ report, view, press, onPress }: { report: GoldenReport; view: TestsAnswer; press: LeadPress; onPress: () => void }) {
   const { hasKind: has } = useApp();
@@ -30,7 +30,8 @@ export function ReportSteps({ report, view, press, onPress }: { report: GoldenRe
   const f = view.failures.find((x) => x.golden === golden);
   const v = view.inconclusive.find((x) => x.golden === golden);
   const runId = (d ?? f ?? v)?.runId ?? null;
-  const lead = stepFor(view, golden, has, runId);
+  const found = stepFor(view, golden, has, runId);
+  const lead = found?.kind === 'proof' ? null : found;
   const leads = (kind: Lead['kind']) => lead?.kind === kind;
   const step = view.steps?.[golden];
   const at: Siblings = { has, press, leads, step };

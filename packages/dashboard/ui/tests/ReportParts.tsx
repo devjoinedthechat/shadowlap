@@ -229,7 +229,7 @@ function AttemptsPart({ p, row, open, fold }: { p: Extract<ReportPart, { kind: '
       {p.carried ? <p className="rpw">{`${p.carried.count} carried over${p.carried.at !== null ? ` from the session at ${clock(p.carried.at)}` : ''} · ${plural(Math.max(0, total - p.carried.count), 'attempt')} this session`}</p> : null}
       {p.check ? (
         <span className="chk rpck">
-          <Check c={{ label: p.check.label, status: 'failed', added: false, detail: p.check.detail || null, reason: null, source: null, live: null, attempts: null }} ran />
+          <Check c={{ label: p.check.label, status: 'failed', added: false, addedAt: null, detail: p.check.detail || null, reason: null, source: null, live: null, attempts: null, judge: null }} ran />
         </span>
       ) : null}
       {p.forked ? <p className="rpw rpnote">{p.forked}</p> : null}

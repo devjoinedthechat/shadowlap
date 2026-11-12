@@ -122,7 +122,7 @@ const RUNS: Record<string, () => RunDetail> = {
   [DEEP]: deep,
 };
 
-const client = { exported: false, run: (id: string) => Promise.resolve(RUNS[id]()), call: () => new Promise(() => undefined), offers: () => Promise.resolve(null), runChaos: () => Promise.resolve(null), forkDifferences: () => Promise.resolve(null), unrecorded: () => Promise.resolve(null), lineage: () => Promise.resolve([]), jobs: () => Promise.resolve([]) } as unknown as Client;
+const client = { exported: false, run: (id: string) => Promise.resolve(RUNS[id]()), call: () => new Promise(() => undefined), offers: () => Promise.resolve(null), runChaos: () => Promise.resolve(null), forkDifferences: () => Promise.resolve(null), injectionRun: () => Promise.resolve({ untrusted: [], results: [], attempt: null }), injectionResults: () => Promise.resolve({ results: [] }), unrecorded: () => Promise.resolve(null), lineage: () => Promise.resolve([]), jobs: () => Promise.resolve([]) } as unknown as Client;
 const state = () => ({ client, exported: false, meta: null, runs: [], live: [], tick: 0, runsTick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => false, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined, refresh: () => undefined, setRunCommands: () => undefined, setPalette: () => undefined, runKeys: { current: null } }) as unknown as AppState;
 
 let r: Rendered | null = null;

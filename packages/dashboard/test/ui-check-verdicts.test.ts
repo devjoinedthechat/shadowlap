@@ -82,7 +82,7 @@ describe('the run page', () => {
         // What could not be decided first, in its own words: the outcome says inconclusive.
         { label: 'judge "j" answers yes', text: 'judge "j" answers yes · not judged', status: 'inconclusive' },
         { label: 'issue_refund called 0 times', text: 'issue_refund called 0 times · 1 of 1', status: 'passed' },
-        { label: checks[1].label, text: `${checks[1].label} · not applicable · the condition never held`, status: 'not-applicable' },
+        { label: checks[1].label, text: `${checks[1].label} · not applicable · the condition never held`, status: 'not-applicable', values: 'lookup_order #2: result.total 180 <= 200' },
       ],
       why: 'replayed offline · 0 upstream',
     });
@@ -98,5 +98,11 @@ describe('the run page', () => {
       { label: 'judge "j" answers yes', ok: true, status: 'passed', reason: 'It does.', source: 'live', count: 1, of: 1 },
       { label: 'x', ok: true },
     ]);
+  });
+
+  it('keeps a judge check\'s judge as the server sends it: its verdict, source, cost, what it read and its call', () => {
+    const judge = { name: 'j', model: 'claude-haiku-4-5', of: 'answer', verdict: 'yes', source: 'live', cost: 0.0004, redactions: 1, normalized: true, cut: 0, callNo: 7 };
+    const d = normalizeRunDetail({ run: { runId: 'R' }, checks: [{ label: 'judge "j" answers yes', ok: true, status: 'passed', judge }, { label: 'y', ok: true, judge: { name: 'j' } }, { label: 'z', ok: false, judge: { name: 'j', model: 'm', verdict: 'maybe', source: 'x', cost: 'free', callNo: -1 } }] } as unknown as RunDetail);
+    expect(d.checks?.map((c) => c.judge)).toEqual([judge, undefined, { name: 'j', model: 'm', of: 'answer', verdict: null, source: null, cost: null, redactions: 0, cut: 0 }]);
   });
 });

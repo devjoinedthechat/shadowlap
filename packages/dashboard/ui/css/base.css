@@ -131,6 +131,8 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
    replaying. In a call both runs made alike on Compare, the row's faint ink takes the tag too. */
 .eff.input { color: var(--dim); }
 .eff.extra { color: var(--dim); }
+/* an untrusted read (injection/UntrustedTag.tsx): one step brighter than its effect, never a consequence's colour */
+.eff.untrusted { color: var(--dim); }
 .pips { display: inline-flex; gap: 3px; vertical-align: middle; }
 /* an attempt passed or failed: a verdict, in the consequence colours, never a call's origin */
 .pips i { width: 9px; height: 9px; border-radius: 3px; background: var(--cq-lime); }

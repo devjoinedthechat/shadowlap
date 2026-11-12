@@ -3,6 +3,8 @@ import type { CallRow } from '../api.js';
 import { Org } from '../components/bits.js';
 import { ktok, num } from '../format.js';
 import { agentOf, scopesOf } from '../scopes.js';
+import { UntrustedTag } from '../injection/UntrustedTag.js';
+import type { UntrustedView } from '../types.js';
 import { originOf, tokensText, turnsOf, type Turn } from './model.js';
 import { useWindow } from './window-hook.js';
 
@@ -31,6 +33,8 @@ export function turnLines(calls: readonly CallRow[], scoped: boolean): TurnLine[
   return out;
 }
 
+const NO_READS: ReadonlyMap<number, UntrustedView> = new Map();
+
 const TURN_LINES = {
   keyOf: (l: TurnLine) => (l.kind === 'head' ? `s:${l.scope}` : l.turn.model.callNo),
   // A turn's height: its first line, what the model said, and a line per tool call.
@@ -42,7 +46,7 @@ const TURN_LINES = {
   },
 };
 
-export function TurnsView({ calls, selected, scoped, onSelect }: { calls: CallRow[]; selected: number | null; scoped: boolean; onSelect: (n: number) => void }) {
+export function TurnsView({ calls, selected, scoped, onSelect, untrusted = NO_READS }: { calls: CallRow[]; selected: number | null; scoped: boolean; onSelect: (n: number) => void; untrusted?: ReadonlyMap<number, UntrustedView> }) {
   const lines = useMemo(() => turnLines(calls, scoped), [calls, scoped]);
   const win = useWindow(lines, TURN_LINES);
   if (!lines.length) return <div className="empty">No model calls yet.</div>;
@@ -87,6 +91,7 @@ export function TurnsView({ calls, selected, scoped, onSelect }: { calls: CallRo
                     <span className="arrow">↳ #{c.callNo}</span>
                     {c.name}
                     {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
+                    <UntrustedTag read={untrusted.get(c.callNo)} />
                     <Org origin={originOf(c)} />
                   </button>
                 ))}

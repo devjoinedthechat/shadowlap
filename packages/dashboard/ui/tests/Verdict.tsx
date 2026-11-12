@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { DivergenceView, FailureView, InconclusiveView, TestsSessionView, TestsView } from '../api.js';
+import { ActionButton, useOfflineLink } from '../components/ActionButton.js';
 import { tipCard, tipText } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import { VerdictLine } from '../components/VerdictLine.js';
@@ -25,6 +26,10 @@ export interface LeadPress {
   onMore: (v: InconclusiveView, e: Price) => void;
   /** Re-run test of a golden whose injection gate showed too little to say: its test again, which plants the same payloads. */
   onRerun: (golden: string, e: Price) => void;
+  /** Run tests as the page's header runs it, the whole session: null where the server runs no tests. */
+  runTests: ReturnType<typeof testsJob> | null;
+  /** The check builder on a golden at a check, by its label, and its script asked for ahead: null where the page has no builder. */
+  edit: { open: (golden: string, check: string) => void; preload: () => void } | null;
 }
 
 /**
@@ -64,15 +69,35 @@ export function LeadButton({ lead, p, lime = true }: { lead: Lead; p: LeadPress;
           {lead.label}
         </JobButton>
       );
+    case 'proof':
+      return <ProofLead lead={lead} />;
     case 'fix':
       return (
         <a className={btn} href={lead.href} data-tip={tipCard(lead.title ?? lead.label, [], `The fix for this failure: ${lead.check}`)}>
           {lead.label}
         </a>
       );
+    case 'edit': {
+      const ahead = () => p.edit?.preload();
+      return (
+        <ActionButton className="btn lime" data-step="edit-check" data-g={lead.golden} tip={lead.label} sub={lead.sub} onPointerEnter={ahead} onFocus={ahead} onClick={() => p.edit?.open(lead.golden, lead.check)}>
+          {lead.label}
+        </ActionButton>
+      );
+    }
     case 'blame':
       return <RunBlameButton runId={lead.runId} offer={lead.step.offer} className={btn} lead={lime} {...(lead.step.capture ? { capture: true } : {})} {...(lead.step.command ? { line: lead.step.command } : {})} />;
   }
+}
+
+/** Open proof: the attempt that proves the gate failed, waiting while the server is out of reach, as every link to an attempt does. */
+function ProofLead({ lead }: { lead: Extract<Lead, { kind: 'proof' }> }) {
+  const offline = useOfflineLink();
+  return (
+    <a className="btn lime" href={lead.href} data-tip={tipCard(lead.title ?? lead.label, [], lead.sub)} onClick={offline}>
+      {lead.label}
+    </a>
+  );
 }
 
 /** A word for each verdict, in its colour, as the mock says it: never a count in a tinted badge. */

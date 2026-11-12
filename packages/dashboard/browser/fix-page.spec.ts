@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { GLOSSARY } from '../ui/glossary.js';
-import { demoId, openPage } from './dashboard.js';
+import { demoId, expectAccessible, openPage } from './dashboard.js';
 
 /**
  * A fix's header in a browser, as the design's fitFixHead() fits it: wider than 1280px its buttons sit
@@ -55,3 +55,53 @@ for (const width of [1440, 390])
     // the demo's keys define a term, so the check above reads a definition the page holds
     expect(defined).toBeGreaterThan(0);
   });
+
+for (const [width, height] of [
+  [1440, 900],
+  [390, 844],
+] as const)
+  test(`Edit check… ends an open fix's check and opens the builder on it, its runs judged, Save check asking for the fix-check job, at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    const fixId = demoId('emailFix');
+    // The job's POST is answered here, so nothing changes the demo every test shares.
+    let asked: { kind: string; fixId: string; expect: unknown } | null = null;
+    await page.route(/\/api\/jobs$/, (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      asked = route.request().postDataJSON() as typeof asked;
+      return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'This fix moved on since the page read it.' }) });
+    });
+    await openPage(page, `/fixes/${fixId}`, 'fix');
+    const link = page.locator('main#view .ph p.chk .fmx button');
+    await expect(link).toHaveText('Edit check…');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+    await link.click();
+    const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+    await expect(dialog.locator('header h3')).toHaveText('Edit check');
+    await expect(dialog.locator('.cb-fixr .cb-row').first()).toBeVisible();
+    await expect(dialog.locator('.cb-k .k').first()).toHaveText('The check of this fix');
+    await expectAccessible(page);
+    await dialog.locator('.cb-kinds button', { hasText: /^Never$/ }).click();
+    // Save check waits for the change's own answer from the fix's runs, then asks for the job.
+    const save = dialog.locator('.dlg-ok');
+    await expect(save).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(dialog.locator('.cb-fixr .cb-row').first()).toBeVisible();
+    await save.click();
+    await expect(dialog.locator('.dwarn')).toHaveText('This fix moved on since the page read it.');
+    // The page names the fix by its whole id, the demo by its short one.
+    const sent = asked as { kind: string; fixId: string; expect: unknown } | null;
+    expect(sent && [sent.kind, sent.fixId.startsWith(fixId), sent.expect]).toEqual(['fix-check', true, { tools: { send_email: 0 } }]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  });
+
+test('a verified fix offers a check added to the golden that guards it, beside the fix’s runs', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openPage(page, `/fixes/${demoId('refundFix')}`, 'fix');
+  const link = page.locator('main#view .ph p.chk .fmx button');
+  await expect(link).toHaveText(/^Add check( to \S+)?…$/);
+  await link.click();
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  await expect(dialog.locator('header h3')).toHaveText(/^Add check/);
+  await expect(dialog.locator('.cb-kinds')).toBeVisible();
+  await expectAccessible(page);
+});
+

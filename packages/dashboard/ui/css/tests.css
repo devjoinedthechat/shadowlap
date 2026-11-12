@@ -60,9 +60,37 @@ table.gt .chk .ck.passed .cm, .rpck .ck.passed .cm { color: var(--ok); }
 table.gt .chk .ck.failed .cm, .rpck .ck.failed .cm { color: var(--err); }
 table.gt .chk .ck.inconclusive .cm, .rpck .ck.inconclusive .cm { color: var(--warn); }
 table.gt .chk .ck.not-applicable .cm, table.gt .chk .ck.not-applicable .cw, .rpck .ck.not-applicable .cm, .rpck .ck.not-applicable .cw { color: var(--faint); }
+/* What changes a golden's checks (the mock's): where a pointer hovers, Edit and Remove at the end of each check and Add
+   check… at the end of the last, shown on the row's hover or focus (the keyboard's row too) and taking no line of their
+   own, 22px each with their centres 24px apart, as WCAG 2.5.8 asks of a target. On a touch screen, and where the checks
+   sit under the golden's name (840px of room or less, too narrow for the icons beside each check), one line under the
+   checks instead, Edit checks… and Add check…, 10px apart when they wrap, and every check keeps its whole width. */
+table.gt .chk .cka { opacity: 0; display: inline-flex; gap: 2px; margin-left: auto; flex: none; align-self: center; }
+table.gt tbody tr:hover .cka, table.gt tbody tr.krow .cka, table.gt .chk:focus-within .cka { opacity: 1; }
+table.gt .chk .nil + .cka { vertical-align: -6px; margin-left: 6px; }
+table.gt .cka button { width: 22px; height: 22px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--faint); cursor: pointer; }
+table.gt .cka button:hover { color: var(--ink); background: var(--hover); }
+table.gt .cka button[data-ck="remove"]:hover { color: var(--err); }
+table.gt .cka svg { width: 12px; height: 12px; }
+table.gt .chk .ckt { display: none; }
+table.gt .chk .ckt .linkbtn { margin-left: -7px; }
+@media (hover: none) {
+  table.gt .chk .cka { display: none; }
+  table.gt .chk .ckt { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 8px; }
+}
+@container (max-width: 840px) {
+  table.gt .chk .cka { display: none; }
+  table.gt .chk .ckt { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 8px; }
+}
+/* A golden's injection gate: no check but a line under them, a hairline above it (its tests entry sets it), its words a link to its results. */
+table.gt .chk .ck.injck { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--line); }
+table.gt .chk .nil + .ck.injck { margin-top: 6px; }
+table.gt .chk .ck.injck:not(:has(.cm)) .cw { padding-left: 16px; }
+table.gt .chk .ck.injck a.cw { text-decoration: none; }
+table.gt .chk .ck.injck a.cw:hover { text-decoration: underline; text-decoration-color: var(--line2); text-underline-offset: 3px; }
 /* Tests' table fits its panel at every width, as the mock's .gtw does: the mode and where a golden came from go under
    its name, Last result keeps a width of its own, and the container's width decides what gives way. Below 1000px of
-   room the oldest revisions go; below 820px the checks go under the name; below 640px (a phone) the revisions become
+   room the oldest revisions go; below 840px the checks go under the name (a check's buttons need the Checks column that much room); below 640px (a phone) the revisions become
    a strip there too, and a long name wraps. */
 .gtw { container-type: inline-size; }
 .gtw .tscroll table.gt { min-width: 0; }
@@ -102,7 +130,7 @@ table.gt .chk .ck.not-applicable .cm, table.gt .chk .ck.not-applicable .cw, .rpc
   .gtw table.gt .hist .r3, .gtw table.gt .hist .r4, .gtw table.gt .hist .r5 { display: none; }
 }
 
-@container (max-width: 820px) {
+@container (max-width: 840px) {
   .gtw table.gt th.gck, .gtw table.gt td.gck { display: none; }
   .gtw table.gt .chk.gin { display: block; }
 }
@@ -130,6 +158,8 @@ table.gt .chk .ck .cw { text-wrap: balance; }
 /* Find breaking commit named no first bad commit: where it looked and why, in the card's place */
 
 table.gt td.glast .rsub { font: 12px/1.5 var(--body); color: var(--faint); }
+/* Its checks changed since its last test: under the result, which stays the last test's. */
+table.gt td.glast .ckst { display: block; margin-top: 3px; font-size: 12px; line-height: 1.45; color: var(--faint); }
 table.gt td.glast code.jp { white-space: nowrap; font-size: 11px; color: var(--dim); }
 @media (max-width: 640px) { table.gt td.glast code.jp { white-space: normal; } }
 

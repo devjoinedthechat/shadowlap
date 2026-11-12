@@ -1,8 +1,10 @@
 import { shortId } from '../format.js';
+import { ACTIONS } from '../labels.js';
 import type { RowScope } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import type { GoldenRow } from '../types.js';
+import { rowProof } from './gate.js';
 
 /**
  * A golden's row on Tests, for ⌘K on it, and for Enter on one that leads nowhere of its own: what its
@@ -51,16 +53,18 @@ function buttonItem(again: () => HTMLElement[], b: Element, i: number): Item {
  * `leads`: the golden is the one the verdict leads with, whose step the verdict draws. That step is
  * offered where its report has no button of that name: Open fix and Run blame, which only the verdict draws.
  */
-export function goldenRowScope(row: Pick<GoldenRow, 'name' | 'runId'>, page: () => ParentNode | null, leads = false): RowScope | null {
+export function goldenRowScope(row: Pick<GoldenRow, 'name' | 'runId'> & Partial<Pick<GoldenRow, 'last' | 'injectionGate'>>, page: () => ParentNode | null, leads = false): RowScope | null {
   const items = (): Item[] => {
     const report = () => {
       const root = page();
       return buttonsIn(root && reportOf(root, row.name));
     };
     const verdict = () => buttonsIn(page()?.querySelector('.verdict.tv'));
-    const open: Item[] = row.runId ? [{ label: 'Open run', hint: shortId(row.runId), run: () => navigate(href.run(row.runId!)) }] : [];
+    // What the row opens: the attempt that proves its verdict where its injection gate decided it (rowHref), else its run.
+    const proof = rowProof(row);
+    const open: Item[] = proof ? [{ label: ACTIONS.openProof.label, hint: shortId(proof.runId), run: () => navigate(href.run(proof.runId, proof.callNo)) }] : row.runId ? [{ label: 'Open run', hint: shortId(row.runId), run: () => navigate(href.run(row.runId!)) }] : [];
     const own = report();
-    const labels = new Set(own.map((b) => b.textContent?.trim()));
+    const labels = new Set([...own.map((b) => b.textContent?.trim()), ...open.map((o) => o.label)]);
     const step = leads ? verdict().filter((b) => !labels.has(b.textContent?.trim())) : [];
     return [...open, ...step.map((b, i) => buttonItem(verdict, b, i)), ...own.map((b, i) => buttonItem(report, b, i))];
   };
