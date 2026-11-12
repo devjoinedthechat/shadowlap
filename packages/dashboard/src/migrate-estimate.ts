@@ -1,4 +1,4 @@
-import { migrateEstimate, recordedChecks, recordedRole, type Price, type Store } from '@shadowlap/engine';
+import { type Estimate, migrateEstimate, recordedChecks, recordedRole, type Price, type Store } from '@shadowlap/engine';
 import type { ConfigVerifyRule } from './estimates.js';
 import { estimateOf, pricingOf } from './pricing.js';
 import { answer, type ReadAnswer, type ReadTable } from './read-registry.js';
@@ -12,6 +12,12 @@ import type { GoldenSource } from './tests.js';
  * and the newest preview of the same switch, which the dialog names. A pooled read: it judges each
  * golden's recording by its checks and reads its calls.
  */
+
+/** `GET /api/migrate/estimate`'s answer: migrate's ceiling, and the newest preview of the same switch, which asked these already. */
+export interface MigrateEstimateView {
+  estimate: Estimate | null;
+  preview: { sessionId: string; verified: boolean } | null;
+}
 
 export type MigrateEstimateJob = { kind: 'migrate-estimate'; to: string; from: string[]; goldens: GoldenSource[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
 
@@ -40,7 +46,8 @@ async function migrateEstimates(store: Store, job: MigrateEstimateJob): Promise<
       ),
     pricingOf(store, job.prices),
   );
-  return answer({ estimate, preview: newestPreviewOf(store, job.to, job.from) }, { tagged: true });
+  const view: MigrateEstimateView = { estimate, preview: newestPreviewOf(store, job.to, job.from) };
+  return answer(view, { tagged: true });
 }
 
 export const MIGRATE_ESTIMATE_READS: ReadTable<MigrateEstimateJob> = {

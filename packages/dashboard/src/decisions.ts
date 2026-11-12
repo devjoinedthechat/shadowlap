@@ -3,7 +3,7 @@ import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } 
 import { lookupRun } from './api.js';
 import { sprtGate } from './fix-shared.js';
 import { moreFlags, moreOf, type PreviewMore } from './decision-more.js';
-import { decisionsArgv, FIELD_NAME, fromFlags, MODEL_NAME, PREVIEW_MAX, scopeFlags, setFlags, tooManyToPreview } from './decisions-argv.js';
+import { decisionsArgv, FIELD_NAME, migrateArgv, MODEL_NAME, PREVIEW_MAX, tooManyToPreview } from './decisions-argv.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { appliedState, applyInputOf, type AppliedState } from './migrate-applied.js';
@@ -303,7 +303,7 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
   if (typeof req.to !== 'string' || !MODEL.test(req.to)) return { error: 'to is the model to switch to, such as claude-sonnet-5-5' };
   const named = req.goldens !== undefined || req.runs !== undefined;
   const targets = named ? targetArgs(store, req, goldens) : targetArgs(store, { goldens: 'all' }, goldens);
-  if ('error' in targets) return named ? targets : { error: 'the project has no goldens to migrate: keep a run as a golden first', status: 409 };
+  if ('error' in targets) return named ? targets : { error: 'the project has no goldens to migrate: pack a run as a golden first', status: 409 };
   const set = setArgs(req.set);
   if ('error' in set) return set;
   const from = fromArgs(req.from);
@@ -312,7 +312,7 @@ export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens
   if ('error' in scope) return scope;
   const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
   if ('ask' in consent) return consent.ask;
-  return { args: ['migrate', '--to', req.to, ...targets.args, ...fromFlags(from), ...scopeFlags(scope.scope), ...setFlags(set), ...consent.yes], title: `Migrating to ${req.to}` };
+  return { args: [...migrateArgv({ to: req.to, targets: targets.args, from, scope: scope.scope, set }), ...consent.yes], title: `Migrating to ${req.to}` };
 }
 
 /**

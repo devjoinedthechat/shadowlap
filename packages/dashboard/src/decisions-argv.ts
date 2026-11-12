@@ -48,6 +48,24 @@ export interface DecisionsArgs {
   thenVerify?: boolean;
 }
 
+/** A migration as its job takes it, checked: the model it switches to, its goldens or runs, and what it switches. */
+export interface MigrateArgs {
+  to: string;
+  targets: readonly string[];
+  from?: readonly string[];
+  scope?: string | null;
+  set?: ReadonlyArray<readonly [string, string]>;
+}
+
+/**
+ * `migrate` with its targets and flags in the order its job runs them, for the job and every place
+ * that shows its command (a retiring model's row, Preview's next step, Migrate's start page, the
+ * palette); consent's `--yes` is the job's to add.
+ */
+export function migrateArgv(o: MigrateArgs): string[] {
+  return ['migrate', '--to', o.to, ...o.targets, ...fromFlags(o.from ?? []), ...scopeFlags(o.scope), ...setFlags(o.set ?? [])];
+}
+
 /** `decisions` with its targets and flags in the order its job runs them; consent's `--yes` is the job's to add. */
 export function decisionsArgv(o: DecisionsArgs): string[] {
   return [

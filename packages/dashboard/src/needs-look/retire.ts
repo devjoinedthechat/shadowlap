@@ -1,4 +1,5 @@
 import { type RetirementNotice, retirementTable } from '@shadowlap/engine';
+import { migrateArgv } from '../decisions-argv.js';
 import { commandLine } from '../fix-shared.js';
 import { links } from '../links.js';
 import { checkedWords, newestMigrationsFrom } from '../migrate-applied.js';
@@ -14,11 +15,11 @@ export function shortDate(day: string): string {
   return `${MONTHS[(m ?? 1) - 1]!} ${d!}, ${y!}`;
 }
 
-/** What it says the model does, and when: `retires on Nov 30, 2026`, `may shut down from …`, `retired on …`, `is deprecated`. */
-function when(n: RetirementNotice): string {
+/** What it says the model does, and when, its date as `day` says it: `retires on Nov 30, 2026`, `may shut down from …`, `retired on …`, `is deprecated`. */
+export function when(n: Pick<RetirementNotice, 'retires' | 'state' | 'earliest'>, day: (d: string) => string = shortDate): string {
   if (!n.retires) return 'is deprecated';
-  if (n.state === 'retired') return `retired on ${shortDate(n.retires)}`;
-  return n.earliest ? `may shut down from ${shortDate(n.retires)}` : `retires on ${shortDate(n.retires)}`;
+  if (n.state === 'retired') return `retired on ${day(n.retires)}`;
+  return n.earliest ? `may shut down from ${day(n.retires)}` : `retires on ${day(n.retires)}`;
 }
 
 /**
@@ -61,7 +62,7 @@ export const retire: LookSource = {
           icon: 'retire',
           title: `${n.model}, used by ${plural(n.goldens.length, 'golden')}, ${when(n)}`,
           detail: state ?? detail,
-          step: to && !m ? { of: 'migrate', label: `Migrate to ${to}`, from: [n.model], to, goldens: n.goldens, command: commandLine(['migrate', '--to', to, ...n.goldens, '--from', n.model]) } : null,
+          step: to && !m ? { of: 'migrate', label: `Migrate to ${to}`, from: [n.model], to, goldens: n.goldens, command: commandLine(migrateArgv({ to, targets: n.goldens, from: [n.model] })) } : null,
           href: links.changeSession('migrate', m?.sessionId ?? null),
           runId: null,
           fixId: null,
