@@ -27,7 +27,7 @@
       "runBlame": 54
     },
     "packages/cli/src/chaos.ts": {
-      "runPresets": 87
+      "runPresets": 83
     },
     "packages/cli/src/commands/changes.ts": {
       "register > action(\"decisions\")": 44
@@ -365,7 +365,7 @@
       "runBlame": 250
     },
     "packages/cli/src/chaos.ts": {
-      "runPresets": 154
+      "runPresets": 153
     },
     "packages/cli/src/commands/changes.ts": {
       "register": 186

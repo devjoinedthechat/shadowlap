@@ -270,8 +270,8 @@ export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageSc
 // Error-path presets: where each hits a recording and what it answers there.
 export { CHAOS_PRESETS, OVERSIZE_CHARS, PRESET_LABELS, chaosTargets, chaosToolChoices, cutJson, isChaosPreset, parsePresets, presetHits, presetReplay, presetResult, resultShape } from './chaos.js';
 export type { ChaosPreset, ChaosTarget, ChaosTargets, ResultShape } from './chaos.js';
-export { JUDGED_FROM, chaosJudge, judgedOnExit, presetProof, replayChaosSpec, writeLimits } from './chaos-judge.js';
-export type { ChaosJudge } from './chaos-judge.js';
+export { JUDGED_FROM, chaosJudge, gateWords, judgedOnExit, keptGate, keptPresetBound, presetBound, presetProof, presetRule, recordingRule, replayChaosSpec, writeLimits } from './chaos-judge.js';
+export type { ChaosJudge, PresetGate } from './chaos-judge.js';
 export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult, NewChaosSession } from './store.js';
 // Each billed job's estimate before it runs, one helper per kind (A15), and Spending, the rule for when a job asks
 // first, kept in this machine's settings: the dashboard's server works them out, its pages and the terminal UI say them.

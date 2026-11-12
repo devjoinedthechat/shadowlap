@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CHAOS, NOT_PACKED, chaosJudge, chaosToolChoices, nearestThen, parseExpect, presetProof, replayChaosSpec, Store, type CallRecord, type ChaosSpec } from '../src/index.js';
+import { DEFAULT_CHAOS, NOT_PACKED, chaosJudge, chaosToolChoices, gateWords, keptGate, keptPresetBound, nearestThen, parseExpect, presetBound, presetProof, presetRule, recordingRule, replayChaosSpec, Store, type CallRecord, type ChaosSpec } from '../src/index.js';
 import { RunBuilder, text, toolUse, user } from './run-fixtures.js';
 
 /** The presets' judge, their proof and the tools they can hit, and coverage's words: the engine's, which the CLI and the dashboard both read. */
@@ -36,6 +36,56 @@ describe("the presets' judge", () => {
     expect(replayChaosSpec({ spec: golden, source: 'goldens/refund' }, (folder) => (folder === 'goldens/refund' ? own : false))).toEqual({ chaos: own, golden });
     expect(replayChaosSpec({ spec: golden, source: 'goldens/refund' }, () => false)).toEqual({ chaos: DEFAULT_CHAOS, golden });
     expect(replayChaosSpec(null, () => own)).toEqual({ chaos: DEFAULT_CHAOS, golden: null });
+  });
+});
+
+describe("the presets' gate, rule and bound", () => {
+  const sprt = { good: 0.9, bad: 0.7, risk: 0.05, max: 20 };
+
+  it('reads a kept gate back, and words it', () => {
+    expect(keptGate({ ...sprt, kind: 'x' })).toEqual(sprt);
+    expect(keptGate({ repeat: 3, passes: 2 })).toEqual({ repeat: 3, passes: 2 });
+    expect(keptGate({ repeat: '3' })).toBeNull();
+    expect(keptGate(null)).toBeNull();
+    expect(gateWords(sprt)).toBe('tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(gateWords({ repeat: 3, passes: 2 })).toBe('2 of 3 attempts must pass');
+  });
+
+  it('states a sequential gate once, never for a fixed count, no attempt or a reason of its own', () => {
+    const o = { attempts: 6, gate: sprt, verdict: 'passed', reason: null };
+    expect(presetRule(o)).toBe('gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(presetRule({ ...o, gate: { repeat: 1, passes: 1 } })).toBeNull();
+    expect(presetRule({ ...o, attempts: 0 })).toBeNull();
+    expect(presetRule({ ...o, verdict: 'inconclusive', reason: 'the replay never reached #4, so the preset was never played in' })).toBeNull();
+    expect(recordingRule([{ ...o, attempts: 0 }, o])).toBe(presetRule(o));
+  });
+
+  it("bounds a tally as the CLI printed it, a kept result's read back the same way", () => {
+    const bound = presetBound(sprt, { passes: 6, attempts: 6 }, 'pass');
+    expect(bound).toMatch(/^rate >= 0\.\d+ \(95%\)$/);
+    expect(keptPresetBound({ attempts: 6, passes: 6, gate: sprt, verdict: 'passed', reason: null })).toBe(bound);
+    expect(keptPresetBound({ attempts: 6, passes: 1, gate: sprt, verdict: 'failed', reason: 'issue_refund called 2 times' })).toBe(presetBound(sprt, { passes: 1, attempts: 6 }, 'fail'));
+    // Cut short by the provider: counted against either verdict, so the bound widens.
+    expect(keptPresetBound({ attempts: 6, passes: 4, gate: sprt, verdict: 'inconclusive', reason: null, cutShort: 2 })).toBe(presetBound(sprt, { passes: 4, attempts: 6 }, 'inconclusive', 2));
+    expect(presetBound(sprt, { passes: 4, attempts: 6 }, 'inconclusive', 2)).not.toBe(presetBound(sprt, { passes: 4, attempts: 6 }, 'inconclusive'));
+    expect(presetBound(sprt, { passes: 1, attempts: 1 }, 'pass')).toBeNull();
+    expect(presetBound({ repeat: 3, passes: 3 }, { passes: 3, attempts: 3 }, 'pass')).toBeNull();
+    expect(keptPresetBound({ attempts: 2, passes: 0, gate: sprt, verdict: 'inconclusive', reason: 'the replay never reached #4, so the preset was never played in' })).toBeNull();
+  });
+});
+
+describe("a recording's newest presets", () => {
+  it('reads one run alone through its index, the same rows as the whole table holds for it', () => {
+    const store = Store.open(':memory:');
+    const s = store.startChaosSession({ command: ['shadowlap', 'replay', 'r1', '--chaos'], presets: ['timeout'], owner: null });
+    const add = (runId: string, at: number, verdict: 'passed' | 'failed') => store.addChaosResult({ sessionId: s.sessionId, runId, preset: 'timeout', verdict, at });
+    add('r1', 1, 'failed');
+    add('r1', 2, 'passed');
+    add('r2', 3, 'failed');
+    expect(store.latestChaosResults('r1').map((r) => [r.runId, r.verdict])).toEqual([['r1', 'passed']]);
+    expect(store.latestChaosResults().filter((r) => r.runId === 'r1')).toEqual(store.latestChaosResults('r1'));
+    expect(store.latestChaosResults('r3')).toEqual([]);
+    store.close();
   });
 });
 

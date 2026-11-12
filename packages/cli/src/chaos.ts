@@ -5,12 +5,12 @@ import {
   chaosTargets,
   decideCountUnavailable,
   decideUnavailable,
-  describeGate,
   effectsFor,
   formatUsd,
   JUDGED_FROM,
   plural,
   PRESET_LABELS,
+  recordingRule,
   presetHits,
   presetReplay,
   presetResult,
@@ -18,9 +18,9 @@ import {
   resultShape,
   sessionUnavailableReason,
   safeLine,
-  rateBound,
+  presetBound,
+  presetRule,
   storeEffects,
-  tallyInterval,
   type CallRecord,
   type ChaosPreset,
   type ChaosJudge,
@@ -28,6 +28,7 @@ import {
   type Effect,
   type Gate,
   type GateDecision,
+  type PresetGate,
   type Palette,
   type RunRecord,
   type Store,
@@ -47,7 +48,7 @@ import { testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { usageOf, telemetry } from './shared.js';
 
 // The presets' judge is the engine's (chaos-judge.ts), which the dashboard's dialog and panel read too.
-export { checkLabels, judgedOnExit, writeLimits, type ChaosJudge } from '@shadowlap/engine';
+export { checkLabels, gateWords, judgedOnExit, presetRule, recordingRule, writeLimits, type ChaosJudge } from '@shadowlap/engine';
 
 /**
  * `test --chaos` and `replay --chaos`: each error-path preset played into a replay of a recording
@@ -107,7 +108,7 @@ export interface PresetOutcome {
   reason: string | null;
   runs: PresetRun[];
   /** The gate its attempts were decided by. */
-  gate: { good: number; bad: number; risk: number; max: number } | { repeat: number; passes: number };
+  gate: PresetGate;
   upstreamRequests: number;
   spent: number;
   /** Attempts its provider failed for real and nobody counted, and those it cut short that the gate counted. Absent when none. */
@@ -142,33 +143,6 @@ export interface ChaosContext {
 }
 
 type FixedGate = { repeat: number; passes: number };
-
-/** The gate in words, its rule: `tells 90%+ from 70%- at <= 5% risk, up to 20 attempts`, or `1 of 1 attempt must pass`. */
-export function gateWords(g: PresetOutcome['gate']): string {
-  if ('good' in g) return describeGate({ kind: 'sprt', good: g.good, bad: g.bad, risk: g.risk, max: g.max });
-  return `${g.passes} of ${g.repeat} attempt${g.repeat === 1 ? '' : 's'} must pass`;
-}
-
-/**
- * The rule a sequential gate (`chaos.gate`) decided a preset by, as a report states it beside the
- * tally and the bound: `gate: tells 90%+ from 50%- at <= 10% risk, up to 6 attempts`. Null
- * when no gate decided it: no attempt ran, the golden's own repeat and passes decided (its tally
- * says the count), or it is inconclusive for a reason of its own (the replay never reached the
- * call, a check no attempt could decide), which only a gate that ran out of attempts leaves unsaid.
- */
-export function presetRule(o: Pick<PresetOutcome, 'attempts' | 'gate' | 'verdict' | 'reason'>): string | null {
-  if (o.attempts === 0 || !('good' in o.gate) || (o.verdict === 'inconclusive' && o.reason !== null)) return null;
-  return `gate: ${gateWords(o.gate)}`;
-}
-
-/** The rule a recording's presets were decided by, stated once under them; null as presetRule says. */
-export function recordingRule(outcomes: readonly PresetOutcome[]): string | null {
-  for (const o of outcomes) {
-    const rule = presetRule(o);
-    if (rule) return rule;
-  }
-  return null;
-}
 
 /** The call a preset hits, as a sentence names it: `lookup_order (#4)`, `model call #5`. */
 export function callWords(preset: ChaosPreset, target: { callNo: number; name: string }): string {
@@ -242,7 +216,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     const hits = presetHits(preset);
     const target = hits === 'tool' ? targets.tool : targets.model;
     if ('none' in target) {
-      outcomes.push(record(ctx, parent, notApplicable(preset, target.none, shownGate)));
+      outcomes.push(record(ctx, parent, notApplicable(preset, target.none, shownGate), judge));
       continue;
     }
     const call = calls.find((c) => c.callNo === target.callNo)!;
@@ -251,7 +225,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     if (preset === 'empty' || preset === 'malformed' || preset === 'oversized') {
       const made = presetResult(preset, resultOf(call).result, resultShape(call), { oversize: chaos.oversize });
       if (refused(made)) {
-        outcomes.push(record(ctx, parent, notApplicable(preset, made.refused, shownGate, target)));
+        outcomes.push(record(ctx, parent, notApplicable(preset, made.refused, shownGate, target), judge));
         continue;
       }
       served = made;
@@ -355,8 +329,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     const firstFail = runs.find((r) => r.verdict === 'failed');
     const checks = runs.at(-1)?.checks?.length ?? 0;
     // Under a gate, its bound beside the tally (exact under its stopping, stats.ts); the rule is said once, under the table.
-    const sprt = 'kind' in gate && gate.kind === 'sprt' ? gate : null;
-    const bound = sprt && counted ? rateBound({ attempts: counted, interval: tallyInterval(sprt, { passes, attempts: counted }, decision, null, cut), decision }) : null;
+    const bound = presetBound(shownGate, { passes, attempts: counted }, decision, cut);
     const cutWords = cut ? ` (${cut} cut short by the provider, counted against either verdict)` : '';
     const tally = counted > 1 ? `${passes} of ${counted} attempts passed${cutWords}${bound ? ` · ${bound}` : ''}` : null;
     const said = firstFail?.lastLine ? ` (${firstFail.lastLine})` : '';
@@ -387,7 +360,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
         spent,
         ...(providers.unavailable ? { unavailable: providers.unavailable } : {}),
         ...(cut ? { cutShort: cut } : {}),
-      }),
+      }, judge),
     );
   }
   return { outcomes, interrupted, judge };
@@ -399,8 +372,11 @@ async function pause(ms: number, stopped?: () => boolean): Promise<void> {
   while (Date.now() < until && !stopped?.()) await new Promise<void>((r) => setTimeout(r, Math.min(250, until - Date.now())));
 }
 
-/** Keeps an outcome in the session; a store that refuses it costs the history, not the result. */
-function record(ctx: ChaosContext, parent: RunRecord, o: PresetOutcome): PresetOutcome {
+/**
+ * Keeps an outcome in the session, with what judged it and the attempts its provider cut short (a
+ * bound reads them back); a store that refuses it costs the history, not the result.
+ */
+function record(ctx: ChaosContext, parent: RunRecord, o: PresetOutcome, judge: ChaosJudge): PresetOutcome {
   try {
     ctx.store.addChaosResult({
       sessionId: ctx.session,
@@ -411,7 +387,7 @@ function record(ctx: ChaosContext, parent: RunRecord, o: PresetOutcome): PresetO
       callNo: o.callNo,
       passes: o.passes,
       attempts: o.attempts,
-      data: { target: o.target, detail: o.detail, reason: o.reason, runs: o.runs.map((r) => ({ runId: r.runId, verdict: r.verdict, passed: r.passed, exitCode: r.exitCode, ...(r.checks ? { checks: r.checks } : {}), reason: r.reason, ...(r.lastLine ? { lastLine: r.lastLine } : {}) })), gate: o.gate, upstreamRequests: o.upstreamRequests, spent: o.spent },
+      data: { target: o.target, detail: o.detail, reason: o.reason, runs: o.runs.map((r) => ({ runId: r.runId, verdict: r.verdict, passed: r.passed, exitCode: r.exitCode, ...(r.checks ? { checks: r.checks } : {}), reason: r.reason, ...(r.lastLine ? { lastLine: r.lastLine } : {}) })), gate: o.gate, upstreamRequests: o.upstreamRequests, spent: o.spent, judge, ...(o.cutShort ? { cutShort: o.cutShort } : {}) },
     });
   } catch (err) {
     process.stderr.write(`[shadowlap] the ${o.label} result was not kept: ${messageOf(err)}\n`);

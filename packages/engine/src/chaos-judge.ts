@@ -2,6 +2,7 @@ import type { TestSpec } from './checks/grammar.js';
 import { checkLabels } from './checks/labels.js';
 import { DEFAULT_CHAOS, type ChaosSpec } from './checks/tests-entry.js';
 import type { EffectOf } from './decisions.js';
+import { describeGate, rateBound, tallyInterval, type GateDecision, type Tally } from './stats.js';
 
 /**
  * What judges a recording's error-path presets besides the agent exiting 0, as `test --chaos`,
@@ -92,4 +93,63 @@ export function presetProof<C extends { verdict: string; runs: ReadonlyArray<{ r
     if (attempt) return { cell, attempt };
   }
   return null;
+}
+
+/** The gate a preset's attempts were decided by, as a result keeps it: a sequential gate's figures, or a fixed count. */
+export type PresetGate = { good: number; bad: number; risk: number; max: number } | { repeat: number; passes: number };
+
+/** A kept result's gate, read back from its JSON: null for one that keeps none it can read. */
+export function keptGate(g: unknown): PresetGate | null {
+  if (!g || typeof g !== 'object') return null;
+  const o = g as Record<string, unknown>;
+  const num = (k: string) => typeof o[k] === 'number' && Number.isFinite(o[k]);
+  if (num('good') && num('bad') && num('risk') && num('max')) return { good: o.good as number, bad: o.bad as number, risk: o.risk as number, max: o.max as number };
+  return num('repeat') && num('passes') ? { repeat: o.repeat as number, passes: o.passes as number } : null;
+}
+
+/** A preset's gate in words: a sequential gate's rule, or `2 of 3 attempts must pass`. */
+export function gateWords(g: PresetGate): string {
+  if ('good' in g) return describeGate({ kind: 'sprt', good: g.good, bad: g.bad, risk: g.risk, max: g.max });
+  return `${g.passes} of ${g.repeat} attempt${g.repeat === 1 ? '' : 's'} must pass`;
+}
+
+/**
+ * The rule a sequential gate (`chaos.gate`) decided a preset by, as a report states it beside the
+ * tally; null when no gate decided it: no attempt ran, the golden's own repeat and passes decided (its
+ * tally says the count), or it is inconclusive for a reason of its own (the replay never reached the
+ * call, a check no attempt could decide), which only a gate that ran out of attempts leaves unsaid.
+ */
+export function presetRule(o: { attempts: number; gate: PresetGate; verdict: string; reason: string | null }): string | null {
+  if (o.attempts === 0 || !('good' in o.gate) || (o.verdict === 'inconclusive' && o.reason !== null)) return null;
+  return `gate: ${gateWords(o.gate)}`;
+}
+
+/** The rule a recording's presets were decided by, stated once under them; null as presetRule says. */
+export function recordingRule(outcomes: ReadonlyArray<Parameters<typeof presetRule>[0]>): string | null {
+  for (const o of outcomes) {
+    const rule = presetRule(o);
+    if (rule) return rule;
+  }
+  return null;
+}
+
+/**
+ * A preset's bound beside its tally, under a sequential gate: exact under its stopping (stats.ts),
+ * with the attempts the provider cut short counted against either verdict. Null under a fixed count,
+ * or for fewer than two attempts, which no tally shows.
+ */
+export function presetBound(gate: PresetGate, tally: Tally, decision: GateDecision, cutShort = 0): string | null {
+  if (!('good' in gate) || tally.attempts < 2) return null;
+  const interval = tallyInterval({ kind: 'sprt', good: gate.good, bad: gate.bad, risk: gate.risk, max: gate.max }, tally, decision, null, cutShort);
+  return rateBound({ attempts: tally.attempts, interval, decision });
+}
+
+/**
+ * A kept result's bound, as the CLI printed it beside its tally: none where presetRule states no
+ * rule. Its attempts are then the ones the gate counted, and its verdict the gate's decision.
+ */
+export function keptPresetBound(o: Parameters<typeof presetRule>[0] & { passes: number; cutShort?: number | undefined }): string | null {
+  if (!presetRule(o)) return null;
+  const decision: GateDecision = o.verdict === 'passed' ? 'pass' : o.verdict === 'failed' ? 'fail' : 'inconclusive';
+  return presetBound(o.gate, { passes: o.passes, attempts: o.attempts }, decision, o.cutShort ?? 0);
 }

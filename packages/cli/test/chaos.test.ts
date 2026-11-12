@@ -210,6 +210,13 @@ describe('test --chaos', () => {
     expect(p.timeout).toMatchObject({ verdict: 'passed', summary: 'timed out: the agent exited 0, 1 check passed' });
     expect(p.oversized).toMatchObject({ verdict: 'failed', reason: 'check failed: send_alert called 0 times, but called 1 time' });
     expect(r.stdout).toContain("  checks: send_alert called 0 times (the write limits of the golden's expect)");
+    // Each kept result keeps what judged it, which the dashboard's panel says where the CLI's table does.
+    const store = Store.open(db());
+    try {
+      expect(store.listChaosResults({ sessionId: out.session }).map((x) => x.data?.judge)).toEqual([out.results[0].judge, out.results[0].judge]);
+    } finally {
+      store.close();
+    }
     expect(r.stdout).not.toContain('judged on the agent exiting 0 alone');
 
     // shadowlap show says what an attempt is: which preset played what in where.
