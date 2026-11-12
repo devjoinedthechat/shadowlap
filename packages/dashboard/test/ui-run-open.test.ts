@@ -327,6 +327,8 @@ describe('a judged run’s page', () => {
   const chips = () => r!.all('.scopebar .chips button');
   const pressed = () => chips().map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
   const listed = () => r!.all('table.calls tbody tr[data-call]').map((tr) => Number(tr.getAttribute('data-call')));
+  /** The judge verdict's call in the findings bar. */
+  const verdictCall = () => r!.all('.findings button').find((b) => b.textContent === '#13')!;
 
   it('opens under All on the agent’s last model call, never the judge’s that came after it', async () => {
     const bar = await open();
@@ -337,5 +339,20 @@ describe('a judged run’s page', () => {
       ['judge1', 'false'],
     ]);
     expect(listed()).not.toContain(13);
+  });
+  it('picks the judge’s chip at each press of its verdict’s call, though the call is selected already and All was picked since', async () => {
+    const bar = await open();
+    await r!.click(verdictCall());
+    await r!.until('the judge’s chip', () => pressed()[1]?.[1] === 'true');
+    expect([bar.hash, listed()]).toEqual([`#/run/${RUN}/13`, [13]]);
+    // All picked: the judge's call stays selected, out of its list.
+    await r!.click(chips()[0]);
+    await r!.until('All', () => pressed()[0]?.[1] === 'true');
+    expect(bar.hash).toBe(`#/run/${RUN}/13`);
+    expect(listed()).not.toContain(13);
+    // Its call pressed again goes nowhere new, and picks the judge's chip again.
+    await r!.click(verdictCall());
+    await r!.until('the judge’s chip again', () => pressed()[1]?.[1] === 'true');
+    expect([bar.hash, listed()]).toEqual([`#/run/${RUN}/13`, [13]]);
   });
 });

@@ -64,6 +64,16 @@ describe('a judge’s calls in the run’s lists', () => {
     l.setScope('all');
     await page.wait(0);
     expect([got!.scope, nos(got!.visible)]).toEqual(['all', [1, 2, 4]]);
+    // Picked again, though selected already (its finding's #n pressed again: the page's select), it picks the chip again.
+    got!.pickScope(3);
+    await page.wait(0);
+    expect([got!.scope, nos(got!.visible)]).toEqual([JUDGE, [3]]);
+    // An agent's call picked leaves the scope as it is.
+    got!.setScope('all');
+    await page.wait(0);
+    got!.pickScope(4);
+    await page.wait(0);
+    expect(got!.scope).toBe('all');
   });
 
   it('leave a long run’s All by the server’s numbers before their pages come: its placeholders, the key’s counts and the tabs’', async () => {

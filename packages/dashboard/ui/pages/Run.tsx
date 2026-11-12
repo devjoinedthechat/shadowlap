@@ -272,7 +272,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // The calls as Calls lists them: the scope, the filter, the groups and what is folded (call-list.ts).
   // A recording's or a capture's strip, key and filter go by what each call was; every other run's by origin (kinds.ts).
   const kinds = useMemo(() => byKind(run), [run]);
-  const { scope, setScope, scopeTree, scoped, bar, judge, judgeOn, scopedCalls, ownCalls, strip, filter, setFilter, text, setText, asked, listed, trace, rows, held, shown, fold, visible, counts, tabCounts } = useCallList({ runId, calls, paging, selected, byKind: kinds, live, spend: !run.summary.imported });
+  const { scope, setScope, pickScope, scopeTree, scoped, bar, judge, judgeOn, scopedCalls, ownCalls, strip, filter, setFilter, text, setText, asked, listed, trace, rows, held, shown, fold, visible, counts, tabCounts } = useCallList({ runId, calls, paging, selected, byKind: kinds, live, spend: !run.summary.imported });
   const [tab, setTabState] = useState<InspectorTab>(lastTab);
   const setTab = (t: InspectorTab) => {
     lastTab = t;
@@ -311,7 +311,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);
   const waited = useMemo(() => (typeof run.notWaitedMs === 'number' ? { ms: run.notWaitedMs, unknown: 0 } : notWaited(calls, ancestors)), [run.notWaitedMs, calls, ancestors]);
 
-  const select = useCallback((n: number) => (closePanel(), navigate(href.run(runId, n, v), true)), [runId, v, closePanel]);
+  // A judge's call picked picks the judge's chip, though it is selected already (call-list.ts).
+  const select = useCallback((n: number) => (closePanel(), pickScope(n), navigate(href.run(runId, n, v), true)), [runId, v, closePanel, pickScope]);
   // A row picked below 1160px brings the inspector, under the calls, into view.
   const pickRow = usePickInView(select, selected, detail);
   const setView = (next: View) => (warmViews(), navigate(href.run(runId, selected, next), true));

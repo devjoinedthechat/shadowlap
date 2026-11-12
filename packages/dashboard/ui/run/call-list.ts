@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
 import type { CallRow } from '../types.js';
 import { displayOrigin } from '../origins.js';
+import { useLatest } from '../hooks.js';
 import { inScope, isJudge, ownAgents, scopeChips } from '../scopes.js';
 import { askedTools } from './calls.js';
 import { keepFilter, keyCounts, matchesFilter, pendingMatches, pickedFilter, shownFilter, type CallFilter } from './call-filter.js';
@@ -29,8 +30,10 @@ const loudBy =
  * server's `judgeCalls` too while a long run's pages come) are none of the agent's: All leaves them
  * out, and so do the strip, the key and the tabs' counts, until the judge's chip is picked; then the
  * views are the judge's, the strip adds its calls and dims the rest, and Context and Timeline stay
- * the agent's (`ownCalls`), saying so (`judgeOn`). A judge's call picked (its finding's #n, a link to
- * it) picks the judge's chip.
+ * the agent's (`ownCalls`), saying so (`judgeOn`). A judge's call picked picks the judge's chip: as
+ * the selection moves to it (a link to it), and at every pick of one, though it is selected already
+ * (`pickScope`, which the page's select calls: its finding's #n again, after All). The page never
+ * opens on one by itself (open-at.ts).
  */
 function useScopes(calls: CallRow[], paging: Paging | null, selected: number | null) {
   const [scope, setScope] = useState('all');
@@ -40,13 +43,15 @@ function useScopes(calls: CallRow[], paging: Paging | null, selected: number | n
     setSeen(selected);
     if (selected !== null && judge.has(selected)) setScope(JUDGE_SCOPE);
   }
+  const judgeNow = useLatest(judge);
+  const pickScope = useCallback((n: number) => (judgeNow.current.has(n) ? setScope(JUDGE_SCOPE) : undefined), [judgeNow]);
   const judgeOn = scope === JUDGE_SCOPE;
   const scoped = useMemo(() => ownAgents(calls), [calls]);
   const scopeTree = useMemo(() => (scoped ? scopeChips(calls) : []), [scoped, calls]);
   const scopedCalls = useMemo(() => (scope === 'all' && !judge.size ? calls : calls.filter((c) => inScope(c, scope))), [calls, scope, judge]);
   // Context and Timeline under the judge's chip: the agent's calls.
   const ownCalls = useMemo(() => (judgeOn ? calls.filter((c) => inScope(c, 'all')) : scopedCalls), [judgeOn, calls, scopedCalls]);
-  return { scope, setScope, judge, judgeOn, scoped, bar: scoped || judge.size > 0, scopeTree, scopedCalls, ownCalls };
+  return { scope, setScope, pickScope, judge, judgeOn, scoped, bar: scoped || judge.size > 0, scopeTree, scopedCalls, ownCalls };
 }
 
 /** A long run's strings as All reads them: without the judge's calls. */
