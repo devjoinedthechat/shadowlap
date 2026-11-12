@@ -25,25 +25,26 @@ import { useEffect, useState, type ComponentType, type JSX, type ReactNode } fro
  * Run blame's dialogs and their check (fixes/RunBlameAsks.tsx), the fork menu (run/ForkMenu.tsx),
  * and the header's … with Delete run's helper (run/MoreMenu.tsx). So must the structural diff
  * (components/JsonDiff.tsx), the results matrix (components/ResultsMatrix.tsx), the check builder
- * (checks/) and each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
+ * and Remove check's dialog on Tests (checks/, the dialog declared in tests/check-entries.tsx) and
+ * each Changes tab (changes/): test/ui-bundle-size.test.ts fails when one of them is in
  * the first look or loads with a page. A part is declared beside the page that shows it, never in
  * pages/lazy.tsx: an exported copy, one script with the pages it shows (main-copy.tsx), then holds
  * the parts they show and none of the dashboard's other pages. A part a copy never draws, such as
  * Share's menu with the dialogs it opens (Export dataset…, Export OpenTelemetry trace… and the
  * Security report), the fork menu and the header's … (a copy forks nothing and draws none of the
- * header's actions), Run blame's dialogs, the check builder (which only Add check… opens), an
- * injection test's results (a copy keeps no results), the dialogs a run's steps ask in
- * (run/StepDialogs.tsx: a copy draws no step that asks), Revert's dialog or the first bad commit's
- * change box, the dialog a run's action asks in (run/ActionDialog.tsx), Find breaking commit's and
- * Delete run's (run/RunDialogs.tsx), a diverged test's (run/DivergedDialogs.tsx) and Edit and
- * fork's (run/EditDialog.tsx), the shell's palette, the job's drawer with the words of a job's kind
- * (jobs.ts) and Remove project's dialog, or the page that says another project holds what a link
- * names (pages/Elsewhere.tsx, which the page list shows too), is the exception: the served entry
- * hands it in (served-parts.ts, from pages/served.tsx), so a copy's script holds none of it, and a
- * test pins what keeps each one undrawn there (test/ui-exported-copy.test.ts,
- * test/ui-revert-copy.test.ts). The bundle size test holds each page's and each part's script to a
- * budget of its own. What a fork did differently waits so too, a finding of a fork's page alone,
- * asked for with the differences (run/FindingsBar.tsx).
+ * header's actions), Run blame's dialogs, the check menu at a tool call and the check builder its
+ * pick opens (which only Add check… opens), an injection test's results (a copy keeps no results),
+ * the dialogs a run's steps ask in (run/StepDialogs.tsx: a copy draws no step that asks), Revert's
+ * dialog or the first bad commit's change box, the dialog a run's action asks in
+ * (run/ActionDialog.tsx), Find breaking commit's and Delete run's (run/RunDialogs.tsx), a diverged
+ * test's (run/DivergedDialogs.tsx) and Edit and fork's (run/EditDialog.tsx), the shell's palette,
+ * the job's drawer with the words of a job's kind (jobs.ts) and Remove project's dialog, or the page
+ * that says another project holds what a link names (pages/Elsewhere.tsx, which the page list shows
+ * too), is the exception: the served entry hands it in (served-parts.ts, from pages/served.tsx), so
+ * a copy's script holds none of it, and a test pins what keeps each one undrawn there
+ * (test/ui-exported-copy.test.ts, test/ui-revert-copy.test.ts). The bundle size test holds each
+ * page's and each part's script to a budget of its own. What a fork did differently waits so too,
+ * a finding of a fork's page alone, asked for with the differences (run/FindingsBar.tsx).
  */
 export interface OnShow<P> {
   (props: P): JSX.Element;

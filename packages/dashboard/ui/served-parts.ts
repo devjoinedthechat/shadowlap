@@ -12,7 +12,7 @@ import type { ElsewhereProps } from './pages/held-elsewhere.js';
 import type { ChangeBoxProps } from './revert/ChangeBox.js';
 import type { RevertDialogProps } from './revert/RevertDialog.js';
 import type { ActionDialog } from './run/ActionDialog.js';
-import type { BuilderProps } from './run/check-part.js';
+import type { BuilderProps, CheckMenuProps } from './run/check-part.js';
 import type { DivergedDialogs } from './run/DivergedDialogs.js';
 import type { EditDialog } from './run/EditDialog.js';
 import type { ForkMenu } from './run/ForkMenu.js';
@@ -54,18 +54,18 @@ export type JobWords = typeof JobWordsModule;
  * holds none of their code, and a page that finds one missing draws nothing in its place. What keeps
  * each undrawn in a copy is pinned by a test. test/ui-exported-copy.test.ts: a copy's run page draws
  * no Share, so nothing there opens Share's menu, no Fork at #n in its header or on a row and no …,
- * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the builder; a
- * copy's next step is only ever Compare, so it draws no Run blame either, and no step that asks; its
- * Runs keeps Failed a filter, so draws no issues; New preview waits in a copy, as every server action
- * does, so its menu never opens there. test/ui-revert-copy.test.ts: a copy's run has no revert step
- * and no offers, so no first bad commit to show, and its Tests page is not in it.
- * test/ui-injection-results.test.ts: a copy keeps no injection results, so its run page draws no
- * test's finding to open them from, and no Share to download a report from; a copy keeps no
- * attempt's read, so an attempt's page there draws no proof and marks nothing. And the shell's and a
- * run's page's parts a copy never draws (test/ui-exported-copy.test.ts again): its client starts and
- * follows no job, so it draws no job's drawer and needs none of its words; its actions wait
- * (`actionsOff`), so no action and no Find breaking commit asks in a dialog; it runs no job of a
- * test's, so a diverged test asks in none; Edit and fork draws nothing there; its meta draws the
+ * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the check
+ * menu or the builder; a copy's next step is only ever Compare, so it draws no Run blame either,
+ * and no step that asks; its Runs keeps Failed a filter, so draws no issues; New preview waits in a
+ * copy, as every server action does, so its menu never opens there. test/ui-revert-copy.test.ts: a
+ * copy's run has no revert step and no offers, so no first bad commit to show, and its Tests page is
+ * not in it. test/ui-injection-results.test.ts: a copy keeps no injection results, so its run page
+ * draws no test's finding to open them from, and no Share to download a report from; a copy keeps
+ * no attempt's read, so an attempt's page there draws no proof and marks nothing. And the shell's
+ * and a run's page's parts a copy never draws (test/ui-exported-copy.test.ts again): its client
+ * starts and follows no job, so it draws no job's drawer and needs none of its words; its actions
+ * wait (`actionsOff`), so no action and no Find breaking commit asks in a dialog; it runs no job of
+ * a test's, so a diverged test asks in none; Edit and fork draws nothing there; its meta draws the
  * copy's own block in the project switcher's place, so nothing opens Remove project; a page that
  * can't find what a link names says so itself, never asking another project; and ⌘K, `/` and the
  * top bar open no palette.
@@ -87,6 +87,8 @@ export interface ServedParts {
   RunBlameAsks?: OnShow<RunBlameAsksProps>;
   /** New preview's three dialogs (changes/NewPreview.tsx), which a pick in its menu opens (components/NewPreviewMenu.tsx): loaded ahead as the pointer or the focus reaches New preview. */
   NewPreview?: OnShow<NewPreviewProps>;
+  /** The check menu at a tool call (run/CheckMenu.tsx), whose pick opens the builder: loaded ahead with the builder, and a page handed one without the other offers no Add check…. */
+  CheckMenu?: OnShow<CheckMenuProps>;
   /** Runs › Failed as issues (runspage/FailedIssues.tsx): a copy keeps Failed a filter over its runs. */
   FailedIssues?: OnShow<FailedIssuesProps>;
   /** An injection test's results in the inspector's place (injection/InjectionResults.tsx), with the matrix they draw: loaded ahead as the pointer or the focus reaches Show results. */

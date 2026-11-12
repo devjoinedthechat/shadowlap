@@ -40,10 +40,10 @@ function PressLost({ what, open, close }: { what: 'menu' | 'dialog'; open: boole
  * the fork menu, the header's …, Revert's dialog, Run blame's dialogs, New preview's dialogs, the
  * steps' dialogs, a run's action's, Find breaking commit's, a diverged test's, Edit and fork's and
  * Remove project's, each a `menu` or a `dialog` in the toast's words. The parts drawn in place keep
- * their own: the first bad commit's change box's LoadFailed, the check builder's BuilderLost, Runs ›
- * Failed's issues' LoadFailed, the results panel's LoadFailed, an injection test's finding's
- * (FindingLost) and the In page's, its page's not-found. The palette and the job's drawer, drawn
- * before any press asks for them, draw nothing.
+ * their own: the first bad commit's change box's LoadFailed, the check builder's and the check
+ * menu's BuilderLost, Runs › Failed's issues' LoadFailed, the results panel's LoadFailed, an
+ * injection test's finding's (FindingLost) and the In page's, its page's not-found. The palette and
+ * the job's drawer, drawn before any press asks for them, draw nothing.
  */
 const failed = <P,>(what: 'menu' | 'dialog', pressed: (props: P) => Pressed): OnShowOptions<P> => ({
   failed: (props) => {
@@ -83,6 +83,7 @@ export const SERVED_PARTS: ServedParts = {
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks), failed('dialog', closes)),
   NewPreview: onShow(() => import('../changes/NewPreview.js').then((m) => m.NewPreview), failed('dialog', closes)),
+  CheckMenu: onShow(() => import('../run/CheckMenu.js').then((m) => m.CheckMenu), { failed: <BuilderLost /> }),
   FailedIssues: onShow(() => import('../runspage/FailedIssues.js').then((m) => m.FailedIssues), { waiting: <IssuesLoading />, failed: <LoadFailed what="view" /> }),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog), failed('dialog', closes)),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog), failed('dialog', closes)),

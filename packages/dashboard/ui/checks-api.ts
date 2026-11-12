@@ -17,7 +17,8 @@ export type { CheckContext, CheckPreview, ChecksConfig, ConfigPrints, ContextCal
 export type ChecksOf = { run: string } | { golden: string };
 
 /** What a save answers: the entry's key, the file's new version, the labels added and removed, and whether anything changed. */
-export type ChecksSaved = Omit<TestsWritten, 'event'>;
+/** A write's answer; `was`, for one that changed the file, is what its Undo sends. */
+export type ChecksSaved = Omit<TestsWritten, 'event' | 'prior'> & { was?: string };
 
 export interface ChecksApi {
   goldens(of: ChecksOf): Promise<ChecksConfig>;
@@ -26,6 +27,8 @@ export interface ChecksApi {
   preview(expect: unknown, of: ChecksOf, signal?: AbortSignal): Promise<CheckPreview>;
   /** The golden's entry as it changes: `{ expect }`, or `{ expect: null }` to take its checks out. */
   save(body: { golden: string; version: string; read: ConfigPrints; entry: { expect: unknown } }): Promise<ChecksSaved>;
+  /** Puts back what the write that answered `was` changed, unless the file changed since (a 409). */
+  undo(was: string): Promise<ChecksSaved>;
 }
 
 export function checksApi(request: Request): ChecksApi {
@@ -37,10 +40,11 @@ export function checksApi(request: Request): ChecksApi {
     context: (runId, at) => request(`checks/context?run=${q(runId)}&at=${at}`),
     preview: (expect, of, signal) => send('POST', 'checks/preview', { expect, ...of }, signal),
     save: (body) => send('PUT', 'checks/tests', body),
+    undo: (was) => send('POST', 'checks/tests/undo', { was }),
   };
 }
 
 /** An exported copy makes no checks: every call says so. */
 export function noChecks(refuse: () => Promise<never>): ChecksApi {
-  return { goldens: refuse, context: refuse, preview: refuse, save: refuse };
+  return { goldens: refuse, context: refuse, preview: refuse, save: refuse, undo: refuse };
 }

@@ -18,10 +18,11 @@ import { compareTarget, outcomeOf } from '../runs.js';
 import { shortcut } from '../shortcuts.js';
 import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
-import { gateAgainAsk, rerunAsk, startTestsJob } from '../tests-ask.js';
+import { gateAgainAsk, rerunAsk, sessionAsk, startTestsJob } from '../tests-ask.js';
 import type { NextStep } from '../types.js';
 import type { PendingAction } from './actions.js';
 import { useDivergedJobs } from './diverged.js';
+import { EditCheckStep } from './check-entry.js';
 import { checksOf, runLikeOf } from './model.js';
 import { blameBesideCard, replayAction, stepCard, stepEstimate, stepJob, type StepCard } from './next-step.js';
 import { blameTitle } from './offers.js';
@@ -151,14 +152,19 @@ function UpdateStep({ step }: { step: Extract<NextStep, { key: 'normalizer' | 'u
   );
 }
 
-/** Re-run test: the golden's test again, a gate's too, asking first where it runs live (tests-ask.ts), by Spending where its price is known. */
-function RerunStep({ step }: { step: Extract<NextStep, { key: 'rerun-test' | 'gate-again' }> }) {
+/**
+ * Re-run test: the golden's test again, a gate's too; Run tests, where the golden's checks changed
+ * since, Tests' whole session, as its header runs it. Each asks first where it runs live
+ * (tests-ask.ts), by Spending where its price is known.
+ */
+function RerunStep({ step }: { step: Extract<NextStep, { key: 'rerun-test' | 'gate-again' | 'run-tests' }> }) {
   const app = useApp();
   const name = goldenName(step.golden);
   const estimate = stepEstimate(step);
-  const say = { ...(step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden)), estimate };
+  const say = { ...(step.key === 'run-tests' ? sessionAsk(step.command ?? '') : step.key === 'gate-again' ? gateAgainAsk(name, step.golden) : rerunAsk(name, step.golden)), estimate };
+  const fields = step.key === 'run-tests' ? {} : { golden: step.golden };
   return (
-    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { golden: step.golden, ...sentEstimate(estimate) }, say)}>
+    <TestsJobButton className="btn lime" verb={stepJob(step)!.verb} off={app.actionsOff} tip={tipOf(stepCard(step))} lead={step.key} onClick={() => startTestsJob(app, JOB_KINDS.tests, { ...fields, ...sentEstimate(estimate) }, say)}>
       {step.label}
     </TestsJobButton>
   );
@@ -305,7 +311,10 @@ export function NextStepButton(props: StepProps) {
       return step.key === 'update-golden' && !(props.offers?.test ?? step.test) ? <UpdateStep step={step} /> : <DivergedStep {...props} step={step} />;
     case 'rerun-test':
     case 'gate-again':
+    case 'run-tests':
       return <RerunStep step={step} />;
+    case 'edit-check':
+      return <EditCheckStep step={step} />;
     case 'bisect':
       return <BisectStep {...props} step={step} />;
     case 'revert':

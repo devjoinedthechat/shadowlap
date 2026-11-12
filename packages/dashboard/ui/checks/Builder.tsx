@@ -18,6 +18,8 @@ import {
   blankUnit,
   editAt,
   fileUnit,
+  NOT_AS_WRITTEN,
+  unitWithLabel,
   firstCall,
   goldenLead,
   judgeAdded,
@@ -60,11 +62,23 @@ import { Sentence } from './Sentence.js';
  * have come, so its focus starts on what it checks.
  */
 export function Builder(props: BuilderProps) {
-  const { client } = useApp();
+  const { client, toast } = useApp();
   const of: ChecksOf = 'call' in props ? { run: props.run.run.runId } : { golden: props.golden };
   const cfg = useLoad(() => client.checks.goldens(of), JSON.stringify(of));
+  // A check to change that the entry, as first read, doesn't yield: it closes and says where to edit it.
+  // Only the first read decides: one again after a 409 rebases the draft instead (Body).
+  const [first, setFirst] = useState<ChecksConfig | null>(null);
+  if (cfg.data && !first) setFirst(cfg.data);
+  const gone = !('call' in props) && props.edit !== null && !!first && unitWithLabel(baseOf(goldenAt(first, props.golden)), props.edit) < 0;
+  const { onClose } = props;
+  useEffect(() => {
+    if (!gone) return;
+    toast(NOT_AS_WRITTEN);
+    onClose();
+  }, [gone, toast, onClose]);
   const at = contextAt(props, cfg.data);
   const ctx = useLoad(() => (at ? client.checks.context(at.runId, at.callNo) : null), at ? `${at.runId}:${at.callNo}` : 'none');
+  if (gone) return null;
   const head = headOf(props, 'call' in props ? null : props.golden);
   if (!cfg.data || (at && !ctx.data && !ctx.error)) {
     return (
@@ -121,8 +135,10 @@ function startOf(props: BuilderProps, cfg: ChecksConfig, rctx: RuleContext): Sta
     const file = unitsOf(baseOf(goldenAt(cfg, golden))).map(fileUnit);
     return { units: [...file, withRule(blankUnit(), rule)], active: file.length, golden, picked: false };
   }
-  const file = unitsOf(baseOf(goldenAt(cfg, props.golden))).map(fileUnit);
-  const opened = props.edit !== null && file[props.edit] ? editAt({ units: file, active: 0 }, props.edit) : { units: [...file, blankUnit()], active: file.length };
+  const base = baseOf(goldenAt(cfg, props.golden));
+  const file = unitsOf(base).map(fileUnit);
+  const at = props.edit === null ? -1 : unitWithLabel(base, props.edit);
+  const opened = at >= 0 ? editAt({ units: file, active: 0 }, at) : { units: [...file, blankUnit()], active: file.length };
   return { ...opened, golden: props.golden, picked: true };
 }
 

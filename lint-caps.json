@@ -187,7 +187,7 @@
       "NewProjectPage": 36
     },
     "packages/dashboard/ui/pages/Run.tsx": {
-      "Workspace": 37
+      "Workspace": 31
     },
     "packages/dashboard/ui/pages/Training.tsx": {
       "ScoreDialog": 34
@@ -199,7 +199,7 @@
       "ProvenanceView": 87
     },
     "packages/dashboard/ui/run/RunHeader.tsx": {
-      "RunHeader": 59
+      "RunHeader": 56
     },
     "packages/dashboard/ui/run/paged-run.ts": {
       "usePagedRun": 31
@@ -463,7 +463,7 @@
     "packages/cli/test/ci-fix.test.ts": 935,
     "packages/cli/test/repair.test.ts": 830,
     "packages/cli/test/training.test.ts": 993,
-    "packages/dashboard/src/tests.ts": 967,
+    "packages/dashboard/src/tests.ts": 910,
     "packages/dashboard/test/fixes.test.ts": 870,
     "packages/dashboard/test/tests.test.ts": 1111,
     "packages/dashboard/test/ui-logic.test.ts": 810,

@@ -327,6 +327,18 @@ export function labelsOf(f: Fragment): string[] {
   }
 }
 
+/**
+ * The place of the unit of a golden's checks that yields `label`, as the CLI labels a check: one unit
+ * can yield several (a `when` rule's checks, an output's texts). -1 where none does, as after the
+ * file was edited by hand since the page named the check.
+ */
+export function unitWithLabel(expect: unknown, label: string): number {
+  return unitsOf(expect).findIndex((f) => labelsOf(f).includes(label));
+}
+
+/** What the builder toasts, closing, for a check its golden's entry doesn't yield as written. */
+export const NOT_AS_WRITTEN = 'This check isn’t in shadowlap.config.json as written: edit it there';
+
 // ---- The golden's checks as they change ---------------------------------------------------------
 
 /** One check of the golden's, or one added: as the file holds it, the rule once opened in the editor, and what it writes now. */
@@ -639,11 +651,8 @@ export function checkCommand(ids: readonly string[], expect: Fragment): { view: 
 
 // ---- The builder's head and the list's actions --------------------------------------------------
 
-/** The builder's title: from a call, `Add check`; on a golden, adding to it or changing its check. */
-export function titleOf(golden: string | null, o: { edit: boolean; fromCall: boolean }): string {
-  if (golden && o.edit) return `Edit check of ${goldenName(golden)}`;
-  return golden && !o.fromCall ? `Add check to ${goldenName(golden)}` : 'Add check';
-}
+/** The builder's title, beside its served part (run/check-part.tsx), whose entries title their own dialogs by it. */
+export { builderTitle as titleOf } from '../run/check-part.js';
 
 /** The lead under it, where the check isn't made from a call (that lead names the call in code). */
 export function goldenLead(golden: string | null, edit: boolean): string {

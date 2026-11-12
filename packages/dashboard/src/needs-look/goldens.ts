@@ -8,7 +8,9 @@ import { goldenName, type LookSource, type LookStep, type LookWork, type NeedsLo
 /*
  * Needs a look's rows about goldens: each that fails, as its gate says it, its step what its run's
  * page leads with (unless an open fix holds it: the fix's row names it), and each that is
- * inconclusive, with what settles it.
+ * inconclusive, with what settles it. A golden whose checks changed since its last test leads with
+ * Run tests, as its run's page does, and its line says so (` · checks changed since`); one whose own
+ * recording fails a check added since, with Edit check.
  */
 
 /** A run's step as a row's: a link where it is one (Open fix, Open passing run, Open proof), else the step itself. */
@@ -21,10 +23,13 @@ export function runLookStep(runId: string, step: NextStep | null | undefined): L
 
 const held = (w: LookWork, t: FailingTest) => !!t.fixId && (w.held.get(t.fixId) ?? []).some((h) => h.golden === t.golden);
 
+/** Whether a row's step is Run tests, its golden's checks changed since its last test. */
+const runsTests = (step: LookStep | null): boolean => step?.of === 'run' && step.step.key === 'run-tests';
+
 const golden = (t: FailingTest, step: LookStep | null): Pick<NeedsLookRow, 'title' | 'name' | 'detail' | 'step' | 'href' | 'runId' | 'at' | 'report' | 'rule'> => ({
   title: t.title,
   name: goldenName(t.golden),
-  detail: t.line,
+  detail: runsTests(step) ? `${t.line} · checks changed since` : t.line,
   step,
   // Tests, at the golden's report.
   href: links.tests(),
@@ -43,9 +48,10 @@ export const failedGoldens: LookSource = {
 };
 
 /**
- * Run more attempts where its gate ran out of them, Update golden where a judge check had no verdict
- * offline, Re-run test where its injection gate showed too little to say (its card saying why, as
- * its run's page does); else the row opens Tests.
+ * Run tests where its checks changed since its last test, its run's step; Run more attempts where its
+ * gate ran out of them, Update golden where a judge check had no verdict offline, Re-run test where
+ * its injection gate showed too little to say (its card saying why, as its run's page does); else
+ * the row opens Tests.
  */
 export const inconclusiveGoldens: LookSource = {
   id: 'inconclusiveGoldens',
@@ -57,13 +63,17 @@ export const inconclusiveGoldens: LookSource = {
     return unsure.map((t) => {
       const r = latest?.get(t.golden);
       const more = t.next === 'run-more' && r ? (gateResultView(r, r.golden)?.more ?? null) : null;
-      const step: LookStep | null = more
-        ? { of: 'more', golden: t.golden, label: ACTIONS.runMoreAttempts.label, more }
-        : t.next === 'update'
-          ? { of: 'update', golden: t.golden, label: ACTIONS.updateGolden.label, command: commandLine(['test', t.golden, '--update']) }
-          : t.next === 'run-again'
-            ? { of: 'rerun', golden: t.golden, label: ACTIONS.rerunTest.label, sub: gateAgainSub(r?.data?.injection?.reason), command: commandLine(['test', t.golden]) }
-            : null;
+      // Its checks changed since its last test: its run's step, Run tests.
+      const stale = t.next === 'run-tests' && t.runId ? runLookStep(t.runId, w.steps.get(t.golden)) : null;
+      const step: LookStep | null =
+        stale ??
+        (more
+          ? { of: 'more', golden: t.golden, label: ACTIONS.runMoreAttempts.label, more }
+          : t.next === 'update'
+            ? { of: 'update', golden: t.golden, label: ACTIONS.updateGolden.label, command: commandLine(['test', t.golden, '--update']) }
+            : t.next === 'run-again'
+              ? { of: 'rerun', golden: t.golden, label: ACTIONS.rerunTest.label, sub: gateAgainSub(r?.data?.injection?.reason), command: commandLine(['test', t.golden]) }
+              : null);
       return { key: `attn:inconclusive:${t.golden}`, group: 'tests', kind: 'test', icon: 'warn', fixId: null, ...golden(t, step) };
     });
   },

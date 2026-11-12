@@ -9,7 +9,7 @@ import type { NextStep } from './next-step.js';
 import type { RunJudged } from './run-outcome.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
-import { analysisFor, blameAt, conversationSource, modelName, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_BEFORE, READ_PAST, runPageFacts, runProvenance, runShowJson, windowAnalysis, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
+import { analysisFor, blameAt, conversationSource, judgeCallNos, modelName, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_BEFORE, READ_PAST, runPageFacts, runProvenance, runShowJson, verdictsByCall, windowAnalysis, type CallFacts, type JudgeRow, type JudgeVerdicts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
 import { keptCalls, runCalls } from './run-calls.js';
 import { blameStep, runWholeFacts } from './run-summary.js';
 import { kindCode } from './call-kinds.js';
@@ -104,6 +104,8 @@ export interface CallRow extends CallFacts {
   input?: true;
   /** A call made in one of Shadowlap's own scopes, such as its judge's (`shadowlap:judge`): none of the agent's. */
   reserved?: true;
+  /** A judge's call: the check it answered, by its name in the config, and the verdict the run's check kept of it (null where none was kept). */
+  judge?: JudgeRow;
   /**
    * While its run records, a call answered with a failure the agent may retry (a 429, a 5xx, a
    * connection that broke): the retry answers it again under its number, also after calls made since
@@ -143,6 +145,12 @@ export interface RunDetail extends RunPageFacts {
    * their pages have come. Absent when `calls` holds every call.
    */
   kinds?: string;
+  /**
+   * Beside `origins`, the numbers of the judge's calls, Shadowlap's own and none of the agent's, which
+   * the page keeps out of All and every total before their pages have come. Absent where the run has
+   * none, and when `calls` holds every call.
+   */
+  judgeCalls?: number[];
   /**
    * Set while the run is too long to analyse whole for a first answer and the whole of it is being
    * analysed beside the server: what the page reads of its conversations, the prompt cache and the
@@ -285,7 +293,7 @@ function oneLine(v: unknown): string {
 }
 
 /** A call's row; `recording` while its run records, when a failure the agent may retry is marked so. */
-function row(store: StoreOf<'recording'>, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS, recording = false): CallRow {
+function row(store: StoreOf<'recording'>, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS, recording = false, verdicts?: JudgeVerdicts): CallRow {
   const end = c.end;
   const u = end?.meta.usage;
   const model = end?.meta.model ?? c.meta.model ?? (c.kind === 'api' ? modelResolver(store)(c) : null) ?? null;
@@ -314,12 +322,24 @@ function row(store: StoreOf<'recording'>, c: CallRecord, options: ReadOptions, f
     endedAt: end?.at ?? null,
     ttftMs: c.kind === 'api' && end?.meta.chunks?.length && (end.meta.replayedFrom === undefined) ? (end.meta.chunks[0]?.[1] ?? null) : null,
     scope: typeof c.meta.scope === 'string' ? c.meta.scope : null,
-    ...ownFacts(store, c),
+    ...ownFacts(store, c, verdicts),
     ...facts,
     ...(recording && end?.outcome === 'error' && end.meta.retryable === true ? { retryable: true as const } : {}),
     ...(c.kind === 'api' && typeof c.meta.via === 'string' && c.meta.via ? { via: c.meta.via.slice(0, 200) } : {}),
     ...(c.meta.extraRead === true ? { extraRead: true as const } : {}),
   };
+}
+
+/** A page of a run's calls as rows, each judge's call with the verdict the run's checks kept of it. */
+function rows(store: StoreOf<'recording'>, run: RunRecord, page: readonly CallRecord[], options: ReadOptions, analysis: Pick<RunAnalysis, 'facts'>, recording: boolean): CallRow[] {
+  const verdicts = verdictsByCall(run);
+  return page.map((c) => row(store, c, options, analysis.facts(c.callNo), recording, verdicts));
+}
+
+/** A long run's strings, a character a call, and its judge's calls by number beside them (`judgeCalls`), from the store's index of them alone. */
+function pagingStrings(store: Store, runId: string, origins: string, kinds: string): Pick<RunDetail, 'origins' | 'kinds' | 'judgeCalls'> {
+  const judge = judgeCallNos(store, runId);
+  return { origins, kinds, ...(judge.length ? { judgeCalls: judge } : {}) };
 }
 
 /**
@@ -470,11 +490,10 @@ function firstPageOfLongRun(store: Store, run: RunRecord, shown: RunRecord, stat
     source: captureSource(run),
     ...traceOf(run),
     summary: whole.summary,
-    calls: page.map((c) => row(store, c, options, analysis.facts(c.callNo), false)),
+    calls: rows(store, run, page, options, analysis, false),
     callsTotal: whole.calls,
     callsNext: head[limit]?.callNo ?? null,
-    origins: whole.origins,
-    kinds: whole.kinds,
+    ...pagingStrings(store, runId, whole.origins, whole.kinds),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
     children: childRows(store, runId),
     attempts: bundleOf(loadRunIndex(store), runId).length,
@@ -518,10 +537,10 @@ export function runDetail(store: Store, idOrPrefix: string, options: ReadOptions
     source: captureSource(run),
     ...traceOf(run),
     summary,
-    calls: page.map((c) => row(store, c, options, analysis.facts(c.callNo), shown.status === 'running')),
+    calls: rows(store, run, page, options, analysis, shown.status === 'running'),
     callsTotal: calls.length,
     callsNext: next,
-    ...(next !== null ? { origins: originCodes(calls), kinds: kindCodes(calls) } : {}),
+    ...(next !== null ? pagingStrings(store, runId, originCodes(calls), kindCodes(calls)) : {}),
     parent: parent ? { runId: parent.runId, label: runLabel(parent, kindFacts(store, parent, store.countCalls(parent.runId))) } : null,
     children: childRows(store, runId),
     attempts: bundleOf(loadRunIndex(store), runId).length,
@@ -580,7 +599,7 @@ export function runCallsPage(store: Store, idOrPrefix: string, at: { from: numbe
   const total = read.calls?.length ?? store.countCalls(run.runId);
   return {
     runId: run.runId,
-    calls: read.page.map((c) => row(store, c, options, read.analysis.facts(c.callNo), recording)),
+    calls: rows(store, run, read.page, options, read.analysis, recording),
     callsTotal: total,
     callsNext: read.next,
     ...(read.whole ? {} : { warming: { done: read.done, total } }),
@@ -709,7 +728,7 @@ export function callDetailFrom(store: Store, run: RunRecord, calls: readonly Cal
 
   return {
     call: {
-      ...row(store, c, options, analysis.facts(c.callNo)),
+      ...row(store, c, options, analysis.facts(c.callNo), false, verdictsByCall(run)),
       fingerprint: c.fingerprint,
       occurrence: c.occurrence,
       startedAt: c.at,

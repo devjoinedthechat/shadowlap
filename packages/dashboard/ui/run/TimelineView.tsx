@@ -4,6 +4,7 @@ import { tipCard } from '../components/HoverCard.js';
 import { callName, dur } from '../format.js';
 import { ORIGIN_COLOR, ORIGIN_NAME } from '../origins.js';
 import { agentOf, scopeDepth, scopeLeaf, scopesOf } from '../scopes.js';
+import { AgentCallsNote } from './agent-note.js';
 import { callKind, KIND_COLOR, kindLabel } from './kinds.js';
 import { originOf, ticksFor, timelineOf, type TimelineRow } from './model.js';
 import { useWindow } from './window-hook.js';
@@ -23,7 +24,19 @@ const CLOCK_LINES = {
   shapeOf: (l: ClockLine) => l.kind,
   estimate: () => 22,
 };
-export function TimelineView({ calls, selected, scoped, byKind = false, onSelect }: { calls: CallRow[]; selected: number | null; scoped: boolean; byKind?: boolean; onSelect: (n: number) => void }) {
+type TimelineProps = { calls: CallRow[]; selected: number | null; scoped: boolean; byKind?: boolean; onSelect: (n: number) => void };
+
+/** The Timeline, of the agent's calls alone under the judge's chip (`agentOnly`), which it says first. */
+export function TimelineView({ agentOnly, ...p }: TimelineProps & { agentOnly?: boolean }) {
+  return (
+    <>
+      {agentOnly ? <AgentCallsNote /> : null}
+      <Clock {...p} />
+    </>
+  );
+}
+
+function Clock({ calls, selected, scoped, byKind = false, onSelect }: TimelineProps) {
   const clock = useMemo(() => timelineOf(calls), [calls]);
   const { rows, end, parallel } = clock;
   // The calls that started while another ran: marked ∥ on their line.

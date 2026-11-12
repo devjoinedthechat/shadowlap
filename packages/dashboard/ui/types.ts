@@ -4,6 +4,7 @@ import type { NextStep, NextStepRow } from '../src/next-step.js';
 import type { RunJudged } from '../src/run-outcome.js';
 import type { RunOffers as ServerRunOffers } from '../src/run-offers.js';
 import type { RunAbout } from '../../engine/src/about.js';
+import type { JudgeOutcome } from '../../engine/src/types.js';
 export type { AboutFrom, RunAbout } from '../../engine/src/about.js';
 export type { BlameBeside, GateEntry, NextStep, NextStepRow } from '../src/next-step.js';
 
@@ -165,6 +166,8 @@ export interface CheckView {
   count?: number;
   of?: number;
   detail?: string;
+  /** A judge check's judge, as the run endpoint keeps it: its verdict, where that came from, what it cost and read, and its call in the run. */
+  judge?: JudgeOutcome;
 }
 
 /** How a check came out: passed, failed, inconclusive (it could not be decided) or not applicable (a `when` whose condition never held). */
