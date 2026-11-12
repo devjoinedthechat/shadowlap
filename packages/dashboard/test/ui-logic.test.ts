@@ -13,7 +13,7 @@ import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../u
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
 import { bundlesAttempts, compareTarget, defaultComparePair, familyLine, isFailed, kindWord, matchesChip, matchesText, runOutcome, runSpent, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
 import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
-import { binCalls, gridCells, miniCells, stripCells, type StripItem } from '../ui/strip.js';
+import { binCalls, miniCells, stripCells, type StripItem } from '../ui/strip.js';
 
 describe('routes', () => {
   it('reads every page, a run at a call in a view, and the old call links', () => {
@@ -76,7 +76,7 @@ describe('routes', () => {
     expect(Object.keys(GO_KEYS).sort()).toEqual(['a', 'c', 'f', 'o', 'r', 's', 't']);
     expect(nextView('calls')).toBe('turns');
     expect(nextView('forks')).toBe('provenance');
-    expect(nextView('provenance')).toBe('calls');
+    expect([nextView('provenance'), nextView('decisions')]).toEqual(['decisions', 'calls']);
     expect(nextView(null)).toBe('turns');
   });
 });
@@ -799,19 +799,6 @@ describe('job drawer', () => {
     expect(calibrationTarget(null, runs)).toBeNull();
     // A list whose parents loop ends the walk.
     expect(calibrationTarget('A', [run('A', { mode: 'replay', parentRunId: 'B' }), run('B', { mode: 'replay', parentRunId: 'A' })])).toBeNull();
-  });
-});
-
-describe('overview grid', () => {
-  it('draws a family on one scale: the run’s calls, then empty cells, the fork outlined', () => {
-    const cells = gridCells(parseOrigins('rrrl')!, 30, 4);
-    expect(cells).toHaveLength(30);
-    expect(cells.slice(0, 4).map((c) => c.origin)).toEqual(['rep', 'rep', 'rep', 'live']);
-    expect(cells[3].fork).toBe(true);
-    expect(cells[4]).toEqual({ origin: null, fork: false });
-    const long = gridCells(parseOrigins('r'.repeat(119) + 'b')!, 120);
-    expect(long).toHaveLength(60);
-    expect(long.at(-1)!.origin).toBe('block');
   });
 });
 

@@ -56,6 +56,9 @@ export const ACTIONS = {
   runVerify: { label: 'Run verify', doing: 'Verifying' },
   runMoreAttempts: { label: 'Run more attempts', doing: 'Running more attempts' },
   verifyAgain: { label: 'Verify again', doing: 'Verifying again' },
+  // A verified fix's failing runs that no accepted verify checked, verified on the code as it is now.
+  verifyThisRun: { label: 'Verify this run', doing: 'Verifying' },
+  verifyTheseRuns: { label: 'Verify these runs', doing: 'Verifying' },
   applyFix: { label: 'Apply fix', doing: 'Applying fix' },
   // Tests.
   runTests: { label: 'Run tests', doing: 'Running tests' },
@@ -71,8 +74,15 @@ export const ACTIONS = {
   findBreakingCommit: { label: 'Find breaking commit…', doing: 'Finding breaking commit' },
   // What a run's page leads with besides those: a page to open, a test run again, a pack made a golden.
   openFix: { label: 'Open fix' },
+  // A repair's way on, by what it left: the change it accepted, or the candidates it tried and why each was dropped.
+  openChange: { label: 'Open change' },
+  openCandidates: { label: 'Open candidates' },
   openProof: { label: 'Open proof' },
   openPassingRun: { label: 'Open passing run' },
+  // Once Find breaking commit named a crash's commit: undone in the working tree, uncommitted, then
+  // its golden tested. Its dialog only confirms, so no ellipsis. Open in editor opens the line it changed.
+  revert: { label: 'Revert', doing: 'Reverting' },
+  openInEditor: { label: 'Open in editor' },
   compareWithParent: { label: 'Compare with parent' },
   compareWithFork: { label: 'Compare with fork' },
   compareWithReplay: { label: 'Compare with replay' },

@@ -1,4 +1,4 @@
-import { CONFIG_FILE, calibrationTarget, configClock, isObject, type ClockMode } from '@shadowlap/engine';
+import { CONFIG_FILE, calibratable, calibrationTarget, configClock, isObject, type ClockMode } from '@shadowlap/engine';
 import { type ConfigInfo, form, loadConfigFile, type RuleForm, type RuleRow, ruleRows, type SettingsContext, shortRun } from './settings-shared.js';
 
 /** Settings' Matching tab: the normalizers, as rows a form edits, and the rules a calibration proposed. */
@@ -10,29 +10,36 @@ export interface MatchingSettings {
   /** `explicit`: the file says auto or exact; `error`: it says something else, which loading the config refuses. */
   clock: { mode: ClockMode; explicit: boolean; error: string | null };
   /**
-   * The button: "Calibrate <run>" with the job's argv, or "Record a run first" with none. The job
-   * streams each round and ends with a result event (the object `calibrate --json` prints). When it
-   * proposed normalizers, "Add normalizer" adds exactly those, the ones the person just read,
-   * without replaying again: addRules(cwd, 'normalize', proposedRules(result), { expect:
-   * config.version }), which checks each as `normalize add` does; record each returned event with
-   * the run id and `via: 'calibrate'`.
+   * The run Calibrate offers first (`calibrationTarget`: the setup's, else the newest it can take)
+   * with the job's argv, or none. `recordings`: what its picker lists, the newest it can take, the
+   * target among them. The job streams each round and ends with a result event (the object
+   * `calibrate --json` prints). When it proposed normalizers, "Add normalizer" adds exactly those,
+   * the ones the person just read, without replaying again: addRules(cwd, 'normalize',
+   * proposedRules(result), { expect: config.version }), which checks each as `normalize add` does;
+   * record each returned event with the run id and `via: 'calibrate'`.
    */
-  calibrate: { runId: string | null; source: 'setup' | 'newest' | null; label: string; command: string | null; argv: string[] | null };
+  calibrate: { runId: string | null; source: 'setup' | 'newest' | null; command: string | null; argv: string[] | null; recordings: Array<{ runId: string }> };
 }
+
+/** How many recordings Calibrate's picker lists. */
+const PICKER_RUNS = 100;
 
 export function matchingSettings(ctx: SettingsContext): MatchingSettings {
   const { info, file } = loadConfigFile(ctx.cwd, 'normalize');
   const written = file?.data.clock;
   const clock = file ? configClock(file) : { mode: 'auto' as const, explicit: false };
   const target = calibrationTarget(ctx.store, { setupRunId: ctx.setupRunId ?? null });
+  // An index read of the newest, bounded: no run's calls. The setup's run first where it is older.
+  const listed = ctx.store.finishedRecordings(PICKER_RUNS).filter(calibratable);
+  const recordings = target && !listed.some((r) => r.runId === target.run.runId) ? [target.run, ...listed] : listed;
   return {
     config: info,
     rules: ruleRows(file, 'normalize'),
     form: form('normalize'),
     clock: { ...clock, error: written === undefined || clock.explicit ? null : `${CONFIG_FILE}: clock must be "auto" or "exact"` },
     calibrate: target
-      ? { runId: target.run.runId, source: target.source, label: `Calibrate ${shortRun(target.run.runId)}`, command: `shadowlap calibrate ${shortRun(target.run.runId)}`, argv: ['calibrate', target.run.runId] }
-      : { runId: null, source: null, label: 'Record a run first', command: null, argv: null },
+      ? { runId: target.run.runId, source: target.source, command: `shadowlap calibrate ${shortRun(target.run.runId)}`, argv: ['calibrate', target.run.runId], recordings: recordings.map((r) => ({ runId: r.runId })) }
+      : { runId: null, source: null, command: null, argv: null, recordings: [] },
   };
 }
 

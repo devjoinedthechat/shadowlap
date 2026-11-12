@@ -30,6 +30,7 @@ import {
   verifyEstimate,
   verifyMoreEstimate,
   verifyRunCosts,
+  wholeRun,
   type CallRecord,
   type Estimate,
   type FixRecords,
@@ -42,7 +43,8 @@ import {
 import { lookupRun, noSuchRun } from './api.js';
 import { decisionSession, runsToVerify, sessionReport } from './decisions.js';
 import { nextBlameRule } from './fix-blame-step.js';
-import { sprtGate } from './fix-shared.js';
+import { acceptedVerdict, sprtGate } from './fix-shared.js';
+import { verdictRule, verifyLeftExpected } from './fix-verify-step.js';
 import { fixDetail } from './fixes.js';
 import { attemptSpends, blamePrice, goldenBisectEstimate, goldenRerunPrice, judgeOnly, newestGate } from './next-step.js';
 import { estimateOf, pricingOf, type Priced, type Pricing } from './pricing.js';
@@ -94,14 +96,14 @@ export interface ConfigVerifyRule {
  * first), and each Verify step's Run more attempts or Verify again. The repairer
  * shadowlap.config.json names, and its `verify` (`rule`), are read on the server's thread.
  */
-export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: string | null; rule: ConfigVerifyRule; model: string | null; prices?: Record<string, Price> };
+export type FixEstimatesJob = { kind: 'fix-estimates'; fixId: string; repairer: string | null; rule: ConfigVerifyRule; model: string | null; prices?: Record<string, Price>; inTree?: Array<[string, boolean | null]> };
 
 /**
  * A kept preview's Verify (`GET /api/decisions/:id/estimates`): the runs it could not clear, or the
  * one `runId` names, as `decisions --verify` takes them. `work` is the config's tests, as the
  * outcome's reads take it, which give each run's checks; `rule` the config's `verify`.
  */
-export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runId: string | null; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
+export type DecisionEstimatesJob = { kind: 'decision-estimates'; sessionId: string; runIds: string[]; work: OutcomeWork | null; rule: ConfigVerifyRule; prices?: Record<string, Price> };
 
 export type EstimateJob = RunEstimatesJob | FixEstimatesJob | TestsEstimatesJob | BisectEstimateJob | DecisionEstimatesJob;
 
@@ -163,6 +165,8 @@ export interface FixEstimates {
   blameAgain: Estimate | null;
   blameStronger: Estimate | null;
   verify: Record<string, Estimate>;
+  /** Verify this run, on a verified fix's failing runs no accepted verdict checked (`actions.verifyLeft`); null where it isn't offered. */
+  verifyLeft: Estimate | null;
 }
 
 
@@ -199,6 +203,22 @@ function blameNextPrice(rec: FixRecords, b: StoredBlame, o: { again: boolean; mo
   return blameEstimate(p.calls(b.runId), { ...rule, scope: b.scope, model, last: b.report, fresh, ...(p.prices ? { prices: p.prices } : {}) });
 }
 
+/**
+ * Verify this run, as its command runs (`actions.verifyLeft`): each run left priced from its
+ * recording, every attempt at most live from its first model call, by the accepted verdict's gate or
+ * count; what it is expected to take as the Verify step's more attempts work theirs.
+ */
+function verifyLeftPrice(rec: FixRecords, runs: readonly string[], job: FixEstimatesJob, p: Pricing): Estimate | null {
+  const v = acceptedVerdict(rec);
+  if (!v) return null;
+  const { gate, attempts } = verdictRule(v);
+  const rule = { ...job.rule, ...(gate ? { gate } : { attempts }) };
+  return verifyEstimate(
+    runs.map((id) => wholeRun('target', p.calls(id))),
+    { rule, expected: verifyLeftExpected(v, runs.length) },
+  );
+}
+
 /** The `--budget` a step's command runs with, before any command of the agent's own after `--`; null for none. */
 function budgetOf(argv: readonly string[]): number | null {
   const end = argv.indexOf('--');
@@ -208,13 +228,15 @@ function budgetOf(argv: readonly string[]): number | null {
 }
 
 async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAnswer> {
-  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem });
+  const inTree = job.inTree ? new Map(job.inTree) : null;
+  const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}) });
   const fix = d ? resolveFix(store, job.fixId) : null;
   if (!d || !fix) return failed(404, `no fix ${job.fixId.slice(0, 40)}`);
   const rec = fixRecords(store, fix);
   const pricing = pricingOf(store, job.prices);
   const b = shownBlame(rec);
   const next = (again: boolean) => (b ? estimateOf((p) => blameNextPrice(rec, b, { again, model: job.model ?? STRONGER_MODEL }, p), pricing) : null);
+  const left = d.actions.verifyLeft;
   const verify: Record<string, Estimate> = {};
   for (const step of d.verify) {
     const more = step.more;
@@ -232,6 +254,7 @@ async function fixEstimates(store: Store, job: FixEstimatesJob): Promise<ReadAns
     blameAgain: d.actions.blameAgain ? await next(true) : null,
     blameStronger: d.actions.blameStronger ? await next(false) : null,
     verify,
+    verifyLeft: left ? await estimateOf((p) => verifyLeftPrice(rec, left.runs, job, p), pricing) : null,
   };
   return answer(body, { tagged: true });
 }
@@ -324,7 +347,7 @@ async function decisionEstimates(store: Store, job: DecisionEstimatesJob): Promi
   const session = decisionSession(store, job.sessionId);
   if (!session) return failed(404, `no session ${job.sessionId.slice(0, 40)}`);
   const report = sessionReport(session);
-  const ids = runsToVerify(session, job.runId ?? undefined);
+  const ids = runsToVerify(session, job.runIds.length ? job.runIds : undefined);
   const picked = (Array.isArray(ids) ? ids : []).map((id) => ({ row: report.runs?.find((r) => r.runId === id), run: store.getRun(id) }));
   if (!picked.length || picked.some((p) => !p.row || !p.run)) return answer({ verify: null } satisfies DecisionEstimates, { tagged: true });
   const entries = parseWork(job.work)?.entries ?? [];

@@ -1,35 +1,33 @@
 import { ACTIONS, confirmWords, messageOf, noEstimate, normalizeAddArgs, type Normalizer, type StoreOf } from '@shadowlap/engine';
-import { describeEvent } from '../activity.js';
 import { lookupRun, noSuchRun } from '../api.js';
 import { liveChaosSession } from '../chaos.js';
-import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
 import { choicesInCheckout, commitAuthors, commitsBefore, commitsHere, commitSubjects, rangeHere, revisionsHere } from '../commits-here.js';
 import type { RouteContext } from '../context.js';
+import { foundsHere, servesFound } from '../found-here.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult } from '../jobs.js';
-import { links } from '../links.js';
 import { searchedCommits, type NextStep } from '../next-step.js';
 import { nextStepWork } from '../outcome-work.js';
 import { answerData, sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity, type RunIndex } from '../run-index.js';
-import { configFileError } from '../settings.js';
-import { readTeamStoreInput } from '../team-store.js';
 import { namesTeamStore } from './verdicts.js';
+import { revertJob } from '../revert-job.js';
 import { olderThanTree, revisionCommits, treeNow, withRevisionFacts } from '../tests-history.js';
+import { gateQuery } from '../tests-gate.js';
 import { liveAsk } from '../tests-live.js';
-import { bisectChoices, bisectJob, checkedRevision, gatePreview, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testPatterns, testRunBanner, testsSummary, testsView, updateGoldensJob, type GoldenSource, type TestsJob, type TestsView, type UntestedCommit } from '../tests.js';
+import { bisectChoices, bisectJob, checkedRevision, knownGolden, liveTestSession, normalizeAndTestJob, runTestsJob, testRunBanner, testsView, updateGoldensJob, type GoldenSource, type TestsJob, type TestsView, type UntestedCommit } from '../tests.js';
 import { divergenceOf, rulesToAdd, volatileOf } from '../tests-normalize.js';
 
 /**
  * Tests: the goldens and how they did (`GET /api/tests`), what a run's page offers about a test
  * replay and Find breaking commit (`GET /api/tests/runs/:id`), what a gate's figures would do
  * (`GET /api/tests/gate?good=&bad=&risk=&max=`, or `?baseline=history&drop=&window=&min=&max=`
- * figured against `&history=47/50`), the
- * workflow steps Settings → CI shows (`GET /api/ci/workflows`), what Tests' buttons and Find breaking
- * commit would bill (`GET /api/tests/estimates`, `GET /api/estimates/bisect`, worked out beside the
- * server: estimates.ts), a gated golden's attempts (`GET /api/tests/evidence?golden=`, beside the
- * server: tests-evidence.ts), and the jobs the Tests screen starts:
+ * figured against `&history=47/50`, with `&suiteRisk=` for CI's figure, as Settings → CI's Gates
+ * previews them, worked out beside the server: tests-gate.ts), what Tests' buttons and
+ * Find breaking commit would bill (`GET /api/tests/estimates`, `GET /api/estimates/bisect`, worked
+ * out beside the server: estimates.ts), a gated golden's attempts (`GET /api/tests/evidence?golden=`,
+ * beside the server: tests-evidence.ts), and the jobs the Tests screen starts:
  *
  *   test                 { golden?, maxAttempts?,       every golden on disk (the goldens folder's pattern, which the CLI
  *                          continue?, yes? }            expands without a shell, and each pack named elsewhere), or one;
@@ -52,10 +50,11 @@ import { divergenceOf, rulesToAdd, volatileOf } from '../tests-normalize.js';
  */
 
 /** The folder the project keeps its goldens in. */
-const FOLDER = 'goldens';
+export const GOLDENS_FOLDER = 'goldens';
+const FOLDER = GOLDENS_FOLDER;
 
 /** The job kinds this module registers, by what they do. */
-export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bisect', normalize: 'normalize-and-test' } as const;
+export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bisect', normalize: 'normalize-and-test', revert: 'revert' } as const;
 
 /**
  * Jobs that replay the goldens on disk or rewrite them, by what each is doing: a second one at once
@@ -63,7 +62,8 @@ export const TEST_JOB_KINDS = { test: 'test', update: 'test-update', bisect: 'bi
  * setup's Keep it as a test packs a new golden and tests it. Find breaking commit on a golden reads its
  * pack and answers the failure it started from, so it runs alone too; on a run, it touches none.
  * The error-path presets replay a golden's pack (on a run, they touch none), and packing goldens
- * of production writes new ones into the goldens folder.
+ * of production writes new ones into the goldens folder. Revert tests the golden once git has
+ * reverted its first bad commit (revert-job.ts).
  */
 const TEST_FAMILY = new Map<string, string>([
   ['test', 'a test session'],
@@ -73,6 +73,7 @@ const TEST_FAMILY = new Map<string, string>([
   ['bisect', confirmWords(ACTIONS.findBreakingCommit.label).toLowerCase()],
   ['chaos', 'a session of error-path presets'],
   ['coverage-pack', 'a coverage pack'],
+  ['revert', 'a revert'],
 ]);
 
 /** Whether a job is one of those: a bisect counts when it searches a golden rather than a run (by its id), the presets when they run on a golden. */
@@ -195,9 +196,12 @@ async function revisionsInCheckout(view: TestsView, root: string | null | undefi
   return { ...withRevisionFacts(view, subjects, authors, shared), older: olderThanTree(session, tree) };
 }
 
-// Find breaking commit that named no first bad commit, in the activity feed: why, so the next search
-// starts elsewhere. A golden's answer opens Tests, which shows it; a run's, the run.
-describeEvent('bisect.none', (e, d) => ({ kind: 'test', text: `No first bad commit · ${e.ref ?? confirmWords(ACTIONS.findBreakingCommit.label)}${typeof d.why === 'string' && d.why ? `: ${d.why}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() }));
+/** Each first bad commit as the dashboard serves one (found-here.ts): its author only where names show, its file's place in the project folder. */
+async function foundInCheckout(view: TestsView, root: string | null | undefined): Promise<TestsView> {
+  const serve = servesFound(root);
+  const [divergences, failures] = await Promise.all([foundsHere(view.divergences, serve), foundsHere(view.failures, serve)]);
+  return { ...view, divergences, failures };
+}
 
 /**
  * Find breaking commit's job as `req` asks it: whether this checkout has the commit a run's search
@@ -259,7 +263,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/tests', async (r) => {
     const view = await rangesInCheckout(ctx.store, testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path);
-    r.tagged(await withSteps(await revisionsInCheckout(view, ctx.project?.path)));
+    r.tagged(await withSteps(await revisionsInCheckout(await foundInCheckout(view, ctx.project?.path), ctx.project?.path)));
   });
 
   // A run's page: the diverged-test banner of a replay `shadowlap test` made, and Find breaking commit's
@@ -320,40 +324,16 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, await ctx.reads.run({ kind: 'bisect-estimate', commits, target, ...prices() }, reads));
   });
 
-  // A gate's figures, previewed before they are saved: what it means, what it costs, and its odds.
-  router.get('/tests/gate', (r) => {
-    let preview;
+  // A gate's figures, previewed before they are saved: what it means, what it costs, and its odds,
+  // worked out beside the server, since CI's figure plans a session.
+  router.get('/tests/gate', async (r) => {
+    let figures;
     try {
-      preview = gatePreview(r.query);
+      figures = gateQuery(r.query);
     } catch (err) {
       throw new HttpError(400, messageOf(err));
     }
-    r.tagged(preview);
-  });
-
-  router.get('/ci/workflows', (r) => {
-    const options = parseCiOptions(r.query);
-    if ('error' in options) throw new HttpError(400, options.error);
-    const list = goldens();
-    const summary = testsSummary(ctx.store, { goldens: list });
-    const git = gitFacts(ctx.project?.path ?? null);
-    r.tagged(
-      ciWorkflows(options, {
-        preview: fixPreview(ctx.store, options.budget),
-        failing: summary.failing,
-        at: summary.lastRunAt,
-        repository: git.repository,
-        branch: git.branch,
-        defaultBranch: git.defaultBranch,
-        recordings: list.length ? testPatterns(list, FOLDER).join(' ') : `${FOLDER}/*`,
-        // Push from CI, read as Settings → Store reads it: the Fix on failure step pushes when it is on.
-        teamStore: ctx.project ? readTeamStoreInput({ cwd: ctx.project.path }) : null,
-        // Which goldens run live in CI, and the providers' keys each step's env needs.
-        goldens: ctx.project ? goldenProviders(ctx.project.path, list) : null,
-        // A config that can't be read hides both: the steps say what they leave out.
-        configError: ctx.project ? configFileError(ctx.project.path) : null,
-      }),
-    );
+    sendAnswer(r, await ctx.reads.run({ kind: 'gate-preview', ...figures }));
   });
 
   // `shadowlap test` on one golden links to its replay itself: the one that passed, or the one that
@@ -378,6 +358,18 @@ export function register(router: Router, ctx: RouteContext): void {
     build: async (req, { store, project, projectId }) => {
       const job = await bisectHere(store, goldens(), req, project?.path ?? null);
       return testsBuild(job, 'args' in job && inTestFamily({ kind: TEST_JOB_KINDS.bisect, args: job.args }) ? busy(store, projectId, 'find the breaking commit') : null);
+    },
+  });
+  // Revert: git first, from the golden's standing answer, then its test, which asks first as Run
+  // tests does when it runs live. It holds the working tree, and waits for the tests as they for it.
+  ctx.jobs.registerJobKind(TEST_JOB_KINDS.revert, {
+    title: () => ACTIONS.revert.doing,
+    build: async (req, { store, project, projectId }) => {
+      const list = goldens();
+      const job = await revertJob(store, list, req, project?.path ?? null);
+      if ('error' in job) return job;
+      const waits = busy(store, projectId, 'revert it');
+      return waits ? { error: waits, status: 409 } : (liveAsk(list, { title: job.title ?? ACTIONS.revert.doing, args: job.args }, req.yes) ?? job);
     },
   });
   // The golden's test after the rule asks first as Run tests does, when it runs live.

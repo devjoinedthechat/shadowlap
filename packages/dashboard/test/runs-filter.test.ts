@@ -4,13 +4,15 @@ import { loadRunIndex, type IndexedRun } from '../src/run-index.js';
 import { judgeFor, JUDGED_KEPT } from '../src/run-outcome.js';
 import { judgedCanChange, verdictOf, type VerdictJudged, type VerdictRun } from '../src/run-verdict.js';
 import { fixedByOf, STATUS_JUDGED_RUNS, termReads, type JudgeRun } from '../src/runs-filter.js';
-import { listRunsPage, recentRuns, runsByDay, type RunRow } from '../src/runs-list.js';
+import { listRunsPage, matchingRuns, recentRuns, runsByDay, type RunRow } from '../src/runs-list.js';
 import { addRun, DAY, HOUR } from './read-model-store.js';
 
 /**
  * What the lists count as failed besides a run's own outcome: a capture its import judged failed, and
- * not a failed test replay its golden's next replay passed, which is fixed by that run. The Failed
- * chip, `types=failed`, the days' failures and each row's `failed` read the same set.
+ * not a failed test replay its golden's next replay passed, which is fixed by that run; and, where a
+ * read passes the judge, a run its family's checks fail today. The Failed chip, `types=failed` and the
+ * days' failures read one set: each row's `failed`, and the runs that fail only their family's checks,
+ * whose rows keep their own outcome.
  */
 
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
@@ -134,8 +136,10 @@ describe('the filter’s status:', () => {
     expect(reads.warming()).toEqual({ done: 3, total: runs.length, what: 'verdicts' });
     // None has more calls than a read judges: none waits for a job after the read.
     expect(reads.judgeAfter()).toBeNull();
-    // Without a status: term nothing is judged.
-    expect(termReads(store, index, { q: 'refund', judge }, 5).verdict).toBeUndefined();
+    // Without a status: term there is no verdict to match, and nothing is judged until Failed asks of a run.
+    const plain = termReads(store, index, { q: 'refund', judge }, 5);
+    expect(plain.verdict).toBeUndefined();
+    expect(read).toEqual([id.passing]);
   });
 
   /** A run as the index has it, for what `status:` reads of it. */
@@ -196,5 +200,26 @@ describe('the filter’s status:', () => {
     // A read with no budget, which judges whole, judges them all.
     const whole = termReads(store, loadRunIndex(store), { q: 'status:failed', judge }, Infinity);
     expect(runs.every((r) => whole.verdict!(r) === 'failed')).toBe(true);
+  });
+});
+
+describe("a run that fails only its family's checks", () => {
+  const judge: JudgeRun = (runId) => (runId === id.family ? { by: 'family', verdict: 'failed' } : null);
+  beforeAll(() => {
+    id.family = addRun(store, { startedAt: NOW - 30 * MIN, calls: 'll' });
+  });
+
+  it('is under Failed, in the chip and in the days, while its row keeps its own outcome', () => {
+    const page = listRunsPage(store, { limit: 500, judge });
+    expect(rowsOf(page.runs).get(id.family)).toMatchObject({ failed: false });
+    const failedOnly = listRunsPage(store, { limit: 500, types: ['failed'], judge }).runs.map((r) => r.runId);
+    expect(failedOnly).toEqual(expect.arrayContaining([id.family, id.still, id.capFailed]));
+    expect(page.chipCounts.failed).toBe(failedOnly.length);
+    expect(runsByDay(store, { tz: 'UTC', now: NOW, judge }).totals.failed).toBe(failedOnly.length);
+  });
+
+  it('is left out of what Find breaking commit starts from, and of Failed where a read passes no judge', () => {
+    expect(matchingRuns(store, { types: ['failed'], judge, ownFailures: true }).map((r) => r.runId)).not.toContain(id.family);
+    expect(listRunsPage(store, { limit: 500, types: ['failed'] }).runs.map((r) => r.runId)).not.toContain(id.family);
   });
 });

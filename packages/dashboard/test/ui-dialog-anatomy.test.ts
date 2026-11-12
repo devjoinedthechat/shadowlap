@@ -22,19 +22,22 @@ import { ActionDialog } from '../ui/run/ActionDialog.js';
 import { NextStepButton } from '../ui/run/NextStepButton.js';
 import { EditDialog } from '../ui/run/EditDialog.js';
 import { BisectDialog, DeleteRunDialog } from '../ui/run/RunDialogs.js';
-import { OtelDialog } from '../ui/run/ShareMenu.js';
+import { OtelDialog } from '../ui/run/OtelDialog.js';
 import { BulkBar, PackDialog } from '../ui/runspage/BulkBar.js';
 import { FindCommitDialog as RunsFindCommit } from '../ui/runspage/FindCommit.js';
 import { ImportDialog } from '../ui/runspage/ImportDialog.js';
 import { RemoveProjectDialog } from '../ui/shell/RemoveProject.js';
+import { SERVED_PARTS } from '../ui/pages/served.js';
+import { ServedPartsContext } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { TestsAskHost } from '../ui/fixes/TestsAskHost.js';
 import { answerTestsQuestion, moreAttemptsAsk, startTestsJob, type TestsAsk } from '../ui/tests-ask.js';
-import { packRunCommand } from '../ui/run/share.js';
+import { packRunCommand } from '../ui/run/share-steps.js';
 import { importWords } from '../ui/runspage/imports.js';
 import { ApiError, type BisectOffer, type TestsView } from '../ui/api.js';
 import { render, type Rendered } from './ui-render.js';
 import { resetSpending } from '../ui/spending.js';
+import { maskFirst } from '../ui/update-plan.js';
 
 /**
  * One dialog anatomy: every dialog and every ask before a job, drawn as the page draws it, read for
@@ -139,9 +142,15 @@ function holds(page: Rendered, want: Expect): void {
   expect(page.focused(), `${title} starts on ${want.first}`).toBe(page.all(`[role="dialog"] ${want.first}`)[0]);
 }
 
+/** A dialog, or what opens it, on the served dashboard, which hands in what only it draws (Run blame's dialogs among them). */
 async function open(element: ReactElement, app: AppState = appWith()): Promise<Rendered> {
-  r = await render(createElement(AppContext.Provider, { value: app }, element));
+  r = await render(createElement(AppContext.Provider, { value: app }, createElement(ServedPartsContext.Provider, { value: SERVED_PARTS }, element)));
   return r;
+}
+/** Presses Run blame, then waits for the dialog it asks in: a part of its own, which loads the first time one asks. */
+async function pressBlame(page: Rendered): Promise<void> {
+  await page.click(page.byText('button', 'Run blame'));
+  await page.until('Run blame’s dialog', () => page.all('[role="dialog"]').length === 1);
 }
 
 const closes = { onClose: () => undefined };
@@ -333,7 +342,7 @@ describe('a run’s next steps that ask first', () => {
 
   it('Run blame on a capture asks for your command first', async () => {
     const page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: [], from: 'exit' }, capture: true, line: `shadowlap blame ${RUN.slice(0, 10)} --expect '{"calls":[]}' -- <your command>` }), served());
-    await page.click(page.byText('button', 'Run blame'));
+    await pressBlame(page);
     holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: FIELD, ok: 'Run blame' });
   });
   it('Run blame above Spending, asked on its id with its command, its price and why it asks; one that needs its check asks for it alone', async () => {
@@ -341,7 +350,7 @@ describe('a run’s next steps that ask first', () => {
     const estimate = { kind: 'blame', usd: 10.88, ceiling: true, parts: ['up to 7 probes of 33 attempts and a check of the call found', 'live from each probe, writes stubbed'] } as NonNullable<NextStep['estimate']>;
     let page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: [], from: 'exit' }, estimate }), served());
     expect(JSON.parse(String(page.byText('button', 'Run blame').props['data-tip']))).toMatchObject({ est: { usd: 10.88, ceiling: true } });
-    await page.click(page.byText('button', 'Run blame'));
+    await pressBlame(page);
     holds(page, { title: 'Run blame on 01K5CQ4N7G', doc: 'blame', first: OK, ok: 'Run blame' });
     expect(page.one('[role="dialog"] .dcost').textContent).toContain('At most ≈$10.88');
     expect(page.one('[role="dialog"] .dlgcost').textContent).toContain('Asks above $0.50');
@@ -349,6 +358,7 @@ describe('a run’s next steps that ask first', () => {
     await page.unmount();
     page = await open(createElement(RunBlameButton, { runId: RUN, offer: { failed: ['x'], from: 'ask' }, estimate: { ...estimate, usd: 0.1 } }), served());
     await page.click(page.byText('button', 'Run blame'));
+    await page.until('its check to be asked', () => page.all('[role="dialog"] textarea').length === 1);
     expect([page.all('[role="dialog"]').length, page.all('[role="dialog"] textarea').length, page.all('[role="dialog"] .dlgcost').length]).toEqual([1, 1, 0]);
     expect(page.one('[role="dialog"] .dcost').textContent).toContain('At most ≈$0.100');
     await page.unmount();
@@ -453,8 +463,12 @@ describe('a golden’s dialogs', () => {
     holds(await open(createElement(UpdateGoldensDialog, { view: quiet, paths: ['goldens/a'], has: () => true, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update a?', doc: 'goldenUpdates', first: OK, ok: 'Update golden' });
   });
   it('Update goldens from the apply drawer', async () => {
-    const ask = updateOutdatedAsk([{ golden: 'goldens/a', callNo: 3, path: '$.x' }, { golden: 'goldens/b', callNo: 1, path: '$.y' }]);
+    const outdated = [{ golden: 'goldens/a', callNo: 3, path: '$.x' }, { golden: 'goldens/b', callNo: 1, path: '$.y' }];
+    const ask = updateOutdatedAsk(outdated);
     holds(await open(createElement(UpdateGoldenDialog, { plan: ask, onUpdate: () => undefined, ...closes })), { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: OK, ok: 'Update 2 goldens' });
+    // One last diverged on a value made anew every run: its normalizer and the update lead, Update anyway plain.
+    const masked = updateOutdatedAsk(outdated, maskFirst({ divergences: [{ ...div, newRules: [['normalize', 'add']] }] } as unknown as TestsView, ['goldens/a', 'goldens/b'], () => true));
+    holds(await open(createElement(UpdateGoldenDialog, { plan: masked, onUpdate: () => undefined, onInstead: () => undefined, ...closes })), { title: 'Update 2 diverged goldens?', doc: 'goldenUpdates', first: '.dlg-alt', ok: 'Update anyway', tone: 'plain' });
   });
   it('Add normalizer and update', async () => {
     holds(await open(createElement(NormalizeUpdateDialog, { name: 'a', steps: [['normalize', 'add'], ['test', 'goldens/a', '--update']], onRun: () => undefined, ...closes })), { title: 'Add normalizer and update a?', doc: 'goldenUpdates', first: OK, ok: 'Add normalizer and update' });
@@ -548,14 +562,14 @@ describe('a `$` row', () => {
 });
 
 describe('a fix’s dialogs', () => {
-  const APPLY = { kind: 'patch', argv: [], gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
+  const APPLY = { kind: 'patch', argv: [], command: 'shadowlap fix apply', gitApply: null, pending: null, pulled: null, files: ['agent.mjs'], diff: '--- a\n+++ b\n', patchFile: '.shadowlap/repairs/r/fix.patch', refused: null, inTree: false, goldens: 1, names: [], held: null, change: null };
   const fix = (over: Record<string, unknown> = {}, actions: Record<string, unknown> = {}) =>
     ({
       fixId: 'fx-1',
       title: 'A fix',
       status: 'open',
       repairer: { name: 'claude-code', configured: false, problem: null },
-      actions: { repair: { argv: ['repair', '--fixes', 'a', '--keeps', 'b', 'c'], command: 'shadowlap repair --fixes a --keeps b c', noFix: null, noFixWhy: null, candidates: 3 }, apply: null, applied: false, blameAgain: null, ...actions },
+      actions: { repair: { argv: ['repair', '--fixes', 'a', '--keeps', 'b', 'c'], command: 'shadowlap repair --fixes a --keeps b c', noFix: null, noFixWhy: null, candidates: 3, spent: false }, apply: null, applied: false, blameAgain: null, ...actions },
       ...over,
     }) as unknown as FixDetail;
 
@@ -588,7 +602,7 @@ describe('a fix’s dialogs', () => {
     expect(page.focused(), 'the rows go, the focus stays').toBe(page.one('[role="dialog"] .dlg-cancel'));
   });
   it('Run repair that would end No fix to try', async () => {
-    const noFix = fix({}, { repair: { argv: [], command: 'c', noFix: 'Blame couldn’t settle', noFixWhy: 'unsettled', candidates: 3 } });
+    const noFix = fix({}, { repair: { argv: [], command: 'c', noFix: 'Blame couldn’t settle', noFixWhy: 'unsettled', candidates: 3, spent: false } });
     const page = await open(createElement(RepairDialog, { fix: noFix, onRun: () => true, ...closes }), appWith({ client: { fix: () => Promise.resolve(noFix) } }));
     await page.until('the fix to be read', () => !page.one('.dlg-ok').disabled);
     holds(page, { title: 'Run repair', doc: 'repair', first: OK, ok: 'Run repair', warn: 'Blame couldn’t settle' });
@@ -614,6 +628,17 @@ describe('a fix’s dialogs', () => {
     await page.unmount();
     const again = await open(createElement(ApplyDialog, { fix: fix({}, { apply: { ...APPLY, pending: 'goldens' }, applied: true }), label: 'Finish applying', onRun: () => true, ...closes }));
     holds(again, { title: 'Finish applying fix?', doc: 'repairHandover', first: OK, ok: 'Finish applying' });
+  });
+  it('Mark fix applied asks of a merged fix whose patch is in the tree what it asks of one applied by hand, with no steps of its own', async () => {
+    // Merged sits above applied on the ladder, so a merged fix's header offers no Mark applied: its dialog has no merged words.
+    const inTree = { ...APPLY, inTree: true };
+    const byHand = await open(createElement(ApplyDialog, { fix: fix({ status: 'verified', rung: 'verified', pr: null }, { apply: inTree }), label: 'Mark applied', onRun: () => true, ...closes }));
+    const asked = byHand.one('[role="dialog"]').textContent;
+    await byHand.unmount();
+    const merged = await open(createElement(ApplyDialog, { fix: fix({ status: 'verified', rung: 'merged', pr: { url: 'https://github.com/acme/agent/pull/138', number: 138, state: 'merged' } }, { apply: inTree }), label: 'Mark applied', onRun: () => true, ...closes }));
+    holds(merged, { title: 'Mark fix applied?', doc: 'repairHandover', first: OK, ok: 'Mark applied' });
+    expect(merged.all('.ondisk.steps li')).toEqual([]);
+    expect(merged.one('[role="dialog"]').textContent).toBe(asked);
   });
   it('Show patch', async () => {
     holds(await open(createElement(PatchDialog, { fix: fix({}, { apply: APPLY }), diff: '--- a\n', ...closes })), { title: 'Show patch', doc: 'repairHandover', first: CANCEL, ok: null });

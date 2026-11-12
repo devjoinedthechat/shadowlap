@@ -7,8 +7,8 @@
 .callrow { list-style: none; margin: 30px 0 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: relative; }
 .callrow::before { content: ""; position: absolute; left: 6%; right: 6%; top: 45px; height: 2px; background: var(--line2); }
 .callrow li { display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; }
-.callrow .pp { height: 10px; }
-.callrow .pl { height: 14px; font: 10.5px/14px var(--mono); color: var(--faint); white-space: nowrap; }
+.callrow .pp { height: 12px; font: 11px/12px var(--mono); color: var(--faint); white-space: nowrap; }
+.callrow .pl { height: 14px; font: 11px/14px var(--mono); color: var(--faint); white-space: nowrap; }
 .callrow .nr { height: 18px; display: flex; align-items: center; }
 .callrow .cn { width: 9px; height: 9px; border-radius: 50%; background: var(--line2); }
 .callrow .m .cn { width: 15px; height: 15px; border: 2px solid var(--dim); background: var(--panel); }
@@ -26,23 +26,29 @@
 /* the recorded answer and a rescued one, each under its label: ink, under a hairline, no coloured rules */
 .ans div { border-top: 1px solid var(--line); padding-top: 10px; }
 .ans code { display: block; margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; }
+/* a model's answer wraps pretty, never balanced: balancing it once its words were each a nowrap piece crashed Chromium's renderer on a phone */
+.ans code { text-wrap: pretty; }
 table.probes td, table.probes th { padding: 10px 12px; }
 table.probes tr.hot td { background: var(--sel); }
-.bmk { margin-left: 8px; font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
+/* blamed, beside a probe's status: in ink, the row's own size */
+.bmk { margin-left: 8px; font: 600 12.5px var(--body); color: var(--ink); }
 
 .deltas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .deltas div { padding: 14px 16px; }
 .deltas b { display: block; margin-top: 6px; font: 700 26px/1 var(--disp); letter-spacing: -.035em; color: var(--ink); }
 .deltas span.n { display: block; margin-top: 8px; font: 12px var(--mono); color: var(--faint); }
-.pdiff .was { margin: 0; font-size: 15px; line-height: 1.6; color: var(--faint); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--err) 60%, transparent); }
-.pdiff .now { margin: 8px 0 0; font-size: 17px; line-height: 1.6; }
+.pdiff .now { margin: 0; font-size: 17px; line-height: 1.6; }
+/* the change, once, as the text reads now: what it took out struck, what it added marked */
+.pdiff del { color: var(--faint); text-decoration-color: color-mix(in srgb, var(--err) 60%, transparent); }
 .pdiff mark { color: inherit; background: color-mix(in srgb, var(--ink) 16%, transparent); padding: 0 3px; border-radius: 4px; }
 .cands { display: grid; gap: 0; }
 .cand { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 18px; border-top: 1px solid var(--line); }
 .cand:first-child { border-top: 0; }
 .cand .cnum { font: 600 12px var(--mono); color: var(--faint); padding-top: 2px; }
 .cand q { quotes: none; font-size: 13.5px; }
-.cand .why { display: block; margin-top: 3px; color: var(--faint); font-size: 12.5px; }
+.cand q .ln { display: inline-block; text-wrap: balance; }
+.cand .why { display: block; margin-top: 3px; color: var(--faint); font-size: 12.5px; text-wrap: pretty; }
+.panel.sec .cand, .panel.sec .files a, .panel.sec .files div { padding-left: 0; padding-right: 0; }
 .files a, .files div { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; padding: 9px 18px; border-top: 1px solid var(--line); text-decoration: none; font: 12.5px var(--mono); }
 .files div:first-child { border-top: 0; }
 /* A longer note (a teammate's repair) wraps beside the name rather than over it. */
@@ -119,22 +125,24 @@ table.probes tr.hot td { background: var(--sel); }
 .stepper { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 22px; border-bottom: 1px solid var(--line); }
 .stepper a { position: relative; display: block; padding: 4px 18px 16px 0; text-decoration: none; }
 .stepper a + a { padding-left: 18px; border-left: 1px solid var(--line); }
-.stepper .k { display: flex; align-items: center; gap: 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.stepper .k { display: flex; align-items: center; gap: 8px; font: 500 12.5px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
 .stepper .k i { width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
 .stepper .done .k i { background: var(--dim); box-shadow: none; }
+.stepper .done.s-verify .k i { background: var(--cq-lime); }
 .stepper .no .k i { background: var(--err); box-shadow: none; }
 .stepper .warn .k i { background: var(--cq-amber); box-shadow: none; }
-.stepper b { display: block; margin-top: 8px; font: 600 15px/1.3 var(--disp); letter-spacing: -.02em; color: var(--ink); }
+/* a step a job of the fix runs: its dot pulses */
+.stepper .busy .k i { box-shadow: inset 0 0 0 1.5px var(--ink); animation: pulse 1.6s infinite; }
+.stepper b { display: block; margin-top: 6px; font: 600 15px/1.35 var(--body); letter-spacing: -.01em; color: var(--ink); }
 .stepper .todo b { color: var(--faint); }
 .stepper .m { display: block; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
-.stepper a:hover b { color: var(--ink); }
+.stepper a:hover .k, .stepper a:hover b { color: var(--ink); }
 .stepper a[aria-current="step"]::after { content: ""; position: absolute; left: 0; right: 18px; bottom: -1px; height: 2px; background: var(--ink); }
 .stepper a + a[aria-current="step"]::after { left: 18px; }
 
 .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .trio b { display: block; margin-top: 6px; font: 700 22px var(--disp); letter-spacing: -.03em; }
 .vchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
-.vchips .vn { font: 12px var(--mono); color: var(--faint); }
 .vpick { margin-bottom: 14px; flex-wrap: wrap; max-width: 100%; }
 
 /* with less room than a fifth column needs, the next step goes under the three steps, so what failed keeps its width */
@@ -171,14 +179,19 @@ table.probes tr.hot td { background: var(--sel); }
 
 .fxgap { margin-top: 16px; }
 .callrow.fxrow { margin-top: 6px; }
-.callrow li.dim { opacity: .4; }
+/* outside the blame's scope a call's dot is dimmed; its number stays in the faint text colour, which passes contrast */
+.callrow li.dim > :not(.cl) { opacity: .38; }
+/* the whole column takes the tap: its ring or dot is too small a target of its own */
+.callrow .cn { display: block; }
+.callrow .cn::after { content: ""; position: absolute; inset: 0; }
 .callrow li.gap .nr { font: 11px var(--mono); color: var(--faint); }
 .callrow a.cn:hover { box-shadow: 0 0 0 4px var(--hover); }
-.fxlegend { margin-top: 16px; }
-/* the probes' key says passed and failed as their attempts' pips do, in the consequence colours: the markup names the
-   replayed and blocked origins' swatches, which say where a call's answer came from */
-.fxlegend i.lg.rep { background: var(--cq-lime); }
-.fxlegend i.lg.block { background: var(--cq-red); box-shadow: none; }
+/* the row's key names only what it shows, each word in its probe's colour */
+.legend.fxleg { margin-top: 16px; row-gap: 6px; font: 12px var(--body); }
+.fxleg .lw.ok { color: var(--cq-lime); }
+.fxleg .lw.lost { color: var(--cq-red); }
+.fxleg .lw.unsure { color: var(--cq-amber); }
+.fxleg .lw.hot { color: var(--ink); }
 .ans.one { grid-template-columns: minmax(0, 1fr); }
 .fxbundle + .fxbundle { margin-top: 12px; }
 /* A gate's attempts grouped by what each did: how many, the path they took, how they came out, why, and one to open. */
@@ -196,11 +209,15 @@ table.probes tr.hot td { background: var(--sel); }
 .fxwhere .fxbase { display: block; margin-top: 2px; font-size: 12px; color: var(--faint); white-space: normal; }
 
 .fxnote { margin: 14px 0 0; color: var(--faint); font-size: 12.5px; }
+/* A crash's first bad commit under the Blame step's lead, then its change, closer to it than on Tests. */
+.bisect.fxbis { margin: 0 0 16px; padding-top: 0; border-top: 0; }
+.bisect.fxbis + .codewrap.bisectdiff { margin: -6px 0 20px; }
 .fxcmd { margin-top: 14px; }
 .fxlost { margin: 6px 0 14px; }
 .fxlost .at { color: var(--faint); }
 .fxdiag { margin: 6px 0 0; }
 .pbody.fxfoot { border-top: 1px solid var(--line); }
+.panel.sec .pbody.fxfoot { padding-top: 12px; }
 .fxfoot span { color: var(--faint); font-size: 12.5px; }
 table.t .fxrole { font-weight: 500; }
 .fxof { font: 12px var(--mono); color: var(--faint); }
@@ -217,14 +234,74 @@ table.t td.fxwhere { color: var(--faint); }
 .fxwarn { margin: 14px 0 0; padding-left: 18px; color: var(--warn); font-size: 12.5px; }
 .fxwarn.bad { margin: -4px 0 16px; color: var(--err); }
 .fxwarn.bad li.unsure { color: var(--warn); }
-.fxlist { margin: 6px 0 14px; padding-left: 18px; color: var(--dim); font-size: 13px; }
-.fxlist.bad { color: var(--del); }
+.fxlist { margin: 6px 0 12px; padding-left: 18px; color: var(--dim); font-size: 13.5px; }
+.fxlist.bad li::marker { color: var(--cq-red); }
+/* a part's label in sentence case, over what it labels: the recording, a rescued fork, as recorded */
+.lbl { display: block; font: 500 12px var(--body); color: var(--faint); }
+.lbl + .fxlist, .lbl + code { margin-top: 4px; }
+.ans .lbl { display: inline; }
+.ans .rfid code { display: inline; margin: 0; font-size: 12.5px; }
+/* on a fix's step the two answers are one column: a hairline between them, none above the first */
+.fxg .ans > div:first-child { border-top: 0; padding-top: 0; }
+.fxg .ans > div + div { padding-top: 14px; }
+/* a step opens on its verdict line, then what was found in a sentence */
+.verdict.sv { margin-bottom: 12px; }
+.verdict.sv p .pline { display: block; }
+.fxsay { margin: 0 0 24px; max-width: 90ch; color: var(--dim); font-size: 13.5px; line-height: 1.55; text-wrap: pretty; }
+.verdict p .dtip { text-decoration: underline dotted var(--line2); text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: help; }
+.verdict p .dtip:focus-visible { outline-offset: 1px; border-radius: 2px; }
+.grid2.fxg { align-items: start; }
+/* a probe's tally keeps its two halves whole and breaks only after its dot, the bar and the toggle together */
+table.probes td.ptally, table.vruns td.va { white-space: normal; color: var(--dim); font: 12.5px var(--body); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+/* under the pointer the blamed row's ground reaches into the gutters as a row's hover does, in its own tone */
+:where(.panel.sec table.probes) tr.hot:hover > td:first-child { box-shadow: -12px 0 0 var(--sel); }
+:where(.panel.sec table.probes) tr.hot:hover > td:last-child { box-shadow: 12px 0 0 var(--sel); }
+/* a row's attempts, under it on request */
+table.t tr.sub td { padding: 4px 12px 14px 44px; white-space: normal; background: none; }
+/* blame's probes on a phone: each row stacks, the call and the verdict first, the tally under them */
+@media (max-width: 640px) {
+  .tscroll table.probes, .tscroll table.vruns { min-width: 0; }
+  table.probes thead, table.vruns thead { display: none; }
+  table.probes tr:not(.sub), table.vruns tr:not(.sub) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 10px; row-gap: 4px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  table.probes tr:not(.sub) td, table.vruns tr:not(.sub) td { padding: 0; border: 0; }
+  /* the last row's hairline is the row's own, not one under each of its cells as well */
+  .panel.sec table.probes tbody tr:last-child td, .panel.sec table.vruns tbody tr:last-child td { border-bottom: 0; }
+  table.probes td.pc { grid-row: 1; grid-column: 1; }
+  table.probes td.pv { grid-row: 1; grid-column: 2; }
+  table.probes td.pm { grid-row: 1; grid-column: 3; color: var(--faint); font-size: 12px; }
+  table.probes td.ptally, table.vruns td.va { grid-row: 2; grid-column: 1 / -1; white-space: normal; }
+  /* the blamed probe's ground is its row's, unbroken, not each stacked cell's with the page between them */
+  table.probes tr.hot { background: var(--sel); }
+  table.probes tr.hot td { background: none; }
+  table.vruns td.vr { grid-row: 1; grid-column: 1; }
+  table.vruns td.vo { grid-row: 1; grid-column: 2; }
+  table.vruns td.vid { grid-row: 1; grid-column: 3; }
+  table.vruns td.vnote { grid-row: 3; grid-column: 1 / -1; min-width: 0; font-size: 12px; }
+  table.t tr.sub { display: block; }
+  table.t tr.sub td { display: block; padding: 0 14px 12px; }
+  /* a long run numbers only the model calls in the blame's scope, so the labels never run together; the others' numbers are on hover */
+  .callrow.dense li.t .cl, .callrow.dense li.dim .cl { visibility: hidden; }
+}
 .ph .fxrename { margin-left: 4px; vertical-align: 1px; }
 
 .fxsource { color: var(--ink); }
 
-.prbody.clamp { max-height: 380px; overflow: hidden; position: relative; }
-.prbody.clamp::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 72px; background: linear-gradient(color-mix(in srgb, var(--panel) 0%, transparent), var(--panel)); }
+/* the failing runs an accepted verdict left out, and Verify this run beside them */
+.vleft { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 12px 0 0; color: var(--faint); font-size: 12.5px; }
+.vleft code.rnm { font-size: 12.5px; }
+/* with its step in the header, the line is a sentence and flows as one */
+.vleft:not(:has(.btn)) { display: block; }
+
+/* a repair's report.md is the pull request's body: a preview of it, boxed as the Slack and pull request previews are */
+.fxg .prbody.md { margin-top: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); }
+/* its sections the step shows around it open on request: the heading, a summary of it and a caret */
+.prbody.md h3 { margin: 0 0 6px; }
+.prbody.md h4 { font-size: 12.5px; }
+.prbody.md p { margin: 6px 0; }
+.prbody.md code { font-size: 12.5px; }
+.prbody.md h4.mdh { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prbody.md h4.mdh .mds { color: var(--faint); font-weight: 400; font-size: 12px; }
+.prbody.md h4.mdh .xbtn { margin-left: -4px; }
 .prbody p { margin: 0 0 10px; }
 .prbody h4 { margin: 16px 0 6px; font: 600 13px var(--body); color: var(--ink); }
 .prbody code { font-size: 12px; }
@@ -238,18 +315,17 @@ table.t td.fxwhere { color: var(--faint); }
 .fxtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
 /* a long cell (an answer, a candidate) wraps anywhere, so the table fits its panel; a run id or a role stays whole */
 .fxtable td.nw { white-space: nowrap; overflow-wrap: normal; }
-/* report.md in a narrow panel (beside Handed over on a laptop, or on a phone): each row as its headers
-   and values, one under the other, so no column is ever out of view */
+/* report.md in a panel under 560px wide (beside Handed over on a laptop, or on a phone): each row as
+   its headers and values, one under the other, so no column is ever out of view */
 .prbody { container: report / inline-size; }
 
-@container report (max-width: 420px) {
+@container report (max-width: 560px) {
   .fxtable table, .fxtable tbody, .fxtable tr, .fxtable td { display: block; }
   .fxtable thead { display: none; }
   .fxtable tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
   .fxtable td { padding: 2px 0; border: 0; }
   .fxtable td::before { content: attr(data-h); display: block; font: 500 10px/1.5 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
 }
-.fxmore { padding: 0 18px 14px; }
 
 /* Forced colours (a high-contrast theme) set every colour to the user's own, and drop shadows and fills: what says something
    by its colour alone keeps its colour, edged in the user's text colour (CanvasText) so it shows on any ground; a chosen
@@ -262,6 +338,26 @@ table.t td.fxwhere { color: var(--faint); }
   .callrow .cn:focus-visible { outline-color: Highlight; }
   /* a step's dot keeps its colour, edged in the text colour; one not started is the edge alone */
   .psk i, .psk.done i, .psk.no i, .psk.warn i, .stepper .k i, .stepper .done .k i, .stepper .no .k i, .stepper .warn .k i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
-  .psk.busy i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText, inset 0 0 0 2.5px Highlight; }
+  .psk.busy i, .stepper .busy .k i { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText, inset 0 0 0 2.5px Highlight; }
   .stepper a[aria-current="step"]::after { background: CanvasText; }
 }
+/* A fix's header: the title, a sentence, in the UI face; beside it the buttons, the title keeping 520px. At 1280px and below
+   it always stacks (the title and its lines across the page, then the buttons, the lime one first); wider, where the buttons
+   would leave the title less than 520px (head.tsx useFitFixHead). The lime one goes first on the screen only: Tab follows the page. */
+.ph.fxh { flex-wrap: nowrap; }
+.ph.fxh h1 { font: 600 24px/1.25 var(--body); letter-spacing: -.015em; }
+/* the failing runs' link in the about line: underlined softly, so it reads as a link beside the line's grey words by more than its ink */
+.ph.fxh .pmeta a.dlink { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.ph.fxh .pmeta a.dlink:hover { text-decoration-color: currentColor; }
+.ph.fxh > div:first-child { flex: 1 1 520px; min-width: 0; }
+.ph.fxh .actions { flex: none; flex-wrap: nowrap; }
+@media (max-width: 1280px) {
+  .ph.fxh { flex-direction: column; flex-wrap: wrap; align-items: flex-start; row-gap: 14px; }
+  .ph.fxh > div:first-child { flex: none; width: 100%; }
+  .ph.fxh .actions { flex-wrap: wrap; margin-left: 0; justify-content: flex-start; }
+  .ph.fxh .actions .btn.lime { order: -1; }
+}
+.ph.fxh.stack { flex-direction: column; flex-wrap: wrap; align-items: flex-start; row-gap: 14px; }
+.ph.fxh.stack > div:first-child { flex: none; width: 100%; }
+.ph.fxh.stack .actions { flex-wrap: wrap; margin-left: 0; justify-content: flex-start; }
+.ph.fxh.stack .actions .btn.lime { order: -1; }

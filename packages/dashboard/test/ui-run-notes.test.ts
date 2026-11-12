@@ -88,7 +88,9 @@ describe('the notes on a run’s page', () => {
       ['rnote warn fx', 'websocket'],
       ['rnote n fx', 'extra reads'],
     ]);
-    // The tool, with the model call that first asked for it, which opens on a click.
+    // Their words come with a part of their own, the first time the page draws a note. The tool, with
+    // the model call that first asked for it, which opens on a click.
+    await r.until('the notes’ words', () => r!.all('.rntools li').length > 0);
     const tool = r.one('.rntools li');
     expect(tool.querySelector('code')!.textContent).toBe('Bash');
     expect(tool.querySelector('.eff')!.textContent).toBe('write');

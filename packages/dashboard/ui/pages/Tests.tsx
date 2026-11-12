@@ -114,7 +114,7 @@ export function TestsPage() {
   // as each has its own in its report.
   const actions = (
     <>
-      <a className="btn" href="#/settings/ci">
+      <a className="btn" href={href.settings('ci')}>
         <Icon name="gear" />
         Open CI settings
       </a>
@@ -166,7 +166,7 @@ export function TestsPage() {
         <DivergencePanel key={d.golden} d={d} has={hasKind} updateLeads={view.steps?.[d.golden]?.key === 'update-golden'} wait={wait} live={bisectLive(view, d)} prices={prices} onNormalize={(e) => guard(() => normalize(d, e))} onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e }))} onFind={() => findCommit(d)} />
       ))}
       {view.failures.map((f) => (
-        <FailurePanel key={f.golden} f={f} off={findWait} live={bisectLive(view, f)} button={findCommitButton(f, hasKind)} onBisect={() => findCommit(f)} />
+        <FailurePanel key={f.golden} f={f} off={findWait} live={bisectLive(view, f)} button={findCommitButton(f, hasKind)} step={view.steps?.[f.golden]} prices={prices} onBisect={() => findCommit(f)} />
       ))}
       {view.inconclusive.map((v) => (
         <InconclusivePanel

@@ -366,7 +366,7 @@ describe('the reports', () => {
   });
 
   it('names what Find the commit found, with who, when and its cost', () => {
-    expect(foundLine({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T09:30:00+02:00', why: '', untested: [], replays: 3, tokens: 0, at: T })).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', meta: 'Ravi · Sep 30 · 0 tokens' });
+    expect(foundLine({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T09:30:00+02:00', why: '', untested: [], replays: 3, tokens: 0, at: T, change: null })).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', meta: 'Ravi · Sep 30 · 0 tokens' });
     expect(shortDate('not a date')).toBe('not a date');
     expect(dayClock(T)).toBe('Oct 1, 10:02');
   });
@@ -397,7 +397,7 @@ describe('the buttons under a divergence', () => {
   });
 
   it('leave out Find the commit once it found the commit, and what the server does not run', () => {
-    const found = divergence('a', { found: { rev: '4e7b2d1', subject: 's', author: 'a', date: '', why: '', untested: [], replays: 3, tokens: 0, at: T } });
+    const found = divergence('a', { found: { rev: '4e7b2d1', subject: 's', author: 'a', date: '', why: '', untested: [], replays: 3, tokens: 0, at: T, change: null } });
     expect(divergenceButtons(found, all).bisect).toBeNull();
     expect(divergenceButtons(divergence('a', { bisect: null }), all).bisect).toEqual({ range: false, live: false });
     expect(divergenceButtons(divergence('a'), (k) => k === 'test')).toMatchObject({ normalize: null, update: null, bisect: null });
@@ -720,5 +720,7 @@ describe('the jobs the screen starts', () => {
     expect(ciQuery({ fix: true, budget: '5.00', repairer: 'openai:gpt-5', onlyMain: false, secret: 'TEAM_HOOK' })).toBe('?fix=on&budget=5.00&repairer=openai%3Agpt-5&onlyMain=off&secret=TEAM_HOOK');
     // An inconclusive golden's control, Fails or Warns: the server takes it as it is.
     expect(ciQuery({ inconclusive: 'warn' })).toBe('?inconclusive=warn');
+    expect(ciQuery({ comment: false })).toBe('?comment=off');
+    expect(ciQuery({ comment: true, fix: false })).toBe('?comment=on&fix=off');
   });
 });

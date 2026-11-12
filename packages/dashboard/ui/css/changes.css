@@ -43,3 +43,148 @@ table.vdt tbody tr.still:hover td, table.vdg tbody tr.still:hover td { backgroun
 /* Compare's pickers on a row of their own under Changes' tabs; a revision's command under its sections */
 .pickers.chpick { margin-bottom: 16px; }
 .cmdline.chcmd { margin-top: 18px; }
+
+/* Preview: the picker on a bar of its own, taking the line on a phone; the verdict's lines one under another */
+.chbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.rpick.dpick { width: auto; min-width: 280px; max-width: 100%; }
+.rpick.dpick .pid, .pop .rpk .pid { font: 500 13.5px var(--body); color: var(--ink); white-space: nowrap; }
+.rpick.dpick .rab { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 640px) { .chbar .pick, .chbar .rpick.dpick { flex: 1 1 100%; min-width: 0; } }
+.verdict.dverdict { margin-bottom: 0; }
+.verdict p .pline { display: block; }
+.vlater { white-space: normal; }
+@media (min-width: 360px) { .vlater { white-space: nowrap; } }
+/* the key's swatches: a cell's colours, left as recorded hollow, not asked dashed, a judge's wait ringed, a split in bands */
+i.dg { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 2px; background: var(--cq-muted-fill); }
+i.dg.w { background: var(--cq-red); } i.dg.s { background: var(--cq-amber); } i.dg.r { background: var(--k-read); }
+i.dg.un { background: none; box-shadow: inset 0 0 0 1px var(--line2); }
+i.dg.na { background: none; border: 1px dashed var(--line2); }
+i.dg.jw { box-shadow: inset 0 0 0 1.5px var(--cq-amber); }
+i.dg.spl { display: inline-flex; flex-direction: column-reverse; gap: 1px; background: none; }
+i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-muted-fill); } i.dg.spl i.w { background: var(--cq-red); }
+/* the matrix: one grid, a row per run (its parts are the grid's cells, so the columns line up whatever a row holds): its id
+   with its about line, its cells (the room they need, never more than there is), what changed most */
+.dmx { container: matrix / inline-size; margin-top: 28px; }
+.dmkey { grid-column: 2 / -1; min-width: 0; padding: 0 11px 12px; }
+.dmg { display: grid; grid-template-columns: minmax(170px, 270px) minmax(0, max-content) minmax(180px, 1fr); }
+.dmh, .dmr { display: contents; }
+.dmh > span, .dmr > div { min-width: 0; padding: 10px 11px; }
+.dmh > span:first-child, .dmr > div:first-child { padding-left: 0; }
+.dmh > span:last-child, .dmr > div:last-child { padding-right: 0; }
+.dmh > span { padding-top: 0; padding-bottom: 8px; border-bottom: 1px solid var(--line); font: 500 11px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dmr > div { display: flex; flex-direction: column; justify-content: center; gap: 2px; border-top: 1px solid var(--line); }
+.dmh + .dmr > div { border-top: 0; }
+.dmr.open > div { background: var(--sel); }
+.dmr.open > div:first-child { box-shadow: -12px 0 0 var(--sel); } .dmr.open > div:last-child { box-shadow: 12px 0 0 var(--sel); }
+/* a run in focus from j and k, drawn across its cells as an open one is, with the bar at its left */
+.dmr.krow > div { background: var(--sel); }
+.dmr.krow > div:first-child { box-shadow: -9px 0 0 var(--sel), -12px 0 0 var(--ink); } .dmr.krow > div:last-child { box-shadow: 12px 0 0 var(--sel); }
+.dmr > div:focus-visible { outline: none; }
+.dml .dmid { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.dml .dmid code.rnm { font-size: 12.5px; }
+.dml .dmab { display: block; color: var(--faint); font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+.dmcw { overflow-x: auto; }
+.dmc { display: grid; grid-template-columns: repeat(var(--n, 1), minmax(0, 18px)); gap: 3px; padding: 4px 0 9px; }
+.dmc.dense { gap: 1px; }
+.dc { position: relative; display: block; min-width: 0; height: 22px; padding: 0; border: 0; border-radius: 2px; cursor: pointer; background: var(--cq-muted-fill); }
+.dc.w { background: var(--cq-red); } .dc.s { background: var(--cq-amber); } .dc.r { background: var(--k-read); }
+.dc.un { background: none; box-shadow: inset 0 0 0 1px var(--line2); }
+.dc.na { background: none; border: 1px dashed var(--line2); }
+.dc.jw { box-shadow: inset 0 0 0 1.5px var(--cq-amber); }
+.dc.split { display: flex; flex-direction: column-reverse; gap: 1px; background: none; }
+.dc.split i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-muted-fill); }
+.dc.split i:first-child { border-radius: 0 0 2px 2px; } .dc.split i:last-child { border-radius: 2px 2px 0 0; }
+.dc.split i.w { background: var(--cq-red); } .dc.split i.s { background: var(--cq-amber); } .dc.split i.r { background: var(--k-read); }
+.dc:hover { filter: brightness(1.2); }
+.dc:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.dc[aria-current="true"]::after { content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); border: 5px solid transparent; border-bottom-color: var(--ink); }
+/* a cell takes taps across half the gap on each side and 4px above and below; on a phone or any touch screen the gap grows
+   to 6px, so each cell's hit area is 24px wide while it is still drawn 18px */
+.dc::before { content: ""; position: absolute; inset: -4px -1.5px; }
+.dmc.dense .dc::before { inset: -4px -.5px; }
+@media (max-width: 640px), (pointer: coarse) { .dmc:not(.dense) { gap: 6px; } .dmc:not(.dense) .dc::before { inset: -4px -3px; } }
+/* on a phone with a mouse the gap is what the row has left after 18px cells, from 3 to 6px, so a narrow row keeps its cells'
+   size rather than shrink them for gaps; each cell still takes taps across its whole step, the later cell's 3px taking the
+   overlap. A touch screen keeps its 6px, as its cells never shrink: its row scrolls (below). */
+@media (max-width: 640px) and (pointer: fine) { .dmc:not(.dense) { gap: clamp(3px, (100% - var(--n, 1) * 18px) / max(var(--n, 1) - 1, 1), 6px); } }
+/* on a touch screen a cell keeps 18px, its tap area 24px, and a row of many scrolls in its own box rather than shrink them:
+   the box reaches 3px past the row's ends, so its first and last cells' tap areas aren't cut, and draws no scrollbar */
+@media (pointer: coarse) {
+  .dmc:not(.dense) { grid-template-columns: repeat(var(--n, 1), 18px); }
+  .dmcw { margin-inline: -3px; padding-inline: 3px; scrollbar-width: none; }
+}
+.dms { font-size: 12.5px; }
+.dsl { margin: 0; text-wrap: pretty; }
+.dsm { color: var(--faint); }
+.dsd { color: var(--dim); }
+.dsd.q1 { color: var(--cq-red); } .dsd.q2, .dsy { color: var(--cq-amber); }
+.dsv { display: block; color: var(--faint); font-size: 12px; } .dsv b { font-weight: 500; margin-right: 6px; }
+.dsv.ok b { color: var(--cq-lime); } .dsv.no b { color: var(--cq-red); } .dsv.y b { color: var(--cq-amber); }
+/* what couldn't be asked or judged, under the last row, in amber */
+.dnotes { list-style: none; margin: 12px 0 0; padding: 0; color: var(--cq-amber); font-size: 12px; line-height: 1.55; }
+.dnotes li { text-wrap: balance; }
+.dnotes li + li { margin-top: 4px; }
+/* below 760px of room a row stacks: its label, its cells, what changed most */
+@container (max-width: 760px) {
+  .dmg { grid-template-columns: minmax(0, 1fr); }
+  .dmh { display: none; }
+  .dmkey { grid-column: 1 / -1; padding: 0 0 12px; }
+  .dmr > div { border-top: 0; padding: 0; }
+  .dmr > div:first-child { border-top: 1px solid var(--line); padding-top: 12px; }
+  .dmr > div:last-child { padding-bottom: 14px; }
+  .dmr > div + div { padding-top: 8px; }
+  .dmr.krow > div, .dmr.krow > div:first-child, .dmr.krow > div:last-child { box-shadow: -9px 0 0 var(--sel), -12px 0 0 var(--ink), 12px 0 0 var(--sel); }
+}
+/* forced colours: a cell and its swatch edged in the text colour, left as recorded the edge alone, not asked dashed in it,
+   a judge's wait its amber ring inside the edge, a split outlined over its parts; the caret in the text colour */
+@media (forced-colors: active) {
+  .dc, .dc.un, i.dg, i.dg.un { forced-color-adjust: none; box-shadow: inset 0 0 0 1px CanvasText; }
+  .dc.na, i.dg.na { border-color: CanvasText; box-shadow: none; }
+  .dc.jw, i.dg.jw { box-shadow: inset 0 0 0 1px CanvasText, inset 0 0 0 2.5px var(--cq-amber); }
+  .dc.split, i.dg.spl { box-shadow: none; outline: 1px solid CanvasText; outline-offset: -1px; }
+  .dc[aria-current="true"]::after { border-bottom-color: CanvasText; }
+  .dc:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+}
+
+/* a cell, opened: the two decisions side by side, what changed, then the conversation up to the call as the inspector draws it */
+.dcell { margin-top: 14px; }
+.dcell > header.dch { flex-wrap: wrap; row-gap: 8px; }
+.dcell .dch h2 { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.dcell .dch h2 code { font-size: 12.5px; }
+.dcell .dch .dacts { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dlead { margin: 0 0 16px; font-size: 14px; line-height: 1.5; color: var(--ink); text-wrap: pretty; }
+.dlm { color: var(--faint); font-size: 12.5px; }
+.dlead .dlv { display: block; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
+.dlead .dlv.ok b { color: var(--cq-lime); font-weight: 500; }
+.dlead .dlv.no b { color: var(--cq-red); font-weight: 500; }
+.dlead .dlv.y b { color: var(--cq-amber); font-weight: 500; }
+.dbin { margin: -8px 0 16px; color: var(--faint); font-size: 12.5px; text-wrap: pretty; }
+.drk { display: inline-block; margin-right: 4px; font: 600 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); vertical-align: 1px; white-space: nowrap; }
+.drk.q1 { color: var(--cq-red); }
+.drk.q2 { color: var(--cq-amber); }
+.drk.q3, .drk.q4 { color: var(--dim); }
+.dpair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.dside { min-width: 0; padding-top: 10px; border-top: 2px solid var(--line2); }
+.dside.q1 { border-top-color: var(--cq-red); }
+.dside.q2 { border-top-color: var(--cq-amber); }
+.dside.q3, .dside.q4 { border-top-color: var(--k-read); }
+.dside .k { display: block; margin-bottom: 8px; font: 500 10px var(--mono); letter-spacing: var(--caps); text-transform: uppercase; color: var(--faint); }
+/* each side's decision is the Decision component's (components/Decision.tsx), styled in compare.css */
+.dchg { list-style: none; margin: 16px 0 0; padding: 0; font-size: 12.5px; color: var(--dim); }
+.dchg li { padding: 2px 0; }
+.dchg li.dargs code { display: block; font-size: 12.5px; color: var(--dim); white-space: normal; overflow-wrap: anywhere; }
+.dchg .dalso { margin-right: 8px; color: var(--faint); }
+.djudge { list-style: none; margin: 10px 0 0; padding: 0; font-size: 12.5px; color: var(--dim); }
+.djudge li { text-wrap: pretty; }
+.djudge .jn { font: 12.5px var(--mono); color: var(--ink); }
+.djudge b { font-weight: 500; }
+.djudge b.ok { color: var(--cq-lime); }
+.djudge b.no { color: var(--cq-red); }
+.djudge b.y { color: var(--cq-amber); }
+.dcell .dspend { margin: 14px 0 0; color: var(--faint); font-size: 12px; line-height: 1.55; text-wrap: pretty; }
+.dconv { padding: 14px 18px 6px; border-top: 1px solid var(--line); }
+@media (max-width: 760px) { .dpair { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+@media (forced-colors: active) {
+  .dside, .dside.q1, .dside.q2, .dside.q3, .dside.q4 { border-top-color: CanvasText; }
+  .drk.q1, .drk.q2 { color: CanvasText; }
+}

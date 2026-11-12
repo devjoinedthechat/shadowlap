@@ -262,13 +262,14 @@ function decidedOn(x: Pick<BlameProbe, 'passes' | 'attempts'> & { gate?: Pick<Ga
 }
 
 /**
- * A gated probe's bound, on the attempts it decided on, at its gate's confidence: `rate >= 0.15 (95%)`.
- * It is the interval its gate result holds (stats.ts `gateInterval`), exact under the gate's own
- * stopping when the probe stopped by it. A result kept before bounds were exact (it has no `bound`),
- * or one whose tally isn't the attempts it decided on, gets a confidence sequence instead, which
- * holds however the attempts stopped.
+ * The interval a gated probe's bound is read from (`probeBound`), on the attempts it decided on, at
+ * its gate's confidence: the interval its gate result holds (stats.ts `gateInterval`), exact under
+ * the gate's own stopping when the probe stopped by it. A result kept before bounds were exact (it
+ * has no `bound`), or one whose tally isn't the attempts it decided on, gets a confidence sequence
+ * instead, which holds however the attempts stopped. Null where the probe has no bound: a fixed
+ * count, an attempt that could not be judged stopped it, or counts that don't add up.
  */
-export function probeBound(x: Pick<BlameProbe, 'passes' | 'attempts' | 'decision'> & { gate?: (Pick<GateResult, 'passes' | 'attempts'> & Partial<Pick<GateResult, 'interval' | 'bound'>>) | null | undefined; undecided?: string | null | undefined }, gate: Pick<SprtGate, 'risk'> | null | undefined): string | null {
+export function probeInterval(x: Pick<BlameProbe, 'passes' | 'attempts' | 'decision'> & { gate?: (Pick<GateResult, 'passes' | 'attempts'> & Partial<Pick<GateResult, 'interval' | 'bound'>>) | null | undefined; undecided?: string | null | undefined }, gate: Pick<SprtGate, 'risk'> | null | undefined): GateResult['interval'] | null {
   // A probe an attempt that could not be judged stopped was decided by no gate.
   if (!gate || !x.decision || x.undecided) return null;
   const on = decidedOn(x);
@@ -279,7 +280,13 @@ export function probeBound(x: Pick<BlameProbe, 'passes' | 'attempts' | 'decision
   if (!Number.isInteger(on.passes) || on.passes < 0 || on.passes > on.attempts || !(confidence > 0 && confidence < 1)) return null;
   const kept = x.gate?.bound && x.gate.interval && x.gate.passes === on.passes && x.gate.attempts === on.attempts ? x.gate.interval : null;
   const exact = kept && [kept.lo, kept.hi, kept.confidence].every(Number.isFinite) ? kept : null;
-  return rateBound({ attempts: on.attempts, interval: exact ?? { ...confidenceSequence(on.passes, on.attempts, confidence), confidence }, decision: x.decision });
+  return exact ?? { ...confidenceSequence(on.passes, on.attempts, confidence), confidence };
+}
+
+/** A gated probe's bound, on the attempts it decided on, at its gate's confidence (`probeInterval`): `rate >= 0.15 (95%)`. */
+export function probeBound(x: Parameters<typeof probeInterval>[0], gate: Pick<SprtGate, 'risk'> | null | undefined): string | null {
+  const interval = probeInterval(x, gate);
+  return interval ? rateBound({ attempts: decidedOn(x).attempts, interval, decision: x.decision }) : null;
 }
 
 /**

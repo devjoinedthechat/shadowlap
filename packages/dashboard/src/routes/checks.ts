@@ -12,7 +12,7 @@ import type { Router } from '../router.js';
 import { loadRunIndex, runAffinity } from '../run-index.js';
 import type { CheckSuggestionsJob } from '../suggested-checks.js';
 import type { GoldenSource } from '../tests.js';
-import { VERSION, editError, editFolder, failed, log } from './settings.js';
+import { VERSION, editError, editFolder, failed, log } from './settings-edits.js';
 
 /**
  * Checks: what a check says about the recordings there are before it is saved, and a golden's

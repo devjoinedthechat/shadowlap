@@ -1,4 +1,4 @@
-import { canonicalize } from './canonical.js';
+import { canonicallySame } from './canonical.js';
 import type { Refusal, ToolFailure } from './interventions.js';
 import { isReservedScope } from './judge-scope.js';
 import type { ReplayOptions } from './session.js';
@@ -230,16 +230,8 @@ const mcpTexts = (v: Record<string, unknown>) => (Array.isArray(v.content) ? (v.
  */
 export function presetResult(preset: Exclude<ChaosPreset, 'timeout' | '429' | '500'>, recorded: unknown, shape: ResultShape, o: { oversize?: number } = {}): { result: unknown } | Refusal {
   const made = served(preset, recorded, shape, o.oversize ?? OVERSIZE_CHARS);
-  if ('result' in made && same(made.result, recorded)) return refuse(preset === 'empty' ? 'it already answered with nothing' : 'the preset would leave its answer as it was');
+  if ('result' in made && canonicallySame(made.result, recorded)) return refuse(preset === 'empty' ? 'it already answered with nothing' : 'the preset would leave its answer as it was');
   return made;
-}
-
-function same(a: unknown, b: unknown): boolean {
-  try {
-    return canonicalize(a) === canonicalize(b);
-  } catch {
-    return false;
-  }
 }
 
 function served(preset: Exclude<ChaosPreset, 'timeout' | '429' | '500'>, recorded: unknown, shape: ResultShape, chars: number): { result: unknown } | Refusal {

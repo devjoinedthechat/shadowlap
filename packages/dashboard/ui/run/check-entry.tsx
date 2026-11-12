@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { asNumber } from '../../../engine/src/checks/grammar.js';
 import { isObject } from '../../../engine/src/is-object.js';
 import { JUDGE_SCOPE } from '../../../engine/src/judge-scope.js';
@@ -8,8 +8,9 @@ import { LoadFailed } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { Popover, useMenu } from '../components/Popover.js';
+import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
-import { BuilderFailed, CheckBuilderPart, type CheckKind } from './check-part.js';
+import { BuilderFailed, type CheckKind } from './check-part.js';
 
 /**
  * Add check… on a run's page: first in a tool call's row menu, on the inspector's summary line and in
@@ -116,7 +117,7 @@ function NoBuilder({ onClose }: { onClose: () => void }) {
  */
 export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: CallDetail | null }): { check: CheckEntry | undefined; fromPalette: (() => void) | undefined; offered: boolean; node: ReactNode } {
   const app = useApp();
-  const Builder = useContext(CheckBuilderPart);
+  const Builder = useServedParts().CheckBuilder;
   const menu = useMenu();
   const [start, setStart] = useState<{ call: CallDetail; kind: CheckKind } | null>(null);
   const can = !!Builder && addsCheck(o.run, o.row, app);
@@ -162,7 +163,6 @@ export function useCheckEntry(o: { run: RunDetail; row: CallRow | null; detail: 
       ) : null}
       {start && Builder ? (
         <BuilderFailed.Provider value={<NoBuilder onClose={close} />}>
-          {/* eslint-disable-next-line react-hooks/static-components -- the one part the served dashboard hands the page (App.tsx), the same on every render */}
           <Builder run={o.run} call={start.call} kind={start.kind} onClose={close} />
         </BuilderFailed.Provider>
       ) : null}

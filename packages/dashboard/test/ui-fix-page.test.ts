@@ -1,6 +1,6 @@
 import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { decideVerify, formatBlame, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
+import { afterForkLines, decideVerify, formatBlame, markFixApplied, plain, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixAttemptGroups } from '../src/attempt-groups.js';
 import { fixDetail } from '../src/fixes.js';
@@ -155,14 +155,14 @@ describe('the Blame step', () => {
     await open(blame(run, { report }).fix.fixId, 'blame');
     const cli = /^ {2}Confidence: high \((.+)\)$/m.exec(formatBlame(report))?.[1];
     expect(cli).toBe('<= 3% risk that the call is wrong: 3 probes decided, at <= 1% risk each');
-    const head = text(r!.one('.sh p'));
+    const head = text(r!.one('.verdict p'));
     expect(head).toContain(` · confidence high (${cli!})`);
     expect(head).not.toContain('0.0297');
     await r!.unmount();
     // A report from before blame bounded its error says its confidence alone, as it did.
     const older = newRun({ labels: ['triage'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
     await open(blame(older).fix.fixId, 'blame');
-    expect(text(r!.one('.sh p'))).toMatch(/ · confidence high(?! \()/);
+    expect(text(r!.one('.verdict p'))).toMatch(/ · confidence high(?! \()/);
   });
 
   it('prints no bound where the CLI prints no confidence line: every attempt that passed answered the call as the recording did', async () => {
@@ -173,9 +173,8 @@ describe('the Blame step', () => {
     for (const p of report.probes) p.risk = 0.01;
     expect(formatBlame(report)).not.toContain('Confidence:');
     await open(blame(run, { report }).fix.fixId, 'blame');
-    const head = text(r!.one('.sh p'));
-    expect(head).toContain(why);
-    expect(head).not.toMatch(/risk/);
+    expect(text(r!.one('p.fxsay'))).toContain(why);
+    expect(text(r!.one('.verdict p'))).not.toMatch(/risk/);
   });
 });
 
@@ -185,8 +184,11 @@ describe('the Repair step', () => {
     const { fix } = blame(run);
     recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run] }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
     await open(fix.fixId, 'repair');
-    const head = text(r!.one('.sh p'));
-    expect(head).toMatch(/^Accepted [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\)$/);
+    expect(text(r!.one('.verdict .vw'))).toBe('accepted');
+    const rule = text(r!.one('.verdict p .pline'));
+    expect(rule).toMatch(/^each .+ · verified twice, the second time with fresh attempts$/);
+    const head = text(r!.one('.verdict p')).replace(rule, '');
+    expect(head).toMatch(/^Repaired [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\)$/);
     // The accepted candidate's verify alone is no cost of the repair's.
     expect(head).not.toMatch(/attempts|\$/);
     // The attempts it ran first, its blame's and both candidates' it verified (the one it dropped and
@@ -224,8 +226,10 @@ describe('the Repair step', () => {
     await r!.unmount();
     recordRepair(store, { repairId: 'repair-nothing', dir: '.shadowlap/repairs/repair-nothing', report: repairReport({ targets: [run], accepted: false }), expect: EXPECT, command: 'shadowlap repair --fixes label:refund-bug', at: NOW + 1 });
     await open(fix.fixId, 'repair');
-    expect([text(r!.one('.sh h2')), r!.all('.stepper a b').map(text)[1]]).toEqual(['No change yet', 'No change yet']);
-    expect(text(r!.one('.sh p'))).toMatch(/^Ran [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\) · 1 candidate tried, none accepted/);
+    // Its verdict line says why; the stepper keeps its word for a repair that made no change.
+    expect([text(r!.one('.verdict .vw')), text(r!.one('.verdict h2')), r!.all('.stepper a b').map(text)[1]]).toEqual(['rejected', 'rejected The gate accepted none of the 1 candidate tried', 'No change yet']);
+    expect(text(r!.one('.verdict p'))).toMatch(/^Ran [A-Z][a-z]{2} \d+, \d\d:\d\d · proposed by claude-code \(answered by claude-opus-5-5\)$/);
+    expect(r!.all('.verdict p .pline')).toEqual([]);
     expect(text(r!.one('.fxreceipt'))).toBe('13 attempts · cost: blame ≈$0.100 · repairer ≈$0.0040 · verify ≈$0.024');
   });
 });
@@ -423,12 +427,13 @@ describe('Apply fix', () => {
     const fixId = verified();
     markFixApplied(store, fixId, { patch: 'applied', repairId: 'repair-munzln2i', goldens: ['goldens/01M3RZ0001'], tests: 'passed', via: 'fix apply' });
     await open(fixId);
-    expect(buttons()).toEqual(['Show patch', 'Patch applied']);
+    // The status says applied: no Patch applied beside it.
+    expect(buttons()).toEqual(['Show patch']);
     await r!.click(r!.byText('.ph .actions button', 'Show patch'));
     expect(text(r!.one('.dialog h3'))).toBe('Show patch');
     expect(text(r!.one('.dialog header p'))).toContain('The fix as repair handed it over, in your working tree since you applied it.');
     expect(text(r!.one('.dialog .dfacts'))).toBe('Path.shadowlap/repairs/repair-munzln2i/fix.patch');
-    expect(text(r!.one('.dialog pre.fxpatch'))).toContain('+You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
+    expect(text(r!.one('.dialog pre.fxpatch'))).toContain('+ You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.');
     // To read only: Close, and nothing to run.
     expect(r!.all('.dialog footer button').map(text)).toEqual(['Close']);
   });
@@ -452,10 +457,9 @@ describe('the Verify step', () => {
     const { fixId } = verdicts();
     await open(fixId, 'verify');
     // Verify's incomplete, said inconclusive in amber: the one word and colour of what nothing decided.
-    expect(r!.one('.verdict').className).toBe('verdict warn');
-    expect(r!.one('.verdict .badge').className).toBe('badge y');
-    expect(text(r!.one('.verdict .badge'))).toBe('inconclusive');
-    expect(text(r!.one('.verdict h2'))).toBe('Not every run settled');
+    expect(r!.one('.verdict .vw').className).toBe('vw warn');
+    expect(text(r!.one('.verdict .vw'))).toBe('inconclusive');
+    expect(text(r!.one('.verdict h2'))).toBe('inconclusive Not every run settled');
     // Links to each verdict's page: the one shown is the current one (a link pressed is no button: axe calls that critical).
     expect(r!.all('.vpick a').filter((a) => a.getAttribute('aria-current') === 'page').map(text)).toEqual(['370712a+dirty · inconclusive']);
     expect(r!.all('.vpick a[aria-pressed]')).toEqual([]);
@@ -468,9 +472,8 @@ describe('the Verify step', () => {
     const { fixId, other } = verdicts();
     await open(fixId, 'verify', other);
     // Accepted under its own check, but no verdict on the fix: never in lime.
-    expect(r!.one('.verdict').className).toBe('verdict n');
-    expect(r!.one('.verdict .badge').className).not.toContain('ok');
-    expect(text(r!.one('.verdict h2'))).toBe("Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times");
+    expect(r!.one('.verdict .vw').className).toBe('vw mu');
+    expect(text(r!.one('.verdict h2'))).toBe("accepted Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times");
     expect(r!.all('.vpick a').map(text)).toEqual(["temperature=1 from each run's first model call · at f353f41 · accepted · doesn't count", '370712a+dirty · inconclusive']);
     // The revision stays with its "at", and no line starts on a dot.
     expect(r!.all('.vpick a')[0].textContent).toBe("temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· accepted\u00a0· doesn't count");
@@ -485,14 +488,28 @@ describe('the Verify step', () => {
     for (const x of runs) fixId = blame(x).fix.fixId;
     recordVerdict(store, { report: verifyReport([{ runId: runs[0], role: 'target', pass: true }]), expect: EXPECT, command: 'v', at: NOW + 1 });
     await open(fixId, 'verify');
-    expect(r!.one('.verdict').className).toBe('verdict ok');
-    expect(text(r!.one('.verdict h2'))).toBe('Fixes 1 of 1 target run');
+    expect(r!.one('.verdict .vw').className).toBe('vw ok');
+    expect(text(r!.one('.verdict h2'))).toBe('accepted Fixes 1 of 1 target run');
     expect(text(r!.byText('nav.stepper a b', '1 fixed'))).toBe('1 fixed');
+  });
+
+  it('says what answered the tool calls after the fork in the CLI report’s words, and nothing when no attempt made one', async () => {
+    const run = newRun({ labels: ['refund-bug'] });
+    const { fixId } = blame(run).fix;
+    const report = verifyReport([{ runId: run, role: 'target', pass: true }]);
+    report.runs[0].attempts = report.runs[0].attempts.map((a) => ({ ...a, afterFork: { recorded: 2, inOrder: 0, live: 1, stubbed: 0, blocked: 0 } }));
+    recordVerdict(store, { report, expect: EXPECT, command: 'v', at: NOW + 1 });
+    await open(fixId, 'verify');
+    expect(text(r!.one('.fxreceipt.fxafter'))).toBe(afterForkLines(report.runs, plain)[0].trim());
+    recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }]), expect: EXPECT, command: 'v', at: NOW + 2 });
+    await r!.unmount();
+    await open(fixId, 'verify');
+    expect(r!.all('.fxreceipt.fxafter')).toHaveLength(0);
   });
 });
 
 describe('what settles a fix left unsettled', () => {
-  it('leads the Verify step of a verdict a budget stopped with Run more attempts, its header plain, and says what that takes', async () => {
+  it('leads the Verify step of a verdict a budget stopped with Run more attempts, the header’s lime button, rightmost, its others plain, and says what that takes', async () => {
     const run = newRun({ labels: ['double-email'] });
     const { fix } = blame(run);
     const gate = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
@@ -503,8 +520,12 @@ describe('what settles a fix left unsettled', () => {
     const { verdict } = recordVerdict(store, { report, expect: EXPECT, command: `shadowlap verify --fixes label:double-email --expect '${JSON.stringify(EXPECT)}' --set temperature=1 --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null }, at: NOW + 1 });
     const started: Array<[string, unknown]> = [];
     await open(fix.fixId, 'verify', null, { started });
-    const more = r!.byText('.verdict .actions button', 'Run more attempts');
-    expect(more.className).toBe('btn sm lime');
+    // The step's own next step is the header's lime button, rightmost; the verdict line has none.
+    const more = r!.byText('.ph .actions button', 'Run more attempts');
+    expect(more.className).toBe('btn lime');
+    expect(r!.all('.ph .actions button').map(text)).toEqual(['Run repair', 'Run more attempts']);
+    // Its command is the box at the foot, with its own Copy.
+    expect(r!.all('.verdict .actions button')).toEqual([]);
     expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', cmd: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
     // The header's Run repair reads plain while the step leads.
     expect(r!.byText('.ph .actions button', 'Run repair').className).toBe('btn');
@@ -524,7 +545,7 @@ describe('what settles a fix left unsettled', () => {
     started.length = 0;
     await open(fix.fixId, 'verify', null, { started, estimates: { verify: { [verdict.verifyId]: { kind: 'verify', usd: 0.3, ceiling: true, parts: [] } } } });
     await r!.wait(0);
-    await r!.click(r!.byText('.verdict .actions button', 'Run more attempts'));
+    await r!.click(r!.byText('.ph .actions button', 'Run more attempts'));
     expect(started).toEqual([['verify', { fixId: fix.fixId, verifyId: verdict.verifyId, estimate: { usd: 0.3, ceiling: true } }]]);
     resetSpending();
     await r!.unmount();
@@ -541,7 +562,7 @@ describe('what settles a fix left unsettled', () => {
     Object.assign(report, decideVerify(report.runs, null), { gate: { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, stopReason: null, attemptsPerRun: 80 });
     recordVerdict(store, { report, expect: EXPECT, command: `shadowlap verify --fixes label:double-email --expect '${JSON.stringify(EXPECT)}'`, rerun: { flags: [], command: null }, at: NOW + 1 });
     await open(fix.fixId, 'verify');
-    await r!.click(r!.byText('.verdict .actions button', 'Verify again'));
+    await r!.click(r!.byText('.ph .actions button', 'Verify again'));
     expect(text(r!.one('.dialog h3'))).toBe('Verify again');
     expect(text(r!.one('.dialog header'))).toContain('Verifies the same runs again from the first attempt, once the judge answers.');
   });
@@ -698,7 +719,8 @@ describe('Update’s estimates: the apply drawer’s and a task’s', () => {
     const started: Array<[string, unknown]> = [];
     const update = { kind: 'update', usd: 0.4, ceiling: false, always: 'it replaces goldens', parts: ['2 goldens', 'live, as their recordings cost'] };
     const a = app({ started });
-    Object.assign(a.client, { estimates: { testsEstimates: (paths?: readonly string[]) => (asked.push(paths), Promise.resolve({ run: null, goldens: {}, update })) } });
+    // Tests' view, where the drawer reads their last divergences: neither on a value made anew every run.
+    Object.assign(a.client, { estimates: { testsEstimates: (paths?: readonly string[]) => (asked.push(paths), Promise.resolve({ run: null, goldens: {}, update })) }, tests: () => Promise.resolve({ rows: [], divergences: [], inconclusive: [] }) });
     const outdated = [
       { golden: 'goldens/refund', callNo: 4, path: '$.messages[1]' },
       { golden: 'goldens/cancel', callNo: 2, path: '$.model' },

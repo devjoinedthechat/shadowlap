@@ -117,7 +117,8 @@ describe('shadowlap decisions', () => {
       expect(kept).toMatchObject({ kind: 'decisions', change: 'the model claude-sonnet-4-6 and temperature=0', runs: 1, flagged: 0 });
       expect(kept!.runRows[0].data).toEqual(JSON.parse(JSON.stringify(report.runs[0])));
       expect(store.decisionsOfRun(runId)[0]).toMatchObject({ sessionId: report.decisionsId, kind: 'decisions', rank: null });
-      expect(store.listEvents({ kinds: ['decisions.done'] })[0]).toMatchObject({ ref: report.decisionsId, data: { runs: 1, flagged: 0 } });
+      // By its name, and settled: no why, and the status it ended with.
+      expect(store.listEvents({ kinds: ['decisions.done'] })[0]).toMatchObject({ ref: report.decisionsId, data: { runs: 1, flagged: 0, name: 'Model switch to claude-sonnet-4-6 with temperature=0', why: null, exit: 0 } });
     } finally {
       store.close();
     }
@@ -459,14 +460,16 @@ describe('shadowlap decisions', () => {
         const step = report.runs[0].decisions.find((s) => s.callNo === emailStep)!;
         expect(step).toMatchObject({ sampled: 1, samples: { asked: 3, answered: 3, changed: 1 }, control: { asked: 3, answered: 0 } });
         if (status === 529) {
-          // One changed sample of three, and nothing as recorded to tell it from the model's own variation: not ranked, not settled.
+          // One changed sample of three, and nothing as recorded to tell it from the model's own variation: not ranked, inconclusive.
           expect(step).toMatchObject({ rank: null, majority: null });
           expect(report.runs[0].counts.notAsked).toBeGreaterThanOrEqual(1);
           expect(report.warnings.some((w) => /got fewer than 3 answers under the change or as recorded \(.*overloaded_error.*\): not ranked, since nothing told/.test(w)), report.warnings.join('\n')).toBe(true);
           // It settles nothing: decisions exits 3 for it.
           expect(r.code, r.out).toBe(3);
           const text = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3'], { SHADOWLAP_UPSTREAM_ANTHROPIC: down.url });
-          expect(text.stdout).toMatch(new RegExp(`#${emailStep} +step \\d+ {2}not settled {2}send_email is called with other arguments · in 1 of 3 samples; as recorded, no answer`));
+          // The word Preview gives the step, from the engine.
+          expect(text.stdout).toMatch(new RegExp(`#${emailStep} +step \\d+ {2}inconclusive {2}send_email is called with other arguments · in 1 of 3 samples; as recorded, no answer`));
+          expect(text.stdout).not.toContain('not settled');
         } else {
           // A request the provider will never answer again: the change's samples rank it, and the warnings say so.
           expect(step).toMatchObject({ rank: 1, majority: null });
@@ -508,6 +511,10 @@ describe('shadowlap decisions', () => {
       expect(report.warnings.some((w) => /got fewer than 3 answers under the change or as recorded \(.*overloaded.*\): not ranked/.test(w)), report.warnings.join('\n')).toBe(true);
       // It settles nothing: decisions exits 3 for it.
       expect(r.code, r.out).toBe(3);
+      // Its line says so in the word Preview gives it, with the two answers as recorded and why no third came.
+      asked.clear();
+      const text = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3'], { SHADOWLAP_UPSTREAM_ANTHROPIC: down.url });
+      expect(text.stdout).toMatch(new RegExp(`#${emailStep} +step \\d+ {2}inconclusive {2}send_email is called with other arguments · in 1 of 3 samples; 2 of 3 answered as recorded \\(.*overloaded.*\\): too few to tell from the model's own variation`));
     } finally {
       await down.close();
     }

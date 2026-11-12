@@ -47,7 +47,7 @@ describe('matchingSettings', () => {
     expect(m.config).toMatchObject({ file: 'shadowlap.config.json', exists: false, version: 'absent', error: null });
     expect(m.rules).toEqual([]);
     expect(m.clock).toEqual({ mode: 'auto', explicit: false, error: null });
-    expect(m.calibrate).toEqual({ runId: null, source: null, label: 'Record a run first', command: null, argv: null });
+    expect(m.calibrate).toEqual({ runId: null, source: null, command: null, argv: null, recordings: [] });
     expect(m.form).toEqual({ kinds: ['api', 'tool', 'clock', 'random'], patterns: ['iso-datetime', 'iso-date', 'uuid', 'ulid', 'number', 'email'], defaultReplace: '<MASKED>' });
   });
 
@@ -78,8 +78,21 @@ describe('matchingSettings', () => {
     // Removing names the version the row was read from, so a stale page can't remove the wrong rule.
     expect(m.rules[2].remove).toEqual(['normalize', 'rm', '3', '--expect', m.config.version]);
     expect(m.clock).toEqual({ mode: 'exact', explicit: true, error: null });
-    expect(m.calibrate).toEqual({ runId: newest.runId, source: 'newest', label: `Calibrate ${newest.runId.slice(0, 10)}`, command: `shadowlap calibrate ${newest.runId.slice(0, 10)}`, argv: ['calibrate', newest.runId] });
+    // Its picker lists what it can take, newest first: not the run still recording.
+    expect(m.calibrate).toEqual({ runId: newest.runId, source: 'newest', command: `shadowlap calibrate ${newest.runId.slice(0, 10)}`, argv: ['calibrate', newest.runId], recordings: [{ runId: newest.runId }, { runId: setup.runId }] });
     expect(matchingSettings({ store, cwd, setupRunId: setup.runId }).calibrate).toMatchObject({ runId: setup.runId, source: 'setup' });
+  });
+
+  it('lists the setup’s run in Calibrate’s picker where it is older than the hundred newest, and no replay or import', () => {
+    const setup = recording({ at: 1 });
+    for (let at = 10; at < 110; at++) recording({ at });
+    recording({ at: 200, mode: 'replay' });
+    const imported = recording({ at: 201, meta: { imported: true } as unknown as RunMeta });
+    const cal = matchingSettings({ store, cwd, setupRunId: setup.runId }).calibrate;
+    expect(cal).toMatchObject({ runId: setup.runId, source: 'setup' });
+    expect(cal.recordings[0]).toEqual({ runId: setup.runId });
+    expect(cal.recordings).toHaveLength(100);
+    expect(cal.recordings.some((r) => r.runId === imported.runId)).toBe(false);
   });
 
   it('reports a config it cannot read instead of failing the page, and a version that edits must match', () => {

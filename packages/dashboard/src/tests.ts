@@ -1,4 +1,4 @@
-import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, plural, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, withoutCommand, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { ACTIONS, attemptsOf, attemptsToFail, goldensPassed, attemptsToPass, checkStatus, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOf, isObject, JUDGE_KEYS, judgeTarget, plural, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, sameRule, recorderGone, volatileValues, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { clean, GOLDEN_HISTORY, revisionsBefore, startFromPasses, type KnownResults } from './bisect-start.js';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { historyCells, liveSessionFields, type HistoryCell, type RevisionFact, type SessionFollowing } from './tests-history.js';
@@ -7,6 +7,7 @@ import { divergenceOf, rulesToAdd, storedVolatile, volatileOf } from './tests-no
 import type { NextStep } from './next-step.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
+import { bisectAnswers, bisectBlock, committed, standingAnswer, type BisectMiss, type FoundCommit } from './tests-bisect.js';
 
 /**
  * The read model behind the Tests screen (and its numbers on the Overview and in Needs a look): the
@@ -240,36 +241,6 @@ export interface GoldenRow {
    * a golden whose presets ran has been tested, though its replay may not have been.
    */
   presets?: PresetsSummary | null;
-}
-
-/** The first bad commit `shadowlap bisect` found for a golden: the card above its buttons. */
-export interface FoundCommit {
-  rev: string;
-  subject: string;
-  author: string;
-  date: string;
-  /** Why it fails there. */
-  why: string;
-  /** Commits just before it that could not be tested: the first bad one may be among them. */
-  untested: string[];
-  replays: number;
-  tokens: number;
-  at: number;
-}
-
-/** What Find breaking commit said when it named no first bad commit: why, between which commits it looked, and how it came out. */
-export interface BisectMiss {
-  why: string;
-  good: string | null;
-  bad: string | null;
-  /**
-   * `fails-at-good`: it already failed at the good commit, so an older one is asked for.
-   * `passes-at-bad`: it passed at the commit it fails at, as committed, so the failure is in changes
-   * not committed there, or doesn't happen every time; no other good commit helps. `untestable`: a
-   * commit could not be checked out or built. Null for an answer kept before outcomes were.
-   */
-  outcome: 'fails-at-good' | 'passes-at-bad' | 'untestable' | null;
-  at: number;
 }
 
 /**
@@ -697,75 +668,7 @@ function gateView(gate: Gate | null | undefined): GateView | null {
   return { gate, description: describeGate(gate), toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null, toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null };
 }
 
-/** What a gate would do, before it is saved: Settings → CI's preview of the gate's figures. */
-export interface GatePreview {
-  gate: Gate;
-  /** The gate's rule: `tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. */
-  description: string;
-  /** An SPRT gate: the attempts an agent that always passes needs (12 at 0.9, 0.7, 0.05), one that always fails (3), and the passes that make up for a failure (about 4.4). Null for history. */
-  toPass: number | null;
-  toFail: number | null;
-  passesPerFailure: number | null;
-  /**
-   * The exact odds of each verdict, and attempts on average, for agents that pass at these rates.
-   * A gate against history is figured against `history`, a baseline it says (47 of 50 unless the
-   * query names one): the chance it fails, by the pass rate now, is its power to catch a drop.
-   */
-  odds: Array<{ rate: number; pass: number; fail: number; inconclusive: number; attempts: number }>;
-  /** A gate against history: the baseline its odds are figured against. Null for an SPRT gate. */
-  history: { passes: number; attempts: number } | null;
-  /** With 100 forked goldens of an agent that passes 95% of the time, how often a CI run goes red for nothing, under `--inconclusive fail` and `warn`. */
-  ci: { goldens: number; rate: number; red: number; redWarn: number };
-  /** What `{}` and `{ "baseline": "history" }` stand for in a golden's gate, and blame's own figures. */
-  defaults: { sprt: Omit<Gate & { kind: 'sprt' }, 'kind'>; baseline: Omit<Gate & { kind: 'baseline' }, 'kind'>; blame: Omit<Gate & { kind: 'sprt' }, 'kind'> };
-}
-
-const PREVIEW_RATES = [0.99, 0.95, 0.9, 0.8, 0.7, 0.5];
-/** A history gate's preview by the pass rate now, against its baseline: unchanged, then by how far it dropped. */
-const HISTORY_RATES = [0.95, 0.9, 0.85, 0.75, 0.6, 0.5, 0.2];
-/** The baseline a history gate's preview is figured against when the query names none: a golden that passed 47 of its last 50 attempts. */
-export const PREVIEW_HISTORY = { passes: 47, attempts: 50 } as const;
-
-/** `47/50`: a baseline's passes and attempts, as the preview's `history` query value gives them. */
-function historyQuery(raw: string | null): { passes: number; attempts: number } {
-  if (raw === null || raw === '') return { ...PREVIEW_HISTORY };
-  const m = /^(\d{1,6})\/(\d{1,6})$/.exec(raw);
-  const passes = m ? Number(m[1]) : NaN;
-  const attempts = m ? Number(m[2]) : NaN;
-  if (!m || attempts < 1 || passes > attempts) throw new Error('history must be passes/attempts, such as 47/50');
-  return { passes, attempts };
-}
-
-/**
- * A gate's preview from its figures as a page sends them (query values, all optional): `good`,
- * `bad`, `risk`, `max`, or `baseline=history` with `drop`, `risk`, `window`, `min`, `max` and the
- * baseline to figure it against, `history=47/50`. Throws with the config's own message for a gate it
- * would refuse.
- */
-export function gatePreview(query: { get(name: string): string | null }): GatePreview {
-  const json: Record<string, unknown> = {};
-  for (const key of ['baseline', 'good', 'bad', 'risk', 'max', 'drop', 'window', 'min']) {
-    const raw = query.get(key);
-    if (raw === null || raw === '') continue;
-    json[key] = key === 'baseline' ? raw : Number(raw);
-  }
-  const gate = parseGate(json, 'gate');
-  const history = gate.kind === 'baseline' ? historyQuery(query.get('history')) : null;
-  const odds = gateOddsAt(gate, gate.kind === 'sprt' ? PREVIEW_RATES : HISTORY_RATES, history);
-  // A healthy agent's CI: the baseline it is figured against is its own rate, for a gate against history.
-  const healthy = gate.kind === 'sprt' ? odds.find((o) => o.rate === 0.95)! : gateOdds(gate, 0.95, { passes: 95, attempts: 100 });
-  return {
-    gate,
-    description: describeGate(gate),
-    toPass: gate.kind === 'sprt' ? attemptsToPass(gate) : null,
-    toFail: gate.kind === 'sprt' ? attemptsToFail(gate) : null,
-    passesPerFailure: gate.kind === 'sprt' ? passesPerFailure(gate) : null,
-    odds: odds.map((o) => ({ rate: o.rate, pass: o.pass, fail: o.fail, inconclusive: o.inconclusive, attempts: o.attempts })),
-    history,
-    ci: { goldens: 100, rate: 0.95, red: runsRed(healthy, 100, 'fail'), redWarn: runsRed(healthy, 100, 'warn') },
-    defaults: { sprt: { ...SPRT_DEFAULTS }, baseline: { ...BASELINE_DEFAULTS }, blame: { ...BLAME_DEFAULTS } },
-  };
-}
+export { gatePreview, PREVIEW_HISTORY, type GatePreview } from './tests-gate.js';
 
 /**
  * What a result's gate decided, as the screen shows it: the tally, what an attempt cost, and for an
@@ -947,9 +850,6 @@ function cellNote(store: StoreOf<'recording'>, r: TestResult, checks: readonly s
   return blocked.length ? blockedWords(blocked) : null;
 }
 
-/** A committed revision to bisect from: `abc1234+dirty` was tested with changes on top of abc1234. */
-const committed = (rev: string | null) => (rev ? rev.replace(/\+dirty$/, '') : null);
-
 /**
  * `normalize add` for each value listed, then `test` on the golden; null when there is none. When
  * the rules alone can't make the replay match, the golden is updated after them: a value the
@@ -1014,73 +914,6 @@ function bisectRevisions(history: readonly TestResult[], failed: TestResult, che
     .map(({ r, rev }) => ({ rev, at: r.at, result: r.ok ? 'pass' : 'fail', verdict: verdictOfResult(r), sameChecks: underChecks(r, checks), rate: attemptsOf(r) }));
 }
 
-/** What Find breaking commit said about a golden: a first bad commit, or none and why (the `bisect.found` and `bisect.none` activity events). */
-export type BisectAnswer = { found: FoundCommit; missed: null } | { found: null; missed: BisectMiss };
-
-/**
- * One answer, with the failure it answered: the golden's newest result when the search started, as
- * `shadowlap bisect` records it (`answered`), or null for an answer kept before it did.
- */
-export interface AnswerEvent {
-  answer: BisectAnswer;
-  at: number;
-  answered: { at: number; ok: boolean } | null;
-}
-
-const MISS_OUTCOMES = new Set(['fails-at-good', 'passes-at-bad', 'untestable']);
-
-/** Every answer Find breaking commit gave, by golden, newest first. */
-export function bisectAnswers(store: StoreOf<'activity'>): Map<string, AnswerEvent[]> {
-  const out = new Map<string, AnswerEvent[]>();
-  for (const e of store.listEvents({ kinds: ['bisect.found', 'bisect.none'], limit: 500 })) {
-    if (!e.ref) continue;
-    const raw = (e.data ?? {}) as { answered?: { at?: unknown; ok?: unknown } | null };
-    const answered = raw.answered && typeof raw.answered.at === 'number' && typeof raw.answered.ok === 'boolean' ? { at: raw.answered.at, ok: raw.answered.ok } : null;
-    let answer: BisectAnswer;
-    if (e.kind === 'bisect.none') {
-      const d = (e.data ?? {}) as { why?: unknown; good?: unknown; bad?: unknown; outcome?: unknown };
-      const outcome = typeof d.outcome === 'string' && MISS_OUTCOMES.has(d.outcome) ? (d.outcome as BisectMiss['outcome']) : null;
-      answer = { found: null, missed: { why: String(d.why ?? 'no first bad commit'), good: typeof d.good === 'string' ? d.good : null, bad: typeof d.bad === 'string' ? d.bad : null, outcome, at: e.at } };
-    } else {
-      const d = e.data as { first?: { rev?: unknown; subject?: unknown; author?: unknown; date?: unknown }; why?: unknown; untested?: unknown; replays?: unknown; tokens?: unknown } | null;
-      if (typeof d?.first?.rev !== 'string') continue;
-      const untested = Array.isArray(d.untested) ? d.untested.filter((x): x is string => typeof x === 'string') : [];
-      answer = { found: { rev: d.first.rev, subject: String(d.first.subject ?? ''), author: String(d.first.author ?? ''), date: String(d.first.date ?? ''), why: String(d.why ?? ''), untested, replays: Number(d.replays ?? 0), tokens: Number(d.tokens ?? 0), at: e.at }, missed: null };
-    }
-    const list = out.get(e.ref);
-    if (list) list.push({ answer, at: e.at, answered });
-    else out.set(e.ref, [{ answer, at: e.at, answered }]);
-  }
-  return out;
-}
-
-/** Two names of one commit: a short sha and a longer one, or the same. */
-const sameCommit = (a: string, b: string) => a.startsWith(b) || b.startsWith(a);
-
-/**
- * What Find breaking commit said about the failure a golden shows, newest first: an answer stands only
- * for the failures since the golden last passed, and only when it answered one of them. One given
- * while the golden passed (a search from an old replay's page, or one still running when a session
- * passed it) is about a failure that is over, however it fails next. A search that found it passing
- * at the commit it fails at (`passes-at-bad`) stands only while it fails at that commit: once the
- * failure is committed, there is a commit to find again.
- */
-export function standingAnswer(answers: readonly AnswerEvent[] | undefined, history: readonly TestResult[], latest: TestResult): BisectAnswer | null {
-  if (!answers?.length) return null;
-  // Newest first: the failures since the newest pass, the oldest of them where this streak began.
-  const pass = history.findIndex((r) => r.ok);
-  const began = (pass < 0 ? history : history.slice(0, pass)).at(-1)?.at;
-  if (began === undefined) return null;
-  const failsAt = committed(latest.revision);
-  for (const a of answers) {
-    if (a.answered ? a.answered.ok || a.answered.at < began : a.at < began) continue;
-    const m = a.answer.missed;
-    if (m?.outcome === 'passes-at-bad' && m.bad && failsAt && !sameCommit(m.bad, failsAt)) continue;
-    return a.answer;
-  }
-  return null;
-}
-
 /** How many of the newest sessions the history and the verdict's line are read from. */
 const SESSION_WINDOW = 200;
 
@@ -1127,21 +960,7 @@ interface SessionsRead {
  * running now. Without any full session, every session counts as one.
  */
 function testSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[], max: number): SessionsRead {
-  const all = store.listTestSessions({ limit: SESSION_WINDOW });
-  // Which goldens each session ran, without reading their results: only the shown columns' are read.
-  const ran = store.testSessionGoldens(all.map((s) => s.sessionId));
-  // A session counts once it has a result, or while it runs: one stopped before its first golden ended says nothing.
-  const sessions = all.filter((s) => ran.has(s.sessionId) || sessionLive(store, s));
-  const firstAt = store.firstTestResultAt();
-  const readable = goldens.filter((g) => !unreadable(g)).map((g) => g.path);
-  const full = (s: TestSession): boolean => {
-    const need = readable.filter((p) => (firstAt.get(p) ?? Infinity) < s.startedAt);
-    if (asksForAll(s.command, need)) return true;
-    const got = ran.get(s.sessionId) ?? new Set<string>();
-    return need.every((p) => got.has(p));
-  };
-  let whole = sessions.filter(full);
-  if (!whole.length) whole = sessions;
+  const { sessions, whole } = fullSessions(store, goldens);
   const revisions: Array<string | null> = [];
   for (const s of whole) {
     if (!revisions.includes(s.revision)) revisions.push(s.revision);
@@ -1155,6 +974,38 @@ function testSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[],
   const shownIn = sessions.filter((s) => columnOf.has(s.sessionId) || columnOfRevision(s.revision, columns) !== undefined);
   const results = store.listTestResults({ sessionIds: shownIn.map((s) => s.sessionId), limit: 100_000 });
   return { revisions, results, columnOf, shown: whole[0] ?? store.listTestSessions({ limit: 1, withResults: true })[0] ?? null };
+}
+
+/**
+ * The sessions with a result or running now, newest first (`sessions`), and of them those that ran
+ * every golden tested before they started (`whole`; every session while none did): testSessions.
+ */
+function fullSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[]): { sessions: TestSession[]; whole: TestSession[] } {
+  const all = store.listTestSessions({ limit: SESSION_WINDOW });
+  // Which goldens each session ran, without reading their results: only the shown columns' are read.
+  const ran = store.testSessionGoldens(all.map((s) => s.sessionId));
+  // A session counts once it has a result, or while it runs: one stopped before its first golden ended says nothing.
+  const sessions = all.filter((s) => ran.has(s.sessionId) || sessionLive(store, s));
+  const firstAt = store.firstTestResultAt();
+  const readable = goldens.filter((g) => !unreadable(g)).map((g) => g.path);
+  const full = (s: TestSession): boolean => {
+    const need = readable.filter((p) => (firstAt.get(p) ?? Infinity) < s.startedAt);
+    if (asksForAll(s.command, need)) return true;
+    const got = ran.get(s.sessionId) ?? new Set<string>();
+    return need.every((p) => got.has(p));
+  };
+  const whole = sessions.filter(full);
+  return { sessions, whole: whole.length ? whole : sessions };
+}
+
+/**
+ * The session Tests' verdict line names (the newest that ran every golden, else the newest with a
+ * result), as the screen counts it, inconclusive goldens apart; null before the first. Settings →
+ * CI's line under Your workflow names it without a team store.
+ */
+export function lastFullSession(store: StoreOf<'tests'>, goldens: readonly GoldenSource[]): TestsSessionView | null {
+  const shown = fullSessions(store, goldens).whole[0] ?? store.listTestSessions({ limit: 1, withResults: true })[0] ?? null;
+  return shown ? sessionView(store, shown) : null;
 }
 
 /** Results newest first, grouped by golden. */
@@ -1398,7 +1249,7 @@ export function overviewTests(store: StoreOf<'tests'>, asOf: { now: number; week
 
 export interface FailingTest {
   golden: string;
-  /** For Needs a look: `A test failed: refund-in-limit`, or `A test is inconclusive: refund-over-limit`. */
+  /** For Needs a look: `A golden failed: refund-in-limit`, or `A golden is inconclusive: refund-over-limit`. */
   title: string;
   /** Failed, or inconclusive: Needs a look lists both, told apart. */
   verdict: 'failed' | 'inconclusive';
@@ -1465,7 +1316,7 @@ export function failingTests(store: StoreOf<'recording' | 'fixes' | 'tests'>, op
       // A gate's verdict says its word, tally and bound; the rule goes on the line's hover.
       const gate = decidedByGate(r) ? r.data!.gate! : null;
       const line = gate ? gateLine(gate) : lineOf(store, r, sources.get(r.golden)?.checks ?? [], options.normalizers ?? []);
-      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A test is inconclusive' : 'A test failed'}: ${nameOf(r.golden, folder)}`, verdict, line, rule: gateRuleOf(gate), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
+      return { golden: r.golden, title: `${verdict === 'inconclusive' ? 'A golden is inconclusive' : 'A golden failed'}: ${nameOf(r.golden, folder)}`, verdict, line, rule: gateRuleOf(gate), failure: r.failure ?? 'error', runId, href, next, fixId, at: r.at };
     });
 }
 
@@ -1577,6 +1428,8 @@ export interface BisectChoices {
   live: boolean;
   /** Why Find breaking commit can't start from this run, for the disabled action's hover; null when it can. */
   unavailable: string | null;
+  /** `unavailable` sends you to Tests, which finds the commit from the golden or says what settles it: the toast offers Open Tests. */
+  onTests?: true;
   /**
    * It failed at a commit with no parent in the project's checkout (its first, or the oldest a
    * shallow clone has): there is nothing before it to search, as `unavailable` says. Set by
@@ -1642,18 +1495,8 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
   // blame's check leaves the good one to be chosen: how other runs exited says nothing about it.
   const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? goodOfGolden : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
   const bad = failed && clean(run.codeVersion) ? run.codeVersion : null;
-  let unavailable: string | null = null;
-  if (run.status === 'running') unavailable = 'this run is still recording';
-  // A test replay a signal cut short has no result: it says nothing about its golden either way.
-  else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden!}: find the breaking commit from the golden on Tests`;
-  else if (unsure) unavailable = `${golden!} came out inconclusive in this replay's session, neither passed nor failed, so there is no breaking commit to find: Tests says what settles it`;
-  else if (undecided) unavailable = `this run is inconclusive, neither passed nor failed: a check could not be decided (${undecided.label}), so there is no breaking commit to find`;
-  else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run ${withoutCommand(run)}, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
-  // Someone else chose its command, and bisect would run it at every commit: the CLI asks first, which a job can't.
-  else if (!ofGolden && commandIsImported(run)) unavailable = `this run came from ${importedCommandSource(run)}: bisect would run its command at every commit. Replay it with your own command first (shadowlap replay ${run.runId} -- <command>), and find the commit from that run`;
-  // Replayed with --fork, only the exit status and the checks decide; the CLI takes the checks of the
-  // golden it was a replay of from the config, and has none otherwise.
-  else if (fork && !exitFailed(run) && !source?.checks.length && !expect) unavailable = `this run failed a check that bisect can't know: give it on the command line, shadowlap bisect ${run.runId} --good <commit> --expect '<checks>' --fork`;
+  const block = bisectBlock(run, { golden: ofGolden ? golden : null, cut: ofGolden && run.status === 'crashed' && !result, unsure, undecided: undecided?.label ?? null, unjudged: fork && !exitFailed(run) && !source?.checks.length && !expect });
+  const unavailable = block?.reason ?? null;
   const ref = target.kind === 'golden' ? target.golden : target.runId;
   return {
     target,
@@ -1665,6 +1508,7 @@ export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, r
     fork,
     live: fork || (ofGolden && source.mode === 'fork'),
     unavailable,
+    ...(block?.onTests ? { onTests: true as const } : {}),
     args: good && !unavailable ? bisectArgs(ref, good, bad, fork, expect) : null,
   };
 }

@@ -651,12 +651,12 @@ A task recorded on another provider than a choice's `provider` can't ask it.
 
 ## In the dashboard
 
-The dashboard's **Training** page (`g` `a`) shows the same, on two tabs with the same strip above
-them. The strip shows:
+The dashboard's **Training** page (`g` `a`) shows the same, on two tabs under the same header. The
+header's facts show, each with its makeup on hover:
 
 - how many pairs there are (high and medium);
-- how many tasks are ready (and how many are blocked or not tasks);
-- the best mean score and its model;
+- how many tasks are ready, of how many (and how many are blocked or not tasks);
+- the best mean score, once a model is scored, and its model;
 - how many pairs the last export wrote (*Exported*), its file and when.
 
 ### Pairs
@@ -707,7 +707,7 @@ warning offers the update instead of Tests.
 its judge checks cost (*≈$0.120 spent · judge ≈$0.010*), and when.
 
 - **Two endpoints.** A model scored at two endpoints has a card for each, named by its endpoint, as the
-  strip names the best one. The strip counts such a model once.
+  header's best mean score names the best one. The header counts such a model once.
 - **Pips.** Each task has a pip per attempt (every check passed, some, or none) that opens the
   attempt's run.
 - **Partial scores.** A model scored before a task became ready says *on 1 of 2 tasks* beside its

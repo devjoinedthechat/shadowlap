@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ForkDifferences } from '../src/fork-differences.js';
 import type { StaticPayload } from '../src/static.js';
 import { createExportedClient } from '../ui/api.js';
-import { DifferencesPanel, ForkDifferences as Panel, SHOWN } from '../ui/run/ForkDifferences.js';
+import { ForkDifferences as Panel } from '../ui/run/FindingsBar.js';
+import { DifferencesPanel, SHOWN } from '../ui/run/ForkDifferences.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 

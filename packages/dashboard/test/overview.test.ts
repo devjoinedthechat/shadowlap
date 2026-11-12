@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { cacheUse, countOrigins, emptyOriginCounts, gateResult, recordBlame, recordRepair, recordVerdict, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
+import { cacheUse, countOrigins, gateResult, recordBlame, recordRepair, recordVerdict, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
 import { blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { assistant, cachedUsage, RunBuilder, toolResult, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
 import { fixesSummary } from '../src/fixes.js';
 import type { GoldenSource } from '../src/tests.js';
-import { overviewOptions, overviewSummary, type OverviewSummary } from '../src/overview.js';
+import { type NeedsLookRow, overviewOptions, overviewSummary, type OverviewSummary } from '../src/overview.js';
 import { addRun, blameOf, DAY, HOUR } from './read-model-store.js';
 
 // Thursday, Oct 1 2026, 10:15 UTC (12:15 in Berlin). This week is Sep 25–Oct 1 there; last week Sep 18–24.
@@ -63,6 +63,9 @@ const sumOf = (names: string[], f: (s: ReturnType<typeof summarizeRun>) => numbe
 const WEEK = ['rec1', 'clean1', 'fork1', 'rep1', 'live1', 'failed1', 'probeA', 'probeB', 'test1', 'test2', 'big', 'bigfork'];
 const WEEK_ROWS = WEEK.filter((n) => n !== 'rep1' && n !== 'probeB');
 
+/** A row's step as its button says it: Open with none. */
+const stepLabel = (i: NeedsLookRow): string => (!i.step ? 'Open' : i.step.of === 'run' ? i.step.step.label : i.step.of === 'fix' ? i.step.lead.label : i.step.label);
+
 describe('the Overview: this week against last week', () => {
   it('takes the last seven of the viewer’s days as this week, and the seven before as last week', () => {
     expect(o.windows.week).toEqual({ from: Date.UTC(2026, 8, 24, 22), to: Date.UTC(2026, 9, 1, 22) });
@@ -96,7 +99,7 @@ describe('the Overview: this week against last week', () => {
 });
 
 describe('the Overview: today', () => {
-  it('says what was served from recordings today, and what ran, counting runs as the grid does', () => {
+  it('says what was served from recordings today, counting runs, and what is recording now', () => {
     const t = o.today;
     expect(t.day).toBe('2026-10-01');
     // The clean replay, the fork's replayed prefix and the passing test: the --repeat attempt is left out.
@@ -107,42 +110,11 @@ describe('the Overview: today', () => {
     expect(sumOf(['rep1'], (s) => s.cost.saved)).toBeGreaterThan(0);
     // A recording that sent no request yet says what it is about by its command.
     expect(t.recording).toEqual([{ runId: id.live1, command: 'python refund_agent.py', calls: 3, startedAt: at(10, 1, 10, 10), about: { text: 'python refund_agent.py', from: 'command' } }]);
-    expect(t.replays).toBe(1);
-    expect(t.forks).toEqual({ count: 1, live: 4, blocked: 1 });
-    expect(t.tests).toEqual({ count: 2, failed: 1, inconclusive: 0, latestFailure: { runId: id.test2, outcome: { kind: 'diverged', callNo: 1 } } });
-    expect(t.blame).toEqual({ blames: 0, probes: 0, attempts: 0, runs: [] });
-  });
-
-  it('counts blame probes by the call they probed, and the rescued fork once, as a fork', () => {
-    const sep29 = overviewSummary(store, { tz: TZ, now: at(9, 29, 18) });
-    // Two runs probed call #3: the one that rescued the run is a fork row; the other is an attempt.
-    // Blamed before Fixes kept blames: in no fix, so no title.
-    expect(sep29.today.blame).toEqual({ blames: 1, probes: 1, attempts: 1, runs: [{ runId: id.failed1, outcome: 'blamed', lostAt: 3, range: null, title: null, fixId: null }] });
-    expect(sep29.today.forks).toMatchObject({ count: 1 });
-  });
-
-  it('counts the blames that ran today, as the lines beside them count runs: a run blamed twice is two blames', () => {
-    const local = Store.open(':memory:');
-    try {
-      const a = addRun(local, { startedAt: NOW - 5 * HOUR, status: 'failed', calls: 'llllll' });
-      const b = addRun(local, { startedAt: NOW - 5 * HOUR, status: 'failed', calls: 'llllll' });
-      // Blame marks each attempt with its own name and the call it probed, `<blame>-<call>`.
-      const probe = (run: string, blame: string, callNo: number, attempt: number, at: number) => addRun(local, { parent: run, startedAt: at, divergence: callNo, calls: 'rrllll', meta: { probe: { of: run, callNo, passed: false }, repeat: { group: `${blame}-${callNo}`, attempt, of: 2 } } });
-      // a blamed in the morning, two calls probed twice each, and again an hour ago; b once.
-      for (const callNo of [3, 5]) for (const n of [1, 2]) probe(a, 'mf3k2q1x', callNo, n, NOW - 4 * HOUR);
-      probe(a, 'mf4a9z0c', 5, 1, NOW - HOUR);
-      probe(b, 'mf3k8c2d', 3, 1, NOW - 2 * HOUR);
-      const blame = overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame;
-      expect(blame).toMatchObject({ blames: 3, probes: 3, attempts: 6 });
-      expect(blame.runs.map((r) => r.runId)).toEqual([a, b]);
-    } finally {
-      local.close();
-    }
   });
 });
 
 describe('the Overview: recordings in progress', () => {
-  it('counts only runs something is recording: one its recorder stopped without ending reads as interrupted', () => {
+  it('counts only runs something is recording: one its recorder stopped without ending is not', () => {
     const s = Store.open(':memory:');
     try {
       const live = addRun(s, { startedAt: NOW - 10 * 60_000, status: 'running', calls: 'll' });
@@ -152,110 +124,22 @@ describe('the Overview: recordings in progress', () => {
       s.importRun({ runId: left, parentRunId: null, mode: 'record', status: 'running', divergence: null, command: { argv: ['python', 'refund_agent.py'], cwd: '/work' }, codeVersion: null, startedAt: NOW - 2 * DAY, endedAt: null });
       const out = overviewSummary(s, { tz: 'UTC', now: NOW });
       expect(out.today.recording.map((r) => r.runId)).toEqual([live]);
-      const rows = out.grid.families.flatMap((f) => f.rows);
-      expect(rows.find((r) => r.runId === live)?.status).toBe('running');
-      expect(rows.find((r) => r.runId === left)?.status).toBe('crashed');
     } finally {
       s.close();
     }
   });
 });
 
-describe('the Overview: this week’s runs as rows of calls', () => {
-  it('groups runs under the recording they came from, newest family first', () => {
-    const g = o.grid;
-    expect(g.runs).toBe(WEEK_ROWS.length);
-    expect(g.calls).toBe(o.sums.week.calls);
-    expect(g.origins).toEqual(o.sums.week.origins);
-    expect(g.families.map((f) => f.rows.map((r) => [r.runId, r.depth, r.context]))).toEqual([
-      [[id.live1, 0, false]],
-      [[id.rec1, 0, false], [id.clean1, 1, false], [id.fork1, 1, false]],
-      // The tests replay a golden packed before this week: it heads their family as a context row.
-      [[id.pack, 0, true], [id.test1, 1, false], [id.test2, 1, false]],
-      [[id.failed1, 0, false], [id.probeA, 1, false]],
-      [[id.big, 0, false], [id.bigfork, 1, false]],
-    ]);
-    expect(g.shown).toBe(10);
-    expect(g.more).toBe(0);
-    const probe = g.families[3].rows[1];
-    expect(probe).toMatchObject({ kind: 'fork', rescues: id.failed1, outcome: { kind: 'none' } });
-  });
-
-  it('gives a family one scale of at least 30 calls, and marks where a fork left', () => {
-    const fam = o.grid.families[1];
-    expect(fam).toMatchObject({ size: 1, cols: 30 });
-    expect(fam.rows.map((r) => r.cells)).toEqual(['l'.repeat(10), 'r'.repeat(10), 'rrrrrllllb']);
-    expect(fam.rows[2]).toMatchObject({ forkCell: 5, origins: { ...emptyOriginCounts(), r: 5, l: 4, b: 1 } });
-    expect(fam.rows[0].forkCell).toBeNull();
-  });
-
-  it('past 60 calls lets a cell stand for a range, showing its most notable origin', () => {
-    const fam = o.grid.families[4];
-    expect(fam).toMatchObject({ size: 20, cols: 60 });
-    expect(fam.rows[0].cells).toBe('l'.repeat(60));
-    const fork = fam.rows[1];
-    expect(fork.cells).toHaveLength(46);
-    expect(fork.cells.slice(0, 45)).toBe('r'.repeat(45));
-    expect(fork.cells[45]).toBe('b'); // calls 901–920: the blocked write outranks the override and the live calls
-    expect(fork.forkCell).toBe(45);
-  });
-
-  it('keeps whole families while they fit, and says how many runs it left out', () => {
-    const small = overviewSummary(store, { tz: TZ, now: NOW, gridRows: 4 });
-    expect(small.grid.families.map((f) => f.rows.length)).toEqual([1, 3]);
-    expect(small.grid).toMatchObject({ shown: 4, more: WEEK_ROWS.length - 4 });
-    const one = overviewSummary(store, { tz: TZ, now: at(9, 30, 12), gridRows: 1 });
-    expect(one.grid.families).toHaveLength(1);
-    expect(one.grid.families[0].rows).toHaveLength(1);
-  });
-
-  it('lines forks of an older recording up under it, on the recording’s scale', () => {
-    const local = Store.open(':memory:');
-    try {
-      // Recorded twenty days ago, 44 calls; forked twice this week, and a fork of an older fork.
-      const rec = addRun(local, { startedAt: NOW - 20 * DAY, calls: 'l'.repeat(44) });
-      const a = addRun(local, { parent: rec, startedAt: NOW - 2 * DAY, divergence: 12, calls: 'r'.repeat(11) + 'lll' });
-      const b = addRun(local, { parent: rec, startedAt: NOW - DAY, divergence: 30, calls: 'r'.repeat(29) + 'l'.repeat(9) });
-      const older = addRun(local, { parent: rec, startedAt: NOW - 15 * DAY, divergence: 20, calls: 'r'.repeat(19) + 'l'.repeat(5) });
-      const c = addRun(local, { parent: older, startedAt: NOW - HOUR, divergence: 22, calls: 'r'.repeat(21) + 'll' });
-      const g = overviewSummary(local, { tz: TZ, now: NOW }).grid;
-      expect(g.families).toHaveLength(1);
-      const fam = g.families[0];
-      // One scale: the recording's 44 calls, so each fork's replayed prefix lines up under it.
-      expect(fam).toMatchObject({ size: 1, cols: 44 });
-      expect(fam.rows.map((r) => [r.runId, r.depth, r.context])).toEqual([
-        [rec, 0, true],
-        [older, 1, true],
-        [c, 2, false],
-        [a, 1, false],
-        [b, 1, false],
-      ]);
-      expect(fam.rows.find((r) => r.runId === b)).toMatchObject({ forkCell: 29, cells: 'r'.repeat(29) + 'l'.repeat(9) });
-      expect(fam.rows[0].origins).toEqual({ ...emptyOriginCounts(), l: 44 });
-      expect(g).toMatchObject({ runs: 3, shown: 3, more: 0, calls: 14 + 38 + 23 });
-    } finally {
-      local.close();
-    }
-  });
-
-  it('names each row’s run by its id, its about line for the hover: under a parent, what it changed', () => {
+describe('the Overview: what a run is about', () => {
+  // Needs a look's tests name a failed run by its id with its about line.
+  it('names a recording in progress by its first request', () => {
     const local = Store.open(':memory:');
     try {
       const ask = (text: string) => ({ system: 'You are a support agent.', messages: [{ role: 'user', content: text }] });
-      const rec = addRun(local, { startedAt: NOW - DAY, calls: [{ code: 'l', request: ask('Ticket T-8812: order A-1042 arrived damaged. Please refund it.') }, { code: 'l', kind: 'tool' }] });
-      const fork = addRun(local, { parent: rec, startedAt: NOW - HOUR, divergence: 2, calls: 'rl', meta: { interventions: [{ kind: 'fail', at: 2, flag: '--fail-at 2=529' }] } });
-      const clean = addRun(local, { parent: rec, startedAt: NOW - 2 * HOUR, calls: 'rr' });
+      addRun(local, { startedAt: NOW - DAY, calls: [{ code: 'l', request: ask('Ticket T-8812: order A-1042 arrived damaged. Please refund it.') }, { code: 'l', kind: 'tool' }] });
       const live = addRun(local, { startedAt: NOW - 60_000, status: 'running', calls: [{ code: 'l', request: ask('My blender arrived broken. What now?') }] });
-      const failed = addRun(local, { startedAt: NOW - 3 * HOUR, status: 'failed', meta: { labels: ['digest'] }, calls: [{ code: 'l', request: ask("Write this week's refund digest and post it to #refunds.") }] });
       const out = overviewSummary(local, { tz: TZ, now: NOW });
-      // Needs a look names a failed run by its id, and says what it was about: its label is no name.
-      // The page fits the about line to one line, then what is left to do, kept whole.
-      expect(out.needsLook.items.find((x) => x.runId === failed)).toMatchObject({ kind: 'unblamed', title: `A run failed: ${failed.slice(0, 10)}`, about: { text: "Write this week's refund digest and post it to #refunds", from: 'user' }, detail: 'not blamed yet' });
-      const rows = new Map(out.grid.families.flatMap((f) => f.rows).map((r) => [r.runId, r.about?.text]));
-      expect(rows.get(rec)).toBe('Ticket T-8812: order A-1042 arrived damaged');
-      expect(rows.get(fork)).toBe('HTTP 529 #2');
-      expect(rows.get(clean)).toBe('clean replay');
-      // A recording in progress says what it is about from its first request on, for Today's live row.
+      // A recording in progress says what it is about from its first request on, for Watch live's hover.
       expect(out.today.recording).toEqual([expect.objectContaining({ runId: live, about: { text: 'My blender arrived broken', from: 'user' } })]);
     } finally {
       local.close();
@@ -292,10 +176,10 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       expect(s.fixes).toEqual({ ...f.funnel, open: f.open, readyToApply: f.readyToApply, broken: f.broken, attempts: f.attempts, spent: f.spent });
       expect(s.fixes).toMatchObject({ failures: 3, blamed: 2, verified: 1, applied: 0, open: 1, readyToApply: 1, broken: 0 });
       // Needs a look: the open fix and the run never blamed are failures with no fix yet; the verified fix waits to be applied.
-      expect(s.needsLook.items.map((i) => [i.kind, i.action, i.fixId ?? i.runId])).toEqual([
-        ['open', 'Fix it', oldFix],
-        ['unblamed', 'Run blame', expect.any(String)],
-        ['ready', 'Apply', fixId],
+      expect(s.needsLook.items.map((i) => [i.group, i.kind, stepLabel(i), i.fixId ?? i.runId])).toEqual([
+        ['failing', 'unblamed', 'Run blame', expect.any(String)],
+        ['failing', 'open', 'Run repair', oldFix],
+        ['ship', 'ready', 'Apply fix', fixId],
       ]);
       expect(s.needsLook.total).toBe(3);
     } finally {
@@ -344,35 +228,22 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
     }
   });
 
-  it('lists ten of a kind, then one line for the rest of that kind, so every kind stays in sight', () => {
+  it('stands for this week’s failed runs nobody has blamed with one row, naming the newest', () => {
     const local = Store.open(':memory:');
     try {
       const { fixId } = story(local);
-      // Twelve more failed runs never blamed: thirteen with the story's own.
+      // Twelve more failed runs never blamed this week, thirteen with the story's own, and one of last week's.
       for (let i = 0; i < 12; i++) makeRun(local, { status: 'failed', startedAt: NOW - 2 * HOUR - i * 60_000 });
+      makeRun(local, { status: 'failed', startedAt: NOW - 8 * 24 * HOUR });
       const s = overviewSummary(local, { tz: 'UTC', now: NOW });
-      const kinds = s.needsLook.items.map((i) => i.kind);
-      expect(kinds).toEqual(['open', ...Array(11).fill('unblamed'), 'ready']);
-      // The panel's count is what needs a look: the line for the rest counts as the three it stands for.
-      expect(s.needsLook.total).toBe(1 + 13 + 1);
-      expect(s.needsLook.items[11]).toEqual({ kind: 'unblamed', icon: 'fail', title: '3 more failed runs not blamed yet', detail: 'the failed runs on Runs', action: 'Open', href: '#/runs?types=failed', runId: null, fixId: null, at: expect.any(Number), more: 3 });
-      // The fix ready to apply is still there, after them.
+      expect(s.needsLook.items.map((i) => i.kind)).toEqual(['unblamed', 'open', 'ready']);
+      const row = s.needsLook.items[0];
+      expect(row).toMatchObject({ key: `attn:unblamed:${row.runId}`, group: 'failing', icon: 'fail', title: '13 failing runs nobody has blamed', href: '#/runs?types=failed&from=2026-09-25&to=2026-10-01' });
+      expect(row.detail).toMatch(/^newest \w{10} · /);
+      expect(s.needsLook.total).toBe(3);
       expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'ready', fixId });
-      makeRun(local, { status: 'failed', startedAt: NOW - 3 * HOUR });
-      const fourteen = overviewSummary(local, { tz: 'UTC', now: NOW });
-      expect(fourteen.needsLook.items.filter((i) => i.kind === 'unblamed').at(-1)).toMatchObject({ title: '4 more failed runs not blamed yet', more: 4 });
     } finally {
       local.close();
-    }
-    // One past ten is listed as itself: a line for one more would say less.
-    const eleven = Store.open(':memory:');
-    try {
-      for (let i = 0; i < 11; i++) makeRun(eleven, { status: 'failed', startedAt: NOW - HOUR - i * 60_000, calls: ['api'] });
-      const items = overviewSummary(eleven, { tz: 'UTC', now: NOW }).needsLook.items;
-      expect(items).toHaveLength(11);
-      expect(items.every((i) => i.kind === 'unblamed' && i.action === 'Run blame' && i.more === undefined)).toBe(true);
-    } finally {
-      eleven.close();
     }
   });
 
@@ -394,11 +265,13 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       session(NOW - HOUR, false);
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, goldens });
       expect(s.outcomes.testsPassing).toEqual({ goldens: 2, passing: 1, inconclusive: 0, untested: 0, lastWeek: 2, regressions: 1, lastRunAt: NOW - HOUR + 10 });
-      // No fix holds the failure yet: the line opens the failing run, and says so.
-      expect(s.needsLook.items[0]).toMatchObject({ kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', action: 'Open', runId: failed, href: `#/run/${failed}` });
-      // Blamed, the failure has a fix: Fix leads to it.
+      // No fix holds the failure yet: the row opens Tests at the golden's report, its step what its run's page leads with.
+      expect(s.needsLook.items[0]).toMatchObject({ key: expect.stringMatching(/^attn:failed:.*refund-in-limit$/), group: 'failing', kind: 'test', icon: 'fail', title: 'A golden failed: refund-in-limit', runId: failed, href: '#/tests', report: 'report-refund-in-limit' });
       const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'refund-in-limit diverged', checkText: 'x', at: NOW - HOUR / 2 });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items.find((i) => i.kind === 'test')).toMatchObject({ action: 'Fix', runId: failed, fixId: fix.fixId, href: `#/fixes/${fix.fixId}` });
+      // Its failure is the fix's: one cause, one row, the fix's, which names the golden.
+      const blamed = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items;
+      expect(blamed.find((i) => i.kind === 'test')).toBeUndefined();
+      expect(blamed.find((i) => i.fixId === fix.fixId)).toMatchObject({ kind: 'open', detail: expect.stringMatching(/ · refund-in-limit fails on Tests$/) });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).outcomes.testsPassing).toBeNull();
       expect(overviewSummary(local, { tz: 'UTC', now: NOW }).needsLook.items.some((i) => i.kind === 'test')).toBe(false);
     } finally {
@@ -416,25 +289,41 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       local.finishTestSession(t.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: NOW - HOUR + 2 });
       const row = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items[0];
       // The verdict word, the tally and the bound, whole: no rule in the line to cut off mid-figure.
-      expect(row).toMatchObject({ kind: 'test', title: 'A test failed: eval-pushy', detail: 'failed · 0 of 3 · rate <= 0.71 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
+      expect(row).toMatchObject({ kind: 'test', title: 'A golden failed: eval-pushy', name: 'eval-pushy', detail: 'failed · 0 of 3 · rate <= 0.71 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
     } finally {
       local.close();
     }
   });
 
-  it('puts runs only on this machine last, when a team store is set', () => {
+  it('puts runs only on this machine under Housekeeping, with Push local runs, when a team store is set', () => {
     const local = Store.open(':memory:');
     try {
       story(local);
-      const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7 } });
+      const ids = ['RUN_G', 'RUN_A', 'RUN_F', 'RUN_B', 'RUN_E', 'RUN_C', 'RUN_D'];
+      const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7, localRuns: ids } });
       // On Runs, as the design has it: the local tags show which, and the bulk bar pushes them.
-      // Push leads to those runs: Runs with Local picked.
-      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs?types=local', runId: null, fixId: null, at: 0 });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1 } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0 } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
-      // A store's setup left unfinished leads back to it, first.
-      const setup = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 7, setup: { step: 3, title: 'Push from CI' } } }).needsLook;
-      expect(setup.items[0]).toEqual({ kind: 'store-setup', icon: 'setting', title: 'The team store’s setup isn’t finished', detail: 'step 3 of 4: push from CI', action: 'Continue', href: '#/setup/store', runId: null, fixId: null, at: 0 });
+      // The row opens those runs: Runs with Local picked; its step pushes them all. It is advice,
+      // stating every one of those runs, so a run only here since brings it back once put away.
+      expect(s.needsLook.items.at(-1)).toEqual({
+        key: 'attn:local',
+        group: 'housekeeping',
+        kind: 'local',
+        icon: 'rec',
+        title: '7 runs are only on this machine',
+        detail: 'push them so the team can open them',
+        step: { of: 'push', label: 'Push local runs', command: 'shadowlap push --all' },
+        href: '#/runs?types=local',
+        runId: null,
+        fixId: null,
+        at: 0,
+        advice: { key: 'local', facts: [...ids].sort(), until: 'Until another run is only on this machine', dismissed: false },
+      });
+      expect(s.needsLook.items.at(-1)!.advice!.facts).toHaveLength(7);
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1, localRuns: ['RUN_A'] } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0, localRuns: [] } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
+      // A store's setup left unfinished leads back to it, first: no advice, so nobody puts it away.
+      const setup = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 7, localRuns: ids, setup: { step: 3, title: 'Push from CI' } } }).needsLook;
+      expect(setup.items[0]).toEqual({ key: 'attn:setup:store', group: 'setup', kind: 'store-setup', icon: 'setting', title: 'The team store’s setup isn’t finished', detail: 'step 3 of 4: push from CI', step: { of: 'link', label: 'Continue setup', href: '#/setup/store' }, href: '#/setup/store', runId: null, fixId: null, at: 0 });
       expect(setup.total).toBe(s.needsLook.total + 1);
     } finally {
       local.close();
@@ -464,30 +353,8 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       expect(s.cache.readShare).toBeGreaterThan(0);
       const empty = overviewSummary(Store.open(':memory:'), { tz: 'UTC', now: NOW });
       expect(empty.cache).toEqual({ input: 0, cacheRead: 0, readShare: null, misses: [], sentAgain: 0, missCount: 0 });
-      expect(empty.grid).toMatchObject({ runs: 0, families: [], shown: 0, more: 0 });
-      expect(empty.needsLook).toEqual({ items: [], total: 0 });
-    } finally {
-      local.close();
-    }
-  });
-
-  it('names the fix a run blame probed today belongs to', () => {
-    const local = Store.open(':memory:');
-    try {
-      const failed = addRun(local, { startedAt: NOW - 2 * HOUR, status: 'failed', calls: 'llllll' });
-      addRun(local, { parent: failed, startedAt: NOW - HOUR, divergence: 3, calls: 'rrllll', meta: { probe: { of: failed, callNo: 3, passed: false }, repeat: { group: 'p', attempt: 1, of: 1 } } });
-      const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'issue_refund called with amount 240', checkText: 'x', at: NOW - HOUR });
-      // Still probing: nothing on the run says how it came out yet.
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame).toEqual({ blames: 1, probes: 1, attempts: 1, runs: [{ runId: failed, outcome: null, lostAt: null, range: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }] });
-      // Done, and no model call rescued it: Today says so, as Needs a look does, rather than "not placed yet".
-      local.updateRunMeta(failed, { blame: blameOf(null, null, NOW - HOUR / 2) });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'unrescuable', lostAt: null, range: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
-      // One whose first probe couldn't tell says so, for Today to read it as inconclusive at the first model call.
-      local.updateRunMeta(failed, { blame: { ...blameOf(null, null, NOW - HOUR / 3), unsettled: true } });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'unrescuable', unsettled: true, lostAt: null, range: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
-      // Found no one call lost it: the two it was lost gradually around, for Today to say so.
-      local.updateRunMeta(failed, { blame: { ...blameOf(4, null, NOW - HOUR / 4), range: { from: 4, to: 6, fromStep: 4, toStep: 5, gradual: true } } });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'blamed', lostAt: 4, range: { from: 4, to: 6, gradual: true }, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
+      expect(empty.sums.week).toMatchObject({ runs: 0, calls: 0, spent: 0 });
+      expect(empty.needsLook).toEqual({ items: [], total: 0, dismissals: 0 });
     } finally {
       local.close();
     }

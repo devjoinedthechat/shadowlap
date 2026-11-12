@@ -224,7 +224,7 @@ describe('the Tests screen', () => {
     expect(testsView(store, goldens, { normalizers: [{ ...rule, replace: '<ID>' }] }).divergences[0].rulesAdded).toBe(false);
     // Once Find the commit has run, its answer shows above the buttons.
     recordEvent(store, { kind: 'bisect.found', ref: 'goldens/refund-in-limit', at: T0 + 60_000, data: { good: 'c91d0f4', bad: 'd2e8a1f', first: { rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00' }, why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', replays: 4, tokens: 0, upstreamRequests: 0 } });
-    expect(testsView(store, goldens).divergences[0].found).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00', why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', untested: [], replays: 4, tokens: 0, at: T0 + 60_000 });
+    expect(testsView(store, goldens).divergences[0].found).toEqual({ rev: '4e7b2d1', subject: 'Send the user id with every request', author: 'Ravi', date: '2026-09-30T10:00:00+02:00', why: 'diverged at call 1 (api POST /v1/messages) · $.metadata.user_id', untested: [], replays: 4, tokens: 0, at: T0 + 60_000, change: null });
     // One CI command, as docs/gating.md writes it: the pattern quoted for the CLI to expand, with the reports and annotations.
     expect(view.commands).toEqual({ ci: `shadowlap test 'goldens/*' --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`, pack: 'shadowlap pack <run> goldens/<name>', run: ['test', 'goldens/*'], updateAll: ['test', 'goldens/refund-in-limit', '--update'] });
     store.close();
@@ -686,7 +686,7 @@ describe('tests on the Overview and in Needs a look', () => {
   it('lists failing tests with why, linking to the failing run', () => {
     const store = sampleStore();
     // No fix holds the failure: the line opens the failing run, and says Open, not Fix; no gate decided it, so no rule goes with its line.
-    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A test failed: refund-in-limit', verdict: 'failed', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', rule: null, failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', next: 'open', fixId: null, at: T0 + 2 }]);
+    expect(failingTests(store, { goldens })).toEqual([{ golden: 'goldens/refund-in-limit', title: 'A golden failed: refund-in-limit', verdict: 'failed', line: 'diverged at call 1 · $.metadata.user_id looks like a UUID', rule: null, failure: 'diverged', runId: 'R_C_LIMIT', href: '#/run/R_C_LIMIT', next: 'open', fixId: null, at: T0 + 2 }]);
     store.deleteRun('R_C_LIMIT');
     expect(failingTests(store, { goldens: goldens.map((g) => g.path) })[0]).toMatchObject({ runId: null, href: '#/tests' });
     store.close();
@@ -825,7 +825,7 @@ describe('Find the commit from a run', () => {
     const cut = store.createRun({ mode: 'replay', command: { argv: agent, cwd: '/p' }, codeVersion: 'e3f9b20', meta: { test: { golden: 'goldens/refund-in-limit', session: stopped.sessionId } } });
     store.endRun(cut.runId, 'crashed');
     store.finishTestSession(stopped.sessionId, { passed: 0, failed: 0, upstreamRequests: 0, interrupted: true });
-    expect(bisectChoices(store, cut.runId, { goldens })).toMatchObject({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the breaking commit from the golden on Tests', args: null });
+    expect(bisectChoices(store, cut.runId, { goldens })).toMatchObject({ unavailable: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the breaking commit from the golden on Tests', onTests: true, args: null });
     expect(bisectJob(store, goldens, { runId: cut.runId, good: 'c91d0f4' })).toEqual({ error: 'this replay was cut short, so it says nothing about goldens/refund-in-limit: find the breaking commit from the golden on Tests' });
     store.close();
   });
@@ -861,7 +861,7 @@ describe('Find the commit from a run', () => {
     ]);
     // The inconclusive replay itself neither passed nor failed: there is no breaking commit to find.
     const from = bisectChoices(store, unsure, { goldens: [x] })!;
-    expect(from).toMatchObject({ failed: false, args: null, unavailable: "goldens/x came out inconclusive in this replay's session, neither passed nor failed, so there is no breaking commit to find: Tests says what settles it" });
+    expect(from).toMatchObject({ failed: false, args: null, onTests: true, unavailable: "goldens/x came out inconclusive in this replay's session, neither passed nor failed, so there is no breaking commit to find: Tests says what settles it" });
     expect(bisectJob(store, [x], { runId: unsure, good: 'aaa1111' })).toEqual({ error: from.unavailable });
     store.close();
   });
@@ -1071,8 +1071,8 @@ describe('goldens with a gate', () => {
     expect(testsSummary(store, { goldens: gated })).toMatchObject({ passing: 1, failing: 1, inconclusive: 1, line: '1 regression caught' });
     expect(overviewTests(store, { now: T0 + DAY, weekStart: T0 - 3 * DAY }, { goldens: gated })).toMatchObject({ passing: 1, inconclusive: 1, regressions: 1 });
     expect(failingTests(store, { goldens: gated }).map((t) => [t.title, t.verdict, t.href])).toEqual([
-      ['A test failed: drops', 'failed', '#/tests'],
-      ['A test is inconclusive: flaky', 'inconclusive', '#/tests'],
+      ['A golden failed: drops', 'failed', '#/tests'],
+      ['A golden is inconclusive: flaky', 'inconclusive', '#/tests'],
     ]);
     // Needs a look says a gate's verdict as the gate does: the word, the tally and the bound (and the
     // baseline), whole, with the rule apart for the line's hover, never cut off after it.

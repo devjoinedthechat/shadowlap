@@ -2,6 +2,7 @@ import { ACTIONS } from '../labels.js';
 import type { RowScope } from '../list-keys.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
+import { openIssue } from '../runspage/open-issue.js';
 import type { FixRow, StepKey } from '../types.js';
 import { fixName } from './model.js';
 
@@ -29,14 +30,18 @@ export function fixRowScope(f: Pick<FixRow, 'fixId' | 'label' | 'title'> & { ste
   };
 }
 
-/** The unblamed row, under its title: Open, its runs under Failed, then Run blame, which presses the row's own button and waits as it waits. */
-export function unblamedScope(o: { name: string; command: string | null; wait: string | null; press: () => void }): RowScope {
+/**
+ * The unblamed row, under its title: Open, its newest run's issue under Failed (`issue`), then Run
+ * blame, which presses the row's own button and waits as it waits; a job unless it opens the run's
+ * page (`job: false`, a capture's).
+ */
+export function unblamedScope(o: { name: string; issue: string | null; command: string | null; job?: boolean; wait: string | null; press: () => void }): RowScope {
   const to = href.runs({ types: 'failed' });
   return {
     name: o.name,
     items: () => [
-      { label: 'Open', hint: to, run: () => navigate(to) },
-      ...(o.command === null ? [] : [{ label: ACTIONS.runBlame.label, hint: o.command, job: true, ...(o.wait ? { wait: o.wait } : {}), run: o.press }]),
+      { label: 'Open', hint: to, run: () => openIssue(to, o.issue) },
+      ...(o.command === null ? [] : [{ label: ACTIONS.runBlame.label, hint: o.command, ...(o.job === false ? {} : { job: true }), ...(o.wait ? { wait: o.wait } : {}), run: o.press }]),
     ],
   };
 }

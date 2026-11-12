@@ -1291,8 +1291,9 @@ three steps.
    repairer did (*not fixed · the repairer could not be asked: claude was not found*), and the repair's
    warnings.
 3. **Verify**: every verdict, named by what changed (a repair's candidate, the request fields it set,
-   or the code version) and headed by the runs it checked, with each run's role and outcome. One that
-   doesn't count for the fix says why in its heading.
+   or the code version) and headed by the runs it checked, with each run's role, outcome and tally as
+   `shadowlap verify` prints it (*12 of 12 passed · rate >= 0.73 (95%)*). One that doesn't count for
+   the fix says why in its heading.
 
 It ends with what to do next. It says when the repair it suggests would end *No fix to try* without
 running the agent, and why (the blames it would reuse rescued no failing run), or couldn't ask its
@@ -1313,6 +1314,7 @@ repairer from here (`claude` isn't on the PATH).
 | `defaultStep`, `defaultVerify` | The step the dashboard opens at, and the verdict it shows first: the newest that counts |
 | `attempts`, `spent`, `upstreamRequests` | What everything behind the fix took: the attempts that ran live, and what they and the repairer cost |
 | `actions` | What can be done next (below) |
+| `lead` | The step it leads with, as its dashboard page and row do: `key`, `label` and `command`, or `null` for none |
 | `commands` | The `blame`, `repair` and `verify` commands to run it again |
 | `repairer` | The repairer the config names (below) |
 | `applied` | Once applied, how: `patch`, `repairId`, the `goldens` copied, `tests`, `by`, `via` |
@@ -1334,21 +1336,27 @@ or `by hand` for one you made that a verdict checked.
 
 `blame` has:
 
+- its verdict `line`: the `word`, its `tone`, the `head` in parts (a probe's tally each) and the
+  `finding`;
 - the call where the run was lost (`lostAt`, model call `step` of `steps`), `confidence`, the
   `boundary` sentence and both `answers`;
-- `probes` with their verdicts, and the attempts per probe (`bundles`);
-- every call of the run, with whether it is in the blame's scope (`callRow`);
-- `cost` and `command`.
+- `probes` with their verdicts, each with its `tally`, `bound` and `interval`, the gate's `marks`,
+  and the attempts per probe (`bundles`);
+- the agent's calls of the run, with whether each is in the blame's scope and probed, and a probed
+  call's `tally` (`callRow`);
+- `cost`, with what the judge's checks cost apart (`judge`), and `command`.
 
 `repair` has:
 
+- its verdict `line`, as `blame`'s, and `again` when the accepted change was verified twice;
 - the `change`, with the text it `added`; the result per role (`roles`); and whether its verification
   `counts`;
+- the gate's `rule`, from the first candidate it verified when none was accepted;
 - who proposed it (`repairer`), or why no repairer did (`noRepairer`: its `text`, and the `warning`
   that says what to do);
 - where each run was `lost`, and the `diagnosis`;
 - every candidate, with its `verdict` (`accepted`, `rejected`, `set aside`, `not tried`,
-  `build failed`, `unsettled`) and `why`;
+  `build failed`, `unsettled`) and `why`, and the runs those whys name by their short ids (`named`);
 - the `files` handed over, and the pull request body (`prBody`);
 - what each stage `cost`, and how many `attempts` it ran: the probes of the blames it ran, and every
   candidate's verification;
@@ -1364,21 +1372,29 @@ or `by hand` for one you made that a verdict checked.
 - `oracle`;
 - each run's `role`, `attempts`, `outcome` and where it went (`note`), and the token and cost changes
   per run;
-- what it took to find out;
+- each run's `tally`, `cutShort` and `bound` in the words `shadowlap verify` prints, its `interval` against the gate's `marks`, and its attempts (`tries`);
+- the failing runs an accepted verdict left out, that no other has checked (`left`);
+- what it took to find out, with the judge's checks apart (`judge`);
+- what answered the change's tool calls after the fork, and the baselines' apart, in `afterFork`, as
+  the report's line says it, or `null` when no attempt made a tool call after its fork;
 - its `reasons`, with those that say a run is inconclusive or not settled, rather than that the change
   failed it, in `unsettled`.
 
 `actions` says what can be done next:
 
 - **`repair`**, for an open fix: `noFix` says why it would end *No fix to try* without running the
-  agent, or is `null`.
+  agent, or is `null`. `spent` is true when its last repair tried candidates and accepted none, with
+  no blame or check change since, so running it again would try the same.
 - **`apply`**, for a verified or applied one: `kind` is `patch`, or `mark` when there is no patch
   (below).
 - **`applied`**, once it is applied.
+- **`verifyLeft`**, for a verified or applied fix whose change is in the working tree: the failing
+  `runs` no accepted verdict checked, and the `command` that verifies the working tree's code on
+  them. It is `null` when every failing run was verified.
 
 `apply` has:
 
-- `kind`, and the `gitApply` command;
+- `kind`, the `command` that applies it, and the `gitApply` command;
 - `pending`, saying what applying left undone;
 - every file the patch changes in `files`, the patch itself in `diff`, and where it is kept in
   `patchFile`;
@@ -1656,6 +1672,20 @@ More on some of them:
 The command after `--` replaces each run's recorded one, for `--from-code`, `--then-verify` and
 `--verify`.
 
+**What it prints.** The report opens with how many runs decide a write or when to stop differently,
+and the steps it asked. Each run then has a line, and under it a line for each step that changed or
+wasn't asked ([reading the report](./decisions.md#reading-the-report)). A step's line gives its call
+and its step, then one of these:
+
+| It says | When |
+| --- | --- |
+| `rank 1` to `rank 5` | Its change ranks, by consequence, with what it decided as recorded and under the change |
+| `within the model's own variation` | Its samples decided otherwise no more often than as recorded, with both counts |
+| `inconclusive` | Its samples changed, but too few answers came, under the change or as recorded, to tell that from the model's own variation |
+| `not asked` | It got no answer, with why |
+
+An inconclusive step counts as not asked, and its run settles nothing unless something else flags it.
+
 `decisions` exits with:
 
 | Status    | Meaning                                                                                                |
@@ -1775,7 +1805,7 @@ Each of its `decisions`, a step, has these fields:
 More on a step's fields:
 
 - **`rank`** is `null` when there is none, and when either side got fewer than 3 answers, which leaves
-  the step not settled.
+  the step inconclusive.
 - **`changes`**: each has its `rank`, its `kind`, the `tool` and its `effect`, `before`, `after` and a
   `detail` sentence. `kind` is one of `write-added`, `write-removed`, `write-arguments`,
   `write-order`, `stops`, `handover`, `judge`, `read-added`, `read-removed`, `read-arguments` and
@@ -2579,7 +2609,7 @@ one.
 | `--allow-unrecorded <names>` | As for [`replay`](#replay) | — |
 | `-y, --yes` | At each commit, run without asking the recorded command of a run from a pack or the team store, or of an untracked golden (below) | — |
 | `-- <command>` | The agent's command to run at each commit instead of the recorded one | — |
-| `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took | — |
+| `--json` | Print the result as JSON: each replay, the first bad commit and its change, and the replays, tokens and upstream requests it took | — |
 
 **`--fork`** is for a run that failed a check, whose recording no older commit would replay. The live
 part costs tokens, and the result says how many. A replay that forks asks its
@@ -2618,6 +2648,10 @@ there is none between the two commits (it already fails at `--good`, it passes a
 them can't be tested). It is kept with the golden's newest test result as the search started, the
 failure it answers.
 
+The first bad commit keeps its change against its first parent: the file it opens, the files it
+changed, that file's hunk and the line it added. The dashboard shows it with the answer, without a
+checkout.
+
 The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then:
 not once it passed, and never over a later failure. An answer given while the golden passed answers
 none. A search stopped with Ctrl-C keeps nothing.
@@ -2633,11 +2667,25 @@ none. A search stopped with Ctrl-C keeps nothing.
 | `good`, `bad` | The `good` and `bad` commits |
 | `commits` | How many commits come after the good one, up to and including the bad one |
 | `steps` | Each replay: `rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds` |
-| `first` | The first bad commit, with `why` it fails there |
+| `first` | The first bad commit, with `why` it fails there and its `change` (below) |
 | `untested` | The untested commits just before it |
 | `replays`, `tokens`, `upstreamRequests`, `spent`, `seconds` | What it took: replays, tokens, upstream requests, USD spent and seconds |
 
 A commit is `{ rev, short, subject, author, date }`.
+
+`first.change` is what the first bad commit changed against its first parent, with paths relative to
+the repository, or null when git couldn't say:
+
+| Field | Meaning |
+| --- | --- |
+| `file` | The file it opens: the first changed under `--cwd` that isn't in a golden's folder or `shadowlap.config.json`, else the first |
+| `files` | Every file it changed, up to 50 |
+| `hunk` | That file's diff from its first `@@`, up to about 60 lines and 4 KB, or null for a binary or deleted file |
+| `line` | The new file's line of its first added line, or null without a hunk |
+| `cut` | The hunk was cut to its bounds |
+| `merge` | It is a merge, reverted with `-m 1` |
+
+`file` passes over a file the commit deleted, which has no hunk to show, for one it kept that fits the same rule.
 
 ## pack, unpack
 

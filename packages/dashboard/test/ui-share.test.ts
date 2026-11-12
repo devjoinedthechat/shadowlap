@@ -3,7 +3,8 @@ import { divergenceButtons } from '../ui/goldens.js';
 import { updatePlan } from '../ui/update-plan.js';
 import { askedTools, callDetail, resultLine, type CallLike } from '../ui/run/calls.js';
 import { bisectBlocked, bisectCopy, bisectLabel, blameSource, blameTitle, divergedActions, goldenName, updateGoldenCopy, updatesAfterRules } from '../ui/run/offers.js';
-import { canPush, defaultPackFolder, htmlCopyVia, pushTitle, shareCommand, shareDialog, sharedLink, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING } from '../ui/run/share.js';
+import { defaultPackFolder, htmlCopyVia, shareCommand, shareDialog, shareItemOff, shareItems, shareNote, shareWhy, STILL_RECORDING } from '../ui/run/share.js';
+import { canPush, pushTitle, sharedLink } from '../ui/run/share-steps.js';
 import type { BisectOffer, DivergenceView, RunOffers, TestBannerOffer, TestsView } from '../ui/types.js';
 
 // The run page's Share menu, Run blame, Find the commit and the Calls view's detail, as the page words

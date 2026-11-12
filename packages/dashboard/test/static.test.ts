@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, unpackRun } from '@shadowlap/engine';
 import { forkDifferences } from '../src/fork-differences.js';
+import { requestDiff } from '../src/request-diff.js';
+import { addRun } from './read-model-store.js';
 import { exportHtml, withAncestors, type StaticPayload } from '../src/index.js';
 import { parseRoute } from '../ui/route.js';
 import { defaultComparePair, type RunLike } from '../ui/runs.js';
@@ -45,6 +47,19 @@ afterAll(() => {
   store.close();
   rmSync(uiDir, { recursive: true, force: true });
 });
+
+const EMAIL = 'dana.lee@example.com';
+const SECRET = 'sk-test-4f9Qx7Lm2Np8Rt3V';
+const ASKED = `Refund order 1042 for ${EMAIL}, key ${SECRET}`;
+
+/** A recording and a fork whose first request changed, both carrying an address and a made-up key. */
+function divergedPair(): { fork: string; parent: string } {
+  const body = (asked: string) => ({ model: 'claude-sonnet-4-5', max_tokens: 512, system: `Write to ${EMAIL} when done.`, messages: [{ role: 'user', content: asked }] });
+  const parent = addRun(store, { startedAt: Date.UTC(2026, 10, 2, 9), calls: [{ code: 'l', request: body(ASKED) }] });
+  const fork = addRun(store, { parent, startedAt: Date.UTC(2026, 10, 2, 10), calls: [{ code: 'l', request: body(ASKED.replace('1042', '1043')) }] });
+  store.setDivergence(fork, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, counterpart: { runId: parent, callNo: 1 }, diff: [{ path: '$.messages[0].content', op: 'changed', before: ASKED, after: ASKED.replace('1042', '1043') }] });
+  return { fork, parent };
+}
 
 function embedded(html: string): StaticPayload {
   return JSON.parse(dataAsParsed(html)) as StaticPayload;
@@ -185,6 +200,91 @@ describe('export html', () => {
     expect(redacted).toContain('<EMAIL>');
   });
 
+  it('holds Show diff’s request for each run that diverged: whole with the run it is compared with, else its changes alone', () => {
+    const { fork, parent } = divergedPair();
+    const both = embedded(exportHtml({ store, runIds: [fork, parent], uiDir }).html);
+    expect(both.responses[`runs/${fork}/diff`]).toEqual(JSON.parse(JSON.stringify({ diff: requestDiff(store, store.getRun(fork)!, null, [], new Set([fork, parent])) })));
+    expect(both.responses[`runs/${fork}/diff`]).toMatchObject({ diff: { at: 1, whole: true, against: { runId: parent, callNo: 1 }, path: '$.messages[0].content' } });
+    // A recording never diverged: nothing held for it.
+    expect(both.responses[`runs/${parent}/diff`]).toBeUndefined();
+    // Without the run it is compared with, the divergence's own changes, as the file holds them anyway,
+    // as far as the diff needs them: the model this run asked, the change, the conversation left out.
+    const alone = embedded(exportHtml({ store, runIds: [fork], uiDir }).html).responses[`runs/${fork}/diff`] as { diff: { whole: boolean; was: unknown; now: unknown } };
+    const model = 'claude-sonnet-4-5';
+    expect(alone.diff).toMatchObject({ whole: false, was: { model, 'messages[0]': { content: ASKED } }, now: { model, 'messages[0]': { content: ASKED.replace('1042', '1043') } }, leftOut: ['messages'] });
+  });
+
+  it('redacts Show diff’s request as the runs are: neither a secret nor a value a rule masks reaches the file in any form', () => {
+    const { fork, parent } = divergedPair();
+    const rules = [
+      { pattern: 'email', replace: '<EMAIL>' },
+      { pattern: '/sk-test-[A-Za-z0-9]+/', replace: '<KEY>' },
+    ];
+    for (const runIds of [[fork, parent], [fork]]) {
+      const { html } = exportHtml({ store, runIds, uiDir, redact: rules });
+      for (const value of [SECRET, EMAIL]) {
+        for (const form of [value, encodeURIComponent(value), Buffer.from(value).toString('base64'), JSON.stringify(value).slice(1, -1)]) expect(html, `${runIds.length} runs: ${form}`).not.toContain(form);
+      }
+      const diff = JSON.stringify(embedded(html).responses[`runs/${fork}/diff`]);
+      expect(diff).toContain('<EMAIL>');
+      expect(diff).toContain('<KEY>');
+    }
+  });
+
+  it('keeps a copy of many runs that diverged within what their requests weigh', () => {
+    const forks = Array.from({ length: 6 }, () => divergedPair().fork);
+    const data = embedded(exportHtml({ store, runIds: forks, uiDir }).html);
+    for (const fork of forks) {
+      const request = JSON.stringify(data.responses[`runs/${fork}/calls/1`]);
+      // Its two bodies and the words beside them, never more than the call's own details again and a little.
+      expect(JSON.stringify(data.responses[`runs/${fork}/diff`]).length).toBeLessThan(request.length + 2048);
+    }
+  });
+
+  it('says apart in Show diff’s request what the rules matching applies mask, as the dashboard’s own read does', () => {
+    const rule = { kind: 'api' as const, path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
+    const [a, b] = ['3f1c9a2e-5b7d-4e8a-9c1f-2a6b8d0e4f13', '9b2e4d6f-1a3c-4b5d-8e7f-0c2a4e6b8d10'];
+    const body = (user: string, asked: string) => ({ model: 'claude-sonnet-4-5', metadata: { user_id: user }, messages: [{ role: 'user', content: asked }] });
+    const parent = addRun(store, { startedAt: Date.UTC(2026, 10, 3, 9), calls: [{ code: 'l', request: body(a, 'Refund order 1042') }] });
+    const fork = addRun(store, { parent, startedAt: Date.UTC(2026, 10, 3, 10), calls: [{ code: 'l', request: body(b, 'Refund order 1043') }] });
+    const diff = [
+      { path: '$.metadata.user_id', op: 'changed' as const, before: a, after: b },
+      { path: '$.messages[0].content', op: 'changed' as const, before: 'Refund order 1042', after: 'Refund order 1043' },
+    ];
+    store.setDivergence(fork, { type: 'request_changed', callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, counterpart: { runId: parent, callNo: 1 }, diff });
+    const held = embedded(exportHtml({ store, runIds: [fork, parent], uiDir, normalize: [rule] }).html).responses[`runs/${fork}/diff`] as { diff: { masked: string[]; paths: Array<{ path: string; fix: unknown }> } };
+    expect(held.diff.masked).toEqual(['$.metadata.user_id']);
+    expect(held.diff.paths).toEqual([{ path: '$.messages[0].content', what: 'user message', fix: null }]);
+    expect(held).toEqual(JSON.parse(JSON.stringify({ diff: requestDiff(store, store.getRun(fork)!, null, [rule], new Set([fork, parent])) })));
+    // Without the rules, the value made anew is a change of its own, with the normalizer that masks it.
+    const bare = embedded(exportHtml({ store, runIds: [fork, parent], uiDir }).html).responses[`runs/${fork}/diff`] as typeof held;
+    expect(bare.diff.masked).toEqual([]);
+    expect(bare.diff.paths.map((p) => p.path)).toEqual(['$.metadata.user_id', '$.messages[0].content']);
+  });
+
+  it('compares its runs after the rules matching applies, Compare and a fork’s differences alike, as the dashboard does', () => {
+    // A recording and its fork that each opened a ticket, its id the one thing between them.
+    const ticket = (id: string, parent: string | null) => {
+      const r = store.createRun({ mode: parent ? 'replay' : 'record', ...(parent ? { parentRunId: parent } : {}), command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: Date.UTC(2026, 10, 4, parent ? 10 : 9) });
+      const identity = { kind: 'tool' as const, name: 'create_ticket', fingerprint: `ticket ${id}`, occurrence: 1 };
+      store.appendCallStart({ runId: r.runId, callNo: 1, ...identity, origin: 'live', effect: 'write', requestRef: store.putJson({ args: { id } }), meta: {}, at: 1 });
+      store.appendCallEnd(identity, { runId: r.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ result: { ok: true } }), outcome: 'ok', meta: {}, at: 2 });
+      if (parent) store.setDivergence(r.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'create_ticket', replayedBefore: 0 });
+      store.endRun(r.runId, 'completed');
+      return r.runId;
+    };
+    const parent = ticket('T-1', null);
+    const fork = ticket('T-2', parent);
+    const held = (normalize?: Array<{ kind: 'tool'; path: string; replace: string }>) => {
+      const r = embedded(exportHtml({ store, runIds: [fork, parent], uiDir, ...(normalize ? { normalize } : {}) }).html).responses;
+      const pair = r[`compare?a=${parent}&b=${fork}`] as { pair: { verdict: { words: string } } };
+      const differences = r[`runs/${fork}/differences`] as { differences: { rank: number | null } };
+      return [pair.pair.verdict.words, differences.differences.rank];
+    };
+    expect(held()).toEqual(['Different writes', 1]);
+    expect(held([{ kind: 'tool', path: '$.args.id', replace: '<id>' }])).toEqual(['The same decisions', null]);
+  });
+
   it('applies redaction rules, as pack does', () => {
     const rules = [{ pattern: 'email', replace: '<EMAIL>' }];
     const plain = exportHtml({ store, runIds: [runId], uiDir });
@@ -245,6 +345,11 @@ describe('export html', () => {
       const six = embedded(exportHtml({ store: own, runIds: ids.slice(0, 6), uiDir }).html);
       expect(six.responses['meta']).toMatchObject({ compareWith: null });
       expect(Object.keys(six.responses).filter((k) => k.startsWith('compare?'))).toHaveLength(30);
+      // Each pair holds what its second run decided differently from its first after the calls they
+      // share, as the dashboard answers it: the verdict, both endings and the rows, at most 200.
+      const answers = Object.entries(six.responses).filter(([k]) => k.startsWith('compare?')).map(([, v]) => v as { pair?: { verdict: unknown; rows: unknown[]; more: number } | null });
+      expect(answers.every((c) => !!c.pair && c.pair.rows.length <= 200)).toBe(true);
+      expect(answers.filter((c) => c.pair?.verdict).length).toBeGreaterThan(0);
     } finally {
       own.close();
     }

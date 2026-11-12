@@ -1,5 +1,5 @@
 import { blameStateWord, commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, lostWords, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
-import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
+import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, notVerified, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
 
 /** The Fixes list: a row for each fix, the most recently opened first, with its status, its failing runs and how far blame, repair and verify got. */
 
@@ -98,12 +98,6 @@ function fixedKept(rec: FixRecords): { text: string; kept: number } {
   return { text: [fixed.size ? `${fixed.size} fixed` : '', kept.size ? `${kept.size} kept` : ''].filter(Boolean).join(' · ') || 'verified', kept: kept.size };
 }
 
-/** The fix's failing runs that no accepted verdict that counts has checked as failing runs. */
-function notVerified(rec: FixRecords): string[] {
-  const checked = new Set(counting(rec).flatMap((v) => (v.verdict === 'accepted' ? v.report.runs.filter((x) => x.role !== 'good').map((x) => x.runId) : [])));
-  return rec.failing.filter((id) => !checked.has(id));
-}
-
 function blameStepOf(rec: FixRecords): FixStep {
   const b = shownBlame(rec);
   if (!b) return { key: 'blame', n: '01', state: 'todo', short: 'not blamed', title: 'Not blamed yet', meta: 'find the call that lost the run' };
@@ -165,7 +159,22 @@ function verifyStepOf(rec: FixRecords): FixStep {
   return { key: 'verify', n: '03', state: 'todo', short: 'not verified', title: 'Not verified yet', meta: 'checks a fix before it ships' };
 }
 
+/** A fix's three steps, as its stepper, its row on Fixes and its row on Needs a look say them. */
 const stepsOf = (rec: FixRecords): FixStep[] => [blameStepOf(rec), repairStepOf(rec), verifyStepOf(rec)];
+
+/**
+ * What changed on a fix and what verify made of it, as Needs a look words an open fix after where
+ * blame left it, from the Repair and Verify steps its row on Fixes shows: the accepted change's kind
+ * (`prompt change, not verified yet`), or `changed by hand` where Repair says `by hand` (a change
+ * made by hand, then verified with `verify --fix`), then `, verify inconclusive` or `, verify
+ * rejected it` from the Verify step's state. Null where nothing changed yet.
+ */
+export function changeWords(rec: FixRecords, steps: readonly FixStep[] = stepsOf(rec)): string | null {
+  const [, repair, verify] = steps;
+  if (repair?.state !== 'done') return null;
+  const verdict = verify?.state === 'warn' ? ', verify inconclusive' : verify?.state === 'no' ? ', verify rejected it' : verify?.state === 'todo' ? ', not verified yet' : '';
+  return `${repair.short === 'by hand' ? 'changed by hand' : repair.short}${verdict}`;
+}
 
 /**
  * The title each fix was opened with, by fix id: what its failing run did, as blame titled the fix
@@ -185,7 +194,7 @@ export function openingTitles(store: StoreOf<'activity'>): () => ReadonlyMap<str
 }
 
 /** What a fix's failing runs did (`FixRow.failed`): its own title until it was given another, else the title it was opened with. */
-function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, string>): string | null {
+export function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, string>): string | null {
   const f = rec.fix;
   // Blame made the title from the failure when it opened the fix: it says what failed until someone renames it.
   if (!f.data.titleEdited) return f.title;

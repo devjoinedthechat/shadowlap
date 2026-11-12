@@ -2,13 +2,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type StoreOf, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
-import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { callDetailFrom, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
+import { comparePairOf } from './compare.js';
 import { withExitCodes } from './exit-codes.js';
 import { forkDifferences } from './fork-differences.js';
 import { copyNextStep } from './next-step.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { judgedRows, runJudged } from './run-outcome.js';
+import { requestDiff } from './request-diff.js';
 import { analyseRun } from './run-page.js';
 import { countAttempts } from './run-cache.js';
 import type { MetaView } from './views.js';
@@ -33,6 +35,12 @@ export interface ExportHtmlOptions {
   prices?: Record<string, Price>;
   /** Applied to every request and response before they are embedded. */
   redact?: Normalizer[];
+  /**
+   * The rules matching applies (the config's `normalize`), which the copy compares after as the
+   * dashboard does: Compare's pairs and a fork's differences, and Show diff's answer, which says a
+   * change they mask apart from those that made a run diverge.
+   */
+  normalize?: Normalizer[];
   version?: string | null;
   /** The built UI; defaults to dist/ui next to this module. */
   uiDir?: string;
@@ -87,7 +95,7 @@ function anonymous<T extends object>(row: T): T {
   return 'author' in row ? { ...row, author: null } : row;
 }
 
-function payload(store: Store, runIds: string[], opts: { prices?: Record<string, Price>; version?: string | null; rules: number; now: number; keepAuthor: boolean }): { data: StaticPayload; calls: number } {
+function payload(store: Store, runIds: string[], opts: { prices?: Record<string, Price>; version?: string | null; rules: number; normalize: readonly Normalizer[]; now: number; keepAuthor: boolean }): { data: StaticPayload; calls: number } {
   const read = opts.prices ? { prices: opts.prices } : {};
   const responses: Record<string, unknown> = {};
   const keep = opts.keepAuthor;
@@ -110,6 +118,7 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     live: [],
     jobKinds: [],
     uploadLimit: null,
+    editor: null,
     project: null,
     static: true,
     exportedAt: opts.now,
@@ -123,6 +132,7 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   responses['meta'] = meta;
   responses['runs'] = { runs };
   let calls = 0;
+  const inFile = new Set(runIds);
   for (const runId of runIds) {
     // A copy has no server to ask for the next page: it holds every call.
     const detail = runDetail(store, runId, read, { limit: Infinity });
@@ -135,7 +145,12 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
     responses[`runs/${runId}`] = { ...detail, judged, ...(next ? { next } : {}), run: withoutFolder(keep ? detail.run : withoutAuthor(detail.run)), parent: detail.parent && runIds.includes(detail.parent.runId) ? detail.parent : null };
     responses[`runs/${runId}/lineage`] = { nodes: (lineage(store, runId, read) ?? []).filter((n) => runIds.includes(n.runId)).map((n) => (keep ? n : anonymous(n))) };
     // What a fork did differently, when the file holds its parent too: it quotes the parent's calls.
-    if (record.parentRunId && runIds.includes(record.parentRunId)) responses[`runs/${runId}/differences`] = { differences: forkDifferences(store, runId) };
+    // Compared after the rules matching applies, as the dashboard compares them and the copy's Compare does.
+    if (record.parentRunId && runIds.includes(record.parentRunId)) responses[`runs/${runId}/differences`] = { differences: forkDifferences(store, runId, { normalizers: opts.normalize }) };
+    // Show diff's request, as recorded and as sent: of the copy's runs alone, the divergence's own
+    // changes where the file leaves out the run it is compared with. Read from the copy's store, so
+    // redacted as its runs and calls are, with the rules matching applies, as the dashboard reads it.
+    if (record.divergence) responses[`runs/${runId}/diff`] = { diff: requestDiff(store, record, null, opts.normalize, inFile) };
     // Every call's details from one read of the run and one analysis of it: asking for each call on
     // its own read the whole run again, so a run's export took time with the square of its length.
     const analysis = analyseRun(store, record, all);
@@ -149,7 +164,8 @@ function payload(store: Store, runIds: string[], opts: { prices?: Record<string,
   const pairs = runIds.length <= COMPARE_ALL_UPTO ? runIds.flatMap((a) => runIds.map((b) => [a, b] as const)) : runIds.flatMap((a) => [[a, runIds[0]!] as const, [runIds[0]!, a] as const]);
   for (const [a, b] of pairs) {
     if (a === b) continue;
-    const c = compare(store, a, b);
+    // Compared after the rules matching applies, as the dashboard compares them.
+    const c = comparePairOf(store, a, b, opts.normalize);
     if (c) responses[`compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`] = c;
   }
   return { data: { shadowlap: opts.version ?? null, exportedAt: opts.now, runIds, redacted: opts.rules > 0, responses }, calls };
@@ -199,7 +215,7 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
     store = scratch;
   }
   try {
-    const { data, calls } = payload(store, asked, { ...(opts.prices ? { prices: opts.prices } : {}), version: opts.version ?? null, rules: rules.length, now: opts.now ?? Date.now(), keepAuthor: opts.keepAuthor === true });
+    const { data, calls } = payload(store, asked, { ...(opts.prices ? { prices: opts.prices } : {}), version: opts.version ?? null, rules: rules.length, normalize: opts.normalize ?? [], now: opts.now ?? Date.now(), keepAuthor: opts.keepAuthor === true });
     const css = readFileSync(join(uiDir, 'assets', 'app.css'), 'utf8').replace(/url\(["']?\.\/fonts\/([\w.-]+)["']?\)/g, (_m, name: string) => `url(${dataUri(join(uiDir, 'assets', 'fonts', name), 'font/woff2')})`);
     // The copy's own script (build-ui.mjs, ui/main-copy.tsx), whole, with the pages a copy shows: the
     // one the dashboard serves loads a page's code from the server when it opens, and a copy has none.

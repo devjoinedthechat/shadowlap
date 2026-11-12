@@ -1,12 +1,14 @@
 import type { ReactNode } from 'react';
-import type { BisectMiss, DivergenceView, FailureView, FoundCommit, InconclusiveView } from '../api.js';
-import { tipText } from '../components/HoverCard.js';
+import type { BisectMiss, DivergenceView, FailureView, FoundCommit, InconclusiveView, NextStep } from '../api.js';
 import { JobButton } from '../components/JobButton.js';
 import type { TestsEstimates } from '../estimates-api.js';
-import { divergenceButtons, failureHint, failureLines, foundLine, inconclusiveHint, inconclusiveLines, missedLine, reportLines, type ReportLine } from '../goldens.js';
+import { divergenceButtons, failureHint, failureLines, inconclusiveHint, inconclusiveLines, missedLine, reportLines, type ReportLine } from '../goldens.js';
 import { ACTIONS, confirmWords } from '../labels.js';
 import { FindCommitButton } from '../pages/TestsDialogs.js';
 import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
+import { ChangeBox } from '../revert/ChangeBox.js';
+import { FoundCommitLine } from '../revert/FoundLine.js';
+import { RevertButton } from '../revert/RevertButton.js';
 import { href } from '../route.js';
 import { moreAttemptsAsk, type TestsAsk } from '../tests-ask.js';
 import { goldenPrice, type Price } from '../tests-estimates.js';
@@ -29,17 +31,17 @@ function ReportLines({ lines }: { lines: ReportLine[] }) {
   );
 }
 
-/** What Find breaking commit found: the first bad commit, its message, who made it, when, and what it cost. */
+/**
+ * What Find breaking commit found: the first bad commit, its message, who made it, when, and what it
+ * cost, then its change in its file's box, as git shows it, with Open in editor and Copy git revert,
+ * where the answer kept one.
+ */
 function BisectCard({ found }: { found: FoundCommit }) {
-  const f = foundLine(found);
   return (
-    <div className="bisect" data-tip={found.why ? tipText(found.why) : undefined}>
-      <span className="k">first bad commit</span>
-      <code>{f.rev}</code>
-      <b>{f.subject}</b>
-      <span className="m">{f.meta}</span>
-      {found.untested.length ? <span className="m">or one just before it that could not be tested: {found.untested.join(', ')}</span> : null}
-    </div>
+    <>
+      <FoundCommitLine found={found} />
+      {found.change ? <ChangeBox rev={found.rev} change={found.change} /> : null}
+    </>
   );
 }
 
@@ -149,16 +151,28 @@ export function InconclusivePanel({ v, off, canRun, onMore, prices, updateOff, c
   );
 }
 
-/** A failed check, a non-zero exit, no calls: as `test --markdown` prints it, with no normalizer to offer. */
-export function FailurePanel({ f, off, live, button, onBisect }: { f: FailureView; off: string | null | undefined; live: boolean; button: { range: boolean; live: boolean } | null; onBisect: () => void }) {
+/** The hint under a crash whose first bad commit stands, in place of the exit's: what to do with the commit. */
+const NAMED_CRASH = 'The agent stopped part way at the commit above: revert it or fix the code, then run the tests.';
+
+/** What a failure's hint says: a crash whose commit is named, what to do with it, else as `failureHint` says (a blocked connection's first). */
+const hintOf = (f: FailureView): string => (f.failure === 'exit' && f.found && !f.blocked?.length ? NAMED_CRASH : failureHint(f));
+
+/**
+ * A failed check, a non-zero exit, no calls: as `test --markdown` prints it, with no normalizer to
+ * offer. A crash whose first bad commit stands offers Revert (`step`, the golden's as the server
+ * leads it), plain: the verdict's step is the page's lime. The test after it is priced as Re-run test.
+ */
+export function FailurePanel({ f, off, live, button, step, prices, onBisect }: { f: FailureView; off: string | null | undefined; live: boolean; button: { range: boolean; live: boolean } | null; step: NextStep | undefined; prices: TestsEstimates | null | undefined; onBisect: () => void }) {
+  const revert = step?.key === 'revert' ? step : null;
   return (
     <ReportPanel name={f.name} runId={f.runId} lines={failureLines(f)} found={f.found} missed={f.missed}>
-      {button ? (
+      {button || revert ? (
         <div className="actions">
-          <FindCommitButton f={f} live={live} why={off} onBisect={onBisect} />
+          {revert ? <RevertButton step={revert} found={f.found} estimate={goldenPrice(prices, f.golden, 'rerun')} runId={f.runId} /> : null}
+          {button ? <FindCommitButton f={f} live={live} why={off} onBisect={onBisect} /> : null}
         </div>
       ) : null}
-      <p className="hintx">{failureHint(f)}</p>
+      <p className="hintx">{hintOf(f)}</p>
     </ReportPanel>
   );
 }

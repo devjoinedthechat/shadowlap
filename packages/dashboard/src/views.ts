@@ -58,6 +58,12 @@ export interface JobView {
    * it runs no agent. See worktree.ts.
    */
   worktree: { use: 'reads' | 'writes'; doing: string; folder: string | null } | null;
+  /**
+   * What its git step left in the working tree, once it ended (job-git.ts): `done`, `untouched` (git
+   * refused, the tree as it was) or `conflicts` (files left unmerged). Absent for a job with no git
+   * step, and while it runs.
+   */
+  git?: 'done' | 'untouched' | 'conflicts';
   /** The run the job is about (full id), or null when it is about none (an import, the tests). */
   runId: string | null;
   /** The fix it blames, repairs, verifies or applies (full id), so its row can say so; absent for a job about no fix yet. */
@@ -155,6 +161,12 @@ export interface MetaView {
   jobKinds: string[];
   /** The most `POST /api/uploads` takes, in bytes; null when uploads are not possible (no project folder, read-only, an exported copy). */
   uploadLimit: number | null;
+  /**
+   * Open in editor: what it runs on this machine, `code --goto <file>:<line>`, for the card to show;
+   * null where it can't open one (no project folder, no editor, or one with no terminal or display
+   * here) and in an exported copy. A read-only dashboard has one, and draws the button off.
+   */
+  editor: string | null;
   /** The project folder, or null. */
   project: ProjectView | null;
   /** An exported HTML copy: recorded data only, no server behind it. */
@@ -173,15 +185,20 @@ export interface MetaView {
 
 /** The icon an activity entry shows, as in the mock (each comes with its words beside it or on hover). */
 /** `warn`: neither passed nor failed, as an inconclusive test. */
-export type ActivityIcon = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'project' | 'setting' | 'train';
+export type ActivityIcon = 'live' | 'rec' | 'fail' | 'warn' | 'clean' | 'fork' | 'cap' | 'test' | 'blame' | 'fixok' | 'fixbad' | 'fixinc' | 'project' | 'setting' | 'train';
 
 /** One entry of the activity feed. */
 export interface ActivityItem {
   /** Stable across requests: `e:<event id>` for a stored event, `r:<run id>:<what>` or `g:<group>` for one derived from runs. */
   id: string;
   at: number;
-  /** The icon. */
+  /** The icon: what it was, by its shape. */
   kind: ActivityIcon;
+  /**
+   * How it came out, by its colour, whatever its shape: `err` what failed or was rejected, `warn`
+   * what couldn't decide, stopped or needs a look. Absent: the shape's own colour.
+   */
+  outcome?: 'err' | 'warn';
   /** What happened, in the mock's words: "Replay clean · 30/30 · 0 upstream". */
   text: string;
   /** The run it is about. */

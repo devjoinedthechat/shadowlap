@@ -9,16 +9,16 @@ import { isRevisionKey, links, parseRunsQuery, type LinkView, type RunsFilterRea
  *   #/runs[?q=&types=&sort=&from=&to=]   Runs, with what its filter, chips, sort and calendar show
  *   #/run/<id>[/<call>[/<view>]]         a run, a call, a view (the old #/run/<id>/call/<n> still opens)
  *   #/changes[/verdicts[/<rev>]]         Changes: Verdicts, and a revision's page there
- *   #/changes/decisions[/<id>]           Changes: a preview, on its tab
- *   #/changes/migrate[/<id>]             Changes: a migration, on its tab
- *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a call of theirs
+ *   #/changes/decisions[/<id>[/<run>[/<call>]]]   Changes: a preview, on its tab; a run's most telling step, a cell
+ *   #/changes/migrate[/<id>[/<run>[/<call>]]]     Changes: a migration, on its tab; a run's most telling step, a cell
+ *   #/compare[/<a>[/<b>[/<call>]]]       Changes: Compare, two runs, a row of theirs, by its place
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
  *   #/tests  #/training[/tasks]  #/settings[/<tab>]  #/new  #/setup
  *   #/setup/store                        the team store's setup
  */
 
 export type View = LinkView;
-export const VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timeline', 'forks', 'provenance'];
+export const VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timeline', 'forks', 'provenance', 'decisions'];
 
 export type Route =
   | { page: 'overview' }
@@ -26,8 +26,12 @@ export type Route =
   | { page: 'runs'; filter?: RunsFilterRead }
   | { page: 'run'; id: string; call: number | null; view: View | null }
   | { page: 'compare'; a: string | null; b: string | null; call: number | null }
-  /** `id`: a revision's key on Verdicts (`isRevisionKey`), a session's on its tab; null for the tab's list. */
-  | { page: 'changes'; tab: ChangesTab; id: string | null }
+  /**
+   * `id`: a revision's key on Verdicts (`isRevisionKey`), a session's on its tab; null for the tab's
+   * list. A session's `run` opens its cell at `call`, or at the run's most telling step without one;
+   * both are absent when not given.
+   */
+  | { page: 'changes'; tab: ChangesTab; id: string | null; run?: string; call?: number }
   | { page: 'fixes'; id: string | null; step: string | null; sub: string | null }
   | { page: 'tests' }
   | { page: 'training'; tab: 'pairs' | 'tasks' }
@@ -62,13 +66,17 @@ function callNumber(s: string | undefined): number | null {
 /**
  * Changes at a tab: `#/changes` and `#/changes/verdicts` are Verdicts, with a revision's page when the
  * key is one (a key that can't be is dropped, as a fix's bad segment is); a preview's and a
- * migration's tabs take a session's id. Any other tab is no page.
+ * migration's tabs take a session's id, then a run of it and a call, its cell. A run that can't be a
+ * run's id is no page, as on `#/run/`; a call that isn't a number is dropped, so the run's most
+ * telling step opens. Any other tab, or more parts, is no page.
  */
-function changesRoute(raw: string, tab: string | undefined, id: string | undefined, more: boolean): Route {
-  if (more) return { page: 'notfound', path: raw };
-  if (!tab || tab === 'verdicts') return { page: 'changes', tab: 'verdicts', id: isRevisionKey(id) ? id : null };
-  if (tab === 'decisions' || tab === 'migrate') return { page: 'changes', tab, id: id && SEGMENT.test(id) ? id : null };
-  return { page: 'notfound', path: raw };
+function changesRoute(raw: string, parts: readonly string[]): Route {
+  const [, tab, id, run, call] = parts;
+  if (!tab || tab === 'verdicts') return parts.length > 3 ? { page: 'notfound', path: raw } : { page: 'changes', tab: 'verdicts', id: isRevisionKey(id) ? id : null };
+  if ((tab !== 'decisions' && tab !== 'migrate') || parts.length > 5 || (run !== undefined && !RUN_ID.test(run))) return { page: 'notfound', path: raw };
+  const session = id && SEGMENT.test(id) ? id : null;
+  const n = callNumber(call);
+  return { page: 'changes', tab, id: session, ...(session && run ? { run, ...(n ? { call: n } : {}) } : {}) };
 }
 
 export function isView(s: unknown): s is View {
@@ -117,7 +125,7 @@ export function parseRoute(hash: string): Route {
       return { page: 'compare', a: ok(a), b: ok(b), call: callNumber(c) };
     }
     case 'changes':
-      return changesRoute(raw, a, b, parts.length > 3);
+      return changesRoute(raw, parts);
     case 'fixes': {
       const ok = (x: string | undefined) => (x && SEGMENT.test(x) ? x : null);
       return { page: 'fixes', id: ok(a), step: ok(b), sub: ok(c) };
@@ -152,7 +160,7 @@ export function routeHref(r: Route): string {
     case 'compare':
       return href.compare(r.a, r.b, r.call);
     case 'changes':
-      return r.tab === 'verdicts' ? href.changes(r.id) : href.changeSession(r.tab, r.id);
+      return r.tab === 'verdicts' ? href.changes(r.id) : href.changeSession(r.tab, r.id, r.run, r.call);
     case 'fixes':
       return href.fixes(r.id, r.step, r.sub);
     case 'tests':

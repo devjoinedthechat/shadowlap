@@ -2,6 +2,8 @@ import type { RouteContext } from '../context.js';
 import type { Router } from '../router.js';
 import * as activity from './activity.js';
 import * as changes from './changes.js';
+// Settings → CI: your workflow against the repository's, Write file and its Undo.
+import * as ci from './ci.js';
 // Checks: a check tried on the recordings, nothing replayed (the check builder's preview).
 import * as checks from './checks.js';
 import * as codingAgents from './coding-agents.js';
@@ -21,6 +23,9 @@ import * as runs from './runs.js';
 import * as runPage from './run-page.js';
 import * as search from './search.js';
 import * as settings from './settings.js';
+import * as settingsEdits from './settings-edits.js';
+// The Undo of removing a project: it comes back at the place it left.
+import * as projectRestore from './project-restore.js';
 import * as tests from './tests.js';
 import * as training from './training.js';
 import * as uploads from './uploads.js';
@@ -42,6 +47,10 @@ import * as attemptGroups from './attempt-groups.js';
 import * as verdicts from './verdicts.js';
 // The person's own settings on this machine, on every project: Spending.
 import * as userSettings from './user-settings.js';
+// Open in editor: a project file at a line, in the editor $VISUAL or $EDITOR names.
+import * as editor from './editor.js';
+// Needs a look's advice put away (Dismiss) and brought back (Restore), in this project's store alone.
+import * as dismissals from './dismissals.js';
 
 /** A feature's routes (and job kinds): `routes/<feature>.ts` exports `register(router, ctx)`. */
 export interface RouteModule {
@@ -70,9 +79,14 @@ export const ROUTE_MODULES: RouteModule[] = [
   imports,
   fixes,
   tests,
+  ci,
   settings,
+  // Settings' edits to shadowlap.config.json, and their Undo.
+  settingsEdits,
   // Settings → Coding agents' install: the skill-install job kind.
   codingAgents,
+  // The Undo of removing a project, from its toast.
+  projectRestore,
   // Several projects behind one dashboard: the switcher, Add project, the setup, removing one.
   projects,
   crossProject,
@@ -91,6 +105,8 @@ export const ROUTE_MODULES: RouteModule[] = [
   verdicts,
   userSettings,
   estimates,
+  editor,
+  dismissals,
 ];
 
 export function registerRoutes(router: Router, ctx: RouteContext): void {

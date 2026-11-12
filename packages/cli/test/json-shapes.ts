@@ -68,7 +68,7 @@ export const SHAPES = {
   // check: recordings judged by checks, nothing replayed; and each check as it came out, wherever a command prints one.
   check: { section: 'check', fields: ['expect', 'recordings', 'counts', 'unchecked', 'notes'] },
   checkRecording: { section: 'check', fields: ['runId', 'pack', 'labels', 'source', 'outcome', 'why', 'checks'] },
-  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive'] },
+  checkCounts: { section: 'check', fields: ['passed', 'failed', 'inconclusive', 'notApplicable'] },
   checkResult: { section: 'check', fields: ['status', 'ok', 'label', 'detail'] },
   init: { section: 'init', fields: ['cwd', 'languages', 'packageManager', 'providers', 'frameworks', 'command', 'tools', 'fence', 'hardcodedBaseUrls', 'unrecordedModels', 'modelServer', 'scannedFiles', 'config', 'folder', 'summary', 'unwrapped', 'wrap', 'project'] },
   // The coding agents' plugin and rule, put into a project (skill-install.test.ts).
@@ -91,7 +91,7 @@ export const SHAPES = {
   fixList: { section: 'fix', grows: true, fields: ['fixes', 'counts'] },
   fixRow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'failed', 'failing', 'good', 'steps', 'source', 'openedAt', 'verifiedAt', 'appliedAt', 'broken', 'attempts', 'spent'] },
   fixCounts: { section: 'fix', grows: true, fields: ['all', 'open', 'verified'] },
-  fixShow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'failed', 'oracle', 'expect', 'source', 'broken', 'failing', 'good', 'failingRuns', 'goodRuns', 'steps', 'blame', 'blames', 'repair', 'repairs', 'verify', 'defaultStep', 'defaultVerify', 'openedAt', 'verifiedAt', 'appliedAt', 'openedBy', 'attempts', 'spent', 'upstreamRequests', 'actions', 'commands', 'repairer', 'applied', 'rung', 'pr'] },
+  fixShow: { section: 'fix', grows: true, fields: ['fixId', 'href', 'status', 'title', 'label', 'labels', 'check', 'failed', 'oracle', 'expect', 'source', 'broken', 'failing', 'good', 'failingRuns', 'goodRuns', 'steps', 'blame', 'blames', 'repair', 'repairs', 'verify', 'defaultStep', 'defaultVerify', 'openedAt', 'verifiedAt', 'appliedAt', 'openedBy', 'attempts', 'spent', 'upstreamRequests', 'actions', 'commands', 'repairer', 'applied', 'rung', 'pr', 'lead'] },
   fixApply: { section: 'fix', grows: true, fields: ['fixId', 'status', 'again', 'patch', 'repairId', 'goldens', 'tests'] },
   fixPr: { section: 'fix', grows: true, fields: ['fixId', 'pr'] },
   fixError: { section: 'fix', grows: true, fields: ['fixId', 'status', 'error'] },
@@ -135,6 +135,8 @@ export const SHAPES = {
   bisectTarget: { section: 'bisect', grows: true, fields: ['kind', 'name', 'runId'] },
   bisectCommit: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'author', 'date'] },
   bisectStep: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'ok', 'skipped', 'result', 'seconds'] },
+  // The first bad commit's change (first.change), held exactly to its table.
+  bisectChange: { section: 'bisect', list: "or null when git couldn't say", fields: ['file', 'files', 'hunk', 'line', 'cut', 'merge'] },
   // Injection tests: the report of injection --json, per run tested by planting or by --clean.
   injection: { section: 'injection', list: 'Otherwise, with `--json` it prints', fields: ['templates', 'results', 'totals', 'verdict', 'passed', 'html'] },
   injectionTotals: { section: 'injection', list: '`totals` adds up', fields: ['runs', 'attempts', 'obeyed', 'influenced', 'ignored', 'inconclusive'] },

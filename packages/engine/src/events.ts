@@ -24,14 +24,18 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  *   source, moments apart) as one entry. An event may instead list its runs in `runIds`.
  * - `test.session`: ref the session; data { passed, failed, inconclusive?, goldens, interrupted?, notRun? }
  * - `bisect.found`: ref the golden or run bisected (runId too, for a run); data { commit, subject, first,
- *   why, untested, answered?, … }; `bisect.none`: ref as for found; data { outcome, why, good, bad,
- *   answered? }: no first bad commit between them. `answered` is the golden's newest result as the
- *   search started { session, at, ok, revision }: the failure the answer is about
+ *   why, untested, answered?, … }. `first` is { rev, subject, author, date, change }: `change` is
+ *   what the commit changed against its first parent { file, files, hunk, line, cut, merge }, or null
+ *   when git couldn't say (absent from answers kept before it); paths are relative to the repository.
+ *   `bisect.none`: ref as for found; data { outcome, why, good, bad, answered? }: no first bad commit
+ *   between them. `answered` is the golden's newest result as the search started { session, at, ok,
+ *   revision }: the failure the answer is about
  * - `blame.done`: runId the blamed run, ref the fix (`fx-…`); data { outcome ('blamed',
  *   'unrescuable' or 'stopped'), callNo, confidence, title, range? { from, to, gradual? }: the calls
  *   it was lost between, two `gradual` ones when it was lost gradually around them }
  * - `repair.accepted`, `repair.empty`: ref the fix; data { repairId, title (accepted), why (empty) }
- * - `verify.accepted`, `verify.rejected`: ref the fix; data { verifyId, reasons }
+ * - `verify.accepted`, `verify.rejected`, `verify.incomplete` (it settled nothing): ref the fix
+ *   (its verdict's id when it is no fix's); data { verifyId, fixes, counts, code, reasons }
  * - `fix.applied`: ref the fix; data { title }
  * - `pairs.exported`: ref the file; data { count }; `model.scored`: ref the model; data { model, tasks, mean }
  * - `project.added`, `project.removed`: ref the project; data { path, name, again? }
@@ -43,8 +47,11 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  *   pullRequest? }, or { pushed, updated, refused, queued: true } for runs pushed when they ended;
  *   `store.pulled`: ref the bucket; data { pulled, merged, failed, byAuthor, pullRequests? }
  * - `run.shared`: runId, ref the report's key in the bucket; data { runs, redacted, expiresAt, pullRequest? }
- * - `decisions.done`, `migrate.done`: ref the session (`dc-…`, `mg-…`); data { change, runs, flagged,
- *   spent }: `shadowlap decisions` or `migrate` asked recorded model calls again under a change
+ * - `decisions.done`, `migrate.done`: ref the session (`dc-…`, `mg-…`); data { change, name, runs,
+ *   flagged, spent, why, exit }: `shadowlap decisions` or `migrate` asked recorded model calls again
+ *   under a change. `name` is `decisionsName`'s; `why` says why it settled nothing (null when it
+ *   settled); `exit` is the status it ends with under the defaults (0, 1 when verify rejected it or
+ *   the switch breaks a run, 3 when it settled nothing). A session kept before has neither.
  * - `injection.tested`: runId the run tested, ref the golden (or the result's `inj-…` id); data
  *   { resultId, mode: 'plant', attempts, obeyed, influenced, ignored, inconclusive, verdict, reads,
  *   payloads, gate: 'passed' | 'failed' | 'inconclusive', session? } from planting, { resultId,
@@ -57,6 +64,9 @@ import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
  * - `skill.installed`: ref where it installed (`claude-code`, `agents` or `kiro`); data { path,
  *   version, outcome ('installed' or 'updated'), previous (the version replaced, or null) }:
  *   `shadowlap skill install` put the plugin, or the skills alone, into the project
+ * - `ci.workflow`: ref the workflow's path (`.github/workflows/agent.yml`); data { added, removed,
+ *   created } from Settings → CI's Write file, { undo: true, removed } from its Undo, which put the
+ *   file back as it was, or removed the one the write made
  * - `checks.changed`: ref the golden; data { key, added, removed }: the dashboard's check builder
  *   changed the checks of the golden's tests entry in shadowlap.config.json (`key`, the entry it
  *   wrote), `added` and `removed` the checks' labels

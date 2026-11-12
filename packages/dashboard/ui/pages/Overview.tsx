@@ -4,7 +4,11 @@ import { PageHeader, StepList } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { viewerTimeZone } from '../format.js';
 import { useLoad } from '../hooks.js';
-import { ActivityCard, CacheCard, DailyCard, FixesCard, NeedsLook, OriginCard, Outcomes, TodayCard, WatchLive, WeekGrid } from '../overview/panels.js';
+import { ErrorState } from '../components/States.js';
+import { overviewFacts } from '../overview/model.js';
+import { NeedsLook } from '../overview/NeedsLook.js';
+import { ActivityCard, RecentRuns, WatchLive } from '../overview/panels.js';
+import { Usage } from '../overview/Usage.js';
 import { isAttempt } from '../runs.js';
 import { projectOf } from '../shell/ProjectBlock.js';
 import { useApp } from '../state.js';
@@ -12,24 +16,27 @@ import { useTeamStore } from '../teamstore.js';
 import { setupSteps } from './Setup.js';
 
 /**
- * The Overview: this week at a glance, worked out on the server in the viewer's time zone. Outcomes
- * lead (failures reproduced, fixes verified, tests passing, what was spent); then every run of the
- * week as a row of calls beside what needs a look and what ran today; where the calls came from,
- * where the prompt cache stopped hitting and how far each failure got towards a fix; and what was
- * spent and not re-spent per day beside the latest activity. Three columns, two below 1180px, one
- * below 760px. It follows the runs as they change, a recording included. While the server is still
- * adding up the runs' totals (a store no dashboard has opened yet), it says how far that has got and
- * asks again every second; once it has shown the Overview, it keeps it until a whole one replaces it.
+ * The Overview: this week at a glance, worked out on the server in the viewer's time zone. Its
+ * header says the outcomes in four facts (failures reproduced, fixes verified, goldens passing, and
+ * what was spent live, last and quieter), each with its makeup and last week on hover. Needs a look
+ * leads, widest, beside the newest runs over the activity feed; Usage, folded until asked for, is
+ * under both. Needs a look takes the width below 1180px, and one column is left below 760px. It
+ * follows the runs as they change, a recording included. While the server is still adding up the
+ * runs' totals (a store no dashboard has opened yet), it says how far that has got and asks again
+ * every second; once it has shown the Overview, it keeps it until a whole one replaces it.
  */
 
 /** How often the Overview asks again while the runs' totals are being added up. */
 export const WARMING_ASK_MS = 1000;
 
 export function OverviewPage() {
-  const { client, meta, runs, live, tick, exported } = useApp();
+  const { client, meta, runs, live, tick, exported, feeds } = useApp();
   const tz = useMemo(viewerTimeZone, []);
   const [nudge, setNudge] = useState(0);
-  const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, `${tick}:${nudge}`);
+  const version = `${tick}:${nudge}`;
+  // It loads again once advice is put away or back (in another tab too), and a fix step's price
+  // lasts as long as `version` all the same: a Dismiss asks no step for its price again.
+  const summary = useLoad(() => (exported ? null : client.summary(tz)), `summary:${tz}`, `${version}:${feeds.dismissals ?? 0}`);
   const activity = useLoad(() => (exported ? null : client.activity(5)), 'activity:5', tick);
   const store = useTeamStore();
   const name = projectOf(meta)?.name ?? 'this project';
@@ -60,7 +67,7 @@ export function OverviewPage() {
       <Page busy={!summary.error && !warming}>
         <PageHeader eyebrow={`${name} · this week`} title="Overview" text="What failed, what got fixed and proven, and what it cost." />
         {summary.error ? (
-          <div className="empty tall">The Overview could not be worked out: {summary.error.message}</div>
+          <ErrorState retry={summary.reload}>The Overview could not be worked out: {summary.error.message}</ErrorState>
         ) : warming ? (
           <div className="empty tall" role="status">
             Adding up what each run did: {warming.done.toLocaleString('en-US')} of {warming.total.toLocaleString('en-US')} runs so far. The Overview shows once they all are; every other page works meanwhile.
@@ -83,24 +90,22 @@ export function OverviewPage() {
   const liveCalls = recording ? (live.find((l) => l.runId === recording.runId)?.calls ?? recording.calls) : 0;
   return (
     <Page>
-      <PageHeader eyebrow={`${name} · this week`} title="Overview" text="What failed, what got fixed and proven, and what it cost." actions={recording ? <WatchLive runId={recording.runId} command={recording.command} calls={liveCalls} /> : null} />
-      <Outcomes o={s.outcomes} now={s.now} />
+      <PageHeader
+        eyebrow={`${name} · this week`}
+        title="Overview"
+        text="What failed, what got fixed and proven, and what it cost."
+        facts={overviewFacts(s.outcomes, s.fixes, s.now)}
+        factsLabel="Overview in figures"
+        actions={recording ? <WatchLive runId={recording.runId} about={recording.about?.text ?? recording.command} calls={liveCalls} /> : null}
+      />
       <div className="ovg">
-        <WeekGrid grid={s.grid} now={s.now} />
+        <NeedsLook items={s.needsLook.items} total={s.needsLook.total} version={version} dismissals={s.needsLook.dismissals} />
         <div className="ovside">
-          <NeedsLook items={s.needsLook.items} total={s.needsLook.total} />
-          <TodayCard today={s.today} live={live} tests={s.outcomes.testsPassing} />
+          <RecentRuns runs={runs} now={s.now} />
+          <ActivityCard items={activity.data?.items ?? null} error={activity.error} retry={activity.reload} now={s.now} byPerson={!!store} live={live} />
         </div>
       </div>
-      <div className="ovg">
-        <OriginCard origins={s.grid.origins} />
-        <CacheCard cache={s.cache} />
-        <FixesCard fixes={s.fixes} />
-      </div>
-      <div className="ovg ovlast">
-        <DailyCard daily={s.daily} />
-        <ActivityCard items={activity.data?.items ?? null} now={s.now} byPerson={!!store} live={live} />
-      </div>
+      <Usage s={s} />
     </Page>
   );
 }

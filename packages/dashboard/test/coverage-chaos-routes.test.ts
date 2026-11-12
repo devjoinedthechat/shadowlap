@@ -59,13 +59,25 @@ const jobDone = async (id: string) => {
   }
   throw new Error(`job ${id} never ended`);
 };
-/** Starts a job; one that started is waited for, so the next starts on goldens nothing else is using. */
 /** The goldens the dashboard is given: the project's one, and any a test adds for a moment. */
 const goldens: GoldenSource[] = [];
 
+/**
+ * What a job's start answered, read once and handed back as a response of its own. On Node 22 a
+ * clone dropped while the job is waited for cancels the original's body once the collector takes it
+ * (undici 6), and the original then reads as consumed: under load, `res.clone()` failed that way.
+ */
+const readOnce = async (res: Response): Promise<{ res: Response; text: string }> => {
+  const text = await res.text();
+  return { res: new Response(text, { status: res.status, headers: res.headers }), text };
+};
+
+/** Starts a job; one that started is waited for, so the next starts on goldens nothing else is using. */
 const startJob = async (body: unknown, o: { wait?: boolean } = {}) => {
-  const res = await api('jobs', { method: 'POST', body: JSON.stringify(body) });
-  if (res.status === 202 && o.wait !== false) await jobDone(((await res.clone().json()) as { id: string }).id);
+  const started = await api('jobs', { method: 'POST', body: JSON.stringify(body) });
+  if (started.status !== 202 || o.wait === false) return started;
+  const { res, text } = await readOnce(started);
+  await jobDone((JSON.parse(text) as { id: string }).id);
   return res;
 };
 
@@ -221,11 +233,11 @@ describe('production coverage', () => {
 
 describe('the activity feed', () => {
   it('words a coverage scan and a presets session', async () => {
-    const page = await getJson<{ items: Array<{ kind: string; text: string; href?: string }> }>('activity?limit=10');
-    expect(page.items.find((i) => i.text.startsWith('Coverage read'))).toMatchObject({ kind: 'test', text: 'Coverage read · 1 behaviour without a golden · 1 golden packed · 1 not packed', href: '#/tests' });
-    expect(page.items.find((i) => i.text === 'Error-path presets ran · 1 passed, 1 failed')).toMatchObject({ kind: 'fail', href: '#/tests' });
+    const page = await getJson<{ items: Array<{ kind: string; outcome?: string; text: string; href?: string }> }>('activity?limit=10');
+    expect(page.items.find((i) => i.text.startsWith('Coverage read'))).toMatchObject({ kind: 'test', outcome: 'warn', text: 'Coverage read · 1 behaviour without a golden · 1 golden packed · 1 not packed', href: '#/tests' });
+    expect(page.items.find((i) => i.text === 'Error-path presets ran · 1 passed, 1 failed')).toMatchObject({ kind: 'test', outcome: 'err', href: '#/tests' });
     // A session on one run, stopped part way: it opens the run, in amber for its inconclusive preset.
-    expect(page.items.find((i) => i.text === 'Error-path presets stopped · 2 passed, 0 failed, 1 inconclusive')).toMatchObject({ kind: 'warn', href: `#/run/${golden}` });
+    expect(page.items.find((i) => i.text === 'Error-path presets stopped · 2 passed, 0 failed, 1 inconclusive')).toMatchObject({ kind: 'test', outcome: 'warn', href: `#/run/${golden}` });
   });
 });
 
@@ -370,9 +382,10 @@ describe('a dashboard over projects', () => {
     const projectDash = await startDashboard({ projects: host, spawnCli: (args: string[]) => (ran.push(args), spawn(process.execPath, ['-e', ''], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'] })) });
     const headers = { 'x-shadowlap-token': projectDash.token, 'content-type': 'application/json' };
     const post = async (body: unknown) => {
-      const res = await fetch(`${projectDash.url}/api/jobs`, { method: 'POST', headers, body: JSON.stringify(body) });
-      if (res.status !== 202) return res;
-      const { id } = (await res.clone().json()) as { id: string };
+      const started = await fetch(`${projectDash.url}/api/jobs`, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (started.status !== 202) return started;
+      const { res, text } = await readOnce(started);
+      const { id } = JSON.parse(text) as { id: string };
       for (let i = 0; i < 200; i++) {
         const job = (await (await fetch(`${projectDash.url}/api/jobs/${id}`, { headers })).json()) as { done: boolean };
         if (job.done) break;

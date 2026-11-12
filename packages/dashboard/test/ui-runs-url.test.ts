@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isAllRuns, isLink, links, parseRunsQuery, runsFilter } from '../src/links.js';
 import type { Client, RunsQuery } from '../ui/api.js';
 import { RunsPage } from '../ui/pages/Runs.js';
+import { FailedIssues } from '../ui/runspage/FailedIssues.js';
 import { parseRoute, readTokenLink, routeHref } from '../ui/route.js';
 import { useRoute } from '../ui/router.js';
 import { dayTimes, runsLinkQuery } from '../ui/runspage/query.js';
 import { lastRunsHref, lastViewOf, useLastRunsHref } from '../ui/runs-view.js';
+import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { RunsByDay } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
@@ -165,21 +167,22 @@ const pressed = () => r!.all('.tbar .chips button[aria-pressed="true"]').map((b)
 const chip = (label: string) => r!.all('.tbar .chips button').find((b) => b.childNodes[0].textContent === label)!;
 
 describe('Runs, from its address', () => {
+  // Under Failed the issues have no sort: a chip whose table sorts, then.
   it('shows what a link asks for, a step in the history for each chip and sort, and Back to what it showed before', async () => {
-    const bar = addressBar('#/runs?q=refund&types=failed&sort=spent&from=2026-10-20&to=2026-10-22');
+    const bar = addressBar('#/runs?q=refund&types=fork&sort=spent&from=2026-10-20&to=2026-10-22');
     const { client, asked } = server();
     r = await render(createElement(AppContext.Provider, { value: app(client) }, createElement(Routed)));
     await r.until('the first page', () => asked.length > 0);
     // The table asks for what the link asked for, the days as the viewer's own, before the calendar has come.
     const t = dayTimes({ from: '2026-10-20', to: '2026-10-22' })!;
-    expect(asked[0]).toMatchObject({ types: ['failed'], q: 'refund', sort: 'spent', from: t.from, to: t.to });
-    expect(pressed()).toEqual(['Failed']);
+    expect(asked[0]).toMatchObject({ types: ['fork'], q: 'refund', sort: 'spent', from: t.from, to: t.to });
+    expect(pressed()).toEqual(['Forks']);
     expect(r.one('.tbar input[type="search"]').value).toBe('refund');
     expect(r.one('th[aria-sort="descending"]').textContent).toBe('Spent ↓');
 
     // A chip: a step of its own, the rest kept.
     await r.click(chip('All'));
-    expect(bar.steps).toEqual(['#/runs?q=refund&types=failed&sort=spent&from=2026-10-20&to=2026-10-22', '#/runs?q=refund&sort=spent&from=2026-10-20&to=2026-10-22']);
+    expect(bar.steps).toEqual(['#/runs?q=refund&types=fork&sort=spent&from=2026-10-20&to=2026-10-22', '#/runs?q=refund&sort=spent&from=2026-10-20&to=2026-10-22']);
     await r.until('the rows of every kind', () => asked.some((q) => !q.types?.length));
     expect(pressed()).toEqual(['All']);
     // The sort: another step.
@@ -190,11 +193,30 @@ describe('Runs, from its address', () => {
     bar.back();
     await r.until('sorted by spend again', () => r!.all('th[aria-sort="descending"]')[0]?.textContent === 'Spent ↓');
     bar.back();
-    await r.until('Failed again', () => pressed()[0] === 'Failed');
-    expect(asked.at(-1)).toMatchObject({ types: ['failed'], sort: 'spent' });
+    await r.until('Forks again', () => pressed()[0] === 'Forks');
+    expect(asked.at(-1)).toMatchObject({ types: ['fork'], sort: 'spent' });
     // And Forward.
     bar.forward();
     await r.until('All again', () => pressed()[0] === 'All');
+  });
+
+  it('reads Failed by when, its issues by their newest run, whatever sort its address keeps, and sorts by it again once the chip leaves Failed', async () => {
+    const bar = addressBar('#/runs?types=failed&sort=spent');
+    const { client, asked } = server();
+    const issuesAsked: RunsQuery[] = [];
+    const served = { ...client, runsIssues: (q: RunsQuery) => (issuesAsked.push(q), Promise.resolve({ issues: [], total: 0 })) } as unknown as Client;
+    const parts: ServedParts = { FailedIssues: FailedIssues as unknown as NonNullable<ServedParts['FailedIssues']> };
+    r = await render(createElement(AppContext.Provider, { value: app(served) }, createElement(ServedPartsContext.Provider, { value: parts }, createElement(Routed))));
+    await r.until('both reads', () => asked.length > 0 && issuesAsked.length > 0);
+    expect(asked[0]).toMatchObject({ types: ['failed'], sort: 'when' });
+    expect(issuesAsked[0]).not.toHaveProperty('sort');
+    // No head sorts the issues, and the address keeps the sort.
+    expect(r.all('th[aria-sort]')).toHaveLength(0);
+    expect(bar.steps).toEqual(['#/runs?types=failed&sort=spent']);
+    await r.click(chip('All'));
+    expect(bar.steps.at(-1)).toBe('#/runs?sort=spent');
+    await r.until('by spend again', () => asked.at(-1)?.sort === 'spent' && r!.all('th[aria-sort="descending"]').length === 1);
+    expect(r.one('th[aria-sort="descending"]').textContent).toBe('Spent ↓');
   });
 
   it('puts the words typed in the address once they settle, in place of the step they were typed in', async () => {
