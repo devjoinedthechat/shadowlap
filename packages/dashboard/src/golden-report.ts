@@ -121,21 +121,6 @@ export interface GoldenReport {
 /** GET /api/tests's answer: the page's view, and each golden that didn't pass with its report. */
 export type TestsAnswer = TestsView & { reports?: Record<string, GoldenReport> };
 
-/**
- * How many attempts a judge check was asked live in, and what that cost: the result's judge summary
- * (every attempt) when it is the result's only judge check and every judge model in it has a price;
- * else, for a result of one attempt, the check's own call. Null for a verdict from the recording,
- * which is free, and when the cost isn't known. The one place Tests counts a judge's asks, the row's
- * and the report's alike, so asking judges only where an attempt passed its other checks changes it here.
- */
-export function judgeAsked(r: TestResult, c: StoredCheck): { cost: number; asked: number } | null {
-  if (c.source !== 'live' || !c.judge) return null;
-  const s = r.data?.judge;
-  const judges = (r.data?.checks ?? []).filter((x) => x.judge).length;
-  if (s && judges === 1 && s.live > 0 && !s.unknownModels.length) return { cost: s.spent, asked: s.live };
-  return (r.data?.attempts?.total ?? 1) <= 1 && c.judge.cost !== null ? { cost: c.judge.cost, asked: 1 } : null;
-}
-
 const lines = (text: string, tone: (line: string) => ReportTone): ReportLine[] =>
   text
     .replace(/\n$/, '')

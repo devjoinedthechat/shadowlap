@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { gateResult, injectionTemplates, Store, type AttemptReport, type InjectionGateData, type StoredCheck, type TestResult } from '@shadowlap/engine';
-import { failedRunsHref, goldenReports, judgeAsked, printedLines, withFailedRuns, withStepHints, type GoldenReport } from '../src/golden-report.js';
+import { failedRunsHref, goldenReports, printedLines, withFailedRuns, withStepHints, type GoldenReport } from '../src/golden-report.js';
 import { issueKey } from '../src/issue-keys.js';
 import type { IssuesPage } from '../src/issues.js';
 import { links } from '../src/links.js';
 import { runJob } from '../src/read-jobs.js';
+import { judgeAsked } from '../src/tests-checks.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import { addRun } from './read-model-store.js';
 
