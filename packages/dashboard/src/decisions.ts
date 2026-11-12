@@ -144,7 +144,7 @@ export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string,
         run,
         toVerify: !!f?.toVerify.includes(runId),
         verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), rule: entry.rule ?? v?.rule ?? null } : null,
-        more: r.kind === 'decisions' && entry && v ? moreOf(v, verdictsGate(store, v.verifyIds), keptMax, runId) : null,
+        more: r.kind === 'decisions' && entry && v ? moreOf(v, verdictsGate(store, v.verifyIds), verdictsKeptMax(store, v.verifyIds) ?? keptMax, runId) : null,
       };
     }),
   };
@@ -354,6 +354,9 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
   if (req.runIds !== undefined && (!Array.isArray(req.runIds) || req.runIds.length > 500)) return { error: 'runIds is a list of the runs to verify' };
+  // Refused before any consent is asked: a yes to a command that is then refused asks for nothing.
+  const refused = limitsRefused(req.max, req.keptMax);
+  if (refused) return { error: refused };
   // A list naming none names none, as the estimate takes it: every run left to verify.
   const named = Array.isArray(req.runIds) && req.runIds.length ? req.runIds : req.runId;
   const flagged = runsToVerify(session, named);
@@ -371,8 +374,8 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
     req.yes,
   );
   if ('ask' in consent) return consent.ask;
-  const limits = limitArgs(store, session, req);
-  if ('error' in limits) return limits;
+  // The gate's other figures kept as they were, with a good run's pairs raised alone too.
+  const limits = moreFlags(sessionGate(store, session), req.max as number | undefined, req.keptMax as number | undefined);
   const args = ['decisions', '--verify', req.sessionId, ...(named !== undefined ? flagged : []), ...limits, ...consent.yes];
   const title = limits.length ? ACTIONS.runMoreAttempts.doing : runs.length === 1 ? `Verifying ${runs[0]!.runId.slice(0, 10)}` : `Verifying ${runs.length} runs`;
   return { args, title, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
@@ -384,17 +387,43 @@ export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | '
  * when none is left.
  */
 export function sessionGate(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<typeof decisionSession>>): SprtGate | null {
+  return verdictsGate(store, sessionVerifyIds(session));
+}
+
+/** The pairs a good run of a session's verify ran under, as `sessionGate` reads its gate (`verdictsKeptMax`). */
+export function sessionKeptMax(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<typeof decisionSession>>): number | null {
+  return verdictsKeptMax(store, sessionVerifyIds(session));
+}
+
+/** The verdicts a session's verify kept, oldest first. */
+function sessionVerifyIds(session: NonNullable<ReturnType<typeof decisionSession>>): unknown[] {
   const verify = (sessionReport(session) as { verify?: { verifyIds?: unknown } | null }).verify;
-  return verdictsGate(store, Array.isArray(verify?.verifyIds) ? (verify.verifyIds as unknown[]) : []);
+  return Array.isArray(verify?.verifyIds) ? (verify.verifyIds as unknown[]) : [];
+}
+
+/** The newest verdict of `ids` still in the store. */
+function newestVerdict(store: StoreOf<'fixes'>, ids: readonly unknown[]) {
+  for (const id of [...ids].reverse()) {
+    const kept = typeof id === 'string' ? store.getVerdict(id) : null;
+    if (kept) return kept;
+  }
+  return null;
 }
 
 /** The gate of the newest verdict of `ids` still in the store, as `sessionGate` reads a session's: null for a fixed count, the defaults when none is left. */
 function verdictsGate(store: StoreOf<'fixes'>, ids: readonly unknown[]): SprtGate | null {
-  for (const id of [...ids].reverse()) {
-    const kept = typeof id === 'string' ? store.getVerdict(id) : null;
-    if (kept) return sprtGate(kept.report.gate);
-  }
-  return { kind: 'sprt', ...SPRT_DEFAULTS };
+  const kept = newestVerdict(store, ids);
+  return kept ? sprtGate(kept.report.gate) : { kind: 'sprt', ...SPRT_DEFAULTS };
+}
+
+/**
+ * The pairs a good run of the newest verdict of `ids` ran under (its report's `kept.max`, which a
+ * `--kept-max` or a gate's max set), null where none says: Run more attempts starts a good run's
+ * limit from it before the config's, so a second round never cuts a good run below the first's.
+ */
+function verdictsKeptMax(store: StoreOf<'fixes'>, ids: readonly unknown[]): number | null {
+  const max = newestVerdict(store, ids)?.report.kept?.max;
+  return typeof max === 'number' ? max : null;
 }
 
 /** Why Run more attempts' `max` or `keptMax` can't be taken, as its job and its estimate refuse it; null for whole numbers up to 1000, or none. */
@@ -402,18 +431,6 @@ export function limitsRefused(max: unknown, keptMax: unknown): string | null {
   const whole = (v: unknown) => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= GATE_MAX_ATTEMPTS);
   if (!whole(max)) return `max is the most attempts a run takes, a whole number up to ${GATE_MAX_ATTEMPTS}`;
   return whole(keptMax) ? null : `keptMax is the most pairs a good run takes, a whole number up to ${GATE_MAX_ATTEMPTS}`;
-}
-
-/**
- * Run more attempts' limits, as `decisions --verify` takes them: `max`, the most attempts a failing
- * run takes, as `--gate` with the figures the session's verify was decided by and only its max
- * raised; and `keptMax`, the most pairs a good run takes, as `--kept-max`.
- */
-function limitArgs(store: StoreOf<'fixes'>, session: NonNullable<ReturnType<typeof decisionSession>>, req: JobRequest): string[] | { error: string } {
-  const refused = limitsRefused(req.max, req.keptMax);
-  if (refused) return { error: refused };
-  // The gate's other figures kept as they were, with a good run's pairs raised alone too.
-  return moreFlags(sessionGate(store, session), req.max as number | undefined, req.keptMax as number | undefined);
 }
 
 /** The command a job runs, as its dialog shows it. */

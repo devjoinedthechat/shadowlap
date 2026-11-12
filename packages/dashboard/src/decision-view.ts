@@ -1,7 +1,7 @@
 import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
 import { LATER_STEPS, type DecisionCell, type DecisionRow } from './decision-cells.js';
 import { moreOf, type PreviewMore } from './decision-more.js';
-import { decisionSession, runDecisions, sessionGate, sessionReport } from './decisions.js';
+import { decisionSession, runDecisions, sessionGate, sessionKeptMax, sessionReport } from './decisions.js';
 import { answer, failed, type ReadAnswer, type ReadTable } from './read-registry.js';
 import { aboutsWithin } from './run-about.js';
 import { loadRunIndex } from './run-index.js';
@@ -159,8 +159,8 @@ function nextFacts(store: Store, session: NonNullable<ReturnType<typeof decision
   const toVerify = report.toVerify ?? report.flagged;
   const taken = new Set(v?.runs.map((x) => x.runId) ?? []);
   const left = toVerify.filter((id) => !taken.has(id));
-  // Run more attempts under the gate the session's verify was decided by, a good run's pairs as the config gives them.
-  const more = left.length || !v ? null : moreOf(v, sessionGate(store, session), o.keptMax ?? null);
+  // Run more attempts under the gate the session's verify was decided by, a good run's pairs as it ran under them (else as the config gives them).
+  const more = left.length || !v ? null : moreOf(v, sessionGate(store, session), sessionKeptMax(store, session) ?? o.keptMax ?? null);
   const change = report.change;
   // Settled as Verdicts says it: accepted with none left, or nothing to verify (not a preview that stopped short).
   const settled = o.word === 'accepted' || o.word === 'nothing to verify';

@@ -48,6 +48,9 @@ interface FlagRule {
   pulledMax?: number;
 }
 
+/** The most pairs a pulled verdict's good run takes, on its own command and on Run more attempts: twice verify's default. */
+export const PULLED_KEPT_MAX = 2 * KEPT_DEFAULTS.max;
+
 const STEP: Record<string, FlagRule> = {
   '--writes': { value: /^(?:stub|block)$/ },
   '--reads': { value: /^(?:live|replay)$/ },
@@ -65,7 +68,7 @@ const RERUN_FLAGS: Readonly<Record<RerunKind, Readonly<Record<string, FlagRule>>
     '--live-tool': { value: NAME },
     '--margin': { value: SHARE, check: (v) => Number(v) > 0 && Number(v) < 1 },
     // A good run's pairs: a pulled record's held to what Run more attempts gives one here.
-    '--kept-max': { value: /^\d{1,4}$/, check: (v) => Number(v) >= 1 && Number(v) <= GATE_MAX_ATTEMPTS, pulledMax: 2 * KEPT_DEFAULTS.max },
+    '--kept-max': { value: /^\d{1,4}$/, check: (v) => Number(v) >= 1 && Number(v) <= GATE_MAX_ATTEMPTS, pulledMax: PULLED_KEPT_MAX },
     '--baseline': { value: /^(?:paired|history)$/ },
     '--fail-fast': { value: null },
     '--base': { value: REVISION, check: (v) => !v.includes('..'), own: true },

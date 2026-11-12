@@ -1,6 +1,6 @@
-import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, KEPT_DEFAULTS, keptMaxOf, openRunWhy, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome, verifyTallyLine } from '@shadowlap/engine';
+import { afterForkSentence, describeGate, expectArgs, type FixRecords, fixVerifyHead, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, keptMaxOf, openRunWhy, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, verdictWord, type VerifiedRun, type VerifyOutcome, verifyTallyLine } from '@shadowlap/engine';
 import { verifyEvidence } from './evidence.js';
-import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
+import { fieldArgs, PULLED_KEPT_MAX, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { changeName, commandLine, countArgs, finite, fixHref, gateArg, gateMarks, notVerified, PULLED_CAP, pulledGate, ROLE, runHref, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
 import { verifiedParts } from './verdict.js';
 
@@ -268,9 +268,11 @@ function keptLimit(v: StoredVerdict, gate: SprtGate, raised: SprtGate, configKep
   const good = v.report.runs.filter((x) => x.role === 'good');
   if (!good.length) return null;
   const pulled = !!v.pulled;
+  // A pulled record's figures, the --kept-max it gives and the pairs it says a good run took, are held to the pulled cap whichever way they go out.
+  const cap = pulled ? PULLED_KEPT_MAX : GATE_MAX_ATTEMPTS;
   const given = Number(rerunFlags('verify', v.rerun, { pulled, drop: new Set(['--kept-max']) })?.dropped['--kept-max']) || null;
-  const ran = Math.max(keptMaxOf(given ?? configKept, gate), ...good.map((x) => x.attempts.length));
-  const max = ranOut ? Math.min(pulled ? 2 * KEPT_DEFAULTS.max : GATE_MAX_ATTEMPTS, 2 * ran) : ran;
+  const ran = Math.min(cap, Math.max(keptMaxOf(given ?? configKept, gate), ...good.map((x) => x.attempts.length)));
+  const max = ranOut ? Math.min(cap, 2 * ran) : ran;
   return { max, rose: max > ran, flag: max === keptMaxOf(configKept, raised) ? [] : ['--kept-max', String(max)] };
 }
 

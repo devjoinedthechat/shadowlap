@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { emptyCounts, NO_TOKENS, Store, type DecisionChange, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
+import { emptyCounts, NO_TOKENS, recordVerdict, Store, type DecisionChange, type DecisionRun, type DecisionStep, type DecisionsVerify } from '@shadowlap/engine';
+import { verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { moreOf } from '../src/decision-more.js';
 import { previewSession } from '../src/decision-view.js';
@@ -145,6 +146,19 @@ describe('a preview worded for Changes', () => {
     expect(moreOf({ ...v, runs: [{ ...v.runs[0], undecided: 'the judge gave no answer' }] }, null, null)).toEqual({ kind: 'again', runs: [a], max: null, keptMax: null, flags: [], attempts: 80, limit: '' });
     // A fixed count that ran out decides nothing more with more of the same.
     expect(moreOf(v, null, null)).toBeNull();
+  });
+
+  it('starts a good run’s limit on a second Run more attempts from the pairs it ran under, never cut to the raised gate’s max', () => {
+    // The first round ran under --gate {"max":160} --kept-max 200: its verdict keeps both.
+    const report = verifyReport([{ runId: a, role: 'target', pass: true }, { runId: b, role: 'good', pass: true }]);
+    Object.assign(report, { gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 160 }, kept: { margin: 0.1, risk: 0.05, max: 200, source: 'paired' } });
+    const { verdict } = recordVerdict(store, { report, expect: null, command: 'v', rerun: { flags: [], command: null } });
+    const v = verified('incomplete', [{ runId: b, role: 'good', outcome: 'unsettled', passes: 3, attempts: 3 }], { verifyIds: [verdict.verifyId] });
+    const id = keep('dc-01M5000000000000000000000G', [runOf(a, null, [step(3, 1)]), runOf(b, null, [step(3, 1)])], { flagged: [b], toVerify: [b], verify: v, counts: counts({ 1: 1 }) });
+    // A good run that stopped again takes its 200 pairs again, where keptMaxOf on the raised gate alone gives 160.
+    expect(previewSession(store, id, { keptMax: null })!.view.next.more).toMatchObject({ kind: 'more', runs: [b], keptMax: 200 });
+    expect(previewSession(store, id)!.view.next.more!.flags.slice(-2)).toEqual(['--kept-max', '200']);
+    expect(runDecisions(store, b, 50).sessions.find((x) => x.sessionId === id)!.more).toMatchObject({ keptMax: 200 });
   });
 
   it('words a migration as its preview, and offers no migration of its own', () => {
