@@ -628,7 +628,7 @@ describe('actions palette', () => {
     const run = { ...store.getRun(runId)!, meta: {} };
     const labels = (await import('../src/components/ActionsView.js')).buildActions({ ...run, divergence: { type: 'request_changed', callNo: 3, kind: 'api', name: 'x', replayedBefore: 2, hints: [{ message: 'date', normalizer: { kind: 'api', path: '$.system', pattern: 'iso-date', replace: '<DATE>' } }] } }, toolCall).map((a) => [a.key, a.label, a.args] as const);
     expect(toolCall.effect).toBe('read');
-    expect(labels.map((l) => l[0])).toEqual(['r', 'o', 't', 'x', 'l', 'a', 'e', 's', 'n', 'p']);
+    expect(labels.map((l) => l[0])).toEqual(['r', 'o', 't', 'x', 'l', 'a', 'e', 's', 'c', 'n', 'p']);
     expect(labels.find((l) => l[0] === 'l')![2]).toEqual(['replay', runId, '--live-tool', toolCall.name]);
     expect(labels.find((l) => l[0] === 'n')![2]).toEqual(['normalize', 'add', '--kind', 'api', '--path', '$.system', '--pattern', 'iso-date', '--replace', '<DATE>']);
     store.close();
