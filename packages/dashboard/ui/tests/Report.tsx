@@ -1,10 +1,12 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { issueKey } from '../../src/issue-keys.js';
 import { CopyButton } from '../components/CodeBox.js';
 import { tipCard } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { failedRunsWords } from '../failed-runs.js';
 import { VerdictLine } from '../components/VerdictLine.js';
 import { plural, shortId } from '../format.js';
+import { issueClick } from '../runspage/open-issue.js';
 import { useApp } from '../state.js';
 import type { GoldenReport, GoldenRow, Piece, ReportLine, TestsAnswer } from '../types.js';
 import { gated, ReportEvidence } from './Evidence.js';
@@ -132,14 +134,17 @@ function Head({ pieces }: { pieces: readonly Piece[] }) {
   return <>{pieces.map((p, i) => (typeof p === 'string' ? <Fragment key={i}>{p}</Fragment> : <code key={i}>{p.code}</code>))}</>;
 }
 
-/** The header's links, kept together: Failed runs → on Runs, then the run the result is (Open run, Open failing attempt, Open proof). */
+/**
+ * The header's links, kept together: Failed runs → on Runs, then the run the result is (Open run, Open
+ * failing attempt, Open proof). Failed runs →, pressed or Entered, opens the golden's issue there.
+ */
 function ReportLinks({ report }: { report: GoldenReport }) {
   const f = report.failedRuns;
   if (!f && !report.open) return null;
   return (
     <span className="glinks">
       {f ? (
-        <a className="more" href={f.href} data-tip={tipCard(plural(f.count, 'failed replay'), [], failedRunsWords(f.ids.map(shortId), f.count))}>
+        <a className="more" href={f.href} data-tip={tipCard(plural(f.count, 'failed replay'), [], failedRunsWords(f.ids.map(shortId), f.count))} onClick={issueClick(issueKey.golden(report.golden))}>
           Failed runs →
         </a>
       ) : null}

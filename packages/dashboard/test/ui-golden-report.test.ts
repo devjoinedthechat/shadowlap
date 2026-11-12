@@ -2,12 +2,14 @@ import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateResult, Store, type StoredCheck } from '@shadowlap/engine';
 import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
-import { goldenReports, type TestsAnswer } from '../src/golden-report.js';
+import { failedRunsHref, goldenReports, withFailedRuns, type TestsAnswer } from '../src/golden-report.js';
+import { issueKey } from '../src/issue-keys.js';
 import { links } from '../src/links.js';
 import type { NextStep } from '../src/next-step.js';
 import { testsView, type GoldenSource } from '../src/tests.js';
 import type { Client } from '../ui/api.js';
 import { pageUp } from '../ui/focus-manager.js';
+import { ISSUE_ASK } from '../ui/page-ask.js';
 import { moreCard, updateCard } from '../ui/pages/tests-cards.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -338,6 +340,26 @@ describe('a golden’s report under its row', () => {
     r = null;
     const bisect = await draw(answer({ 'goldens/drift': { key: 'bisect', label: 'Find breaking commit…', golden: 'goldens/drift' } as NextStep }));
     expect(report(bisect, 'drift').querySelectorAll('div.actions .btn').map((b) => b.textContent)).not.toContain('Update golden');
+  });
+
+  it('opens its golden’s issue on Runs › Failed from Failed runs →, its hover naming the replays', async () => {
+    const a = answer();
+    const ids = ['01K8RGAAAA0000000000000001', '01K8RGBBBB0000000000000002'];
+    const runs = { 'goldens/refund': { count: 2, ids }, 'goldens/drift': { count: 1, ids: ids.slice(1) } };
+    const page = await draw({ ...a, reports: withFailedRuns(a.reports ?? {}, runs, { 'goldens/drift': { key: 'fix' } }) });
+    const heads = report(page, 'refund').querySelectorAll('span.glinks > a');
+    expect(heads.map((x) => x.textContent)).toEqual(['Failed runs →', 'Open run']);
+    const failed = heads[0];
+    expect(failed.getAttribute('href')).toBe(failedRunsHref('refund'));
+    expect(JSON.parse(failed.getAttribute('data-tip')!)).toMatchObject({ t: '2 failed replays', s: '01K8RGAAAA, 01K8RGBBBB. Opens them on Runs, under Failed' });
+    // A click, as Enter on the link is, asks for the issue as the link goes to Failed, which opens it as it shows; one with a modifier asks for none.
+    const key = issueKey.golden('goldens/refund');
+    await page.fire(failed, 'click', { metaKey: true });
+    expect(ISSUE_ASK.take(key)).toBe(false);
+    await page.click(failed);
+    expect(ISSUE_ASK.take(key)).toBe(true);
+    // One whose step is its fix has none: Open fix leads to its runs.
+    expect(report(page, 'drift').querySelectorAll('span.glinks > a').map((x) => x.textContent)).toEqual(['Open run']);
   });
 
   it('draws a divergence’s request as Show diff draws it once its report is open, then what followed, its message folded until found', async () => {
