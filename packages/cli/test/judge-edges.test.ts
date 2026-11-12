@@ -499,12 +499,12 @@ describe('a golden that may fork, whose attempt fails a check other than its jud
     expect(asked() - before).toBe(2);
     expect(t.result.runs.map((r) => r.verdict)).toEqual(['passed', 'failed', 'passed', 'failed']);
     // The attempts that failed their answer check asked nothing: their judge is not applicable, with why, at no cost.
-    for (const r of [t.result.runs[1]!, t.result.runs[3]!]) {
+    for (const r of [t.result.runs[1], t.result.runs[3]]) {
       expect(judgeCalls(r.runId)).toEqual([]);
       expect(keptChecks(r.runId).find((c) => c.judge)).toMatchObject({ status: 'not-applicable', ok: true, detail: JUDGE_NOT_ASKED, judge: { verdict: null, source: null, cost: null } });
     }
     // Those that passed it asked live, and got a verdict.
-    for (const r of [t.result.runs[0]!, t.result.runs[2]!]) {
+    for (const r of [t.result.runs[0], t.result.runs[2]]) {
       expect(judgeCalls(r.runId)).toHaveLength(1);
       expect(keptChecks(r.runId).find((c) => c.judge)).toMatchObject({ status: 'passed', judge: { verdict: 'yes', source: 'live' } });
     }

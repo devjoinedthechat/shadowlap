@@ -38,7 +38,7 @@ describe('a judge check that was not asked', () => {
     const [refunds, judged] = judge({ tools: { issue_refund: 0 }, judge: [JUDGE] });
     expect(refunds).toMatchObject({ status: 'failed', ok: false });
     expect(judged).toMatchObject({ status: 'not-applicable', ok: true, detail: JUDGE_NOT_ASKED, judge: { name: 'explains-refund', verdict: null, source: null, cost: null } });
-    expect(checkLine(judged!)).toBe('– judge "explains-refund" answers yes: not applicable · not asked: another check failed');
+    expect(checkLine(judged)).toBe('– judge "explains-refund" answers yes: not applicable · not asked: another check failed');
   });
 
   it('keeps where a when rule’s condition held after why, and its words are read from the start', () => {
@@ -54,7 +54,7 @@ describe('a judge check that was not asked', () => {
     const results = judge({ tools: { issue_refund: 1 }, judge: [JUDGE] });
     expect(results.map((r) => r.status)).toEqual(['passed', 'inconclusive']);
     expect(results[1]).toMatchObject({ ok: false, detail: JUDGE_SKIP_UNDONE, judge: { verdict: null, source: null } });
-    expect(checkLine(results[1]!)).toBe("? judge \"explains-refund\" answers yes: inconclusive · not judged: skipped when another check failed, and that check didn't fail in the end");
+    expect(checkLine(results[1])).toBe("? judge \"explains-refund\" answers yes: inconclusive · not judged: skipped when another check failed, and that check didn't fail in the end");
     // A judge not asked under a when rule whose condition held reads so too, its condition after why.
     const when = judge({ tools: { issue_refund: 1 }, when: [{ if: { tool: 'lookup_order', result: { total: { '>': 200 } } }, then: { judge: [WHEN_JUDGE] } }] });
     expect(when.at(-1)).toMatchObject({ status: 'inconclusive', ok: false, detail: `${JUDGE_SKIP_UNDONE}; the condition held at lookup_order #2 (result.total 240 > 200)` });
@@ -66,8 +66,8 @@ describe('a judge check that was not asked', () => {
       const runId = refundRun(store);
       const [, judged] = evaluateChecks(parseExpect({ tools: { issue_refund: 0 }, judge: [JUDGE] }, '--expect'), storedCheckInput(store, store.getCalls(runId), ''), judgedOptions({ verdicts: new Map(), notJudged: new Map([[JUDGE.name, 'the agent exited with code 1']]) }));
       expect(judged).toMatchObject({ status: 'inconclusive', ok: false, detail: 'not judged: the agent exited with code 1' });
-      expect(notAskedWords(judged!.detail)).toBeNull();
-      expect(askedInNone(judged!)).toBe(judged);
+      expect(notAskedWords(judged.detail)).toBeNull();
+      expect(askedInNone(judged)).toBe(judged);
     } finally {
       store.close();
     }
