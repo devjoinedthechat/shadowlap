@@ -41,6 +41,7 @@ let ended = false;
 let asked = 0;
 const client = {
   injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }),
+  coverage: () => Promise.resolve(null),
   tests: () => {
     asked++;
     return Promise.resolve(view(ended ? null : PRESETS));
@@ -125,7 +126,7 @@ describe('a golden’s error-path presets under its checks', () => {
   }
   const page = (v: TestsView) => {
     g.location = { hash: '#/tests' };
-    const client = { tests: () => Promise.resolve(v), jobs: () => Promise.resolve([]), injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }) } as unknown as Client;
+    const client = { tests: () => Promise.resolve(v), jobs: () => Promise.resolve([]), injectionSecurity: () => Promise.resolve({ goldens: [], none: [], unread: [] }), coverage: () => Promise.resolve(null) } as unknown as Client;
     const app = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => fn(), watchJob: () => undefined, toast: () => undefined };
     return createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ServedPartsContext.Provider, { value: { PresetsDialog: shownNow(PresetsDialog) } }, createElement(TestsPage)));
   };

@@ -29,7 +29,7 @@ afterEach(async () => {
 function opened(page: 'fixes' | 'tests') {
   let answer!: (v: unknown) => void;
   const read = () => new Promise((res) => (answer = res));
-  const client = { fixes: read, tests: read, jobs: async () => [] } as unknown as Client;
+  const client = { fixes: read, tests: read, jobs: async () => [], coverage: async () => null } as unknown as Client;
   const value = { client, exported: false, meta: null, tick: 0, feeds: {}, jobs: [], actionsOff: null, hasKind: () => true, guard: (fn: () => void) => (fn(), true), toast: () => undefined, watchJob: () => undefined } as unknown as AppState;
   function Slot() {
     const route = useRoute();
