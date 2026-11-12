@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Code } from '../components/Copy.js';
 import type { CallRow } from '../api.js';
 import { Org } from '../components/bits.js';
 import { ktok, num } from '../format.js';
@@ -54,9 +55,9 @@ export function TurnsView({ calls, selected, scoped, onSelect }: { calls: CallRo
         if (l.kind === 'head')
           return (
             <div key={`s:${l.scope}`} data-wi={at} className="tgroup">
-              <code>{l.scope}</code>
+              <Code>{l.scope}</Code>
               <span>
-                {num(l.calls)} {l.calls === 1 ? 'model call' : 'model calls'} · {ktok(l.tokens)} input tokens
+                {num(l.calls)}&nbsp;{l.calls === 1 ? 'model call' : 'model calls'}&nbsp;· {ktok(l.tokens)}&nbsp;input tokens
               </span>
             </div>
           );

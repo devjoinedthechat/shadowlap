@@ -1,5 +1,6 @@
-import { Fragment, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { CopyButton } from '../components/bits.js';
+import { Code, Words } from '../components/Copy.js';
 import { num } from '../format.js';
 import { noteLines } from './note-lines.js';
 import type { NotePart, RunNote } from './notes.js';
@@ -55,13 +56,13 @@ export function NoteWords({ n, onSelect }: { n: RunNote; onSelect: (callNo: numb
   );
 }
 
-/** A note's parts drawn: words, names as code, calls as buttons that open them. */
+/** A note's parts drawn: words glued (a count with its noun), names as code kept whole, calls as buttons that open them. */
 function said(parts: readonly NotePart[], onSelect: (callNo: number) => void): ReactNode[] {
   return parts.map((p, i) =>
     typeof p === 'string' ? (
-      <Fragment key={i}>{p}</Fragment>
+      <Words key={i}>{p}</Words>
     ) : 'code' in p ? (
-      <code key={i}>{p.code}</code>
+      <Code key={i}>{p.code}</Code>
     ) : (
       <button key={i} className="bn" type="button" onClick={() => onSelect(p.call)} aria-label={`Open #${p.call}`}>
         #{p.call}

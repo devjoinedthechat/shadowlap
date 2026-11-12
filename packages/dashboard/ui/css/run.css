@@ -68,7 +68,8 @@
 .banner .path { font: 12.5px var(--mono); color: var(--add); }
 /* A flag and its value (an --override's JSON) or a path has no space to break at: where the banner
    wraps, it breaks anywhere rather than widen the page on a phone. */
-.banner .why code, .banner .path { overflow-wrap: anywhere; }
+/* a flag in a finding's line is Code, kept whole or broken between its arguments: never anywhere, which broke the line before the dot after it */
+.banner .path { overflow-wrap: anywhere; }
 .banner .end { margin-left: auto; display: flex; gap: 14px; align-items: center; }
 /* How an attempt came out, leading its banner's line, in the consequence colours: passed, failed, inconclusive; interrupted in grey. */
 .banner .why em { font-style: normal; }

@@ -162,7 +162,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
         ] as Array<[string, React.ReactNode]>)
       : []),
     ['What it is', <Words key="w">{what}</Words>],
-    ['Command', run.source ? <span className="muted">none: imported from {run.source}</span> : <Command key="c" cmd={r.command.argv.join(' ')} inline />],
+    ['Command', run.source ? <span className="muted">none: imported from <Words glued={false}>{run.source}</Words></span> : <Command key="c" cmd={r.command.argv.join(' ')} inline />],
     ['Code version', r.codeVersion ? <code key="v">{r.codeVersion}</code> : '—'],
     // Local time, as every other page says it; the instant in UTC on hover, for a record read elsewhere.
     ['Started', <When key="s" ms={r.startedAt} />],

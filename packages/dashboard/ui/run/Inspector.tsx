@@ -8,6 +8,7 @@ import { Tabs } from '../components/Tabs.js';
 import { tipText } from '../components/HoverCard.js';
 import { Icon } from '../components/Icon.js';
 import { JsonTree } from '../components/Json.js';
+import { Code, LongWord, Words } from '../components/Copy.js';
 import { copyText } from '../dom.js';
 import { dur, formatUsd, jsonText, num, shortFingerprint, stamp } from '../format.js';
 import { agentOf } from '../scopes.js';
@@ -161,7 +162,7 @@ export function CallNote({ c, flag }: { c: CallDetail['call']; flag: string | nu
   const note = failureNote(c, by, flag);
   return (
     <div className={`inote ${by === 'injected' ? 'inj' : 'err'}`}>
-      <b>{note.word}</b> {note.why.map((p, i) => (typeof p === 'string' ? <Fragment key={i}>{p}</Fragment> : <code key={i}>{p.code}</code>))} {SHOWN[by]}
+      <b>{note.word}</b> {note.why.map((p, i) => (typeof p === 'string' ? <Words key={i}>{p}</Words> : <Code key={i}>{p.code}</Code>))} <Words>{SHOWN[by]}</Words>
     </div>
   );
 }
@@ -376,7 +377,20 @@ function RequestTab({ detail }: { detail: CallDetail }) {
 function originRows(c: CallDetail['call'], flag: string | null): Array<[string, ReactNode]> {
   const origin = originOf(c);
   const over = origin === 'over' && flag && /^--override\b/.test(flag) ? flag.split(' --')[0] : null;
-  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? <>injected <small>answered by Shadowlap with --fail-at</small></> : over ? <>{c.origin} <small>{over}</small></> : c.origin;
+  const made = origin === 'block' ? <>blocked <small>a write after the fork</small></> : origin === 'stub' ? <>stubbed <small>a write after the fork</small></> : origin === 'inject' ? (
+      <>
+        injected <small>answered by Shadowlap with <Code>--fail-at</Code></small>
+      </>
+    ) : over ? (
+      <>
+        {c.origin}{' '}
+        <small>
+          <Code>{over}</Code>
+        </small>
+      </>
+    ) : (
+      c.origin
+    );
   const http = c.status ? ` · HTTP ${c.status}` : '';
   const by = answeredBy(c);
   const outcome = c.outcome === null ? 'pending' : c.outcome === 'ok' ? `ok${http}` : <>error{http}{by ? <small> {OUTCOME_BY[by]}</small> : null}</>;
@@ -431,11 +445,15 @@ function DetailsTab({ runId, detail, models, flag }: { runId: string; detail: Ca
   rows.push([
     'Fingerprint',
     <>
-      <span title={c.fingerprint}>{shortFingerprint(c.fingerprint)}</span> <small>occurrence {c.occurrence}</small>
+      <span title={c.fingerprint}>
+        <LongWord>{shortFingerprint(c.fingerprint)}</LongWord>
+      </span>{' '}
+      <small>occurrence {c.occurrence}</small>
     </>,
   ]);
-  rows.push(['Run', runId]);
-  if (c.implHash) rows.push(['Implementation', c.implHash]);
+  // An id or a hash whole where its line holds it, and broken only where it doesn't: a digest is wider than a phone's column.
+  rows.push(['Run', <LongWord>{runId}</LongWord>]);
+  if (c.implHash) rows.push(['Implementation', <LongWord>{c.implHash}</LongWord>]);
   rows.push(['Started', stamp(c.startedAt)]);
   const headers = Object.entries(c.headers);
   return (

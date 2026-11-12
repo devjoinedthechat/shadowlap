@@ -38,10 +38,27 @@ export function codeWords(words: ReactNode): ReactNode {
   return words.split('`').map((part, i) => (i % 2 ? <Code key={i}>{part}</Code> : part ? <Words key={i}>{part}</Words> : null));
 }
 
-/** A quiet part's clauses after a middle dot each stay whole on a narrow line: the mock's `.dph`. */
+/**
+ * A quiet part's clauses after a middle dot each stay whole on a narrow line: the mock's `.dph`. Each
+ * is set by `Copy`, measured, so a clause its line can't hold breaks where it may (a run glued
+ * unmeasured, up to 30 characters, outgrew a phone's 184px row).
+ */
 function quietWords(words: ReactNode): ReactNode {
   if (typeof words !== 'string' || !words.includes(' · ')) return codeWords(words);
-  return words.split(' · ').map((part, i) => (i ? <Fragment key={i}>{'\u00a0· '}<span className="dph">{codeWords(part)}</span></Fragment> : <Fragment key={i}>{codeWords(part)}</Fragment>));
+  return words.split(' · ').map((part, i) =>
+    i ? (
+      <Fragment key={i}>
+        {'\u00a0· '}
+        <span className="dph">
+          <Copy as="span" phrases>
+            {inCode(part)}
+          </Copy>
+        </span>
+      </Fragment>
+    ) : (
+      <Fragment key={i}>{codeWords(part)}</Fragment>
+    ),
+  );
 }
 
 /** A row's value: words set as a lead is (`Copy` with phrases), a name in code inside; one long token (`wide`) and a node as they are. */

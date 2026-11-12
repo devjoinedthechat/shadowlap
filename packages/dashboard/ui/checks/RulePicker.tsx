@@ -1,6 +1,7 @@
 import { isObject } from '../../../engine/src/is-object.js';
 import type { GoldenEntry } from '../checks-api.js';
 import { tipCard } from '../components/HoverCard.js';
+import { CodeText } from '../components/Copy.js';
 import { Icon } from '../components/Icon.js';
 import { goldenName } from '../format.js';
 import type { Settled, Unit } from './model.js';
@@ -64,7 +65,7 @@ export function RulePicker({ settled, units, active, goldens, golden, picker, on
             <li key={i} className={cls || undefined}>
               <span className="cb-ul">
                 {r.labels.map((l, k) => (
-                  <code key={k}>{l}</code>
+                  <CodeText key={k}>{l}</CodeText>
                 ))}
               </span>
               <span className="cb-ua">
