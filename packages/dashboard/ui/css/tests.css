@@ -314,6 +314,8 @@ table.gt span.gev small { font-size: inherit; }
 .rbox > pre.report { border: 0; border-radius: 0; background: none; font-size: 12.5px; line-height: 1.6; }
 /* folded until found (find in page opens it), a box keeps no room of its own */
 .rpp > .boxwrap[hidden], pre.report.tail[hidden] { margin: 0; padding: 0; border: 0; }
+/* nor does it scroll: folded, its lines are skipped, and a box that scrolls must take the focus, which a folded one can't */
+pre.report.tail[hidden] { overflow: hidden; }
 /* its lines stop short of the Copy in the corner, so none passes under it */
 .rpp > .boxwrap > pre.report { margin-right: 36px; padding-right: 8px; }
 /* a long report (a gate's every attempt) scrolls in its box past 25 lines, the 26th cut through its middle so the box reads as
