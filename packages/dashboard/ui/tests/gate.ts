@@ -1,8 +1,8 @@
 import type { InjectionGateRow } from '../../src/injection-gates.js';
 import type { GoldenRow } from '../api.js';
+import { CHECK_MARKS } from '../../../engine/src/checks/labels.js';
 import { injectionTally } from '../../../engine/src/trust-words.js';
 import { num, plural } from '../format.js';
-import { CHECK_MARK } from '../goldens.js';
 import { href } from '../route.js';
 
 /*
@@ -48,7 +48,7 @@ export function gateCheck(gate: InjectionGateRow, last: GoldenRow['last']): Gate
   const line = `${plants(gate.entry)} at every untrusted read, ${plural(repeat, 'attempt')} each${written}${why}${open ? '. Opens its results' : ''}`;
   return {
     status,
-    mark: status ? CHECK_MARK[status] : null,
+    mark: status ? CHECK_MARKS[status] : null,
     text,
     sub: status === 'passed' ? null : tally,
     title: `${status ?? 'not run yet'} · injection gate`,

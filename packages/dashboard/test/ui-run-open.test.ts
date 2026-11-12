@@ -6,6 +6,7 @@ import type { Kind } from '../ui/run/kinds.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { forgetPickedCalls, firstFailedCall, firstStep, openingCall, type OpenCall } from '../ui/run/open-at.js';
 import { PAGE } from '../ui/run/paging.js';
+import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -23,6 +24,9 @@ const RUN = '01M5GRX8K406H4KHQ7DEKYWTSZ';
 const T = 1_760_000_000_000;
 
 const oc = (callNo: number, kind: string, outcome: 'ok' | 'error' | null = 'ok', origin = 'live', effect: string | null = null): OpenCall => ({ callNo, kind, outcome, origin, effect });
+const JUDGE = 'shadowlap:judge';
+/** A model call Shadowlap's judge made, after the agent's. */
+const judgeOc = (callNo: number, outcome: 'ok' | 'error' = 'ok'): OpenCall => ({ ...oc(callNo, 'api', outcome), scope: JUDGE, agent: JUDGE });
 
 describe('where a run opens', () => {
   const run = [oc(1, 'clock'), oc(2, 'random'), oc(3, 'api'), oc(4, 'tool', 'error'), oc(5, 'api', 'error'), oc(6, 'tool')];
@@ -90,6 +94,33 @@ describe('where a run opens', () => {
     const origins: Origin7[] = Array.from({ length: 1200 }, (_, i) => (i === 899 ? 'fail' : 'live'));
     expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, origins, kinds })).toBe(900);
     expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read.slice(0, 2), kinds: kinds.slice(0, 2) })).toBe(1);
+  });
+
+  it('never opens on a judge’s call: a judged run’s last model call is the agent’s, a judge’s call that errored is none that failed, and none named is passed over', () => {
+    const judged = [oc(1, 'api'), oc(2, 'tool', 'ok', 'live', 'read'), oc(3, 'api'), judgeOc(4)];
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: judged })).toBe(3);
+    const erred = [...judged.slice(0, 3), judgeOc(4, 'error')];
+    expect(firstFailedCall(erred)).toBeNull();
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: erred })).toBe(3);
+    // The agent's own failure still comes first.
+    expect(firstFailedCall([oc(1, 'api'), oc(2, 'tool', 'error'), judgeOc(3, 'error')])).toBe(2);
+    // A call the outcome names that is the judge's is passed over too.
+    expect(openingCall({ forkAt: null, lostAt: null, outcomeAt: 4, live: false, calls: judged })).toBe(3);
+    // A run of a judge's calls alone has none of the agent's to open on.
+    expect(firstStep([judgeOc(1)])).toBeNull();
+  });
+
+  it('leaves out a long run’s judge’s calls by the server’s numbers before their pages come: its last model call and its failures', () => {
+    const read = Array.from({ length: 200 }, (_, i) => oc(i + 1, i % 2 ? 'tool' : 'api', 'ok', 'live', 'read'));
+    const kinds: Kind[] = Array.from({ length: 1200 }, (_, i) => (i === 1099 || i >= 1198 ? 'k-model' : 'k-read'));
+    // Its two judge's calls, the last two, are model calls: it opens on the agent's last.
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, kinds, judge: [1199, 1200] })).toBe(1100);
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, kinds })).toBe(1200);
+    // A judge's call that failed, past the calls read: none of the agent's failed.
+    const origins: Origin7[] = Array.from({ length: 1200 }, (_, i) => (i === 1199 ? 'fail' : 'live'));
+    expect(firstFailedCall(read, origins, [1199, 1200])).toBeNull();
+    expect(firstFailedCall(read, origins)).toBe(1200);
+    expect(openingCall({ forkAt: null, lostAt: null, live: false, calls: read, origins, kinds, judge: [1199, 1200] })).toBe(1100);
   });
 });
 
@@ -267,5 +298,74 @@ describe('a run’s page, opened without a call', () => {
     const keys = (state.runKeys as { current: (e: { key: string }) => boolean }).current;
     expect(keys({ key: 'n' })).toBe(true);
     expect(bar.hash).toBe(`#/run/${RUN}/9`);
+  });
+});
+
+describe('a judged run’s page', () => {
+  /** A run that went well, read alone, with no write: its judge's call, #13, after the agent's twelve, and the verdict it gave. */
+  function judgedRun(): RunDetail {
+    const a = answer(12, 12, { failed: false, failAt: null });
+    const judge = { ...call(12, null), callNo: 13, startedAt: T + 13_000, endedAt: T + 13_900, stopReason: 'end_turn', scope: JUDGE, agent: JUDGE, reserved: true, judge: { check: 'explains-refund', verdict: 'yes' }, conversation: 2, conversationStart: true, asks: null } as unknown as CallRow;
+    const verdict = { name: 'explains-refund', model: 'claude-haiku-4-5', of: 'answer', verdict: 'yes', source: 'live', cost: 0.0004, redactions: 0, cut: 0, callNo: 13 };
+    return { ...a, calls: [...a.calls, judge], callsTotal: 13, checks: [{ label: 'judge "explains-refund" answers yes', ok: true, status: 'passed', reason: 'The reply says why', source: 'live', judge: verdict }] } as unknown as RunDetail;
+  }
+
+  /** The run's page as the shell routes to it: the call the address names is the one selected. */
+  function Routed() {
+    const route = useRoute();
+    return route.page === 'run' ? createElement(RunPage, { id: route.id, call: route.call, view: route.view }) : null;
+  }
+
+  /** ⌘K's commands for this run, as the page last gave them. */
+  let commands: Array<{ label: string }> = [];
+  async function open() {
+    const bar = addressBar(`#/run/${RUN}`);
+    const { client, details } = server(12, 12, { failed: false, failAt: null });
+    const judged = { ...client, run: () => Promise.resolve(judgedRun()) } as unknown as Client;
+    const state = { ...app(judged), setRunCommands: (items: typeof commands) => void (items.length && (commands = items)) } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement(Routed)));
+    await r.until('the call’s details', () => details.length > 0);
+    return bar;
+  }
+  const chips = () => r!.all('.scopebar .chips button');
+  const pressed = () => chips().map((b) => [b.textContent, b.getAttribute('aria-pressed')]);
+  const listed = () => r!.all('table.calls tbody tr[data-call]').map((tr) => Number(tr.getAttribute('data-call')));
+  /** The judge verdict's call in the findings bar. */
+  const verdictCall = () => r!.all('.findings button').find((b) => b.textContent === '#13')!;
+
+  it('opens under All on the agent’s last model call, never the judge’s that came after it', async () => {
+    const bar = await open();
+    expect(bar.hash).toBe(`#/run/${RUN}/12`);
+    expect(r!.one('table.calls tr[aria-selected="true"] td.n').textContent).toBe('12');
+    expect(pressed()).toEqual([
+      ['Agent12', 'true'],
+      ['judge1', 'false'],
+    ]);
+    expect(listed()).not.toContain(13);
+  });
+
+  it('picks the judge’s chip at each press of its verdict’s call, though the call is selected already and All was picked since', async () => {
+    const bar = await open();
+    await r!.click(verdictCall());
+    await r!.until('the judge’s chip', () => pressed()[1]?.[1] === 'true');
+    expect([bar.hash, listed()]).toEqual([`#/run/${RUN}/13`, [13]]);
+    // All picked: the judge's call stays selected, out of its list.
+    await r!.click(chips()[0]);
+    await r!.until('All', () => pressed()[0]?.[1] === 'true');
+    expect(bar.hash).toBe(`#/run/${RUN}/13`);
+    expect(listed()).not.toContain(13);
+    // Its call pressed again goes nowhere new, and picks the judge's chip again.
+    await r!.click(verdictCall());
+    await r!.until('the judge’s chip again', () => pressed()[1]?.[1] === 'true');
+    expect([bar.hash, listed()]).toEqual([`#/run/${RUN}/13`, [13]]);
+  });
+
+  it('offers no Fork at #n… in ⌘K at a judge’s call, as it does at the agent’s', async () => {
+    await open();
+    await r!.until('the run’s commands', () => commands.some((c) => c.label === 'Fork at #12…'));
+    await r!.click(verdictCall());
+    await r!.until('the judge’s call’s commands', () => pressed()[1]?.[1] === 'true' && !commands.some((c) => c.label === 'Fork at #12…'));
+    expect(commands.length).toBeGreaterThan(0);
+    expect(commands.map((c) => c.label).filter((l) => l.startsWith('Fork'))).toEqual([]);
   });
 });

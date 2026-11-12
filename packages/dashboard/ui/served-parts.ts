@@ -8,7 +8,7 @@ import type { Proof } from './injection/Proof.js';
 import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
 import type { ChangeBoxProps } from './revert/ChangeBox.js';
 import type { RevertDialogProps } from './revert/RevertDialog.js';
-import type { BuilderProps } from './run/check-part.js';
+import type { BuilderProps, CheckMenuProps } from './run/check-part.js';
 import type { ForkMenu } from './run/ForkMenu.js';
 import type { MoreMenu } from './run/MoreMenu.js';
 import type { ShareMenu } from './run/ShareMenu.js';
@@ -35,13 +35,14 @@ export type { FailedIssuesProps };
  * holds none of their code, and a page that finds one missing draws nothing in its place. What keeps
  * each undrawn in a copy is pinned by a test. test/ui-exported-copy.test.ts: a copy's run page draws
  * no Share, so nothing there opens Share's menu, no Fork at #n in its header or on a row and no …,
- * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the builder; a
- * copy's next step is only ever Compare, so it draws no Run blame either, and no step that asks; its
- * Runs keeps Failed a filter, so draws no issues. test/ui-revert-copy.test.ts: a copy's run has no
- * revert step and no offers, so no first bad commit to show, and its Tests page is not in it.
- * test/ui-injection-results.test.ts: a copy keeps no injection results, so its run page draws no
- * test's finding to open them from, and no Share to download a report from; a copy keeps no
- * attempt's read, so an attempt's page there draws no proof and marks nothing.
+ * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the check
+ * menu or the builder; a copy's next step is only ever Compare, so it draws no Run blame either,
+ * and no step that asks; its Runs keeps Failed a filter, so draws no issues.
+ * test/ui-revert-copy.test.ts: a copy's run has no revert step and no offers, so no first bad
+ * commit to show, and its Tests page is not in it. test/ui-injection-results.test.ts: a copy keeps
+ * no injection results, so its run page draws no test's finding to open them from, and no Share to
+ * download a report from; a copy keeps no attempt's read, so an attempt's page there draws no proof
+ * and marks nothing.
  */
 export interface ServedParts {
   /** Share's menu (run/ShareMenu.tsx), with its Export dataset… and Export OpenTelemetry trace…: loaded ahead as the pointer or the focus reaches Share, so it opens at once. */
@@ -58,6 +59,8 @@ export interface ServedParts {
   CheckBuilder?: OnShow<BuilderProps>;
   /** What Run blame asks in once pressed (fixes/RunBlameAsks.tsx), with the check a blame needs: loaded the first time one asks. */
   RunBlameAsks?: OnShow<RunBlameAsksProps>;
+  /** The check menu at a tool call (run/CheckMenu.tsx), whose pick opens the builder: loaded ahead with the builder, and a page handed one without the other offers no Add check…. */
+  CheckMenu?: OnShow<CheckMenuProps>;
   /** Runs › Failed as issues (runspage/FailedIssues.tsx): a copy keeps Failed a filter over its runs. */
   FailedIssues?: OnShow<FailedIssuesProps>;
   /** An injection test's results in the inspector's place (injection/InjectionResults.tsx), with the matrix they draw: loaded ahead as the pointer or the focus reaches Show results. */

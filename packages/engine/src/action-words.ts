@@ -77,6 +77,8 @@ export const ACTIONS = {
   // A repair's way on, by what it left: the change it accepted, or the candidates it tried and why each was dropped.
   openChange: { label: 'Open change' },
   openCandidates: { label: 'Open candidates' },
+  // A golden's check its own recording fails, opened in the check builder (Tests, a run's page, Needs a look).
+  editCheck: { label: 'Edit check…' },
   openProof: { label: 'Open proof' },
   openPassingRun: { label: 'Open passing run' },
   // Once Find breaking commit named a crash's commit: undone in the working tree, uncommitted, then

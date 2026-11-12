@@ -18,11 +18,14 @@ export function testsJob(card: TestsCard, estimate: Price, go: (e: Price) => unk
   return { ...card, estimate, start: press, ask: press };
 }
 
-/** Run tests' card: every golden replays offline, and those marked fork run live from where they fork. */
-export function runTestsCard(view: Pick<TestsView, 'rows' | 'commands'>): TestsCard {
+/**
+ * Run tests' card: every golden replays offline, and those marked fork run live from where they fork;
+ * where it is the step that leads (a golden whose checks changed since), the step's line (`sub`).
+ */
+export function runTestsCard(view: Pick<TestsView, 'rows' | 'commands'>, sub?: string): TestsCard {
   const n = view.rows.filter((r) => r.mode === 'fork').length;
   const live = n === 0 ? '' : `; ${n === 1 ? 'a golden marked fork runs' : `${n} goldens marked fork run`} live from where ${n === 1 ? 'it forks' : 'they fork'}`;
-  return { tip: ACTIONS.runTests.label, sub: `Replays every golden offline${live}`, command: commandText(view.commands.run) };
+  return { tip: ACTIONS.runTests.label, sub: sub ?? `Replays every golden offline${live}`, command: commandText(view.commands.run) };
 }
 
 /** Update golden's card: it re-records the golden, or asks its judge once where a verdict is all it lacks (`args`, its command then). */

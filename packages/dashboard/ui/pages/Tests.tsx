@@ -19,11 +19,12 @@ import { divergedAsk, gateAgainAsk, moreAttemptsAsk, runTestsAsk, startTestsJob,
 import { estimatesKey, runPrice, updatesPrice, useTestsEstimates, type Price } from '../tests-estimates.js';
 import { keepTests } from '../tests-palette.js';
 import { FailurePanel, DivergencePanel, InconclusivePanel } from '../tests/Reports.js';
+import { CheckEntriesOf, useCheckEntries } from '../tests/check-entries.js';
 import { CiSections } from '../tests/Sections.js';
 import { TestsEmpty, TestsFailed, TestsLoading } from '../tests/States.js';
 import type { GoodCommitsOf } from '../tests/good-commits.js';
 import { GoldensTable } from '../tests/Table.js';
-import { leadStep } from '../tests/lead.js';
+import { leadStep, staleSub } from '../tests/lead.js';
 import { Verdict, type LeadPress } from '../tests/Verdict.js';
 import { bisectLive, runTestsCard, testsJob, updatesCard } from './tests-cards.js';
 import { FindCommitDialog, NormalizeUpdateDialog, UpdateGoldensDialog } from './TestsDialogs.js';
@@ -54,6 +55,8 @@ export function TestsPage() {
   const running = jobs.some((w) => !w.job.done && !w.lost && TEST_KINDS.has(w.job.kind ?? ''));
   const loaded = useLoad(() => client.tests(), 'tests', `${tick}:${feeds.chaos ?? 0}:${running}`);
   const view = loaded.data;
+  // Edit, Remove and Add check… on a golden's checks, and what they open.
+  const checks = useCheckEntries(view, loaded.reload);
   const prices = useTestsEstimates(view ? estimatesKey(view) : null, view?.diverged);
   const [open, setOpen] = useState<Open | null>(null);
   // What the server is running, from every tab and terminal dashboard: a test job (Find breaking commit
@@ -108,8 +111,11 @@ export function TestsPage() {
   }
 
   const [runWait, updateWait, updateGoldenWait, findWait] = ['run the tests', 'update them', 'update it', 'find the breaking commit'].map((verb) => wait(verb));
-  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every golden.
-  const lead = leadStep(view, hasKind, !!view.following?.whole);
+  // The first failure's step leads, lime, and Run tests reads plain; none while a session runs every
+  // golden. Where that step is Run tests (its checks changed since), the header's own is lime and says so.
+  const whole = !!view.following?.whole;
+  const lead = leadStep(view, hasKind, whole, !!checks.edit);
+  const runTests = hasKind(JOB_KINDS.tests) ? testsJob(runTestsCard(view, staleSub(view, whole)), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e)) : null;
   // Settings → CI by the name the mock links it by, its tab opening; Update goldens only for several,
   // as each has its own in its report.
   const actions = (
@@ -123,8 +129,8 @@ export function TestsPage() {
           {ACTIONS.updateGoldens.label}
         </JobButton>
       ) : null}
-      {hasKind(JOB_KINDS.tests) ? (
-        <JobButton className={lead ? 'btn' : 'btn lime'} why={runWait} {...testsJob(runTestsCard(view), runPrice(prices), (e) => start(JOB_KINDS.tests, {}, runTestsAsk(view), e))}>
+      {runTests ? (
+        <JobButton className={lead ? 'btn' : 'btn lime'} why={runWait} {...runTests}>
           {ACTIONS.runTests.label}
         </JobButton>
       ) : null}
@@ -155,6 +161,8 @@ export function TestsPage() {
     onUpdate: (golden, e) => guard(() => setOpen({ kind: 'update', paths: [golden], estimate: e })),
     onFind: findCommit,
     onMore: (v, e) => v.gate?.more && start(JOB_KINDS.tests, v.gate.more.job, moreAttemptsAsk(v.name, v.gate.more), e),
+    runTests,
+    edit: checks.edit,
     onAgain: (lead, e) => start(JOB_KINDS.tests, { golden: lead.golden }, gateAgainAsk(lead.name, lead.golden), e),
   };
 
@@ -162,7 +170,10 @@ export function TestsPage() {
     <Page>
       {header(actions)}
       <Verdict view={view} running={running} lead={lead} press={press} />
-      <GoldensTable view={view} press={press} />
+      <CheckEntriesOf.Provider value={checks.entries}>
+        <GoldensTable view={view} press={press} />
+      </CheckEntriesOf.Provider>
+      {checks.node}
       {view.divergences.map((d) => (
         <DivergencePanel key={d.golden} d={d} has={hasKind} updateLeads={view.steps?.[d.golden]?.key === 'update-golden'} wait={wait} live={bisectLive(view, d)} prices={prices} onNormalize={(e) => guard(() => normalize(d, e))} onUpdate={(e) => guard(() => setOpen({ kind: 'update', paths: [d.golden], estimate: e }))} onFind={() => findCommit(d)} />
       ))}
