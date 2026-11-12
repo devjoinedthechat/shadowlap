@@ -765,14 +765,22 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
     if (r.outcome === 'stopped') return { text: `${repairOutcomeWord('stopped')} · ${exit}`, tone: 'warn' };
     return null;
   }
-  if (job.kind === 'apply') {
-    if (r.status === 'already-applied') return { text: `applied already · ${exit}`, tone };
-    if (r.status !== 'applied') return null;
-    const outdated = outdatedOf(r).length;
-    const left = outdated ? ` · ${outdated} golden${outdated === 1 ? '' : 's'} to update` : '';
-    return { text: `applied${r.tests === 'passed' || r.tests === 'failed' ? ` · tests ${r.tests}` : ''}${left} · ${exit}`, tone: r.tests === 'failed' ? 'err' : outdated && tone === 'ok' ? 'warn' : tone };
-  }
-  return null;
+  return job.kind === 'apply' ? appliedStatus(r, job.code) : null;
+}
+
+/**
+ * How an apply that put a patch in the working tree ended, Apply fix's and Apply config change's, as
+ * the drawer's status says it: "applied · tests passed · exit 0"; "applied · 2 goldens to update ·
+ * exit 0", amber while they wait; "applied already · exit 0". Null for a result that says neither.
+ */
+export function appliedStatus(r: Record<string, unknown>, code: number): { text: string; tone: 'ok' | 'warn' | 'err' } | null {
+  const exit = `exit ${code}`;
+  const tone = code === 0 ? 'ok' : 'err';
+  if (r.status === 'already-applied') return { text: `applied already · ${exit}`, tone };
+  if (r.status !== 'applied') return null;
+  const outdated = outdatedOf(r).length;
+  const left = outdated ? ` · ${outdated} golden${outdated === 1 ? '' : 's'} to update` : '';
+  return { text: `applied${r.tests === 'passed' || r.tests === 'failed' ? ` · tests ${r.tests}` : ''}${left} · ${exit}`, tone: r.tests === 'failed' ? 'err' : outdated && tone === 'ok' ? 'warn' : tone };
 }
 
 /** One of the project's other goldens a fix's patch made diverge, as `fix apply --json` lists it. */

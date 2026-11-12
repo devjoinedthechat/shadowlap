@@ -54,6 +54,22 @@ describe('how a job ends, in the words of its kind', () => {
     expect(endToast(verify(0, 'accepted'), [])).toBe('Verified · accepted · exit 0');
   });
 
+  it('a migration says what verify found, as Verdicts words it, and Apply config change says Apply fix’s words', () => {
+    const migrate = (code: number, verdict: string) => done({ kind: 'migrate', title: 'Migrating to gpt-5', args: ['migrate', '--to', 'gpt-5'], code, result: { kind: 'migrate', passes: { verdict, runs: [] } } });
+    expect(jobStatus(migrate(0, 'accepted'), [])).toEqual({ text: 'accepted · exit 0', tone: 'ok' });
+    expect(jobStatus(migrate(0, 'not-run'), [])).toEqual({ text: 'nothing to verify · exit 0', tone: '' });
+    expect(jobStatus(migrate(1, 'rejected'), [])).toEqual({ text: 'rejected · exit 1', tone: 'err' });
+    expect(jobStatus(migrate(3, 'incomplete'), [])).toEqual({ text: 'inconclusive · exit 3', tone: 'warn' });
+    expect(endToast(migrate(0, 'accepted'), [])).toBe('Migrated to gpt-5 · accepted · exit 0');
+    expect(endToast(migrate(1, 'rejected'), [])).toBe('Tried migrating to gpt-5 · rejected · exit 1');
+    const apply = (code: number, result: unknown) => done({ kind: 'migrate-apply', title: 'Applying config change', args: ['migrate', 'apply', 'mg-1'], code, result });
+    const left = [{ golden: 'refund', callNo: 2, path: '$.model' }];
+    expect(jobStatus(apply(0, { status: 'applied', outdated: left }), [])).toEqual({ text: 'applied · 1 golden to update · exit 0', tone: 'warn' });
+    expect(jobStatus(apply(0, { status: 'applied', outdated: [] }), [])).toEqual({ text: 'applied · exit 0', tone: 'ok' });
+    expect(jobStatus(apply(0, { status: 'already-applied', outdated: [] }), [])).toEqual({ text: 'applied already · exit 0', tone: 'ok' });
+    expect(endToast(apply(0, { status: 'applied', outdated: left }), [])).toBe('Applied config change · 1 golden to update · exit 0');
+  });
+
   it('a repeat says whether its attempts took one path, and a planted instruction no more than that it replayed', () => {
     const repeat = (report: unknown, code = 0, more: string[] = []) => done({ args: ['replay', 'X', '--repeat', '5', ...more], title: 'Repeating', code, result: { report } });
     const runs = (n: number) => Array.from({ length: n }, (_, i) => `r${i}`);

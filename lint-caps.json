@@ -185,9 +185,6 @@
     "packages/dashboard/ui/compare/model.ts": {
       "changeCards": 33
     },
-    "packages/dashboard/ui/fixes/model.ts": {
-      "fixJobStatus": 37
-    },
     "packages/dashboard/ui/normalize.ts": {
       "normalizeRunDetail": 36
     },
