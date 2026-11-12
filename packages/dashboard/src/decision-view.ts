@@ -1,4 +1,4 @@
-import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
+import { byRule, CLEARED, decisionsHeadline, decisionsMoved, emptyCounts, endToEndWords, JUDGED_LATER, percentChange, RANK_LABELS, runOutcomeWord, stepsAsked, tallyCount, tallyWords, tokenTotal, verdictWord, verifiedCount, verifyHead, withinVariationLine, type DecisionCounts, type DecisionRun, type DecisionsHeadline, type DecisionsReport, type DecisionsVerify, type RunAbout, type Store } from '@shadowlap/engine';
 import { LATER_STEPS, type DecisionCell, type DecisionRow } from './decision-cells.js';
 import { moreOf, type PreviewMore } from './decision-more.js';
 import { decisionSession, runDecisions, sessionGate, sessionKeptMax, sessionReport } from './decisions.js';
@@ -24,8 +24,8 @@ export interface PreviewRowFacts {
   inStore: boolean;
   /** Whether the session left it to verify (`toVerify`, else flagged). */
   toVerify: boolean;
-  /** Verify took it: its outcome, and its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`). */
-  verified: { outcome: string; tally: string } | null;
+  /** Verify took it: its outcome, its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`), and the tally alone (`4 of 4`). */
+  verified: { outcome: string; tally: string; count: string } | null;
   /** Verify ran, and the preview cleared it: not run end to end (`view.cleared` says why). */
   cleared: boolean;
   /** The run it was forked from and the call it forked at, where the change's turn is told from the parent's. */
@@ -275,7 +275,7 @@ export function previewSession(store: Store, sessionId: string, o: { redacted?: 
     const run = store.getRun(row.runId);
     const entry = v?.runs.find((x) => x.runId === row.runId) ?? null;
     const forkAt = run?.mode === 'replay' ? (run.divergence?.callNo ?? null) : null;
-    return { ...row, about: abouts.get(row.runId) ?? null, inStore: !!run, toVerify: toVerify.includes(row.runId), verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry) } : null, cleared: !!v && !toVerify.includes(row.runId), parent: run?.parentRunId ?? null, forkAt };
+    return { ...row, about: abouts.get(row.runId) ?? null, inStore: !!run, toVerify: toVerify.includes(row.runId), verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry) } : null, cleared: !!v && !toVerify.includes(row.runId), parent: run?.parentRunId ?? null, forkAt };
   });
   const headline = decisionsHeadline({ counts: report.counts, flagged: report.flagged, runs });
   const c = report.counts;

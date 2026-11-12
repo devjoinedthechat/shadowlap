@@ -194,4 +194,6 @@ i.dg.spl i { flex: 1; min-height: 0; border-radius: 2px; background: var(--cq-mu
 @media (forced-colors: active) {
   .dside, .dside.q1, .dside.q2, .dside.q3, .dside.q4 { border-top-color: CanvasText; }
   .drk.q1, .drk.q2 { color: CanvasText; }
+  /* What the working tree adds to a prompt is marked by more than its colour. */
+  .dprompt ins { text-decoration: underline; }
 }

@@ -4,15 +4,14 @@ import { AskNote } from '../components/AskNote.js';
 import { SrSpace } from '../components/bits.js';
 import { Dialog } from '../components/Dialog.js';
 import { Id } from '../components/Id.js';
+import { Status, statusTone } from '../components/Status.js';
 import { glossed } from '../components/Term.js';
-import { outcomeTone } from '../decisions.js';
 import type { DecisionEstimates } from '../estimates-api.js';
 import { FixJobButton } from '../fixes/FixJobButton.js';
 import { VerifyChangeTitle } from '../fixes/verify-asks.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { draftCommand } from '../job-title.js';
-import { glueBound } from '../matrix.js';
 import { useApp } from '../state.js';
 import type { PreviewNext } from '../types.js';
 
@@ -29,7 +28,7 @@ export interface VerifyRow {
   runId: string;
   golden: string | null;
   about: string | null;
-  verified: { outcome: string; tally: string } | null;
+  verified: { outcome: string; count: string } | null;
 }
 
 /** Run more attempts, or Verify again, as the session's view gives it. */
@@ -54,7 +53,7 @@ export function moreTip(more: PreviewMore, o: { one: boolean; view?: boolean }):
   return `Verifies ${o.one ? 'it' : 'them'} again from the start, ${o.view ? more.limit.replace(/ a run\b/, '') : more.limit}`;
 }
 
-/** The runs a verify takes, a row each: its id and golden, then what it must do, or what verify found of it for Run more attempts. */
+/** The runs a verify takes, a row each: its id and golden, then what it must do, or for Run more attempts what verify found of it, its status and its tally alone (`inconclusive 64 of 80`). */
 function VerifyRows({ rows, roles }: { rows: readonly VerifyRow[]; roles: DecisionEstimates['runs'] | undefined }) {
   return (
     <>
@@ -72,9 +71,8 @@ function VerifyRows({ rows, roles }: { rows: readonly VerifyRow[]; roles: Decisi
             ) : null}
             <span className="sp" />
             {r.verified ? (
-              <span className={`dvr dsv ${outcomeTone(r.verified.outcome)}`}>
-                <b>{glossed(r.verified.outcome)}</b>
-                {glueBound(r.verified.tally)}
+              <span className="dvr">
+                <Status tone={statusTone(r.verified.outcome)}>{glossed(r.verified.outcome)}</Status> {r.verified.count.replace(/ /g, '\u00a0')}
               </span>
             ) : role ? (
               <span className="dvr">{ROLE_WORDS[role]}</span>

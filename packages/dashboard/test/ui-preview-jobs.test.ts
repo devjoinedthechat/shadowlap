@@ -9,7 +9,7 @@ import { typedValue } from '../src/decisions-argv.js';
 import { fieldLine, markedChange, NewPreview, previewCommand } from '../ui/changes/NewPreview.js';
 import { PreviewTab } from '../ui/changes/Preview.js';
 import { moreTip } from '../ui/changes/VerifyAsk.js';
-import { targetHead, wayCommand } from '../ui/components/NewPreviewMenu.js';
+import { NO_GOLDENS, targetHead, wayCommand, type PreviewTarget } from '../ui/components/NewPreviewMenu.js';
 import { DecisionsView } from '../ui/run/DecisionsView.js';
 import { forgetDecisionsPick, onPick, pickedSession, pickSession } from '../ui/run/decisions-pick.js';
 import { AppContext, type AppState } from '../ui/state.js';
@@ -177,7 +177,7 @@ describe('a kept preview’s verify', () => {
 
   it('offers Run more attempts lime on the runs verify left open, each with what verify found, at the limit its job raises', async () => {
     started.length = 0;
-    const open1 = { ...flagged.matrix[0], verified: { outcome: 'inconclusive', tally: ' · 50 of 80' } };
+    const open1 = { ...flagged.matrix[0], verified: { outcome: 'inconclusive', tally: ' · 50 of 80', count: '50 of 80' } };
     const more = { kind: 'more' as const, runs: [a], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' };
     const session: PreviewSession = { ...flagged, matrix: [open1, flagged.matrix[1]], view: { ...flagged.view, next: { verify: null, more, migrate: null } } };
     const p = await open(client(session));
@@ -189,7 +189,9 @@ describe('a kept preview’s verify', () => {
     await p.until('the dialog', () => p.all('.dialog').length === 1);
     expect(shown(p.one('.dialog h3'))).toBe('Run more attempts');
     expect(shown(p.one('.dialog header p'))).toContain('Verifies the run again from the first attempt: its 80 so far don’t carry over.');
-    expect(p.all('.dialog .dvrows p').map(shown)).toEqual([`${a} refund inconclusive · 50 of 80`]);
+    expect(p.all('.dialog .dvrows p').map(shown)).toEqual([`${a} refund inconclusive 50 of 80`]);
+    // The run's status, as main draws one, then its tally alone (the mock's chMoreDialog).
+    expect(p.all('.dialog .dvrows .dvr .st.warn').map(shown)).toEqual(['inconclusive']);
     expect(shown(p.one('.dialog .cmdline'))).toContain(`shadowlap decisions --verify ${ID} ${a.slice(0, 10)} --gate '{"max":160}'`);
     await p.click(p.byText('.dialog button', 'Run more attempts'));
     expect(started).toEqual([['decisions-verify', { sessionId: ID, runIds: [a], max: 160 }]]);
@@ -245,7 +247,7 @@ describe('a new preview’s dialogs', () => {
   const read = (q: Record<string, unknown>) => ({
     preview: q.model || q.set || q.fromCode ? priced : null,
     asks: { calls: 41, from: ['claude-sonnet-4-5'], control: true, runs: 2, otherFamily: null },
-    recorded: [{ id: 'claude-sonnet-4-5', family: 'anthropic', calls: 41 }],
+    recorded: [{ id: 'claude-sonnet-4-5', family: 'claude', calls: 41 }],
     answers: { most: 1840, cut: 3 },
     refused: null,
     targets: ['goldens/refund', 'goldens/budget'],
@@ -255,6 +257,7 @@ describe('a new preview’s dialogs', () => {
   let page: Rendered | null = null;
   let started: Array<[string, Record<string, unknown>]> = [];
   let stopped: string[] = [];
+  let queries: Array<Record<string, unknown>> = [];
   beforeAll(() => {
     vi.stubGlobal('innerWidth', 1440);
     vi.stubGlobal('innerHeight', 900);
@@ -265,17 +268,19 @@ describe('a new preview’s dialogs', () => {
     page = null;
     started = [];
     stopped = [];
+    queries = [];
   });
-  const open = async (way: 'model' | 'code' | 'field', startJob: (kind: string, fields: Record<string, unknown>) => Promise<unknown>) => {
+  /** A dialog on every golden, or `target`, its estimate `read` unless `estimate` answers instead (a throw is a failed read). */
+  const open = async (way: 'model' | 'code' | 'field', startJob: (kind: string, fields: Record<string, unknown>) => Promise<unknown>, o: { target?: PreviewTarget; estimate?: (q: Record<string, unknown>) => unknown } = {}) => {
     const client = {
       jobs: () => Promise.resolve([]),
-      estimates: { previewEstimates: (q: Record<string, unknown>) => Promise.resolve(read(q)), modelChoices: () => Promise.resolve({ choices: [], notes: [], priced: [] }) },
+      estimates: { previewEstimates: (q: Record<string, unknown>) => (queries.push(q), Promise.resolve().then(() => (o.estimate ?? read)(q))), modelChoices: () => Promise.resolve({ choices: [], notes: [], priced: [] }) },
       startJob: (kind: string, fields: Record<string, unknown>) => (started.push([kind, fields]), startJob(kind, fields)),
       job: () => new Promise(() => undefined),
       stopJob: (id: string) => (stopped.push(id), Promise.resolve()),
     };
     const app = { client, exported: false, actionsOff: null, meta: null, jobs: [], feeds: {}, hasKind: () => true, guard: (fn: () => void) => (fn(), true), toast: () => undefined, watchJob: () => undefined } as unknown as AppState;
-    page = await render(createElement(AppContext.Provider, { value: app }, createElement(NewPreview, { way, target: { goldens: 'all' }, onClose: () => undefined })));
+    page = await render(createElement(AppContext.Provider, { value: app }, createElement(NewPreview, { way, target: o.target ?? { goldens: 'all' }, onClose: () => undefined })));
     return page;
   };
   const job = (kind: string, more: Record<string, unknown> = {}) => Promise.resolve({ id: `${kind}-1`, kind, title: '', args: [], done: false, code: null, total: 0, ...more });
@@ -292,7 +297,8 @@ describe('a new preview’s dialogs', () => {
     await p.click(p.one('.dialog .dlg-ok'));
     expect(started).toHaveLength(1);
     expect(started[0][0]).toBe('decisions');
-    expect(started[0][1]).toMatchObject({ goldens: 'all', model: 'claude-haiku-4-5' });
+    // With the estimate its cost line showed, which its drawer says.
+    expect(started[0][1]).toMatchObject({ goldens: 'all', model: 'claude-haiku-4-5', estimate: { usd: 0.42, ceiling: false } });
   });
 
   it('reads what the working tree sends as a job of its own, waiting on it, and stops the read when it closes unread', async () => {
@@ -317,6 +323,65 @@ describe('a new preview’s dialogs', () => {
     // Only added to: nothing marked removed.
     expect([p.all('.dialog .dprompt del').length, shown(p.one('.dialog .dprompt ins'))]).toEqual([0, 'Never email.']);
     expect(facts(p)).toContain('Asks2 model calls, in 1 of 2 goldens');
+    // Priced once read, on the calls the read named, asked once.
+    await p.until('its price', () => shown(p.one('.dialog .dcost')).includes('≈$0.42'));
+    expect(queries).toEqual([{ goldens: 'all', fromCode: true, samples: 1, changed: { [RUN]: [1, 3], [OTHER]: [] } }]);
+    expect(p.one('.dialog .dlg-ok').props['data-why']).toBeUndefined();
+    // The read's yes carries into the preview: the same command, asked once.
+    await p.click(p.one('.dialog .dlg-ok'));
+    expect(started.at(-1)).toEqual(['decisions', { goldens: 'all', fromCode: true, samples: 1, yes: 'c1', estimate: { usd: 0.42, ceiling: false } }]);
+    expect(p.all('.dialog')).toHaveLength(1);
+  });
+
+  it('labels the prompt by the scope of the first call it changes, and says where the working tree changes nothing, asking no price', async () => {
+    const scoped = await open('code', (kind) => job(kind, { done: true, code: 0, result: { ...tree, scope: 'agent' } }));
+    await scoped.until('the read', () => scoped.all('.dialog .dprompt').length === 1);
+    expect(shown(scoped.all('.dialog .dprompt .k')[0])).toBe('The agent’s system prompt');
+    await scoped.unmount();
+    queries = [];
+    const nothing = 'Nothing to ask: the change leaves every request as recorded';
+    const p = (page = await open('code', (kind) => job(kind, { done: true, code: 0, result: { ...tree, runs: tree.runs.map((r) => ({ ...r, changed: [] })), nothing } })));
+    await p.until('the warning', () => p.all('.dialog .dwarn').length === 1);
+    expect(shown(p.one('.dialog .dwarn'))).toBe(nothing);
+    expect(p.one('.dialog .dlg-ok').props['data-why']).toBe(nothing);
+    expect([p.all('.dialog .dcost').length, p.all('.dialog .dprompt').length, queries.length]).toEqual([0, 0, 0]);
+  });
+
+  it('waits on a model of another family in the engine’s words, with no cost line, and starts nothing', async () => {
+    const family = 'gpt-5.1 is of another family than the calls it switches, so none can be asked again: verify that switch instead';
+    const p = await open('model', (kind) => job(kind), { estimate: (q) => (q.model === 'gpt-5.1' ? { ...read(q), preview: null, asks: { ...read(q).asks, calls: 0, otherFamily: family } } : read(q)) });
+    await p.until('its estimate', () => shown(p.one('.dialog .cmdline')).includes('goldens/refund'));
+    await p.type(p.one('.dialog input[type="text"]'), 'gpt-5.1');
+    await p.until('the other family', () => p.all('.dialog .dwarn').length === 1);
+    expect(shown(p.one('.dialog .dwarn'))).toBe(family);
+    expect(p.one('.dialog .dlg-ok').props['data-why']).toBe(family);
+    expect(p.all('.dialog .dcost')).toHaveLength(0);
+    await p.click(p.one('.dialog .dlg-ok'));
+    expect(started).toEqual([]);
+  });
+
+  it('says why the confirm waits where what it asks didn’t load, in its line too', async () => {
+    const p = await open('model', (kind) => job(kind), {
+      estimate: () => {
+        throw new ApiError(503, 'the store is busy');
+      },
+    });
+    await p.type(p.one('.dialog input[type="text"]'), 'claude-haiku-4-5');
+    await p.until('the failed read', () => p.all('.dialog .dlgest').length === 1);
+    expect(shown(p.one('.dialog .dlgest'))).toBe('What it asks didn’t load: the store is busy');
+    expect(p.one('.dialog .dlg-ok').props['data-why']).toBe('What it asks didn’t load: the store is busy');
+  });
+
+  it('holds each way on no golden at all with the amber line as its why, asking nothing and showing no command', async () => {
+    for (const way of ['model', 'code', 'field'] as const) {
+      const p = (page = await open(way, (kind) => job(kind), { target: { goldens: 'all', count: 0 } }));
+      await new Promise((r) => setTimeout(r, 350));
+      expect(shown(p.one('.dialog .dwarn')), way).toBe(NO_GOLDENS);
+      expect(p.one('.dialog .dlg-ok').props['data-why'], way).toBe(NO_GOLDENS);
+      expect([p.all('.dialog .cmdline').length, p.all('.dialog .dcost').length, queries.length, started.length], way).toEqual([0, 0, 0, 0]);
+      await p.unmount();
+      page = null;
+    }
   });
 
   it('says what the recorded answers show of max_tokens, refuses model in its own words, and sends a typed number as a number', async () => {

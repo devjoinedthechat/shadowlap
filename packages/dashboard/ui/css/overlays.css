@@ -138,6 +138,8 @@
 @media (forced-colors: active) { .dialog > .db .dcost.stuck { box-shadow: none; border-top: 1px solid CanvasText; } }
 .dvrows p { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 0 0 8px; }
 .dvrows .dvr { color: var(--faint); font-size: 12.5px; }
+/* A screen reader's space between a row's id and its chip takes no box of its own in the flex row. */
+.dvrows .srsp { display: contents; }
 .dialog .k { font: 500 12px var(--body); letter-spacing: 0; text-transform: none; color: var(--faint); }
 .dialog .k::first-letter { text-transform: uppercase; }
 /* Esc or the scrim on a dialog with edits: the footer asks first */

@@ -1,4 +1,4 @@
-import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyWords } from '@shadowlap/engine';
+import { ACTIONS, commandIsImported, type DecisionRun, fieldValue, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, type SprtGate, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, quoteArgv, retirementTable, runOutcomeWord, type Store, type StoreOf, tallyCount, tallyWords } from '@shadowlap/engine';
 import { decisionRow, LATER_STEPS, viewSteps, type DecisionRow, type ViewStep } from './decision-cells.js';
 import { lookupRun } from './api.js';
 import { sprtGate } from './fix-shared.js';
@@ -108,8 +108,8 @@ export interface RunDecisionsSession {
   run: DecisionRun;
   /** Whether the session left it to verify (`toVerify`; a session kept before it said which, the flagged). */
   toVerify: boolean;
-  /** What verify found of it: its outcome, its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`), and the rule it was decided by. Null until verify took it. */
-  verified: { outcome: string; tally: string; rule: string | null } | null;
+  /** What verify found of it: its outcome, its tally and bound (` · 4 of 4 · rate >= 0.6 (95%)`), the tally alone (`4 of 4`), and the rule it was decided by. Null until verify took it. */
+  verified: { outcome: string; tally: string; count: string; rule: string | null } | null;
   /** Run more attempts, or Verify again, on it alone where verify left it open (`moreOf`); null for a migration, which Changes never verifies from here. */
   more: PreviewMore | null;
 }
@@ -143,7 +143,7 @@ export function runDecisions(store: StoreOf<'decisions'> & Store, runId: string,
         steps: viewSteps(run),
         run,
         toVerify: !!f?.toVerify.includes(runId),
-        verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), rule: entry.rule ?? v?.rule ?? null } : null,
+        verified: entry ? { outcome: runOutcomeWord(entry.outcome), tally: tallyWords(entry), count: tallyCount(entry), rule: entry.rule ?? v?.rule ?? null } : null,
         more: r.kind === 'decisions' && entry && v ? moreOf(v, verdictsGate(store, v.verifyIds), verdictsKeptMax(store, v.verifyIds) ?? keptMax, runId) : null,
       };
     }),

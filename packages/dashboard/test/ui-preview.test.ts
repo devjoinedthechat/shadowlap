@@ -212,7 +212,7 @@ describe('the Preview page', () => {
   });
 
   it('ends a verified run’s row on its outcome and tally, its bound kept whole, and a run it cleared as not run end to end', async () => {
-    const verified: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], verified: { outcome: 'kept', tally: ' · 4 of 4 · rate >= 0.6 (95%)' } }, { ...flagged.matrix[1], cleared: true }] };
+    const verified: PreviewSession = { ...flagged, matrix: [{ ...flagged.matrix[0], verified: { outcome: 'kept', tally: ' · 4 of 4 · rate >= 0.6 (95%)', count: '4 of 4' } }, { ...flagged.matrix[1], cleared: true }] };
     const p = await open({ decisionSessions: () => Promise.resolve({ sessions: [listed()], goldens: 1, retirements: { version: '', notices: [] } }), decisionSession: () => Promise.resolve(verified) });
     await p.until('the matrix', () => p.all('.dmr').length === 2);
     // The outcome is a defined term, its card's words beside it: its tally follows, the bound glued to its figures.

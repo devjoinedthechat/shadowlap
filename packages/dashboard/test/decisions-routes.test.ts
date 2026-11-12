@@ -226,14 +226,19 @@ describe('the decision routes', () => {
   it('builds the decisions job from what the page names, and refuses what it cannot check', async () => {
     const asked = await startJob(dash, { kind: 'decisions', goldens: ['goldens/refund'], runs: [failed], model: 'claude-sonnet-5-5', set: { temperature: 0 }, samples: 3 });
     expect(asked.status).toBe(202);
+    // Titled by the way it previews, in the engine's words: a model wherever one is named, the fields only where none is.
+    expect(await asked.json()).toMatchObject({ kind: 'decisions', title: 'Previewing model switch' });
     expect(spawned.at(-1)).toEqual(['decisions', failed, 'goldens/refund', '--model', 'claude-sonnet-5-5', '--set', 'temperature=0', '--samples', '3']);
     // One sample is asked for as such: left out, the CLI would ask 3 under the change and 3 as recorded.
     expect((await startJob(dash, { kind: 'decisions', runs: [failed], model: 'claude-sonnet-5-5', samples: 1 })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['decisions', failed, '--model', 'claude-sonnet-5-5', '--samples', '1']);
     const fromCode = await startJob(dash, { kind: 'decisions', goldens: 'all', fromCode: true, thenVerify: true });
     expect(fromCode.status).toBe(202);
+    expect(await fromCode.json()).toMatchObject({ title: 'Previewing changed prompt' });
     // None given: the CLI's own, six requests a step.
     expect(spawned.at(-1)).toEqual(['decisions', 'goldens/refund', '--from-code', '--then-verify']);
+    const fields = await startJob(dash, { kind: 'decisions', runs: [failed], set: { temperature: 0 } });
+    expect(await fields.json()).toMatchObject({ title: 'Previewing field change' });
     for (const [body, error] of [
       [{ kind: 'decisions', goldens: ['goldens/refund'] }, 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree'],
       [{ kind: 'decisions', model: 'claude-sonnet-5-5' }, 'name the runs or goldens to ask again: runs, goldens, or goldens "all"'],
@@ -259,10 +264,15 @@ describe('the decision routes', () => {
 
   it("verifies the runs a session flagged with decisions --verify, which judges each by its golden's own checks", async () => {
     // The CLI reads each golden's checks and each run's role itself: one verify per set of checks, whatever the goldens are.
-    expect((await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', runId: refunded })).status).toBe(202);
+    const one = await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', runId: refunded });
+    expect(one.status).toBe(202);
+    // Titled by the run it takes, or how many: the drawer's words while it runs.
+    expect(await one.json()).toMatchObject({ kind: 'decisions-verify', title: `Verifying ${refunded.slice(0, 10)}` });
     expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'dc-01M5000000000000000000000A', refunded]);
     // A bare yes says yes to no question: none of the session's runs is someone else's, so nothing is asked, nor passed on.
-    expect((await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', yes: true })).status).toBe(202);
+    const every = await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', yes: true });
+    expect(every.status).toBe(202);
+    expect(await every.json()).toMatchObject({ title: 'Verifying 2 runs' });
     expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'dc-01M5000000000000000000000A']);
     expect((await startJob(dash, { kind: 'decisions-verify', sessionId: 'mg-01M5000000000000000000000B' })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'mg-01M5000000000000000000000B']);

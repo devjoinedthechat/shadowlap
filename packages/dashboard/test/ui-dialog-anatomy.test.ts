@@ -776,7 +776,7 @@ describe('a preview’s dialogs', () => {
   const read = {
     preview: null,
     asks: { calls: 41, from: ['claude-sonnet-4-5'], control: true, runs: 2, otherFamily: null },
-    recorded: [{ id: 'claude-sonnet-4-5', family: 'anthropic', calls: 41 }],
+    recorded: [{ id: 'claude-sonnet-4-5', family: 'claude', calls: 41 }],
     answers: { most: 1840, cut: 3 },
     refused: null,
     targets: ['goldens/refund'],
@@ -785,7 +785,7 @@ describe('a preview’s dialogs', () => {
   const tree = { fromCode: { calls: 12, instructions: { before: 'Be brief.', after: 'Be brief. Never email.' }, tools: { added: [], removed: [], changed: [] } }, runs: [{ runId: RUN, golden: 'goldens/refund', changed: [1, 3], refused: null }], notes: [], nothing: null };
   const estimates = {
     previewEstimates: () => Promise.resolve(read),
-    modelChoices: () => Promise.resolve({ choices: [{ id: 'claude-haiku-4-5', family: 'anthropic', group: 'Anthropic' }], notes: [], priced: [] }),
+    modelChoices: () => Promise.resolve({ choices: [{ id: 'claude-haiku-4-5', family: 'claude', group: 'Anthropic' }], notes: [], priced: [] }),
     decisionEstimates: () => Promise.resolve({ verify: { kind: 'verify', usd: 1.2, ceiling: true, parts: [] }, runs: [{ runId: RUN, role: 'target' }] }),
   };
   // The changed prompt's read of the working tree ends as it starts.
@@ -795,6 +795,8 @@ describe('a preview’s dialogs', () => {
     // What each waits on: the targets its estimate names, the tree's read, the recorded answers.
     const shows = { model: 'goldens/refund --model', code: 'tool definitions', field: 'output tokens' }[w];
     await page.until('what it reads', () => page.all('[role="dialog"]').some((d) => d.textContent.includes(shows)));
+    // Its confirm waits, saying why, until what it asks is read.
+    if (w !== 'field') await page.until('what it asks', () => page.all('.dlg-ok').every((b) => !b.props['data-why']));
     return page;
   };
   const row = { runId: RUN, golden: 'goldens/refund', about: null, verified: null };
@@ -821,7 +823,7 @@ describe('a preview’s dialogs', () => {
   });
   it('Run more attempts, with what verify found of each run', async () => {
     const more = { kind: 'more' as const, runs: [RUN], max: 160, keptMax: null, flags: ['--gate', '{"max":160}'], attempts: 80, limit: 'up to 160 attempts a run' };
-    const page = await verify({ rows: [{ ...row, verified: { outcome: 'inconclusive', tally: ' · 50 of 80' } }], more, lime: true }, 'Run more attempts');
+    const page = await verify({ rows: [{ ...row, verified: { outcome: 'inconclusive', count: '50 of 80' } }], more, lime: true }, 'Run more attempts');
     holds(page, { title: 'Run more attempts', doc: 'verify', first: OK, ok: 'Run more attempts' });
   });
   it('Verify this run, titled as Fixes titles it', async () => {
