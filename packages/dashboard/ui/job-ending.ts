@@ -135,7 +135,21 @@ function packGateStatus(job: EndedJob, all: string, code: number): JobWords | nu
   return { text: `packed · its test ${outcome} · exit ${code}`, tone: INJECTION_TONES[outcome]! };
 }
 
+/**
+ * Rescan coverage read the imported runs (`read · exit 0`). Pack as golden and Pack with checks…
+ * say whether they wrote the golden (`packed · exit 0`, `not packed · exit 1`), from the job's
+ * result; a pack of several that wrote some, how many.
+ */
+function coverageStatus(job: EndedJob, code: number): JobWords | null {
+  if (job.kind === 'coverage') return code === 0 ? { text: 'read · exit 0', tone: 'ok' } : null;
+  const pack = job.kind === 'coverage-pack' && code !== 130 && code !== 143 ? asRecord(job.result)?.pack : null;
+  if (!Array.isArray(pack) || !pack.length) return null;
+  const packed = pack.filter((x) => typeof asRecord(x)?.golden === 'string').length;
+  if (packed === pack.length) return { text: `packed · exit ${code}`, tone: 'ok' };
+  return packed ? { text: `${packed} of ${pack.length} packed · exit ${code}`, tone: 'warn' } : { text: `not packed · exit ${code}`, tone: 'err' };
+}
+
 /** How an ended job came out, where its kind has words for that; null leaves it to `jobStatus`. */
 export function jobEnding(job: EndedJob, all: string, code: number): JobWords | null {
-  return verdictStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
+  return verdictStatus(job, code) ?? checkStatus(job, code) ?? injectionStatus(job, code) ?? coverageStatus(job, code) ?? repeatStatus(job, all, code) ?? bisectStatus(job, all, code) ?? packGateStatus(job, all, code) ?? sessionStatus(job, all, code);
 }
