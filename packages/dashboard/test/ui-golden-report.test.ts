@@ -13,7 +13,12 @@ import { ISSUE_ASK } from '../ui/page-ask.js';
 import { moreCard, updateCard } from '../ui/pages/tests-cards.js';
 import { TestsPage } from '../ui/pages/Tests.js';
 import { AppContext, type AppState } from '../ui/state.js';
+import { Proof } from '../ui/injection/Proof.js';
+import { SecurityReportDialog } from '../ui/injection/SecurityReportDialog.js';
 import { ServedPartsContext, type ServedParts } from '../ui/served-parts.js';
+import { goldenRowScope } from '../ui/tests/row-scope.js';
+import { ReportSteps } from '../ui/tests/ReportSteps.js';
+import type { LeadPress } from '../ui/tests/Verdict.js';
 import { shownNow } from './ui-served-now.js';
 import { failedRunsWords } from '../ui/failed-runs.js';
 import type { RequestDiff } from '../src/request-diff.js';
@@ -436,6 +441,57 @@ describe('an injection gate’s attempts', () => {
     expect(key.querySelectorAll('.mxk').map((e) => [e.className, shownText(e).replace(/\s+/g, ' ').trim()])).toEqual([['mxk', '8 obeyed'], ['mxk', '2 influenced'], ['mxk q', '59 ignored']]);
     // Each clause whole, so a phone breaks the line at its comma and nowhere else.
     expect(r.all('dl.rpx dd > p.rpw > span.nw').map((e) => e.textContent)).toEqual(['every template at every untrusted read,', '3 attempts each']);
+  });
+});
+
+describe('an injection gate’s proof and its Security report', () => {
+  const ATTEMPT = '01K5CQ4N7GA77EMP700000000P';
+  const TESTED = '01K5CQ4N7GTE57ED000000000R';
+  const CANARY = 'x7f3k@canary.invalid';
+  const proof = { kind: 'proof', runId: ATTEMPT, parts: { plantedAt: 4, readAt: 5, evidence: { kind: 'canary', callNo: 6, at: 'send_email.to', value: CANARY, why: null } }, why: null };
+  const attempts = { kind: 'injection-attempts', totals: { obeyed: 5, influenced: 2, inconclusive: 3, ignored: 62 }, where: null, each: null, command: 'shadowlap injection goldens/research --html report.html', security: { resultId: 'inj-1', runId: TESTED } };
+  const report = { golden: 'goldens/research', name: 'research', verdict: 'failed', head: [], sub: [], parts: [proof, attempts], open: null, failedRuns: null, hint: { key: 'injection' }, printed: [] } as unknown as GoldenReport;
+  const row = { path: 'goldens/research', last: { gate: null } } as unknown as GoldenRow;
+  const view = { divergences: [], failures: [], inconclusive: [], steps: {} } as unknown as TestsAnswer;
+  const press: LeadPress = { wait: () => null, prices: null, live: () => false, onNormalize: () => undefined, onUpdate: () => undefined, onFind: () => undefined, onMore: () => undefined, onRerun: () => undefined, runTests: null, edit: null };
+  const preview = { at: T0, attempts: 72, rules: 1, masks: [{ at: 'fetch_page.url', before: 'https://c.example.com/notes', after: 'https://<HOST>/notes' }], canaries: [{ at: 'send_email.to', value: CANARY }], file: 'shadowlap-injection-01k5cq4n7g.html' };
+  const appOf = (client: unknown) => ({ client, exported: false, actionsOff: null, conn: 'ok', hasKind: () => true, guard: (fn: () => void) => (fn(), true), toast: (words: string) => void said.push(words), jobs: [] }) as unknown as AppState;
+  const served = (parts: ServedParts, child: ReturnType<typeof createElement>, client: unknown = {}) => createElement(AppContext.Provider, { value: appOf(client) }, createElement(ServedPartsContext.Provider, { value: parts }, child));
+
+  it('draws the proof as an attempt’s finding draws it, each call it names opening that attempt there, and none where the part isn’t handed in', async () => {
+    const location = { hash: '#/tests', pathname: '/', search: '' };
+    vi.stubGlobal('location', location);
+    const parts = createElement(ReportParts, { report, row, open: true });
+    r = await render(served({ Proof: shownNow(Proof) }, parts));
+    const line = r.one('dl.rpx dd > p.rpw > span.injline');
+    expect(line.querySelectorAll('button.pbn').map((b) => [b.textContent, b.getAttribute('data-injtab')])).toEqual([['#4', 'response'], ['#5', 'conversation'], ['#6', 'request']]);
+    expect(line.querySelectorAll('b.cnry').map((b) => b.textContent)).toEqual([CANARY]);
+    // The attempt's page opens a call its proof names on the tab that shows it (injection/arrival.ts).
+    await r.click(line.querySelectorAll('button.pbn')[2]);
+    expect(location.hash).toBe(`#/run/${ATTEMPT}/6`);
+    await r.unmount();
+    r = await render(served({}, parts));
+    expect([r.all('.injline').length, r.all('dl.rpx > dt').map((d) => d.textContent)]).toEqual([0, ['Proof', 'Attempts']]);
+  });
+
+  it('opens Share’s Security report dialog from its button and from ⌘K on its row, naming the run the result tested, and offers none where the dialog isn’t handed in', async () => {
+    const client = { injectionPreview: async () => preview, injectionReport: async () => ({ filename: preview.file, redacted: true }) };
+    const page = createElement('div', { className: 'page' }, createElement('section', { id: 'report-research' }, createElement(ReportSteps, { report, view, press, onPress: () => undefined })));
+    r = await render(served({ SecurityReportDialog: shownNow(SecurityReportDialog) }, page, client));
+    await r.click(r.byText('div.actions .btn', 'Security report'));
+    await r.until('the dialog’s preview', () => r!.all('[role="dialog"] .injmask').length === 2);
+    expect(shownText(r.one('[role="dialog"] h3'))).toBe(`Download security report for ${TESTED.slice(0, 10)}`);
+    await r.click(r.one('.dlg-cancel'));
+    expect(r.all('[role="dialog"]')).toHaveLength(0);
+    // ⌘K on the golden's row presses the report's own button.
+    const item = goldenRowScope({ name: 'research', runId: null }, () => r!.one('div.page') as unknown as ParentNode)!
+      .items()
+      .find((i) => i.label === 'Security report')!;
+    await act(async () => item.run());
+    await r.until('the dialog again', () => r!.all('[role="dialog"]').length === 1);
+    await r.unmount();
+    r = await render(served({}, page, client));
+    expect(r.all('div.actions .btn').map((b) => b.textContent)).toEqual([]);
   });
 });
 

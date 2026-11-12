@@ -998,11 +998,6 @@ function parsedArgs(text: string): unknown {
   }
 }
 
-/** Where an attempt's planted text went in, as its proof starts: `planted at #9 → read at #10`; all an attempt that showed nothing has. */
-export function proofHead(a: Pick<AttemptReport, 'read' | 'forkedAt'> & { readAt?: number | null }): string {
-  return `planted at #${a.read} → read at #${a.readAt ?? a.forkedAt ?? '?'}`;
-}
-
 /**
  * An attempt's proof in its parts, which the dashboard draws as one line with each call it names to
  * pick: where the payload was planted, the model call that read it, and what carried the canary. The

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { tipCard } from '../components/HoverCard.js';
 import { JobButton } from '../components/JobButton.js';
 import { RunBlameButton } from '../fixes/RunBlame.js';
@@ -6,11 +6,10 @@ import { divergenceButtons, findCommitButton } from '../goldens.js';
 import { ACTIONS } from '../labels.js';
 import { moreCard, normalizeCard, testsJob, updateCard } from '../pages/tests-cards.js';
 import { FindCommitButton } from '../pages/TestsDialogs.js';
-import { savedWords } from '../saved-words.js';
+import { useServedParts } from '../served-parts.js';
 import { useApp } from '../state.js';
 import { goldenPrice } from '../tests-estimates.js';
-import { errorText } from '../toast.js';
-import type { DivergenceView, FailureView, GoldenReport, InconclusiveView, NextStep, TestsAnswer } from '../types.js';
+import type { DivergenceView, FailureView, GoldenReport, InconclusiveView, NextStep, ReportPart, TestsAnswer } from '../types.js';
 import { stepFor, type Lead } from './lead.js';
 import { LeadButton, type LeadPress } from './Verdict.js';
 
@@ -60,8 +59,8 @@ function reportSteps(report: GoldenReport, view: TestsAnswer, has: (kind: string
   const leads = (kind: Lead['kind']) => lead?.kind === kind;
   const at: Siblings = { has, press, leads, step: view.steps?.[golden] };
   const out: ReactNode[] = [lead ? <LeadButton key="step" lead={lead} p={press} lime={false} /> : null, ...(d ? divergenceSiblings(d, at) : []), ...(f ? failureSiblings(f, runId, at) : []), ...(v ? inconclusiveSiblings(v, at) : [])];
-  const security = report.parts.find((p) => p.kind === 'injection-attempts')?.resultId;
-  if (security) out.push(<SecurityReport key="security" resultId={security} />);
+  const security = report.parts.find((p): p is Extract<ReportPart, { kind: 'injection-attempts' }> => p.kind === 'injection-attempts')?.security;
+  if (security) out.push(<SecurityReport key="security" security={security} />);
   return out;
 }
 
@@ -123,13 +122,25 @@ function UpdateButton({ golden, judge, press }: { golden: string; judge: readonl
   );
 }
 
-/** Security report: the injection gate's kept result as its HTML report, saved as Share's is, with whether the project's rules masked it. */
-function SecurityReport({ resultId }: { resultId: string }) {
-  const { client, guard, toast } = useApp();
-  const save = () => guard(() => void client.injectionReport(resultId).then((r) => toast(savedWords(r)), (err: unknown) => toast(errorText(err), 'error')));
+/**
+ * Security report: the injection gate's kept result as its HTML report, in the dialog Share's opens
+ * (injection/SecurityReportDialog.tsx, a part the served dashboard hands in, its script asked for as
+ * the pointer or the focus reaches the button), which says what the file is for, what its rules mask
+ * and each canary it keeps, then saves it. A script that didn't come says so in the shared toast,
+ * the focus kept on the button (pages/served.tsx). None where the part isn't handed in.
+ */
+function SecurityReport({ security }: { security: { resultId: string; runId: string } }) {
+  const { SecurityReportDialog } = useServedParts();
+  const [open, setOpen] = useState(false);
+  if (!SecurityReportDialog) return null;
+  const ahead = () => SecurityReportDialog.preload();
   return (
-    <button type="button" className="btn" onClick={save}>
-      Security report
-    </button>
+    <>
+      <button type="button" className="btn" onPointerEnter={ahead} onFocus={ahead} onClick={() => setOpen(true)}>
+        {ACTIONS.securityReport.label}
+      </button>
+      {/* An injection gate's kept result is the plant test's, never a --clean answer's. */}
+      {open ? <SecurityReportDialog resultId={security.resultId} mode="plant" runId={security.runId} onClose={() => setOpen(false)} /> : null}
+    </>
   );
 }

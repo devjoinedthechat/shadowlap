@@ -1,4 +1,4 @@
-import { baselineWords, checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, outputTail, plural, proofHead, proofLine, rateBound, safe, safeLines, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type PlantReport, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
+import { baselineWords, checkLine, checkStatus, firstSentence, formatPassK, injectionTemplates, outputTail, plural, proofParts, rateBound, safe, safeLines, testResultVerdict, unavailableStop, type AttemptReport, type InjectionGateData, type InjectionReport, type PlantReport, type ProofParts, type StoreOf, type StoredCheck, type TestResult } from '@shadowlap/engine';
 import { crashError, type CrashError } from './crash-error.js';
 import { commandLine, shortFailure } from './fix-shared.js';
 import { links } from './links.js';
@@ -57,10 +57,13 @@ export type ReportPart =
   | { kind: 'attempts'; check: { label: string; detail: string } | null; carried: { count: number; at: number | null } | null; forked: string | null }
   | { kind: 'commit'; found: FoundCommit }
   | { kind: 'missed'; missed: BisectMiss }
-  /** An injection gate's proof: the attempt it is, the engine's line of it (each `#n` a call of that attempt), and, for an attempt that showed nothing, why. */
-  | { kind: 'proof'; runId: string; line: string; why: string | null }
+  /**
+   * An injection gate's proof: the attempt it is and its proof in parts (the engine's proofParts), each call it names one of
+   * that attempt's, as an attempt's finding draws it; for an attempt that showed nothing, no evidence, and why.
+   */
+  | { kind: 'proof'; runId: string; parts: ProofParts; why: string | null }
   /** What an injection gate's attempts did, by verdict; where they were planted, while the kept result says; the command that writes every attempt. */
-  | { kind: 'injection-attempts'; totals: { obeyed: number; influenced: number; inconclusive: number; ignored: number }; where: string | null; each: string | null; command: string; /** The kept result Security report writes, while the store has it. */ resultId: string | null };
+  | { kind: 'injection-attempts'; totals: { obeyed: number; influenced: number; inconclusive: number; ignored: number }; where: string | null; each: string | null; command: string; /** The kept result Security report writes, and the run it tested, which its dialog names, while the store has it. */ security: { resultId: string; runId: string } | null };
 
 /** What followed a diverged call, said apart so it never reads as a second fault: its two clauses, and the body the agent got as indented JSON, while the recording keeps it. */
 export interface Followed {
@@ -489,9 +492,10 @@ function injectionParts(r: TestResult, i: ReportInput, golden: string): Built {
   const report = keptPlant(i.store, gate);
   const a = proofAttempt(report);
   const parts: ReportPart[] = [];
-  if (a) parts.push(a.verdict === 'inconclusive' ? { kind: 'proof', runId: a.runId, line: proofHead(a), why: rest || a.why } : { kind: 'proof', runId: a.runId, line: proofLine(a) ?? proofHead(a), why: null });
+  // An attempt that showed nothing proves nothing: where it was planted and read, and why.
+  if (a) parts.push(a.verdict === 'inconclusive' ? { kind: 'proof', runId: a.runId, parts: { ...proofParts(a), evidence: null }, why: rest || a.why } : { kind: 'proof', runId: a.runId, parts: proofParts(a), why: null });
   const where = report ? plantedWhere(report) : null;
-  if (gate) parts.push({ kind: 'injection-attempts', totals: { obeyed: gate.obeyed, influenced: gate.influenced, inconclusive: gate.inconclusive, ignored: gate.ignored }, where: where?.where ?? null, each: where?.each ?? null, command: commandLine(['injection', golden, '--html', 'report.html']), resultId: report && gate.resultId ? gate.resultId : null });
+  if (gate) parts.push({ kind: 'injection-attempts', totals: { obeyed: gate.obeyed, influenced: gate.influenced, inconclusive: gate.inconclusive, ignored: gate.ignored }, where: where?.where ?? null, each: where?.each ?? null, command: commandLine(['injection', golden, '--html', 'report.html']), security: report && gate.resultId ? { resultId: gate.resultId, runId: report.runId } : null });
   const call = a ? (a.evidence.find((e) => e.kind === 'canary') ?? a.evidence[0])?.callNo ?? a.readAt ?? a.forkedAt : null;
   const open = a && i.store.getRun(a.runId) ? { label: failed ? 'Open proof' : 'Open attempt', href: links.run(a.runId, call) } : null;
   return { head: [capitalised(head)], sub: [], parts, hint: failed ? { key: 'injection' } : { key: 'injection-inconclusive', why: injectionWhy(reason) }, open };

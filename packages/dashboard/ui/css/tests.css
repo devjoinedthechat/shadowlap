@@ -340,7 +340,7 @@ table.gt span.gev small { font-size: inherit; }
 .rpx .rpnote { margin-top: 6px; }
 .rpx .rpcap { margin-top: 10px; }
 /* an injection gate's proof that showed too little to say: why, one piece after the read, on the next line whole on a phone */
-.rpx .rpwhy { display: inline-block; max-width: 100%; vertical-align: top; }
+.rpx .injline .pwhy { display: inline-block; max-width: 100%; vertical-align: top; }
 .rpp { margin-top: 14px; }
 .rpp > .rptog { margin-left: -7px; }
 .rptog svg { transition: transform .15s; }
