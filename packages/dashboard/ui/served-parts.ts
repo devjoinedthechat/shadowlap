@@ -6,6 +6,7 @@ import type { InjectionFinding } from './injection/InjectionFinding.js';
 import type { InjectionResults } from './injection/InjectionResults.js';
 import type { Proof } from './injection/Proof.js';
 import type { SecurityReportDialog } from './injection/SecurityReportDialog.js';
+import type { TestDialog } from './injection/TestDialog.js';
 import type { BuilderProps } from './run/check-part.js';
 import type { ForkMenu } from './run/ForkMenu.js';
 import type { MoreMenu } from './run/MoreMenu.js';
@@ -24,6 +25,7 @@ export type StepDialogProps = ComponentProps<typeof StepDialog>;
 export type SecurityReportProps = ComponentProps<typeof SecurityReportDialog>;
 export type ProofProps = ComponentProps<typeof Proof>;
 export type InjectionFindingProps = ComponentProps<typeof InjectionFinding>;
+export type TestDialogProps = ComponentProps<typeof TestDialog>;
 
 /**
  * The parts a page draws only where the dashboard runs, never in an exported copy, handed in by the
@@ -33,8 +35,8 @@ export type InjectionFindingProps = ComponentProps<typeof InjectionFinding>;
  * no Share, so nothing there opens Share's menu, no Fork at #n in its header or on a row and no …,
  * so nothing opens the fork menu or the header's, and no Add check…, so nothing opens the builder; a
  * copy's next step is only ever Compare, so it draws no Run blame either, and no step that asks; a
- * copy keeps no injection results, so its run page draws no test's finding to open them from, and
- * no Share to download a report from; a copy keeps no attempt's read, so an attempt's page there
+ * copy keeps no injection results, so its run page draws no test's finding to open them from, no
+ * Run injection test… (its fork menu and step are the served dashboard's), and no Share to download a report from; a copy keeps no attempt's read, so an attempt's page there
  * draws no proof and marks nothing, test/ui-injection-results.test.ts).
  */
 export interface ServedParts {
@@ -52,6 +54,8 @@ export interface ServedParts {
   InjectionResults?: OnShow<InjectionResultsProps>;
   /** The dialogs the run page's steps ask in, Pack as golden…'s too (run/StepDialogs.tsx): loaded as one first shows. */
   StepDialog?: OnShow<StepDialogProps>;
+  /** Run injection test…'s dialog (injection/TestDialog.tsx): the fork menu's whole run, the lime step, a read's row on Settings → Tools, Tests' Security and the palette open it. Loaded as it first shows. */
+  TestDialog?: OnShow<TestDialogProps>;
   /** A kept injection result's Security report, its masks and canaries read first (injection/SecurityReportDialog.tsx): Share's row opens it. */
   SecurityReportDialog?: OnShow<SecurityReportProps>;
   /** A kept injection test's finding on the run it tested (injection/InjectionFinding.tsx), with its Show results: loaded as a run's page first draws one. */

@@ -16,6 +16,7 @@ export const SERVED_PARTS: ServedParts = {
   CheckBuilder: onShow(() => import('../checks/Builder.js').then((m) => m.Builder), { failed: <BuilderLost /> }),
   RunBlameAsks: onShow(() => import('../fixes/RunBlameAsks.js').then((m) => m.RunBlameAsks)),
   StepDialog: onShow(() => import('../run/StepDialogs.js').then((m) => m.StepDialog)),
+  TestDialog: onShow(() => import('../injection/TestDialog.js').then((m) => m.TestDialog)),
   SecurityReportDialog: onShow(() => import('../injection/SecurityReportDialog.js').then((m) => m.SecurityReportDialog)),
   InjectionFinding: onShow(() => import('../injection/InjectionFinding.js').then((m) => m.InjectionFinding)),
   Proof: onShow(() => import('../injection/Proof.js').then((m) => m.Proof)),

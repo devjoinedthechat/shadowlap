@@ -16,3 +16,32 @@ mark.ins-plant { background: color-mix(in srgb, var(--o-over) 14%, transparent);
 .injmask .del { color: var(--del); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--del) 50%, transparent); }
 .injmask .add { color: var(--add); }
 .injmask .why { flex-basis: 100%; font: 12px var(--body); color: var(--faint); }
+
+/* Run injection test…'s dialog (injection/TestDialog.tsx): its heads, the template chips, your payload file, attempts each and Stop at $ */
+.injdlg .injsec { display: flex; align-items: center; gap: 10px; margin: 2px 0 8px; }
+.injdlg .injsec + .injsec, .injdlg .injfile + .injsec, .injdlg .togchips + .injsec { margin-top: 14px; }
+.injdlg .injsec .sp { flex: 1; }
+.injdlg .injsec .k { font-size: 12px; color: var(--dim); }
+.injdlg .injn { font: 11px var(--mono); color: var(--faint); white-space: nowrap; }
+.injdlg .injwhy { font-size: 12px; color: var(--faint); }
+.injdlg .dfacts { margin-bottom: 8px; }
+.injdlg .injfile { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.injdlg .injfile small { color: var(--faint); font-size: 12px; }
+.injdlg .injfile small.err { color: var(--warn); }
+.injdlg .injfile .chip { display: inline-flex; align-items: center; font: 12px var(--mono); color: var(--ink); border: 1px solid var(--line2); border-radius: 999px; padding: 2px 4px 2px 10px; background: var(--raise); }
+.injdlg .injfile .chip button { border: 0; background: none; color: var(--faint); cursor: pointer; padding: 0 6px 0 6px; font: inherit; }
+.injdlg .injfile .chip button:hover { color: var(--ink); }
+.injdlg .injnums { flex-wrap: wrap; gap: 8px 24px; }
+.injdlg .injrep { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--faint); }
+.injdlg .injrep input { width: 92px; height: 32px; border-radius: 8px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; }
+.injdlg .injrep input::placeholder { color: var(--faint); }
+.injdlg .injrep input:focus { border-color: var(--accent-line); }
+@media (max-width: 640px) { .injdlg .injsec { flex-wrap: wrap; row-gap: 2px; } .injdlg .injwhy { order: 9; flex-basis: 100%; } .injdlg .injdot { display: none; } }
+
+/* Toggle chips, one style wherever a dialog picks what runs (an injection test's templates, the error-path presets): on reads in
+   ink on the raised fill, off is struck through; never lime, which stays the dialog's one primary button. Apart from Tools' .tchips. */
+.chips.togchips button { font: 500 12px var(--body); padding: 3px 10px; color: var(--faint); border: 1px solid var(--line); border-radius: 999px; background: none; }
+.chips.togchips button[aria-pressed] { box-shadow: none; }
+.chips.togchips button[aria-pressed="true"] { color: var(--ink); border-color: var(--line2); background: var(--raise); }
+.chips.togchips button[aria-pressed="false"] { text-decoration: line-through; text-decoration-color: var(--line2); }
+.chips.togchips button:hover { border-color: var(--dim); }
