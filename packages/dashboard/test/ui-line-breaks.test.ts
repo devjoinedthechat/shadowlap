@@ -1,9 +1,12 @@
 import { createElement, type ReactElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Code, CodeText, LongWord, Words } from '../ui/components/Copy.js';
+import { Code, CodeText, Copy, LongWord, Words } from '../ui/components/Copy.js';
 import { DialogFacts } from '../ui/components/DialogFacts.js';
 import { DotParts } from '../ui/components/DotParts.js';
+import { EmptyState } from '../ui/components/States.js';
 import { dotParts } from '../ui/components/Verdict.js';
+import { FixTitle } from '../ui/fixes/parts.js';
 import { styleRules } from './css-sheet.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -44,6 +47,18 @@ describe('the stylesheet', () => {
     expect(values('.kvs dd', 'word-break')).not.toContain('break-all');
     // a finding's flag is Code, broken between its arguments: never anywhere, which broke its line before the dot after it
     expect(rules.some((x) => x.selectors.includes('.banner .why code'))).toBe(false);
+  });
+
+  it('wraps prose pretty and headings balanced, a step’s line of whole parts pretty, and a title’s last clause as an inline block', () => {
+    expect(values('body', 'text-wrap')).toContain('pretty');
+    for (const s of ['h1', 'h4']) expect(values(s, 'text-wrap'), s).toContain('balance');
+    expect(values('.stepper .m', 'text-wrap')).toEqual(['pretty']);
+    expect(values('.clause', 'display')).toEqual(['inline-block']);
+  });
+
+  it('stacks Context’s figures under 400px', () => {
+    const stacked = rules.filter((x) => x.selectors.includes('.cstats') && x.conditions.some((c) => /max-width:\s*400px/.test(c)));
+    expect(stacked.flatMap((x) => x.decls)).toContainEqual(['grid-template-columns', 'minmax(0, 1fr)']);
   });
 
   it('stacks a key and value list at 340px and under', () => {
@@ -106,5 +121,42 @@ describe('the parts kept whole', () => {
     // set by Copy, which measures its row in a browser (browser/line-breaks.spec.ts reads it at 320); here, unmeasured, it glues as Words does
     expect(clause.children.map((c) => c.tagName)).toEqual(['SPAN']);
     expect(r!.one('small code').className).toBe('ts-code');
+  });
+});
+
+describe('copy set by its parts', () => {
+  it('gives a Copy its id and reads a docs link inside it as its words', async () => {
+    await draw(createElement(Copy, { id: 'leadX', children: ['Runs your agent again from #5. ', createElement('a', { key: 'd', href: '#/docs' }, 'Forks in the docs →')] }));
+    expect(r!.one('p').getAttribute('id')).toBe('leadX');
+    expect(drawn().replace(/\u00a0/g, ' ')).toBe('Runs your agent again from #5. Forks in the docs →');
+    expect(r!.one('ts-w.ts-a a').textContent).toBe('Forks in the docs →');
+  });
+
+  it('sets an empty state’s sentence, glued, unless it is a failure’s message the server wrote', async () => {
+    await draw(createElement(EmptyState, { title: 'No goldens yet', text: 'Pack a run you trust: it passed in 3 of 4 attempts.' }));
+    expect(drawn()).toContain('3\u00a0of\u00a04\u00a0attempts');
+    await r!.unmount();
+    await draw(createElement(EmptyState, { title: 'Not read', text: 'run_8f3a: not in the store after 3 of 4 tries', copy: false }));
+    expect(r!.one('p').textContent).toBe('run_8f3a: not in the store after 3 of 4 tries');
+  });
+
+  it('keeps a fix title’s last clause whole from its conjunction, so a narrow heading breaks before it', async () => {
+    await draw(createElement(FixTitle, { title: 'Customer emailed before the refund was issued' }));
+    expect(r!.one('h1 .clause').textContent.replace(/\u00a0/g, ' ')).toBe('before the refund was issued');
+    expect(r!.one('h1').textContent.replace(/\u00a0/g, ' ')).toBe('Customer emailed before the refund was issued');
+    await r!.unmount();
+    await draw(createElement(FixTitle, { title: 'issue_refund called with amount 240' }));
+    expect(r!.all('.clause')).toEqual([]);
+  });
+
+  it('breaks a tool call’s arguments only after a comma or a brace, never before a space, its short values whole', () => {
+    const markup = (code: string) => renderToStaticMarkup(createElement(CodeText, { children: code }));
+    expect(markup('{"order":"A-1042"}')).not.toContain('<wbr/>');
+    const html = markup(JSON.stringify({ order: 'A-1042', reason: 'above the refund limit', amount: 240 }));
+    // each piece nowrap, a break after its comma or the opening brace, the short quoted value whole in its piece
+    expect(html).toMatch(/^<code class="ts-ct"><span class="nw">\{<\/span><wbr\/>/);
+    expect(html).toMatch(/,<\/span><wbr\/>/);
+    expect(html).not.toMatch(/<wbr\/>\s/);
+    expect(html).toMatch(/<span class="nw">&quot;reason&quot;:&quot;above the refund limit&quot;,<\/span>/);
   });
 });
