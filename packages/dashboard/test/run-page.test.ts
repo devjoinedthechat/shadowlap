@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { DatabaseSync } from 'node:sqlite';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { blameSteps, JUDGE_SCOPE, packRun, previewRedaction, showJson, Store, type BlameRecord, type RunIntervention, type RunMeta } from '@shadowlap/engine';
 // The record a replay keeps of its flags is written by the sidecar when the replay starts.
 import { describeInterventions } from '@shadowlap/sidecar';
@@ -633,8 +634,15 @@ describe('the run page: a judge’s calls', () => {
     // Every call in `calls`: no strings, and no judge's numbers beside them.
     expect([d.origins, d.judgeCalls]).toEqual([undefined, undefined]);
     // Two calls a page: the strings, and the judge's calls by number, one of them on a page not read yet.
+    const query = vi.spyOn(store, 'query');
     const first = runDetail(store, b.runId, {}, { limit: 2 })!;
     expect([first.calls.length, first.origins?.length, first.judgeCalls]).toEqual([2, 4, [j1, j2]]);
+    // Read through the index of judge calls alone, never the run's every call event and each start's metadata.
+    const sql = query.mock.calls.map(([q]) => q).find((q) => q.includes("'shadowlap:judge'"))!;
+    query.mockRestore();
+    const db = (store as unknown as { db: DatabaseSync }).db;
+    const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(b.runId).map((step) => String(step.detail));
+    expect(plan).toEqual([expect.stringMatching(/^SEARCH call_events USING INDEX call_events_judge \(run_id=\?\)$/)]);
     expect(runCallsPage(store, b.runId, { from: 3 })!.calls.map((c) => c.judge ?? null)).toEqual([{ check: 'polite', verdict: null }, null]);
     expect(callDetail(store, b.runId, j1)!.call.judge).toEqual({ check: 'explains', verdict: 'no' });
     // A run with no judge's call names none beside its strings.

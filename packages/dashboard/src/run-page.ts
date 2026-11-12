@@ -525,12 +525,17 @@ function judgeRowOf(c: CallRecord, verdicts: JudgeVerdicts | undefined): { judge
 /**
  * A run's judge calls by number, read through the store's index of them alone (call_events_judge,
  * whose condition this repeats exactly, as the run index does): a long run's page tells them apart
- * by them before their pages come, and no call is read for them. Never assumed to come last.
+ * by them before their pages come, and no call is read for them. Never assumed to come last. Sorted
+ * here, not by the query: an ORDER BY call_no has SQLite walk the primary key's index instead,
+ * reading every call event of the run and the metadata of each start.
  */
-const JUDGE_CALLS_SQL = `SELECT call_no AS n FROM call_events WHERE run_id = ? AND phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge' ORDER BY call_no`;
+const JUDGE_CALLS_SQL = `SELECT call_no AS n FROM call_events WHERE run_id = ? AND phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge'`;
 
 export function judgeCallNos(store: Store, runId: string): number[] {
-  return store.query(JUDGE_CALLS_SQL, runId).map((r) => Number(r.n));
+  return store
+    .query(JUDGE_CALLS_SQL, runId)
+    .map((r) => Number(r.n))
+    .sort((a, b) => a - b);
 }
 
 /** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */
