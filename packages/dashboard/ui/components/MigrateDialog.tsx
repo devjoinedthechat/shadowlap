@@ -1,10 +1,14 @@
+import { useState } from 'react';
 import type { Estimate } from '../../../engine/src/estimates/estimate.js';
 import { migrateArgv } from '../../src/decisions-argv.js';
+import { JOB_KINDS } from '../api.js';
 import type { MigrateEstimateView } from '../estimates-api.js';
-import { FixJobButton } from '../fixes/FixJobButton.js';
+import { FixJobButton, useConsentStart } from '../fixes/FixJobButton.js';
 import { useLoad } from '../hooks.js';
 import { quoteArg } from '../job-title.js';
+import { sentEstimate } from '../spending.js';
 import { useApp } from '../state.js';
+import { ActionButton } from './ActionButton.js';
 import { Dialog } from './Dialog.js';
 
 /**
@@ -25,6 +29,9 @@ export interface MigrateSwitch {
   goldens: readonly string[];
   runs?: readonly string[];
 }
+
+/** The `migrate` job's fields: every golden where it names none and no run. */
+const fieldsOf = (s: MigrateSwitch): Record<string, unknown> => ({ to: s.to, ...(s.from.length ? { from: [...s.from] } : {}), ...(s.goldens.length ? { goldens: [...s.goldens] } : s.runs?.length ? { runs: [...s.runs] } : {}) });
 
 /** The command the job runs, quoted as a shell takes it. */
 export const migrateCommand = (s: MigrateSwitch): string => ['shadowlap', ...migrateArgv({ to: s.to, targets: s.goldens.length ? s.goldens : (s.runs ?? []), from: s.from })].map(quoteArg).join(' ');
@@ -60,16 +67,21 @@ export function MigrateDialog({ s, estimate, preview, onOk, onClose }: { s: Migr
 
 /**
  * Migrate to <model>, priced, asking first on every press: lime where it is the page's next step,
- * plain with why while it can't start (a server without the job, a job holding the tree). None in an
- * exported copy.
+ * plain with why while it can't start (a server without the job, a job holding the tree, `why`: a
+ * field that names no other model). None in an exported copy.
  */
-export function MigrateButton({ s, label = `Migrate to ${s.to}`, lime = false, className = 'btn' }: { s: MigrateSwitch; label?: string; lime?: boolean; className?: string }) {
-  const { estimate, preview } = useMigrateEstimate(s);
-  const fields = { to: s.to, ...(s.from.length ? { from: [...s.from] } : {}), ...(s.goldens.length ? { goldens: [...s.goldens] } : { runs: [...(s.runs ?? [])] }) };
+export function MigrateButton({ s, label = `Migrate to ${s.to}`, lime = false, className = 'btn', why = null }: { s: MigrateSwitch; label?: string; lime?: boolean; className?: string; why?: string | null }) {
+  const { estimate, preview } = useMigrateEstimate(s, !why);
+  if (why)
+    return (
+      <ActionButton className={className} why={why} tip={MIGRATE_CARD} command={`$ ${migrateCommand(s)}`}>
+        {label}
+      </ActionButton>
+    );
   return (
     <FixJobButton
-      kind="migrate"
-      fields={fields}
+      kind={JOB_KINDS.migrate}
+      fields={fieldsOf(s)}
       label={label}
       verb="migrate"
       lead={lime}
@@ -80,5 +92,19 @@ export function MigrateButton({ s, label = `Migrate to ${s.to}`, lime = false, c
       form
       ask={(start, close) => <MigrateDialog s={s} estimate={estimate} preview={preview} onOk={() => start({})} onClose={close} />}
     />
+  );
+}
+
+/** Migrate's dialog opened without its button, as the palette's Migrate <a> to <b> asks for it; it stays for the consent ask its OK may bring. */
+export function MigrateAskNow({ s }: { s: MigrateSwitch }) {
+  const app = useApp();
+  const [open, setOpen] = useState(true);
+  const { estimate, preview } = useMigrateEstimate(s);
+  const { start, consent } = useConsentStart(JOB_KINDS.migrate, fieldsOf(s));
+  return (
+    <>
+      {open ? <MigrateDialog s={s} estimate={estimate} preview={preview} onOk={() => app.guard(() => void start(sentEstimate(estimate)))} onClose={() => setOpen(false)} /> : null}
+      {consent}
+    </>
   );
 }

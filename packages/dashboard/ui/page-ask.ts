@@ -46,3 +46,6 @@ export const REDACTION_ASK = pageAsk('redaction');
 export const APPLY_ASK = pageAsk('apply');
 /** Changes › Preview's way the palette names, asked for by the way (`model`, `code`): its dialog on every golden. */
 export const PREVIEW_ASK = pageAsk('preview');
+
+/** Changes › Migrate's dialog for a retiring model, asked for by the model it switches from: Migrate <a> to <b>. */
+export const MIGRATE_ASK = pageAsk('migrate');

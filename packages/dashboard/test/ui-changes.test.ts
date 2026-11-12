@@ -259,7 +259,7 @@ describe('the tab Changes comes back to', () => {
     expect(changesHref()).toBe('#/changes/decisions');
   });
 
-  it('is where Go to’s Changes row goes, a row found by verdicts, by compare and by preview', async () => {
+  it('is where Go to’s Changes row goes, a row found by verdicts, by compare, by preview and by migrate', async () => {
     freshProject();
     noteChangesTab('compare');
     noteComparePair(REC, FORK);
@@ -268,9 +268,9 @@ describe('the tab Changes comes back to', () => {
     const shell = { conn: 'ok', runCommands: [], palette: true, setPalette: () => undefined, setSideOpen: () => undefined, setHelp: () => undefined } as const;
     page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>, shell as unknown as Partial<AppState>) }, createElement(Palette, { route: { page: 'overview' } })));
     const rows = () => page!.all('.palit').filter((el) => el.querySelector('.pl')?.textContent === 'Changes');
-    for (const typed of ['verdicts', 'compare', 'preview']) {
+    for (const typed of ['verdicts', 'compare', 'preview', 'migrate']) {
       await page.type(page.one('.palin input'), typed);
-      expect(rows().map((el) => el.querySelector('.ph2')?.textContent), typed).toEqual(['verdicts, compare, preview']);
+      expect(rows().map((el) => el.querySelector('.ph2')?.textContent), typed).toEqual(['verdicts, compare, preview, migrate']);
     }
     await page.click(rows()[0]);
     expect(location.hash).toBe(`#/compare/${REC}/${FORK}`);
@@ -286,16 +286,17 @@ describe('the head', () => {
     expect(page.one('.ph p').textContent).toBe('What a change does to your agent, on its own recorded runs.');
     expect(page.one('nav.stabs').getAttribute('aria-label')).toBe('Changes');
     const tabs = page.all('nav.stabs a');
-    // No tab before its page: a migration's joins with its own.
     expect(tabs.map((a) => [a.textContent, a.getAttribute('href'), a.getAttribute('aria-current')])).toEqual([
       ['Verdicts', '#/changes', 'page'],
       ['Compare', '#/compare', null],
       ['Preview', '#/changes/decisions', null],
+      ['Migrate', '#/changes/migrate', null],
     ]);
     expect(tabs.map(tip)).toEqual([
       { t: 'Every change checked, and its verdict', rows: [], cmd: '$ shadowlap test goldens/*' },
       { t: 'Compare two runs, call by call', rows: [], cmd: '$ shadowlap diff <a> <b>' },
       { t: 'Preview what a change decides differently', rows: [], cmd: '$ shadowlap decisions <runs> --model <model>' },
+      { t: 'Migrate to another model, with the evidence', rows: [], cmd: '$ shadowlap migrate --to <model>' },
     ]);
     // Compare's tab follows the pair it last showed, named by short ids, once Compare notes it.
     noteComparePair(REC, FORK);
@@ -537,9 +538,9 @@ describe('Verdicts', () => {
     expect(kindLine(preview({ kind: 'migration', revision: null, by: 'ci' }))).toEqual([{ words: 'migration' }, { words: 'ci' }]);
     expect(kindLine(session({ revision: null, subject: null, title: 'Tested with no revision' }))).toEqual([{ words: 'test session' }]);
     expect(verdictHref(session({ key: 'd2e8a1f+dirty' }))).toBe('#/changes/verdicts/d2e8a1f%2Bdirty');
-    // A preview opens on Preview; a migration leads nowhere until its tab lands.
+    // A preview opens on Preview, a migration on Migrate.
     expect(verdictHref(preview())).toBe('#/changes/decisions/dc-01M5000000000000000000000A');
-    expect(verdictHref(preview({ kind: 'migration' }))).toBeNull();
+    expect(verdictHref(preview({ kind: 'migration', sessionId: 'mg-01M5000000000000000000000B' }))).toBe('#/changes/migrate/mg-01M5000000000000000000000B');
     expect(moreLimit({ shown: 50, limit: 50, count: 120 })).toBe(100);
     expect(moreLimit({ shown: 120, limit: 150, count: 120 })).toBeNull();
     expect(moreLimit({ shown: 200, limit: 200, count: 600 })).toBeNull();
@@ -652,11 +653,19 @@ describe('Changes’ page', () => {
     await page.until('the rows', () => page!.all('table.vdt tbody tr').length === 1);
   });
 
-  it('opens a migration’s address on Verdicts, until its tab lands', async () => {
+  it('opens a migration’s address on Migrate, its tab current, and asks the other projects for one this store doesn’t hold', async () => {
+    freshProject();
     const bar = addressBar('#/changes/migrate/mg-01M5000000000000000000000B');
-    page = await render(createElement(AppContext.Provider, { value: app({ verdicts: () => Promise.resolve(view([preview()])) }) }, createElement(ChangesPage, { tab: 'migrate', id: 'mg-01M5000000000000000000000B' })));
-    await page.until('the migration’s address', () => bar.hash === '#/changes');
-    expect(page.one('.ph h1').textContent).toBe('Changes');
+    const asked: string[] = [];
+    const holding = (what: string, ids: readonly string[]) => (asked.push(`${what} ${ids.join(' ')}`), Promise.resolve({ current: { id: 'support-agent', name: 'support-agent' }, held: null }));
+    const client = { decisionSessions: () => Promise.resolve({ sessions: [], goldens: 1 }), decisionSession: () => Promise.reject(new ApiError(404, 'no session')), migrateStart: () => Promise.resolve({ goldens: 1, retiring: [], use: [] }), projects: { holding } };
+    page = await render(createElement(AppContext.Provider, { value: app(client as unknown as Partial<Client>) }, createElement(ChangesPage, { tab: 'migrate', id: 'mg-01M5000000000000000000000B' })));
+    await page.until('the Migrate tab', () => page!.all('.empty.tall').length === 1);
+    expect(page.all('nav.stabs a').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent)).toEqual(['Migrate']);
+    expect(bar.hash).toBe('#/changes/migrate/mg-01M5000000000000000000000B');
+    expect(shown(page.one('.empty.tall'))).toBe('No migration mg-01M5000000000000000000000B. Open Migrate');
+    await page.wait(20);
+    expect(asked).toEqual(['migration mg-01M5000000000000000000000B']);
   });
 
   it('opens a preview’s address on Preview, its tab current under the head and the address kept', async () => {

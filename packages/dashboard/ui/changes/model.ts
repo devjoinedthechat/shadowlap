@@ -36,14 +36,13 @@ export function rowTone(tone: VerdictTone | null): Tone {
 }
 
 /**
- * Where a row leads: a revision's page, a fix's Verify step at that verify, a preview's on Preview. A
- * migration's leads nowhere until its tab lands.
+ * Where a row leads: a revision's page, a fix's Verify step at that verify, a preview's on Preview, a
+ * migration's on Migrate.
  */
 export function verdictHref(row: VerdictRow): string | null {
   if (row.kind === 'session') return href.changes(row.key);
   if (row.kind === 'verify') return href.fixes(row.fixId, 'verify', row.verifyId);
-  if (row.kind === 'preview') return href.changeSession('decisions', row.sessionId);
-  return null;
+  return href.changeSession(row.kind === 'preview' ? 'decisions' : 'migrate', row.sessionId);
 }
 
 /** A session titled by its revision, git having no subject for it: the title is drawn as code, and its kind line leaves the revision out. */

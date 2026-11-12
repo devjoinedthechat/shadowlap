@@ -1,5 +1,6 @@
 import { andList, besidesWords, byHandNote, fieldValue, handOf, leftBehindOf, leftOutNote, migrateApplyProblem, migrateCostWords, migrateHeadline, migratePassWords, migrateRules, quoteArgv, remedyText, retirementOf, shortSessionId, verifiedCount, type DecisionCounts, type DecisionRemedy, type DecisionStep, type MigrateCosts, type MigrateTone, type RetirementNotice, type Store } from '@shadowlap/engine';
 import { applyInputOf, type AppliedState } from './migrate-applied.js';
+import type { VerdictTone } from './verdict.js';
 
 /**
  * A migration as Changes › Migrate shows it, worded here from the engine's words (migrate-words.ts,
@@ -51,7 +52,7 @@ export interface MigrateView {
   from: string[];
   to: string;
   /** `applied`, else Verdicts' word for the migration. */
-  word: { text: string; tone: string | null };
+  word: { text: string; tone: VerdictTone | null };
   headline: { tone: MigrateTone; text: string; rest: string };
   /** Each from-model's retirement, worded today (the kept words where the table no longer has it). */
   retirements: Array<{ text: string; source: string | null }>;
@@ -171,7 +172,7 @@ function retirementsOf(k: Kept, from: string[], now: number): MigrateView['retir
 }
 
 /** A kept migration (its report, its decisions' runs filled in) as the page shows it; `verdict`, Verdicts' word for it. */
-export function migrateView(_store: Store, k: Kept & { applied?: AppliedState | null }, sessionId: string, verdict: { word: string; tone: string | null }, now = Date.now()): MigrateView {
+export function migrateView(_store: Store, k: Kept & { applied?: AppliedState | null }, sessionId: string, verdict: { word: string; tone: VerdictTone | null }, now = Date.now()): MigrateView {
   const from = strings(k.from);
   const to = typeof k.to === 'string' ? k.to : '';
   const decisions = (k.decisions ?? {}) as { counts?: DecisionCounts; runs?: Array<{ decisions: DecisionStep[] }> };
@@ -187,7 +188,7 @@ export function migrateView(_store: Store, k: Kept & { applied?: AppliedState | 
     sessionId,
     from,
     to,
-    word: applied ? { text: 'applied', tone: 'pass' } : { text: verdict.word, tone: verdict.tone },
+    word: applied ? { text: 'applied', tone: 'ok' } : { text: verdict.word, tone: verdict.tone },
     headline: migrateHeadline({ from, to, runs: list(decisions.runs).length, passes: input.passes }),
     retirements: retirementsOf(k, from, now),
     changes: changesOf(k, decisions, from, to),

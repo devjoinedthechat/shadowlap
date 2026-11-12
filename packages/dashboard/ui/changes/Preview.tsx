@@ -15,12 +15,11 @@ import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { PREVIEW_ASK } from '../page-ask.js';
 import { href } from '../route.js';
-import { navigate } from '../router.js';
 import { Unshown } from '../shell/unshown.js';
 import { useApp } from '../state.js';
 import type { Tone } from '../components/Status.js';
 import type { PreviewSession, PreviewView } from '../types.js';
-import { DecisionCellPanel, revealCell } from './DecisionCell.js';
+import { DecisionCellPanel, openCell, openedCell } from './DecisionCell.js';
 import { moreTip, PreviewVerifyButton, type VerifyRow } from './VerifyAsk.js';
 import { DecisionMatrix } from './DecisionMatrix.js';
 import { SessionPicker } from './SessionPicker.js';
@@ -109,29 +108,11 @@ function PreviewBody({ id, run, call, onMissing }: PreviewTabProps) {
         <NewPreviewMenu target={{ goldens: 'all', count: list.data!.goldens }} lime={anotherChange(session.view)} why={list.data!.goldens ? null : NO_GOLDENS} />
       </div>
       <Verdict session={session} />
-      <DecisionMatrix session={session} open={opened ? { run: opened.row.runId, call: opened.callNo } : null} onOpen={(r, c, current) => openCell(session.sessionId, r, c, current)} />
+      <DecisionMatrix session={session} open={opened ? { run: opened.row.runId, call: opened.callNo } : null} onOpen={(r, c, current) => openCell('decisions', session.sessionId, r, c, current)} />
       {opened ? <DecisionCellPanel key={`${opened.row.runId}:${opened.callNo}`} session={session} row={opened.row} callNo={opened.callNo} /> : null}
       <CodeBox command={session.view.command} className="chcmd" />
     </>
   );
-}
-
-/**
- * A cell opens under the matrix, and pressed again closes, in place of the address as a pick in a page
- * is: Back leaves Preview rather than walking back through every cell opened, and the page keeps its
- * scroll. A cell that opens is brought into view the nearest way, as one from a tall matrix's top row
- * could open below the window.
- */
-function openCell(sessionId: string, run: string, call: number | null, current: boolean): void {
-  if (!current) revealCell();
-  navigate(current ? href.changeSession('decisions', sessionId) : href.changeSession('decisions', sessionId, run, call), true);
-}
-
-/** The cell an address opens: its run's row at its call; a run's address without a call, the call its row ends on, else its first. */
-function openedCell(session: PreviewSession, run: string | null, call: number | null): { row: PreviewSession['matrix'][number]; callNo: number } | null {
-  const row = run ? session.matrix.find((r) => r.runId === run) : undefined;
-  const callNo = call ?? row?.ending.callNo ?? row?.cells[0]?.callNo ?? null;
-  return row && callNo !== null ? { row, callNo } : null;
 }
 
 const failedWords = (e: Error) => (e instanceof ApiError ? `The dashboard server answered ${e.status} for this page’s data.` : e.message);
